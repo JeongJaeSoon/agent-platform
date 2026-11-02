@@ -387,6 +387,55 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
     for (const row of rows) await expect(shown(row, "cell")).toBe(headers);
     await expect(table.scrollWidth).toBeLessThanOrEqual(table.clientWidth);
   }
+  // An end-aligned header or cell ends its visible text at the column's end,
+  // also when the text wraps, so a header sits over its values. Text is
+  // measured line by line, clipped where an ancestor clips it; sr-only text
+  // is left out.
+  for (const cell of canvasElement.querySelectorAll(
+    "[role=columnheader], [role=cell]",
+  )) {
+    const style = getComputedStyle(cell);
+    if (style.display === "none" || style.justifyContent !== "flex-end") {
+      continue;
+    }
+    const box = cell.getBoundingClientRect();
+    const rtl = style.direction === "rtl";
+    const ends: number[] = [];
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const parent = node.parentElement;
+      if (!node.textContent?.trim() || !parent || parent.closest(".sr-only")) {
+        continue;
+      }
+      let [left, right] = [box.left, box.right];
+      for (
+        let el: Element | null = parent;
+        el && el !== cell;
+        el = el.parentElement
+      ) {
+        if (getComputedStyle(el).overflowX !== "visible") {
+          const clip = el.getBoundingClientRect();
+          [left, right] = [
+            Math.max(left, clip.left),
+            Math.min(right, clip.right),
+          ];
+        }
+      }
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        if (rect.width < 1) continue;
+        ends.push(
+          rtl ? Math.max(rect.left, left) : Math.min(rect.right, right),
+        );
+      }
+    }
+    if (ends.length === 0) continue;
+    const end = rtl ? Math.min(...ends) : Math.max(...ends);
+    await expect(
+      Math.abs(end - (rtl ? box.left : box.right)),
+    ).toBeLessThanOrEqual(1);
+  }
   // A two-line cell: 20px first line, 16px after it, the opener aside.
   for (const cell of canvasElement.querySelectorAll("[data-lines]")) {
     const lines = [...cell.children].filter(
@@ -669,4 +718,14 @@ export const English: Story = {
   ...SessionList,
   name: "Session list (en)",
   globals: { locale: "en" },
+};
+
+/** "Last activity" wraps in its 64px column and still ends at the column's end. */
+export const English390: Story = {
+  ...SessionList,
+  name: "Session list (en, 390px)",
+  globals: {
+    locale: "en",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };

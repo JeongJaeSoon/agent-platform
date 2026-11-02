@@ -183,7 +183,8 @@ function cellClasses(
 ): string {
   return cn(
     "flex min-w-0 items-center gap-2",
-    align === "end" && "justify-end",
+    // justify-end places the boxes; text-end the lines of text that wraps.
+    align === "end" && "justify-end text-end",
     hideNarrow && narrow?.hide,
   );
 }

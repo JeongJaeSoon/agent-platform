@@ -10,7 +10,10 @@ import {
 } from "../apps/control-host/src/api/shutdown.ts";
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
-import { REMOVED_AFTER_INSTALL } from "../scripts/third-party-notices.ts";
+import {
+  GIT_LFS_VERSION,
+  REMOVED_AFTER_INSTALL,
+} from "../scripts/third-party-notices.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
   CORE,
@@ -155,6 +158,34 @@ describe("app Dockerfiles", () => {
   // image-smoke.sh runs the tools themselves.
   test("the worker carries xfsprogs for the inode helper", () => {
     expect(basePins.worker.source).toMatch(/apt-get install .*\bxfsprogs\b/);
+  });
+
+  // A session's LFS objects come through the repository route (94S-1095).
+  // Upstream's release, pinned per arch; the notices name the same version.
+  test("the worker carries git-lfs", () => {
+    const source = basePins.worker.source;
+    expect(source).toContain(`ARG GIT_LFS_VERSION=${GIT_LFS_VERSION}\n`);
+    for (const arch of ["amd64", "arm64"]) {
+      expect(source).toMatch(
+        new RegExp(
+          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/git-lfs/git-lfs/releases/download/v\\$\\{GIT_LFS_VERSION\\}/git-lfs-linux-${arch}-v\\$\\{GIT_LFS_VERSION\\}\\.tar\\.gz \\\\$`,
+          "m",
+        ),
+      );
+    }
+    expect(source).toContain(
+      "COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs\n",
+    );
+    expect(source).toMatch(
+      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/raw\.githubusercontent\.com\/git-lfs\/git-lfs\/v\$\{GIT_LFS_VERSION\}\/LICENSE\.md \\$/m,
+    );
+    expect(source).toContain(
+      "COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md\n",
+    );
+    expect(source).not.toMatch(/apt-get install .*\bgit-lfs\b/);
+    expect(source).toMatch(
+      /^RUN git lfs install --system --skip-repo --skip-smudge$/m,
+    );
   });
 
   // The API pushes approved sessions over https with git, the worker clones

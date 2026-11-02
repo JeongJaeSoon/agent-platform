@@ -44,6 +44,47 @@ export const githubKo = {
   "github.connectNote":
     "연결하면 GitHub에서 권한과 설치를 바로 읽어 이 화면에 보여 줍니다.",
   "github.saved": "GitHub App을 저장했습니다.",
+  "github.newApp": "새 App 만들기",
+  "github.newAppHint":
+    "GitHub에서 Create를 한 번 누르면 콘솔이 App ID·개인 키·client secret을 받아 저장합니다. pem 파일을 다루지 않습니다.",
+  "github.newApp.owner": "App을 소유할 곳",
+  "github.newApp.org": "조직",
+  "github.newApp.orgHint": "조직 소유자만 만들 수 있습니다.",
+  "github.newApp.orgLogin": "조직 이름",
+  "github.newApp.orgLoginMissing":
+    "GitHub 조직 이름(영문·숫자·하이픈, 39자 이하)을 적어 주세요.",
+  "github.newApp.user": "내 개인 계정",
+  "github.newApp.userHint":
+    "계정 주인이 떠나도 App은 그 개인 계정에 남습니다. 시험용에만 권합니다.",
+  "github.newApp.scope": "설치할 범위",
+  "github.newApp.private": "이 계정에서만 (비공개 App)",
+  "github.newApp.privateHint": "App을 소유한 계정에만 설치할 수 있습니다.",
+  "github.newApp.public": "여러 조직에서 (공개 App)",
+  "github.newApp.publicHint":
+    "다른 조직도 설치할 수 있게 됩니다. 콘솔은 '에이전트가 쓰는 저장소'에 고른 저장소에만 토큰을 받습니다.",
+  "github.newApp.actions": "Actions·워크플로 권한도 받기",
+  "github.newApp.actionsHint":
+    "에이전트가 워크플로를 실행하고 워크플로 파일을 고칠 수 있게 actions·workflows 쓰기를 더합니다.",
+  "github.newApp.next":
+    "GitHub로 이동해 이름을 확인하고 Create를 누릅니다. 콘솔로 돌아오면 키가 저장됩니다(1시간 안에 마쳐야 합니다). 그다음 설치 화면에서 저장소를 고릅니다.",
+  "github.newApp.submit": "GitHub에서 만들기",
+  "github.newApp.blocked":
+    "CONSOLE_ORIGIN이 설정되지 않아 GitHub가 콘솔로 돌아올 주소가 없습니다. 운영자에게 콘솔 주소 설정을 요청하거나 '이미 있는 App 추가'를 쓰세요.",
+  "github.newApp.exists":
+    "그사이 다른 사람이 App을 등록했습니다. 화면을 새로 고친 뒤 '교체'로 다시 시작하세요.",
+  "github.newApp.working": "GitHub에서 만든 App을 저장하는 중입니다.",
+  "github.newApp.done": "App을 저장했습니다. 설치 화면으로 이동합니다.",
+  "github.newApp.stateInvalid":
+    "이 링크는 만료되었거나 이미 쓰였습니다. GitHub 연결 설정에서 다시 시작하세요.",
+  "github.newApp.codeRejected":
+    "GitHub가 이 요청을 받지 않았습니다(만료되었거나 이미 쓰였습니다). 다시 시작하세요.",
+  "github.newApp.changed":
+    "그사이 다른 App이 등록되어 이 App은 저장하지 않았습니다. GitHub에 만들어진 App은 필요 없으면 지우세요.",
+  "github.newApp.storeFailed":
+    "App은 GitHub에 만들어졌지만 키를 저장하지 못했습니다. App 설정에서 새 개인 키를 만들어 '이미 있는 App 추가'로 연결하세요.",
+  "github.newApp.openApp": "GitHub에서 App 열기",
+  "github.newApp.back": "GitHub 연결 설정으로",
+  "github.replaceChoose": "새 App을 어떻게 연결할지 고르세요.",
   "github.invalidKey":
     "이 파일은 RSA private key가 아닙니다. GitHub App 페이지의 Private keys에서 받은 .pem 파일을 고르세요.",
   "github.rejected":
@@ -113,7 +154,8 @@ export const githubKo = {
   "github.replaceHint":
     "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소는 clone·push·PR을 할 수 없고, 사용자 계정 연결의 Client secret이 지워집니다.",
   "github.replaceTitle": "GitHub App을 교체할까요?",
-  "github.replaceNext": "다음 단계에서 새 App ID와 private key를 고릅니다.",
+  "github.replaceNext":
+    "다음 단계에서 새 App을 만들거나 이미 있는 App을 연결합니다.",
   "github.newTab": "(새 탭에서 열림)",
   "github.permissions.title": "권한",
   "github.permissions.hint": "문제 있는 권한이 위에 옵니다",
@@ -226,6 +268,8 @@ export const githubKo = {
   "github.reviewer.replaceHint":
     "App ID와 private key를 다시 등록합니다. 다른 App으로 바꾸면 새 App이 설치되지 않은 저장소의 리뷰 요청은 거절됩니다.",
   "github.reviewer.replaceTitle": "리뷰용 App을 교체할까요?",
+  "github.reviewer.replaceNext":
+    "다음 단계에서 새 App ID와 private key를 고릅니다.",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -275,6 +319,48 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.connectNote":
     "Once connected, the App's permissions and installations are read from GitHub and shown here.",
   "github.saved": "Saved the GitHub App.",
+  "github.newApp": "Create a new App",
+  "github.newAppHint":
+    "Click Create once on GitHub and the console receives and stores the App ID, private key and client secret. No .pem file to handle.",
+  "github.newApp.owner": "Who owns the App",
+  "github.newApp.org": "An organization",
+  "github.newApp.orgHint": "Only organization owners can create it.",
+  "github.newApp.orgLogin": "Organization name",
+  "github.newApp.orgLoginMissing":
+    "Enter the GitHub organization name (letters, digits and hyphens, up to 39).",
+  "github.newApp.user": "My personal account",
+  "github.newApp.userHint":
+    "The App stays tied to the account if its owner leaves. Use it for trials only.",
+  "github.newApp.scope": "Where it can be installed",
+  "github.newApp.private": "This account only (private App)",
+  "github.newApp.privateHint":
+    "It can be installed only on the account that owns it.",
+  "github.newApp.public": "Several organizations (public App)",
+  "github.newApp.publicHint":
+    "Other organizations can install it too. The console gets tokens only for repositories picked under 'Repositories agents use'.",
+  "github.newApp.actions": "Also ask for Actions and workflow permissions",
+  "github.newApp.actionsHint":
+    "Adds actions and workflows write so agents can run workflows and change workflow files.",
+  "github.newApp.next":
+    "On GitHub, check the name and click Create. Back in the console the key is stored (finish within an hour). Then pick repositories on the install screen.",
+  "github.newApp.submit": "Create on GitHub",
+  "github.newApp.blocked":
+    "CONSOLE_ORIGIN is not set, so GitHub has no console address to come back to. Ask the operator to set it, or use 'Add an existing App'.",
+  "github.newApp.exists":
+    "Someone registered an App in the meantime. Reload and start again from 'Replace'.",
+  "github.newApp.working": "Storing the App created on GitHub.",
+  "github.newApp.done": "Saved the App. Going to the install screen.",
+  "github.newApp.stateInvalid":
+    "This link has expired or was already used. Start again from GitHub settings.",
+  "github.newApp.codeRejected":
+    "GitHub did not accept this request (it expired or was already used). Start again.",
+  "github.newApp.changed":
+    "Another App was registered in the meantime, so this one was not stored. Delete the App GitHub created if you do not need it.",
+  "github.newApp.storeFailed":
+    "The App was created on GitHub but its key could not be stored. Generate a new private key in the App's settings and connect it with 'Add an existing App'.",
+  "github.newApp.openApp": "Open the App on GitHub",
+  "github.newApp.back": "Back to GitHub settings",
+  "github.replaceChoose": "Choose how to connect the new App.",
   "github.invalidKey":
     "This file is not an RSA private key. Choose the .pem file from the GitHub App's Private keys.",
   "github.rejected":
@@ -344,7 +430,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.replaceHint":
     "Registers an App ID and private key again. Switching to another App stops clones, pushes and pull requests on repositories it is not installed on, and clears the Client secret for linking user accounts.",
   "github.replaceTitle": "Replace the GitHub App?",
-  "github.replaceNext": "Next, choose the new App ID and private key.",
+  "github.replaceNext": "Next, create a new App or connect an existing one.",
   "github.newTab": "(opens in a new tab)",
   "github.permissions.title": "Permissions",
   "github.permissions.hint": "problems first",
@@ -458,6 +544,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.reviewer.replaceHint":
     "Registers an App ID and private key again. Switching to another App refuses review requests on repositories it is not installed on.",
   "github.reviewer.replaceTitle": "Replace the reviewer App?",
+  "github.reviewer.replaceNext": "Next, choose the new App ID and private key.",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -506,6 +593,48 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.connectNote":
     "接続すると、GitHub から権限とインストールをすぐに読み取ってこの画面に表示します。",
   "github.saved": "GitHub App を保存しました。",
+  "github.newApp": "新しい App を作成",
+  "github.newAppHint":
+    "GitHub で Create を一度押すと、コンソールが App ID・秘密鍵・client secret を受け取って保存します。pem ファイルを扱う必要はありません。",
+  "github.newApp.owner": "App を所有する場所",
+  "github.newApp.org": "組織",
+  "github.newApp.orgHint": "組織のオーナーだけが作成できます。",
+  "github.newApp.orgLogin": "組織名",
+  "github.newApp.orgLoginMissing":
+    "GitHub の組織名 (英数字とハイフン、39 文字以内) を入力してください。",
+  "github.newApp.user": "自分の個人アカウント",
+  "github.newApp.userHint":
+    "アカウントの持ち主が離れても App はそのアカウントに残ります。試用にだけおすすめします。",
+  "github.newApp.scope": "インストールできる範囲",
+  "github.newApp.private": "このアカウントだけ (非公開 App)",
+  "github.newApp.privateHint":
+    "App を所有するアカウントにだけインストールできます。",
+  "github.newApp.public": "複数の組織 (公開 App)",
+  "github.newApp.publicHint":
+    "ほかの組織もインストールできるようになります。コンソールは「エージェントが使うリポジトリ」で選んだリポジトリにだけトークンを取得します。",
+  "github.newApp.actions": "Actions・ワークフローの権限も取得する",
+  "github.newApp.actionsHint":
+    "エージェントがワークフローを実行し、ワークフローファイルを変更できるよう actions・workflows の書き込みを追加します。",
+  "github.newApp.next":
+    "GitHub で名前を確認して Create を押します。コンソールに戻ると鍵が保存されます (1 時間以内に完了してください)。続いてインストール画面でリポジトリを選びます。",
+  "github.newApp.submit": "GitHub で作成",
+  "github.newApp.blocked":
+    "CONSOLE_ORIGIN が設定されていないため、GitHub がコンソールに戻る先がありません。運用者にコンソールのアドレス設定を依頼するか、「既存の App を追加」を使ってください。",
+  "github.newApp.exists":
+    "その間に別の人が App を登録しました。再読み込みして「置き換え」からやり直してください。",
+  "github.newApp.working": "GitHub で作成した App を保存しています。",
+  "github.newApp.done": "App を保存しました。インストール画面に移動します。",
+  "github.newApp.stateInvalid":
+    "このリンクは期限切れか、すでに使われています。GitHub 連携設定からやり直してください。",
+  "github.newApp.codeRejected":
+    "GitHub がこのリクエストを受け付けませんでした (期限切れか使用済み)。やり直してください。",
+  "github.newApp.changed":
+    "その間に別の App が登録されたため、この App は保存しませんでした。GitHub に作成された App が不要なら削除してください。",
+  "github.newApp.storeFailed":
+    "App は GitHub に作成されましたが、鍵を保存できませんでした。App 設定で新しい秘密鍵を作成し、「既存の App を追加」で接続してください。",
+  "github.newApp.openApp": "GitHub で App を開く",
+  "github.newApp.back": "GitHub 連携設定に戻る",
+  "github.replaceChoose": "新しい App の接続方法を選んでください。",
   "github.invalidKey":
     "このファイルは RSA private key ではありません。GitHub App の Private keys から取得した .pem ファイルを選んでください。",
   "github.rejected":
@@ -577,7 +706,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.replaceHint":
     "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリは clone・push・PR ができなくなり、ユーザーアカウント連携の Client secret は消去されます。",
   "github.replaceTitle": "GitHub App を置き換えますか?",
-  "github.replaceNext": "次の手順で新しい App ID と private key を選びます。",
+  "github.replaceNext":
+    "次の手順で新しい App を作成するか、既存の App を接続します。",
   "github.newTab": "(新しいタブで開きます)",
   "github.permissions.title": "権限",
   "github.permissions.hint": "問題のある権限が上に来ます",
@@ -691,4 +821,6 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.reviewer.replaceHint":
     "App ID と private key を登録し直します。別の App に替えると、新しい App がインストールされていないリポジトリのレビューリクエストは拒否されます。",
   "github.reviewer.replaceTitle": "レビュー用 App を置き換えますか?",
+  "github.reviewer.replaceNext":
+    "次の手順で新しい App ID と private key を選びます。",
 };

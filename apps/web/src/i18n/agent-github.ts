@@ -439,7 +439,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "一覧にないリポジトリは、GitHub で App のインストールに加えたあと運用者がカタログに追加します。",
   "agentGitHub.pickTitle": "App がインストールされたリポジトリから選ぶ",
   "agentGitHub.pickHint":
-    "インストールプロファイルが App のリポジトリすべてを許可しています。選んだリポジトリはオンの状態で上の一覧に加わり、保存すると新しいリリースに反映されます。",
+    "インストールのプロファイルが App のリポジトリすべてを許可しています。選んだリポジトリはオンの状態で上の一覧に加わり、保存すると新しいリリースに反映されます。",
   "agentGitHub.pickOne": "選ぶ",
   "agentGitHub.pickName": "{name} を選ぶ",
   "agentGitHub.picked": "{name} を加えました。保存すると反映されます。",

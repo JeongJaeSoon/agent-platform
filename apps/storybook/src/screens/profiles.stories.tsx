@@ -51,7 +51,7 @@ type Row = {
   readonly id: string;
   readonly name: string;
   readonly version: number;
-  readonly kind: "설치 상한" | "워크스페이스 프로필";
+  readonly kind: "설치 프로필" | "워크스페이스 프로필";
   readonly base: string;
   readonly model: string;
   readonly mode: string;
@@ -63,7 +63,7 @@ const ROWS: readonly Row[] = [
     id: "claude-coding",
     name: "claude-coding",
     version: 1,
-    kind: "설치 상한",
+    kind: "설치 프로필",
     base: "—",
     model: "claude-sonnet-5",
     mode: "acceptEdits",
@@ -73,7 +73,7 @@ const ROWS: readonly Row[] = [
     id: "op_wide_v2",
     name: "wide",
     version: 2,
-    kind: "설치 상한",
+    kind: "설치 프로필",
     base: "—",
     model: "claude-sonnet-5",
     mode: "auto",
@@ -83,7 +83,7 @@ const ROWS: readonly Row[] = [
     id: "op_free_v1",
     name: "free",
     version: 1,
-    kind: "설치 상한",
+    kind: "설치 프로필",
     base: "—",
     model: "claude-sonnet-5",
     mode: "bypassPermissions",
@@ -120,16 +120,16 @@ function List({ role }: { readonly role: Role }) {
   const rows = ROWS.filter(
     (row) =>
       filter === "all" ||
-      (filter === "installation") === (row.kind === "설치 상한"),
+      (filter === "installation") === (row.kind === "설치 프로필"),
   );
   return (
     <Page
       title="실행 프로필"
-      description="에이전트가 쓸 모델과 도구를 정합니다. 설치 상한은 이 설치에서 쓸 수 있는 가장 넓은 값이고, 워크스페이스 프로필은 상한 하나를 줄여 만듭니다."
+      description="에이전트가 쓸 모델과 도구를 정합니다. 설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정하고, 워크스페이스 프로필은 설치 프로필 하나를 줄여 만듭니다."
       actions={
         <div className="flex flex-wrap gap-2">
           {role === "owner" ? (
-            <Button variant="outline">설치 상한 만들기</Button>
+            <Button variant="outline">설치 프로필 만들기</Button>
           ) : null}
           <Button>프로필 만들기</Button>
         </div>
@@ -146,7 +146,7 @@ function List({ role }: { readonly role: Role }) {
             전체
           </SegmentedControlItem>
           <SegmentedControlItem value="installation" count={3}>
-            설치 상한
+            설치 프로필
           </SegmentedControlItem>
           <SegmentedControlItem value="workspace" count={1}>
             워크스페이스 프로필
@@ -215,7 +215,9 @@ function Detail({ role }: { readonly role: Role }) {
       description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 저장한 버전은 바뀌지 않고, 고치면 새 버전이 됩니다."
       actions={
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline">이 상한으로 프로필 만들기</Button>
+          <Button variant="outline">
+            이 프로필로 워크스페이스 프로필 만들기
+          </Button>
           {role === "owner" ? (
             <>
               <Button>새 버전</Button>
@@ -230,7 +232,7 @@ function Detail({ role }: { readonly role: Role }) {
           <KeyValueList
             items={[
               { id: "id", label: "id", value: "op_wide_v2" },
-              { id: "kind", label: "종류", value: "설치 상한" },
+              { id: "kind", label: "종류", value: "설치 프로필" },
               { id: "connection", label: "연결", value: "anthropic" },
               {
                 id: "runtime",
@@ -306,14 +308,14 @@ function KindPicker({ kind }: { readonly kind: "workspace" | "installation" }) {
           <FieldContent>
             <FieldLabel>워크스페이스 프로필</FieldLabel>
             <FieldDescription>
-              설치 상한 하나를 바탕으로 모델·도구·권한 모드를 줄입니다.
+              설치 프로필 하나를 바탕으로 모델·도구·권한 모드를 줄입니다.
             </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
           <RadioGroupItem value="installation" />
           <FieldContent>
-            <FieldLabel>설치 상한</FieldLabel>
+            <FieldLabel>설치 프로필</FieldLabel>
             <FieldDescription>
               연결 하나 위에서 런타임·모델·도구·권한 모드·저장소를 정합니다.
               owner만 만듭니다.
@@ -328,8 +330,8 @@ function KindPicker({ kind }: { readonly kind: "workspace" | "installation" }) {
 function NewCeiling({ refused }: { readonly refused: boolean }) {
   return (
     <Page
-      breadcrumb={<Crumbs current="설치 상한 만들기" />}
-      title="설치 상한 만들기"
+      breadcrumb={<Crumbs current="설치 프로필 만들기" />}
+      title="설치 프로필 만들기"
       description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 워크스페이스 프로필은 이 값을 줄이기만 합니다. 연결·자격 증명·비용 한도는 설치 설정에서 정합니다."
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
@@ -409,7 +411,7 @@ function NewCeiling({ refused }: { readonly refused: boolean }) {
               허용할 저장소
             </FieldLegend>
             <FieldDescription>
-              이 상한의 세션과 릴리스가 쓸 수 있는 저장소입니다.
+              이 프로필의 세션과 릴리스가 쓸 수 있는 저장소입니다.
             </FieldDescription>
             <Field orientation="horizontal">
               <Checkbox />
@@ -452,7 +454,7 @@ function NewWorkspace({ role }: { readonly role: Role }) {
     <Page
       breadcrumb={<Crumbs current="프로필 만들기" />}
       title="프로필 만들기"
-      description="바탕이 되는 설치 상한에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다."
+      description="바탕이 되는 설치 프로필에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다."
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         {role === "owner" ? <KindPicker kind="workspace" /> : null}

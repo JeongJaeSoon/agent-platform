@@ -1,3 +1,5 @@
+export * from "./achievement-judgments.ts";
+export * from "./achievement-rules.ts";
 export * from "./agent-admins.ts";
 export * from "./agent-authority.ts";
 export * from "./agent-github.ts";
@@ -20,6 +22,7 @@ export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export * from "./drain.ts";
 export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
+export * from "./github-app-manifest-states.ts";
 export * from "./github-apps.ts";
 export * from "./github-oauth.ts";
 export * from "./github-packages.ts";

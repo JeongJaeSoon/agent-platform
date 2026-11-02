@@ -38,6 +38,7 @@ export function packageManagerFiles(
   credentialUrl: string,
   token: string,
   github: GitHubOwners = { npm: [], rubygems: [] },
+  privateModules: readonly string[] = [],
 ): Record<keyof typeof PACKAGE_MANAGER_FILES, string> {
   const route = new URL(credentialUrl);
   const base = `${route.protocol}//${route.host}/packages`;
@@ -75,6 +76,12 @@ export function packageManagerFiles(
       `GOPROXY=${base}/go/_token/${encodeURIComponent(token)}`,
       `GOSUMDB=sum.golang.org ${base}/gosum/_token/${encodeURIComponent(token)}`,
       "GOFLAGS=-mod=readonly",
+      // The session's own repositories, through the repository route with
+      // git (repository-routes.ts); GOPRIVATE also keeps them off the
+      // checksum database.
+      ...(privateModules.length === 0
+        ? []
+        : [`GOPRIVATE=${privateModules.join(",")}`]),
       "",
     ].join("\n"),
   };
@@ -90,11 +97,12 @@ export async function writePackageManagerConfig(
   credentialUrl: string,
   token: string | undefined,
   github?: GitHubOwners,
+  privateModules: readonly string[] = [],
 ): Promise<void> {
   const contents =
     token === undefined
       ? null
-      : packageManagerFiles(credentialUrl, token, github);
+      : packageManagerFiles(credentialUrl, token, github, privateModules);
   for (const [manager, relative] of Object.entries(PACKAGE_MANAGER_FILES)) {
     const path = join(home, relative);
     const content = contents?.[manager as keyof typeof PACKAGE_MANAGER_FILES];

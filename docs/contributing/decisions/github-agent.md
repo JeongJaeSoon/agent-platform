@@ -648,6 +648,7 @@ i18n ko·en·ja를 같이 고친다.
 - **type은 등록된 목록이다.** 열린 문자열로 두지 않는다. 집계가 type마다 state의 뜻(무엇이 "성공"인가)을 알아야 하기 때문이다. type을 더할 때는 마이그레이션 하나가 CHECK를 넓히고 contracts 값과 state 규칙을 더한다. `linked_accounts`의 provider CHECK(`schema.ts:766-769`)와 같은 방식이다.
 - **`pull_requests`는 그대로 둔다.** 그 표는 push 요청과 PR을 잇는 기록이고 키가 `(session_id, url)`이다. 성과물 행은 같은 `(session_id, url)`과 같은 `receipt_id`를 가진다. 외래 키는 걸지 않는다. 성과물 표는 type이 여럿이 될 표라서다.
 - **만드는 것은 서버뿐이다.** 성과물을 쓰는 API는 두지 않는다. 사람이나 에이전트가 성과물을 직접 적게 하면 ROI 재료가 자기 보고가 된다.
+- 개정(2026-11-02): `metadata`의 "제목은 넣지 않는다"는 [성과 규칙 설계](achievement-rules.md#근거-추가-github_review)가 바꿨다. PR 행은 `title`(200자)을 갖고, 리뷰는 type `github_review` 행이 된다. 본문과 리뷰 내용은 여전히 넣지 않는다.
 - 새 표이므로 앞 이미지와 섞여도 안전하다. 앞 이미지는 이 표를 읽지도 쓰지도 않는다([5절](#5-기존-설치-이전)의 규칙).
 
 ### PR을 열 때 자동으로 남긴다

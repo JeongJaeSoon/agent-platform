@@ -15,3 +15,5 @@ services:
   egress-proxy:
     environment:
       EGRESS_CREDENTIAL_ALLOWLIST: api.anthropic.com:443,github.com:443
+      # Where GitHub keeps LFS objects; the repository route fetches them there.
+      EGRESS_PACKAGES_REDIRECT_ALLOWLIST: github-cloud.githubusercontent.com:443

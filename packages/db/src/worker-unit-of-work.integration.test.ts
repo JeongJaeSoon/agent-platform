@@ -39,6 +39,7 @@ import { reconcileOrphanedSessions } from "./queries.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
+  achievementJudgments,
   attempts,
   checkpointOutputs,
   checkpoints,
@@ -53,6 +54,7 @@ import {
   workerImageRefusals,
   workerLaunches,
   workers,
+  workspaces,
 } from "./schema.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
 import {
@@ -162,6 +164,7 @@ integration("worker gateway on PostgreSQL", () => {
                 { key: `${checkpoint.manifest_ref}/a`, bytes: 7 },
                 { key: "outputs/inherited", bytes: 11 },
               ],
+              outputsDigest: "d".repeat(64),
             };
           }
           if (checkpoint.manifest_ref.startsWith("runtime/")) {
@@ -241,10 +244,14 @@ integration("worker gateway on PostgreSQL", () => {
   }
 
   // Every test owns a partition so leftovers from other tests never compete.
-  async function queuedSession(partition: string, message = "first input") {
+  async function queuedSession(
+    partition: string,
+    message = "first input",
+    ownerId = `owner-${crypto.randomUUID()}`,
+  ) {
     const result = await createPostgresSessionUnitOfWork(db).acceptInputAtomic({
       limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       profileId: "claude-coding-v1",
@@ -409,8 +416,11 @@ integration("worker gateway on PostgreSQL", () => {
   }
 
   // Runs a full attempt so later tests start from a clean queue head.
-  async function claimAndDeliver(partition = partitionFor("run")) {
-    const session = await queuedSession(partition);
+  async function claimAndDeliver(
+    partition = partitionFor("run"),
+    ownerId?: string,
+  ) {
+    const session = await queuedSession(partition, undefined, ownerId);
     const l = await launch(session.session_id);
     const claimed = await claim(l);
     expect(claimed.session_id).toBe(session.session_id);
@@ -3655,9 +3665,22 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await row()).toMatchObject({ pending: "mirror_error", revision: 0 });
   });
 
-  test("finalize records the verified checkpoint's output objects beside its row", async () => {
+  test("finalize records the verified checkpoint's output objects beside its row, its out/ digest on it, and queues a judgment", async () => {
     const partition = partitionFor("checkpoint-outputs");
-    const { session, claimed, input } = await claimAndDeliver(partition);
+    const workspaceId = crypto.randomUUID();
+    await db.insert(workspaces).values({
+      id: workspaceId,
+      slug: `outputs-${workspaceId.slice(0, 8)}`,
+      name: "outputs",
+    });
+    const { session, claimed, input } = await claimAndDeliver(
+      partition,
+      workspaceId,
+    );
+    await db
+      .update(sessions)
+      .set({ workspaceId })
+      .where(eq(sessions.id, session.session_id));
     const ref = `outputs/${session.session_id}/manifest.json`;
     expect(
       await gateway.finalize(principalOf(claimed), {
@@ -3679,10 +3702,19 @@ integration("worker gateway on PostgreSQL", () => {
       }),
     ).toMatchObject({ status: "completed", checkpoint_revision: 0 });
     const [row] = await db
-      .select({ recorded: checkpoints.outputsRecorded })
+      .select({
+        recorded: checkpoints.outputsRecorded,
+        digest: checkpoints.outputsDigest,
+      })
       .from(checkpoints)
       .where(eq(checkpoints.sessionId, session.session_id));
-    expect(row).toEqual({ recorded: true });
+    expect(row).toEqual({ recorded: true, digest: "d".repeat(64) });
+    expect(
+      await db
+        .select({ status: achievementJudgments.status })
+        .from(achievementJudgments)
+        .where(eq(achievementJudgments.sessionId, session.session_id)),
+    ).toEqual([{ status: "queued" }]);
     expect(
       await db
         .select({

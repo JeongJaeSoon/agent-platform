@@ -40,6 +40,23 @@ export const auditRetentionDaysSchema = z
   .min(AUDIT_RETENTION_MIN_DAYS)
   .max(AUDIT_RETENTION_MAX_DAYS);
 
+export const ACHIEVEMENT_TRANSCRIPT_VALUES = ["none", "recent"] as const;
+
+/** How the workspace's achievement judge runs (achievement-rules.md §3). */
+export const achievementJudgeSettingsSchema = z
+  .object({
+    /** An `openai_decisions` connection; null leaves `luna` rules unjudged. */
+    connection_id: z.string().min(1).max(200).nullable().default(null),
+    threshold: z.number().min(0).max(1).default(0.9),
+    on_evidence: z.boolean().default(true),
+    every_n_turns: z.number().int().min(5).max(100).nullable().default(null),
+    on_idle: z.boolean().default(false),
+    transcript: z.enum(ACHIEVEMENT_TRANSCRIPT_VALUES).default("recent"),
+    daily_budget_usd: z.number().nonnegative().default(1),
+    max_per_session: z.number().int().positive().default(20),
+  })
+  .strict();
+
 export const workspaceSettingsSchema = z
   .object({
     /** Model the dispatch classifier uses; null falls back to the deployment default. */
@@ -58,6 +75,7 @@ export const workspaceSettingsSchema = z
      * to link their Slack account like anyone else (D25).
      */
     slack_guest_enabled: z.boolean().default(false),
+    achievement_judge: achievementJudgeSettingsSchema.prefault({}),
   })
   .strict();
 
@@ -69,6 +87,17 @@ export const auditRetentionRequestSchema = z
   .object({ audit_retention_days: auditRetentionDaysSchema })
   .strict();
 export const auditRetentionResponseSchema = auditRetentionRequestSchema;
+
+export const achievementJudgeRequestSchema = achievementJudgeSettingsSchema;
+export const achievementJudgeResponseSchema = z
+  .object({ achievement_judge: achievementJudgeSettingsSchema })
+  .strict();
+export const achievementJudgeChangeResponseSchema = z
+  .object({
+    achievement_judge: achievementJudgeSettingsSchema,
+    receipt_id: receiptIdSchema,
+  })
+  .strict();
 
 export const slackGuestRequestSchema = z
   .object({ slack_guest_enabled: z.boolean() })
@@ -330,6 +359,15 @@ export const listInvitesResponseSchema = z
 export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
 export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
 export type SlackGuestRequest = z.infer<typeof slackGuestRequestSchema>;
+export type AchievementJudgeSettings = z.infer<
+  typeof achievementJudgeSettingsSchema
+>;
+export type AchievementJudgeResponse = z.infer<
+  typeof achievementJudgeResponseSchema
+>;
+export type AchievementJudgeChangeResponse = z.infer<
+  typeof achievementJudgeChangeResponseSchema
+>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Membership = z.infer<typeof membershipSchema>;

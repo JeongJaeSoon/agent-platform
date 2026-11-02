@@ -58,6 +58,10 @@ describe("database schema", () => {
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
+      "achievement_categories",
+      "achievement_judgments",
+      "achievement_rules",
+      "achievement_types",
       "agent_activation_events",
       "agent_admin_teams",
       "agent_admins",
@@ -81,6 +85,7 @@ describe("database schema", () => {
       "credential_bindings",
       "events",
       "executions",
+      "github_app_manifest_states",
       "github_apps",
       "github_packages_settings",
       "github_workflow_dispatches",
@@ -107,6 +112,7 @@ describe("database schema", () => {
       "queue_messages",
       "receipts",
       "secret_values",
+      "session_achievements",
       "session_event_archives",
       "session_links",
       "session_model_usage",

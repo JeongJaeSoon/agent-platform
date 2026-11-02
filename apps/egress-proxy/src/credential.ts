@@ -31,7 +31,7 @@ import { type MessagesUsage, type UsageMeter, usageMeter } from "./usage.ts";
  * worker's network.
  *
  * Only the operations a session needs are routed — the Messages API, and
- * the read half of git's smart HTTP — so a leaked token buys at most that,
+ * the read half of git's smart HTTP and of Git LFS — so a leaked token buys at most that,
  * for as long as its attempt still owns its session.
  *
  * The object store route is the one way a worker reaches its
@@ -119,6 +119,11 @@ export type CredentialRoute = {
   server?: string;
   /** repository only: the catalog id the path named, for another repository. */
   repository?: string;
+  /**
+   * repository only: a Git LFS download batch, or one object the proxy
+   * fetches from the location a batch answer names.
+   */
+  lfs?: "batch" | { oid: string; size: number };
   /** The packages route's registry name; the authorizer maps it to a host. */
   registry?: string;
   /**
@@ -140,10 +145,23 @@ const OBJECT_STORE_PREFIX = "/object-store";
 // The streamable HTTP transport's three methods, on the server's one URL.
 const MCP_METHODS = new Set(["POST", "GET", "DELETE"]);
 const MCP_PATH = /^\/mcp\/([a-z0-9](?:[a-z0-9-]|_(?!_)){0,31})$/;
-// `/repository/<id>/...`: another repository the session's release lets it
-// fetch. The id is the authorizer's to judge; this only keeps it one segment.
+// `/repository/<id>/...`: a repository the session may fetch, named by its
+// catalog id. The id is the authorizer's to judge; this only keeps it one
+// segment. `/.git` is how a `https://github.com/<o>/<r>.git` URL comes out of
+// the worker's `insteadOf`.
 const REPOSITORY_PATH =
-  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(\/info\/refs|\/git-upload-pack)$/;
+  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\/\.git)?(\/info\/refs|\/git-upload-pack)$/;
+// The worker's routes all end in `/.git`, which Git LFS keeps as is when it
+// puts its endpoint at the remote URL plus `/info/lfs`. The object path is the
+// proxy's own: the batch answer's hrefs are rewritten to it.
+const LFS_PATH =
+  /^\/repository\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/\.git\/info\/lfs\/objects\/(batch|[0-9a-f]{64})$/;
+const LFS_OBJECT_QUERY = /^\?size=(0|[1-9][0-9]{0,15})$/;
+const LFS_MEDIA_TYPE = "application/vnd.git-lfs+json";
+// The Git LFS API's own ceiling on objects per batch.
+const MAX_LFS_BATCH_OBJECTS = 100;
+// A hundred objects with presigned hrefs fit many times over.
+const MAX_LFS_BATCH_ANSWER_BYTES = 1024 * 1024;
 
 // Reads only: a publish, an unpublish or a yank has no route.
 const PACKAGES_METHODS = new Set(["GET", "HEAD"]);
@@ -246,7 +264,149 @@ export function routeOf(
         : method === "POST" && search === "";
     return upload ? { purpose: "repository", repository, path, search } : null;
   }
+  const [, lfsRepository, operation] = LFS_PATH.exec(pathname) ?? [];
+  if (lfsRepository !== undefined && operation !== undefined) {
+    if (operation === "batch") {
+      return method === "POST" && search === ""
+        ? {
+            purpose: "repository",
+            repository: lfsRepository,
+            lfs: "batch",
+            path: "/info/lfs/objects/batch",
+            search,
+          }
+        : null;
+    }
+    const size = LFS_OBJECT_QUERY.exec(search)?.[1];
+    return method === "GET" && size !== undefined
+      ? {
+          purpose: "repository",
+          repository: lfsRepository,
+          lfs: { oid: operation, size: Number(size) },
+          path: "/info/lfs/objects/batch",
+          search: "",
+        }
+      : null;
+  }
   return null;
+}
+
+/**
+ * A worker's LFS batch as it goes upstream: a download, of objects named by
+ * a SHA-256 and a size, and nothing else it sent. An upload has no route, as
+ * receive-pack has none.
+ */
+export function lfsDownloadBatch(body: Uint8Array): Uint8Array | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || parsed.operation !== "download") return null;
+  const { objects } = parsed;
+  if (
+    !Array.isArray(objects) ||
+    objects.length === 0 ||
+    objects.length > MAX_LFS_BATCH_OBJECTS
+  ) {
+    return null;
+  }
+  const named: Array<{ oid: string; size: number }> = [];
+  for (const object of objects) {
+    if (
+      !isRecord(object) ||
+      typeof object.oid !== "string" ||
+      !/^[0-9a-f]{64}$/.test(object.oid) ||
+      !Number.isSafeInteger(object.size) ||
+      (object.size as number) < 0
+    ) {
+      return null;
+    }
+    named.push({ oid: object.oid, size: object.size as number });
+  }
+  return lfsBatchBody(named);
+}
+
+function lfsBatchBody(objects: Array<{ oid: string; size: number }>) {
+  return new TextEncoder().encode(
+    JSON.stringify({ operation: "download", transfers: ["basic"], objects }),
+  );
+}
+
+/**
+ * A batch answer as the worker gets it: each download pointed at the proxy's
+ * own object path under `objectBase`, so the storage location, a capability
+ * of its own, never reaches the worker, and nothing else the server offered
+ * (an upload, a header) goes along.
+ */
+export function lfsBatchForWorker(
+  answer: unknown,
+  objectBase: string,
+): Record<string, unknown> | null {
+  if (!isRecord(answer) || !Array.isArray(answer.objects)) return null;
+  const objects: Array<Record<string, unknown>> = [];
+  for (const object of answer.objects) {
+    if (
+      !isRecord(object) ||
+      typeof object.oid !== "string" ||
+      !/^[0-9a-f]{64}$/.test(object.oid) ||
+      !Number.isSafeInteger(object.size)
+    ) {
+      return null;
+    }
+    const kept: Record<string, unknown> = {
+      oid: object.oid,
+      size: object.size,
+    };
+    if (isRecord(object.error)) {
+      // The server's message is free text that can name anything; the code
+      // is what git-lfs acts on.
+      kept.error = {
+        code: Number.isSafeInteger(object.error.code) ? object.error.code : 500,
+        message: "the LFS server refused this object",
+      };
+    }
+    const download = isRecord(object.actions)
+      ? object.actions.download
+      : undefined;
+    if (isRecord(download) && typeof download.href === "string") {
+      kept.authenticated = true;
+      kept.actions = {
+        download: {
+          href: `${objectBase}/${object.oid}?size=${object.size}`,
+          ...(typeof download.expires_in === "number"
+            ? { expires_in: download.expires_in }
+            : {}),
+          ...(typeof download.expires_at === "string"
+            ? { expires_at: download.expires_at }
+            : {}),
+        },
+      };
+    }
+    objects.push(kept);
+  }
+  return { transfer: "basic", objects };
+}
+
+/** Where a batch answer says to download `oid`, if it says so plainly. */
+export function lfsDownloadHref(answer: unknown, oid: string): URL | null {
+  if (!isRecord(answer) || !Array.isArray(answer.objects)) return null;
+  const object = answer.objects.find(
+    (candidate) => isRecord(candidate) && candidate.oid === oid,
+  );
+  const download =
+    isRecord(object) && isRecord(object.actions)
+      ? object.actions.download
+      : undefined;
+  if (!isRecord(download) || typeof download.href !== "string") return null;
+  const href = URL.parse(download.href);
+  return href !== null &&
+    (href.protocol === "https:" || href.protocol === "http:") &&
+    href.username === "" &&
+    href.password === ""
+    ? href
+    : null;
 }
 
 export type McpCall = { method: string | null; tool: string | null };
@@ -679,7 +839,10 @@ export type CredentialProxyOptions = {
   maxExchangesPerClient?: number;
   maxBodyBytesInFlight?: number;
   policy: EgressPolicy;
-  /** Where the packages route follows a registry's redirect; nowhere when absent. */
+  /**
+   * Where the packages route follows a registry's redirect, and where the
+   * repository route fetches an LFS object from; nowhere when absent.
+   */
   packagesRedirect?: EgressPolicy;
   port?: number;
   regrantGraceMs?: number;
@@ -1093,6 +1256,91 @@ export function startCredentialProxy(
     return { response };
   }
 
+  /**
+   * One LFS object, from where the repository's batch answer put it: a
+   * storage host on the packages redirect list, asked with nothing the grant
+   * added, as a followed redirect is. The location never reaches the worker.
+   */
+  async function lfsObject(
+    href: URL,
+    request: Request,
+    grant: EgressGrant,
+    who: Readonly<Record<string, unknown>>,
+    signal: AbortSignal,
+  ): Promise<{ response: Response } | { refused: Response }> {
+    const judged = await dialable(
+      href,
+      packagesRedirect,
+      "repository",
+      { ...who, lfs_object: true },
+      signal,
+    );
+    if (judged instanceof Response) {
+      await judged.body?.cancel();
+      return {
+        refused: reply(
+          502,
+          "the LFS object is on a host this route does not reach",
+        ),
+      };
+    }
+    logger.info("Credential route LFS object", {
+      ...who,
+      to_host: judged.host,
+      to_port: judged.port,
+    });
+    let response: Response;
+    try {
+      response = await send(href, judged, {
+        method: "GET",
+        target: `${href.pathname}${href.search}`,
+        headers: [
+          ...upstreamRequestHeaders(request.headers, {
+            ...grant,
+            upstream: href,
+            headers: [],
+          }),
+        ],
+        body: null,
+        signal,
+      });
+    } catch (error) {
+      logger.warn("Credential route upstream failed", {
+        ...who,
+        host: judged.host,
+        port: judged.port,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { refused: reply(502, "upstream connection failed") };
+    }
+    const fetched = REDIRECT_STATUSES.has(response.status)
+      ? await followRedirects(response, href, request, grant, who, signal)
+      : { response };
+    if ("refused" in fetched) return fetched;
+    // A storage answer may echo a presigned location, the first or one it
+    // redirected to; only the object and its length, type and encoding go
+    // back, the encoding so the encoded-body check below still sees it.
+    const answer = fetched.response;
+    if (!answer.ok) {
+      await answer.body?.cancel();
+      logger.warn("Credential route LFS object refused", {
+        ...who,
+        status: answer.status,
+      });
+      return {
+        refused: reply(502, `the LFS storage answered ${answer.status}`),
+      };
+    }
+    const headers = new Headers();
+    for (const name of ["content-length", "content-type", "content-encoding"]) {
+      const value = answer.headers.get(name);
+      if (value !== null) headers.set(name, value);
+    }
+    return {
+      response: new Response(answer.body, { status: answer.status, headers }),
+    };
+  }
+
   async function exchange(
     request: Request,
     route: CredentialRoute,
@@ -1128,7 +1376,13 @@ export function startCredentialProxy(
     if (first instanceof Response) return first;
     const upstream = grant.upstream;
     const fields = { ...who, host: first.host, port: first.port };
-    const base = upstream.pathname.replace(/\/$/, "");
+    const trimmed = upstream.pathname.replace(/\/$/, "");
+    // As Git LFS finds the endpoint from a remote URL; GitHub answers a batch
+    // at the URL without `.git` with a 422.
+    const base =
+      route.lfs === undefined || trimmed.endsWith(".git")
+        ? trimmed
+        : `${trimmed}.git`;
     const target = grant.target ?? `${base}${route.path}${route.search}`;
     const objectStore = route.purpose === "object_store";
     if (objectStore && grant.target === null) {
@@ -1140,10 +1394,20 @@ export function startCredentialProxy(
     // charged from.
     let sent: Uint8Array | null = null;
     try {
-      const body = whole === null ? objectBody(request, grant) : await whole;
+      const body =
+        typeof route.lfs === "object"
+          ? lfsBatchBody([route.lfs])
+          : whole === null
+            ? objectBody(request, grant)
+            : await whole;
       if (body instanceof Uint8Array) sent = body;
+      const headers = upstreamRequestHeaders(request.headers, grant);
+      if (route.lfs !== undefined) {
+        headers.set("accept", LFS_MEDIA_TYPE);
+        headers.set("content-type", LFS_MEDIA_TYPE);
+      }
       response = await send(upstream, first, {
-        method: request.method,
+        method: route.lfs === undefined ? request.method : "POST",
         target,
         // Only what the authorizer signed: the worker's own headers are
         // what it was judged on, not what goes upstream.
@@ -1153,7 +1417,7 @@ export function startCredentialProxy(
               ["accept-encoding", "identity"],
               ...grant.headers,
             ]
-          : [...upstreamRequestHeaders(request.headers, grant)],
+          : [...headers],
         body,
         signal,
       });
@@ -1168,6 +1432,41 @@ export function startCredentialProxy(
       return reply(502, "upstream connection failed", route.purpose);
     }
     logger.info("Credential route", { ...fields, status: response.status });
+    let presigned: string[] = [];
+    if (route.lfs !== undefined && response.ok) {
+      const answered = await lfsAnswer(response);
+      if (answered === null) {
+        logger.warn("Credential route LFS answer unusable", fields);
+        return reply(502, "the LFS server's answer was unusable");
+      }
+      if (route.lfs === "batch") {
+        const url = new URL(request.url);
+        const forWorker = lfsBatchForWorker(
+          answered,
+          `${url.origin}${url.pathname.slice(0, -"/batch".length)}`,
+        );
+        if (forWorker === null) {
+          logger.warn("Credential route LFS answer unusable", fields);
+          return reply(502, "the LFS server's answer was unusable");
+        }
+        response = new Response(JSON.stringify(forWorker), {
+          headers: { "content-type": LFS_MEDIA_TYPE },
+        });
+      } else {
+        const href = lfsDownloadHref(answered, route.lfs.oid);
+        if (href === null) {
+          return reply(404, "the LFS server offered no download");
+        }
+        const fetched = await lfsObject(href, request, grant, fields, signal);
+        if ("refused" in fetched) return fetched.refused;
+        response = fetched.response;
+        // The presigned location is a credential of its own; a storage
+        // error that echoes it must not hand it over.
+        presigned = [...href.searchParams.values()].filter(
+          (value) => value.length >= 8,
+        );
+      }
+    }
     if (
       route.purpose === "packages" &&
       REDIRECT_STATUSES.has(response.status)
@@ -1195,7 +1494,9 @@ export function startCredentialProxy(
     }
     // Every spelling the upstream could echo back to the worker: headers,
     // a success body and an error body are all checked for them.
-    const secrets = objectStore ? objectStoreSecrets(grant) : secretsOf(grant);
+    const secrets = objectStore
+      ? objectStoreSecrets(grant)
+      : [...secretsOf(grant), ...presigned];
     const headers = responseHeaders(response.headers, secrets);
     // A head's answer is its length; there is no body to take it from.
     const length = response.headers.get("content-length");
@@ -1526,6 +1827,17 @@ export function startCredentialProxy(
             });
           }
         }
+        if (route.lfs === "batch") {
+          // Before the authorizer, so an upload costs no token.
+          const read = whole === null ? null : await whole;
+          const batch =
+            read instanceof Uint8Array ? lfsDownloadBatch(read) : null;
+          if (batch === null) {
+            release();
+            return reply(400, "only an LFS download batch is routed");
+          }
+          whole = Promise.resolve(batch);
+        }
         const authorized = await authorize(token, route.purpose, question);
         if (authorized.kind === "refused") {
           release();
@@ -1775,6 +2087,22 @@ function metered(
       return reader.cancel(reason);
     },
   });
+}
+
+/** A batch answer's JSON; null for one too large, encoded or not JSON. */
+async function lfsAnswer(response: Response): Promise<unknown> {
+  const encoding = response.headers.get("content-encoding");
+  if (encoding !== null && encoding.toLowerCase() !== "identity") {
+    await response.body?.cancel();
+    return null;
+  }
+  const body = await readAtMost(response, MAX_LFS_BATCH_ANSWER_BYTES);
+  if (body === null) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return null;
+  }
 }
 
 async function readAtMost(

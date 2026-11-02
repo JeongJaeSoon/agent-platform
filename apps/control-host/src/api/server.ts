@@ -4,6 +4,8 @@ import {
   backfillSessionModels,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
+  createPostgresAchievementJudgments,
+  createPostgresAchievementRuleStore,
   createPostgresAgentAdminStore,
   createPostgresAgentGitHubStore,
   createPostgresAgentIdentityStore,
@@ -12,6 +14,7 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
+  createPostgresGitHubAppManifestStore,
   createPostgresGitHubAppStore,
   createPostgresGitHubGateStore,
   createPostgresGitHubMcpStore,
@@ -57,6 +60,8 @@ import {
   allowedRun,
   catalogRevision,
   composeSlackFinalize,
+  createAchievementJudge,
+  createAchievementRuleService,
   createAgentAdminService,
   createAgentGitHubService,
   createAgentIdentityService,
@@ -83,6 +88,7 @@ import {
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createSessionAchievementService,
   createSessionAttributionService,
   createSessionOutcomeService,
   createSessionOutputService,
@@ -163,6 +169,7 @@ import {
 import {
   connectionsOf,
   createGitHubAppDirectory,
+  createGitHubManifestConverter,
   createRegisteredGitHubConnection,
 } from "./forge-github.ts";
 import { createGitPusher } from "./git-push.ts";
@@ -179,6 +186,10 @@ import {
 } from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
+import {
+  registerAchievementRoutes,
+  registerSessionAchievementRoutes,
+} from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -701,6 +712,10 @@ const workspaceProfiles = createWorkspaceProfileService({
   store: workspaceProfileStore,
   catalog,
 });
+const achievementRules = createAchievementRuleService({
+  authorization,
+  store: createPostgresAchievementRuleStore(db),
+});
 const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
@@ -769,6 +784,15 @@ const githubApps = createGitHubAppService({
       )
       .map(([id, repository]) => ({ id, url: repository.url })),
   changed: reloadRegisteredGitHub,
+  manifests: {
+    states: createPostgresGitHubAppManifestStore(db),
+    convert: createGitHubManifestConverter({ logger }),
+    consoleOrigin,
+    callbackUrl: githubCallbackUrl(consoleOrigin),
+    webBase: "https://github.com",
+    refused: (check) =>
+      logger.warn("GitHub App manifest state refused", { check }),
+  },
 });
 // Every GitHub token (clone, push, pull requests, Actions) is issued here,
 // from one connection per repository and so one token cache.
@@ -878,6 +902,14 @@ const outcomeRefresher = createOutcomeRefresher({
   gate: github,
   catalog,
   connections: githubConnections,
+  logger,
+}).start();
+// Each replica judges the sessions whose evidence changed; only it writes
+// achievements (achievement-rules.md §4).
+const achievementJudgments = createPostgresAchievementJudgments(db);
+const achievementJudge = createAchievementJudge({
+  store: achievementJudgments,
+  outputs: checkpoints.outputs,
   logger,
 }).start();
 const interrupts = createInterruptService({
@@ -1046,7 +1078,7 @@ const app = createApiApp({
       slackGuests,
     });
     registerSlackSecretRoutes(router, slackSecrets);
-    registerGitHubAppRoutes(router, githubApps);
+    registerGitHubAppRoutes(router, githubApps, logger);
     registerGitHubRepositoryRoutes(router, githubRepositories);
     registerGitHubSettingsRoutes(router, githubSettings);
     registerGitHubPackagesRoutes(router, githubPackages);
@@ -1059,6 +1091,14 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, workspaceProfiles, installationProfiles);
+    registerAchievementRoutes(router, achievementRules);
+    registerSessionAchievementRoutes(
+      router,
+      createSessionAchievementService({
+        authorization,
+        store: achievementJudgments,
+      }),
+    );
     registerPendingRoutes(router, pendingRequests);
     registerPushRequestRoutes(router, pushRequests);
     registerPullRequestRoutes(router, pullRequests);
@@ -1163,6 +1203,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
       [
         { name: "push-executor", close: () => pushExecutor.stop() },
         { name: "outcome-refresher", close: () => outcomeRefresher.stop() },
+        { name: "achievement-judge", close: () => achievementJudge.stop() },
         { name: "event-listener", close: () => notifier.close() },
         { name: "pool", close: () => pool.end() },
         { name: "probe-pool", close: () => probePool.end() },

@@ -827,6 +827,34 @@
       "when": 1793558755818,
       "tag": "0208_github_app_repository_selection",
       "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1793563247981,
+      "tag": "0209_session_outcome_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 210,
+      "version": "7",
+      "when": 1793567291458,
+      "tag": "0210_github_app_manifest_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 211,
+      "version": "7",
+      "when": 1793570695686,
+      "tag": "0211_achievement_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 212,
+      "version": "7",
+      "when": 1793574915675,
+      "tag": "0212_achievement_judgments",
+      "breakpoints": true
     }
   ]
 }

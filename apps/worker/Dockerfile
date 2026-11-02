@@ -36,6 +36,29 @@ RUN bun install --frozen-lockfile --production \
     --filter ./apps/worker \
   && bun run --filter @werft-ai/runtime-registry image:verify
 
+# Git LFS, for a session's LFS objects through the proxy's repository route.
+# Upstream's release rather than Debian's package: Debian builds it with a Go
+# whose standard library the image scan fails on. Pinned per arch to the
+# release's sha256sums.asc; bumped by hand, since the daily apt upgrade does
+# not reach it. THIRD_PARTY_NOTICES names the version (GIT_LFS_VERSION in
+# scripts/third-party-notices.ts; tests/images.test.ts keeps them equal).
+FROM ${BUN_IMAGE} AS git-lfs
+ARG GIT_LFS_VERSION=3.8.1
+ARG TARGETARCH
+ADD --checksum=sha256:e72cf723a4a660438862282e8aecf3885fc8123e88bfcad534cf6b941a354b75 \
+  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz \
+  /tmp/git-lfs-amd64.tar.gz
+ADD --checksum=sha256:67895dd77b63329796bc5efdd47b57f218e1f7b98717ebaf936a8238dbcaec0f \
+  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz \
+  /tmp/git-lfs-arm64.tar.gz
+# The tarball carries no license; this one also holds the Go license the
+# binary needs reproduced.
+ADD --checksum=sha256:4fae9062ab5cdd5fb15486b728534d8aded8b4ae9d84b6d66a956f5162c366b6 \
+  https://raw.githubusercontent.com/git-lfs/git-lfs/v${GIT_LFS_VERSION}/LICENSE.md \
+  /tmp/git-lfs-LICENSE.md
+RUN tar -xzf "/tmp/git-lfs-${TARGETARCH}.tar.gz" -C /tmp --strip-components=1 \
+    "git-lfs-${GIT_LFS_VERSION}/git-lfs"
+
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
 # ca-certificates: the egress proxy tunnels TLS, the worker still verifies it.
@@ -56,6 +79,12 @@ RUN apt-get update --error-on=any \
 # runs still wins; the worker's own git reads no system config.
 RUN git config --system user.name Werft \
   && git config --system user.email noreply@werft.invalid
+# The LFS filter, so a commit stores a tracked file as a pointer. Smudge is
+# skipped: a checkout leaves pointers rather than failing when the objects'
+# host is not on the proxy's list, and `git lfs pull` fetches them.
+COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs
+COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md
+RUN git lfs install --system --skip-repo --skip-smudge
 # The session's commit trailers (Co-authored-by, Agent-Session): every client
 # hook is one dispatcher that runs the repository's own hook of that name
 # too, since core.hooksPath stops git looking in .git/hooks. System scope
