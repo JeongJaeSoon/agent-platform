@@ -6,7 +6,7 @@ description: Define an agent, create and activate a release, and bind it to a se
 An agent is a named definition in a workspace. The definition is a card (role, instructions, model, tools), and every edit to the card adds a new version. A release binds one version to a run profile, and the release an agent points to is its active release. When you pass a release while creating a session, that session belongs to that agent.
 
 <Callout type="warn">
-Sessions currently run with the run profile named by `profile_id`. The release's instructions and tool list are only recorded on the session and are not yet passed to the model. See [Instructions and roles](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
+Sessions run with the run profile named by `profile_id`, and a session created from a release uses only the tools pinned to that release. The release's instructions are only recorded on the session and are not yet passed to the model. See [Instructions and roles](/agents/instructions-and-roles) and [Permissions](/agents/permissions) for details.
 </Callout>
 
 ## In the web console

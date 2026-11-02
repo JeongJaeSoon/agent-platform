@@ -84,6 +84,30 @@ commit `95b0e7b5`부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 
 - **영향 세션 찾기.** DB에는 manifest 내용이 없다. `sessions.checkpoint_revision`이 가리키는 `checkpoints` 행(`collected_at IS NULL`)의 `manifest_ref`·`manifest_version`으로 object store에서 manifest를 받아 `jq -e '.workspace.baseBundles | length > 0'`로 가른다. 복원이 `parent_revision`을 따라 물러날 수도 있으므로 부모 행도 같이 본다. worker 로그 `worker.checkpoint.published`의 `base_bundles`가 0보다 크면 incremental로 올린 것이다.
 - **롤백 전에 할 일.** 영향 세션이 있으면 롤백하지 말고 롤포워드한다. 새 전체 bundle로 다시 checkpoint하게 하는 운영 수단(환경 변수·설정·CLI)은 아직 없다. worker는 사슬이 없거나 끊겼거나, 길이 32(`MAX_BUNDLE_CHAIN`)나 bundle 상한에 닿았을 때만 스스로 전체 bundle을 올린다. 그래서 롤백이 꼭 필요하면 영향 세션은 롤백 동안 복원되지 않는다. 롤포워드하면 그대로 복원된다.
 
+### control-host 롤백 하한: release 도구로 실행
+
+이 변경부터 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 카드에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 턴부터 좁혀진다. release가 없는 세션, 카드가 프로필 도구를 모두 남기는 release의 세션은 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
+
+- **롤백 하한은 commit `2648f2ac`다.** 도구 목록은 checkpoint의 profile digest에 들어간다. `2648f2ac`부터의 control-host는 claim의 복원 후보에 프로필 도구와 release 도구 두 목록을 모두 넣으므로, 이 변경과 `2648f2ac` 사이는 어느 쪽으로 옮겨도 서로의 checkpoint를 복원한다. 그보다 앞선 빌드로 롤백하면 release 도구로 만든 checkpoint를 복원하지 못하고, 그 세션은 첫 launch 뒤 `recovery_required`(`incompatible_checkpoint`)로 멈춘다. 롤포워드한 뒤 `retry_restore`로 같은 checkpoint를 다시 시도하면 된다. 그래서 `2648f2ac`보다 앞선 빌드에서 이 변경이 든 빌드로 바로 올리지 말고, `2648f2ac` 이상의 빌드를 먼저 배포해 롤백 대상으로 만든다.
+- **좁혀질 release 수.** 배포 전에 읽기 쿼리로 센다. 카드가 프로필 도구를 모두 고른 release도 세므로 상한이다.
+
+  ```sql
+  WITH narrowed AS (
+    SELECT r.id FROM agent_releases r JOIN agent_versions v ON v.id = r.version_id
+    WHERE v.card->'capabilities'->'tools' <> 'null'::jsonb
+       OR jsonb_array_length(coalesce(v.card->'capabilities'->'forbidden', '[]')) > 0
+  )
+  SELECT
+    (SELECT count(*) FROM narrowed) AS releases,
+    (SELECT count(*) FROM sessions s JOIN narrowed n ON n.id = s.agent_release_id
+      WHERE s.admission_state NOT IN ('closing', 'closed')) AS open_sessions,
+    (SELECT count(*) FROM agent_releases
+      WHERE jsonb_typeof(runtime_config_snapshot->'tools') IS DISTINCT FROM 'array') AS unreadable;
+  ```
+
+  `unreadable`은 `tools`를 읽을 수 없는 snapshot이다. 그런 release의 세션은 내장 도구 없이 돈다(허용하지 않는 쪽으로 읽는다). 정상 경로로 만든 release는 늘 `tools`를 싣는다.
+- **복원 후보 상한.** claim의 복원 후보는 16개까지다(worker 계약). 이전 프로필이 많은 세션(GitHub 설정이 없으면 16개, 있으면 8개 이상)은 가장 오래된 이전 프로필의 후보 하나를 잃는다. 그 후보로만 맞는 checkpoint는 복원이 `incompatible_checkpoint`로 멈춘다.
+
 ### worker protocol 필드를 걷어내는 순서
 
 API를 업그레이드해도 이미 떠 있는 worker 컨테이너는 옛 이미지로 계속 돈다. 입력이 없는 worker도 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초) 동안 남는다. 그래서 worker protocol의 필드는 받는 쪽이 먼저 그 필드 없이도 받아들이게 바꾸고, 그 릴리스로 모두 교체된 다음에야 보내는 쪽이 필드를 뺀다. 한 릴리스에서 양쪽을 같이 바꾸지 않는다.

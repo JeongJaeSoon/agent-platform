@@ -726,11 +726,11 @@ export function runtimeProviderOf(
 
 /**
  * Whether a claim runs a session's release tools instead of its profile's.
- * Off until an image that offers both lists as restore configs is the
- * rollback floor: an older one cannot resume a checkpoint made with the
- * release's (docs/contributing/decisions/agent-wizard-rework.md, 3a).
+ * An API older than the one that offers both lists as restore configs
+ * cannot resume a checkpoint made with the release's, so that one is the
+ * rollback floor (docs/operator/images-and-supply-chain.md).
  */
-export const CLAIM_RUNS_RELEASE_TOOLS = false;
+export const CLAIM_RUNS_RELEASE_TOOLS = true;
 
 export type ToolList = "profile" | "release";
 

@@ -1135,7 +1135,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     }
   });
 
-  test("a session's release tools are offered beside the profile's it runs: a checkpoint made with either is ready", async () => {
+  test("a session runs its release tools and is offered the profile's: a checkpoint made with either is ready", async () => {
     const resolved = await catalog();
     const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
     const releaseTools = ["Read", "Grep"];
@@ -1144,18 +1144,19 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       githubAttached: false,
     };
     const runClaim = sessionClaim(session, resolved);
-    // The tools run are the profile's until the claim runs the release's.
-    expect(runClaim.runtime_config.tools).toEqual(profile.tools);
-    expect(runClaim).toEqual(
-      sessionClaim({ ...session, releaseTools: null }, resolved),
-    );
-    // What an image whose claims run the release's tools seals under.
-    const narrowed = {
+    expect(runClaim.runtime_config.tools).toEqual(releaseTools);
+    expect(
+      sessionClaim({ ...session, releaseTools: null }, resolved).runtime_config
+        .tools,
+    ).toEqual(profile.tools);
+    // What a checkpoint from before claims ran the release's tools, or from
+    // an image rolled back to one whose claims do not, was sealed under.
+    const widened = {
       ...runClaim,
-      runtime_config: { ...runClaim.runtime_config, tools: releaseTools },
+      runtime_config: { ...runClaim.runtime_config, tools: profile.tools },
     };
     for (const [sealedClaim, alternatesNeeded] of [
-      [narrowed, true],
+      [widened, true],
       [runClaim, false],
     ] as const) {
       const objects = createMemoryCheckpointObjectStore({ versioned: true });
@@ -1173,7 +1174,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       const other = restoreClaims({ ...session, id: sessionId }, [], resolved);
       expect(
         other.map(([key, claim]) => [key, claim.runtime_config.tools]),
-      ).toEqual([[ownToolsKey(sessionId, "release"), releaseTools]]);
+      ).toEqual([[ownToolsKey(sessionId, "profile"), profile.tools]]);
       const image = imageOf({
         [sessionId]: runClaim,
         ...Object.fromEntries(other),
@@ -1199,7 +1200,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     }
 
     // No other list: no release, or one that keeps every profile tool. A
-    // release that allows none is a list of its own.
+    // release that allows none runs a list of its own.
     const withId = { ...session, id: "s1" };
     expect(
       restoreClaims({ ...withId, releaseTools: null }, [], resolved),
@@ -1208,10 +1209,14 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       restoreClaims({ ...withId, releaseTools: profile.tools }, [], resolved),
     ).toEqual([]);
     expect(
+      sessionClaim({ ...withId, releaseTools: [] }, resolved).runtime_config
+        .tools,
+    ).toEqual([]);
+    expect(
       restoreClaims({ ...withId, releaseTools: [] }, [], resolved).map(
         ([, claim]) => claim.runtime_config.tools,
       ),
-    ).toEqual([[]]);
+    ).toEqual([profile.tools]);
 
     // Earlier profiles: every profile list before any release list, so the
     // cap never drops one a checkpoint from before release lists needs.
@@ -1239,15 +1244,16 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       withEarlier,
     );
     expect(offered.map(([key]) => key)).toEqual([
+      ownToolsKey("s1", "profile"),
       ...earlierIds.map((id) => earlierProfileKey("s1", id)),
-      ownToolsKey("s1", "release"),
       ...earlierIds
         .slice(0, MAX_RESTORE_PROFILES - earlierIds.length - 1)
         .map((id) => `${earlierProfileKey("s1", id)}@release`),
     ]);
     expect(offered.map(([, claim]) => claim.runtime_config.tools)).toEqual([
+      profile.tools,
       ...earlierIds.map(() => profile.tools),
-      ...Array.from({ length: 7 }, () => ["Read", "Grep"]),
+      ...Array.from({ length: 6 }, () => ["Read", "Grep"]),
     ]);
     // With the built-in `github` server each list costs the claim two
     // configs, and the one it runs one: only the claims all of whose
@@ -1262,7 +1268,10 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         earlier,
         withEarlier,
       ).map(([key]) => key),
-    ).toEqual(earlierIds.slice(0, 7).map((id) => earlierProfileKey("s1", id)));
+    ).toEqual([
+      ownToolsKey("s1", "profile"),
+      ...earlierIds.slice(0, 7).map((id) => earlierProfileKey("s1", id)),
+    ]);
     expect(
       earlierProfileClaims(
         { ...withId, releaseTools: null },

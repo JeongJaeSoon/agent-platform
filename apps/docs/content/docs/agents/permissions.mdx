@@ -32,8 +32,10 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 `curl: (28)`은 `--max-time`이 스트림을 끊은 것이다.
 
+release로 만든 세션은 그보다 좁게, release에 고정된 도구만 쓴다. 카드의 `capabilities.tools`(`null`이면 release를 만들 때 프로필의 도구 전부)에서 `forbidden`을 뺀 목록이고, release 응답의 `effective_tools.tools`가 그 목록이다. 카드에 `Read`만 적으면 세션은 `Read`만 쓰고, 다른 내장 도구는 위와 같이 거절된다. release 없이 만든 세션은 프로필의 도구를 모두 쓴다.
+
 <Callout type="warn">
-에이전트 카드의 `capabilities.tools`·`forbidden`·`tool_policy`는 release에 고정되지만 아직 실행에 적용되지 않는다. 카드에 `Read`만 적어도 세션은 프로필의 도구를 모두 쓴다.
+이전에는 카드의 `tools`·`forbidden`이 release에 고정만 되고 실행에는 적용되지 않았다. 지금은 그 전에 만든 release로 이미 진행 중인 세션도 다음 턴부터 release의 도구로 좁혀진다. 카드의 `tool_policy`에 적은 내장 도구 값(`allow`·`ask`·`deny`)은 release에 고정되지만 아직 실행에 적용되지 않는다. 실행 전에 묻는지는 아래 권한 모드가 정한다.
 </Callout>
 
 ## 권한 모드
