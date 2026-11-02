@@ -229,6 +229,12 @@ function GitHubCard({
   const canManage = useHasPermission("workspace.manage");
   const [adding, setAdding] = useState<AddAppStep | null>(null);
   const [sheet, setSheet] = useState(false);
+  // The button a dialog opened from, to focus again as it closes.
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const add = (step: AddAppStep, from: HTMLElement) => {
+    setOpener(from);
+    setAdding(step);
+  };
   const titleId = useId();
   const connections = settings.connections;
   const accounts = new Set(
@@ -279,13 +285,16 @@ function GitHubCard({
           <Text variant="sub">{t("github.empty.hint")}</Text>
           {canManage ? (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => setAdding("new")}>
+              <Button
+                type="button"
+                onClick={(event) => add("new", event.currentTarget)}
+              >
                 {t("github.empty.create")}
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setAdding("existing")}
+                onClick={(event) => add("existing", event.currentTarget)}
               >
                 {t("github.add.existing")}
               </Button>
@@ -296,7 +305,7 @@ function GitHubCard({
         <>
           <AppList
             settings={settings}
-            onAdd={() => setAdding("choose")}
+            onAdd={(from) => add("choose", from)}
             onOutcome={onOutcome}
             onChanged={refresh}
           />
@@ -304,7 +313,10 @@ function GitHubCard({
           {canManage ? (
             <RepositoriesLine
               connections={connections}
-              onOpen={() => setSheet(true)}
+              onOpen={(from) => {
+                setOpener(from);
+                setSheet(true);
+              }}
             />
           ) : null}
         </>
@@ -315,12 +327,14 @@ function GitHubCard({
             step={adding}
             onStep={setAdding}
             blocked={settings.oauth.callback_url === null}
+            opener={opener}
             onOutcome={onOutcome}
             onAdded={() => void refresh()}
           />
           <RepositorySheet
             open={sheet}
             onOpenChange={setSheet}
+            opener={opener}
             connections={connections}
             onOutcome={onOutcome}
           />
@@ -438,14 +452,17 @@ function AppList({
   onChanged,
 }: {
   readonly settings: GitHubSettingsResponse;
-  readonly onAdd: () => void;
+  readonly onAdd: (from: HTMLElement) => void;
   readonly onOutcome: OnOutcome;
   readonly onChanged: () => Promise<unknown>;
 }) {
   const { t } = useI18n();
   const canManage = useHasPermission("workspace.manage");
   const keys = useKeyLines(canManage);
-  const [newKey, setNewKey] = useState<GitHubSettingsConnection | null>(null);
+  const [newKey, setNewKey] = useState<{
+    readonly connection: GitHubSettingsConnection;
+    readonly opener: HTMLElement | null;
+  } | null>(null);
   const [removing, setRemoving] = useState<GitHubSettingsConnection | null>(
     null,
   );
@@ -471,7 +488,7 @@ function AppList({
             keyLine={keys.data?.github_apps.find(
               (app) => app.connection_id === connection.connection_id,
             )}
-            onNewKey={() => setNewKey(connection)}
+            onNewKey={(opener) => setNewKey({ connection, opener })}
             onRemove={() => setRemoving(connection)}
           />
         ))}
@@ -482,14 +499,15 @@ function AppList({
           variant="ghost"
           className="w-fit text-link"
           aria-haspopup="dialog"
-          onClick={onAdd}
+          onClick={(event) => onAdd(event.currentTarget)}
         >
           <Plus aria-hidden="true" />
           {t("github.apps.add")}
         </Button>
       ) : null}
       <NewKeyDialog
-        connection={newKey}
+        connection={newKey?.connection ?? null}
+        opener={newKey?.opener ?? null}
         onClose={() => setNewKey(null)}
         onOutcome={onOutcome}
         onSaved={() => void onChanged()}
@@ -518,7 +536,7 @@ function AppRow({
   readonly connection: GitHubSettingsConnection;
   readonly settings: GitHubSettingsResponse;
   readonly keyLine: GitHubApp | undefined;
-  readonly onNewKey: () => void;
+  readonly onNewKey: (opener: HTMLElement | null) => void;
   readonly onRemove: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -559,12 +577,7 @@ function AppRow({
           <RowMenu label={t("github.apps.menu", { name: connection.name })}>
             {(close) => (
               <>
-                <RowMenuItem
-                  onSelect={() => {
-                    close();
-                    onNewKey();
-                  }}
-                >
+                <RowMenuItem onSelect={() => onNewKey(close())}>
                   {t("github.apps.newKey")}
                 </RowMenuItem>
                 <RowMenuItem
@@ -585,11 +598,24 @@ function AppRow({
         <Text className="text-(color:--ap-tone-danger-fg)">
           {t("github.apps.rejected")}
         </Text>
-      ) : state === "short" ? (
-        <NeedBlock connection={connection} shortfalls={shortfalls} />
-      ) : state === "pending" ? (
-        <PendingBlock connection={connection} pending={pending} />
-      ) : null}
+      ) : (
+        <>
+          {state === "short" ? (
+            <NeedBlock
+              connection={connection}
+              shortfalls={shortfalls}
+              canManage={canManage}
+            />
+          ) : null}
+          {pending.length > 0 ? (
+            <PendingBlock
+              connection={connection}
+              pending={pending}
+              canManage={canManage}
+            />
+          ) : null}
+        </>
+      )}
     </RowListItem>
   );
 }
@@ -656,9 +682,11 @@ const noteButton = "h-auto min-h-7 whitespace-normal text-link";
 function NeedBlock({
   connection,
   shortfalls,
+  canManage,
 }: {
   readonly connection: GitHubSettingsConnection;
   readonly shortfalls: readonly Shortfall[];
+  readonly canManage: boolean;
 }) {
   const { t } = useI18n();
   const need = permissionsText(t, neededFor(shortfalls));
@@ -677,20 +705,22 @@ function NeedBlock({
           permissions: need,
         })}
       </Text>
-      <div className="flex flex-wrap items-center gap-2">
-        {url ? (
-          <ExternalButton href={url} text={t("github.apps.addPermissions")} />
-        ) : null}
-        <CopyButton
-          value={note}
-          variant="ghost"
-          size="sm"
-          className={noteButton}
-          icon="none"
-          label={t("github.apps.copyOwnerNote")}
-          copiedLabel={t("github.copied")}
-        />
-      </div>
+      {canManage ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {url ? (
+            <ExternalButton href={url} text={t("github.apps.addPermissions")} />
+          ) : null}
+          <CopyButton
+            value={note}
+            variant="ghost"
+            size="sm"
+            className={noteButton}
+            icon="none"
+            label={t("github.apps.copyOwnerNote")}
+            copiedLabel={t("github.copied")}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -699,9 +729,11 @@ function NeedBlock({
 function PendingBlock({
   connection,
   pending,
+  canManage,
 }: {
   readonly connection: GitHubSettingsConnection;
   readonly pending: readonly GitHubSettingsInstallation[];
+  readonly canManage: boolean;
 }) {
   const { t } = useI18n();
   const missing = new Set(
@@ -735,15 +767,17 @@ function PendingBlock({
           permissions,
         })}
       </Text>
-      <CopyButton
-        value={note}
-        variant="ghost"
-        size="sm"
-        className={cn(noteButton, "w-fit")}
-        icon="none"
-        label={t("github.apps.copyInstallNote")}
-        copiedLabel={t("github.copied")}
-      />
+      {canManage ? (
+        <CopyButton
+          value={note}
+          variant="ghost"
+          size="sm"
+          className={cn(noteButton, "w-fit")}
+          icon="none"
+          label={t("github.apps.copyInstallNote")}
+          copiedLabel={t("github.copied")}
+        />
+      ) : null}
     </div>
   );
 }
@@ -810,6 +844,8 @@ function RemoveApp({
       ),
     enabled: connection !== null && workspaceId !== "",
     gcTime: 0,
+    // Reopening the dialog reads it again; meanwhile removal stays blocked.
+    retry: false,
   });
   const remove = useMutation<unknown, ApiError>({
     mutationFn: () =>
@@ -841,6 +877,8 @@ function RemoveApp({
     otherAuthors(connections, connection).length > 0;
   const consequence: ReactNode = usage.isPending ? (
     <Skeleton width="80%" />
+  ) : usage.isError ? (
+    t("github.apps.removeUsageFailed")
   ) : held ? (
     t("github.apps.removeHeld")
   ) : read ? (
@@ -869,7 +907,7 @@ function RemoveApp({
       cancelLabel={t("common.cancel")}
       tone="danger"
       busy={remove.isPending}
-      confirmDisabled={held || usage.isPending}
+      confirmDisabled={held || usage.isPending || usage.isError}
       onConfirm={() => {
         if (!remove.isPending) remove.mutate();
       }}
@@ -1084,7 +1122,7 @@ function RepositoriesLine({
   onOpen,
 }: {
   readonly connections: readonly GitHubSettingsConnection[];
-  readonly onOpen: () => void;
+  readonly onOpen: (from: HTMLElement) => void;
 }) {
   const { t } = useI18n();
   const list = useRepositoryPage(defaultInstallation(connections), 1);
@@ -1109,7 +1147,7 @@ function RepositoriesLine({
         type="button"
         variant="outline"
         aria-haspopup="dialog"
-        onClick={onOpen}
+        onClick={(event) => onOpen(event.currentTarget)}
       >
         {t("github.repos.manage")}
       </Button>

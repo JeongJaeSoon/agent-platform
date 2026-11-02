@@ -246,6 +246,26 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
     expect(screen.getByText("권한 추가 필요")).toBeDefined();
   });
 
+  test("구성원은 모자란 권한을 읽기만 하고 링크·안내 복사는 보지 않는다", async () => {
+    const short = settingsWith(
+      [
+        githubConnection({
+          installations: [
+            githubInstallation({ id: 2, status: "approval_pending" }),
+          ],
+        }),
+      ],
+      { ceiling: { ...githubSettings().ceiling, workflows: true } },
+    );
+    renderAt(PATH, routes(short, {}, memberMe()));
+    expect(
+      await screen.findByText(/이 App에 Workflows 쓰기 권한이 필요합니다/),
+    ).toBeDefined();
+    expect(screen.getByText(/acme의 owner가 .*승인하면/)).toBeDefined();
+    expect(hrefs()).toEqual([]);
+    expect(screen.queryByText(/안내 복사/) === null).toBe(true);
+  });
+
   test("권한이 맞으면 GitHub 링크는 설치 행 메뉴의 관리뿐이고, 화면의 링크 목적지는 겹치지 않는다", async () => {
     renderAt(PATH, routes(twoAccounts()));
     await installationTable();
@@ -445,6 +465,39 @@ describe("GitHub 연결 › App 연결 해제", () => {
     expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
   });
 
+  test("영향을 읽지 못하면 해제하지 않게 한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(settingsWith([githubConnection()]), {
+        [`GET ${APPS}/${AUTHOR_CONNECTION}`]: () =>
+          json(503, {
+            error: {
+              code: "BACKEND_UNAVAILABLE",
+              message: "down",
+              retryable: false,
+              request_id: "req-1",
+            },
+          }),
+      }),
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "연결 해제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "App 연결을 해제할까요?",
+    });
+    expect(
+      await within(dialog).findByText(/읽지 못해 해제할 수 없습니다/),
+    ).toBeDefined();
+    const confirm = within(dialog).getByRole("button", { name: "연결 해제" });
+    await user.click(confirm);
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
   test("마지막 작성용 App은 영향을 보이고 해제한다", async () => {
     const { api } = renderAt(
       PATH,
@@ -508,7 +561,7 @@ describe("GitHub 연결 › 저장소 관리", () => {
       }),
     );
     expect(
-      await screen.findByText("아직 이 App을 설치한 계정이 없습니다."),
+      await screen.findByText("아직 GitHub App을 설치한 계정이 없습니다."),
     ).toBeDefined();
     expect(
       await screen.findByText("에이전트가 고른 저장소 1개 · 설치 밖 1개"),

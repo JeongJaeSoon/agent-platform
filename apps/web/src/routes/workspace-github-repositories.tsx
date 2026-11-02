@@ -15,6 +15,7 @@ import {
   Badge,
   Button,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -40,7 +41,7 @@ import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
+import { focusBack, RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
   installationUnusable,
@@ -101,21 +102,21 @@ export function useRepositoryPage(
 }
 
 /**
- * The installation a page is read from before one is chosen: the server's
- * own default (the first author App installation not suspended, by account),
- * named, since with several Apps of a role it refuses to pick one.
+ * The installation a page is read from before one is chosen: the first one
+ * not suspended, by account, of an author App, else of a reviewer App. Named,
+ * since with several Apps of a role the server refuses to pick one, and the
+ * catalog comes only with a page.
  */
 export function defaultInstallation(
   connections: readonly GitHubSettingsConnection[],
 ): number | undefined {
-  const role = connections.some((held) => held.role === "author")
-    ? "author"
-    : "reviewer";
-  return connections
-    .filter((held) => held.role === role)
-    .flatMap((held) => held.installations)
-    .filter((installation) => installation.status !== "suspended")
-    .sort((a, b) => a.account.localeCompare(b.account) || a.id - b.id)[0]?.id;
+  const usable = (role: GitHubSettingsConnection["role"]) =>
+    connections
+      .filter((held) => held.role === role)
+      .flatMap((held) => held.installations)
+      .filter((installation) => installation.status !== "suspended")
+      .sort((a, b) => a.account.localeCompare(b.account) || a.id - b.id)[0]?.id;
+  return usable("author") ?? usable("reviewer");
 }
 
 const installationRequired = (error: unknown) =>
@@ -135,11 +136,13 @@ export const outsideInstallations = (catalog: readonly CatalogRow[]) =>
 export function RepositorySheet({
   open,
   onOpenChange,
+  opener,
   connections,
   onOutcome,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  readonly opener: HTMLElement | null;
   readonly connections: readonly GitHubSettingsConnection[];
   readonly onOutcome: OnOutcome;
 }) {
@@ -149,6 +152,7 @@ export function RepositorySheet({
   const [editing, setEditing] = useState<{
     readonly row: CatalogRow;
     readonly what: "branch" | "pins";
+    readonly opener: HTMLElement | null;
   } | null>(null);
   const selectId = useId();
   const outsideId = useId();
@@ -195,19 +199,17 @@ export function RepositorySheet({
         {(close) => (
           <>
             <RowMenuItem
-              onSelect={() => {
-                close();
-                setEditing({ row, what: "branch" });
-              }}
+              onSelect={() =>
+                setEditing({ row, what: "branch", opener: close() })
+              }
             >
               {t("github.sheet.branch")}
             </RowMenuItem>
             {row.pins ? (
               <RowMenuItem
-                onSelect={() => {
-                  close();
-                  setEditing({ row, what: "pins" });
-                }}
+                onSelect={() =>
+                  setEditing({ row, what: "pins", opener: close() })
+                }
               >
                 {t("github.sheet.pins")}
               </RowMenuItem>
@@ -219,11 +221,21 @@ export function RepositorySheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-0 right-0 left-auto flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-none border-y-0 border-r-0 p-6 sm:max-w-[40rem]">
-        <DialogHeader>
-          <DialogTitle>{t("github.sheet.title")}</DialogTitle>
-          <DialogDescription>{t("github.sheet.hint")}</DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        className="top-0 right-0 left-auto flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-none border-y-0 border-r-0 p-6 sm:max-w-[40rem]"
+        onCloseAutoFocus={focusBack(opener)}
+      >
+        <div className="flex items-start gap-3">
+          <DialogHeader className="min-w-0 flex-1">
+            <DialogTitle>{t("github.sheet.title")}</DialogTitle>
+            <DialogDescription>{t("github.sheet.hint")}</DialogDescription>
+          </DialogHeader>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" size="sm">
+              {t("github.sheet.close")}
+            </Button>
+          </DialogClose>
+        </div>
         {list.isPending ? (
           <Skeleton width="60%" />
         ) : installationRequired(list.error) ? (
@@ -420,11 +432,13 @@ export function RepositorySheet({
         ) : null}
         <BranchDialog
           row={editing?.what === "branch" ? editing.row : null}
+          opener={editing?.opener ?? null}
           onClose={() => setEditing(null)}
           onOutcome={onOutcome}
         />
         <PinsDialog
           row={editing?.what === "pins" ? editing.row : null}
+          opener={editing?.opener ?? null}
           onClose={() => setEditing(null)}
           onOutcome={onOutcome}
         />
@@ -445,10 +459,12 @@ function useRefreshRepositories() {
 
 function BranchDialog({
   row,
+  opener,
   onClose,
   onOutcome,
 }: {
   readonly row: CatalogRow | null;
+  readonly opener: HTMLElement | null;
   readonly onClose: () => void;
   readonly onOutcome: OnOutcome;
 }) {
@@ -522,7 +538,7 @@ function BranchDialog({
         if (!open) close();
       }}
     >
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={focusBack(opener)}>
         <DialogHeader>
           <DialogTitle>{t("github.sheet.branchTitle", { name })}</DialogTitle>
         </DialogHeader>
@@ -563,10 +579,12 @@ function BranchDialog({
 /** Which connection of each role issues the repository's tokens. */
 function PinsDialog({
   row,
+  opener,
   onClose,
   onOutcome,
 }: {
   readonly row: CatalogRow | null;
+  readonly opener: HTMLElement | null;
   readonly onClose: () => void;
   readonly onOutcome: OnOutcome;
 }) {
@@ -657,7 +675,7 @@ function PinsDialog({
         if (!open) close();
       }}
     >
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={focusBack(opener)}>
         <DialogHeader>
           <DialogTitle>{t("github.sheet.pinsTitle", { name })}</DialogTitle>
           <DialogDescription>{t("github.sheet.pinsHint")}</DialogDescription>

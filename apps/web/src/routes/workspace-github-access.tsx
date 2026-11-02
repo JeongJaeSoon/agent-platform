@@ -130,7 +130,10 @@ export function FeatureList({
     chain.current = chain.current.then(async () => {
       if (started !== round.current) return;
       const base = queryClient.getQueryData<GitHubSettingsResponse>(key);
-      if (base === undefined) return;
+      if (base === undefined) {
+        settle(feature);
+        return;
+      }
       try {
         const saved = await unwrap(
           client.PUT("/v1/workspaces/{id}/github-settings", {
@@ -145,10 +148,12 @@ export function FeatureList({
         setLive(t("github.ceiling.saved", { feature: name }));
         settle(feature);
       } catch (error) {
+        // Cleared before the refetch, so a switch turned while it runs keeps
+        // its own pending save.
         round.current += 1;
-        await settings.refetch();
         saving.current = {};
         setShown({});
+        await settings.refetch();
         const text = isApiError(error, "REVISION_CONFLICT")
           ? t("github.ceiling.conflict")
           : isApiError(error)

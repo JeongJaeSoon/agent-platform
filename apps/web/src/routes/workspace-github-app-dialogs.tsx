@@ -30,6 +30,7 @@ import {
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
+import { focusBack } from "../components/row-menu.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 import { NewAppForm } from "./workspace-github-new-app.tsx";
 import type { OnOutcome } from "./workspace-settings.tsx";
@@ -223,12 +224,14 @@ export function AddAppDialog({
   step,
   onStep,
   blocked,
+  opener,
   onOutcome,
   onAdded,
 }: {
   /** Null: closed. */
   readonly step: AddAppStep | null;
   readonly onStep: (step: AddAppStep | null) => void;
+  readonly opener: HTMLElement | null;
   /** No console origin: GitHub has nowhere to send a manifest back. */
   readonly blocked: boolean;
   readonly onOutcome: OnOutcome;
@@ -281,7 +284,10 @@ export function AddAppDialog({
         if (!open) close();
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[36rem]">
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[36rem]"
+        onCloseAutoFocus={focusBack(opener)}
+      >
         <DialogHeader>
           <DialogTitle>
             {t(
@@ -400,12 +406,14 @@ function RoleOption({ value }: { readonly value: GitHubAppRole }) {
  */
 export function NewKeyDialog({
   connection,
+  opener,
   onClose,
   onOutcome,
   onSaved,
 }: {
   /** Null: closed. */
   readonly connection: GitHubSettingsConnection | null;
+  readonly opener: HTMLElement | null;
   readonly onClose: () => void;
   readonly onOutcome: OnOutcome;
   readonly onSaved: () => void;
@@ -444,7 +452,10 @@ export function NewKeyDialog({
         if (!open) close();
       }}
     >
-      <DialogContent className="sm:max-w-[32rem]">
+      <DialogContent
+        className="sm:max-w-[32rem]"
+        onCloseAutoFocus={focusBack(opener)}
+      >
         <DialogHeader>
           <DialogTitle>
             {t("github.newKey.title", { name: connection?.name ?? "" })}

@@ -85,7 +85,6 @@ export function NewAppForm({
   const loginRef = useRef<HTMLInputElement>(null);
   const handedOff = useRef(false);
   const ids = {
-    intro: useId(),
     owner: useId(),
     org: useId(),
     user: useId(),
@@ -162,9 +161,6 @@ export function NewAppForm({
 
   return (
     <form className="flex w-full flex-col gap-5" noValidate onSubmit={submit}>
-      <div id={ids.intro} className="text-description text-muted-foreground">
-        {t("github.newAppHint")}
-      </div>
       <FieldSet>
         <FieldLegend id={ids.owner} variant="label">
           {t("github.newApp.owner")}
@@ -210,7 +206,6 @@ export function NewAppForm({
             spellCheck={false}
             maxLength={39}
             placeholder="acme-corp"
-            aria-describedby={ids.intro}
             aria-invalid={loginMissing || undefined}
             onChange={() => {
               if (loginMissing) setLoginMissing(false);

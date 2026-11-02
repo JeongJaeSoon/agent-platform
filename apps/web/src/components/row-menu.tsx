@@ -10,10 +10,22 @@ import { ArrowUpRight, Ellipsis } from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
-  type Ref,
   useId,
+  useRef,
   useState,
 } from "react";
+
+/**
+ * A Dialog's onCloseAutoFocus that gives the focus back to `opener`. Radix
+ * returns it only to a Dialog.Trigger, and these dialogs open from plain
+ * buttons and menus, so without this it falls to <body>.
+ */
+export const focusBack =
+  (opener: HTMLElement | null | undefined) => (event: Event) => {
+    if (!opener?.isConnected) return;
+    event.preventDefault();
+    opener.focus();
+  };
 
 const ITEM =
   "flex w-full items-center gap-1 rounded-control px-2 py-1.5 text-start text-control text-foreground no-underline hover:bg-hover focus-visible:bg-hover focus-visible:outline-none";
@@ -54,18 +66,20 @@ export function RowMenu({
   label,
   text,
   children,
-  triggerRef,
 }: {
   /** Names the menu, and the ⋯ button: "acme · werft-agent 메뉴". */
   readonly label: string;
   /** A primary button with this text instead of the ⋯ button. */
   readonly text?: ReactNode;
-  /** RowMenuItem and RowMenuLink; each closes the menu when chosen. */
-  readonly children: (close: () => void) => ReactNode;
-  readonly triggerRef?: Ref<HTMLButtonElement> | undefined;
+  /**
+   * RowMenuItem and RowMenuLink; each closes the menu when chosen. `close`
+   * returns the menu's button, for a dialog the item opens to focus on close.
+   */
+  readonly children: (close: () => HTMLButtonElement | null) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -105,7 +119,10 @@ export function RowMenu({
         }}
         onKeyDown={moveFocus}
       >
-        {children(() => setOpen(false))}
+        {children(() => {
+          setOpen(false);
+          return triggerRef.current;
+        })}
       </PopoverContent>
     </Popover>
   );

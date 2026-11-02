@@ -26,7 +26,7 @@ import {
   NativeSelectOption,
   Text,
 } from "@werft-ai/ui";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 import {
   refusalText,
   useHasPermission,
@@ -34,7 +34,7 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { FormError } from "../components/auth-page.tsx";
-import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
+import { focusBack, RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { githubSettingsKey } from "./workspace-github-access.tsx";
 import type { OnOutcome } from "./workspace-settings.tsx";
@@ -82,7 +82,11 @@ export function GitHubUserLinkRow({
   const [dialog, setDialog] = useState<"secret" | "callback" | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
   const selectId = useId();
-  const menuRef = useRef<HTMLButtonElement>(null);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const show = (next: "secret" | "callback", from: HTMLElement | null) => {
+    setOpener(from);
+    setDialog(next);
+  };
   const refresh = () =>
     queryClient.invalidateQueries({
       queryKey: githubSettingsKey(client, workspaceId),
@@ -178,16 +182,11 @@ export function GitHubUserLinkRow({
         {t(ready ? "githubUserLink.on" : "githubUserLink.setupNeeded")}
       </Badge>
       {canManage && (oauth.client_id || oauth.callback_url) ? (
-        <RowMenu label={t("githubUserLink.menu")} triggerRef={menuRef}>
+        <RowMenu label={t("githubUserLink.menu")}>
           {(close) => (
             <>
               {oauth.client_id ? (
-                <RowMenuItem
-                  onSelect={() => {
-                    close();
-                    setDialog("secret");
-                  }}
-                >
+                <RowMenuItem onSelect={() => show("secret", close())}>
                   {t(
                     oauth.client_secret_set
                       ? "githubUserLink.replace"
@@ -196,12 +195,7 @@ export function GitHubUserLinkRow({
                 </RowMenuItem>
               ) : null}
               {oauth.callback_url ? (
-                <RowMenuItem
-                  onSelect={() => {
-                    close();
-                    setDialog("callback");
-                  }}
-                >
+                <RowMenuItem onSelect={() => show("callback", close())}>
                   {t("githubUserLink.callbackView")}
                 </RowMenuItem>
               ) : null}
@@ -212,10 +206,8 @@ export function GitHubUserLinkRow({
       <SecretDialog
         open={dialog === "secret"}
         clientId={oauth.client_id}
-        onClose={() => {
-          setDialog(null);
-          menuRef.current?.focus();
-        }}
+        opener={opener}
+        onClose={() => setDialog(null)}
         onOutcome={onOutcome}
         onSaved={() => void refresh()}
       />
@@ -225,7 +217,7 @@ export function GitHubUserLinkRow({
           if (!open) setDialog(null);
         }}
       >
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={focusBack(opener)}>
           <DialogHeader>
             <DialogTitle>{t("githubUserLink.callback")}</DialogTitle>
             <DialogDescription>
@@ -284,6 +276,7 @@ export function GitHubUserLinkRow({
 function SecretDialog({
   open,
   clientId,
+  opener,
   onClose,
   onOutcome,
   onSaved,
@@ -291,6 +284,7 @@ function SecretDialog({
   readonly open: boolean;
   /** The App the secret is typed for: another one meanwhile is refused. */
   readonly clientId: string | null;
+  readonly opener: HTMLElement | null;
   readonly onClose: () => void;
   readonly onOutcome: OnOutcome;
   readonly onSaved: () => void;
@@ -363,7 +357,7 @@ function SecretDialog({
         if (!next) close();
       }}
     >
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={focusBack(opener)}>
         <DialogHeader>
           <DialogTitle>{t("githubUserLink.secret")}</DialogTitle>
           <DialogDescription>

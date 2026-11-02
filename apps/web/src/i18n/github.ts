@@ -58,6 +58,8 @@ export const githubKo = {
     "고정된 저장소의 요청은 다른 App으로 고정을 옮길 때까지 거절됩니다. 같은 App을 다시 더하면 이 고정이 되살아납니다. GitHub의 App과 설치는 그대로 남습니다.",
   "github.apps.removeHeld":
     "구성원 GitHub 계정 연결이 이 App을 씁니다. 구성원 계정 연결을 다른 작성용 App으로 바꾼 뒤 해제할 수 있습니다.",
+  "github.apps.removeUsageFailed":
+    "이 App을 쓰는 저장소·에이전트·세션을 읽지 못해 해제할 수 없습니다. 창을 닫고 다시 여세요.",
   "github.apps.removed": "{name} 연결을 해제했습니다.",
   "github.add.title": "App 추가",
   "github.add.hint":
@@ -160,7 +162,7 @@ export const githubKo = {
   "github.table.rowMenu": "{name} 메뉴",
   "github.table.manage": "GitHub에서 관리",
   "github.table.approve": "GitHub에서 승인",
-  "github.table.empty": "아직 이 App을 설치한 계정이 없습니다.",
+  "github.table.empty": "아직 GitHub App을 설치한 계정이 없습니다.",
   "github.table.readAt": "GitHub에서 읽음",
   "github.repos.title": "에이전트가 쓰는 저장소",
   "github.repos.counts": "에이전트가 고른 저장소 {count}개",
@@ -168,6 +170,7 @@ export const githubKo = {
     "에이전트가 고른 저장소 {count}개 · 설치 밖 {outside}개",
   "github.repos.manage": "저장소 관리",
   "github.sheet.title": "저장소",
+  "github.sheet.close": "닫기",
   "github.sheet.hint":
     "설치마다 GitHub가 허용한 저장소입니다. 브랜치와 저장소를 맡을 App은 행 메뉴에서 바꿉니다.",
   "github.sheet.installation": "{account} · {app} ({count}개)",
@@ -318,6 +321,8 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Requests for pinned repositories are refused until their pins move to another App. Adding the same App again brings these pins back. The App and its installations stay on GitHub.",
   "github.apps.removeHeld":
     "Member GitHub account linking uses this App. Switch it to another author App, then disconnect this one.",
+  "github.apps.removeUsageFailed":
+    "Could not read the repositories, agents and sessions that use this App, so it cannot be disconnected. Close this and open it again.",
   "github.apps.removed": "Disconnected {name}.",
   "github.add.title": "Add App",
   "github.add.hint":
@@ -422,7 +427,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.table.rowMenu": "{name} menu",
   "github.table.manage": "Manage on GitHub",
   "github.table.approve": "Approve on GitHub",
-  "github.table.empty": "No account has installed this App yet.",
+  "github.table.empty": "No account has installed a GitHub App yet.",
   "github.table.readAt": "Read from GitHub",
   "github.repos.title": "Repositories agents use",
   "github.repos.counts": "{count} repositories picked by agents",
@@ -430,6 +435,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "{count} repositories picked by agents · {outside} outside installations",
   "github.repos.manage": "Manage repositories",
   "github.sheet.title": "Repositories",
+  "github.sheet.close": "Close",
   "github.sheet.hint":
     "What GitHub lets each installation reach. Change a branch or the App that handles a repository from its row menu.",
   "github.sheet.installation": "{account} · {app} ({count})",
@@ -582,6 +588,8 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "固定されたリポジトリのリクエストは、固定を別の App に移すまで拒否されます。同じ App をもう一度追加すると、この固定が戻ります。GitHub の App とインストールはそのまま残ります。",
   "github.apps.removeHeld":
     "メンバーの GitHub アカウント連携がこの App を使っています。アカウント連携を別の作成用 App に切り替えてから解除できます。",
+  "github.apps.removeUsageFailed":
+    "この App を使うリポジトリ・エージェント・セッションを読めなかったため、解除できません。閉じてからもう一度開いてください。",
   "github.apps.removed": "{name} の接続を解除しました。",
   "github.add.title": "App を追加",
   "github.add.hint":
@@ -686,7 +694,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.table.manage": "GitHub で管理",
   "github.table.approve": "GitHub で承認",
   "github.table.empty":
-    "この App をインストールしたアカウントはまだありません。",
+    "GitHub App をインストールしたアカウントはまだありません。",
   "github.table.readAt": "GitHub から読み取り",
   "github.repos.title": "エージェントが使うリポジトリ",
   "github.repos.counts": "エージェントが選んだリポジトリ {count} 件",
@@ -694,6 +702,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "エージェントが選んだリポジトリ {count} 件 · インストール外 {outside} 件",
   "github.repos.manage": "リポジトリを管理",
   "github.sheet.title": "リポジトリ",
+  "github.sheet.close": "閉じる",
   "github.sheet.hint":
     "インストールごとに GitHub が許可したリポジトリです。ブランチと担当する App は行のメニューで変更します。",
   "github.sheet.installation": "{account} · {app} ({count} 件)",

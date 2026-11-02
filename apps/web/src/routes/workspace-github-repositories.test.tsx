@@ -163,6 +163,17 @@ describe("GitHub 연결 › 저장소 시트", () => {
     expect(lists.at(-1)).toBe("?installation_id=78&page=1&per_page=20");
   });
 
+  test("닫기 버튼으로 시트를 닫는다", async () => {
+    renderAt(PATH, routes());
+    const { user, sheet } = await openSheet();
+    await user.click(within(sheet).getByRole("button", { name: "닫기" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "저장소" }) === null).toBe(
+        true,
+      ),
+    );
+  });
+
   test("같은 역할 App이 여럿이면 정지되지 않은 첫 설치를 이름으로 읽는다", async () => {
     const twoApps = {
       ...SETTINGS,
@@ -213,6 +224,40 @@ describe("GitHub 연결 › 저장소 시트", () => {
       .map((call) => call.search);
     expect(new Set(searches)).toEqual(
       new Set(["?installation_id=77&page=1&per_page=20"]),
+    );
+  });
+
+  test("작성용 App 설치가 모두 사라지면 리뷰 승인용 App 설치를 이름으로 읽는다", async () => {
+    const authorsGone = {
+      ...SETTINGS,
+      connections: [
+        githubConnection({ installations: [] }),
+        githubConnection({
+          connection_id: OTHER_AUTHOR,
+          name: "werft-agent-2",
+          installations: [],
+        }),
+        githubConnection({
+          connection_id: REVIEWER_CONNECTION,
+          role: "reviewer",
+          name: "werft-review",
+          app_id: 202,
+          installations: [githubInstallation({ id: 78, account: "beta" })],
+        }),
+      ],
+    };
+    const { api } = renderAt(PATH, {
+      ...routes(),
+      [`GET ${GITHUB_SETTINGS}`]: () => json(200, authorsGone),
+    });
+    expect(
+      await screen.findByText("에이전트가 고른 저장소 2개 · 설치 밖 1개"),
+    ).toBeDefined();
+    const searches = api.calls
+      .filter((call) => call.method === "GET" && call.path === LIST)
+      .map((call) => call.search);
+    expect(new Set(searches)).toEqual(
+      new Set(["?installation_id=78&page=1&per_page=20"]),
     );
   });
 
