@@ -48,6 +48,10 @@ export const achievementRulesKo = {
   "achievementRules.category.archive": "보관",
   "achievementRules.category.inUse": "규칙이 남은 구분은 보관할 수 없습니다.",
   "achievementRules.nameTaken": "같은 이름이 이미 있습니다.",
+  "achievementRules.typeLimit":
+    "보관하지 않은 성과 type은 {max}개까지입니다. type 하나를 보관한 뒤 다시 하세요.",
+  "achievementRules.ruleLimit":
+    "사용 중인 규칙은 {max}개까지입니다. 규칙 하나의 사용을 멈춘 뒤 다시 하세요.",
   "achievementRules.type.title": "성과 type",
   "achievementRules.type.description":
     "type 하나는 규칙 하나에만 쓰입니다. 사람이 만든 type은 제목·링크·근거만 남기고, PR 상태 같은 정보는 근거에서 읽어 보입니다. key와 근거 종류는 만든 뒤 바꿀 수 없습니다.",
@@ -175,6 +179,10 @@ export const achievementRulesEn: Record<
   "achievementRules.category.inUse":
     "A category with rules left can't be archived.",
   "achievementRules.nameTaken": "That name is already taken.",
+  "achievementRules.typeLimit":
+    "A workspace keeps at most {max} achievement types that are not archived. Archive one, then try again.",
+  "achievementRules.ruleLimit":
+    "A workspace has at most {max} rules in use. Stop using one, then try again.",
   "achievementRules.type.title": "Achievement types",
   "achievementRules.type.description":
     "Each type is used by one rule only. A type people made keeps only a title, a link and its evidence; details such as a pull request's state are read from the evidence. A type's key and evidence kind can't change once it is made.",
@@ -304,6 +312,10 @@ export const achievementRulesJa: Record<
   "achievementRules.category.inUse":
     "ルールが残っている区分はアーカイブできません。",
   "achievementRules.nameTaken": "同じ名前がすでにあります。",
+  "achievementRules.typeLimit":
+    "アーカイブしていない成果 type は {max} 個までです。type を 1 つアーカイブしてから、もう一度お試しください。",
+  "achievementRules.ruleLimit":
+    "使用中のルールは {max} 個までです。ルールを 1 つ使用停止してから、もう一度お試しください。",
   "achievementRules.type.title": "成果 type",
   "achievementRules.type.description":
     "type 1 つは 1 つのルールにだけ使います。人が作った type はタイトル・リンク・根拠だけを残し、PR の状態などは根拠から読んで表示します。key と根拠の種類は作成後に変更できません。",

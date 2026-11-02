@@ -818,6 +818,50 @@ describe("성과 규칙", () => {
     );
   });
 
+  test("한도에 걸리면 어떤 한도인지와 할 일을 말한다", async () => {
+    const limit = () =>
+      json(409, {
+        error: {
+          code: "REVISION_CONFLICT",
+          message: "limit reached",
+          retryable: false,
+          request_id: "req-1",
+          details: { reason_code: "limit_reached" },
+        },
+      });
+    await opened({
+      "POST /v1/achievement-types": limit,
+      [`POST /v1/achievement-rules/${DESIGN}/enable`]: limit,
+    });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "type 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "이름" }),
+      "긴급 수정 PR",
+    );
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "key" }),
+      "hotfix_pr",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      "보관하지 않은 성과 type은 50개까지입니다. type 하나를 보관한 뒤 다시 하세요.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    await user.click(
+      screen.getByRole("switch", { name: "설계 문서 작성 사용" }),
+    );
+    expect(
+      await screen.findByText(
+        "사용 중인 규칙은 30개까지입니다. 규칙 하나의 사용을 멈춘 뒤 다시 하세요.",
+      ),
+    ).toBeTruthy();
+  });
+
   test("member: 읽기만 한다", async () => {
     const { api } = await opened({}, memberMe());
     const user = await setupUser();
@@ -901,5 +945,11 @@ test("화면의 상한은 계약의 상한과 같다", async () => {
   );
   expect(screenLimits.ACHIEVEMENT_RULE_TITLE_MAX).toBe(
     contract.ACHIEVEMENT_RULE_TITLE_MAX,
+  );
+  expect(screenLimits.ACHIEVEMENT_TYPE_LIMIT).toBe(
+    contract.ACHIEVEMENT_TYPE_LIMIT,
+  );
+  expect(screenLimits.ACHIEVEMENT_RULE_LIMIT).toBe(
+    contract.ACHIEVEMENT_RULE_LIMIT,
   );
 });

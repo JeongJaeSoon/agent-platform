@@ -89,6 +89,8 @@ export const ACHIEVEMENT_RULE_DEFINITION_MAX = 2_000;
 export const ACHIEVEMENT_CATEGORY_NAME_MAX = 32;
 export const ACHIEVEMENT_TYPE_NAME_MAX = 40;
 export const ACHIEVEMENT_RULE_TITLE_MAX = 80;
+export const ACHIEVEMENT_TYPE_LIMIT = 50;
+export const ACHIEVEMENT_RULE_LIMIT = 30;
 
 const EVIDENCE_KINDS: readonly AchievementEvidenceKind[] = [
   "github_pull_request",
@@ -124,12 +126,22 @@ function reasonCode(error: ApiError): unknown {
   return (error.details as { reason_code?: unknown } | null)?.reason_code;
 }
 
+/** Which of the workspace's limits a write can reach. */
+type Limit = "type" | "rule";
+
 function changeRefusal(
   t: Translate,
   error: ApiError,
   role: string | undefined,
+  limit?: Limit,
 ): string {
   switch (reasonCode(error)) {
+    case "limit_reached":
+      if (limit === "type")
+        return t("achievementRules.typeLimit", { max: ACHIEVEMENT_TYPE_LIMIT });
+      if (limit === "rule")
+        return t("achievementRules.ruleLimit", { max: ACHIEVEMENT_RULE_LIMIT });
+      break;
     case "name_taken":
       return t("achievementRules.nameTaken");
     case "key_taken":
@@ -138,9 +150,8 @@ function changeRefusal(
       return t("achievementRules.category.inUse");
     case "type_in_use":
       return t("achievementRules.rules.typeInUse");
-    default:
-      return refusalText(t, error, "achievement_rule.manage", role);
   }
+  return refusalText(t, error, "achievement_rule.manage", role);
 }
 
 /** Renders `template` with `mark` in place of its one variable. */
@@ -500,7 +511,10 @@ function JudgeCard({
       onOutcome({ kind: "notice", text: t("achievementRules.judge.saved") });
     },
     onError: (error) =>
-      onOutcome({ kind: "error", text: changeRefusal(t, error, role) }),
+      onOutcome({
+        kind: "error",
+        text: changeRefusal(t, error, role),
+      }),
   });
 
   if (judge.isError) {
@@ -707,6 +721,7 @@ function useChange<V, R>(
   request: (value: V) => Promise<R>,
   lists: readonly string[],
   onDone: (result: R) => void,
+  limit?: Limit,
 ): Change<V> {
   const { t } = useI18n();
   const role = useRole();
@@ -719,7 +734,7 @@ function useChange<V, R>(
       onDone(result);
       await invalidate(...lists);
     },
-    onError: (failure) => setError(changeRefusal(t, failure, role)),
+    onError: (failure) => setError(changeRefusal(t, failure, role, limit)),
   });
   return {
     mutate: (value) => {
@@ -1108,6 +1123,7 @@ function TypeForm({
       if (!type) onCreated?.(result.type);
       onClose();
     },
+    "type",
   );
 
   return (
@@ -1227,7 +1243,10 @@ function RulesCard({
     onMutate: () => onOutcome(null),
     onSuccess: () => invalidate("achievement-rules"),
     onError: (error) =>
-      onOutcome({ kind: "error", text: changeRefusal(t, error, role) }),
+      onOutcome({
+        kind: "error",
+        text: changeRefusal(t, error, role, "rule"),
+      }),
   });
   const k = {
     title: t("achievementRules.rules.ruleTitle"),
@@ -1508,7 +1527,10 @@ function RuleEditor({
       await invalidate("achievement-rules");
     },
     onError: (error) =>
-      onOutcome({ kind: "error", text: changeRefusal(t, error, role) }),
+      onOutcome({
+        kind: "error",
+        text: changeRefusal(t, error, role, "rule"),
+      }),
   });
 
   const locked = reason !== undefined || save.isPending;
