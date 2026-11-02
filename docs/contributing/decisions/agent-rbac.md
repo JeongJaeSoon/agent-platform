@@ -22,7 +22,7 @@
 
 ### 판정이 이뤄지는 곳
 
-- 라우트는 요청을 읽어 서비스를 부를 뿐이다. 권한 판정은 서비스가 `requirePermitted`·`requireAllowed`(`packages/platform/src/sessions/session-service.ts:268-299`)로 `policy.authorize`를 불러서 한다. 판정 본체는 `decide()`(`packages/platform/src/musterrolle/policy.ts:501-690`)다.
+- 대부분의 라우트는 요청을 읽어 서비스를 부를 뿐이다. 권한 판정은 서비스가 `requirePermitted`·`requireAllowed`(`packages/platform/src/sessions/session-service.ts:268-299`)로 `policy.authorize`를 불러서 한다. 워크스페이스 설정처럼 라우트가 직접 판정하는 곳도 있다(`apps/control-host/src/api/routes/workspaces.ts:84-93`). 판정 본체는 `decide()`(`packages/platform/src/musterrolle/policy.ts:501-690`)다. 정책은 API(`apps/control-host/src/api/server.ts:458-466`)와 Slack(`apps/control-host/src/slack/main.ts:218`)에서 따로 조립한다.
 - action마다 필요한 것이 다르다.
   - 관리 action은 워크스페이스 역할 목록 `MANAGEMENT_ROLES`(`policy.ts:272-295`)로 판정한다. 역할이 모자라면 `AGENT_ADMIN_ACTIONS`(`policy.ts:309-317`)에 든 action만 그 에이전트의 관리자인지 다시 본다(`policy.ts:594-606`). 사람이 아니면(API key) 늘 거절이다(`policy.ts:595`).
   - 세션 action은 scope로 판정한다(`ACTION_SCOPES`, `policy.ts:254-261`). 사람의 scope는 역할에서 나온다. `owner`는 전부, `admin`·`member`는 `sessions:recover`를 뺀 전부다(`packages/contracts/src/musterrolle/authorization.ts:43-51`).
@@ -37,7 +37,7 @@
 
 | action | 라우트 | 판정(서비스) | 지금 할 수 있는 사람 |
 |---|---|---|---|
-| 에이전트 목록·요약·개수 | `apps/control-host/src/api/routes/agents.ts:27`, `:36` | 워크스페이스에 `agent.manage`(`packages/platform/src/agents/agent-service.ts:276`, `:297`) | 관리자만. `member`는 에이전트 관리자여도 403이다. 화면은 "전체 에이전트 목록은 소유자와 관리자만 봅니다"(`apps/web/src/i18n/agents.ts:9-10`)를 보인다 |
+| 에이전트 목록·요약·개수 | `apps/control-host/src/api/routes/agents.ts:27`, `:36` | 워크스페이스에 `agent.manage`(`packages/platform/src/agents/agent-service.ts:276`, `:297`) | 사람은 관리자만. `member`는 에이전트 관리자여도 403이다. 화면은 "전체 에이전트 목록은 소유자와 관리자만 봅니다"(`apps/web/src/i18n/agents.ts:9-10`)를 보인다. 예외로 에이전트 key는 `session.submit` 판정으로 자기 에이전트 행 하나를 읽는다(`agent-service.ts:223-261`, `:273-275`) |
 | 내가 관리하는 에이전트 | `apps/control-host/src/api/routes/teams.ts:144` | 판정 없음. `administers()`로 거른 목록(`packages/db/src/agent-admins.ts:282-292`) | 로그인한 누구나. `member`가 받는 에이전트 목록은 이것뿐이다 |
 | 에이전트 상세(카드·버전·릴리스) | `routes/agents.ts:51` | 에이전트에 `agent.manage`(`agent-service.ts:301-306`) | 관리자, 에이전트 관리자 |
 | 에이전트 만들기 | `routes/agents.ts:43` | 워크스페이스에 `agent.create`(`agent-service.ts:313`) | `owner`·`admin`·`member`. 만든 사람이 개인 관리자가 된다(`packages/db/src/agents.ts:422-428`). 만드는 경로는 이것 하나다(`agents.ts:401`) |
@@ -52,7 +52,8 @@
 | **에이전트로 세션 시작(웹·API)** | `apps/control-host/src/api/routes/sessions.ts:42` | `session.submit`, 리소스 `{session, id: null, agent_id, release_id}`(`session-service.ts:623-646`) | `sessions:write`를 가진 누구나. **그 에이전트와의 관계는 보지 않는다.** 에이전트 key는 자기 에이전트만(`policy.ts:609-616`). 자격 증명이 연결되지 않았으면 거절(`policy.ts:682-686`) |
 | **Slack으로 세션 시작** | `packages/platform/src/musterrolle/slack-session-handler.ts:249-279` | `session.submit`, surface binding과 활성 릴리스 | 살아 있는 구성원과 연결된 Slack 사용자. 게스트는 설정이 켜졌을 때만, 외부 사용자는 안 된다(`policy.ts:529-537`). 앱이 그 에이전트의 것이어야 한다(`policy.ts:643-647`). 사람과 에이전트의 관계는 보지 않는다 |
 
-- 에이전트를 읽는 action이 따로 없다. 읽기도 쓰기 action(`agent.manage`·`credential.bind`·`binding.manage`)으로 판정하므로, 에이전트를 보는 사람은 관리자와 에이전트 관리자뿐이다.
+- 에이전트를 읽는 action이 따로 없다. 읽기도 쓰기 action(`agent.manage`·`credential.bind`·`binding.manage`)으로 판정하므로, 에이전트를 보는 사람은 관리자와 에이전트 관리자뿐이다(에이전트 key의 자기 행 읽기는 예외). 같은 판정 함수를 읽기와 쓰기가 같이 쓴다. 예를 들어 Slack 앱 조회(`packages/platform/src/musterrolle/slack-app-service.ts:320`)와 채널 조회(`packages/platform/src/musterrolle/slack-channel-search.ts:338`)가 그렇다.
+- 에이전트를 대상으로 한 receipt도 세션 밖 읽기 경로다. receipt에 `session_id`가 없으면 `session.read`(`id: null`)만 본다(`session-service.ts:1461-1468`). 자격 증명 연결 receipt는 에이전트를 대상으로 하고 `credential_ref`를 싣는다(`packages/db/src/credential-bindings.ts:179-184`). 그래서 id를 아는 `member`면 설정의 일부를 읽는다.
 
 ### 세션 action
 
@@ -71,7 +72,9 @@
 - 공유 범위 판정은 `sessionVisibleTo`(`packages/db/src/session-shares.ts:95-101`)다. 공유 행이 없거나 범위가 `workspace`면 누구나(`:97`), 아니면 만든 사람, 이름으로 지정된 사람, 지정된 팀의 지금 구성원이 본다. 팀은 보관되지 않았고 구성원 행이 지워지지 않은 것만 센다. 잠금 아래에서 다시 보는 구현이 따로 있다(`lockSessionReach`, `packages/db/src/requester-locks.ts:167`). 공유 규칙을 바꾸면 두 곳을 같이 고친다.
 - 공유 범위 바깥이면 관리자도 보통 화면에서는 404다. 볼 수 있는 길은 사유를 남기는 감사 열람뿐이다(`policy.ts:566-576`). 에이전트 관리자에게는 공유 밖 세션을 보는 길이 없다. 운영자 문서에도 그렇게 적혀 있다(`docs/operator/api-server.md:629`).
 - 세션을 만들 때 공유 행을 쓰는 것은 `shareScope`가 있을 때뿐이다(`postgres-unit-of-work.ts:310-320`). 웹·API 라우트는 이 값을 넘기지 않는다(`routes/sessions.ts:42-50`). 그래서 웹·API 세션은 공유 행 없이 `workspace`로 시작한다. 이 값을 넘기는 곳은 Slack DM의 `private`(`slack-session-handler.ts:415`)뿐이다.
-- 에이전트별 사용량은 공유와 상관없이 그 에이전트의 모든 세션을 합한 수치다. 최근 항목의 세션 id·제목은 볼 수 있는 세션만 드러낸다(`packages/db/src/usage-reader.ts:101-105`, `:517-531`).
+- 에이전트별 사용량은 공유와 상관없이 그 에이전트의 모든 세션을 합한 수치다(`packages/db/src/usage-reader.ts:101-105`). 최근 성과 항목은 볼 수 없는 세션의 `session_id`만 가린다(`usage-reader.ts:524`). 같은 행의 세션 제목(`:525`)과 성과 제목·링크(`:526`)는 그대로 돌려주고, 서비스도 그대로 싣는다(`packages/platform/src/usage/usage-service.ts:433-438`). 에이전트 관리자는 공유 밖 세션의 제목을 여기서 본다.
+- Slack 채널 세션의 답은 채널 스레드에 올라간다. 보내기 전에 보는 것은 링크가 살아 있는지, 설치가 폐기되지 않았는지 정도다(`packages/db/src/slack-outbox.ts:100-112`). 받는 사람은 정하지 않는다(`packages/platform/src/musterrolle/slack-outbox.ts:270-272`). 채널에 있는 사람은 공유 범위와 상관없이 답을 읽는다.
+- 세션을 만드는 쓰기 안의 재확인(`packages/db/src/postgres-unit-of-work.ts:248-252`의 `lockRequester`)은 요청자와 key의 에이전트 범위만 다시 본다. 승인 쓰기 안의 재확인(`lockSessionReach`, `packages/db/src/requester-locks.ts:215-337`, 호출 `packages/db/src/pending-requests.ts:670`)은 개인 관리자와 관리자 팀을 따로 구현한다. `administers()`를 부르지 않는다.
 
 ### 정리하면
 
@@ -92,7 +95,7 @@
 
 - W·L·T를 그 에이전트의 **안쪽**이라 한다. 판정 함수 하나(`insideAgent`)로 정의하고, 정책과 목록 SQL이 이 함수를 같이 쓴다.
 - 담당 팀이 비어 있는 에이전트(이행 중)에는 T가 없다. 안쪽은 W·L뿐이다.
-- 개인 key는 만든 사람으로 판정한다(지금과 같다, `policy.ts:338-354`). 에이전트 key는 멤버가 아니다. 자기 에이전트의 안쪽으로 본다. 그래도 자기 에이전트 밖으로 나갈 수 없다는 상한(`policy.ts:609-616`)은 그대로다. 에이전트 key의 다른 권한도 바꾸지 않는다.
+- 개인 key는 만든 사람으로, 그 사람의 지금 역할과 팀으로 판정한다(지금과 같다, `policy.ts:338-354`). 에이전트 key는 멤버가 아니다. 자기 에이전트의 안쪽으로 본다. 그러려면 열람 판정이 key의 에이전트를 알아야 하는데, 지금 `SessionViewer`에는 `userId`·`apiKeyId`뿐이다(`packages/platform/src/ports/session-share-store.ts:12`). 정책이 다시 읽은 key의 에이전트(`keyAgentId`)를 `SessionViewer`에 더하고, 목록 SQL과 잠금 재확인도 같은 값을 쓴다. 자기 에이전트 밖으로 나갈 수 없다는 상한(`policy.ts:609-616`)과 에이전트 key의 다른 권한은 그대로다.
 
 ### 대상과 액션의 기본값
 
@@ -116,22 +119,26 @@
 
 - **L과 T의 차이**: 둘 다 에이전트 정보와 설정을 보고, 에이전트를 쓰고, 안쪽 세션을 본다. 바꾸는 권한(설정·관리자·key)과 남의 세션에 답하는 권한(승인·이름 바꾸기)은 L만 있다. 앞선 설계(T는 관리 권한 없음)와 같고, 설정 열람과 세션 열람을 T에게 준다는 점이 새로 정해진 것이다.
 - **O가 세션을 보는 범위**: 축 B가 `managing_team`이면 공유 범위가 `workspace`인 세션(공유 행이 없는 것 포함)이 O에게 닿지 않는다. 만든 사람이 일부러 고르는 `people`·`team` 범위는 지금처럼 O에게도 닿는다. 이 둘은 남에게 보이려고 고르는 것이고 receipt도 남는다(`docs/operator/api-server.md:631`). 오너가 말한 "자기가 실행한 것만"과는 이 예외만큼 다르다. 이 예외도 막을지는 [(g) G6](#g-오너-확인-필요)에 올렸다.
+- **Slack 채널**: 에이전트를 채널에 연결하는 것(`binding.manage`, L·W)은 그 채널 사람들에게 답을 보이겠다는 명시적 결정으로 본다. 채널 세션의 답은 축 B와 상관없이 지금처럼 스레드에 올라간다. 바깥쪽이 채널에서 세션을 **시작**하는 것은 축 A를 따른다. 축 A가 `use`가 아니면 거절하고, 지금 거절과 같은 안내를 보낸다. 채널 연결 화면은 "이 채널의 모든 사람이 답을 읽습니다. 담당 팀 밖 사람도 포함됩니다"를 보인다. 채널에서도 답을 줄일지는 [(g) G10](#g-오너-확인-필요)에 올렸다. DM 세션은 지금처럼 `private`다.
 - **세션 목록의 메타데이터**: 목록은 상세와 같은 기준으로 거른다. 제목만 따로 보이는 등급은 두지 않는다. 제목에도 내용이 들어가기 때문이다. 관리자가 메타데이터만 보는 관리자 목록은 지금처럼 둔다.
 - **세션 제어**: 볼 수 있는 사람이 남의 세션에 메시지를 보내는 것은 그대로 둔다. Slack 채널 스레드에서 여러 사람이 한 세션에 말을 거는 것이 이 경로다(`SLACK_SURFACE_ACTION_VALUES`, `packages/contracts/src/kollegium/surfaces.ts:98-103`). interrupt·close 같은 제어를 만든 사람과 L만으로 좁힐지는 [(g) G7](#g-오너-확인-필요)에 올렸다. 기본값은 지금 그대로다.
 - **L의 제한**
   - W가 아닌 L은 담당 팀을 **자기가 속한 팀**(`lead`·`member`)으로만 바꾼다. 비우는 것(null)은 누구도 못 한다([(d)](#d-담당-팀-필수)).
   - 관리자 팀(`agent_admin_teams`)을 새로 추가할 때는 W가 아니면 **자기가 `lead`인 팀**만 고른다. 관리자 팀은 구성원 모두에게 관리 권한을 주므로, 담당 팀보다 좁게 막는다. 이미 있는 행은 그대로 둔다.
-- **바꾸지 않는 것**: 공유 범위 바꾸기(`mayShare`), 승인 판정(`mayAnswer`)의 구조, W의 감사 열람, `owner`만 하는 복구는 그대로 둔다. L이 늘어나는 것은 `administers()`에 담당 팀 `lead` 경로가 더해지기 때문이다. `mayAnswer`·`mayShare` 코드는 고치지 않는다.
+- **바꾸지 않는 것**: 공유 범위 바꾸기(`mayShare`), 승인 판정(`mayAnswer`)의 구조, W의 감사 열람, `owner`만 하는 복구는 그대로 둔다. L이 늘어나는 것은 `administers()`에 담당 팀 `lead` 경로가 더해지기 때문이다. 정책의 `mayAnswer`·`mayShare`는 `isAdmin`을 거치므로 코드가 바뀌지 않는다. 하지만 승인 쓰기 안의 재확인(`requester-locks.ts:215-337`)은 관리자 경로를 따로 구현하므로, 같은 단위(R1)에서 담당 팀 `lead` 경로를 더한다. 그러지 않으면 담당 팀 `lead`가 정책은 지나고 승인 쓰기에서 거절된다.
+- **receipt 읽기**: 에이전트를 대상으로 한 receipt는 `agent.settings_read`로, 세션 receipt는 지금처럼 `session.read`로 판정한다. 대상이 없는 receipt는 지금처럼 둔다.
+- **사용량의 최근 항목**: 볼 수 없는 세션의 행은 `session_id`만 가리지 않고 행을 통째로 뺀다. 합계 수치는 지금처럼 모든 세션을 센다(L·W만 보는 수치다).
 
 ### 판정 구현
 
 | 대상 | 바뀌는 것 |
 |---|---|
 | action | 읽기 action 둘을 새로 둔다. `agent.read`(에이전트 정보)와 `agent.settings_read`(설정 열람)이다. 지금 쓰기 action으로 판정하는 읽기를 이 둘로 옮긴다. 상세는 `agent-service.ts:301-306`, 자격 증명 연결 목록은 `credential-binding-service.ts:69-80`, GitHub 조회는 `agent-github-service.ts:164`, Slack 연결 목록은 `surface-binding-service.ts:167-178`, 관리자 목록은 `agent-admin-service.ts:116-124`다. 계약의 action 목록(`packages/contracts/src/musterrolle/authorization.ts:316-373`)과 리소스 표(`:387-424`)에 더한다 |
-| `agent.read` | W는 통과. 그 밖에는 안쪽이거나 축 A가 `none`이 아니면 통과. 목록(`GET /v1/agents`)은 워크스페이스 단위 판정을 그만두고 행마다 같은 조건으로 거른다(SQL). O가 받는 항목은 에이전트 행(`agent`)뿐이다. 카드·버전·요약은 주지 않는다 |
-| `agent.settings_read` | W이거나 안쪽 |
-| `session.submit`(세션 시작) | 리소스에 `agent_id`가 있는 시작 판정에 축 A를 더한다. 바깥쪽이고 축 A가 `use`가 아니면 거절(`role`). 웹·API(`session-service.ts:623-646`)와 Slack(`slack-session-handler.ts:265-275`)이 같은 정책을 거치므로 한 곳(`policy.ts`의 `release_id` 분기 앞)에서 판정한다. 이미 있는 세션에 메시지를 보내는 것은 축 A를 보지 않는다 |
-| 세션 열람 | `sessionVisibleTo`의 `workspace` 갈래(`session-shares.ts:97`)에 조건을 더한다. 세션의 에이전트에 담당 팀이 없거나, 축 B가 `workspace`이거나, 보는 사람이 안쪽이어야 한다. 잠금 쪽 재확인(`requester-locks.ts:167`)에도 같은 조건을 넣는다. 목록·개수·상세·SSE가 모두 이 판정을 지나므로 같이 바뀐다 |
+| `agent.read` | W는 통과. 그 밖에는 안쪽이거나 축 A가 `none`이 아니면 통과. 목록(`GET /v1/agents`)·개수(`/v1/agents/counts`)는 워크스페이스 단위 판정을 그만두고 행마다 같은 조건으로 거른다(SQL). 목록 항목은 지금처럼 에이전트 행(`agent`)이다. `include=summary`의 요약(관리자·자격 증명 연결을 싣는다)은 `agent.settings_read`가 되는 행에만 붙이고, 나머지 행은 요약 없이 준다. 에이전트 key의 자기 행 경로(`agent-service.ts:223-261`)는 그대로다 |
+| `agent.settings_read` | W이거나 안쪽. 상세(`GET /v1/agents/{id}`, 응답은 `versions`·`releases`·`active_release`를 요구한다, `packages/contracts/src/kollegium/agents.ts:422-429`)는 이 action으로 판정한다. O는 상세 대신 목록의 `ids` 필터로 에이전트 행을 읽는다. 별도 정보 상세 엔드포인트는 만들지 않는다 |
+| 읽기·쓰기 분리 | 읽기와 쓰기가 한 판정 함수를 같이 쓰는 서비스는 함수를 둘로 나눈다. 자격 증명 연결(`credential-binding-service.ts:51-66`), Slack 연결·앱·채널·identity(`surface-binding-service.ts:100-104`, `slack-app-service.ts:320`, `slack-channel-search.ts:338`, `packages/platform/src/musterrolle/agent-identity-service.ts:57-61`), GitHub(`agent-github-service.ts:157-161`, `packages/platform/src/musterrolle/github-repository-service.ts:213-217`)가 대상이다. T에게 읽기를 열면서 쓰기가 같이 열리지 않게 하려는 것이다 |
+| `session.submit`(세션 시작) | 리소스에 `agent_id`가 있는 시작 판정에 축 A를 더한다. 바깥쪽이고 축 A가 `use`가 아니면 거절(`role`). 웹·API(`session-service.ts:623-646`)와 Slack(`slack-session-handler.ts:265-275`)이 같은 정책을 거치므로 한 곳(`policy.ts`의 `release_id` 분기 앞)에서 판정한다. 세션을 만드는 쓰기(`postgres-unit-of-work.ts:248-252`)도 같은 트랜잭션에서 축 A를 다시 본다. 이때 워크스페이스 행(설정)을 `FOR SHARE`로, 에이전트 행(담당 팀)과 판정 근거인 팀·구성원 행을 함께 잠근다. 설정 쓰기는 같은 워크스페이스 행을 UPDATE하므로(`workspace-settings.ts:47-53`) 둘이 엇갈리지 않는다. 잠그는 순서는 워크스페이스 → 에이전트 → 팀 → 구성원으로 정한다. 이미 있는 세션에 메시지를 보내는 것은 축 A를 보지 않는다 |
+| 세션 열람 | `sessionVisibleTo`의 `workspace` 갈래(`session-shares.ts:97`)에 조건을 더한다. 세션의 에이전트에 담당 팀이 없거나, 축 B가 `workspace`이거나, 보는 사람이 안쪽이어야 한다. 에이전트 key는 `keyAgentId`가 세션의 에이전트와 같으면 안쪽이다. 잠금 쪽 재확인(`requester-locks.ts:167`)과 사용량 최근 항목(`usage-reader.ts:517-531`)도 같은 조건을 쓴다. 목록·개수·상세·SSE가 모두 이 판정을 지나므로 같이 바뀐다 |
 | 안쪽 판정 | `insideAgent(db, workspaceId, userId, agentId)`를 SQL 하나로 만든다. W이거나 `administers()`이거나, 담당 팀이 보관되지 않았고 그 팀의 살아 있는 구성원이면 참이다. 팀 구성원은 판정 때마다 읽는다(`administers.ts:21-26`와 같은 원칙) |
 | SSE | 설정이나 팀 구성원이 바뀌어도 바로 알리지 않는다. 다음 페이지를 읽을 때 다시 판정해 끊는다(`events.ts:338-344`). 지금 팀에서 빠질 때와 같다 |
 
@@ -147,6 +154,10 @@
 - 축 A 기본값 `use`: 오너 원문의 "자기가 실행할 수 있는 거지"를 따랐다. 지금도 바깥쪽은 실행할 수 있으므로 실행 쪽은 달라지는 것이 없다. 정보 열람은 지금 막혀 있던 것이 열린다.
 - 축 B 기본값 `managing_team`: 오너 원문의 "세션의 상세 내용을 모두 못 보고"와 잠정 결정 d124(담당 팀 쪽)를 따랐다. 담당 팀이 없는 에이전트에는 적용하지 않으므로, 배포 직후에는 아무 세션의 공개 범위도 바뀌지 않는다. 에이전트에 담당 팀을 정하는 순간부터 그 에이전트의 `workspace` 공개 세션(이전 세션 포함)이 바깥쪽에서 사라진다. 담당 팀을 정하는 화면에서 이 결과를 알린다: "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기가 시작했거나 공유받은 것만 봅니다(워크스페이스 설정)".
 - 축 B는 판정 시점의 상한이다. 설정을 바꾸면 기존 세션에도 다음 요청부터 적용되고, 되돌리면 그대로 돌아온다. 공유 행은 하나도 쓰지 않는다.
+- 축 B는 `workspace` 범위의 뜻을 바꾼다. 지금 계약은 "`workspace` = 멤버 모두"다(`docs/operator/api-server.md:617`). 이 계약을 직접 검증하는 시험도 있다(`packages/db/src/session-shares.integration.test.ts:154`). 저장된 범위(만든 사람이 고른 것)와 실제로 보는 사람이 달라지므로 다음을 같이 바꾼다.
+  - 공유 조회 응답(`GET /v1/sessions/{id}/share`)에 `audience_limited: boolean`을 더한다. 축 B 때문에 `workspace`가 바깥쪽에 닿지 않으면 참이다. 공유 화면은 이때 `workspace`를 "워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)"로 보인다. 그래서 `people` → `workspace`로 바꾸면 보는 사람이 줄 수 있다는 것이 화면에 보인다.
+  - 운영자 문서의 범위 표를 "`workspace`: 멤버 모두. 단 담당 팀이 있는 에이전트이고 축 B가 `managing_team`이면 안쪽만"으로 고친다.
+  - 위 시험은 담당 팀 없는 에이전트의 세션으로 그대로 남긴다. 새 시험을 더한다. 담당 팀 지정·변경·해제(이행 중 에이전트로), 축 B 전환, 팀 구성원 빠짐이 기존 세션의 열람자를 바로 바꾸는지 본다.
 - 에이전트마다 따로 덮어쓰는 설정은 두지 않는다([(g) G5](#g-오너-확인-필요)).
 - 화면: 워크스페이스 설정(`apps/web/src/routes/workspace-settings.tsx`)에 '에이전트 접근' 묶음을 두고, 두 축을 라디오로 보인다.
 
@@ -164,9 +175,10 @@
 
 ### 생성 API와 마법사
 
-- `POST /v1/agents`에 `managing_team_id`를 더한다. 두 단계로 켠다.
-  1. 선택값으로 받는다. 화면이 보내기 시작한다.
-  2. 화면이 배포된 뒤 필수로 바꾼다. 없으면 400이다. API를 직접 부르는 사용자(SDK)에게는 깨지는 변경이므로 사용자 문서와 변경 기록에 적는다.
+- `POST /v1/agents`에 `managing_team_id`를 더한다. 생성 요청 계약은 strict라(`packages/contracts/src/kollegium/agents.ts:537-543`) 옛 서버는 이 필드를 거절한다. 그래서 세 단계로 켠다.
+  1. (R1) 서버가 선택값으로 받는다. 응답의 에이전트·팀에도 새 필드(`managing_team_id`, `role`)가 생긴다. 응답 계약도 strict다(`agents.ts:422-429`, `packages/contracts/src/musterrolle/teams.ts:50`). 그래서 R1 PR은 생성 클라이언트(`packages/client`)가 응답을 strict로 검증하는지 확인하고, 그렇다면 그 클라이언트를 먼저 내보낸다.
+  2. (R4) R1 이미지가 모든 API 복제본에 나가 롤백 하한이 된 뒤 화면이 보내기 시작한다. 오래 열린 옛 화면은 필드 없이 보내고, 1단계라 받아들여진다.
+  3. (R5) R4 화면이 배포된 뒤 필수로 바꾼다. 없으면 400이다. API를 직접 부르는 사용자(SDK)에게는 깨지는 변경이다. 사용자 문서와 변경 기록에 강제 시점을 먼저 적고, 그 시점이 지난 배포에서 켠다.
 - 지정 자격: W는 보관되지 않은 아무 팀이나 고른다. W가 아니면 **자기가 속한 팀**(`lead`·`member`)만 고른다. 다른 팀을 고르면 403 `team_not_allowed`다. 자격은 쓰는 트랜잭션 안에서 팀 행과 구성원 행을 잠근 채 다시 본다.
 - 만든 사람은 지금처럼 개인 관리자가 된다(`agents.ts:422-428`). 그래서 `member`인 담당 팀 구성원이 에이전트를 만들어도 자기 에이전트를 관리한다. 그 팀의 `lead`도 관리자가 된다.
 - 속한 팀이 없는 `member`는 에이전트를 만들 수 없다. 담당 팀이 필수라서 생기는 결과다. 마법사는 첫 단계에서 "속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 관리자에게 팀에 넣어 달라고 요청하세요."를 보이고 진행하지 않는다. 이를 받아들일지는 [(g) G3](#g-오너-확인-필요)에 올렸다.
@@ -195,7 +207,8 @@
 | 3. 워크스페이스마다 '기본 팀'을 만들어 모든 에이전트에 채운다 | 구성원 전원을 넣은 팀 | 모든 `member`가 모든 에이전트의 안쪽이 된다. 설정 열람이 모두에게 열린다. 담당 팀의 뜻이 사라진다 |
 
 - 1을 고른다. 2는 지정 화면에서 "관리자 팀 ○○을 담당 팀으로" 추천 버튼으로만 쓴다. 누르는 것은 사람이다.
-- 되돌리기: 앱을 롤백해도 두 열은 남긴다. 옛 이미지는 열을 모르므로 담당 팀 `lead`·구성원 권한과 축 A·B만 사라진다. 나머지 권한은 지금과 같다. 설정 키도 남긴다. 열이나 키를 지우는 정리는 배포 뒤 지정한 값을 잃는 되돌릴 수 없는 작업이다. 하려면 내보내기·복구 절차와 오너 확인이 먼저다. 지금 계획에는 넣지 않는다.
+- 되돌리기(데이터): 앱을 롤백해도 두 열은 남긴다. 설정 키도 남긴다. 데이터는 깨지지 않는다.
+- 되돌리기(권한): 데이터가 안전하다고 권한이 안전한 것은 아니다. R3 아래로 롤백하면 옛 `sessionVisibleTo`가 `workspace`를 무조건 허용해(`session-shares.ts:97`) 축 B로 숨긴 세션이 바깥쪽에 다시 보이고, 축 A도 사라진다. R1 아래로 롤백하면 옛 팀 보관 쓰기(`member-teams.ts:299-331`)가 담당 팀을 보관하게 둔다. 그래서 R1과 R3는 각각 모든 API·Slack 복제본에 나간 뒤 롤백 하한으로 선언한다. 하한 아래 롤백이 꼭 필요하면 그 전에 오너에게 "숨겼던 세션이 다시 워크스페이스에 보인다"를 알린다. 롤백 뒤 다시 올리면 설정과 열이 남아 있어 같은 상태로 돌아온다. 열이나 키를 지우는 정리는 배포 뒤 지정한 값을 잃는 되돌릴 수 없는 작업이다. 하려면 내보내기·복구 절차와 오너 확인이 먼저다. 지금 계획에는 넣지 않는다.
 
 ## (e) 앞선 결정과의 차이
 
@@ -216,9 +229,9 @@
 
 | 단위 | 내용 | 쓰기 경로 | start-after | land-after |
 |---|---|---|---|---|
-| R1 | 팀 역할과 담당 팀의 데이터·계약·판정. `role` 열, `managing_team_id` 열, `administers()`·`lockedAdministers()`의 담당 팀 `lead` 경로, `insideAgent`, `PUT /v1/agents/{id}/managing-team`, `POST /v1/agents`의 선택값 `managing_team_id`와 지정 자격, 관리자 팀 새 추가 제한, 팀 보관 거절, 팀 구성원 역할 API, `my-teams`의 `role`, receipt | `packages/db/migrations/<다음 번호>`, `packages/db/src/schema.ts`, `packages/db/src/administers.ts`, `packages/db/src/agent-admins.ts`, `packages/db/src/agents.ts`, `packages/db/src/member-teams.ts`, `packages/db/src/api-keys.ts`(시험만일 수 있음), `packages/platform/src/agents/agent-service.ts`, `packages/platform/src/musterrolle/agent-admin-service.ts`, `packages/platform/src/musterrolle/team-service.ts`, `packages/contracts/src/musterrolle/teams.ts`, `packages/contracts/src/kollegium/agents.ts`, `apps/control-host/src/api/routes/teams.ts`·`agents.ts`, `apps/control-host/src/api/openapi.ts`, `packages/client/src/schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md`, 시험 | U4a 착지 | U4a |
-| R2 | 에이전트 읽기 action 분리(`agent.read`·`agent.settings_read`), 행마다 거르는 에이전트 목록, 바깥쪽에 에이전트 행만 주기, 읽기 경로를 새 action으로 옮기기 | `packages/contracts/src/musterrolle/authorization.ts`, `packages/platform/src/musterrolle/policy.ts`, `packages/db/src/agents.ts`(목록 SQL), `packages/db/src/agent-authority.ts`, `packages/platform/src/agents/agent-service.ts`, `agent-github-service.ts`, `packages/platform/src/musterrolle/credential-binding-service.ts`, `surface-binding-service.ts`, `agent-admin-service.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md`, 시험 | R1 착지 | R1 |
-| R3 | 워크스페이스 설정 두 축. 설정 계약·API, 축 A를 세션 시작 판정에, 축 B를 `sessionVisibleTo`와 `lockSessionReach`에 넣기, 운영자·사용자 문서 | `packages/db/src/workspace-settings.ts`, `apps/control-host/src/api/routes/workspaces.ts`, 워크스페이스 설정 계약(`packages/contracts/src/musterrolle/`), `packages/platform/src/musterrolle/policy.ts`, `packages/db/src/session-shares.ts`, `packages/db/src/requester-locks.ts`, `packages/db/src/postgres-unit-of-work.ts`(필요하면), `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md`(`:610-631`), `apps/docs/content/docs/sessions/start*.mdx`(`:71`), 시험 | R1 착지 | R2 |
+| R1 | 팀 역할과 담당 팀의 데이터·계약·판정. `role` 열, `managing_team_id` 열, `administers()`·`lockedAdministers()`·승인 쓰기 재확인(`requester-locks.ts:215-337`)의 담당 팀 `lead` 경로, `insideAgent`, `PUT /v1/agents/{id}/managing-team`, `POST /v1/agents`의 선택값 `managing_team_id`와 지정 자격, 관리자 팀 새 추가 제한, 팀 보관 거절, 팀 구성원 역할 API, `my-teams`의 `role`, receipt. 에이전트 수정·릴리스·켜기 쓰기(`packages/db/src/agents.ts:442`, `:504`, `:578`)에 역할 또는 `lockedAdministers()` 재확인을 넣고, 담당 팀 변경과 같은 에이전트 행 잠금으로 줄 세운다(담당 팀을 옮기거나 `lead`를 내린 직후의 요청이 쓰기를 끝내지 않게) | `packages/db/migrations/<다음 번호>`, `packages/db/src/schema.ts`, `packages/db/src/administers.ts`, `packages/db/src/agent-admins.ts`, `packages/db/src/agents.ts`, `packages/db/src/member-teams.ts`, `packages/db/src/requester-locks.ts`, `packages/db/src/api-keys.ts`(시험만일 수 있음), `packages/platform/src/ports/agent-store.ts`(`create` 입력), `packages/platform/src/agents/agent-service.ts`, `packages/platform/src/musterrolle/agent-admin-service.ts`, `packages/platform/src/musterrolle/team-service.ts`, `packages/contracts/src/musterrolle/teams.ts`, `packages/contracts/src/kollegium/agents.ts`, `apps/control-host/src/api/routes/teams.ts`·`agents.ts`, `apps/control-host/src/api/openapi.ts`, `packages/client/src/schema.gen.ts`(응답 검증 확인), `docs/openapi.json`, `docs/operator/api-server.md`, 시험 | U4a 착지 | U4a |
+| R2 | 에이전트 읽기 action 분리(`agent.read`·`agent.settings_read`), 행마다 거르는 에이전트 목록·개수·요약, 읽기·쓰기 판정 함수 분리, 에이전트 대상 receipt 읽기 판정 | `packages/contracts/src/musterrolle/authorization.ts`, `packages/platform/src/musterrolle/policy.ts`, `packages/db/src/agents.ts`(목록·개수 SQL), `packages/db/src/agent-authority.ts`, `packages/platform/src/agents/agent-service.ts`, `agent-github-service.ts`, `packages/platform/src/musterrolle/credential-binding-service.ts`, `surface-binding-service.ts`, `slack-app-service.ts`, `slack-channel-search.ts`, `agent-identity-service.ts`, `github-repository-service.ts`, `agent-admin-service.ts`, `packages/platform/src/sessions/session-service.ts`(receipt 읽기, `:1461-1468`), `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md`, 시험 | R1 착지 | R1 |
+| R3 | 워크스페이스 설정 두 축. 설정 계약·API, 축 A를 세션 시작 판정과 생성 쓰기 재확인에, 축 B를 `sessionVisibleTo`·`lockSessionReach`·사용량 최근 항목에 넣기, `SessionViewer`의 `keyAgentId`, 공유 조회 응답의 `audience_limited`, 정책 조립(API·Slack)에 설정 읽기 연결, 운영자·사용자 문서 | `packages/db/src/workspace-settings.ts`, `apps/control-host/src/api/routes/workspaces.ts`, 워크스페이스 설정 계약(`packages/contracts/src/musterrolle/`), `packages/contracts/src/musterrolle/session-shares.ts`, `packages/platform/src/musterrolle/policy.ts`, `packages/platform/src/ports/session-share-store.ts`, `packages/db/src/session-shares.ts`, `packages/db/src/requester-locks.ts`, `packages/db/src/postgres-unit-of-work.ts`, `packages/db/src/usage-reader.ts`, `apps/control-host/src/api/server.ts`, `apps/control-host/src/slack/main.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md`(`:610-631`), `apps/docs/content/docs/sessions/start*.mdx`(`:71`), 시험(`packages/db/src/session-shares.integration.test.ts` 포함) | R1 착지 | R2 |
 | R4 | 화면. 마법사 1단계 '담당 팀'(필수), 관리자 탭의 '담당 팀', 팀 화면의 구성원 역할, `member`용 에이전트 목록(정보만), T가 보는 읽기 전용 설정 화면, 워크스페이스 설정의 두 축, '담당 팀 미지정' 표시와 거르기, 바뀐 문구의 사용자 문서 | `apps/web/src/components/new-agent-flow.tsx`, `apps/web/src/components/agent-admins.tsx`, `apps/web/src/routes/teams.tsx`, `apps/web/src/routes/agents.tsx`, `apps/web/src/routes/agent-detail*.tsx`, `apps/web/src/routes/workspace-settings.tsx`, `apps/web/src/i18n/agents.ts`·`teams.ts`와 설정 문구, `apps/storybook/src/screens/*`, `apps/docs/content/docs/agents/*` | R1(마법사·관리자 탭·팀 화면), R2(목록·읽기 전용 설정), R3(설정 화면) 착지 | U4c, R3 |
 | R5 | 담당 팀 필수 켜기. `POST /v1/agents`에서 `managing_team_id`가 없으면 400, 사용자 문서와 변경 기록 | `packages/contracts/src/kollegium/agents.ts`, `packages/platform/src/agents/agent-service.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `apps/docs/content/docs/agents/*`, 시험 | R4 배포 | R4 |
 
@@ -229,7 +242,7 @@
   - **U4c·U1·U3**: `new-agent-flow.tsx`, `apps/web/src/i18n/agents.ts`가 R4와 겹친다. R4는 U4c 뒤에 착지한다(앞선 설계의 U5b와 같은 자리).
   - `policy.ts`·`openapi.ts`는 R2·R3가 같이 쓴다. R2 → R3 순서로 착지한다.
 - 줄 세우기: 계약·DB 경로는 U4a → R1 → R2 → R3, 화면 경로는 U1 → U3 → U4c → R4, 마지막이 R5다. R2와 R3는 R1이 착지한 뒤 함께 시작할 수 있지만 착지는 R2가 먼저다.
-- 배포 하한이 필요한 단위는 R5(R4 화면이 운영에 나간 뒤)다. R1~R4는 열·키를 더하고 판정을 넓히거나 좁힐 뿐이라, 롤백해도 데이터가 깨지지 않는다.
+- 배포 하한: R4의 '담당 팀' 보내기는 R1 이미지가 하한이 된 뒤 켠다. R5는 R4 화면이 운영에 나간 뒤 켠다. R1과 R3는 배포 뒤 롤백 하한으로 선언한다. 그 아래로 롤백하면 데이터는 그대로지만 숨긴 세션이 다시 보이고 담당 팀 보관 거절이 사라진다([(d) 되돌리기](#기존-에이전트-이행)).
 - 티켓은 R1+R2, R3, R4+R5 셋으로 묶기를 제안한다. 94S-1248(U5a·U5b·U5c)은 이 묶음으로 다시 쓴다(티켓은 리드가 고친다).
 - 고칠 문서: `docs/operator/api-server.md:610-631`(공유 범위 기본값과 바깥쪽 상한, R3), `apps/docs/content/docs/sessions/start.mdx:71`·`start.en.mdx:71`(R3), 에이전트 만들기 사용자 문서(R4·R5). PRD는 이 리포에 없다(`git grep -n -i -w prd`의 결과는 앞선 설계 문서 한 줄뿐이다). PRD의 세션 공개 기본값 문장('워크스페이스')은 리드가 PRD가 있는 곳에서 축 B의 설명으로 바꾼다.
 
@@ -248,6 +261,7 @@
 | G7 | 볼 수 있는 남의 세션을 interrupt·close·resume하는 사람 | 지금처럼 볼 수 있는 사람 모두 / 만든 사람·L·W만 | 지금처럼 | 지금처럼 |
 | G8 | 관리자 팀(`agent_admin_teams`, 구성원 모두가 관리자) | 유지하고 새 추가만 `lead`인 팀으로 제한 / 새 추가를 막고 담당 팀 `lead`로 옮기게 한다 | 유지·제한 | 유지·제한 |
 | G9 | 기존 에이전트의 담당 팀 이행 | 비워 두고 지정 안내 / 관리자 팀이 하나면 자동 채움 / 기본 팀 | 비워 두고 안내 | 비워 두고 안내 |
+| G10 | 축 B가 `managing_team`인 에이전트의 Slack 채널 답 | 지금처럼 채널 스레드에 전문(채널 연결을 공개 결정으로 본다) / 채널에는 요약과 웹 링크만(채널 상한 `disclosure: summary`를 강제) | 지금처럼 | 지금처럼 |
 
 - 되돌릴 수 없는 이행은 계획에 없다. 열과 설정 키를 지우는 정리를 하게 되면 그때 오너 확인을 받는다.
 - 동작 변화(데이터 이행 아님)는 세 가지다. ① R2부터 `member`가 모든 에이전트의 정보를 본다(축 A `use`). ② R3부터 담당 팀이 정해진 에이전트의 `workspace` 공개 세션이 바깥쪽에서 사라진다(축 B `managing_team`). ③ R5부터 담당 팀 없는 `POST /v1/agents`는 400이다.
@@ -258,11 +272,31 @@
 |---|---|---|
 | `member`는 에이전트를 볼 수 없는데 릴리스 id만 알면 그 에이전트로 세션을 시작한다 | `agent-service.ts:276`, `session-service.ts:623-646` | LATER(R2·R3가 정리한다. 다시 볼 때: R3 착지) |
 | 마지막 에이전트 관리자를 지우는 것을 막지 않는다 | `agent-admins.ts:196-206`, `:233-243` | LATER(W는 늘 관리하므로 고아가 되지는 않는다. 다시 볼 때: 담당 팀 `lead`가 없는 에이전트가 생길 때) |
-| 에이전트 수정·릴리스·켜기의 쓰기 재확인은 구성원인지만 본다. 역할·관리자인지는 보지 않는다 | `packages/db/src/agents.ts:396`, `:442`, `:505`, `:579` | LATER(판정 뒤 강등되는 경합에 한정된다. 다시 볼 때: R1이 `lockedAdministers`를 고칠 때 같이 볼지 정한다) |
+| 에이전트 수정·릴리스·켜기의 쓰기 재확인은 구성원인지만 본다. 역할·관리자인지는 보지 않는다 | `packages/db/src/agents.ts:442`, `:504`, `:578` | R1 범위에 넣었다(담당 팀 변경으로 권한을 잃는 경로가 생기므로 미룰 수 없다, Codex 반론 4) |
+| 에이전트 사용량 최근 성과 항목이 볼 수 없는 세션의 제목과 성과 제목·링크를 돌려준다. `session_id`만 가린다 | `usage-reader.ts:524-526`, `usage-service.ts:433-438` | NOW 후보(지금 운영 중인 누출이다. 이 프로그램이 머지한 것은 아니므로 리드가 분류한다. R3가 고친다) |
+| 에이전트를 대상으로 한 receipt(`credential_ref` 포함)를 id를 아는 `member`가 읽는다 | `session-service.ts:1461-1468`, `credential-bindings.ts:179-184` | LATER(id를 알아야 하고 비밀값은 아니다. R2가 고친다. 다시 볼 때: R2 착지) |
 | `artifact.read` action은 정의만 있고 쓰는 곳이 없다. 결과물은 `session.read`로 판정한다 | `authorization.ts:371`, `:422`, `output-service.ts:26-28` | DROP(동작은 맞다. 이 설계는 결과물을 세션 상세와 같이 다룬다) |
 | 세션 공유 판정이 정책 SQL과 잠금 재확인 두 곳에 따로 있다 | `session-shares.ts:95-101`, `requester-locks.ts:167` | LATER(R3가 두 곳을 같이 고친다. 다시 볼 때: R3 리뷰) |
 | PRD가 이 리포에 없다. 세션 공개 기본값이 문서마다 다르다 | `git grep -n -i -w prd` | NOW 아님. 리드가 PRD 위치에서 축 B 설명으로 고친다 |
 
 ## (h) Codex 반론
 
-(리뷰 뒤 채운다.)
+2026-11-02 Codex(로컬 CLI, read-only)에게 첫 판(커밋 `3626464c0`)을 반론하게 했다. (a)의 인용, 우회 경로, 축 B의 타당성, 이행과 롤백, 구현 단위를 보라고 했다. 13건을 받았다. 근거 줄을 코드에서 다시 읽어 모두 확인했고, 모두 반영했다.
+
+| # | 반론 | 처리 |
+|---|---|---|
+| 1 | Slack 채널 답은 받는 사람을 정하지 않고 스레드에 올라가 축 B를 우회한다 | 반영. 채널 연결을 L·W의 명시적 공개 결정으로 정의하고 연결 화면에 알린다. 채널에서 시작하는 것은 축 A로 막는다. 채널 답을 요약으로 줄일지는 G10 |
+| 2 | 에이전트 대상 receipt를 `session.read(id: null)`만으로 읽어 설정이 샌다 | 반영. receipt 대상별로 판정한다(R2). (a)와 발견에 적음 |
+| 3 | 축 A를 정책에만 넣으면 생성 쓰기와 설정 변경이 엇갈린다 | 반영. 생성 쓰기에서 잠그고 다시 본다. 잠금 순서를 정하고 `postgres-unit-of-work.ts`를 R3 필수 경로로 |
+| 4 | 담당 팀 변경으로 권한을 잃은 뒤에도 진행 중인 수정·릴리스·켜기가 끝난다. LATER로 둘 수 없다 | 반영. R1에 쓰기 재확인과 줄 세우기를 넣음 |
+| 5 | 승인 쓰기 재확인(`requester-locks.ts`)이 관리자 경로를 따로 구현해 담당 팀 `lead`가 정책은 지나고 쓰기에서 거절된다 | 반영. R1에서 같이 고친다 |
+| 6 | 사용량 최근 항목은 세션 id만 가리고 제목·링크를 그대로 준다. (a)의 서술이 틀렸다 | 반영. (a)를 고치고 행을 통째로 빼게 했다(R3). 지금 있는 누출이라 발견에 NOW 후보로 |
+| 7 | 에이전트 key를 안쪽으로 보려면 열람 판정이 key의 에이전트를 알아야 한다 | 반영. `SessionViewer`에 `keyAgentId`(R3) |
+| 8 | 축 B는 `workspace = 멤버 모두` 계약과 그 시험을 바꾼다 | 반영. 공유 응답에 `audience_limited`, 화면 문구, 문서와 시험 계획 |
+| 9 | 데이터 롤백 안전과 권한 롤백 안전을 섞었다. R3 아래 롤백은 숨긴 세션을 다시 보인다 | 반영. R1·R3를 롤백 하한으로 선언하고, 하한 아래 롤백 전 알림 절차를 적음 |
+| 10 | 생성 요청·응답이 strict라 서버·화면·클라이언트가 섞이면 깨진다 | 반영. 세 단계(서버 수용 → 하한 뒤 화면 → 강제 시점 공지 뒤 필수), 클라이언트 응답 검증 확인 |
+| 11 | O가 읽을 상세 응답, 개수, 요약의 규칙이 비었다 | 반영. 상세는 `agent.settings_read`, O는 목록 `ids`로 행을 읽고, 개수·요약도 행마다 거른다 |
+| 12 | Slack 앱·채널·identity·GitHub 저장소 서비스, 정책 조립 두 곳, `AgentStore.create` 포트가 경로에서 빠졌다. 읽기·쓰기가 한 판정 함수를 쓴다 | 반영. R1·R2·R3 경로에 더하고 읽기·쓰기 분리를 R2에 넣음 |
+| 13 | "라우트는 서비스를 부를 뿐", "에이전트 목록은 관리자만"이 일반화가 지나치다 | 반영. 라우트 직접 판정과 에이전트 key 예외를 (a)에 적음 |
+
+기각한 반론은 없다.
