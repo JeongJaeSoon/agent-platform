@@ -355,15 +355,18 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       (await send("POST", bindingsPath(), bearer(agentKey), body)).status,
     ).toBe(403);
     const denied = await db
-      .select({ outcome: authzDecisions.outcome })
+      .select({
+        action: authzDecisions.action,
+        outcome: authzDecisions.outcome,
+      })
       .from(authzDecisions)
-      .where(
-        and(
-          eq(authzDecisions.action, "credential.bind"),
-          eq(authzDecisions.workspaceId, workspaceId),
-        ),
-      );
-    expect(denied.filter((row) => row.outcome === "deny").length).toBe(3);
+      .where(eq(authzDecisions.workspaceId, workspaceId));
+    const denies = (action: string) =>
+      denied.filter((row) => row.action === action && row.outcome === "deny")
+        .length;
+    // The list is a settings read; the two POSTs are binds.
+    expect(denies("credential.bind")).toBe(2);
+    expect(denies("agent.settings_read")).toBe(1);
   });
 
   let bindingId = "";

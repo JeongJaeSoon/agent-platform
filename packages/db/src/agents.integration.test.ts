@@ -6,6 +6,7 @@ import {
   agentCardRequestSchema,
   type ListAgentsQuery,
   SESSION_SCOPE_VALUES,
+  scopesForRole,
 } from "@werft-ai/contracts";
 import {
   type AgentService,
@@ -171,7 +172,8 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         id: userId,
         workspace_id: workspaceId,
         role,
-        scopes: [...SESSION_SCOPE_VALUES],
+        // A member's own: a scope over the role makes a request malformed.
+        scopes: [...scopesForRole(role)],
       },
       { kind: "web" },
       randomUUID(),
@@ -356,15 +358,14 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(page.items.some((agent) => theirIds.includes(agent.id))).toBe(false);
     expect(page.items.every((agent) => agent.workspace_id === mine)).toBe(true);
 
-    // The cursor does not lift the role check on the next page.
-    expect(
-      await codeOf(
-        agentsService.listAgents(member, {
-          limit: 1,
-          cursor: theirCursor ?? "",
-        }),
-      ),
-    ).toBe("FORBIDDEN");
+    // A member reads their own workspace's agents with it, and no other's.
+    const members = await agentsService.listAgents(member, {
+      limit: 50,
+      cursor: theirCursor ?? "",
+    });
+    expect(members.items.every((agent) => agent.workspace_id === theirs)).toBe(
+      true,
+    );
 
     const encode = (value: unknown) =>
       Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -499,12 +500,19 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .update(memberships)
       .set({ disabledAt: new Date() })
       .where(eq(memberships.userId, userId));
+    // A disabled member reads no agent either.
     expect(
-      await createPostgresAgentStore(db).count(workspaceId, userId),
-    ).toEqual({ all: 6, administered: 0, active: 0, draft: 5 });
+      await createPostgresAgentStore(db).count(workspaceId, {
+        userId,
+        outsideAccess: "use",
+      }),
+    ).toEqual({ all: 0, administered: 0, active: 0, draft: 0 });
 
+    // A member outside every agent counts what they find in the list.
     const member = await person(workspaceId, "member");
-    expect(await codeOf(agentsService.countAgents(member))).toBe("FORBIDDEN");
+    expect(await agentsService.countAgents(member)).toEqual({
+      counts: { all: 6, administered: 0, active: 0, draft: 5 },
+    });
     expect(
       await codeOf(agentsService.countAgents(serviceKey(workspaceId))),
     ).toBe("FORBIDDEN");
@@ -924,6 +932,20 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       [busy.agentId, 2, 3],
       [idle.agentId, 0, 0],
     ]);
+
+    // A member outside the agent gets its row without a card; as one of its
+    // admins, the card.
+    expect(
+      counts(
+        await agentsService.listAgents(member, { ...PAGE, include: "summary" }),
+      ),
+    ).toEqual([
+      [busy.agentId, undefined, undefined],
+      [idle.agentId, undefined, undefined],
+    ]);
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId, agentId: busy.agentId, userId: memberId });
 
     // What GET /v1/sessions?agent_id=&status= lists to each of them.
     const reader = createPostgresSessionReader(db);
@@ -1954,23 +1976,28 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const agentsService = service();
     const created = await newAgent(agentsService, owner);
 
+    // A member outside the agent finds it, and reads nothing behind it.
+    expect(
+      (await agentsService.listAgents(member, PAGE)).items.map((a) => a.id),
+    ).toEqual([created.agent.id]);
+    expect(
+      await codeOf(agentsService.listAgents(serviceKey(workspaceId), PAGE)),
+    ).toBe("FORBIDDEN");
     for (const caller of [member, serviceKey(workspaceId)]) {
-      expect(await codeOf(agentsService.listAgents(caller, PAGE))).toBe(
-        "FORBIDDEN",
-      );
       expect(
         await codeOf(agentsService.getAgent(caller, created.agent.id)),
       ).toBe("FORBIDDEN");
-      expect(
-        await codeOf(
-          agentsService.createAgent(caller, {
-            slug: "by-someone-else",
-            name: "x",
-            card: cardWith("x"),
-          }),
-        ),
-      ).toBe("FORBIDDEN");
     }
+    // Any member creates an agent (D3); no key does.
+    expect(
+      await codeOf(
+        agentsService.createAgent(serviceKey(workspaceId), {
+          slug: "by-someone-else",
+          name: "x",
+          card: cardWith("x"),
+        }),
+      ),
+    ).toBe("FORBIDDEN");
     expect(
       await codeOf(
         agentsService.createAgent(owner, {

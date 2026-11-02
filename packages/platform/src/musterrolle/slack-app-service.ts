@@ -170,6 +170,14 @@ export function createSlackAppService(deps: {
     requireConsole(caller);
   }
 
+  async function readAgent(caller: Caller, agentId: string) {
+    await requirePermitted(authorization, caller, "agent.settings_read", {
+      kind: "agent",
+      id: agentId,
+    });
+    requireConsole(caller);
+  }
+
   const actorOf = (
     caller: Caller,
     action: typeof SLACK_INSTALL_ACTION | typeof WORKSPACE_ACTION,
@@ -317,7 +325,7 @@ export function createSlackAppService(deps: {
       caller: Caller,
       agentId: string,
     ): Promise<GetSlackAppResponse> {
-      await permitAgent(caller, agentId);
+      await readAgent(caller, agentId);
       const { apps, tokens } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
       if (
@@ -342,7 +350,7 @@ export function createSlackAppService(deps: {
     },
 
     async getAgentAppManifest(caller: Caller, agentId: string) {
-      await permitAgent(caller, agentId);
+      await readAgent(caller, agentId);
       const { apps } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
       const agent = await apps.manifestAgent(caller.ownerId, agentId);
@@ -362,7 +370,7 @@ export function createSlackAppService(deps: {
       caller: Caller,
       agentId: string,
     ): Promise<SlackAppSettings> {
-      await permitAgent(caller, agentId);
+      await readAgent(caller, agentId);
       const settings = await ready().apps.getSettings(caller.ownerId, agentId);
       if (settings === null) throw NOT_FOUND();
       return settings;

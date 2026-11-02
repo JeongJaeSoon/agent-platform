@@ -209,7 +209,12 @@ const TABLE: [
   ["그 에이전트의 성과 확인·거절", "achievement.review", onAgentA, "ooxoxx"],
   ["보관한 에이전트 되살리기", "agent.restore", onAgentA, "oxxxxx"],
   // Every agent, across the workspace, is the roles' alone.
-  ["에이전트 목록", "agent.manage", onWorkspace, "ooxxxx"],
+  ["모든 에이전트 관리", "agent.manage", onWorkspace, "ooxxxx"],
+  // agent-rbac (b): every member finds agents; a personal key as its
+  // creator, an agent key only its own row through session.submit.
+  ["에이전트 목록·개수", "agent.read", onWorkspace, "ooooxo"],
+  ["에이전트 정보 읽기", "agent.read", onAgentA, "ooooxo"],
+  ["에이전트 설정 읽기", "agent.settings_read", onAgentA, "ooxoxo"],
   [
     "복구 결정",
     "session.recover",
@@ -391,5 +396,164 @@ describe("the resource's agent", () => {
         request_id: "r",
       }),
     ).toMatchObject({ outcome: "deny", reason_code: "error" });
+  });
+});
+
+describe("reading an agent: who is inside it (agent-rbac (b))", () => {
+  // W: the owner. L: AGENT_A's admin. T: a member of its managing team.
+  // O: a member outside it. AGENT_GONE is no agent at all.
+  const TEAM_MEMBER = "019a0000-0000-7000-8000-0000000000c5";
+  const AGENT_GONE = "019a0000-0000-7000-8000-00000000a0ff";
+  const inside: AgentAuthority = {
+    async agentOf(_workspaceId, resource) {
+      return resource.kind === "agent" && resource.id !== AGENT_GONE
+        ? resource.id
+        : null;
+    },
+    isAdmin: agents.isAdmin,
+    async isInside(workspaceId, agentId, userId) {
+      return (
+        (await agents.isAdmin(workspaceId, agentId, userId)) ||
+        (agentId === AGENT_A && userId === TEAM_MEMBER)
+      );
+    },
+  };
+  const WHO = {
+    W: user("owner", USERS.owner),
+    L: user("member", USERS.agent_admin),
+    T: user("member", TEAM_MEMBER),
+    O: user("member", USERS.member),
+  };
+
+  async function reasons(
+    action: AuthorizationAction,
+    agentId: string,
+    access: "use" | "view" | "none" = "use",
+  ) {
+    const policy = createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({ status: "ok", principal: s.principal }),
+      },
+      agents: inside,
+      outsideAgents: { access: async () => access },
+    });
+    const got: Record<string, string> = {};
+    for (const [who, principal] of Object.entries(WHO)) {
+      const caller = callerFor(principal, { kind: "web" }, "r");
+      got[who] = (
+        await policy.authorize({
+          subject: caller.subject,
+          action,
+          resource: { kind: "agent", id: agentId, owner_scope: WORKSPACE },
+          request_id: "r",
+        })
+      ).reason_code;
+    }
+    return got;
+  }
+
+  test("settings: W, L and T read them; O is refused", async () => {
+    expect(await reasons("agent.settings_read", AGENT_A)).toEqual({
+      W: "ok",
+      L: "ok",
+      T: "ok",
+      O: "role",
+    });
+    // T only reads: changing the agent stays with W and L.
+    expect(await reasons("agent.manage", AGENT_A)).toEqual({
+      W: "ok",
+      L: "ok",
+      T: "role",
+      O: "role",
+    });
+  });
+
+  test("information: everyone while axis A shows agents to those outside", async () => {
+    for (const access of ["use", "view"] as const) {
+      expect(await reasons("agent.read", AGENT_A, access)).toEqual({
+        W: "ok",
+        L: "ok",
+        T: "ok",
+        O: "ok",
+      });
+    }
+  });
+
+  test("axis A none hides the agent from O, its settings included", async () => {
+    const hidden = { W: "ok", L: "ok", T: "ok", O: "not_found" };
+    expect(await reasons("agent.read", AGENT_A, "none")).toEqual(hidden);
+    expect(await reasons("agent.settings_read", AGENT_A, "none")).toEqual(
+      hidden,
+    );
+  });
+
+  test("no such agent is not_found to everyone, the owner too", async () => {
+    const gone = {
+      W: "not_found",
+      L: "not_found",
+      T: "not_found",
+      O: "not_found",
+    };
+    expect(await reasons("agent.read", AGENT_GONE)).toEqual(gone);
+    expect(await reasons("agent.settings_read", AGENT_GONE)).toEqual(gone);
+  });
+
+  test("a personal key reads as its creator; an agent key reads no settings", async () => {
+    const asCreator = (
+      creator: string,
+      keyAgentId?: string,
+    ): IdentityReader => ({
+      reread: async (s) => ({
+        status: "ok",
+        principal: s.principal,
+        keyCreator: { userId: creator, role: "member" },
+        ...(keyAgentId === undefined ? {} : { keyAgentId }),
+      }),
+    });
+    const decide = async (creator: string, keyAgentId?: string) => {
+      const policy = createAuthorizationPolicy({
+        identity: asCreator(creator, keyAgentId),
+        agents: inside,
+      });
+      const caller = callerFor(key(), { kind: "api" }, "r", {
+        creatorId: creator,
+      });
+      return (
+        await policy.authorize({
+          subject: caller.subject,
+          action: "agent.settings_read",
+          resource: { ...onAgentA, owner_scope: WORKSPACE },
+          request_id: "r",
+        })
+      ).reason_code;
+    };
+    expect(await decide(TEAM_MEMBER)).toBe("ok");
+    expect(await decide(USERS.member)).toBe("role");
+    expect(await decide(TEAM_MEMBER, AGENT_A)).toBe("role");
+  });
+
+  test("an allowed read is not recorded; a refused one is", async () => {
+    const recorded: string[] = [];
+    const policy = createAuthorizationPolicy({
+      identity: {
+        reread: async (s) => ({ status: "ok", principal: s.principal }),
+      },
+      agents: inside,
+      decisions: {
+        record: async ({ decision }) => {
+          recorded.push(decision.reason_code);
+        },
+      },
+    });
+    for (const principal of [WHO.T, WHO.O]) {
+      const caller = callerFor(principal, { kind: "web" }, "r");
+      await policy.authorize({
+        subject: caller.subject,
+        action: "agent.settings_read",
+        resource: { ...onAgentA, owner_scope: WORKSPACE },
+        request_id: "r",
+      });
+    }
+    expect(recorded).toEqual(["role"]);
   });
 });

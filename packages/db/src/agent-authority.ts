@@ -1,6 +1,6 @@
 import type { AgentAuthority } from "@werft-ai/platform";
-import { and, eq, isNull } from "drizzle-orm";
-import { administers } from "./administers.ts";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { administers, insideAgent } from "./administers.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -120,6 +120,24 @@ export function createDatabaseAgentAuthority(db: Database): AgentAuthority {
               userId.toLowerCase(),
               agentId.toLowerCase(),
             ),
+          ),
+        )
+        .limit(1);
+      return row !== undefined;
+    },
+
+    async isInside(workspaceId, agentId, userId) {
+      if (![workspaceId, agentId, userId].every((v) => UUID.test(v))) {
+        return false;
+      }
+      const [row] = await db
+        .select({ one: sql`1` })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            eq(agents.id, agentId.toLowerCase()),
+            insideAgent(db, workspaceId, userId.toLowerCase(), agents.id),
           ),
         )
         .limit(1);

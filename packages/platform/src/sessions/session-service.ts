@@ -260,6 +260,29 @@ export function payloadHash(payload: unknown): string {
     .digest("hex");
 }
 
+/**
+ * The agent whose settings a receipt records: a change to the agent itself
+ * or to one of its Slack bindings, read as agent.settings_read
+ * (agent-rbac (b)). Null for any other receipt. A start refused for unbound
+ * credentials also targets the agent, but records only what its caller
+ * asked for, so it stays readable as before.
+ */
+export function settingsAgentOf(receipt: Receipt): string | null {
+  const target = receipt.target_ref;
+  if (!("resource" in target) || receipt.operation === "create_session") {
+    return null;
+  }
+  if (target.resource.kind === "agent") return target.resource.id;
+  if (target.resource.kind !== "surface_binding") return null;
+  const agentId = (receipt.result as { agent_id?: unknown } | null)?.agent_id;
+  // Every binding receipt names its agent; one that does not is shown to
+  // nobody rather than to everybody.
+  if (typeof agentId !== "string") {
+    throw new SessionServiceError("NOT_FOUND", "Resource not found");
+  }
+  return agentId;
+}
+
 // Service entries authorize before store calls, except receipt reads that
 // must resolve their target before authorizing disclosure. Over HTTP the edge has
 // already refused a missing scope, so only a caller without HTTP meets the
@@ -1459,13 +1482,19 @@ export function createSessionService(deps: {
       // Resolve only within the caller's partition. A null session would
       // incorrectly require an agent key to read across all agents.
       const receipt = await reader.getReceipt(actor.ownerId, receiptId);
-      await requirePermitted(authorization, actor, "session.read", {
-        kind: "session",
-        id:
-          receipt && "session_id" in receipt.target_ref
-            ? receipt.target_ref.session_id
-            : null,
-      });
+      const agentId = receipt === null ? null : settingsAgentOf(receipt);
+      await (agentId === null
+        ? requirePermitted(authorization, actor, "session.read", {
+            kind: "session",
+            id:
+              receipt && "session_id" in receipt.target_ref
+                ? receipt.target_ref.session_id
+                : null,
+          })
+        : requirePermitted(authorization, actor, "agent.settings_read", {
+            kind: "agent",
+            id: agentId,
+          }));
       if (!receipt) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }

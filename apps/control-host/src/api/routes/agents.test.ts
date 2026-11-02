@@ -454,8 +454,8 @@ describe("GET /v1/agents/counts", () => {
     const asked: string[] = [];
     const api = app(
       store({
-        count: async (workspaceId, userId) => {
-          asked.push(workspaceId, userId);
+        count: async (workspaceId, reader) => {
+          asked.push(workspaceId, reader.userId, reader.outsideAccess);
           return { all: 501, administered: 3, active: 410, draft: 80 };
         },
       }),

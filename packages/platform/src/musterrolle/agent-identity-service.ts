@@ -114,7 +114,10 @@ export function createAgentIdentityService(deps: {
       caller: Caller,
       agentId: string,
     ): Promise<ListAgentIdentitiesResponse> {
-      await permitted(caller, agentId);
+      await requirePermitted(authorization, caller, "agent.settings_read", {
+        kind: "agent",
+        id: agentId,
+      });
       const rows = await store.list(
         caller.ownerId,
         agentId,
