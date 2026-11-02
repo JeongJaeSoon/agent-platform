@@ -7,6 +7,11 @@ import {
   sessionIdSchema,
   timestampSchema,
 } from "../shared/index.ts";
+import {
+  achievementEvidenceKindSchema,
+  achievementReviewStateSchema,
+  achievementRuleJudgeSchema,
+} from "./achievements.ts";
 
 const countSchema = z.number().int().nonnegative();
 
@@ -535,6 +540,137 @@ export const usageOutcomesResponseSchema = usageOutcomeFiguresSchema
   .strict();
 
 /**
+ * GET /v1/usage/achievements: the summary's scopes, period and readers.
+ * `agent_id` names the agent with `scope=agent`, and narrows the sessions to
+ * that agent's with `installation` or `me`. `type_id` and `category_id` narrow
+ * the achievements counted, not the sessions or their cost.
+ */
+export const usageAchievementsQuerySchema = usagePeriodQuerySchema
+  .extend({
+    scope: z.enum(USAGE_SUMMARY_TOTALS_SCOPE_VALUES),
+    agent_id: agentIdSchema.optional(),
+    type_id: z.uuid().optional(),
+    category_id: z.uuid().optional(),
+  })
+  .superRefine((query, ctx) => {
+    checkPeriod(query, ctx);
+    if (query.scope === "agent" && query.agent_id === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "scope=agent needs agent_id",
+        path: ["agent_id"],
+      });
+    }
+  });
+
+/** The most achievements `recent` lists, the newest first. */
+export const USAGE_RECENT_ACHIEVEMENTS_LIMIT = 20;
+
+// `achievement_count` counts `auto` and `confirmed`; superseded rows count
+// nowhere.
+const achievementCountsSchema = {
+  achievement_count: countSchema,
+  needs_review_count: countSchema,
+};
+
+/**
+ * Each session's cost once, however many achievements it has. The judge's
+ * cost is apart from the sessions' and is not narrowed by type or category:
+ * one judgment covers every rule of its session. `cost_per_achievement_usd`
+ * is every session's cost, those without an achievement included, over
+ * `achievement_count`; null with none.
+ */
+export const usageAchievementsResponseSchema = z
+  .object({
+    scope: z.enum(USAGE_SUMMARY_TOTALS_SCOPE_VALUES),
+    // Half-open: since <= created_at < until.
+    period: z
+      .object({ since: timestampSchema, until: timestampSchema })
+      .strict(),
+    refreshed_at: timestampSchema,
+    session_count: countSchema,
+    sessions_with_achievement_count: countSchema,
+    cost_usd: costUsdSchema,
+    cost_complete: z.boolean(),
+    ...achievementCountsSchema,
+    rejected_count: countSchema,
+    // Judgments that called the judge, and its calls.
+    judgment_count: countSchema,
+    judge_calls: countSchema,
+    judge_cost_usd: costUsdSchema,
+    cost_per_achievement_usd: costUsdSchema.nullable(),
+    // Rows with an achievement counted or waiting for review; a category or
+    // type under its current name.
+    by_category: z.array(
+      z
+        .object({ id: z.uuid(), name: z.string(), ...achievementCountsSchema })
+        .strict(),
+    ),
+    by_type: z.array(
+      z
+        .object({
+          id: z.uuid(),
+          key: z.string(),
+          name: z.string(),
+          ...achievementCountsSchema,
+        })
+        .strict(),
+    ),
+    // One row per rule version, in its category's order.
+    by_rule: z.array(
+      z
+        .object({
+          id: z.uuid(),
+          family_id: z.uuid(),
+          version: z.number().int().positive(),
+          title: z.string(),
+          category_id: z.uuid(),
+          category_name: z.string(),
+          type_id: z.uuid(),
+          type_key: z.string(),
+          ...achievementCountsSchema,
+        })
+        .strict(),
+    ),
+    // Every agent with a session in the period; `id` and `name` are null for
+    // the sessions without one.
+    by_agent: z.array(
+      z
+        .object({
+          id: agentIdSchema.nullable(),
+          name: z.string().nullable(),
+          session_count: countSchema,
+          cost_usd: costUsdSchema,
+          achievement_count: countSchema,
+          cost_per_achievement_usd: costUsdSchema.nullable(),
+        })
+        .strict(),
+    ),
+    // `session_id` and `session_title` are null for a session the caller
+    // may not read.
+    recent: z
+      .array(
+        z
+          .object({
+            id: z.uuid(),
+            created_at: timestampSchema,
+            session_id: sessionIdSchema.nullable(),
+            session_title: z.string().nullable(),
+            rule_id: z.uuid(),
+            rule_title: z.string(),
+            title: z.string(),
+            link: z.string(),
+            evidence_kind: achievementEvidenceKindSchema,
+            judge: achievementRuleJudgeSchema,
+            review_state: achievementReviewStateSchema,
+          })
+          .strict(),
+      )
+      .max(USAGE_RECENT_ACHIEVEMENTS_LIMIT),
+  })
+  .strict();
+
+/**
  * Every UTC day the period touches, oldest first, empty days included. Each
  * bucket adds up the sessions created that day exactly as the summary does,
  * so the buckets of one response sum to the summary of the same period.
@@ -615,6 +751,12 @@ export type UsageSeriesResponse = z.infer<typeof usageSeriesResponseSchema>;
 export type UsageSummaryQuery = z.infer<typeof usageSummaryQuerySchema>;
 export type UsageOutcomesQuery = z.infer<typeof usageOutcomesQuerySchema>;
 export type UsageOutcomesResponse = z.infer<typeof usageOutcomesResponseSchema>;
+export type UsageAchievementsQuery = z.infer<
+  typeof usageAchievementsQuerySchema
+>;
+export type UsageAchievementsResponse = z.infer<
+  typeof usageAchievementsResponseSchema
+>;
 export type UsageSummaryResponse = z.infer<typeof usageSummaryResponseSchema>;
 export type UsageToolsQuery = z.infer<typeof usageToolsQuerySchema>;
 export type UsageToolsResponse = z.infer<typeof usageToolsResponseSchema>;

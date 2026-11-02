@@ -5,6 +5,8 @@ import {
   type Principal,
   scopesForRole,
   type UsageSummaryResponse,
+  usageAchievementsQuerySchema,
+  usageAchievementsResponseSchema,
   usageOutcomesQuerySchema,
   usageOutcomesResponseSchema,
   usageSummaryQuerySchema,
@@ -631,6 +633,348 @@ integration("usage summary on PostgreSQL", () => {
     expect(await refusal(outcomes(agent, query))).toBe("FORBIDDEN");
   });
 
+  test("GET /v1/usage/achievements divides every session's cost by the auto and confirmed achievements, the judge's cost apart", async () => {
+    const period = { since: "2008-01-01", until: "2008-02-01" };
+    const agent = key(agentKey, null);
+    const alice = user("alice", "member");
+    // Sessions: s1 the agent's ($3), s2 Alice's with the agent ($2), s3
+    // Alice's without one ($5); `late` falls after the period.
+    const s1 = await session(
+      agent,
+      "2008-01-02T00:00:00Z",
+      3,
+      1,
+      agentReleaseId,
+    );
+    const s2 = await session(
+      alice,
+      "2008-01-03T00:00:00Z",
+      2,
+      1,
+      agentReleaseId,
+    );
+    const s3 = await session(alice, "2008-01-04T00:00:00Z", 5, 1);
+    const late = await session(
+      agent,
+      "2008-03-01T00:00:00Z",
+      100,
+      1,
+      agentReleaseId,
+    );
+    await db
+      .update(sessions)
+      .set({ title: "Fix the double order" })
+      .where(eq(sessions.id, s1));
+
+    const [dev, docs] = [crypto.randomUUID(), crypto.randomUUID()];
+    await db.insert(schema.achievementCategories).values([
+      {
+        id: docs,
+        workspaceId,
+        name: "Docs",
+        position: 1,
+        createdBy: ids.owner,
+      },
+      { id: dev, workspaceId, name: "Dev", position: 0, createdBy: ids.owner },
+    ]);
+    const [prType, docType] = [crypto.randomUUID(), crypto.randomUUID()];
+    await db.insert(schema.achievementTypes).values([
+      {
+        id: prType,
+        workspaceId,
+        key: "pull_request",
+        name: "GitHub PR",
+        evidenceKind: "github_pull_request",
+        builtin: true,
+      },
+      {
+        id: docType,
+        workspaceId,
+        key: "document",
+        name: "Document",
+        evidenceKind: "out_file",
+        builtin: true,
+      },
+    ]);
+    const [mergedV1, mergedV2, design] = [
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+    ];
+    const rule = (
+      id: string,
+      version: number,
+      title: string,
+      categoryId: string,
+      typeId: string,
+      supersededBy: string | null,
+      familyId = id,
+    ) => ({
+      id,
+      workspaceId,
+      familyId,
+      version,
+      categoryId,
+      title,
+      typeId,
+      definition: title,
+      judge: "always",
+      createdBy: ids.owner,
+      supersededBy,
+    });
+    await db
+      .insert(schema.achievementRules)
+      .values([
+        rule(mergedV1, 1, "Merged PR", dev, prType, mergedV2),
+        rule(mergedV2, 2, "Merged PR", dev, prType, null, mergedV1),
+        rule(design, 1, "Design doc", docs, docType, null),
+      ]);
+
+    const judgment = async (
+      sessionId: string,
+      calls: number,
+      costUsd: number,
+    ) => {
+      const id = crypto.randomUUID();
+      await db.insert(schema.achievementJudgments).values({
+        id,
+        workspaceId,
+        ownerId: workspaceId,
+        sessionId,
+        trigger: "evidence",
+        status: "succeeded",
+        calls,
+        costUsd,
+        nextAttemptAt: new Date(),
+        finishedAt: new Date(),
+      });
+      return id;
+    };
+    const j1 = await judgment(s1, 2, 0.0001);
+    // An `always` judgment calls nothing and is no judge run.
+    await judgment(s1, 0, 0);
+    const j2 = await judgment(s2, 1, 0.00005);
+    const j3 = await judgment(s3, 0, 0);
+    const jLate = await judgment(late, 5, 1);
+
+    let minute = 0;
+    const achievement = async (
+      sessionId: string,
+      judgmentId: string,
+      ruleId: string,
+      reviewState: "auto" | "needs_review" | "confirmed" | "rejected",
+      superseded = false,
+    ) => {
+      minute += 1;
+      const pr = reviewState === "auto";
+      const id = crypto.randomUUID();
+      await db.insert(schema.sessionAchievements).values({
+        id,
+        workspaceId,
+        ownerId: workspaceId,
+        sessionId,
+        agentId: sessionId === s3 ? null : agentId,
+        ruleId,
+        ruleFamilyId: ruleId === design ? design : mergedV1,
+        typeId: ruleId === design ? docType : prType,
+        title: pr ? `acme/app#${minute}` : `out/${minute}.md`,
+        link: pr ? `https://github.com/acme/app/pull/${minute}` : "out",
+        evidenceKind: pr ? "github_pull_request" : "out_file",
+        evidenceId: `evidence-${minute}`,
+        judge: "always",
+        judgmentId,
+        reviewState,
+        ...(reviewState === "confirmed" || reviewState === "rejected"
+          ? { reviewedBy: ids.owner, reviewedAt: new Date() }
+          : {}),
+        ...(superseded ? { supersededAt: new Date() } : {}),
+        createdAt: new Date(Date.UTC(2008, 0, 10, 0, minute)),
+      });
+      return id;
+    };
+    await achievement(s1, j1, mergedV2, "auto");
+    await achievement(s1, j1, mergedV1, "auto");
+    await achievement(s1, j1, design, "needs_review");
+    await achievement(s2, j2, design, "confirmed");
+    await achievement(s2, j2, design, "rejected");
+    await achievement(s2, j2, mergedV2, "auto", true);
+    const newest = await achievement(s3, j3, mergedV2, "auto");
+    await achievement(late, jLate, mergedV2, "auto");
+
+    const read = async (caller: Caller, query: Record<string, string>) =>
+      usageAchievementsResponseSchema.parse(
+        await service.getUsageAchievements(
+          caller,
+          usageAchievementsQuerySchema.parse(query),
+        ),
+      );
+    const owner = user("owner", "owner");
+    const installation = { scope: "installation", ...period };
+    const body = await read(owner, installation);
+    // $10 over 4 achievements: s1's two PRs (either rule version) and s3's,
+    // and s2's confirmed document. s1's document waits for review, s2's
+    // other one was rejected, s2's PR was superseded.
+    expect(body).toMatchObject({
+      scope: "installation",
+      session_count: 3,
+      sessions_with_achievement_count: 3,
+      cost_usd: "10.000000",
+      cost_complete: true,
+      achievement_count: 4,
+      needs_review_count: 1,
+      rejected_count: 1,
+      judgment_count: 2,
+      judge_calls: 3,
+      judge_cost_usd: "0.000150",
+      cost_per_achievement_usd: "2.500000",
+    });
+    const whole = await summary(owner, installation);
+    expect([body.session_count, body.cost_usd]).toEqual([
+      whole.session_count,
+      whole.cost_usd,
+    ]);
+    expect(body.by_category).toEqual([
+      { id: dev, name: "Dev", achievement_count: 3, needs_review_count: 0 },
+      { id: docs, name: "Docs", achievement_count: 1, needs_review_count: 1 },
+    ]);
+    expect(body.by_type).toEqual([
+      {
+        id: prType,
+        key: "pull_request",
+        name: "GitHub PR",
+        achievement_count: 3,
+        needs_review_count: 0,
+      },
+      {
+        id: docType,
+        key: "document",
+        name: "Document",
+        achievement_count: 1,
+        needs_review_count: 1,
+      },
+    ]);
+    expect(
+      body.by_rule.map((row) => [
+        row.category_name,
+        row.title,
+        row.version,
+        row.type_key,
+        row.achievement_count,
+        row.needs_review_count,
+      ]),
+    ).toEqual([
+      ["Dev", "Merged PR", 2, "pull_request", 2, 0],
+      ["Dev", "Merged PR", 1, "pull_request", 1, 0],
+      ["Docs", "Design doc", 1, "document", 1, 1],
+    ]);
+    expect(body.by_agent).toEqual([
+      {
+        id: agentId,
+        name: "Bot",
+        session_count: 2,
+        cost_usd: "5.000000",
+        achievement_count: 3,
+        cost_per_achievement_usd: "1.666667",
+      },
+      {
+        id: null,
+        name: null,
+        session_count: 1,
+        cost_usd: "5.000000",
+        achievement_count: 1,
+        cost_per_achievement_usd: "5.000000",
+      },
+    ]);
+    // Every one in force, rejected included, the newest first.
+    expect(body.recent).toHaveLength(6);
+    expect(body.recent[0]).toEqual({
+      id: newest,
+      created_at: "2008-01-10T00:07:00.000Z",
+      session_id: s3,
+      session_title: null,
+      rule_id: mergedV2,
+      rule_title: "Merged PR",
+      title: "acme/app#7",
+      link: "https://github.com/acme/app/pull/7",
+      evidence_kind: "github_pull_request",
+      judge: "always",
+      review_state: "auto",
+    });
+    expect(body.recent.at(-1)).toMatchObject({
+      session_id: s1,
+      session_title: "Fix the double order",
+      rule_id: mergedV2,
+    });
+
+    // A type or category narrows the achievements, never the sessions.
+    expect(
+      await read(owner, { ...installation, type_id: docType }),
+    ).toMatchObject({
+      session_count: 3,
+      cost_usd: "10.000000",
+      sessions_with_achievement_count: 1,
+      achievement_count: 1,
+      needs_review_count: 1,
+      rejected_count: 1,
+      judge_cost_usd: "0.000150",
+      cost_per_achievement_usd: "10.000000",
+      by_type: [expect.objectContaining({ id: docType })],
+    });
+    expect(
+      await read(owner, { ...installation, category_id: dev }),
+    ).toMatchObject({
+      achievement_count: 3,
+      needs_review_count: 0,
+      cost_per_achievement_usd: "3.333333",
+      by_category: [expect.objectContaining({ id: dev })],
+    });
+
+    // The summary's scopes: one agent's sessions, or the caller's own.
+    const agentScope = { scope: "agent", agent_id: agentId, ...period };
+    expect(await read(owner, agentScope)).toMatchObject({
+      scope: "agent",
+      session_count: 2,
+      cost_usd: "5.000000",
+      achievement_count: 3,
+      judgment_count: 2,
+      judge_cost_usd: "0.000150",
+      cost_per_achievement_usd: "1.666667",
+    });
+    expect(
+      await read(owner, { ...installation, agent_id: agentId }),
+    ).toMatchObject({ session_count: 2, achievement_count: 3 });
+    expect(await read(alice, { scope: "me", ...period })).toMatchObject({
+      scope: "me",
+      session_count: 2,
+      cost_usd: "7.000000",
+      achievement_count: 2,
+      rejected_count: 1,
+      judgment_count: 1,
+      cost_per_achievement_usd: "3.500000",
+    });
+    const achievements = (caller: Caller, query: Record<string, string>) =>
+      service.getUsageAchievements(
+        caller,
+        usageAchievementsQuerySchema.parse(query),
+      );
+    expect(await refusal(achievements(alice, agentScope))).toBe("FORBIDDEN");
+    expect(await refusal(achievements(alice, installation))).toBe("FORBIDDEN");
+    expect(
+      await refusal(achievements(user("admin", "admin"), installation)),
+    ).toBe("FORBIDDEN");
+    expect(await read(user("admin", "admin"), agentScope)).toMatchObject({
+      achievement_count: 3,
+    });
+    expect(await refusal(achievements(agent, { scope: "me", ...period }))).toBe(
+      "FORBIDDEN",
+    );
+    expect(
+      await refusal(
+        achievements(owner, { ...agentScope, agent_id: crypto.randomUUID() }),
+      ),
+    ).toBe("NOT_FOUND");
+  });
+
   test("cost_usd is the sum of the sessions' usage and is incomplete while one of them is", async () => {
     const period = { since: "2004-01-01", until: "2004-02-01" };
     const caller = user("bob", "member");
@@ -1011,6 +1355,7 @@ integration("installation figures over HTTP on PostgreSQL", () => {
         installation,
         tools,
         "/v1/usage/outcomes?scope=installation&since=2026-10-01",
+        "/v1/usage/achievements?scope=installation&since=2026-10-01",
       ]) {
         const response = await get(path, role);
         expect(response.status, `${role} ${path}`).toBe(status);
