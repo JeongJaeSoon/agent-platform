@@ -1215,7 +1215,7 @@ describe("Slack management", () => {
     });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     const reason = screen.getByText(
-      "Slack이 워크스페이스의 App Configuration Token을 더 받지 않아 앱을 만들 수 없습니다.",
+      "워크스페이스에 저장된 토큰을 사용할 수 없어 앱을 만들 수 없습니다.",
     ).parentElement;
     expect(reason?.textContent).toContain(
       "소유자나 관리자에게 토큰 등록을 요청하세요.",

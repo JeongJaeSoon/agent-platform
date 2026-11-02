@@ -221,13 +221,19 @@ function ConfigToken({
         next,
       );
       setEditing(false);
+      // The PUT itself is Slack's check: say who Slack says issued it.
+      const verified = stored.issuer
+        ? t("workspace.tokenVerified", {
+            team: stored.issuer.team_id,
+            user: stored.issuer.user_id,
+          })
+        : t("workspace.tokenStored");
       onOutcome({
         kind: "notice",
-        text: t(
+        text:
           stored.warnings.length > 0
-            ? "workspace.tokenIssuerChanged"
-            : "workspace.tokenStored",
-        ),
+            ? `${verified} ${t("workspace.tokenIssuerChanged")}`
+            : verified,
       });
       // Not awaited: the reset that drops the value waits for this callback.
       void refresh();
@@ -507,13 +513,21 @@ function tokenLine(
   if (summary?.state === "unset") return t("workspace.tokenUnsetHint");
   if (!summary?.updated_at) return undefined;
   const at = formatTimestamp(summary.updated_at, locale);
+  // updated_at moves on every successful exchange with Slack, registering or
+  // the automatic refresh; updated_by stays the last person who registered.
   return [
     summary.last4 ? `••••${summary.last4}` : null,
-    summary.updated_by
-      ? t("workspace.tokenSavedBy", { at, by: summary.updated_by.display_name })
-      : t("workspace.tokenSavedAt", { at }),
+    summary.issuer
+      ? t("workspace.tokenTeam", { id: summary.issuer.team_id })
+      : null,
     summary.issuer
       ? t("workspace.tokenIssuer", { id: summary.issuer.user_id })
+      : null,
+    t("workspace.tokenCheckedAt", { at }),
+    summary.updated_by
+      ? t("workspace.tokenRegisteredBy", {
+          by: summary.updated_by.display_name,
+        })
       : null,
   ]
     .filter((part) => part !== null)
