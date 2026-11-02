@@ -147,9 +147,10 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 만드는 시점: `provider_usage` insert trigger가 더한다(`packages/db/migrations/0127_session_provider_tokens.sql`, `0169_usage_breakdown_rollup.sql`).
   - 보존 기간: 무기한.
 - **세션 성과물** — `session_outcomes`, `outcome_refresh_quotas`
-  - GA-4b 설계가 정한 새 표다. PR 열기와 같은 트랜잭션에서 성과물 행을 만들고, 그 세션의 토큰·비용과 이어 ROI를 센다. `origin/main` `fc1e7f26`에는 아직 없다(구현 PR GA-4b가 넣는다).
-  - 보존 기간: **정해지지 않음.** 설계에도 없다.
-  - 지금 PR 기록은 `pull_requests` 행뿐이다. 상태(열림·머지·닫힘)는 남지 않는다.
+  - 이 표는 위 기준 커밋 뒤에 들어왔다(`packages/db/migrations/0200_session_outcomes.sql`). 그래서 이 항목에는 줄 번호를 적지 않는다.
+  - 담는 것: 세션이 남긴 GitHub PR(`github_pull_request`)과 리뷰(`github_review`) 한 건마다 URL, 저장소, release·에이전트, 상태와 그 시각(`state_changed_at`, `merged_at`, `closed_at`). PR 상태는 `open`·`merged`·`closed`이고, 다시 읽은 시각(`state_checked_at`)과 읽기 실패(`check_error`)도 남는다. `outcome_refresh_quotas`는 PR 상태를 다시 읽는 GitHub 호출의 rate limit 창이다.
+  - 만드는 시점: PR을 열거나 리뷰를 남기는 트랜잭션에서(`packages/db/src/pull-requests.ts`, `packages/db/src/github-settings.ts`의 `insert(sessionOutcomes)`). 머지되지 않은 PR은 그 뒤 상태를 다시 읽어 행을 고친다.
+  - 보존 기간: **정해지지 않음.** 설계에도 없다. 지우는 경로도 없다.
 
 ## 내용이 남는 곳과 마스킹
 
@@ -255,4 +256,4 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 - 닫힌 세션의 마지막 checkpoint와 transcript object의 보존 기간. 지금 GC는 pointer와 부모 3개를 늘 남기므로 닫힌 세션의 object도 무기한 남는다.
 - worker 컨테이너와 Kubernetes의 프로세스 로그 보존 기간(Docker daemon 기본값, 노드 로그 회전, 수집기 보존).
 - 만료된 초대·비밀번호 재설정 행의 정리.
-- `session_outcomes`(GA-4b)의 보존 기간.
+- `session_outcomes`의 보존 기간.
