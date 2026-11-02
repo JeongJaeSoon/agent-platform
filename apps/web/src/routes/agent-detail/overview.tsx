@@ -16,6 +16,8 @@ import {
 import {
   Badge,
   Card,
+  Code,
+  CodeBlock,
   CopyButton,
   cn,
   GridTable,
@@ -23,12 +25,14 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  Heading,
   KeyValueList,
   MoreLink,
   RelativeTime,
   Section,
   Skeleton,
   StatCard,
+  Text,
 } from "@werft-ai/ui";
 import { Check } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
@@ -40,8 +44,6 @@ import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { latestVersion } from "./versions.tsx";
 
-const SECTION_TITLE = "m-0 font-semibold text-body leading-5";
-const META = "m-0 text-caption text-muted-foreground";
 // KeyValueList's dd does not break a long unspaced value; this does.
 const VALUE = "min-w-0 [overflow-wrap:anywhere]";
 
@@ -317,7 +319,7 @@ export function AgentReadiness({
                 )}
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="font-medium text-control">
+                <Text as="span" weight="medium">
                   {step.title}
                   <span className="sr-only">
                     {" "}
@@ -327,8 +329,10 @@ export function AgentReadiness({
                         ? t("agent.ready.stepTodo")
                         : ""}
                   </span>
-                </span>
-                <span className={META}>{step.desc}</span>
+                </Text>
+                <Text as="span" variant="meta">
+                  {step.desc}
+                </Text>
               </div>
               {index === firstOpen && (step.key !== "activate" || runnable)
                 ? toRelease
@@ -446,9 +450,7 @@ function AgentSessionRow({
           {session.title ?? shortId}
         </span>
         {session.title ? (
-          <span className="font-mono text-caption text-muted-foreground">
-            {shortId}
-          </span>
+          <Code className="text-muted-foreground">{shortId}</Code>
         ) : null}
       </GridTableCell>
       <GridTableCell>
@@ -532,10 +534,8 @@ export function CardSummary({
       <Card role="region" className="min-w-0 px-4" aria-labelledby={titleId}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <h2 id={titleId} className={SECTION_TITLE}>
-              {t("agent.card.summaryTitle")}
-            </h2>
-            <span className={META}>
+            <Heading id={titleId}>{t("agent.card.summaryTitle")}</Heading>
+            <Text as="span" variant="meta">
               {!version
                 ? t("agent.noActive")
                 : !live
@@ -547,7 +547,7 @@ export function CardSummary({
                     : t("agent.card.subStopped", {
                         status: t(`agents.status.${detail.agent.status}`),
                       })}
-            </span>
+            </Text>
           </div>
           <div className="flex flex-none items-center gap-2">
             {version ? (
@@ -631,20 +631,16 @@ export function CardSummary({
               : []),
           ]}
         />
-        {card ? null : (
-          <p className={`${META} text-control`}>{t("agent.noActive")}</p>
-        )}
+        {card ? null : <Text variant="sub">{t("agent.noActive")}</Text>}
       </Card>
       {card ? (
         <Card role="region" className="min-w-0 px-4" aria-labelledby={rawId}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 flex-col gap-0.5">
-              <h2 id={rawId} className={SECTION_TITLE}>
-                {t("agent.card.raw")}
-              </h2>
-              <span className={META}>
+              <Heading id={rawId}>{t("agent.card.raw")}</Heading>
+              <Text as="span" variant="meta">
                 {live ? t("agent.card.rawSubActive") : t("agent.card.rawSub")}
-              </span>
+              </Text>
             </div>
             <CopyButton
               value={raw}
@@ -663,9 +659,7 @@ export function CardSummary({
                 : null
             }
           />
-          <pre className="m-0 flex-1 overflow-auto whitespace-pre-wrap rounded-control border bg-muted px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]">
-            {raw}
-          </pre>
+          <CodeBlock className="flex-1 overflow-auto">{raw}</CodeBlock>
         </Card>
       ) : null}
     </div>

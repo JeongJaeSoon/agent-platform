@@ -79,11 +79,12 @@ export const slackJa = {
   "slack.state.error": "エラー",
   "slack.createInstall": "Slack アプリを作成してインストール",
   "slack.configToken.unset":
-    "ワークスペースに Slack アプリ作成の設定(App Configuration Token)がないため、アプリを作成できません。",
+    "ワークスペースに App Configuration Token が登録されていないため、アプリを作成できません。",
   "slack.configToken.needs_reentry":
-    "Slack がワークスペースの App Configuration Token を受け付けなくなったため、アプリを作成できません。",
-  "slack.configToken.settings": "ワークスペースの Slack 設定へ",
-  "slack.configToken.askAdmin": "オーナーか管理者に設定を依頼してください。",
+    "ワークスペースに保存されたトークンを使用できないため、アプリを作成できません。",
+  "slack.configToken.settings": "Slack 接続設定でトークンを登録",
+  "slack.configToken.askAdmin":
+    "オーナーか管理者にトークンの登録を依頼してください。",
   "slack.install": "Slack アプリをインストール",
   "slack.reinstall": "再インストール",
   "slack.working": "準備中…",

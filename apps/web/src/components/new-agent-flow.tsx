@@ -42,6 +42,7 @@ import {
   NativeSelect,
   NativeSelectOption,
   Stepper,
+  Text,
 } from "@werft-ai/ui";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
@@ -570,9 +571,7 @@ function JobStep({
       onSubmit={submitStep(form, onSave, refuse)}
     >
       <StepHeading focus={focus}>{t("agents.flow.job")}</StepHeading>
-      <p className="m-0 text-control text-muted-foreground">
-        {t("agents.flow.jobIntro")}
-      </p>
+      <Text variant="sub">{t("agents.flow.jobIntro")}</Text>
       <AgentCardFields
         draft={draft}
         catalog={catalog}
@@ -622,9 +621,7 @@ function ReleaseStep({
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.release")}</StepHeading>
-      <p className="m-0 text-control text-muted-foreground">
-        {t("agents.flow.releaseIntro")}
-      </p>
+      <Text variant="sub">{t("agents.flow.releaseIntro")}</Text>
       {agent.error ? (
         <Alerts lines={[refuse(agent.error)]} />
       ) : profiles.error ? (

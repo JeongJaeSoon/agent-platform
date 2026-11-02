@@ -27,9 +27,11 @@ import {
   ConfirmDialog,
   cn,
   EmptyState,
+  Heading,
   RowLines,
   RowList,
   RowListItem,
+  Text,
 } from "@werft-ai/ui";
 import { type ReactNode, type RefObject, useId, useState } from "react";
 import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
@@ -39,14 +41,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import {
-  HINT,
-  MUTED,
-  PRIMARY,
-  SECONDARY,
-  SECTION,
-  SECTION_TITLE,
-} from "./classes.ts";
+import { MUTED, SECTION } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
@@ -172,15 +167,15 @@ export function Credentials({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} ref={titleRef} tabIndex={-1} className={SECTION_TITLE}>
+      <Heading id={titleId} ref={titleRef} tabIndex={-1}>
         {t("agent.credentials.title")}
-      </h2>
+      </Heading>
       <p className={MUTED}>{t("agent.credentials.intro")}</p>
       {bindings.isPending ? (
         <StatusScreen kind="loading" />
       ) : bindings.error ? (
         isApiError(bindings.error, "FORBIDDEN") ? (
-          <p className={HINT}>{permissionReason(t, "agent.manage", role)}</p>
+          <p className={MUTED}>{permissionReason(t, "agent.manage", role)}</p>
         ) : (
           <LoadFailure
             error={bindings.error}
@@ -201,12 +196,21 @@ export function Credentials({
                   data-missing={missing.includes(ref)}
                 >
                   <RowLines>
-                    <span className={PRIMARY}>{ref}</span>
-                    <span className={SECONDARY}>
+                    <Text
+                      as="span"
+                      className="block break-words font-semibold text-body"
+                    >
+                      {ref}
+                    </Text>
+                    <Text
+                      as="span"
+                      variant="meta"
+                      className="block [overflow-wrap:anywhere]"
+                    >
                       {missing.includes(ref)
                         ? t("agent.credentials.neededToActivate")
                         : t("agent.credentials.namedByCard")}
-                    </span>
+                    </Text>
                   </RowLines>
                   <Button
                     type="button"
@@ -235,12 +239,21 @@ export function Credentials({
               {active.map((binding) => (
                 <RowListItem key={binding.id}>
                   <RowLines>
-                    <span className={PRIMARY}>{binding.credential_ref}</span>
-                    <span className={SECONDARY}>
+                    <Text
+                      as="span"
+                      className="block break-words font-semibold text-body"
+                    >
+                      {binding.credential_ref}
+                    </Text>
+                    <Text
+                      as="span"
+                      variant="meta"
+                      className="block [overflow-wrap:anywhere]"
+                    >
                       {t("agent.credentials.running", {
                         count: binding.running_sessions,
                       })}
-                    </span>
+                    </Text>
                   </RowLines>
                   <Button
                     type="button"

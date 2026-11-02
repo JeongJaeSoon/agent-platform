@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  Heading,
   RowList,
   SideNav,
   SideNavGroup,
@@ -17,7 +18,6 @@ import {
   useSlackState,
 } from "./slack/queries.ts";
 import {
-  HEADING,
   SECTION,
   SECTION_BOX,
   SECTION_LABEL,
@@ -174,9 +174,9 @@ export default function SlackTab({
               className={SECTION_BOX}
               aria-labelledby={`${SECTION.basic}-title`}
             >
-              <h2 id={`${SECTION.basic}-title`} className={HEADING}>
+              <Heading id={`${SECTION.basic}-title`}>
                 {t("slack.basic")}
-              </h2>
+              </Heading>
               <RowList variant="joined">
                 <SlackDmSetting agentId={agentId} />
                 <SlackMentionOnly agentId={agentId} notify={notify} />

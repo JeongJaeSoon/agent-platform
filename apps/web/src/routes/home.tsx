@@ -29,6 +29,7 @@ import {
   Button,
   buttonVariants,
   Card,
+  Code,
   cn,
   formatExactTime,
   formatTimestamp,
@@ -38,6 +39,7 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
+  Heading,
   IconTile,
   MoreLink,
   Page,
@@ -49,6 +51,7 @@ import {
   StatusDot,
   type StatusDotStatus,
   Steps,
+  Text,
   Link as TextLink,
   Tooltip,
   TooltipContent,
@@ -754,9 +757,7 @@ export function HomeScreen() {
             title={t("home.overview.title")}
             action={
               cards ? (
-                <p className="m-0 text-caption text-muted-foreground">
-                  {t("home.overview.basis")}
-                </p>
+                <Text variant="meta">{t("home.overview.basis")}</Text>
               ) : undefined
             }
           >
@@ -949,9 +950,7 @@ function HomeSection({
       aria-labelledby={titleId}
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
-        <h2 id={titleId} className="m-0 font-semibold text-body">
-          {title}
-        </h2>
+        <Heading id={titleId}>{title}</Heading>
         {action}
       </div>
       {children}
@@ -1020,13 +1019,15 @@ function SlackTodo({
           return (
             <RowListItem key={agent.id}>
               <RowLines>
-                <h3 className="m-0 font-medium text-control">{title}</h3>
-                <p className="m-0 text-caption text-muted-foreground [overflow-wrap:anywhere]">
+                <Heading level={3} className="font-medium text-control">
+                  {title}
+                </Heading>
+                <Text variant="meta" className="[overflow-wrap:anywhere]">
                   {t("home.todo.note", {
                     agent: agent.name,
                     effect: t(`home.todo.effect.${action}`),
                   })}
-                </p>
+                </Text>
               </RowLines>
               <Link
                 to="/agents/$id"
@@ -1084,9 +1085,9 @@ function NoRequests() {
       <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--ap-color-surface-sunken) text-subtle-foreground">
         <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
       </span>
-      <p className="m-0 font-semibold text-body text-foreground">
+      <Text className="font-semibold text-body">
         {t("home.requests.empty")}
-      </p>
+      </Text>
       <p className="m-0">{t("home.requests.emptyHint")}</p>
     </div>
   );
@@ -1188,18 +1189,21 @@ function GlanceCard({
         <div className="flex items-center gap-3">
           <IconTile {...tile} size="two-line" />
           <div className="flex min-w-0 flex-1 flex-col gap-(--ap-row-line-gap)">
-            <p className="m-0 text-caption text-muted-foreground leading-(--ap-leading-caption)">
+            <Text
+              variant="meta"
+              className="text-muted-foreground leading-(--ap-leading-caption)"
+            >
               {eyebrow}
-            </p>
-            <h3 className="m-0 font-semibold text-body leading-(--ap-leading-body)">
+            </Text>
+            <Heading level={3} className="leading-(--ap-leading-body)">
               {title}
-            </h3>
+            </Heading>
           </div>
           {badge ? <div className="shrink-0">{badge}</div> : null}
         </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">{value}</p>
-          <p className="m-0 text-caption text-muted-foreground">{note}</p>
+          <Text variant="meta">{note}</Text>
         </div>
         <dl className="m-0 flex flex-1 flex-col gap-1">
           {rows.map((row, index) => (
@@ -1236,12 +1240,13 @@ function GlanceCard({
         </dl>
         {footer || link ? (
           <div className="flex items-center justify-between gap-2 border-t pt-3">
-            <p
-              className="m-0 min-w-0 truncate text-caption text-muted-foreground"
+            <Text
+              variant="meta"
+              truncate={true}
               title={typeof footer === "string" ? footer : undefined}
             >
               {footer}
-            </p>
+            </Text>
             {link}
           </div>
         ) : null}
@@ -1274,9 +1279,12 @@ function RecentSessionTable({
   if (items.length === 0)
     return (
       // Framed as the table it stands in for, inside its padding.
-      <p className="m-0 rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body text-muted-foreground">
+      <Text
+        variant="sub"
+        className="rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body"
+      >
         {t("sessions.empty")}
-      </p>
+      </Text>
     );
   // The row opener's focus ring sits outside the row: no overflow clipping.
   return (
@@ -1350,17 +1358,17 @@ function RecentRow({
             >
               {session.title}
             </span>
-            <span
-              className="font-mono text-caption text-muted-foreground"
-              title={session.id}
-            >
+            <Code className="text-muted-foreground" title={session.id}>
               {session.id.slice(0, 8)}
-            </span>
+            </Code>
           </>
         ) : (
-          <span className="font-mono font-medium text-link" title={session.id}>
+          <Code
+            className="font-medium text-control text-link"
+            title={session.id}
+          >
             {session.id.slice(0, 8)}
-          </span>
+          </Code>
         )}
       </GridTableCell>
       {/* Raised: the wait's exact time opens on its own hover and focus. */}
@@ -1413,12 +1421,9 @@ function RecentRow({
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span
-                className="truncate font-mono text-caption"
-                title={session.repository_id}
-              >
+              <Code className="truncate" title={session.repository_id}>
                 {session.repository_id}
-              </span>
+              </Code>
             </>
           ) : (
             <>
@@ -1426,9 +1431,9 @@ function RecentRow({
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span className="truncate text-caption text-muted-foreground">
+              <Text as="span" variant="meta" className="truncate">
                 {t("home.recent.noRepository")}
-              </span>
+              </Text>
             </>
           )}
         </span>
@@ -1457,12 +1462,10 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
       data-slot="home-checklist"
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
-        <h2 id={titleId} className="m-0 font-semibold text-body">
-          {t("home.checklist.title")}
-        </h2>
-        <span className="text-caption text-muted-foreground">
+        <Heading id={titleId}>{t("home.checklist.title")}</Heading>
+        <Text as="span" variant="meta">
           {t("home.checklist.progress", { done, total: steps.length })}
-        </span>
+        </Text>
       </div>
       <Card className="p-4">
         <Steps

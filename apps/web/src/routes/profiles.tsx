@@ -13,7 +13,7 @@ import {
   AlertTitle,
   Badge,
   buttonVariants,
-  cn,
+  Code,
   EmptyState,
   GridTable,
   GridTableCell,
@@ -25,6 +25,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
   Skeleton,
+  Text,
 } from "@werft-ai/ui";
 import { ChevronDown, ChevronRight, Lock, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -40,7 +41,6 @@ const COLUMNS = [
   "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 152px",
   "minmax(0,1fr) 128px",
 ] as const;
-const META = "text-caption text-muted-foreground";
 
 export type ProfileState = WorkspaceProfileState | InstallationProfileState;
 
@@ -233,10 +233,10 @@ export function ProfilesScreen() {
             </Alert>
           ))}
           {manages ? null : (
-            <p className={cn("m-0 flex items-center gap-1", META)}>
+            <Text variant="meta" className="flex items-center gap-1">
               <Lock aria-hidden="true" className="size-3.5 shrink-0" />
               {t("profiles.locked")}
-            </p>
+            </Text>
           )}
           <SegmentedControl
             aria-label={t("profiles.filter.label")}
@@ -355,9 +355,9 @@ function ProfileRow({
         <Stack
           first={
             <>
-              <span className="font-medium text-foreground">
+              <Text as="span" weight="medium">
                 {profileName(profile)}
-              </span>
+              </Text>
               {older ? (
                 <>
                   {" "}
@@ -368,10 +368,7 @@ function ProfileRow({
                     // Inline, so a narrow column wraps it between words like
                     // the name beside it instead of pushing into the next column.
                     // Positioned above the row opener, which covers the row.
-                    className={cn(
-                      "relative z-1 inline break-keep rounded-control text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
-                      META,
-                    )}
+                    className="relative z-1 inline break-keep rounded-control text-left text-caption text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <Chevron
                       aria-hidden="true"
@@ -384,7 +381,7 @@ function ProfileRow({
             </>
           }
           second={profileName(profile) === profile.id ? null : profile.id}
-          secondClassName="font-mono"
+          secondMono
           narrow={t("profiles.narrowKind", {
             kind: t(`profiles.kind.${kind}`),
             version: versionOf(profile),
@@ -392,27 +389,25 @@ function ProfileRow({
         />
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className={META}>
+        <Text as="span" variant="meta">
           {t("profiles.versionTag", { version: versionOf(profile) })}
-        </span>
+        </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className={META}>{t(`profiles.kind.${kind}`)}</span>
+        <Text as="span" variant="meta">
+          {t(`profiles.kind.${kind}`)}
+        </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className="font-mono text-caption wrap-anywhere">
+        <Code className="wrap-anywhere">
           {profile.workspace?.base_profile_id ?? "—"}
-        </span>
+        </Code>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className="font-mono text-caption wrap-anywhere">
-          {profile.model}
-        </span>
+        <Code className="wrap-anywhere">{profile.model}</Code>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <span className="font-mono text-caption">
-          {profile.permission_mode}
-        </span>
+        <Code>{profile.permission_mode}</Code>
       </GridTableCell>
       <GridTableCell>
         <Badge variant={STATE_BADGE[state]}>
@@ -428,13 +423,13 @@ function ProfileRow({
 function Stack({
   first,
   second,
-  secondClassName,
+  secondMono = false,
   narrow,
 }: {
   readonly first: ReactNode;
   /** Null when the first line already is the id. */
   readonly second: string | null;
-  readonly secondClassName?: string;
+  readonly secondMono?: boolean;
   /** A third line only a phone shows, for the columns it hides. */
   readonly narrow: string;
 }) {
@@ -442,19 +437,23 @@ function Stack({
     <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
       <span className="wrap-anywhere leading-5">{first}</span>
       {second === null ? null : (
-        <span className={cn("wrap-anywhere leading-4", META, secondClassName)}>
+        <Text
+          as="span"
+          variant="meta"
+          mono={secondMono}
+          className="wrap-anywhere"
+        >
           {second}
-        </span>
+        </Text>
       )}
       {/* GridTable's narrowAt={860} breakpoint, the width the columns drop at. */}
-      <span
-        className={cn(
-          "hidden wrap-anywhere leading-4 [@container(max-width:860px)]:block",
-          META,
-        )}
+      <Text
+        as="span"
+        variant="meta"
+        className="hidden wrap-anywhere [@container(max-width:860px)]:block"
       >
         {narrow}
-      </span>
+      </Text>
     </div>
   );
 }

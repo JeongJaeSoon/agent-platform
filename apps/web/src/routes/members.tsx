@@ -40,6 +40,7 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
+  Heading,
   LinkTab,
   LinkTabs,
   Page,
@@ -48,6 +49,7 @@ import {
   RowLines,
   RowList,
   RowListItem,
+  Text,
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import {
@@ -82,11 +84,8 @@ import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
-const SECTION_TITLE = "m-0 font-semibold text-body";
 const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
-const SECONDARY =
-  "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
 // Role and actions keep one width on every row, so badges and buttons line
 // up under their headers; the actions track never drops below its button.
@@ -550,12 +549,9 @@ function MemberTable({
                       </Badge>
                     ) : null}
                   </span>
-                  <span
-                    className="text-muted-foreground text-xs"
-                    title={member.email}
-                  >
+                  <Text as="span" variant="meta" title={member.email}>
                     {member.email}
-                  </span>
+                  </Text>
                 </GridTableCell>
                 <GridTableCell>
                   <Badge variant={member.role === "member" ? "gray" : "blue"}>
@@ -805,9 +801,7 @@ function InviteList({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className={SECTION_TITLE}>
-        {t("members.invites.title")}
-      </h2>
+      <Heading id={titleId}>{t("members.invites.title")}</Heading>
       {invites.isPending ? (
         <StatusScreen kind="loading" />
       ) : invites.error ? (
@@ -827,12 +821,16 @@ function InviteList({
             <RowListItem key={invite.id}>
               <RowLines>
                 <span className={PRIMARY}>{invite.email}</span>
-                <span className={SECONDARY}>
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="block [overflow-wrap:anywhere]"
+                >
                   {roleLabel(t, invite.role)} ·{" "}
                   {t("members.invites.expires", {
                     expires: formatTimestamp(invite.expires_at, locale),
                   })}
-                </span>
+                </Text>
               </RowLines>
               <Button
                 type="button"

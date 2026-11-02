@@ -6,6 +6,7 @@ import {
   FieldError,
   FieldLabel,
   formatTimestamp,
+  Text,
   Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
@@ -126,36 +127,40 @@ export function ApprovalCard({
           aria-hidden="true"
         />
         {/* Not a heading: the level depends on the screen around the card. */}
-        <p
+        <Text
           id={titleId}
           className="font-semibold text-body [overflow-wrap:anywhere]"
         >
           {messages.title(request.tool)}
-        </p>
+        </Text>
         {/* Each separator wraps with the item after it, never left trailing. */}
         {subject === undefined ? null : (
           <span className="flex min-w-0 items-center gap-2">
             <span aria-hidden="true" className="text-muted-foreground">
               ·
             </span>
-            <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
+            <Text
+              as="span"
+              variant="meta"
+              className="min-w-0 text-foreground [overflow-wrap:anywhere]"
+            >
               {subject}
-            </span>
+            </Text>
           </span>
         )}
         <span className="flex items-center gap-2">
           <span aria-hidden="true" className="text-muted-foreground">
             ·
           </span>
-          <p
+          <Text
             ref={noticeRef}
+            variant="meta"
             tabIndex={expired ? -1 : undefined}
-            className="text-muted-foreground text-caption"
           >
             {expired
               ? messages.expired
               : messages.expires(formatTimestamp(request.expires_at, locale))}
-          </p>
+          </Text>
         </span>
       </div>
       <div className="flex flex-wrap items-start justify-between gap-2">

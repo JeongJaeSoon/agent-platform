@@ -2,9 +2,11 @@ import {
   Field,
   FieldContent,
   FieldLabel,
+  Heading,
   Page,
   RadioGroup,
   RadioGroupItem,
+  Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
 import { roleLabel, useMe, useRole } from "../auth/guard.tsx";
@@ -18,8 +20,6 @@ import {
 } from "../i18n/i18n.tsx";
 
 const CARD = "flex flex-col gap-3 rounded-card border bg-card p-4";
-const CARD_TITLE = "m-0 font-semibold text-body";
-const HINT = "m-0 text-control text-muted-foreground";
 const THEME_ORDER: readonly Theme[] = ["light", "dark", "system"];
 
 /**
@@ -82,12 +82,10 @@ function ChoiceCard({
   const hintId = useId();
   return (
     <section aria-labelledby={titleId} className={`${CARD} @container`}>
-      <h2 id={titleId} className={CARD_TITLE}>
-        {title}
-      </h2>
-      <p id={hintId} className={HINT}>
+      <Heading id={titleId}>{title}</Heading>
+      <Text id={hintId} variant="sub">
         {hint}
-      </p>
+      </Text>
       <RadioGroup
         aria-labelledby={titleId}
         aria-describedby={hintId}
@@ -101,9 +99,9 @@ function ChoiceCard({
               <RadioGroupItem value={option.value} />
               <FieldContent className="gap-1">
                 <span className="font-semibold">{option.label}</span>
-                <span className="font-normal text-caption text-muted-foreground">
+                <Text as="span" variant="meta">
                   {option.note}
-                </span>
+                </Text>
               </FieldContent>
             </Field>
           </FieldLabel>
@@ -126,9 +124,7 @@ function AccountCard() {
   ];
   return (
     <section aria-labelledby={titleId} className={CARD}>
-      <h2 id={titleId} className={CARD_TITLE}>
-        {t("preferences.account")}
-      </h2>
+      <Heading id={titleId}>{t("preferences.account")}</Heading>
       <dl className="m-0 grid grid-cols-[minmax(0,8.75rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-body">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">

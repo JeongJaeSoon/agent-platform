@@ -26,10 +26,10 @@ import {
   Card,
   CardFooter,
   Checkbox,
+  Code,
   Combobox,
   ConfirmDialog,
   CopyButton,
-  cn,
   EmptyState,
   Field,
   FieldContent,
@@ -38,6 +38,7 @@ import {
   FieldLegend,
   FieldSet,
   formatTimestamp,
+  Heading,
   Input,
   LinkTab,
   LinkTabs,
@@ -46,6 +47,7 @@ import {
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
   RowList,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { CircleAlert, Clock, InfinityIcon, Plus } from "lucide-react";
@@ -79,8 +81,6 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-const SECTION_TITLE = "m-0 font-semibold text-body";
-const META = "text-muted-foreground text-xs";
 const ICON = "size-3.5 shrink-0";
 // v4 `.key-copy` (Console.dc.html L445): 24px, pulled into the meta gaps.
 const KEY_COPY = "-my-1 -mr-1 -ml-1.5 h-6 min-w-6 gap-1 px-1 text-xs";
@@ -455,9 +455,9 @@ function KeyIdMeta({ id }: { readonly id: string }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1">
       <span>{t("apiKeys.idLabel")}</span>
-      <code className="min-w-0 font-mono text-foreground [overflow-wrap:anywhere]">
+      <Code className="min-w-0 text-foreground [overflow-wrap:anywhere]">
         {id}
-      </code>
+      </Code>
       <CopyButton
         value={id}
         variant="ghost"
@@ -616,12 +616,13 @@ function KeyList({
                     {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
                   </Badge>
                 </div>
-                <span className={cn(META, "leading-4")}>{scopes}</span>
-                <div
-                  className={cn(
-                    META,
-                    "flex flex-wrap items-center gap-x-2 gap-y-1 leading-4",
-                  )}
+                <Text as="span" variant="meta">
+                  {scopes}
+                </Text>
+                <Text
+                  as="div"
+                  variant="meta"
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1"
                 >
                   <KeyIdMeta id={key.id} />
                   <MetaDot />
@@ -635,11 +636,11 @@ function KeyList({
                     expiresAt={key.expires_at}
                     revokedAt={key.revoked_at}
                   />
-                </div>
+                </Text>
                 {key.kind === "agent" ? (
-                  <span className={META}>
+                  <Text as="span" variant="meta">
                     {t("apiKeys.survivesIssuerShort")}
-                  </span>
+                  </Text>
                 ) : null}
               </div>
               {key.revoked_at ? null : (
@@ -882,7 +883,7 @@ function IssuedSecret({
       aria-label={t("apiKeys.secretTitle")}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className={SECTION_TITLE}>{t("apiKeys.createdTitle")}</h2>
+        <Heading>{t("apiKeys.createdTitle")}</Heading>
         <KindBadge kind={kind} />
       </div>
       <Alert variant="amber">
@@ -912,9 +913,9 @@ function IssuedSecret({
         </div>
       </Field>
       {failed ? <FormError>{t("apiKeys.copyFailed")}</FormError> : null}
-      <p className={cn(META, "m-0 [overflow-wrap:anywhere]")}>
+      <Text variant="meta" className="[overflow-wrap:anywhere]">
         {t("apiKeys.keyId", { id: issued.key.id })}
-      </p>
+      </Text>
       <div>
         <Link
           to={listTo}

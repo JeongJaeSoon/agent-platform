@@ -16,10 +16,12 @@ import {
   AlertTitle,
   Badge,
   Button,
+  Code,
   ConfirmDialog,
   Field,
   FieldError,
   FieldLabel,
+  Heading,
   Input,
   Link,
   RelativeTime,
@@ -32,6 +34,7 @@ import {
   SideNavLink,
   Skeleton,
   Switch,
+  Text,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
@@ -71,7 +74,6 @@ const SECTION = {
 type SectionKey = keyof typeof SECTION;
 const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
-const HEADING = "m-0 font-semibold text-body leading-5";
 // The order the mockup lists them in: what most agents turn on first.
 // checks and issues stay in the contract but have no work behind them yet
 // (github-agent.md LATER), so they are not offered.
@@ -199,9 +201,7 @@ function ReceiptRow({
                   params={{ id: result.session_id }}
                 >
                   {t("agentGitHub.activity.session")}{" "}
-                  <span className="font-mono">
-                    {result.session_id.slice(0, 8)}
-                  </span>
+                  <Code>{result.session_id.slice(0, 8)}</Code>
                 </RouterLink>
               </Link>
             </>
@@ -245,21 +245,21 @@ function Activity({
       aria-labelledby={`${SECTION.activity}-title`}
     >
       <div className="flex flex-col gap-1">
-        <h2 id={`${SECTION.activity}-title`} className={HEADING}>
+        <Heading id={`${SECTION.activity}-title`}>
           {t("agentGitHub.section.activity")}
-        </h2>
-        <span className="text-control text-muted-foreground">
+        </Heading>
+        <Text as="span" variant="sub">
           {t("agentGitHub.activityHint")}
-        </span>
+        </Text>
       </div>
       {activity.error ? (
         <FieldError>{failure(activity.error, t)}</FieldError>
       ) : activity.isPending ? (
         <Skeleton className="h-32 w-full" />
       ) : activity.data.items.length === 0 ? (
-        <span className="text-control text-muted-foreground">
+        <Text as="span" variant="sub">
           {t("agentGitHub.activityEmpty")}
-        </span>
+        </Text>
       ) : (
         <RowList
           variant="joined"
@@ -316,9 +316,9 @@ function EnabledRow({
             ) : undefined
           }
           status={
-            <span className="text-control text-muted-foreground">
+            <Text as="span" variant="sub">
               {t(enabled ? "agentGitHub.on" : "agentGitHub.off")}
-            </span>
+            </Text>
           }
           control={
             <Switch
@@ -366,13 +366,13 @@ function SectionHead({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 id={`${id}-title`} className={HEADING}>
-          {t(title)}
-        </h2>
+        <Heading id={`${id}-title`}>{t(title)}</Heading>
         <Badge variant="blue">{t("agentGitHub.badge.release")}</Badge>
       </div>
       {hint ? (
-        <span className="text-control text-muted-foreground">{t(hint)}</span>
+        <Text as="span" variant="sub">
+          {t(hint)}
+        </Text>
       ) : null}
     </div>
   );
@@ -446,9 +446,9 @@ function AllowAdd({
           {t("agentGitHub.add")}
         </Button>
       </div>
-      <span className="text-caption text-muted-foreground">
+      <Text as="span" variant="meta">
         {t("agentGitHub.refHint")}
-      </span>
+      </Text>
       {error ? <FieldError>{t(error)}</FieldError> : null}
     </form>
   );
@@ -631,7 +631,7 @@ function GitHubSettings({
                 <span className="text-muted-foreground">
                   {t("agentGitHub.status.release")}
                 </span>
-                <span className="font-mono text-caption">{release.label}</span>
+                <Code>{release.label}</Code>
               </span>
             ) : null}
           </RowListItem>
@@ -702,14 +702,14 @@ function GitHubSettings({
         className={SECTION_BOX}
         aria-labelledby={`${SECTION.use}-title`}
       >
-        <h2 id={`${SECTION.use}-title`} className={HEADING}>
+        <Heading id={`${SECTION.use}-title`}>
           {t("agentGitHub.section.use")}
-        </h2>
+        </Heading>
         <EnabledRow agentId={agentId} enabled={data.enabled} notify={notify} />
         {data.enabled ? null : (
-          <span className="text-control text-muted-foreground">
+          <Text as="span" variant="sub">
             {t("agentGitHub.offNote")}
-          </span>
+          </Text>
         )}
       </section>
 
@@ -727,9 +727,9 @@ function GitHubSettings({
               hint="agentGitHub.repositoriesHint"
             />
             {data.options.repositories.length === 0 ? (
-              <span className="text-control text-muted-foreground">
+              <Text as="span" variant="sub">
                 {t("agentGitHub.repositoriesNone")}
-              </span>
+              </Text>
             ) : (
               <RowList variant="joined">
                 {data.options.repositories.map((repository) => {
@@ -758,13 +758,13 @@ function GitHubSettings({
                         </span>
                       }
                       status={
-                        <span className="text-control text-muted-foreground">
+                        <Text as="span" variant="sub">
                           {t(
                             on
                               ? "agentGitHub.repositoryUse"
                               : "agentGitHub.repositoryUnused",
                           )}
-                        </span>
+                        </Text>
                       }
                       control={
                         <Switch
@@ -807,9 +807,9 @@ function GitHubSettings({
                 });
               }}
             />
-            <span className="text-caption text-muted-foreground">
+            <Text as="span" variant="meta">
               {t("agentGitHub.repositoriesFoot")}
-            </span>
+            </Text>
           </section>
 
           <section
@@ -831,9 +831,9 @@ function GitHubSettings({
                 }
                 description={t("agentGitHub.baseHint")}
                 status={
-                  <span className="text-control text-muted-foreground">
+                  <Text as="span" variant="sub">
                     {t("agentGitHub.baseState")}
-                  </span>
+                  </Text>
                 }
               />
               {FEATURES.map((feature) => {
@@ -891,9 +891,9 @@ function GitHubSettings({
                       )
                     }
                     status={
-                      <span className="text-control text-muted-foreground">
+                      <Text as="span" variant="sub">
                         {t(on ? "agentGitHub.on" : "agentGitHub.off")}
-                      </span>
+                      </Text>
                     }
                     control={
                       <Switch
@@ -926,14 +926,14 @@ function GitHubSettings({
                 </AlertDescription>
               </Alert>
             ) : null}
-            <span className="text-caption text-muted-foreground">
+            <Text as="span" variant="meta">
               {t("agentGitHub.ceilingNote")}{" "}
               <Link asChild>
                 <RouterLink to="/settings/workspace/github">
                   {t("agentGitHub.settingsLink")}
                 </RouterLink>
               </Link>
-            </span>
+            </Text>
           </section>
 
           {actionsOn ? (
@@ -949,9 +949,9 @@ function GitHubSettings({
                 hint="agentGitHub.allowlistHint"
               />
               {settings.actions_allow.length === 0 ? (
-                <span className="text-control text-muted-foreground">
+                <Text as="span" variant="sub">
                   {t("agentGitHub.allowlistEmpty")}
-                </span>
+                </Text>
               ) : (
                 <RowList
                   variant="joined"
@@ -961,7 +961,9 @@ function GitHubSettings({
                     <SettingRow
                       key={`${entry.workflow}@${entry.ref ?? ""}`}
                       title={
-                        <span className="font-mono">{entry.workflow}</span>
+                        <Code className="font-medium text-control">
+                          {entry.workflow}
+                        </Code>
                       }
                       badge={
                         base?.actions_allow.some((held) =>
@@ -1032,13 +1034,13 @@ function GitHubSettings({
                 title={t("agentGitHub.pushApproval")}
                 description={t("agentGitHub.pushApprovalHint")}
                 status={
-                  <span className="text-control text-muted-foreground">
+                  <Text as="span" variant="sub">
                     {t(
                       settings.push_approval
                         ? "agentGitHub.on"
                         : "agentGitHub.off",
                     )}
-                  </span>
+                  </Text>
                 }
                 control={
                   <Switch

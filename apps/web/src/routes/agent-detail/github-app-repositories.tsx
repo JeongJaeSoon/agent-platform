@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, FieldError } from "@werft-ai/ui";
+import { Button, FieldError, Heading, Text } from "@werft-ai/ui";
 import { useEffect, useId, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { errorKey, type MessageKey, useI18n } from "../../i18n/i18n.tsx";
@@ -122,12 +122,10 @@ export function AppRepositoryPicker({
       aria-labelledby={titleId}
       className="flex flex-col gap-2 rounded-md border p-3"
     >
-      <h3 id={titleId} className="m-0 font-medium text-control">
+      <Heading id={titleId} level={3} className="font-medium text-control">
         {t("agentGitHub.pickTitle")}
-      </h3>
-      <p className="m-0 text-caption text-subtle-foreground">
-        {t("agentGitHub.pickHint")}
-      </p>
+      </Heading>
+      <Text variant="meta">{t("agentGitHub.pickHint")}</Text>
       {list.isError ? (
         <LoadFailure error={list.error} onRetry={() => list.refetch()} />
       ) : (
@@ -141,9 +139,9 @@ export function AppRepositoryPicker({
           action={(repository) =>
             repository.catalog_id !== null &&
             chosen.includes(repository.catalog_id) ? (
-              <span className="text-caption text-subtle-foreground">
+              <Text as="span" variant="meta">
                 {t("agentGitHub.pickInList")}
-              </span>
+              </Text>
             ) : (
               <Button
                 type="button"

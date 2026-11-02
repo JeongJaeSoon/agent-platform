@@ -87,11 +87,11 @@ export const slackKo = {
   "slack.state.error": "오류",
   "slack.createInstall": "Slack 앱 만들고 설치",
   "slack.configToken.unset":
-    "워크스페이스에 Slack 앱 생성 설정(App Configuration Token)이 없어 앱을 만들 수 없습니다.",
+    "워크스페이스에 App Configuration Token이 등록되지 않아 앱을 만들 수 없습니다.",
   "slack.configToken.needs_reentry":
-    "Slack이 워크스페이스의 App Configuration Token을 더 이상 받지 않아 앱을 만들 수 없습니다.",
-  "slack.configToken.settings": "워크스페이스 Slack 설정으로",
-  "slack.configToken.askAdmin": "소유자나 관리자에게 설정을 요청하세요.",
+    "워크스페이스에 저장된 토큰을 사용할 수 없어 앱을 만들 수 없습니다.",
+  "slack.configToken.settings": "Slack 연결 설정에서 토큰 등록",
+  "slack.configToken.askAdmin": "소유자나 관리자에게 토큰 등록을 요청하세요.",
   "slack.install": "Slack 앱 설치",
   "slack.reinstall": "다시 설치",
   "slack.working": "준비 중…",

@@ -6,6 +6,7 @@ import {
   FieldError,
   FieldLabel,
   formatTimestamp,
+  Text,
   Textarea,
 } from "@werft-ai/ui";
 import { Hourglass } from "lucide-react";
@@ -97,15 +98,11 @@ export function ApprovalRow({
   }, [denying]);
 
   const notice = (
-    <p
-      ref={noticeRef}
-      tabIndex={expired ? -1 : undefined}
-      className="text-muted-foreground text-caption"
-    >
+    <Text ref={noticeRef} variant="meta" tabIndex={expired ? -1 : undefined}>
       {expired
         ? messages.expired
         : messages.expires(formatTimestamp(request.expires_at, locale))}
-    </p>
+    </Text>
   );
   const inputToggle = (
     <details
@@ -160,21 +157,25 @@ export function ApprovalRow({
                 aria-hidden="true"
               />
               {/* Not a heading: the level depends on the screen around the row. */}
-              <p
+              <Text
                 id={titleId}
                 className="font-semibold text-body [overflow-wrap:anywhere]"
               >
                 {messages.title(request.tool)}
-              </p>
+              </Text>
               {/* Each separator wraps with the item after it, never left trailing. */}
               {subject === undefined ? null : (
                 <span className="flex min-w-0 items-center gap-2">
                   <span aria-hidden="true" className="text-muted-foreground">
                     ·
                   </span>
-                  <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="min-w-0 text-foreground [overflow-wrap:anywhere]"
+                  >
                     {subject}
-                  </span>
+                  </Text>
                 </span>
               )}
               <span className="flex items-center gap-2">
@@ -189,7 +190,7 @@ export function ApprovalRow({
           </div>
         ) : (
           <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
-            <p
+            <Text
               id={titleId}
               className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-5"
             >
@@ -200,7 +201,7 @@ export function ApprovalRow({
               <Badge variant="amber" className="min-w-0 max-w-full shrink">
                 <span className="truncate">{messages.title(request.tool)}</span>
               </Badge>
-            </p>
+            </Text>
             {/* A space either side of each dot, as inside `meta`; each dot
                 wraps with the item after it, never left trailing. */}
             <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-caption text-muted-foreground leading-4">

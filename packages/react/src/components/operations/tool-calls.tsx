@@ -1,4 +1,4 @@
-import { Badge, EmptyState, Skeleton } from "@werft-ai/ui";
+import { Badge, EmptyState, Skeleton, Text } from "@werft-ai/ui";
 import type { JSX } from "react";
 
 import { useAgentPlatform } from "../../provider.tsx";
@@ -42,9 +42,9 @@ export function ToolCalls({
   });
   return (
     <div data-slot="tool-calls">
-      <p className="m-0 -mt-1 mb-2 text-caption text-subtle-foreground leading-4">
+      <Text variant="meta" className="-mt-1 mb-2 leading-4">
         {messages.note}
-      </p>
+      </Text>
       {calls === undefined ? (
         // A call row's two lines at their heights, so the list does not grow
         // when the calls come; no empty items for assistive tech.
@@ -90,10 +90,10 @@ export function ToolCalls({
                     {messages.hidden}
                   </span>
                 )}
-                <span className="text-caption text-subtle-foreground leading-4">
+                <Text as="span" variant="meta" className="leading-4">
                   {call.agent === null ? "" : `${call.agent} · `}
                   {time.format(new Date(call.occurred_at))}
-                </span>
+                </Text>
               </span>
               <span className="text-subtle-foreground tabular-nums">
                 {call.duration_ms === null

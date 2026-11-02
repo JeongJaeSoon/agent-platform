@@ -15,6 +15,7 @@ import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
   buttonVariants,
+  Code,
   EmptyState,
   Heading,
   Link,
@@ -417,7 +418,7 @@ export function SessionAttribution({
   const data = attribution.data;
   if (!hasRepository(session) || data === undefined) return null;
   return (
-    <p className="m-0 text-caption text-muted-foreground">
+    <Text variant="meta">
       {data.attribution === "co_author" && data.login !== null ? (
         t("session.attribution.coAuthor", { login: data.login })
       ) : data.attribution === "unlinked" ? (
@@ -432,7 +433,7 @@ export function SessionAttribution({
       ) : (
         t("session.attribution.appOnly")
       )}
-    </p>
+    </Text>
   );
 }
 
@@ -471,14 +472,14 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
               className="flex min-w-0 items-center justify-between gap-3 text-control"
             >
               <div className="flex min-w-0 flex-col">
-                <span className="font-mono [overflow-wrap:anywhere]">
+                <Code className="text-control [overflow-wrap:anywhere]">
                   {name}
-                </span>
-                <span className="text-caption text-muted-foreground">
+                </Code>
+                <Text as="span" variant="meta">
                   {item.omitted === null
                     ? formatBytes(item.bytes, locale)
                     : `${formatBytes(item.bytes, locale)} · ${t("session.outputs.tooLarge")}`}
-                </span>
+                </Text>
               </div>
               {item.omitted === null ? (
                 <Tooltip>
