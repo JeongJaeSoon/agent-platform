@@ -2356,9 +2356,10 @@ describe("식별자와 상태 문구", () => {
     expect(within(head).getByText("초안")).toBeDefined();
     expect(within(head).getByText("결제 문의 담당")).toBeDefined();
     expect(within(head).queryByText(/billing/)).toBeNull();
-    const card = screen
-      .getByRole("heading", { name: "에이전트 카드", hidden: true })
-      .closest("section") as HTMLElement;
+    const card = screen.getByRole("region", {
+      name: "에이전트 카드",
+      hidden: true,
+    });
     expect(within(card).getByText("billing")).toBeDefined();
     expect(screen.queryByText(/000000000001/)).toBeNull();
   });
