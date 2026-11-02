@@ -150,19 +150,6 @@ describe("waitForTurn", () => {
     expect(api.seen.some((r) => r.path.endsWith("/answers"))).toBe(false);
   });
 
-  test("a handler answering with the deprecated decision is sent as action", async () => {
-    const api = session([permission("p1", "git status")]);
-    const outcomes: AnswerOutcome[] = [];
-    await waitForTurn(werft(api.fetch), "s1", "t1", {
-      onRequest: { permission: () => ({ decision: "allow" }) },
-      onAnswer: (outcome) => outcomes.push(outcome),
-      pollIntervalMs: 5,
-    });
-    expect(
-      api.seen.filter((r) => r.path.endsWith("/answers")).map((r) => r.body),
-    ).toEqual([{ request_id: "p1", kind: "permission", action: "allow" }]);
-  });
-
   test("a deny without a reason is refused before it is sent", async () => {
     const api = session([permission("p1", "git status")]);
     const error = await waitForTurn(werft(api.fetch), "s1", "t1", {

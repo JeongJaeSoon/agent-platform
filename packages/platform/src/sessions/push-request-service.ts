@@ -1,10 +1,10 @@
 import {
   type CreatePushRequestRequest,
-  type DecidePushRequestRequest,
   type ListPushRequestsResponse,
   type Principal,
   type PushRefusal,
   type PushRequest,
+  type PushResolution,
   pushBranchFor,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -153,7 +153,7 @@ export function createPushRequestService(deps: {
             refusal,
             result: {
               push_request_id: null,
-              decision: null,
+              action: null,
               verdict: "refuse",
               refusal,
               repository_id: fields.repository_id ?? null,
@@ -242,7 +242,7 @@ export function createPushRequestService(deps: {
       rawPushRequestId: string,
       input: {
         idempotencyKey: string;
-        readBody: () => Promise<DecidePushRequestRequest>;
+        readBody: () => Promise<PushResolution>;
       },
     ): Promise<PushRequest> {
       requireVerified(actor);
@@ -257,11 +257,11 @@ export function createPushRequestService(deps: {
             ownerId: actor.ownerId,
             sessionId,
             actor: receiptActor,
-            operation: "decide_push",
+            operation: "resolve_push",
             refusal,
             result: {
               push_request_id: pushRequestId,
-              decision: null,
+              action: null,
               verdict: "refuse",
               refusal,
               repository_id: null,

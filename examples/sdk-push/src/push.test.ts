@@ -77,7 +77,6 @@ function fakePush(outcome: Outcome) {
         target_branch: `agent/${SESSION}`,
         checkpoint_revision: 1,
         resolution_reason: null,
-        decision_reason: null,
         push_receipt_id: null,
       };
       pushes.unshift(push);
@@ -89,7 +88,7 @@ function fakePush(outcome: Outcome) {
     if (action && push) {
       const { reason } = body as { reason?: string };
       if (push.state !== "requested")
-        return apiError(409, "PUSH_REQUEST_DECIDED");
+        return apiError(409, "PUSH_REQUEST_RESOLVED");
       Object.assign(
         push,
         action === "approve"
@@ -97,7 +96,6 @@ function fakePush(outcome: Outcome) {
           : {
               state: "rejected",
               resolution_reason: reason,
-              decision_reason: reason,
             },
       );
       return json(push);
@@ -177,7 +175,7 @@ test("pushes the approved commit and opens a pull request on GitHub", async () =
     `permission req-2: allow "${COMMANDS[1]}"`,
     "push push-1: requested, c0ffee012345 -> agent/fake-session (checkpoint 1)",
     'push push-1: rejected, c0ffee012345 -> agent/fake-session (checkpoint 1), reason "review the diff first"',
-    "approve after the reject: 409 PUSH_REQUEST_DECIDED",
+    "approve after the reject: 409 PUSH_REQUEST_RESOLVED",
     "push push-2: pushed",
     "push receipt: succeeded, refs/heads/agent/fake-session",
     "push requests: pushed, rejected",

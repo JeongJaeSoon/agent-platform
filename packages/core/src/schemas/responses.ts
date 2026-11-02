@@ -260,8 +260,6 @@ export const responseSchemas = {
     pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/reject":
     pushRequestSchema,
-  "POST /v1/sessions/{id}/push-requests/{push_request_id}/decision":
-    pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request":
     openPullRequestResponseSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request/comments":

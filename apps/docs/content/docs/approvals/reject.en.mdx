@@ -58,7 +58,7 @@ Reference: [`POST …/push-requests/{push_request_id}/reject`](/reference/http-a
 
 ## Approve or reject once
 
-Approving or rejecting a request that was already approved or rejected is 409 `PUSH_REQUEST_DECIDED`. That attempt is also kept as a receipt.
+Approving or rejecting a request that was already approved or rejected is 409 `PUSH_REQUEST_RESOLVED`. That attempt is also kept as a receipt.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -71,7 +71,7 @@ try {
     git_commit: second.git_commit,
   });
 } catch (error) {
-  if (!isApiError(error, "PUSH_REQUEST_DECIDED")) throw error;
+  if (!isApiError(error, "PUSH_REQUEST_RESOLVED")) throw error;
   console.log(error.code);
   const receiptId = (error.details as { receipt_id?: string } | null)?.receipt_id;
   if (receiptId) {
@@ -83,8 +83,8 @@ try {
 ```
 
 ```text
-PUSH_REQUEST_DECIDED
-decide_push failed already_decided
+PUSH_REQUEST_RESOLVED
+resolve_push failed already_resolved
 ```
 
 </Tab>
@@ -103,12 +103,12 @@ curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -
 
 ```text
 {
-  "code": "PUSH_REQUEST_DECIDED"
+  "code": "PUSH_REQUEST_RESOLVED"
 }
 {
-  "operation": "decide_push",
+  "operation": "resolve_push",
   "status": "failed",
-  "refusal": "already_decided"
+  "refusal": "already_resolved"
 }
 ```
 

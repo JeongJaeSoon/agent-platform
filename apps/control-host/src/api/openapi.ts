@@ -72,7 +72,6 @@ import {
   createTeamRequestSchema,
   createWorkspaceProfileRequestSchema,
   credentialBindingParamsSchema,
-  decidePushRequestRequestSchema,
   deleteGitHubAppResponseSchema,
   deleteSlackAppResponseSchema,
   deleteSlackSecretResponseSchema,
@@ -334,7 +333,6 @@ const requestComponents = {
   ChangeSessionProfileRequest: changeSessionProfileRequestSchema,
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   CreatePushRequestRequest: createPushRequestRequestSchema,
-  DecidePushRequestRequest: decidePushRequestRequestSchema,
   ResolvePushRequestRequest: resolvePushRequestRequestSchema,
   OpenPullRequestRequest: openPullRequestRequestSchema,
   CommentPullRequestRequest: commentPullRequestRequestSchema,
@@ -712,8 +710,6 @@ export type RouteDeclaration = {
   scopeCheckedBy?: "service";
   // Most POSTs are commands and take Idempotency-Key; auth endpoints do not.
   idempotent?: false;
-  // Kept for old callers until they move; `successor` names the replacement.
-  deprecated?: { successor: string };
 };
 
 const CONFLICTS = [400, 401, 404, 409];
@@ -1101,10 +1097,6 @@ const EXAMPLE_PUSH_REQUEST = {
   resolution_receipt_id: null,
   finished_at: null,
   push_receipt_id: null,
-  decided_by: null,
-  decided_at: null,
-  decision_reason: null,
-  decision_receipt_id: null,
 };
 const EXAMPLE_PULL_REQUEST = {
   push_request_id: EXAMPLE_PUSH_REQUEST_ID,
@@ -3177,7 +3169,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Pending requests",
     summary: "Answer a pending permission or question request",
     description:
-      "Answers one pending request by `request_id`: a permission with `action` `allow` or `deny` (a denial needs a `reason` the model can act on; the deprecated `decision` is still taken in place of `action`, giving both, or neither, is 400), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`, with why in its message: an interrupt, a park, a shutdown, the worker refusing the answer, or the engine having closed the request already) first, `unknown` if the execution ended before it reported or the engine no longer knew the request, so it may or may not have acted on the answer.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.",
+      "Answers one pending request by `request_id`: a permission with `action` `allow` or `deny` (a denial needs a `reason` the model can act on), a question with one answer per question, by option ids or free text where the question allows it. The answer is stored and the request closes at once: the pending list drops it and a `status` event ends the wait. The worker then hands the answer to the engine, and the receipt settles when it reports: `succeeded` once delivered, `failed` if the request expired (`REQUEST_EXPIRED`) or was cancelled (`REQUEST_STALE`, with why in its message: an interrupt, a park, a shutdown, the worker refusing the answer, or the engine having closed the request already) first, `unknown` if the execution ended before it reported or the engine no longer knew the request, so it may or may not have acted on the answer.\n\nA parked request (`state: parked`) is answered the same way, whichever worker asked. The answer is kept until every request of its `group` is answered or expired; the one that closes the group resumes the session (`resumed: true`), and the receipt settles once the turn that resumes it has the answer. `waiting_for` counts the group's requests still open. A session paused by a person rather than by its park keeps the answer and stays paused.\n\nSeeing a session is not answering for it: only its creator, its agent's admins, the workspace's owners and admins, and the keys of its agent that hold `sessions:approve` answer. Anyone else the session is visible to gets 403 (`reason_code: role`) and the request stays open; anyone it is not visible to, 404. No workspace key (personal or agent) answers a session that key started: 403 (`reason_code: self_approval`) with a failed `answer` receipt named by `error.details.receipt_id`, and the request stays open for another key or a person.",
     scope: "approve",
     body: "PostSessionAnswerRequest",
     requestExample: {
@@ -3288,7 +3280,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Read one push request",
     description:
-      "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who resolved it (`resolved_by`; `decided_by` is its deprecated copy).\n\nThe API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.",
+      "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who resolved it (`resolved_by`).\n\nThe API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.",
     scope: "read",
     success: {
       status: 200,
@@ -3305,7 +3297,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Approve a push request",
     description:
-      "Approves a `requested` push request: the platform pushes the pinned commit to the request's branch. `git_commit` must be the commit the approver reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/reject` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.",
+      "Approves a `requested` push request: the platform pushes the pinned commit to the request's branch. `git_commit` must be the commit the approver reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `resolve_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/reject` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.",
     scope: "approve",
     scopeCheckedBy: "service",
     body: "ResolvePushRequestRequest",
@@ -3322,15 +3314,16 @@ export const API_ROUTE_DECLARATIONS = [
         resolved_by: EXAMPLE_ACTOR,
         resolved_at: "2026-10-11T08:35:00Z",
         resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
-        decided_by: EXAMPLE_ACTOR,
-        decided_at: "2026-10-11T08:35:00Z",
-        decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
       },
     },
     errors: [...CONFLICTS, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN"],
-      409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_DECIDED", "CHECKPOINT_MOVED"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "PUSH_REQUEST_RESOLVED",
+        "CHECKPOINT_MOVED",
+      ],
     },
     errorNotes: {
       FORBIDDEN:
@@ -3346,7 +3339,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Reject a push request",
     description:
-      "Rejects a `requested` push request; nothing is pushed. `git_commit` is required as for an approval but not compared: a rejection is not refused when the session has moved on.\n\nOnly a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/approve` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.",
+      "Rejects a `requested` push request; nothing is pushed. `git_commit` is required as for an approval but not compared: a rejection is not refused when the session has moved on.\n\nOnly a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `resolve_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/approve` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.",
     scope: "approve",
     scopeCheckedBy: "service",
     body: "ResolvePushRequestRequest",
@@ -3363,67 +3356,22 @@ export const API_ROUTE_DECLARATIONS = [
         resolved_by: EXAMPLE_ACTOR,
         resolved_at: "2026-10-11T08:35:00Z",
         resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
-        decided_by: EXAMPLE_ACTOR,
-        decided_at: "2026-10-11T08:35:00Z",
-        decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
       },
     },
     errors: [...CONFLICTS, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN"],
-      409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_DECIDED", "CHECKPOINT_MOVED"],
+      409: [
+        "IDEMPOTENCY_CONFLICT",
+        "PUSH_REQUEST_RESOLVED",
+        "CHECKPOINT_MOVED",
+      ],
     },
     errorNotes: {
       FORBIDDEN:
         "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
       CHECKPOINT_MOVED:
         "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
-    },
-  },
-  {
-    method: "post",
-    path: "/v1/sessions/{id}/push-requests/{push_request_id}/decision",
-    operationId: "decidePushRequest",
-    tag: "Push requests",
-    summary: "Approve or reject a push request (deprecated)",
-    description:
-      "Deprecated: use `POST .../approve` or `POST .../reject`, which take the same body without `decision`. This path answers with a `Deprecation: true` header and will be removed once its callers move. `decision: approve` behaves as `/approve` and `decision: reject` as `/reject`; the three paths share one Idempotency-Key scope.",
-    scope: "approve",
-    scopeCheckedBy: "service",
-    body: "DecidePushRequestRequest",
-    requestExample: {
-      decision: "approve",
-      git_commit: EXAMPLE_GIT_COMMIT,
-    },
-    success: {
-      status: 200,
-      schema: "PushRequest",
-      description: "The request as answered.",
-      example: {
-        ...EXAMPLE_PUSH_REQUEST,
-        state: "approved",
-        resolved_by: EXAMPLE_ACTOR,
-        resolved_at: "2026-10-11T08:35:00Z",
-        resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
-        decided_by: EXAMPLE_ACTOR,
-        decided_at: "2026-10-11T08:35:00Z",
-        decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
-      },
-    },
-    errors: [...CONFLICTS, 413, 503],
-    errorCodes: {
-      403: ["FORBIDDEN"],
-      409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_DECIDED", "CHECKPOINT_MOVED"],
-    },
-    errorNotes: {
-      FORBIDDEN:
-        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
-      CHECKPOINT_MOVED:
-        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
-    },
-    deprecated: {
-      successor:
-        "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve or /reject",
     },
   },
   {
@@ -6551,7 +6499,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `decide_push`, `push`: `{push_request_id, decision, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request or edited the marked comment.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -6610,24 +6558,6 @@ export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
           path: route.path,
           scope,
           checkedBy: route.scopeCheckedBy ?? "api",
-        },
-      ]
-    : [];
-});
-
-/** Hono paths of the routes kept only for old callers. */
-export const DEPRECATED_ROUTES: ReadonlyArray<{
-  method: Uppercase<RouteDeclaration["method"]>;
-  path: string;
-}> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
-  const route: RouteDeclaration = declaration;
-  return route.deprecated
-    ? [
-        {
-          method: route.method.toUpperCase() as Uppercase<
-            RouteDeclaration["method"]
-          >,
-          path: route.path.replace(/\{(\w+)\}/g, ":$1"),
         },
       ]
     : [];
@@ -6996,7 +6926,6 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       .filter(Boolean)
       .join("\n\n"),
     ...(route.scope ? { "x-scope": scopeOf(route) } : {}),
-    ...(route.deprecated ? { deprecated: true } : {}),
     security: securityFor(route),
     parameters,
     ...(route.body

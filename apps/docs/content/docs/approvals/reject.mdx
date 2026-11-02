@@ -58,7 +58,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" \
 
 ## 승인·거부는 한 번
 
-이미 승인하거나 거부한 요청을 다시 승인하거나 거부하면 409 `PUSH_REQUEST_DECIDED`다. 그 시도도 receipt로 남는다.
+이미 승인하거나 거부한 요청을 다시 승인하거나 거부하면 409 `PUSH_REQUEST_RESOLVED`다. 그 시도도 receipt로 남는다.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -71,7 +71,7 @@ try {
     git_commit: second.git_commit,
   });
 } catch (error) {
-  if (!isApiError(error, "PUSH_REQUEST_DECIDED")) throw error;
+  if (!isApiError(error, "PUSH_REQUEST_RESOLVED")) throw error;
   console.log(error.code);
   const receiptId = (error.details as { receipt_id?: string } | null)?.receipt_id;
   if (receiptId) {
@@ -83,8 +83,8 @@ try {
 ```
 
 ```text
-PUSH_REQUEST_DECIDED
-decide_push failed already_decided
+PUSH_REQUEST_RESOLVED
+resolve_push failed already_resolved
 ```
 
 </Tab>
@@ -103,12 +103,12 @@ curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -
 
 ```text
 {
-  "code": "PUSH_REQUEST_DECIDED"
+  "code": "PUSH_REQUEST_RESOLVED"
 }
 {
-  "operation": "decide_push",
+  "operation": "resolve_push",
   "status": "failed",
-  "refusal": "already_decided"
+  "refusal": "already_resolved"
 }
 ```
 

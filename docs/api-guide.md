@@ -434,15 +434,15 @@ rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${AUT
   --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
 echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
 curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${AUTH[@]}" \
-  | jq -e '.operation == "decide_push" and .result.verdict == "allow" and .result.decision == "reject"'
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
 
 again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
   --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')")
 test "$(echo "$again" | tail -n1)" = 409
-echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_DECIDED"'
+echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
 curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
-  | jq -e '.status == "failed" and .result.refusal == "already_decided"'
+  | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
 
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
@@ -462,9 +462,9 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `resolved_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`decide_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](operator/api-server.md#승인된-요청의-push)에 있다.
+**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `resolved_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`resolve_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](operator/api-server.md#승인된-요청의-push)에 있다.
 
-**흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_DECIDED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다른 commit으로 checkpoint를 남겼다. 요청 뒤 checkpoint가 다시 생겼어도 commit이 같으면 승인된다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
+**흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_RESOLVED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다른 commit으로 checkpoint를 남겼다. 요청 뒤 checkpoint가 다시 생겼어도 commit이 같으면 승인된다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 
 ## 11. 세션 결과물 목록과 내려받기
 
