@@ -235,7 +235,7 @@ function WorkspaceVariablesScreen({ state }: { readonly state: PanelState }) {
 }
 
 const meta = {
-  title: "Screens/Workspace variables (v3)",
+  title: "Proposals/Workspace variables (v3)",
   component: WorkspaceVariablesScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "loading" },

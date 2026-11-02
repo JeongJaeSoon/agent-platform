@@ -11,9 +11,9 @@ import { Badge } from "@werft-ai/ui";
  * S-A1 (approval card) and S-A2 (question card) through each stage of a
  * request that waits, parks and resumes (design-await-timeout §10.4). The
  * stage's headline rides on the title line, its detail on the expiry line.
+ * When it parks is the request's `park_at`; the requests still open in its
+ * `group` are what is left to answer (GET /v1/sessions/{id}/pending-requests).
  */
-
-const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type CardKind = "approval" | "question";
 type Stage =
@@ -35,6 +35,12 @@ type Stage =
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 const EXPIRES_AT = "2026-10-22T01:00:00.000Z";
 const AFTER_EXPIRY = Date.parse("2026-10-22T01:00:01.000Z");
+const PARK_AT = "2026-10-21T01:10:00.000Z";
+const PARK_AT_LABEL = new Date(PARK_AT).toLocaleTimeString("ko-KR", {
+  timeZone: "Asia/Seoul",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 type Tone = "gray" | "blue" | "amber" | "red";
 
@@ -58,7 +64,8 @@ const PARKED_DETAIL = (at: string) =>
 
 const STAGES: Record<Stage, StageCopy> = {
   waiting: {
-    detail: (at) => `일시정지 예정: API 변경 필요 · ${at}까지 답할 수 있습니다`,
+    detail: (at) =>
+      `일시정지 예정: ${PARK_AT_LABEL} · ${at}까지 답할 수 있습니다`,
   },
   parking: {
     head: { label: "일시정지하는 중", tone: "amber" },
@@ -69,7 +76,7 @@ const STAGES: Record<Stage, StageCopy> = {
   answeredSiblings: {
     head: { label: "답을 저장했습니다", tone: "blue" },
     detail: (at) =>
-      `나머지 요청에 답하면 이어서 진행합니다(남은 요청 수: API 변경 필요). ${at}까지 답이 없으면 답한 것만으로 이어갑니다.`,
+      `나머지 요청에 답하면 이어서 진행합니다(남은 요청 1개). ${at}까지 답이 없으면 답한 것만으로 이어갑니다.`,
     answered: true,
   },
   resuming: {
@@ -129,6 +136,9 @@ const PERMISSION: PermissionRequest = {
   input: { command: "bun run deploy --dry-run", description: "Dry-run deploy" },
   created_at: "2026-10-21T00:59:00.000Z",
   expires_at: EXPIRES_AT,
+  state: "waiting",
+  park_at: PARK_AT,
+  group: "turn_07",
 };
 
 const QUESTION: QuestionRequest = {
@@ -138,6 +148,9 @@ const QUESTION: QuestionRequest = {
   kind: "question",
   created_at: "2026-10-21T00:59:00.000Z",
   expires_at: EXPIRES_AT,
+  state: "waiting",
+  park_at: PARK_AT,
+  group: "turn_07",
   questions: [
     {
       question_id: "q_target",
@@ -213,7 +226,6 @@ function WaitStatesBody({
 function WaitStates(props: Parameters<typeof WaitStatesBody>[0]) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
       <WaitStatesBody {...props} />
     </div>
   );

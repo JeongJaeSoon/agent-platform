@@ -49,8 +49,8 @@ import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
  * The operations menu (ops-console ccdeck-features-design.html, approved),
- * built from the kit before any API exists. Every block is a kit or
- * operations part; the data is the design's own, as API responses.
+ * from the same parts as apps/web's operations route. The data is the
+ * design's own, in the shapes GET /v1/usage/* and /v1/sessions/counts return.
  */
 
 type Tab = OperationsTab;

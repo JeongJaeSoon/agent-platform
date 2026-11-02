@@ -78,7 +78,7 @@ function CardEditorVariableNamesScreen({
 }
 
 const meta = {
-  title: "Screens/Card editor variable names (v3)",
+  title: "Proposals/Card editor variable names (v3)",
   component: CardEditorVariableNamesScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "ready" },

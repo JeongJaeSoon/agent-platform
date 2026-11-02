@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ProfileSummary } from "@werft-ai/contracts";
 import {
   Badge,
   Card,
@@ -15,12 +16,40 @@ import {
 
 /*
  * S-A7: a runtime profile card in settings, with how long its requests
- * wait before parking and expiring under the permission mode. Profiles carry
- * no wait values yet, so the row says the API has to change first; the
- * install-default marker waits on the same field.
+ * wait before parking and expiring under the permission mode: GET
+ * /v1/profiles `permission_wait`, each value marked where the installation
+ * default fills in for the profile.
  */
 
-const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
+const WAIT: NonNullable<ProfileSummary["permission_wait"]> = {
+  park_after_seconds: 600,
+  expire_after_seconds: 86_400,
+  source: {
+    park_after_seconds: "profile",
+    expire_after_seconds: "installation",
+  },
+};
+
+function duration(seconds: number) {
+  return seconds % 3600 === 0 ? `${seconds / 3600}시간` : `${seconds / 60}분`;
+}
+
+function WaitValue({
+  label,
+  seconds,
+  source,
+}: {
+  readonly label: string;
+  readonly seconds: number;
+  readonly source: "profile" | "installation";
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {label} {duration(seconds)}
+      {source === "installation" ? <Badge>설치 기본값</Badge> : null}
+    </div>
+  );
+}
 
 type ProfileState = "profile";
 
@@ -44,7 +73,20 @@ function RuntimeProfileWaitValuesBody(_: { readonly state: ProfileState }) {
               </TableRow>
               <TableRow>
                 <TableHead scope="row">답 대기</TableHead>
-                <TableCell>{API_CHANGE}</TableCell>
+                <TableCell>
+                  <div className="flex flex-col gap-1">
+                    <WaitValue
+                      label="일시정지까지"
+                      seconds={WAIT.park_after_seconds}
+                      source={WAIT.source.park_after_seconds}
+                    />
+                    <WaitValue
+                      label="만료까지"
+                      seconds={WAIT.expire_after_seconds}
+                      source={WAIT.source.expire_after_seconds}
+                    />
+                  </div>
+                </TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -59,7 +101,6 @@ function RuntimeProfileWaitValuesScreen(
 ) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
       <RuntimeProfileWaitValuesBody {...props} />
     </div>
   );

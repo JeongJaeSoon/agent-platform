@@ -1,12 +1,5 @@
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  DisabledReason,
-  PageFrame,
-} from "@werft-ai/ui";
-import { type ReactNode, useId } from "react";
+import { Badge, Button, Card, DisabledReason, PageFrame } from "@werft-ai/ui";
+import type { ReactNode } from "react";
 
 /*
  * Shared frame for the v3 screen stories (.design/v3-members/plan.md §9).
@@ -153,49 +146,3 @@ export function LockedButton({
 }
 
 export const MOBILE = { viewport: { value: "mobile390", isRotated: false } };
-
-export interface DangerRow {
-  readonly title: string;
-  readonly body: string;
-  /** A string is an outline button in the danger tone. */
-  readonly action: ReactNode;
-}
-
-/** Stand-in for DangerZone: the last block of a detail screen (C-12). */
-export function DangerArea({ rows }: { readonly rows: readonly DangerRow[] }) {
-  const headingId = useId();
-  return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <h2 id={headingId} className="m-0 font-semibold">
-          위험 영역
-        </h2>
-        <PartRequest name="DangerZone" />
-      </div>
-      <Card className="gap-0 divide-y border-(color:--ap-tone-danger-border) py-0">
-        {rows.map((row) => (
-          <CardContent
-            key={row.title}
-            className="flex flex-wrap items-center justify-between gap-4 py-4"
-          >
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="font-semibold">{row.title}</span>
-              <span className="text-muted-foreground">{row.body}</span>
-            </div>
-            {typeof row.action === "string" ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="text-(color:--ap-tone-danger-fg)"
-              >
-                {row.action}
-              </Button>
-            ) : (
-              row.action
-            )}
-          </CardContent>
-        ))}
-      </Card>
-    </section>
-  );
-}
