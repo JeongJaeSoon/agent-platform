@@ -132,16 +132,19 @@ function toDate(value: string | Date): Date {
 
 /**
  * When something happens, by the calendar: "방금", "N분 전", "N시간 전" (same
- * day), "어제 HH:MM", "M/D", or "YYYY/M/D" in another year; ahead of `now`,
- * "N분 후", "N시간 후" (same day), "내일 HH:MM" and the same dates. Under a
- * minute either way (clock skew) reads as "방금". An unparseable string
- * comes back unchanged, as formatTimestamp does. How long something has
- * lasted is formatElapsed's.
+ * day), "어제 HH:MM", "M/D", or "YYYY/M/D" in another year. With `future`,
+ * a time ahead of `now` reads "N분 후", "N시간 후" (same day), "내일 HH:MM"
+ * or the same dates; under a minute either way stays "방금". Without it, a
+ * time ahead reads "방금": a past-only value (created_at, last_event_at) is
+ * ahead only because `now` is a minute tick behind or the clocks differ. An
+ * unparseable string comes back unchanged, as formatTimestamp does. How long
+ * something has lasted is formatElapsed's.
  */
 export function formatRelativeTime(
   value: string | Date,
   locale: TimestampLocale = "ko",
   now: number | Date = Date.now(),
+  options: { readonly future?: boolean | undefined } = {},
 ): string {
   const date = toDate(value);
   if (Number.isNaN(date.getTime())) return String(value);
@@ -149,6 +152,7 @@ export function formatRelativeTime(
   const phrases = PHRASES[locale];
   const delta = new Date(now).getTime() - date.getTime();
   const future = delta < 0;
+  if (future && !options.future) return phrases.now;
   const elapsed = Math.abs(delta);
   if (elapsed < MINUTE) return phrases.now;
   if (elapsed < HOUR) {

@@ -103,6 +103,16 @@ const cases: [
     { ko: "1/1", ja: "1/1", en: "1/1" },
   ],
   [
+    "미래 시각은 따로 묻지 않으면 방금(분 단위 now가 늦은 과거 값)",
+    "2026-10-24T15:20:00+09:00",
+    NOW,
+    { ko: "방금", ja: "たった今", en: "Just now" },
+  ],
+];
+
+// Asked with `future: true`.
+const futureCases: typeof cases = [
+  [
     "1분 안쪽의 미래(시계 차이)는 방금",
     "2026-10-24T15:14:59+09:00",
     NOW,
@@ -158,6 +168,16 @@ describe("formatRelativeTime", () => {
     test(label, () => {
       for (const locale of ["ko", "ja", "en"] as const) {
         expect(formatRelativeTime(at, locale, now)).toBe(expected[locale]);
+      }
+    });
+  }
+
+  for (const [label, at, now, expected] of futureCases) {
+    test(`future: ${label}`, () => {
+      for (const locale of ["ko", "ja", "en"] as const) {
+        expect(formatRelativeTime(at, locale, now, { future: true })).toBe(
+          expected[locale],
+        );
       }
     });
   }

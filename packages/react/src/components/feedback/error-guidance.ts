@@ -416,9 +416,11 @@ export function guidanceFor(
   locale: Locale = "ko",
 ): string | undefined {
   if (!code) return undefined;
-  const guidance = ERROR_GUIDANCE_BY_LOCALE[locale];
+  // A locale from untyped code would otherwise throw inside an error screen.
+  const known = Object.hasOwn(ERROR_GUIDANCE_BY_LOCALE, locale) ? locale : "ko";
+  const guidance = ERROR_GUIDANCE_BY_LOCALE[known];
   // `hasOwn`, not a plain lookup: the code arrives from the server, and
   // "__proto__" or "constructor" would otherwise hand React an object.
-  if (!Object.hasOwn(guidance, code)) return UNKNOWN_GUIDANCE[locale];
+  if (!Object.hasOwn(guidance, code)) return UNKNOWN_GUIDANCE[known];
   return guidance[code as ApiErrorCode];
 }

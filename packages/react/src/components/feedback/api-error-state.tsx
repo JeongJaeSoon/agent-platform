@@ -33,7 +33,7 @@ export function ApiErrorState({
   evidenceLink,
   ...props
 }: ApiErrorStateProps): JSX.Element {
-  const copy = COPY[locale];
+  const copy = COPY[locale] ?? COPY.ko;
   return (
     <ErrorState
       {...props}

@@ -127,6 +127,19 @@ describe("오류 문구", () => {
     expect(ERROR_GUIDANCE_BY_LOCALE.ko).toBe(ERROR_GUIDANCE);
   });
 
+  test("모르는 locale은 오류 화면을 깨지 않고 한국어로 말한다", () => {
+    expect(guidanceFor("NOT_FOUND", "zh" as never)).toBe(
+      ERROR_GUIDANCE.NOT_FOUND,
+    );
+    expect(guidanceFor("NOT_FOUND", 0 as never)).toBe(ERROR_GUIDANCE.NOT_FOUND);
+    const { container } = render(
+      <ApiErrorState locale={"zh" as never} code="NOT_FOUND" />,
+    );
+    expect(container.querySelector(".ap-state__title")?.textContent).toBe(
+      "문제가 생겼습니다",
+    );
+  });
+
   test("모르는 코드는 그 언어의 일반 안내로 말한다", () => {
     for (const locale of ["en", "ja"] as const) {
       const fallback = guidanceFor("SOMETHING_NEW", locale);
