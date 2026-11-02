@@ -339,11 +339,12 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       workspace: { repository: null },
       repository_access: access,
     });
-    const order = {
+    const entry = {
       id: "docs",
       url: "https://github.com/acme/docs.git",
       branch: "main",
     };
+    const order = { ...entry, receipt_id: "r-1" };
     const run = new ScriptedRun();
     run.onSend = (sent) => {
       // The agent's call lands mid-turn; the turn ends once it is reported.
@@ -381,16 +382,62 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     const summary = await worker.runLoop();
 
     expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
-    expect(fetched).toEqual([{ ...order, access }]);
+    expect(fetched).toEqual([{ ...entry, access }]);
     expect(gateway.attachReports).toEqual([
-      { repository_id: "docs", status: "attached", commit },
+      { repository_id: "docs", receipt_id: "r-1", status: "attached", commit },
     ]);
     // Written again with the attached repository, once at the claim before.
     expect(routed).toEqual([
       { repository: null },
-      { repository: null, additional_repositories: [{ ...order, access }] },
+      { repository: null, additional_repositories: [{ ...entry, access }] },
     ]);
     expect(modules).toEqual([[], ["github.com/acme/docs"]]);
+  });
+
+  test("an attachment handed out before the workspace is prepared waits for it", async () => {
+    const gateway = new FakeWorkerGateway();
+    gateway.attachOrders = [
+      {
+        id: "docs",
+        url: "https://github.com/acme/docs.git",
+        branch: "main",
+        receipt_id: "r-1",
+      },
+    ];
+    const steps: string[] = [];
+    const run = new ScriptedRun();
+    run.onSend = (sent) => {
+      void (async () => {
+        while (gateway.attachReports.length === 0) await Bun.sleep(1);
+        finish(run, sent);
+      })();
+    };
+    const worker = new WorkerHost({
+      checkpoints: unwiredCheckpoints,
+      execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+      gateway,
+      runtimes: { launcherFor: () => ({ start: () => run }) },
+      // Heartbeats while the workspace is prepared bring the order early.
+      timeouts: { ...timeouts, heartbeatIntervalMs: 2 },
+      workspace: {
+        ...noWorkspace,
+        prepare: async () => {
+          steps.push("preparing");
+          await Bun.sleep(40);
+          steps.push("prepared");
+          return "reuse";
+        },
+        attachRepository: async () => {
+          steps.push("fetched");
+          return "f".repeat(40);
+        },
+      },
+    });
+    gateway.enqueue("hello");
+    const summary = await worker.runLoop();
+
+    expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+    expect(steps).toEqual(["preparing", "prepared", "fetched"]);
   });
 
   test("finalizes without taking a checkpoint lease when the run takes no checkpoints", async () => {

@@ -125,7 +125,7 @@ export class PendingRequestRegistry {
   private readonly answering = new Map<string, Promise<void>>();
   // Unsent deliveries of parked answers, resent the same way.
   private readonly deliveries = new Map<string, ParkedDelivery["outcome"]>();
-  // Unsent attachment fetch results by repository, resent the same way.
+  // Unsent attachment fetch results by request receipt, resent the same way.
   private readonly attachResults = new Map<string, RepositoryAttachResult>();
   // Handed to a park: their rows stay open for the turn that resumes them,
   // so nothing this worker learns of them is settled.
@@ -280,7 +280,7 @@ export class PendingRequestRegistry {
 
   /** How an attachment's fetch ended, resent until a poll lands. */
   reportAttached(result: RepositoryAttachResult): void {
-    this.attachResults.set(result.repository_id, result);
+    this.attachResults.set(result.receipt_id, result);
     this.poll();
   }
 
@@ -657,7 +657,7 @@ export class PendingRequestRegistry {
         sent = true;
         if (response.attachments !== undefined) {
           const orders = response.attachments.filter(
-            (order) => !this.attachResults.has(order.id),
+            (order) => !this.attachResults.has(order.receipt_id),
           );
           if (orders.length > 0) this.options.onAttachments?.(orders);
         }
@@ -744,8 +744,8 @@ export class PendingRequestRegistry {
 
   private forgetAttached(batch: RepositoryAttachResult[]): void {
     for (const item of batch) {
-      if (this.attachResults.get(item.repository_id) === item) {
-        this.attachResults.delete(item.repository_id);
+      if (this.attachResults.get(item.receipt_id) === item) {
+        this.attachResults.delete(item.receipt_id);
       }
     }
   }

@@ -617,18 +617,22 @@ export const parkedDeliverySchema = z
 
 // A repository the agent attached mid-session, for the worker to add as a
 // remote and fetch with the claim's `repository_access`
-// (session-repository-attachment.md decision 3).
+// (session-repository-attachment.md decision 3). `receipt_id` names the
+// request: a result settles only the request it echoes, so a resent result
+// for an earlier one never settles a later request for the same repository.
 export const repositoryAttachOrderSchema = z
   .object({
     id: z.string().min(1),
     url: z.string().min(1),
     branch: z.string().min(1),
+    receipt_id: z.string().min(1),
   })
   .strict();
 export const repositoryAttachResultSchema = z.discriminatedUnion("status", [
   z
     .object({
       repository_id: z.string().min(1),
+      receipt_id: z.string().min(1),
       status: z.literal("attached"),
       commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
     })
@@ -636,6 +640,7 @@ export const repositoryAttachResultSchema = z.discriminatedUnion("status", [
   z
     .object({
       repository_id: z.string().min(1),
+      receipt_id: z.string().min(1),
       status: z.literal("failed"),
       failure: repositoryAttachFailureSchema,
     })

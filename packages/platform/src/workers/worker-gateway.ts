@@ -559,6 +559,7 @@ export function createWorkerGateway(deps: {
         sessionId,
         gone.map((row) => ({
           repository_id: row.repositoryId,
+          receipt_id: row.receiptId,
           status: "failed",
           failure: "fetch_failed",
         })),
@@ -568,7 +569,14 @@ export function createWorkerGateway(deps: {
       const entry = own(catalog.repositories, row.repositoryId);
       return entry === undefined
         ? []
-        : [{ id: row.repositoryId, url: entry.url, branch: row.branch }];
+        : [
+            {
+              id: row.repositoryId,
+              url: entry.url,
+              branch: row.branch,
+              receipt_id: row.receiptId,
+            },
+          ];
     });
   }
 

@@ -9,8 +9,8 @@ import type { SessionCatalog } from "./catalog.ts";
 import { SessionServiceError } from "./session-service.ts";
 
 /**
- * How long a call waits for the worker's report before answering `pending`.
- * The authorizer listener that serves the call keeps Bun's default 10 second
+ * How long a call may take, from its start, before answering `pending`. The
+ * authorizer listener that serves the call keeps Bun's default 10 second
  * idle timeout, which a silent wait counts against; past it the agent would
  * get a cut connection instead of an answer.
  */
@@ -52,6 +52,8 @@ export function createRepositoryAttachmentService(deps: {
   waitMs?: number;
   pollMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** A monotonic clock in milliseconds. */
+  now?: () => number;
 }) {
   const { store, catalog } = deps;
   const waitMs = deps.waitMs ?? ATTACH_WAIT_MS;
@@ -59,17 +61,15 @@ export function createRepositoryAttachmentService(deps: {
   const sleep =
     deps.sleep ??
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = deps.now ?? (() => performance.now());
 
   async function settled(
     sessionId: string,
     row: RepositoryAttachmentRow,
+    deadline: number,
   ): Promise<RepositoryAttachmentRow> {
     let current = row;
-    for (
-      let waited = 0;
-      current.status === "pending" && waited < waitMs;
-      waited += pollMs
-    ) {
+    while (current.status === "pending" && now() + pollMs < deadline) {
       await sleep(pollMs);
       current = (await store.find(sessionId, row.repositoryId)) ?? current;
     }
@@ -78,6 +78,7 @@ export function createRepositoryAttachmentService(deps: {
 
   return {
     async attach(input: AttachRepositoryInput): Promise<RepositoryAttachment> {
+      const deadline = now() + waitMs;
       const sessionId = input.sessionId.toLowerCase();
       const { repositoryId } = input;
       const context = await deps.context.context(sessionId);
@@ -163,7 +164,18 @@ export function createRepositoryAttachmentService(deps: {
       if (outcome.outcome === "attempt_ended") {
         return await refuse("attempt_ended");
       }
-      const row = await settled(sessionId, outcome.row);
+      if (outcome.outcome === "preattached") {
+        return {
+          repository_id: repositoryId,
+          status: "attached",
+          branch: allowed.branch,
+          commit: null,
+          failure: null,
+          already_attached: true,
+          receipt_id: null,
+        };
+      }
+      const row = await settled(sessionId, outcome.row, deadline);
       return answer(
         row,
         outcome.outcome === "unchanged" && outcome.row.status === "attached",

@@ -1278,7 +1278,12 @@ describe("attachments", () => {
       },
     });
     fake.attachOrders = [
-      { id: "docs", url: "https://github.com/acme/docs.git", branch: "main" },
+      {
+        id: "docs",
+        url: "https://github.com/acme/docs.git",
+        branch: "main",
+        receipt_id: "r-1",
+      },
     ];
     harness.registry.poll(true);
     await waitFor(() => orders.length > 0, "the order");
@@ -1286,6 +1291,7 @@ describe("attachments", () => {
 
     const report = {
       repository_id: "docs",
+      receipt_id: "r-1",
       status: "attached" as const,
       commit: "e".repeat(40),
     };

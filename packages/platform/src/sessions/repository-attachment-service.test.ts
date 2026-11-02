@@ -22,24 +22,36 @@ function service(
   options: {
     context?: Partial<GitHubSessionContext>;
     attempts?: Set<string>;
+    attached?: string[] | null;
     waitMs?: number;
     onSleep?: () => Promise<void> | void;
+    readMs?: number;
   } = {},
 ) {
-  const store = memoryAttachmentStore(options.attempts);
+  const store = memoryAttachmentStore(options.attempts, options.attached);
+  let clock = 0;
+  let reads = 0;
+  const find = store.find;
+  store.find = async (sessionId, repositoryId) => {
+    reads += 1;
+    clock += options.readMs ?? 0;
+    return find(sessionId, repositoryId);
+  };
   const attachments = createRepositoryAttachmentService({
     store,
     context: { context: async () => attachmentContext(options.context) },
     catalog: attachCatalog,
     waitMs: options.waitMs ?? 0,
     pollMs: 10,
-    sleep: async () => {
+    sleep: async (ms) => {
+      clock += ms;
       await options.onSleep?.();
     },
+    now: () => clock,
   });
   const attach = (repositoryId: string, attemptId = "att_1") =>
     attachments.attach({ sessionId: SESSION, attemptId, actor, repositoryId });
-  return { store, attach };
+  return { store, attach, reads: () => reads };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -69,6 +81,24 @@ describe("attach", () => {
     expect(s.store.receipts).toEqual([]);
   });
 
+  test("one on the list the session started with, or on a null list, is attached already: no row, no receipt, no fetch", async () => {
+    for (const attached of [["docs"], null]) {
+      const s = service({ attached });
+      expect(await s.attach("docs")).toEqual({
+        repository_id: "docs",
+        status: "attached",
+        branch: "trunk",
+        commit: null,
+        failure: null,
+        already_attached: true,
+        receipt_id: null,
+      });
+      expect(s.store.receipts).toEqual([]);
+      expect(await s.store.pending(SESSION)).toEqual([]);
+      expect(s.store.attached()).toEqual(attached);
+    }
+  });
+
   test("the cap is the release's list, the profile and the agent's switch, and every refusal leaves a receipt", async () => {
     for (const [repository, context] of [
       ["secret", {}],
@@ -93,6 +123,7 @@ describe("attach", () => {
   test("the list the session started with does not limit what it may attach", async () => {
     const s = service({ context: { attachedRepositoryIds: [] } });
     expect((await s.attach("tools")).status).toBe("pending");
+    expect(s.store.attached()).toEqual(["tools"]);
   });
 
   test("attaching it again changes nothing and succeeds, pending or attached", async () => {
@@ -101,7 +132,12 @@ describe("attach", () => {
     expect(first).toMatchObject({ status: "pending", already_attached: false });
     expect(await s.attach("docs")).toEqual(first);
     await s.store.settle(SESSION, [
-      { repository_id: "docs", status: "attached", commit: COMMIT },
+      {
+        repository_id: "docs",
+        receipt_id: first.receipt_id ?? "",
+        status: "attached",
+        commit: COMMIT,
+      },
     ]);
     expect(await s.attach("docs")).toEqual({
       repository_id: "docs",
@@ -137,7 +173,12 @@ describe("attach", () => {
       onSleep: async () => {
         if (++sleeps === 3) {
           await store?.settle(SESSION, [
-            { repository_id: "docs", status: "attached", commit: COMMIT },
+            {
+              repository_id: "docs",
+              receipt_id: "receipt-1",
+              status: "attached",
+              commit: COMMIT,
+            },
           ]);
         }
       },
@@ -160,14 +201,52 @@ describe("attach", () => {
       },
     });
     expect((await s.attach("docs")).status).toBe("pending");
-    expect(sleeps).toBe(5);
+    expect(sleeps).toBe(4);
     await s.store.settle(SESSION, [
-      { repository_id: "docs", status: "failed", failure: "fetch_timeout" },
+      {
+        repository_id: "docs",
+        receipt_id: "receipt-1",
+        status: "failed",
+        failure: "fetch_timeout",
+      },
     ]);
+    expect(s.store.attached()).toEqual([]);
     expect(await s.attach("docs")).toMatchObject({
       status: "pending",
       receipt_id: "receipt-2",
     });
+    expect(s.store.receipts.map((r) => r.status)).toEqual([
+      "failed",
+      "accepted",
+    ]);
+  });
+
+  test("the wait counts the time its reads take, not only its sleeps", async () => {
+    const s = service({ waitMs: 8_000, readMs: 3_000 });
+    expect((await s.attach("docs")).status).toBe("pending");
+    // Sleeps alone would read 800 times; three slow reads spend the budget.
+    expect(s.reads()).toBe(3);
+  });
+
+  test("a resent failure for an earlier request does not settle the request after it", async () => {
+    const s = service();
+    await s.attach("docs");
+    const failed = {
+      repository_id: "docs",
+      receipt_id: "receipt-1",
+      status: "failed" as const,
+      failure: "fetch_failed" as const,
+    };
+    await s.store.settle(SESSION, [failed]);
+    // The report's answer was lost; the agent asks again before it is resent.
+    const again = await s.attach("docs");
+    expect(again).toMatchObject({ status: "pending", receipt_id: "receipt-2" });
+    await s.store.settle(SESSION, [failed]);
+    expect(s.store.rows.get("docs")).toMatchObject({
+      status: "pending",
+      receiptId: "receipt-2",
+    });
+    expect(s.store.attached()).toEqual(["docs"]);
     expect(s.store.receipts.map((r) => r.status)).toEqual([
       "failed",
       "accepted",
@@ -185,11 +264,17 @@ describe("attach", () => {
     expect(retried).toEqual(first);
     expect(s.store.receipts).toHaveLength(1);
     // Both workers report; only the first report settles.
+    const receipt_id = first.receipt_id ?? "";
     await s.store.settle(SESSION, [
-      { repository_id: "docs", status: "attached", commit: COMMIT },
+      { repository_id: "docs", receipt_id, status: "attached", commit: COMMIT },
     ]);
     await s.store.settle(SESSION, [
-      { repository_id: "docs", status: "failed", failure: "fetch_failed" },
+      {
+        repository_id: "docs",
+        receipt_id,
+        status: "failed",
+        failure: "fetch_failed",
+      },
     ]);
     expect(s.store.rows.get("docs")).toMatchObject({
       status: "attached",

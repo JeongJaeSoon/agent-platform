@@ -32,7 +32,12 @@ export type RepositoryAttachmentOutcome =
   | { outcome: "attempt_ended" }
   | { outcome: "requested"; row: RepositoryAttachmentRow }
   /** Already attached or still being fetched: nothing changed. */
-  | { outcome: "unchanged"; row: RepositoryAttachmentRow };
+  | { outcome: "unchanged"; row: RepositoryAttachmentRow }
+  /**
+   * On the session's list with no row: chosen at the start, or a null list
+   * (the release's whole list). Every claim fetches it already.
+   */
+  | { outcome: "preattached" };
 
 export type RepositoryAttachmentRefusal = {
   ownerId: string;
@@ -45,7 +50,8 @@ export type RepositoryAttachmentRefusal = {
 export interface RepositoryAttachmentStore {
   /**
    * In one transaction with the session row locked: refuses an ended
-   * attempt, answers a pending or attached row unchanged, and otherwise
+   * attempt, answers a pending or attached row unchanged, a repository on
+   * the list without a row preattached, and otherwise
    * writes the accepted receipt, the row (back to pending for a failed one)
    * and the repository onto the session's attached list when it has one.
    */
@@ -62,7 +68,8 @@ export interface RepositoryAttachmentStore {
   /**
    * Settles pending rows from a worker's reports and their receipts; a
    * failed fetch also takes the repository off the attached list. A report
-   * for a row no longer pending changes nothing, so a resent one is safe.
+   * for a row no longer pending, or for an earlier request than the row's
+   * receipt, changes nothing, so a resent one is safe.
    */
   settle(sessionId: string, results: RepositoryAttachResult[]): Promise<void>;
 }

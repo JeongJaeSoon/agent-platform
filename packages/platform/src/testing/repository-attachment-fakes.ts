@@ -89,9 +89,13 @@ export function attachmentContext(
 
 /**
  * The Postgres store's rules in memory: one row per repository, an open
- * attempt set by `openAttempts`, a failed row asked again starting over.
+ * attempt set by `openAttempts`, the session's list `attached`, a failed row
+ * asked again starting over.
  */
-export function memoryAttachmentStore(openAttempts = new Set(["att_1"])) {
+export function memoryAttachmentStore(
+  openAttempts = new Set(["att_1"]),
+  attached: string[] | null = [],
+) {
   const rows = new Map<string, RepositoryAttachmentRow>();
   const receipts: Array<{
     id: string;
@@ -100,6 +104,7 @@ export function memoryAttachmentStore(openAttempts = new Set(["att_1"])) {
     error: RepositoryAttachmentRefusal["error"] | null;
   }> = [];
   let next = 0;
+  const list = attached === null ? null : [...attached];
   const store: RepositoryAttachmentStore = {
     async request(input) {
       if (!openAttempts.has(input.attemptId)) {
@@ -108,6 +113,15 @@ export function memoryAttachmentStore(openAttempts = new Set(["att_1"])) {
       const existing = rows.get(input.repositoryId);
       if (existing !== undefined && existing.status !== "failed") {
         return { outcome: "unchanged", row: { ...existing } };
+      }
+      if (
+        existing === undefined &&
+        (list === null || list.includes(input.repositoryId))
+      ) {
+        return { outcome: "preattached" };
+      }
+      if (list !== null && !list.includes(input.repositoryId)) {
+        list.push(input.repositoryId);
       }
       const receiptId = `receipt-${++next}`;
       receipts.push({
@@ -148,7 +162,13 @@ export function memoryAttachmentStore(openAttempts = new Set(["att_1"])) {
     async settle(_sessionId, results) {
       for (const result of results) {
         const row = rows.get(result.repository_id);
-        if (row === undefined || row.status !== "pending") continue;
+        if (
+          row === undefined ||
+          row.status !== "pending" ||
+          row.receiptId !== result.receipt_id
+        ) {
+          continue;
+        }
         const receipt = receipts.find((entry) => entry.id === row.receiptId);
         if (result.status === "attached") {
           rows.set(row.repositoryId, {
@@ -164,9 +184,10 @@ export function memoryAttachmentStore(openAttempts = new Set(["att_1"])) {
             failure: result.failure,
           });
           if (receipt !== undefined) receipt.status = "failed";
+          if (list !== null) list.splice(list.indexOf(row.repositoryId), 1);
         }
       }
     },
   };
-  return Object.assign(store, { rows, receipts });
+  return Object.assign(store, { rows, receipts, attached: () => list });
 }

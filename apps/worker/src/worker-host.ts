@@ -327,9 +327,14 @@ export class WorkerHost {
   private abandonsAt: number | undefined;
   /** Aborted by any stop: a clone in progress is not worth finishing. */
   private readonly preparation = new AbortController();
-  // Attachments run one at a time; `attaching` keeps a repeated order from
-  // queueing the same fetch twice.
-  private attachQueue: Promise<void> = Promise.resolve();
+  // Attachments run one at a time, and only once the workspace is prepared
+  // and restored: an order can come with the first heartbeat, before
+  // `startUp` has a `.git` to add a remote to. `attaching` keeps a repeated
+  // order from queueing the same fetch twice.
+  private startAttachments: () => void = () => {};
+  private attachQueue = new Promise<void>((resolve) => {
+    this.startAttachments = resolve;
+  });
   private readonly attaching = new Set<string>();
   private stoppedAt: number | undefined;
   private readonly stopped: Promise<void>;
@@ -501,6 +506,7 @@ export class WorkerHost {
       let ready = false;
       try {
         const plan = await this.startUp(claim);
+        if (plan !== undefined) this.startAttachments();
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           run = launcher.start({
@@ -618,8 +624,9 @@ export class WorkerHost {
     order: RepositoryAttachOrder,
   ): Promise<void> {
     const attach = this.options.workspace.attachRepository;
+    const { receipt_id, ...entry } = order;
     const repository: AdditionalWorkspaceRepository = {
-      ...order,
+      ...entry,
       ...(claim.repository_access === undefined
         ? {}
         : { access: claim.repository_access }),
@@ -634,7 +641,12 @@ export class WorkerHost {
         repository,
         this.preparation.signal,
       );
-      result = { repository_id: order.id, status: "attached", commit };
+      result = {
+        repository_id: order.id,
+        receipt_id,
+        status: "attached",
+        commit,
+      };
       const listed = claim.workspace.additional_repositories ?? [];
       if (!listed.some((entry) => entry.id === order.id)) {
         claim.workspace.additional_repositories = [...listed, repository];
@@ -644,6 +656,7 @@ export class WorkerHost {
       if (this.preparation.signal.aborted) return;
       result = {
         repository_id: order.id,
+        receipt_id,
         status: "failed",
         failure:
           error instanceof AttachLimitError ? error.failure : "fetch_failed",

@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { ReceiptActor } from "@werft-ai/contracts";
-import type { RepositoryAttachmentRequest } from "@werft-ai/platform";
+import type {
+  RepositoryAttachmentOutcome,
+  RepositoryAttachmentRequest,
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -73,6 +76,9 @@ integration("repository attachments on PostgreSQL", () => {
     return { ownerId, sessionId, attemptId, request };
   }
 
+  const receiptOf = (outcome: RepositoryAttachmentOutcome) =>
+    outcome.outcome === "requested" ? outcome.row.receiptId : "none";
+
   async function attachedList(sessionId: string) {
     const { rows } = await pool.query(
       "SELECT attached_repository_ids AS ids FROM sessions WHERE id = $1",
@@ -138,15 +144,21 @@ integration("repository attachments on PostgreSQL", () => {
   test("a report settles the row and its receipt once; a resent one changes nothing", async () => {
     const store = createPostgresRepositoryAttachments(db);
     const s = await session([]);
-    await store.request(s.request());
+    const receipt_id = receiptOf(await store.request(s.request()));
     const report = {
       repository_id: "docs",
+      receipt_id,
       status: "attached" as const,
       commit: COMMIT,
     };
     await store.settle(s.sessionId, [report]);
     await store.settle(s.sessionId, [
-      { repository_id: "docs", status: "failed", failure: "fetch_failed" },
+      {
+        repository_id: "docs",
+        receipt_id,
+        status: "failed",
+        failure: "fetch_failed",
+      },
     ]);
 
     expect(await store.find(s.sessionId, "docs")).toMatchObject({
@@ -171,10 +183,13 @@ integration("repository attachments on PostgreSQL", () => {
   test("a failed fetch leaves the list and fails its receipt; asking again starts over with a new receipt", async () => {
     const store = createPostgresRepositoryAttachments(db);
     const s = await session(["other"]);
-    await store.request(s.request());
-    await store.settle(s.sessionId, [
-      { repository_id: "docs", status: "failed", failure: "fetch_too_large" },
-    ]);
+    const failedReport = {
+      repository_id: "docs",
+      receipt_id: receiptOf(await store.request(s.request())),
+      status: "failed" as const,
+      failure: "fetch_too_large" as const,
+    };
+    await store.settle(s.sessionId, [failedReport]);
 
     expect(await attachedList(s.sessionId)).toEqual(["other"]);
     const [failed] = await receipts(s.ownerId);
@@ -192,9 +207,19 @@ integration("repository attachments on PostgreSQL", () => {
     expect(await attachedList(s.sessionId)).toEqual(["other", "docs"]);
     const all = await receipts(s.ownerId);
     expect(all).toHaveLength(2);
-    expect(retried.outcome === "requested" ? retried.row.receiptId : null).toBe(
-      all[1]?.id ?? "missing",
-    );
+    expect(receiptOf(retried)).toBe(all[1]?.id ?? "missing");
+
+    // The first failure, resent after the retry, settles nothing of it.
+    await store.settle(s.sessionId, [failedReport]);
+    expect(await store.find(s.sessionId, "docs")).toMatchObject({
+      status: "pending",
+      receiptId: receiptOf(retried),
+    });
+    expect(await attachedList(s.sessionId)).toEqual(["other", "docs"]);
+    expect((await receipts(s.ownerId)).map((r) => r.status)).toEqual([
+      "failed",
+      "accepted",
+    ]);
   });
 
   test("an ended attempt is refused and writes nothing", async () => {
@@ -214,11 +239,17 @@ integration("repository attachments on PostgreSQL", () => {
     expect(await attachedList(s.sessionId)).toEqual([]);
   });
 
-  test("a session whose list is the release's whole list keeps it null", async () => {
+  test("one on the list from the start, or on a null list, is preattached: no row, no receipt", async () => {
     const store = createPostgresRepositoryAttachments(db);
-    const s = await session(null);
-    expect((await store.request(s.request())).outcome).toBe("requested");
-    expect(await attachedList(s.sessionId)).toBeNull();
+    for (const attached of [["docs"], null]) {
+      const s = await session(attached);
+      expect(await store.request(s.request())).toEqual({
+        outcome: "preattached",
+      });
+      expect(await store.find(s.sessionId, "docs")).toBeNull();
+      expect(await receipts(s.ownerId)).toEqual([]);
+      expect(await attachedList(s.sessionId)).toEqual(attached);
+    }
   });
 
   test("a refusal is a failed receipt with the error given", async () => {

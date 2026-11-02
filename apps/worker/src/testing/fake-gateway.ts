@@ -392,7 +392,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
       lease_expires_at: this.leaseExpiresAt(),
       lease_remaining_ms: this.options.leaseTtlMs,
       auth_revision: this.authRevision,
-      control_pending: this.control !== null,
+      control_pending: this.control !== null || this.attachOrders.length > 0,
     };
   }
 
@@ -465,7 +465,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     for (const item of request.attached ?? []) {
       this.attachReports.push(item);
       this.attachOrders = this.attachOrders.filter(
-        (order) => order.id !== item.repository_id,
+        (order) => order.receipt_id !== item.receipt_id,
       );
     }
     return {

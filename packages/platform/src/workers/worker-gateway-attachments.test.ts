@@ -263,16 +263,17 @@ describe("a repository attached mid-session", () => {
         ...(attached === undefined ? {} : { attached: attached as never }),
       });
     expect((await beat()).control_pending).toBe(false);
-    await w.attach("docs");
+    const receipt_id = (await w.attach("docs")).receipt_id ?? "missing";
     expect((await beat()).control_pending).toBe(true);
     expect((await poll()).attachments).toEqual([
-      { id: "docs", url: onGitHub("docs").url, branch: "main" },
+      { id: "docs", url: onGitHub("docs").url, branch: "main", receipt_id },
     ]);
     // Handed out again until a worker reports it.
     expect((await poll()).attachments).toHaveLength(1);
 
     const report = {
       repository_id: "docs",
+      receipt_id,
       status: "attached",
       commit: COMMIT,
     };

@@ -103,6 +103,13 @@ export function createPostgresRepositoryAttachments(
         if (existing !== undefined && existing.status !== "failed") {
           return { outcome: "unchanged" as const, row: rowOf(existing) };
         }
+        if (
+          existing === undefined &&
+          (session.attached === null ||
+            session.attached.includes(input.repositoryId))
+        ) {
+          return { outcome: "preattached" as const };
+        }
         const receiptId = randomUUID();
         await tx.insert(receipts).values({
           id: receiptId,
@@ -221,6 +228,7 @@ export function createPostgresRepositoryAttachments(
                   sessionRepositoryAttachments.repositoryId,
                   result.repository_id,
                 ),
+                eq(sessionRepositoryAttachments.receiptId, result.receipt_id),
                 eq(sessionRepositoryAttachments.status, "pending"),
               ),
             )
