@@ -12,6 +12,7 @@ import {
   type GitHubWork,
 } from "../ports/github-gate.ts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
+import { PUSH_REFUSAL_ERRORS } from "../ports/push-requests.ts";
 import {
   attachCatalog,
   attachmentContext,
@@ -30,6 +31,7 @@ import {
 } from "./github-work-service.ts";
 import type { PushActor } from "./push-request-service.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
+import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -72,6 +74,11 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     body: unknown;
   }> = [];
   const policies: AuthorizationPolicy[] = [];
+  const control: {
+    pushRefusal: "no_checkpoint" | "request_open" | null;
+    marks: Array<{ sessionId: string; attemptId: string }>;
+    marked: boolean;
+  } = { pushRefusal: null, marks: [], marked: true };
   const api: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: unused,
@@ -126,6 +133,13 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       pushRequests: {
         create: async (actor, sessionId) => {
           pushes.push({ actor, sessionId });
+          if (control.pushRefusal !== null) {
+            const { code, message } = PUSH_REFUSAL_ERRORS[control.pushRefusal];
+            throw new SessionServiceError(code, message, undefined, {
+              refusal: control.pushRefusal,
+              receipt_id: "receipt-push",
+            });
+          }
           return { id: "push-1", status: "requested" } as never;
         },
       },
@@ -164,6 +178,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         actor: creator,
         ...state,
       }),
+      markPushContinuation: async (input) => {
+        control.marks.push(input);
+        return control.marked;
+      },
     },
     services,
   });
@@ -189,6 +207,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     gate,
     workStore,
     attachmentStore,
+    control,
   };
 }
 
@@ -400,6 +419,38 @@ describe("tools/call", () => {
         },
       },
     });
+  });
+});
+
+describe("request_push before the session's first checkpoint", () => {
+  test("marks the grant's turn and tells the model a turn follows once this one ends", async () => {
+    const h = harness();
+    h.control.pushRefusal = "no_checkpoint";
+    const answer = payload(await h.call("request_push", {}));
+    expect(h.control.marks).toEqual([grant]);
+    expect(answer).toMatchObject({
+      isError: true,
+      body: {
+        code: "PUSH_SOURCE_MISSING",
+        details: { refusal: "no_checkpoint", receipt_id: "receipt-push" },
+        continuation: "after_turn",
+      },
+    });
+    expect((answer.body as { message: string }).message).toContain(
+      "follow-up turn",
+    );
+  });
+
+  test("an unmarked turn, or any other refusal, says nothing of a follow-up", async () => {
+    const h = harness();
+    h.control.pushRefusal = "no_checkpoint";
+    h.control.marked = false;
+    const unmarked = payload(await h.call("request_push", {}));
+    expect(unmarked.body).not.toHaveProperty("continuation");
+    h.control.pushRefusal = "request_open";
+    const open = payload(await h.call("request_push", {}));
+    expect(open.body).not.toHaveProperty("continuation");
+    expect(h.control.marks).toHaveLength(1);
   });
 });
 

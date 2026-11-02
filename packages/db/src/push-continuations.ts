@@ -1,0 +1,102 @@
+import { and, eq, isNull, max, sql } from "drizzle-orm";
+import { enqueueWithin } from "./enqueue.ts";
+import type { Database } from "./queries.ts";
+import { pushContinuations, type sessions, turns } from "./schema.ts";
+
+export const PUSH_CONTINUATION_MESSAGE =
+  "Platform note: earlier in the previous turn you called request_push before this session had a checkpoint, so nothing was pushed. That turn has ended and its checkpoint, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. The push runs in the background: if open_pull_request answers not_pushed, wait a few seconds and call it again.";
+
+/**
+ * Marks the attempt's running turn for a push continuation. False when the
+ * attempt runs no turn, or that turn is itself a continuation: its session
+ * already has a checkpoint, so a second one would only repeat the refusal.
+ */
+export async function markPushContinuation(
+  db: Database,
+  input: { sessionId: string; attemptId: string },
+): Promise<boolean> {
+  const [turn] = await db
+    .select({ id: turns.id })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, input.sessionId),
+        eq(turns.attemptId, input.attemptId),
+        eq(turns.status, "running"),
+      ),
+    )
+    .limit(1);
+  if (turn === undefined) return false;
+  const [continued] = await db
+    .select({ turnId: pushContinuations.turnId })
+    .from(pushContinuations)
+    .where(eq(pushContinuations.continuationTurnId, turn.id))
+    .limit(1);
+  if (continued !== undefined) return false;
+  await db
+    .insert(pushContinuations)
+    .values({ turnId: turn.id })
+    .onConflictDoNothing();
+  return true;
+}
+
+/**
+ * Called in the finalize transaction of a turn that completed with a
+ * checkpoint, under the session lock: queues the continuation the turn was
+ * marked for, at most once.
+ */
+export async function queuePushContinuation(
+  tx: Database,
+  input: {
+    session: typeof sessions.$inferSelect;
+    turnRowId: number;
+  },
+): Promise<boolean> {
+  const { session } = input;
+  // A paused, closing or recovering session takes no turn the platform
+  // makes up; the mark stays unused.
+  if (
+    session.admissionState !== "active" ||
+    session.takeoverRequiredAt !== null
+  ) {
+    return false;
+  }
+  const [mark] = await tx
+    .select({ turnId: pushContinuations.turnId })
+    .from(pushContinuations)
+    .where(
+      and(
+        eq(pushContinuations.turnId, input.turnRowId),
+        isNull(pushContinuations.continuationTurnId),
+      ),
+    )
+    .limit(1)
+    .for("update");
+  if (mark === undefined) return false;
+  const [last] = await tx
+    .select({ sequence: max(turns.sequence) })
+    .from(turns)
+    .where(eq(turns.sessionId, session.id));
+  const [turn] = await tx
+    .insert(turns)
+    .values({
+      sessionId: session.id,
+      sequence: (last?.sequence ?? 0) + 1,
+      message: PUSH_CONTINUATION_MESSAGE,
+      status: "queued",
+      createdAt: sql`clock_timestamp()`,
+      actorId: null,
+    })
+    .returning({ id: turns.id });
+  if (!turn) throw new Error("Failed to insert the push continuation turn");
+  await tx
+    .update(pushContinuations)
+    .set({ continuationTurnId: turn.id })
+    .where(eq(pushContinuations.turnId, input.turnRowId));
+  await enqueueWithin(tx, {
+    sessionId: session.id,
+    turnId: turn.id,
+    payload: { message: PUSH_CONTINUATION_MESSAGE },
+  });
+  return true;
+}

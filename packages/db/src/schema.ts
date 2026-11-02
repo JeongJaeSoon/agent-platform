@@ -2121,6 +2121,18 @@ export const turnContinuations = pgTable("turn_continuations", {
     .references(() => turns.id, { onDelete: "cascade" }),
 });
 
+// A turn whose request_push came before any checkpoint (94S-1243): when it
+// completes with one, the platform queues `continuation_turn_id` so the
+// model can ask again for the commits that checkpoint now holds.
+export const pushContinuations = pgTable("push_continuations", {
+  turnId: bigint("turn_id", { mode: "number" })
+    .primaryKey()
+    .references(() => turns.id, { onDelete: "cascade" }),
+  continuationTurnId: bigint("continuation_turn_id", { mode: "number" })
+    .unique()
+    .references(() => turns.id, { onDelete: "set null" }),
+});
+
 // A session result the platform may push to `agent/<session-id>` once a human
 // approves it. The commit is pinned when the request is made, so what is
 // approved is what is pushed, however far the session moves on.

@@ -4838,7 +4838,7 @@ export interface components {
             status: "queued" | "running" | "needs_input" | "completed" | "failed" | "interrupted" | "cancelled" | "outcome_unknown";
             message: string;
             /**
-             * @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.
+             * @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone, or the follow-up to a turn whose push request came before the session had a checkpoint.
              * @default null
              */
             channel: ("web" | "slack" | "api") | null;
@@ -4875,7 +4875,7 @@ export interface components {
             status: "queued" | "running" | "needs_input" | "completed" | "failed" | "interrupted" | "cancelled" | "outcome_unknown";
             message: string;
             /**
-             * @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.
+             * @description Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone, or the follow-up to a turn whose push request came before the session had a checkpoint.
              * @default null
              */
             channel: ("web" | "slack" | "api") | null;
