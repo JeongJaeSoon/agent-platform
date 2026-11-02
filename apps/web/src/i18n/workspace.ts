@@ -62,6 +62,7 @@ export const workspaceKo = {
   "workspace.slackAppsNotInstalled": "설치 전",
   "workspace.slackAppsCreating": "만드는 중",
   "workspace.slackAppsDeleting": "삭제 중",
+  "workspace.slackAppsSignIn": "Sign in with Slack",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
     "에이전트마다 Slack 앱을 이 콘솔이 만들 때 씁니다. api.slack.com/apps의 Your App Configuration Tokens에서 만든 Refresh Token을 넣습니다.",
@@ -161,6 +162,7 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.slackAppsNotInstalled": "Not installed",
   "workspace.slackAppsCreating": "Creating",
   "workspace.slackAppsDeleting": "Deleting",
+  "workspace.slackAppsSignIn": "Sign in with Slack",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
     "Used when this console makes a Slack app for each agent. Paste a Refresh Token from Your App Configuration Tokens at api.slack.com/apps.",
@@ -262,6 +264,7 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.slackAppsNotInstalled": "未インストール",
   "workspace.slackAppsCreating": "作成中",
   "workspace.slackAppsDeleting": "削除中",
+  "workspace.slackAppsSignIn": "Sign in with Slack",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
     "このコンソールがエージェントごとの Slack アプリを作るときに使います。api.slack.com/apps の Your App Configuration Tokens で作った Refresh Token を入力します。",
