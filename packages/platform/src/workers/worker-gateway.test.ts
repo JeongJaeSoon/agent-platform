@@ -934,6 +934,10 @@ describe("WorkerGateway", () => {
       userId: "user-1",
       github: { id: "583231", login: "octocat" },
     };
+    let authorApp: SessionAttributionRecord["authorApp"] = {
+      slug: "werft-dev",
+      apiBase: "https://api.github.com",
+    };
     const attributed = createWorkerGateway({
       work: work({
         claimAtomic: async () => ({ outcome: "claimed", binding }),
@@ -950,6 +954,7 @@ describe("WorkerGateway", () => {
               agentId: null,
               agentReleaseId: null,
               starter,
+              authorApp,
             };
           },
         },
@@ -979,6 +984,84 @@ describe("WorkerGateway", () => {
     );
     expect(agentKey.git).toEqual({ co_author: null, session_url: sessionUrl });
     expect(asked).toEqual([scope.session_id, scope.session_id]);
+    // No bot lookup wired: the claim leaves the image's author alone.
+    expect("git_author" in linked).toBe(false);
+
+    // The commit author: the console App's bot, only for a repository on
+    // that App, and only once GitHub named the bot's id.
+    const looked: { slug: string; apiBase: string }[] = [];
+    let botUserId: string | null = "41898282";
+    let repositories: Parameters<
+      typeof createWorkerGateway
+    >[0]["catalog"]["repositories"] = {
+      "gone-from-catalog": {
+        url: "https://github.com/team/app.git",
+        branch: "release",
+        profiles: ["claude-coding-v1"],
+        auth: { kind: "github_app", registered: true },
+      } as never,
+    };
+    const authored = () =>
+      createWorkerGateway({
+        work: work({
+          claimAtomic: async () => ({ outcome: "claimed", binding }),
+        }),
+        catalog: { profiles: { "claude-coding-v1": profile }, repositories },
+        checkpoints: acceptAllCheckpoints,
+        attribution: {
+          store: {
+            attribution: async () => ({
+              ownerId: "owner-a",
+              trigger: "personal_key",
+              agentId: null,
+              agentReleaseId: null,
+              starter,
+              authorApp,
+            }),
+          },
+          consoleOrigin: null,
+          appBotUserId: async (app) => {
+            looked.push(app);
+            return botUserId;
+          },
+        },
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+    const claimOf = async () =>
+      bootstrapClaimResponseSchema.parse(
+        await authored().bootstrapClaim({ kind: "bootstrap" }, request),
+      );
+    const bot = await claimOf();
+    expect(bot.git_author).toEqual({
+      name: "werft-dev[bot]",
+      email: "41898282+werft-dev[bot]@users.noreply.github.com",
+    });
+    expect(bot.git).toEqual({ co_author: null, session_url: null });
+    expect(looked).toEqual([
+      { slug: "werft-dev", apiBase: "https://api.github.com" },
+    ]);
+
+    botUserId = null;
+    expect((await claimOf()).git_author).toBeNull();
+    botUserId = "41898282";
+    authorApp = null;
+    expect((await claimOf()).git_author).toBeNull();
+    authorApp = { slug: "werft-dev", apiBase: "https://api.github.com" };
+    repositories = {
+      "gone-from-catalog": {
+        url: "https://github.com/team/app.git",
+        branch: "release",
+        profiles: ["claude-coding-v1"],
+      } as never,
+    };
+    expect((await claimOf()).git_author).toBeNull();
+    repositories = {};
+    expect((await claimOf()).git_author).toBeNull();
+    expect(looked).toHaveLength(2);
   });
 
   test("the claim lists the other repositories the gate allows, on the attempt's repository token", async () => {

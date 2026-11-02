@@ -9,6 +9,7 @@ import type {
   BootstrapClaimResponse,
   CheckpointRequest,
   CheckpointRequestResponse,
+  ClaimGitAuthor,
   FinalizeRequest,
   FinalizeResponse,
   GitHubPackagesRegistry,
@@ -123,7 +124,7 @@ import {
   type NeutralizeEvent,
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
-import { claimGitOf } from "../sessions/git-attribution.ts";
+import { appBotAuthor, claimGitOf } from "../sessions/git-attribution.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -499,10 +500,38 @@ export function createWorkerGateway(deps: {
   attribution?: {
     store: SessionAttributionStore;
     consoleOrigin: string | null;
+    // The numeric id of an App's bot user; null when GitHub does not say.
+    // Absent, a claim names no commit author and the image's default stays.
+    appBotUserId?: (app: {
+      slug: string;
+      apiBase: string;
+    }) => Promise<string | null>;
   };
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
+
+  // Only a repository on the console's App: that App pushes and opens the
+  // pull request, so its bot is who wrote the commits. Undefined leaves the
+  // field off the claim; null tells the worker to drop an earlier author.
+  async function gitAuthorOf(
+    attribution: (typeof deps)["attribution"],
+    authorApp: { slug: string; apiBase: string } | null,
+    repositoryId: string | null,
+  ): Promise<ClaimGitAuthor | null | undefined> {
+    const lookUp = attribution?.appBotUserId;
+    if (lookUp === undefined) return undefined;
+    const auth =
+      repositoryId === null
+        ? undefined
+        : own(catalog.repositories, repositoryId)?.auth;
+    if (authorApp === null || auth === undefined || !("registered" in auth)) {
+      return null;
+    }
+    const botUserId = await lookUp(authorApp).catch(() => null);
+    return botUserId === null ? null : appBotAuthor(authorApp.slug, botUserId);
+  }
+
   const decideMcp =
     deps.mcp === undefined
       ? null
@@ -1283,14 +1312,23 @@ export function createWorkerGateway(deps: {
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);
           const attribution = deps.attribution;
-          const git =
+          const record =
             attribution === undefined
               ? undefined
+              : await attribution.store.attribution(binding.sessionId);
+          const git =
+            attribution === undefined || record === undefined
+              ? undefined
               : claimGitOf(
-                  await attribution.store.attribution(binding.sessionId),
+                  record,
                   attribution.consoleOrigin,
                   binding.sessionId,
                 );
+          const gitAuthor = await gitAuthorOf(
+            attribution,
+            record?.authorApp ?? null,
+            binding.repository?.id ?? null,
+          );
           const additional = await additionalWorkspaceRepositories(
             binding.sessionId,
             repositoryToken,
@@ -1343,6 +1381,7 @@ export function createWorkerGateway(deps: {
               ? {}
               : { grants: [...binding.grants] }),
             ...(git === undefined ? {} : { git }),
+            ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
           };
         }
       }

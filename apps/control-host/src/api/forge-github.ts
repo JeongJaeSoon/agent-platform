@@ -967,6 +967,84 @@ export function createGitHubManifestConverter(
   };
 }
 
+const BOT_USER_RETRY_MS = 5 * 60_000;
+const BOT_USER_TIMEOUT_MS = 3_000;
+
+/**
+ * The numeric id of an App's bot user, `GET /users/<slug>[bot]`, which the
+ * bot's noreply commit address needs. Asked without a credential: the users
+ * API is public. It runs inside a claim the database already committed, so
+ * one short try with no retry, and concurrent claims share it. Kept for the
+ * process once known; a failure is asked again after BOT_USER_RETRY_MS, so
+ * claims meanwhile cost no call. github.com only: GitHub Enterprise Server
+ * spells the noreply address after its own host.
+ */
+export function createAppBotUsers(
+  options: { logger?: Logger; now?: () => Date; timeoutMs?: number } = {},
+) {
+  const {
+    logger,
+    now = () => new Date(),
+    timeoutMs = BOT_USER_TIMEOUT_MS,
+  } = options;
+  const known = new Map<string, { id: string } | { failedAt: number }>();
+  const asking = new Map<string, Promise<string | null>>();
+
+  async function ask(login: string): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `${GITHUB_API_BASE}/users/${encodeURIComponent(login)}`,
+        {
+          headers: {
+            accept: "application/vnd.github+json",
+            "user-agent": "Werft",
+          },
+          redirect: "error",
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      );
+      if (!response.ok) {
+        throw Object.assign(new Error("GitHub refused the users lookup"), {
+          status: response.status,
+        });
+      }
+      const data = (await response.json()) as { id?: unknown; login?: unknown };
+      const id = Number(data.id);
+      if (!Number.isSafeInteger(id) || id <= 0 || data.login !== login) {
+        throw new Error("GitHub named no bot user for the App");
+      }
+      known.set(login, { id: String(id) });
+      return String(id);
+    } catch (error) {
+      known.set(login, { failedAt: now().getTime() });
+      failure(logger, "App bot user lookup", error);
+      return null;
+    }
+  }
+
+  return async (app: {
+    slug: string;
+    apiBase: string;
+  }): Promise<string | null> => {
+    if (app.apiBase.replace(/\/+$/, "") !== GITHUB_API_BASE) return null;
+    const login = `${app.slug}[bot]`;
+    const seen = known.get(login);
+    if (seen !== undefined && "id" in seen) return seen.id;
+    if (
+      seen !== undefined &&
+      now().getTime() - seen.failedAt < BOT_USER_RETRY_MS
+    ) {
+      return null;
+    }
+    let pending = asking.get(login);
+    if (pending === undefined) {
+      pending = ask(login).finally(() => asking.delete(login));
+      asking.set(login, pending);
+    }
+    return pending;
+  };
+}
+
 /** `GET /app`'s permissions, keeping only the levels GitHub names. */
 function permissionsOf(
   raw: unknown,
