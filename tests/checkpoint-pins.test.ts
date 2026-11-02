@@ -1012,7 +1012,10 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const resolved = await catalog();
     const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
     const releaseTools = ["Read", "Grep"];
-    const session = await sessionOf({ releaseTools });
+    const session = {
+      ...(await sessionOf({ releaseTools })),
+      githubAttached: false,
+    };
     const runClaim = sessionClaim(session, resolved);
     // The tools run are the profile's until the claim runs the release's.
     expect(runClaim.runtime_config.tools).toEqual(profile.tools);
@@ -1119,6 +1122,20 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       ...earlierIds.map(() => profile.tools),
       ...Array.from({ length: 7 }, () => ["Read", "Grep"]),
     ]);
+    // With the built-in `github` server each list costs the claim two
+    // configs, and the one it runs one: only the claims all of whose
+    // configs the gateway offers are asked for.
+    expect(
+      restoreClaims(
+        {
+          ...withId,
+          githubAttached: true,
+          releaseTools: ["Grep", "Read"],
+        },
+        earlier,
+        withEarlier,
+      ).map(([key]) => key),
+    ).toEqual(earlierIds.slice(0, 7).map((id) => earlierProfileKey("s1", id)));
     expect(
       earlierProfileClaims(
         { ...withId, releaseTools: null },

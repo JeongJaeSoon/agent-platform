@@ -187,7 +187,11 @@ export function sessionClaim(
  * earlier profile (earlierProfileClaims). Refused as sessionClaim refuses.
  */
 export function restoreClaims(
-  session: ClaimedSession & { readonly id: string },
+  session: ClaimedSession & {
+    readonly id: string;
+    // Whether the release pins GitHub settings (mcp-egress.ts sessionGitHubMcpOf).
+    readonly githubAttached: boolean;
+  },
   earlier: readonly EarlierProfile[],
   catalog: SessionCatalog,
 ): [key: string, claim: SessionClaim][] {
@@ -214,34 +218,43 @@ type ListedProfile = {
 };
 
 // Every profile list before any release list, as the gateway orders them.
+// With the built-in `github` server the gateway spends two restore configs
+// on a list (with and without it) and one on the list it runs (without);
+// a claim is offered only when all of its configs fit, so the count errs
+// towards a FAIL rather than a PASS the claim would not back.
 function listClaims(
   session: {
+    readonly githubAttached: boolean;
     readonly ownerId: string;
     readonly releaseTools: readonly string[] | null;
     readonly repositoryMode: "repository" | "none";
   },
   profiles: readonly ListedProfile[],
 ): [key: string, claim: SessionClaim][] {
-  return (["profile", "release"] as const)
-    .flatMap((list) =>
-      profiles.flatMap(({ profile, key, own }) => {
-        const lists = claimToolLists(profile, session.releaseTools);
-        const tools = lists[list];
-        if (tools === null || (own && lists.runs === list)) return [];
-        return [
-          [
-            key(list),
-            claimOf(
-              session.ownerId,
-              profile,
-              session.repositoryMode === "repository",
-              tools,
-            ),
-          ] as [string, SessionClaim],
-        ];
-      }),
-    )
-    .slice(0, MAX_RESTORE_PROFILES);
+  const perList = session.githubAttached ? 2 : 1;
+  let used = 0;
+  const claims: [string, SessionClaim][] = [];
+  for (const list of ["profile", "release"] as const) {
+    for (const { profile, key, own } of profiles) {
+      const lists = claimToolLists(profile, session.releaseTools);
+      const tools = lists[list];
+      if (tools === null) continue;
+      const running = own && lists.runs === list;
+      used += running ? perList - 1 : perList;
+      if (used > MAX_RESTORE_PROFILES) return claims;
+      if (running) continue;
+      claims.push([
+        key(list),
+        claimOf(
+          session.ownerId,
+          profile,
+          session.repositoryMode === "repository",
+          tools,
+        ),
+      ]);
+    }
+  }
+  return claims;
 }
 
 export type ClaimedSession = {
@@ -355,7 +368,10 @@ export function earlierProfileClaims(
   earlier: readonly EarlierProfile[],
   catalog: SessionCatalog,
 ): [key: string, claim: SessionClaim][] {
-  return listClaims(session, earlierProfilesOf(session.id, earlier, catalog));
+  return listClaims(
+    { ...session, githubAttached: false },
+    earlierProfilesOf(session.id, earlier, catalog),
+  );
 }
 
 function earlierProfilesOf(

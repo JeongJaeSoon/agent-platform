@@ -1002,7 +1002,9 @@ export function createWorkerGateway(deps: {
     // Checkpoints made before the built-in `github` server was attached
     // name only the catalog server; they resume into a run that has both.
     // Every profile list before any release list (claimToolLists), each
-    // newest first as the profiles come, so the cap drops the oldest.
+    // newest first as the profiles come, so the cap drops the oldest. Run
+    // on the release's tools, the profile's own list takes a config the
+    // cap would otherwise give the oldest earlier profile.
     const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
     const attached = legacy.length !== mcp.length;
     const configs = (["profile", "release"] as const).flatMap((list) =>

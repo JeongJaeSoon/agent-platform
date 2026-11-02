@@ -289,6 +289,7 @@ async function plans(
     owner_id: string;
     profile_fingerprint: string | null;
     profile_id: string | null;
+    release_github: boolean | null;
     release_id: string | null;
     release_tools: unknown;
     repo_url: string | null;
@@ -298,7 +299,8 @@ async function plans(
   }>(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
             s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch,
-            s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools
+            s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools,
+            r.policy_pins ? 'github' AS release_github
      FROM sessions s LEFT JOIN checkpoints c
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
      LEFT JOIN agent_releases r ON r.id = s.agent_release_id
@@ -356,6 +358,9 @@ async function plans(
         profileFingerprint: pointer.profile_fingerprint,
         profileId: pointer.profile_id,
         releaseTools: releaseToolsOf(pointer),
+        // Counted as attached whenever pinned, unreadable or not: one
+        // config too many only makes the count stricter.
+        githubAttached: pointer.release_github === true,
         repoUrl: pointer.repo_url,
         repositoryId: pointer.repository_id,
         repositoryMode: pointer.repository_mode,
