@@ -11,10 +11,11 @@ import { cn } from "../foundations/cn.ts";
  * instead of white, transitions stop under reduced motion, console v35
  * sizing (no shadow, 32px or 28px tall and no `lg`), and mockup v4's focus
  * outline, hovers, outlined `danger` and 28px `icon-sm`. No `outline-none`:
- * Tailwind 4 carries its `none` into `outline-2`.
+ * Tailwind 4 carries its `none` into `outline-2`. `aria-disabled` fades like
+ * `disabled` but keeps pointer events, so a busy button keeps its focus.
  */
 export const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium text-control transition-[background-color,border-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-45 aria-disabled:opacity-45 aria-invalid:border-destructive motion-reduce:transition-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
