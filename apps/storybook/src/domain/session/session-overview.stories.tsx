@@ -1,9 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { SessionSummary } from "@werft-ai/contracts";
 import {
   SessionOverviewRow,
   SessionOverviewTable,
 } from "@werft-ai/react/components";
 
+import { MOBILE } from "../../screens/screen-kit.tsx";
 import { SESSION } from "./session-fixtures.ts";
 
 const HEAD = {
@@ -106,6 +108,91 @@ export const Waiting: Story = {
     session: { ...SESSION, title: "Tidy the README", status: "needs_input" },
     statusDetail: "12 min",
   },
+};
+
+// A fixed moment, so the recent column reads minutes, yesterday and a date.
+const NOW = Date.parse("2026-10-24T06:14:45.000Z");
+
+const MIXED = [
+  {
+    session: {
+      ...SESSION,
+      id: "c7331e51-0b6c-4a51-9d6e-1f3b2a0c9d01",
+      title: "Write hello.txt and commit",
+      status: "needs_input",
+      agent: AGENT,
+      created_by: STARTER,
+      last_event_at: "2026-10-24T06:02:11.000Z",
+    },
+    statusDetail: "12 min",
+  },
+  {
+    // An agent key's session: an agent, nobody recorded as its starter.
+    session: {
+      ...SESSION,
+      id: "6e4d1a1f-2b3c-4d5e-8f6a-7b8c9d0e1f04",
+      title: "Write api6.txt and push",
+      status: "stopped",
+      agent: AGENT,
+      last_event_at: "2026-10-20T00:40:17.000Z",
+    },
+  },
+  {
+    session: {
+      ...SESSION,
+      id: "e6bfb003-1a2b-4c3d-9e4f-5a6b7c8d9e03",
+      title: "Compare competitor docs",
+      status: "idle",
+      created_by: { ...STARTER, display_name: "佐藤 花子" },
+      repository_id: null,
+      repository: null,
+      last_event_at: "2026-10-23T06:14:02.000Z",
+    },
+  },
+  {
+    // Failed before a runtime was chosen: no title, model or repository.
+    session: {
+      ...SESSION,
+      id: "745ce025-4490-4e23-9c22-73671aa69ede",
+      status: "failed",
+      runtime: null,
+      model: null,
+      repository_id: null,
+      repository: null,
+      current_turn_id: null,
+      queued_turn_count: 0,
+      last_event_at: "2026-10-18T02:03:55.000Z",
+    },
+  },
+] satisfies readonly {
+  readonly session: SessionSummary;
+  readonly statusDetail?: string;
+}[];
+
+/**
+ * The list page's mix: a wait, an agent key's session, a starter without a
+ * repository, a session that failed before it had a model.
+ */
+export const Mixed: Story = {
+  render: (args) => (
+    <SessionOverviewTable label="Sessions" messages={HEAD}>
+      {MIXED.map((row) => (
+        <SessionOverviewRow {...args} {...row} key={row.session.id} now={NOW} />
+      ))}
+    </SessionOverviewTable>
+  ),
+};
+
+export const MixedDark: Story = {
+  ...Mixed,
+  name: "Mixed (dark)",
+  globals: { locale: "en", theme: "dark" },
+};
+
+export const MixedMobile: Story = {
+  ...Mixed,
+  name: "Mixed (390px)",
+  globals: { locale: "en", ...MOBILE },
 };
 
 /** Every status, so dark and 390px cover the dot and the turning ring. */
