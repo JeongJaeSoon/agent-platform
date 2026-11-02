@@ -462,6 +462,7 @@ describe("SessionOverviewRow", () => {
         renderLink={(link) => <a href="/sessions/abc" {...link} />}
         messages={OVERVIEW_MESSAGES}
         statusDetail={
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: home's wait tooltip trigger, focused for its exact time
           <time dateTime="2026-11-02T00:00:00Z" tabIndex={0} title="exact">
             12분
           </time>

@@ -1,11 +1,5 @@
 import type { CountSessionsResponse, SessionStatus } from "@werft-ai/contracts";
-import {
-  Card,
-  Meter,
-  Section,
-  Skeleton,
-  StatusDot,
-} from "@werft-ai/ui";
+import { Card, Meter, Section, Skeleton, StatusDot } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
 import { statusDot } from "../status/vocabulary.ts";
