@@ -741,6 +741,8 @@ describe("achievement judge with Luna", () => {
         expect(warnings).toEqual(["Achievement judge call failed"]);
         const [result] = finished;
         expect(result?.luna).toBeUndefined();
+        // The call went out: the threshold it was asked against stays.
+        expect(result?.threshold).toBe(0.9);
         outcomes.push([
           result?.status,
           result && "retryInMs" in result ? result.retryInMs : null,
@@ -1111,6 +1113,8 @@ describe("achievement judge with Luna", () => {
         errorCode: "judge_timeout",
       });
       expect(finished[0]?.achievements.map((a) => a.judge)).toEqual(["always"]);
+      expect(finished[0]?.threshold).toBe(0.9);
+      expect(finished[0]?.luna).toBeUndefined();
     }
   });
 
@@ -1157,10 +1161,15 @@ describe("achievement judge with Luna", () => {
     };
     const first = await run(0.9, null);
     expect(first.result?.achievements).toHaveLength(1);
+    expect(first.result?.threshold).toBe(0.9);
     const digest = first.result?.luna?.inputDigest ?? "";
-    expect((await run(0.9, digest)).sent).toBe(0);
+    const same = await run(0.9, digest);
+    expect(same.sent).toBe(0);
+    // Nothing asked, so no threshold to keep.
+    expect(same.result?.threshold).toBeUndefined();
     const stricter = await run(0.95, digest);
     expect(stricter.sent).toBe(1);
+    expect(stricter.result?.threshold).toBe(0.95);
     expect(stricter.result?.luna?.declined).toEqual([
       { ruleFamilyId: "family-pull_request", evidenceId: "outcome-pr" },
     ]);
