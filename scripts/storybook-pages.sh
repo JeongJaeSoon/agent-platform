@@ -14,9 +14,8 @@
 #         time is left out, and only older tabs lose it.
 #
 # assets-kept.txt has one "<epoch> <file>" per line: 0 for the deployed build's
-# own files, otherwise when the build that had it was replaced.
-# STORYBOOK_KEEP_SECONDS overrides the one-hour window and
-# STORYBOOK_KEEP_BUDGET the 120 seconds keep may spend fetching.
+# own files, otherwise when the build that had it was replaced. keep spends at
+# most 120 seconds fetching.
 set -euo pipefail
 
 usage() {
@@ -85,7 +84,7 @@ check() {
 
 keep() {
   local dir=$1 live=${2%/}
-  local window=${STORYBOOK_KEEP_SECONDS:-3600} budget=${STORYBOOK_KEEP_BUDGET:-120}
+  local window=3600 budget=120
   local now deadline prev next epoch file kept=0 missed=0
   now=$(date +%s)
   deadline=$((SECONDS + budget))
