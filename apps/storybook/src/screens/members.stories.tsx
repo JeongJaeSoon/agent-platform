@@ -70,7 +70,7 @@ import { ArrowLeft, ChevronRight, Plus, X } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 
-import { MOBILE, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell, VIEWER } from "./screen-kit.tsx";
 
 /*
  * apps/web routes/members.tsx (구성원 · 초대 tabs, 구성원 편집), teams.tsx
@@ -109,17 +109,14 @@ const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 
 const WORKSPACE = "7c0e7f43-3b5c-4f0e-9a51-0d4c2f1a6b10";
+// The shell's signed-in user is the "나" row.
 const ID = {
-  owner: "0b8f6a4e-1c2d-4e3f-8a9b-000000000001",
+  owner: VIEWER.id,
   dana: "0b8f6a4e-1c2d-4e3f-8a9b-000000000002",
   minji: "0b8f6a4e-1c2d-4e3f-8a9b-000000000003",
   hoon: "0b8f6a4e-1c2d-4e3f-8a9b-000000000004",
   sora: "0b8f6a4e-1c2d-4e3f-8a9b-000000000005",
 } as const;
-const SELF: Record<Exclude<Viewer, "member">, string> = {
-  owner: ID.owner,
-  admin: ID.dana,
-};
 
 const OK: MemberVerdict = { allowed: true };
 const no = (reason: MemberRefusal): MemberVerdict => ({
@@ -129,9 +126,9 @@ const no = (reason: MemberRefusal): MemberVerdict => ({
 
 const PEOPLE: readonly Person[] = [
   {
-    user_id: ID.owner,
-    display_name: "Verify Owner",
-    email: "owner@example.test",
+    user_id: VIEWER.id,
+    display_name: VIEWER.name,
+    email: VIEWER.email,
     role: "owner",
     disabled_at: null,
     created_at: "2026-10-02T00:00:00Z",
@@ -170,48 +167,57 @@ const PEOPLE: readonly Person[] = [
   },
 ];
 
-/** What the server's verdicts would say to this viewer about this person. */
-function verdicts(
-  person: Person,
-  viewer: "owner" | "admin",
-): MemberRow["actions"] {
-  const role = (to: WorkspaceRole, other: MemberVerdict) =>
-    to === person.role ? no("unchanged") : other;
-  const each = (pick: (to: WorkspaceRole) => MemberVerdict) => ({
-    owner: role("owner", pick("owner")),
-    admin: role("admin", pick("admin")),
-    member: role("member", pick("member")),
-  });
+/**
+ * The workspace as `viewer` sees it. The shell's user is always VIEWER, so
+ * in an admin's view VIEWER is the admin and Dana holds the owner role.
+ */
+function peopleFor(viewer: "owner" | "admin"): readonly Person[] {
+  if (viewer === "owner") return PEOPLE;
+  return PEOPLE.map((person) =>
+    person.user_id === VIEWER.id
+      ? { ...person, role: "admin" }
+      : person.user_id === ID.dana
+        ? { ...person, role: "owner" }
+        : person,
+  );
+}
+
+const mayGrant = (actor: WorkspaceRole, role: WorkspaceRole) =>
+  actor === "owner" || role !== "owner";
+
+/**
+ * As the server's memberVerdict (platform musterrolle/member-rules.ts)
+ * decides: self, then owner protection, then disabled, then unchanged.
+ * No fixture account is suspended, so account_disabled never comes up.
+ */
+function verdicts(person: Person, actor: WorkspaceRole): MemberRow["actions"] {
   const disabled = person.disabled_at !== null;
-  if (person.user_id === SELF[viewer]) {
-    return {
-      change_role: each(() => no("self_protected")),
-      disable: no("self_protected"),
-      enable: no("unchanged"),
-    };
-  }
-  if (viewer === "admin" && person.role === "owner") {
-    return {
-      change_role: each(() => no("owner_protected")),
-      disable: no("owner_protected"),
-      enable: no("unchanged"),
-    };
-  }
+  const verdict = (to: WorkspaceRole | "disable" | "enable"): MemberVerdict => {
+    if (person.user_id === VIEWER.id) return no("self_protected");
+    if (
+      !mayGrant(actor, person.role) ||
+      (to !== "disable" && to !== "enable" && !mayGrant(actor, to))
+    ) {
+      return no("owner_protected");
+    }
+    if (to === "disable") return disabled ? no("unchanged") : OK;
+    if (to === "enable") return disabled ? OK : no("unchanged");
+    if (disabled) return no("member_disabled");
+    return person.role === to ? no("unchanged") : OK;
+  };
   return {
-    change_role: each((to) =>
-      disabled
-        ? no("member_disabled")
-        : viewer === "admin" && to === "owner"
-          ? no("owner_protected")
-          : OK,
-    ),
-    disable: disabled ? no("unchanged") : OK,
-    enable: disabled ? OK : no("unchanged"),
+    change_role: {
+      owner: verdict("owner"),
+      admin: verdict("admin"),
+      member: verdict("member"),
+    },
+    disable: verdict("disable"),
+    enable: verdict("enable"),
   };
 }
 
 function rowsFor(viewer: "owner" | "admin"): readonly MemberRow[] {
-  return PEOPLE.map((person) => ({
+  return peopleFor(viewer).map((person) => ({
     ...person,
     actions: verdicts(person, viewer),
     administered_agents: [],
@@ -559,7 +565,7 @@ function MembersTab({
                 <MemberTableRow
                   key={member.user_id}
                   member={member}
-                  self={member.user_id === SELF[viewer]}
+                  self={member.user_id === VIEWER.id}
                   onEdit={() => setEditing(member)}
                   onDisable={() => setConfirming(member)}
                 />
@@ -1036,6 +1042,7 @@ function TeamPage({
   readonly initialDelete?: boolean;
 }) {
   const [deleting, setDeleting] = useState(initialDelete);
+  const [name, setName] = useState(team.name);
   return (
     <div className="flex flex-col gap-[var(--ap-space-section)]">
       <div className="flex items-start justify-between gap-4">
@@ -1061,10 +1068,15 @@ function TeamPage({
                 name="team-name"
                 required
                 maxLength={100}
-                defaultValue={team.name}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
               />
             </Field>
-            <Button type="submit" variant="outline" disabled>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={name.trim() === team.name}
+            >
               이름 바꾸기
             </Button>
           </form>
@@ -1391,7 +1403,8 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
   ].includes(screen);
 
   let action: ReactNode;
-  if (manager && tab !== "teams") {
+  // A members read that failed for any reason but 403 withholds the invite.
+  if (manager && tab !== "teams" && screen !== "members-error") {
     action = (
       <InviteAction
         viewer={manager}
@@ -1424,7 +1437,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
           screen === "member-edit" || screen === "member-edit-admin"
             ? ID.minji
             : screen === "member-edit-admin-owner"
-              ? ID.owner
+              ? ID.dana
               : screen === "member-edit-disabled"
                 ? ID.sora
                 : undefined
