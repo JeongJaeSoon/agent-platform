@@ -18,11 +18,11 @@ import {
   Combobox,
   ConfirmDialog,
   EmptyState,
-  Heading,
   RowAction,
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
@@ -46,10 +46,10 @@ import {
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
-import { SECTION } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "./search-term.ts";
+import { SECTION_BODY } from "./section-body.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
@@ -101,29 +101,29 @@ export function AgentAdmins({
     (items !== undefined &&
       (items.some((agent) => agent.id === agentId) ||
         items.length >= ADMINISTERED_LIST_LIMIT));
-  const titleId = useId();
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-        <Heading id={titleId}>{t("agentAdmins.title")}</Heading>
-        <Text variant="meta">{t("agentAdmins.intro")}</Text>
+    <Section
+      title={t("agentAdmins.title")}
+      description={t("agentAdmins.intro")}
+    >
+      <div className={SECTION_BODY}>
+        {mine ? (
+          <AdminList agentId={agentId} onOutcome={onOutcome} />
+        ) : administered.isPending && !everywhere ? (
+          <StatusScreen kind="loading" />
+        ) : administered.error ? (
+          <LoadFailure
+            error={administered.error}
+            onRetry={() => void administered.refetch()}
+          />
+        ) : (
+          <Text variant="meta">
+            {permissionReason(t, "agent.admin.manage", role)}
+          </Text>
+        )}
       </div>
-      {mine ? (
-        <AdminList agentId={agentId} onOutcome={onOutcome} />
-      ) : administered.isPending && !everywhere ? (
-        <StatusScreen kind="loading" />
-      ) : administered.error ? (
-        <LoadFailure
-          error={administered.error}
-          onRetry={() => void administered.refetch()}
-        />
-      ) : (
-        <Text variant="meta">
-          {permissionReason(t, "agent.admin.manage", role)}
-        </Text>
-      )}
-    </section>
+    </Section>
   );
 }
 
@@ -497,59 +497,57 @@ export function AdministeredAgents({
     ...administeredAgentsQuery(client),
     enabled: !everywhere,
   });
-  const titleId = useId();
   if (everywhere || administered.isPending) return null;
   const items = administered.data?.items ?? [];
   if (!administered.error && items.length === 0 && !showEmpty) return null;
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <h2 id={titleId} className="m-0 text-body">
-        {t("agentAdmins.mine.title")}
-      </h2>
-      {administered.error ? (
-        <LoadFailure
-          error={administered.error}
-          onRetry={() => void administered.refetch()}
-        />
-      ) : items.length === 0 ? (
-        <EmptyState title={t("agentAdmins.mine.empty")} />
-      ) : (
-        <>
-          <Text variant="meta">{t("agentAdmins.mine.intro")}</Text>
-          <RowList>
-            {items.map((agent) => (
-              <RowListItem
-                key={agent.id}
-                className={`${ADMIN_ROW} ${OPENS_ROW}`}
-              >
-                <TextLink
-                  asChild
-                  className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+    <Section title={t("agentAdmins.mine.title")}>
+      <div className={SECTION_BODY}>
+        {administered.error ? (
+          <LoadFailure
+            error={administered.error}
+            onRetry={() => void administered.refetch()}
+          />
+        ) : items.length === 0 ? (
+          <EmptyState title={t("agentAdmins.mine.empty")} />
+        ) : (
+          <>
+            <Text variant="meta">{t("agentAdmins.mine.intro")}</Text>
+            <RowList>
+              {items.map((agent) => (
+                <RowListItem
+                  key={agent.id}
+                  className={`${ADMIN_ROW} ${OPENS_ROW}`}
                 >
-                  <Link to="/agents/$id" params={{ id: agent.id }}>
-                    {agent.name}
-                  </Link>
-                </TextLink>
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="ml-auto [overflow-wrap:anywhere]"
-                >
-                  {agent.slug}
-                </Text>
-              </RowListItem>
-            ))}
-          </RowList>
-          {items.length >= ADMINISTERED_LIST_LIMIT ? (
-            <Text variant="meta">
-              {t("agentAdmins.mine.truncated", {
-                count: ADMINISTERED_LIST_LIMIT,
-              })}
-            </Text>
-          ) : null}
-        </>
-      )}
-    </section>
+                  <TextLink
+                    asChild
+                    className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+                  >
+                    <Link to="/agents/$id" params={{ id: agent.id }}>
+                      {agent.name}
+                    </Link>
+                  </TextLink>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="ml-auto [overflow-wrap:anywhere]"
+                  >
+                    {agent.slug}
+                  </Text>
+                </RowListItem>
+              ))}
+            </RowList>
+            {items.length >= ADMINISTERED_LIST_LIMIT ? (
+              <Text variant="meta">
+                {t("agentAdmins.mine.truncated", {
+                  count: ADMINISTERED_LIST_LIMIT,
+                })}
+              </Text>
+            ) : null}
+          </>
+        )}
+      </div>
+    </Section>
   );
 }

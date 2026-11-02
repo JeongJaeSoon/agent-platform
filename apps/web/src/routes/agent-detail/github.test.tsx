@@ -381,6 +381,32 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("리뷰 승인").disabled).toBe(false);
   });
 
+  test("구역 목차의 링크는 같은 id의 구역으로 포커스를 옮기고, 구역 이름은 제목이다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    Element.prototype.scrollIntoView ??= () => {};
+
+    const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
+    if (!nav) throw new Error("no section nav");
+    for (const [name, id] of [
+      ["사용", "github-use"],
+      ["저장소", "github-repositories"],
+      ["권한", "github-permissions"],
+      ["Actions 허용 목록", "github-allowlist"],
+      ["push 승인", "github-push"],
+      ["최근 기록", "github-activity"],
+    ] as const) {
+      await user.click(within(nav).getByRole("link", { name }));
+      const section = screen.getByRole("region", { name });
+      expect(section.id).toBe(id);
+      // The DOM shim focuses any element and reports tabIndex -1 by default; only the attribute shows the section is focusable.
+      expect(section.getAttribute("tabindex")).toBe("-1");
+      expect(document.activeElement === section).toBe(true);
+    }
+  });
+
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
