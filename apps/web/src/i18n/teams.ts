@@ -32,6 +32,8 @@ export const teamsKo = {
   "teams.memberTotal": "{count}명",
   "teams.addHint":
     "여러 명을 골라 한 번에 추가할 수 있습니다. 추가하면 수락 없이 바로 구성원이 됩니다.",
+  "teams.addOpen": "구성원 추가",
+  "teams.addTitle": "{team} 팀에 구성원 추가",
   "teams.pickMember": "추가할 사람",
   "teams.pickPlaceholder": "이름이나 이메일로 찾기",
   "teams.pickLoading": "구성원을 불러오는 중…",
@@ -93,6 +95,8 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.memberTotal": "{count}",
   "teams.addHint":
     "Pick several people and add them at once. They join the team right away, without having to accept.",
+  "teams.addOpen": "Add members",
+  "teams.addTitle": "Add members to {team}",
   "teams.pickMember": "People to add",
   "teams.pickPlaceholder": "Search by name or email",
   "teams.pickLoading": "Loading members…",
@@ -154,6 +158,8 @@ export const teamsJa: Record<keyof typeof teamsKo, string> = {
   "teams.memberTotal": "{count}人",
   "teams.addHint":
     "複数の人を選んで一度に追加できます。追加すると、承諾なしですぐにメンバーになります。",
+  "teams.addOpen": "メンバーを追加",
+  "teams.addTitle": "チーム「{team}」にメンバーを追加",
   "teams.pickMember": "追加する人",
   "teams.pickPlaceholder": "名前またはメールで検索",
   "teams.pickLoading": "メンバーを読み込み中…",

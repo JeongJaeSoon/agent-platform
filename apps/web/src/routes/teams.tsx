@@ -12,7 +12,10 @@ import type {
   TeamDetail,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
+import { ListToolbar } from "@werft-ai/react/components";
 import {
+  Alert,
+  AlertDescription,
   Avatar,
   avatarInitials,
   avatarTone,
@@ -23,6 +26,14 @@ import {
   ConfirmDialog,
   DangerZone,
   DangerZoneRow,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   EmptyState,
   Field,
   FieldLabel,
@@ -34,14 +45,15 @@ import {
   GridTableRow,
   Heading,
   Input,
+  RowAction,
   RowList,
   RowListItem,
   SearchInput,
-  SettingsSection,
+  Section,
   Text,
   Link as TextLink,
 } from "@werft-ai/ui";
-import { ArrowLeft, ChevronRight, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, Plus, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
   memberPagesQuery,
@@ -56,7 +68,7 @@ import {
   useHasPermission,
   useRole,
 } from "../auth/guard.tsx";
-import { ReasonButton } from "../auth/reason-button.tsx";
+import { Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams, SECTION } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
@@ -266,7 +278,7 @@ function TeamPage({ id }: { readonly id: string }) {
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
         <>
-          <OutcomeLine outcome={outcome} />
+          <OutcomeLine outcome={outcome} live={true} />
           {manages && <TeamSettings team={team.data} onOutcome={setOutcome} />}
           <TeamMembers
             team={team.data}
@@ -332,7 +344,7 @@ function TeamSettings({
   };
 
   return (
-    <SettingsSection title={t("teams.settings")} titleAs="h3">
+    <Section title={t("teams.settings")} titleAs="h3">
       <form className={INLINE_FORM} onSubmit={submit}>
         <TeamNameField value={name} onChange={setName} />
         <Button
@@ -343,7 +355,7 @@ function TeamSettings({
           {t("teams.rename")}
         </Button>
       </form>
-    </SettingsSection>
+    </Section>
   );
 }
 
@@ -496,7 +508,7 @@ function TeamMembers({
   };
 
   return (
-    <SettingsSection
+    <Section
       title={t("teams.members")}
       titleAs="h3"
       badge={
@@ -504,25 +516,28 @@ function TeamMembers({
           {t("teams.memberTotal", { count: team.members.length })}
         </Badge>
       }
-      {...(manages && { description: t("teams.addHint") })}
+      actions={
+        manages ? (
+          <AddMembersDialog team={team} onOutcome={onOutcome} />
+        ) : undefined
+      }
     >
-      {manages && <AddMembers team={team} onOutcome={onOutcome} />}
       {team.members.length === 0 ? (
         <EmptyState title={t("teams.noMembers")} />
       ) : (
         <div className="flex flex-col gap-3">
-          {/* SearchInput sizes itself as an item of a toolbar row. */}
-          <div className="flex">
-            <SearchInput
-              ref={search}
-              type="search"
-              aria-label={t("teams.search")}
-              placeholder={t("teams.search")}
-              maxLength={SEARCH_MAX}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+          <ListToolbar
+            filter={null}
+            search={{
+              ref: search,
+              type: "search",
+              "aria-label": t("teams.search"),
+              placeholder: t("teams.search"),
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
           {shown.length === 0 ? (
             <EmptyState
               className="w-full"
@@ -609,17 +624,14 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell align="end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="min-w-[var(--ap-row-action-min-width)]"
+                        <RowAction
+                          variant="danger"
                           disabled={remove.isPending}
                           aria-label={t("teams.removeMemberFor", { name })}
                           onClick={() => setRemoving(member)}
                         >
                           {t("teams.removeMember")}
-                        </Button>
+                        </RowAction>
                       </GridTableCell>
                     )}
                   </GridTableRow>
@@ -647,7 +659,7 @@ function TeamMembers({
           if (removing) remove.mutate(removing);
         }}
       />
-    </SettingsSection>
+    </Section>
   );
 }
 
@@ -673,11 +685,12 @@ type AddResult = {
 };
 
 /**
- * Search by name or email, pick as many as needed, add them in one go. The
- * API takes one person per request, so the picks go one after another and
- * whoever was refused stays picked, ready to try again.
+ * The 팀 구성원 head's button: search by name or email in a dialog, pick as
+ * many as needed, add them in one go. The API takes one person per request,
+ * so the picks go one after another; when everyone joined the dialog closes,
+ * and whoever was refused stays picked in it, ready to try again.
  */
-function AddMembers({
+function AddMembersDialog({
   team,
   onOutcome,
 }: {
@@ -688,14 +701,11 @@ function AddMembers({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
+  const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<readonly MemberView[]>([]);
-  const pickerId = useId();
-  // The picker asks the server, a page at a time, as typing pauses.
-  const [term, setTerm] = useState("");
-  const members = useInfiniteQuery(
-    memberPagesQuery(client, term.trim() || undefined),
-  );
-  const found = members.data?.pages.flatMap((page) => page.items);
+  // What the last try came to, said inside the dialog while it stays open:
+  // the page behind is hidden from assistive tech until it closes.
+  const [result, setResult] = useState<Outcome | null>(null);
 
   const add = useMutation<AddResult, never, readonly MemberView[]>({
     mutationFn: async (people) => {
@@ -710,39 +720,111 @@ function AddMembers({
             }),
           );
           added.push(member);
-        } catch (error) {
-          failed.push({ member, error: error as ApiError });
+        } catch (failure) {
+          failed.push({ member, error: failure as ApiError });
         }
       }
       return { added, failed };
     },
-    onMutate: () => onOutcome(null),
+    onMutate: () => {
+      setResult(null);
+      onOutcome(null);
+    },
     onSuccess: async ({ added, failed }) => {
       // Only who joined leaves the picks: the refused stay for a retry, and
       // anyone picked while the requests ran waits for the next one.
       const joined = new Set(added.map((member) => member.user_id));
-      setPicked((list) => list.filter((member) => !joined.has(member.user_id)));
+      const left = picked.filter((member) => !joined.has(member.user_id));
+      setPicked(left);
+      if (left.length === 0) setOpen(false);
       const [first] = added;
-      const said = [
-        added.length === 1 && first
+      const joinedText = first
+        ? added.length === 1
           ? t("teams.memberAdded", { name: first.display_name })
-          : added.length > 1
-            ? t("teams.membersAdded", { count: added.length })
+          : t("teams.membersAdded", { count: added.length })
+        : null;
+      if (joinedText) onOutcome({ kind: "notice", text: joinedText });
+      // Who did not join and why, one sentence per reason.
+      const byReason = new Map<string, string[]>();
+      for (const { member, error: refusal } of failed) {
+        const why = refusalText(t, refusal, "team.manage", role);
+        byReason.set(why, [...(byReason.get(why) ?? []), member.display_name]);
+      }
+      const refused = [...byReason].map(([reason, names]) =>
+        t("teams.addFailed", { names: names.join(", "), reason }),
+      );
+      const said = [joinedText, ...refused].filter((line) => line !== null);
+      setResult(
+        refused.length > 0
+          ? { kind: "error", text: said.join(" ") }
+          : joinedText
+            ? { kind: "notice", text: joinedText }
             : null,
-        failed[0]
-          ? t("teams.addFailed", {
-              names: failed.map(({ member }) => member.display_name).join(", "),
-              reason: refusalText(t, failed[0].error, "team.manage", role),
-            })
-          : null,
-      ].filter((line) => line !== null);
-      onOutcome({
-        kind: failed.length > 0 ? "error" : "notice",
-        text: said.join(" "),
-      });
+      );
       if (added.length > 0) await refreshTeam(queryClient, client, team.id);
     },
   });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Open until the requests answer, so their answer lands in this opening.
+        if (add.isPending) return;
+        setResult(null);
+        setPicked([]);
+        setOpen(next);
+      }}
+    >
+      {/* As the trigger, the button gets the focus back when the dialog closes. */}
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm">
+          <Plus aria-hidden="true" />
+          {t("teams.addOpen")}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <AddMembersForm
+          team={team}
+          picked={picked}
+          onPickedChange={setPicked}
+          pending={add.isPending}
+          result={result}
+          onSubmit={() => {
+            if (picked.length > 0 && !add.isPending) add.mutate(picked);
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Mounted while the dialog is open, so the picker asks the server only then.
+function AddMembersForm({
+  team,
+  picked,
+  onPickedChange,
+  pending,
+  result,
+  onSubmit,
+}: {
+  readonly team: TeamDetail;
+  readonly picked: readonly MemberView[];
+  readonly onPickedChange: (picked: readonly MemberView[]) => void;
+  readonly pending: boolean;
+  readonly result: Outcome | null;
+  readonly onSubmit: () => void;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const pickerId = useId();
+  // The picker asks the server, a page at a time, as typing pauses.
+  const [term, setTerm] = useState("");
+  const members = useInfiniteQuery(
+    memberPagesQuery(client, term.trim() || undefined),
+  );
+  const found = members.data?.pages.flatMap((page) => page.items);
 
   const taken = new Set([
     ...team.members.map((member) => member.user_id),
@@ -755,7 +837,7 @@ function AddMembers({
     ) ?? [];
   const reason = members.error
     ? refusalText(t, members.error as ApiError, "member.manage", role)
-    : undefined;
+    : null;
   // Only an unsearched, fully read list proves nobody is left to add.
   const noneLeft =
     members.isSuccess &&
@@ -766,18 +848,28 @@ function AddMembers({
 
   return (
     <form
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        if (picked.length > 0 && !add.isPending) add.mutate(picked);
+        onSubmit();
       }}
     >
-      <FieldLabel htmlFor={pickerId}>{t("teams.pickMember")}</FieldLabel>
-      {/* As wide as the name's row above, so both buttons end in one line. */}
-      <div className="flex max-w-xl flex-wrap items-center gap-2">
+      <DialogHeader>
+        <DialogTitle>{t("teams.addTitle", { team: team.name })}</DialogTitle>
+        <DialogDescription>{t("teams.addHint")}</DialogDescription>
+      </DialogHeader>
+      {[result?.kind === "error" ? result.text : null, reason].map((text) =>
+        text === null ? null : (
+          <Alert key={text} variant="red" role="alert">
+            <AlertDescription>{text}</AlertDescription>
+          </Alert>
+        ),
+      )}
+      <Notice>{result?.kind === "notice" ? result.text : undefined}</Notice>
+      <Field>
+        <FieldLabel htmlFor={pickerId}>{t("teams.pickMember")}</FieldLabel>
         <Combobox
           id={pickerId}
-          className={NAME_FIELD}
           options={candidates.map((member) => ({
             value: member.user_id,
             label: member.display_name,
@@ -793,7 +885,7 @@ function AddMembers({
           onLoadMore={() => void members.fetchNextPage()}
           onValueChange={(value) => {
             const member = candidates.find((m) => m.user_id === value);
-            if (member) setPicked((list) => [...list, member]);
+            if (member) onPickedChange([...picked, member]);
           }}
           placeholder={t("teams.pickPlaceholder")}
           loading={members.isPending}
@@ -801,17 +893,7 @@ function AddMembers({
           emptyMessage={t(noneLeft ? "teams.noCandidates" : "teams.pickEmpty")}
           resultCountMessage={(count) => t("teams.pickCount", { count })}
         />
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({ variant: "outline" })}
-          reason={reason}
-          disabled={picked.length === 0 || add.isPending}
-        >
-          {picked.length > 1
-            ? t("teams.addMembers", { count: picked.length })
-            : t("teams.addMember")}
-        </ReasonButton>
-      </div>
+      </Field>
       {picked.length > 0 && (
         <ul
           aria-label={t("teams.picked")}
@@ -829,10 +911,10 @@ function AddMembers({
                 type="button"
                 className="inline-grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
                 aria-label={t("teams.unpick", { name: member.display_name })}
-                disabled={add.isPending}
+                disabled={pending}
                 onClick={() => {
-                  setPicked((list) =>
-                    list.filter((m) => m.user_id !== member.user_id),
+                  onPickedChange(
+                    picked.filter((m) => m.user_id !== member.user_id),
                   );
                   // The button leaves with its person; the search box keeps the keyboard.
                   document.getElementById(pickerId)?.focus();
@@ -845,6 +927,26 @@ function AddMembers({
         </ul>
       )}
       {nothingLeft && <Text variant="meta">{t("teams.noCandidates")}</Text>}
+      <DialogFooter>
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="outline"
+            aria-disabled={pending || undefined}
+          >
+            {t("common.cancel")}
+          </Button>
+        </DialogClose>
+        {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
+        <Button
+          type="submit"
+          aria-disabled={pending || picked.length === 0 || undefined}
+        >
+          {picked.length > 1
+            ? t("teams.addMembers", { count: picked.length })
+            : t("teams.addMember")}
+        </Button>
+      </DialogFooter>
     </form>
   );
 }

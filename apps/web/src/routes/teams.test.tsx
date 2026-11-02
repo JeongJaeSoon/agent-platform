@@ -66,8 +66,23 @@ async function pick(
   await user.keyboard("{ArrowDown}{Enter}");
 }
 
+/** Opens 구성원 추가 from the 팀 구성원 head; the picker inside has the keyboard. */
+async function openAdd(user: Awaited<ReturnType<typeof setupUser>>) {
+  await user.click(await screen.findByRole("button", { name: "구성원 추가" }));
+  const dialog = await screen.findByRole("dialog", {
+    name: "결제팀 팀에 구성원 추가",
+  });
+  const picker = within(dialog).getByRole("combobox", { name: "추가할 사람" });
+  await waitFor(() => expect(document.activeElement === picker).toBe(true));
+  return { dialog, picker };
+}
+
 /** The teams API as one stateful server, as the real routes answer. */
-function teamServer({ refuse }: { refuse?: string } = {}) {
+function teamServer({
+  refuse = {},
+}: {
+  refuse?: Record<string, () => Response>;
+} = {}) {
   let team: TeamDetail | null = {
     id: TEAM_ID,
     workspace_id: WORKSPACE_ID,
@@ -125,8 +140,8 @@ function teamServer({ refuse }: { refuse?: string } = {}) {
       },
       [`POST ${path}/members`]: async (request: Request) => {
         const { user_id } = (await request.json()) as { user_id: string };
-        if (user_id === refuse)
-          return apiError(403, "FORBIDDEN", "Not permitted");
+        const refusal = refuse[user_id];
+        if (refusal) return refusal();
         const person = people.get(user_id);
         if (team && person)
           team = {
@@ -490,7 +505,7 @@ describe("팀 화면", () => {
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
     ).toEqual(["구성원", "추가한 날"]);
-    for (const control of ["이름 바꾸기", "추가", "팀 삭제"])
+    for (const control of ["이름 바꾸기", "구성원 추가", "팀 삭제"])
       expect(
         screen.queryByRole("button", { name: control }),
         control,
@@ -613,19 +628,25 @@ describe("팀 화면", () => {
     const server = teamServer();
     const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const user = await setupUser();
-    const picker = await screen.findByRole("combobox", {
-      name: "추가할 사람",
-    });
-    // The page head's two, then the picker's first page; an empty team has no
-    // roles to read.
-    await waitFor(() =>
-      expect(
-        api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search),
-      ).toEqual(["?limit=2", ""]),
+    const memberReads = () =>
+      api.calls.filter((c) => c.path === "/v1/members").map((c) => c.search);
+    // One search box on the page: adding lives in its own dialog.
+    await screen.findByRole("button", { name: "구성원 추가" });
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // The page head's two; the picker has not asked, and an empty team has
+    // no roles to read.
+    await waitFor(() => expect(memberReads()).toEqual(["?limit=2"]));
+    const { dialog, picker } = await openAdd(user);
+    await waitFor(() => expect(memberReads()).toEqual(["?limit=2", ""]));
+    expect(dialog.textContent).toContain(
+      "추가하면 수락 없이 바로 구성원이 됩니다.",
     );
+    const submit = within(dialog).getByRole("button", { name: "추가" });
+    expect(submit.getAttribute("aria-disabled")).toBe("true");
+    await user.click(submit);
     expect(
-      screen.getByRole("button", { name: "추가" }).hasAttribute("disabled"),
-    ).toBe(true);
+      api.calls.some((c) => c.method === "POST" && c.path.endsWith("/members")),
+    ).toBe(false);
 
     await user.click(picker);
     await pick(user, picker, "mate@");
@@ -651,7 +672,9 @@ describe("팀 화면", () => {
       () => expect(said()).toContain("추가할 수 있는 활성 구성원이 없습니다."),
       { timeout: 3000 },
     );
+    // Escape closes the suggestions, not the dialog.
     await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeDefined();
 
     // Taking one off hands the keyboard back to the search box.
     await user.click(
@@ -662,14 +685,19 @@ describe("팀 화면", () => {
     expect(document.activeElement === picker).toBe(true);
     await pick(user, picker, "Own");
 
-    await user.click(screen.getByRole("button", { name: "2명 추가" }));
+    await user.click(within(dialog).getByRole("button", { name: "2명 추가" }));
     await waitFor(() => expect(said()).toContain("2명을 팀에 추가했습니다."));
     expect(
       api.calls
         .filter((c) => c.method === "POST" && c.path.endsWith("/members"))
         .map((c) => c.body),
     ).toEqual([{ user_id: MATE_ID }, { user_id: USER_ID }]);
-    expect(screen.queryByRole("list", { name: "추가할 사람" })).toBeNull();
+    // Everyone joined: the dialog closes and hands the keyboard back.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      document.activeElement ===
+        screen.getByRole("button", { name: "구성원 추가" }),
+    ).toBe(true);
 
     const table = await screen.findByRole("table", { name: "팀 구성원" });
     await waitFor(() =>
@@ -691,15 +719,27 @@ describe("팀 화면", () => {
       "2026. 10. 11. 09:00",
       "빼기",
     ]);
+    // A row's remove is a row action that takes access away (B-25).
+    const remove = within(mateRow).getByRole("button", {
+      name: "Mate님을 팀에서 빼기",
+    });
+    expect(remove.className).toContain("text-destructive");
+    expect(remove.className).toContain(
+      "min-w-[var(--ap-row-action-button-min-width)]",
+    );
+    expect(remove.getAttribute("data-size")).toBe("sm");
     expect(
       screen.getByRole("heading", { level: 3, name: "팀 구성원" })
         .nextElementSibling?.textContent,
     ).toBe("2명");
 
     // The list's own search narrows the table, and says when nobody matches.
-    const search = screen.getByRole("searchbox", {
-      name: "이름이나 이메일로 구성원 찾기",
-    });
+    const [search, ...more] = screen.getAllByRole("searchbox");
+    expect(more).toHaveLength(0);
+    expect(search?.getAttribute("aria-label")).toBe(
+      "이름이나 이메일로 구성원 찾기",
+    );
+    if (!search) throw new Error("no search box");
     await user.type(search, "OWNER@");
     expect(within(table).getAllByRole("row")).toHaveLength(2);
     expect(within(table).getByText("Owner")).toBeDefined();
@@ -715,28 +755,51 @@ describe("팀 화면", () => {
     ).toHaveLength(3);
   });
 
-  test("한 번에 추가하다 거절된 사람은 고른 채로 남고, 누가 왜 안 됐는지 말한다", async () => {
-    const server = teamServer({ refuse: USER_ID });
+  test("한 번에 추가하다 거절된 사람은 대화상자에 고른 채로 남고, 누가 왜 안 됐는지 이유마다 말한다", async () => {
+    const server = teamServer({
+      refuse: { [USER_ID]: () => apiError(403, "FORBIDDEN", "Not permitted") },
+    });
     renderAt(`/members/teams/${TEAM_ID}`, server.routes);
     const user = await setupUser();
-    const picker = await screen.findByRole("combobox", {
-      name: "추가할 사람",
-    });
+    const { dialog, picker } = await openAdd(user);
     for (const name of ["Mate", "Owner"]) await pick(user, picker, name);
-    await user.click(screen.getByRole("button", { name: "2명 추가" }));
-    const alert = await screen.findByRole("alert");
+    await user.click(within(dialog).getByRole("button", { name: "2명 추가" }));
+    const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toStartWith(
       "Mate님을 팀에 추가했습니다. Owner님을 추가하지 못했습니다.",
     );
     expect(
-      within(screen.getByRole("list", { name: "추가할 사람" }))
+      within(within(dialog).getByRole("list", { name: "추가할 사람" }))
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual(["Owner"]);
-    expect(screen.getByRole("button", { name: "추가" })).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "추가" })).toBeDefined();
+    // Closed, the page says who joined.
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(said()).toContain("Mate님을 팀에 추가했습니다.");
     await waitFor(() =>
       expect(server.team?.members.map((m) => m.user_id)).toEqual([MATE_ID]),
     );
+  });
+
+  test("거절 이유가 다르면 이유마다 한 문장으로 말한다", async () => {
+    const server = teamServer({
+      refuse: {
+        [MATE_ID]: () => apiError(403, "FORBIDDEN", "Not permitted"),
+        [USER_ID]: () => apiError(409, "CONFLICT", "Changed meanwhile"),
+      },
+    });
+    renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    const { dialog, picker } = await openAdd(user);
+    for (const name of ["Mate", "Owner"]) await pick(user, picker, name);
+    await user.click(within(dialog).getByRole("button", { name: "2명 추가" }));
+    const text = (await within(dialog).findByRole("alert")).textContent ?? "";
+    expect(text.match(/추가하지 못했습니다/g)).toHaveLength(2);
+    expect(text).toStartWith("Mate님을 추가하지 못했습니다.");
+    expect(text).toContain(" Owner님을 추가하지 못했습니다.");
+    expect(text).not.toContain("Mate, Owner");
   });
 
   test("추가하는 동안 새로 고른 사람은 끝난 뒤에도 고른 채로 남는다", async () => {
@@ -754,18 +817,21 @@ describe("팀 화면", () => {
       },
     });
     const user = await setupUser();
-    const picker = await screen.findByRole("combobox", {
-      name: "추가할 사람",
-    });
+    const { dialog, picker } = await openAdd(user);
     await pick(user, picker, "Mate");
-    await user.click(screen.getByRole("button", { name: "추가" }));
+    await user.click(within(dialog).getByRole("button", { name: "추가" }));
     await pick(user, picker, "Owner");
+    // Open until the requests answer, whatever closes it meanwhile.
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.getByRole("dialog") === dialog).toBe(true);
     act(() => answer());
     await waitFor(() =>
       expect(said()).toContain("Mate님을 팀에 추가했습니다."),
     );
+    expect(screen.getByRole("dialog") === dialog).toBe(true);
+    expect(within(dialog).queryByRole("alert")).toBeNull();
     expect(
-      within(screen.getByRole("list", { name: "추가할 사람" }))
+      within(within(dialog).getByRole("list", { name: "추가할 사람" }))
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual(["Owner"]);
@@ -778,14 +844,13 @@ describe("팀 화면", () => {
       server.routes,
     );
     const user = await setupUser();
-    const picker = await screen.findByRole("combobox", {
-      name: "추가할 사람",
-    });
-    await pick(user, picker, "Mate");
-    await user.click(screen.getByRole("button", { name: "추가" }));
+    const add = await openAdd(user);
+    await pick(user, add.picker, "Mate");
+    await user.click(within(add.dialog).getByRole("button", { name: "추가" }));
     await waitFor(() =>
       expect(said()).toContain("Mate님을 팀에 추가했습니다."),
     );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     const removeMate = await screen.findByRole("button", {
       name: "Mate님을 팀에서 빼기",
