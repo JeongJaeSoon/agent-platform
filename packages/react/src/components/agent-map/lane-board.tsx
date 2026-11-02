@@ -1,4 +1,4 @@
-import { Badge, Button, RelativeTime, Skeleton } from "@werft-ai/ui";
+import { Badge, Button, RelativeTime, RowAction, Skeleton } from "@werft-ai/ui";
 import { Bot, ShieldQuestion } from "lucide-react";
 import { type JSX, useId, useRef } from "react";
 
@@ -240,16 +240,13 @@ function ApprovalStripItem({
           )}
         </span>
       </span>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
+      <RowAction
         id={`${id}-open`}
         aria-labelledby={`${id}-open ${id}-what`}
         onClick={() => onSelect(session.id)}
       >
         {messages.open}
-      </Button>
+      </RowAction>
     </li>
   );
 }

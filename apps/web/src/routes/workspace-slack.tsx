@@ -25,6 +25,7 @@ import {
   formatTimestamp,
   Input,
   Link,
+  RowAction,
   RowListItem,
   SettingRow,
   SettingsSection,
@@ -57,7 +58,6 @@ import {
 import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
 
 // Row buttons share one width down the right edge.
-const ACTION = "min-w-12";
 const SLACK_APPS_URL = "https://api.slack.com/apps";
 
 const tokenKey = (client: ApiClient, workspaceId: string) =>
@@ -333,12 +333,9 @@ function ConfigToken({
         description={tokenLine(summary, t, locale)}
         actions={
           editing ? undefined : (
-            <Button
+            <RowAction
               ref={actionRef}
-              type="button"
-              size="sm"
               variant={summary?.state === "active" ? "outline" : "default"}
-              className={ACTION}
               onClick={() => setEditing(true)}
             >
               {t(
@@ -348,7 +345,7 @@ function ConfigToken({
                     ? "workspace.tokenReenter"
                     : "workspace.tokenAdd",
               )}
-            </Button>
+            </RowAction>
           )
         }
       />

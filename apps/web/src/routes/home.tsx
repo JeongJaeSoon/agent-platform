@@ -27,7 +27,6 @@ import {
 } from "@werft-ai/react/components";
 import {
   Badge,
-  Button,
   buttonVariants,
   Card,
   cn,
@@ -40,6 +39,7 @@ import {
   MoreLink,
   Page,
   RelativeTime,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -1310,14 +1310,12 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
               ),
             done: step.state === "done",
             action: step.to ? (
-              <Button
+              <RowAction
                 asChild
-                size="sm"
                 variant={step === next ? "default" : "outline"}
-                className="shrink-0"
               >
                 <Link to={step.to}>{t(STEP_ACTION[step.to])}</Link>
-              </Button>
+              </RowAction>
             ) : undefined,
           }))}
         />

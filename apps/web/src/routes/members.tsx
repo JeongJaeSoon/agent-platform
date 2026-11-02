@@ -46,6 +46,7 @@ import {
   Page,
   RadioGroup,
   RadioGroupItem,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -473,22 +474,17 @@ function MemberTable({
               (setAccess.isPending &&
                 setAccess.variables?.member.user_id === member.user_id);
             const button = disabled ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
+              <RowAction
                 disabled={busy || keepWhy !== undefined}
+                aria-label={t("members.enableFor", {
+                  name: member.display_name,
+                })}
                 onClick={() => setAccess.mutate({ member, enable: true })}
               >
                 {t("members.enable")}
-              </Button>
+              </RowAction>
             ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
+              <RowAction
                 disabled={busy || keepWhy !== undefined}
                 aria-label={t("members.disableFor", {
                   name: member.display_name,
@@ -496,7 +492,7 @@ function MemberTable({
                 onClick={() => setConfirming(member)}
               >
                 {t("members.disable")}
-              </Button>
+              </RowAction>
             );
             return (
               <GridTableRow
@@ -544,12 +540,7 @@ function MemberTable({
                     {roleLabel(t, member.role)}
                   </Badge>
                 </GridTableCell>
-                {/* The button keeps one width as "disable" turns "enable". */}
-                <GridTableCell
-                  raised={true}
-                  align="end"
-                  className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
-                >
+                <GridTableCell raised={true} align="end" className="gap-1">
                   {keepWhy ? (
                     <DisabledReason
                       reason={keepWhy}
@@ -820,10 +811,8 @@ function InviteList({
                   })}
                 </Text>
               </RowLines>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
+              <RowAction
+                variant="danger"
                 className="ml-auto"
                 disabled={revoke.isPending}
                 aria-label={t("members.invites.revokeFor", {
@@ -832,7 +821,7 @@ function InviteList({
                 onClick={() => setRevoking(invite)}
               >
                 {t("members.invites.revoke")}
-              </Button>
+              </RowAction>
             </RowListItem>
           ))}
         </RowList>
