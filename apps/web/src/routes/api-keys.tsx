@@ -69,9 +69,9 @@ import {
 } from "../auth/guard.tsx";
 import { API_KEY_NAME_MAX } from "../auth/limits.ts";
 import { ReasonButton } from "../auth/reason-button.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
+import { FormError } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import type { Outcome } from "../components/outcome.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import {
@@ -391,13 +391,7 @@ function KeysScreen({ kind }: { readonly kind: KeyKind }) {
       }
     >
       <KeyScreenNav current={kind} keys={keys.data?.items} />
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <Notice>{outcome.text}</Notice>
-        )
-      ) : null}
+      <OutcomeLine outcome={outcome} />
       {keys.isPending ? (
         <StatusScreen kind="loading" />
       ) : keys.error ? (

@@ -71,6 +71,7 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -95,10 +96,6 @@ const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 // 320px of columns plus the frame's 1px border on each side.
 const MEMBER_TABLE_MIN = "min-w-[322px]";
-
-type Outcome =
-  | { readonly kind: "notice"; readonly text: string }
-  | { readonly kind: "error"; readonly text: string };
 
 type MemberAction = "role" | "disable" | "enable";
 
@@ -269,7 +266,7 @@ export function MembersScreen() {
 
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
-      <OutcomeNote outcome={outcome} />
+      <OutcomeLine outcome={outcome} />
       <ListToolbar
         filter={null}
         search={{
@@ -332,18 +329,9 @@ export function InvitesScreen() {
           onRetry={() => void members.refetch()}
         />
       ) : null}
-      <OutcomeNote outcome={outcome} />
+      <OutcomeLine outcome={outcome} />
       <InviteList onOutcome={setOutcome} />
     </div>
-  );
-}
-
-function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
-  if (!outcome) return null;
-  return outcome.kind === "error" ? (
-    <FormError>{outcome.text}</FormError>
-  ) : (
-    <Notice>{outcome.text}</Notice>
   );
 }
 

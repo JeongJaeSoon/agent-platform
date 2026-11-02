@@ -34,7 +34,7 @@ export function Heading({
   );
 }
 
-/** Stand-in for the console's `web-notice` / `web-form__error` result line. */
+/** Stand-in for the console's `OutcomeLine` result line. */
 export function OutcomeStandIn({
   tone = "progress",
   children,

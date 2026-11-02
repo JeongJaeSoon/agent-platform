@@ -31,9 +31,8 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import type { Outcome } from "../components/outcome.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 // The server's ceiling; the web takes contracts as types only, so a test
@@ -90,13 +89,7 @@ export function WorkspaceSettingsScreen() {
   const editable = workspaceManage || retentionManage;
   return (
     <WorkspacePage page="general">
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <Notice>{outcome.text}</Notice>
-        )
-      ) : null}
+      <OutcomeLine outcome={outcome} />
       <Basics />
       <AllowedModels />
       {editable ? (
