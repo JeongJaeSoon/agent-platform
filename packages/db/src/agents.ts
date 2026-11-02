@@ -24,7 +24,12 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { administers, agentReadable, liveMember } from "./administers.ts";
+import {
+  administers,
+  agentReadable,
+  insideAgent,
+  liveMember,
+} from "./administers.ts";
 import { managingTeamAllowed } from "./agent-admins.ts";
 import { agentSummaries } from "./agent-summaries.ts";
 import { holdsRight, lockedRole } from "./api-keys.ts";
@@ -360,9 +365,20 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   agents.id,
                   query.ids.map((id) => id.toLowerCase()),
                 ),
+            // The release's profile is a setting: filtering on it keeps only
+            // the agents whose settings the reader reads, so the rows never
+            // tell anyone else which profile an agent runs.
             query.runtime_profile_id === undefined
               ? undefined
-              : sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
+              : and(
+                  insideAgent(
+                    db,
+                    workspaceId,
+                    reader.userId.toLowerCase(),
+                    agents.id,
+                  ),
+                  sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
+                ),
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,

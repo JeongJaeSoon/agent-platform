@@ -554,7 +554,7 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
     }),
   runtime_profile_id: z.string().min(1).max(128).optional().meta({
     description:
-      "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out.",
+      "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them.",
   }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);

@@ -304,7 +304,7 @@
             "maxLength": 3700
           },
           "runtime_profile_id": {
-            "description": "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out.",
+            "description": "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them.",
             "type": "string",
             "minLength": 1,
             "maxLength": 128
@@ -56503,7 +56503,7 @@
             "in": "query",
             "required": false,
             "schema": {
-              "description": "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out.",
+              "description": "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them.",
               "type": "string",
               "minLength": 1,
               "maxLength": 128
