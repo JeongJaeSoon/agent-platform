@@ -8,11 +8,14 @@ export type CardProps = ComponentProps<"div"> & {
    * `CardFooter variant="form"` runs edge to edge.
    */
   readonly flush?: boolean | undefined;
+  /** `inset` is a muted panel inside a page or another card. */
+  readonly variant?: "default" | "inset" | undefined;
 };
 
 export function Card({
   className,
   flush = false,
+  variant = "default",
   ...props
 }: CardProps): JSX.Element {
   return (
@@ -20,6 +23,7 @@ export function Card({
       data-slot="card"
       className={cn(
         "flex flex-col gap-3 rounded-card border bg-card py-4 text-card-foreground",
+        variant === "inset" && "gap-2 bg-muted/40 p-3",
         flush && "gap-0 py-0",
         className,
       )}

@@ -134,3 +134,19 @@ export const FlushFormMobile: Story = {
     viewport: { value: "mobile390", isRotated: false },
   },
 };
+
+/** A muted panel inside a page or another card: a change review, a summary. */
+export const Inset: Story = {
+  render: () => (
+    <Card variant="inset" className="max-w-[var(--ap-w-narrow)]">
+      <CardTitle>바뀌는 값</CardTitle>
+      <CardDescription>모델: claude-sonnet-5 → claude-haiku-5</CardDescription>
+    </Card>
+  ),
+};
+
+export const InsetDark: Story = {
+  ...Inset,
+  name: "Inset (dark)",
+  globals: { theme: "dark" },
+};
