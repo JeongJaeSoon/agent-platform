@@ -3648,10 +3648,10 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Confirm or reject one of a session's achievements",
     description:
-      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A decision is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
+      "Owners, admins and the admins of the achievement's agent (`achievement.review`), signed in, who can also read its session; API keys are refused. `confirm` counts a `needs_review` achievement (`review_state: confirmed`); `reject` drops an `auto` or `needs_review` one from the count (`rejected`). A review is final: a later judgment never changes it, and a second review, or confirming an `auto` one, is 409 REVISION_CONFLICT with `details.reason_code: not_reviewable`. `note` is kept on the achievement as `review_note`, not in the receipt. Writes a `review_achievement` receipt naming the achievement and its new state. An achievement of another owner, or one a later judgment replaced, is 404.",
     auth: "session",
     body: "ReviewAchievementRequest",
-    requestExample: { decision: "confirm" },
+    requestExample: { action: "confirm" },
     success: {
       status: 200,
       schema: "ReviewAchievementResponse",

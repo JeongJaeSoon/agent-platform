@@ -76,7 +76,7 @@ export function createSessionAchievementService(deps: {
       const result = await deps.store.review({
         actor,
         achievementId,
-        decision: request.decision,
+        action: request.action,
         note: request.note ?? null,
         receiptId,
       });
@@ -90,7 +90,7 @@ export function createSessionAchievementService(deps: {
         case "not_reviewable":
           throw new SessionServiceError(
             "REVISION_CONFLICT",
-            request.decision === "confirm"
+            request.action === "confirm"
               ? "Only an achievement that needs review can be confirmed"
               : "This achievement was already reviewed",
             undefined,

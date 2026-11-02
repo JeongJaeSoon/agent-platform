@@ -195,7 +195,7 @@ export interface AchievementJudgmentStore {
   /**
    * Confirms a `needs_review` achievement, or rejects an `auto` or
    * `needs_review` one, with a `review_achievement` receipt in the same
-   * transaction. `not_reviewable`: the decision does not apply to its state.
+   * transaction. `not_reviewable`: the action does not apply to its state.
    */
   review(
     input: AchievementReview,
@@ -217,7 +217,7 @@ export interface AchievementJudgmentStore {
 export type AchievementReview = {
   actor: TeamActor;
   achievementId: string;
-  decision: ReviewAchievementRequest["decision"];
+  action: ReviewAchievementRequest["action"];
   note: string | null;
   receiptId: string;
 };
