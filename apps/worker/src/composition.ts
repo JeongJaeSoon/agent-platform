@@ -107,7 +107,7 @@ export function createWorkerHost(
       id: config.executionId,
     },
     gateway,
-    gitTrailers: (git) => writeGitTrailers(config.runtime.home, git),
+    gitTrailers: (claim) => writeGitTrailers(config.runtime.home, claim),
     packageManagers: (token, github, privateModules) =>
       writePackageManagerConfig(
         config.runtime.home,

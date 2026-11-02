@@ -168,6 +168,7 @@ import {
 } from "./egress-authorizer.ts";
 import {
   connectionsOf,
+  createAppBotUsers,
   createGitHubAppDirectory,
   createGitHubManifestConverter,
   createRegisteredGitHubConnection,
@@ -945,7 +946,11 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   github,
-  attribution: { store: sessionAttribution, consoleOrigin },
+  attribution: {
+    store: sessionAttribution,
+    consoleOrigin,
+    appBotUserId: createAppBotUsers({ logger }),
+  },
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {

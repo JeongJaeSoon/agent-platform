@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
 import {
+  appBotAuthor,
   attributionView,
   claimGitOf,
   coAuthorOf,
@@ -22,6 +23,7 @@ function record(
     agentId: null,
     agentReleaseId: null,
     starter,
+    authorApp: null,
   };
 }
 
@@ -77,6 +79,22 @@ test("the session detail says co_author, unlinked or app_only", () => {
     trigger: "agent_key",
     attribution: "app_only",
     login: null,
+  });
+});
+
+describe("the App bot a commit is written by", () => {
+  test("is <slug>[bot] at its users-API id's noreply address", () => {
+    expect(appBotAuthor("werft-dev", "41898282")).toEqual({
+      name: "werft-dev[bot]",
+      email: "41898282+werft-dev[bot]@users.noreply.github.com",
+    });
+  });
+
+  test("is none for a slug or id outside GitHub's rules", () => {
+    expect(appBotAuthor("Werft Dev", "1")).toBeNull();
+    expect(appBotAuthor("werft-dev]", "1")).toBeNull();
+    expect(appBotAuthor("werft-dev", "0")).toBeNull();
+    expect(appBotAuthor("werft-dev", "12a")).toBeNull();
   });
 });
 
