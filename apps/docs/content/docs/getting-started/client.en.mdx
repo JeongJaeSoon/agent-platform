@@ -1,0 +1,108 @@
+---
+title: "Client settings and errors"
+description: "Options of the Werft client, error types, retries and timeouts"
+---
+
+This page covers the rest of the settings of the client you created in [Install the SDK](/getting-started/install), and what the SDK does when a call fails. The methods for each feature are in the [Sessions](/sessions/start), [Messages](/messages/send) and [Approvals and push](/approvals/request) docs.
+
+## Client options
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+const werft = new Werft({
+  baseUrl: "https://werft.example.com",
+  apiKey: process.env.WERFT_API_KEY,
+  maxRetries: 2,
+  timeoutMs: 60_000,
+});
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `baseUrl` | `WERFT_BASE_URL` environment variable | The server address. There is no default server, so the option or the environment variable must be set |
+| `apiKey` | `WERFT_API_KEY` environment variable | Sent only in the `Authorization: Bearer` header. It never appears in error messages or `console.log` |
+| `maxRetries` | `2` | How many times one call is retried |
+| `maxRetryDelayMs` | `60000` | A `Retry-After` longer than this fails at once instead of waiting |
+| `timeoutMs` | `60000` | How long one attempt waits |
+| `fetch` | global `fetch` | The function that sends requests. Replace it for a proxy or a test |
+| `dangerouslyAllowBrowser` | `false` | Allows creating a client in a browser (where `window` exists). A key in a page leaks, so do not use it |
+| `allowInsecureHttp` | `false` | Allows `http://` to an address other than loopback |
+
+## A separate key for approvals
+
+A workspace key (personal or agent) cannot approve requests from a session it started. Approval needs another key or a person. `withOptions` creates a second client that inherits the settings.
+
+```ts
+const approver = werft.withOptions({
+  apiKey: process.env.WERFT_APPROVER_API_KEY,
+});
+```
+
+An agent key creates sessions with its agent's `agent_release_id` instead of `profile_id` and `repository_id`. The agent key needs `sessions:read`, `sessions:write` and `sessions:control`, the approver key needs `sessions:read` and `sessions:approve`, and the approver must be in the session's sharing scope. The settings and real output are in the [sample README](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/README.md).
+
+## Errors
+
+A server error is an `APIError`; tell them apart with `isApiError(error, code)`.
+
+```ts title="errors.ts"
+import { isApiError } from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const sessionId = process.argv[2] ?? "";
+const { revision } = await werft.sessions.get(sessionId);
+try {
+  await werft.sessions.pause(sessionId, { expected_revision: revision + 1 });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT"))
+    console.log(`${error.status} ${error.code}`);
+  else throw error;
+}
+```
+
+```text
+409 REVISION_CONFLICT
+```
+
+| Error | When |
+| --- | --- |
+| `APIError` | The server answered with an error. It has `status`, `code`, `retryable`, `requestId` and `details` |
+| `ConnectionError` | The response could not be read. Whether the command ran is unknown |
+| `TimeoutError` | One attempt took longer than `timeoutMs` |
+| `AbortedError` | The `signal` you passed aborted |
+| `TurnBlockedError` | In `waitForTurn`, the session is `paused`, `stopped`, `recovery_required` or `closed`, so the turn will not end on its own |
+
+The error codes are listed per operation in the [HTTP API reference](/reference/http-api/auth/getApiRoot).
+
+## Retries and Idempotency-Key
+
+- Resent: when the error body has `retryable: true` (429 included), a 502 or 504 from a proxy, a connection failure where the response could not be read, and an attempt timeout. A proxy 502 or 504 (one without an API error body), a connection failure and a timeout are resent only for GET and for commands with an `Idempotency-Key`. `openPullRequest` and `commentPullRequest` have no key and the server may already have run them, so they are not resent in those cases. When the error body has `retryable: true`, the request is resent whatever the command.
+- Not resent: every 409, 500, and any other 4xx without `retryable: true`.
+- A `Retry-After` is waited out. Past `maxRetryDelayMs`, the call fails at once.
+- For commands that need an `Idempotency-Key`, such as `sessions.create` and `messages.send`, the SDK makes one key per call and sends it again on that call's retries. To continue retrying the same command after restarting the process, save the error's `idempotencyKey` and pass it as `{ idempotencyKey }`.
+- The caller passes `expected_revision`. The SDK does not read it for you.
+
+## APIs the SDK wraps
+
+| Method | What it does | Docs |
+| --- | --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | Create, read, list, usage and sharing of sessions | [Start](/sessions/start) |
+| `sessions.messages.send` | Send a message | [Send](/messages/send) |
+| `sessions.turns.get` · `list` | Read turns | [Send](/messages/send) |
+| `sessions.events.stream` | Event stream | [Receiving a stream](/messages/streaming) |
+| `sessions.requests.list` · `answer` | Permission requests and questions | [Waiting for approval and resuming](/sessions/waiting-and-resume) |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | Control | [Status and lifecycle](/sessions/lifecycle), [Close](/sessions/close) |
+| `sessions.recoveryDecisions.create` | Recovery decisions | [Status and lifecycle](/sessions/lifecycle) |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | Push approval and PRs | [Request](/approvals/request) |
+| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | Receipts, who you are, limits, profiles, status | [receipt](/approvals/receipt) |
+
+`await` on `sessions.list` or `turns.list` gives the first page, and `for await` gives every item. Field names are snake_case, as in the HTTP API. APIs that only a web login can call, such as managing agents, members and keys, are not wrapped. `limits.get` is readable only by a logged-in workspace owner, so with an API key it returns 403.
+
+## Examples in the repository
+
+[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md) has samples per use case: checking the key and the catalog, listing sessions, resuming an event stream, retries and Idempotency-Key, answering questions and permission requests, session control and recovery, a blocked close, and push approval and PRs, with a table of which sample uses which SDK API. Run them from the root of a repository checkout after `bun install`.
+
+## Next steps
+
+- [Start](/sessions/start): fields and errors of the session creation request
+- [Receiving a stream](/messages/streaming): event types and reconnecting

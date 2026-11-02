@@ -46,7 +46,7 @@ The first run builds the images from this checkout, so it takes a few minutes to
 {"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
 ```
 
-With `--fake-model`, model calls are received by a fake Messages API inside compose. A real Claude Code runs inside the worker, and the fake answers according to the script written in the message ([Quickstart](/getting-started/quickstart)). If you start without the option, with `scripts/local.sh up`, it calls the real Claude with the shell's `ANTHROPIC_API_KEY` and costs money.
+With `--fake-model`, model calls are received by a fake Messages API inside compose. A real Claude Code runs inside the worker, and the fake answers according to the script written in the message ([Create your first session](/getting-started/quickstart)). If you start without the option, with `scripts/local.sh up`, it calls the real Claude with the shell's `ANTHROPIC_API_KEY` and costs money.
 
 ## Check the status
 
@@ -72,7 +72,7 @@ csp_…
 
 `key_id` is the id of the key, printed to stderr. The key itself is printed to stdout only once. You cannot see it again, so keep it only in a variable. `quickstart` is the key's owner name, and sessions created with this key belong to that owner. Scopes are described in [API key](/api-keys).
 
-The examples in the [Quickstart](/getting-started/quickstart) keep using `API` and `KEY` in the same terminal, and check the key there first.
+Pass the server address (`API`) to the SDK as `baseUrl` and this key as `apiKey` ([Install the SDK](/getting-started/install#create-a-client)). An environment variable such as `WERFT_API_KEY="$KEY"` works too. The HTTP API examples keep using `API` and `KEY` in the same terminal.
 
 ## Stop the stack
 
@@ -97,5 +97,5 @@ When migrating an older LocalStack installation, back up from the old checkout b
 
 ## Next steps
 
-- [Quickstart](/getting-started/quickstart): Create your first session on this server
+- [Install the SDK](/getting-started/install): Connect to this server with the SDK and create your first session
 - [Self-hosting](/run-server/self-hosting): Run a server that several people use
