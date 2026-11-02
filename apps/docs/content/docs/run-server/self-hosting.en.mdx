@@ -1,0 +1,59 @@
+---
+title: "Self-hosting"
+description: Install and run a Werft server that several people use
+---
+
+This is how you install a Werft server yourself for a team to share. For a server you only try out on your own, [Run a development server](/run-server/dev-server) is enough. The installation and operations documents live in [`docs/operator/`](https://github.com/JeongJaeSoon/agent-platform/tree/main/docs/operator) in the repository, written in Korean. This page tells you where to start reading.
+
+## Choose an installation
+
+| Installation | Execution | Document |
+| --- | --- | --- |
+| Single server | Docker Compose, one worker container per session | [Single-server deployment](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) |
+| Kubernetes | Helm chart, one worker Pod per session | [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md) |
+
+Either way, the server consists of the API (including the web console), a scheduler, a reconciler, an egress proxy, PostgreSQL, and an S3-compatible object store. A single-server installation also includes a Git server (Gitea). High availability is out of scope for a single-server installation.
+
+## Single-server installation steps
+
+In short, [Single-server deployment](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) goes as follows. For the commands and failure recovery, follow that document and the runbooks it links to.
+
+1. Prepare the host. You need Docker Engine 28 or later, Docker Compose 2.24.6 or later, NTP synchronization, and Docker starting automatically after a reboot.
+2. Decide the network path. By default the API stays on loopback and users connect through an SSH tunnel. To expose it under an internal DNS name, use a reverse proxy with TLS and a VPN or IP allowlist, and turn off buffering for the event stream (SSE). Never expose PostgreSQL or the Docker socket.
+3. Prepare an S3 bucket dedicated to this installation. LocalStack on the same host loses objects on reboot, so do not use it as storage for a real server.
+4. Fix the release (image digests), the settings file, and the catalog, and keep secret values only in an env file outside the repository.
+5. Install, check `/readyz`, then create the first owner and workspace at `/bootstrap` in the web console.
+6. Issue an API key for each user. The key's owner is the owner of its sessions.
+7. Rehearse backup, upgrade and rollback, and resuming after a reboot in advance.
+
+## Connect to the server
+
+The SDK and the HTTP API connect to a server with its address and an API key. The TypeScript SDK takes `baseUrl` (default: the `WERFT_BASE_URL` environment variable) and `apiKey` (`WERFT_API_KEY`). There is no default server, so always pass the server address. The options are in [TypeScript SDK](/sdk#client-options).
+
+## Installation and configuration
+
+- [Single-server deployment](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md)
+- [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md)
+- [Configuration reference](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/configuration.md)
+- [API server: catalog, credentials, checkpoint storage, authentication and permissions](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/api-server.md)
+- [Database connections and slow queries](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/database.md)
+- [Images and supply chain](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/images-and-supply-chain.md)
+
+## Execution
+
+- [Execution and worker isolation](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/execution.md)
+- [Kubernetes execution backend](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-backend.md)
+- [Capacity: transcript limits, worker memory, sessions per node](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/capacity.md)
+
+## Data and monitoring
+
+- [Data the platform keeps](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/data-retention.md)
+- [Backup and restore (compose installation)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/backup-restore.md)
+- [How session data flows](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/observability.md)
+- [Platform metrics (Kubernetes)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/metrics.md)
+- [Datadog monitoring baseline](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/monitoring-datadog.md)
+
+## Samples and runbooks
+
+- [SDK sample settings](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/sdk-sample.md)
+- [test-ops runbook](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md)

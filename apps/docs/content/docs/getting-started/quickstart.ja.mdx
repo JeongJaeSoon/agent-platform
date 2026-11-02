@@ -1,27 +1,13 @@
 ---
 title: "Quickstart"
-description: API キーを取得し、curl で最初のセッションを作成する
+description: curl で最初のセッションを作成する
 ---
 
-[インストール](/getting-started/install)の手順で立ち上げたローカルスタックで API キーを取得し、セッションを 1 つ作成して最初のターンが終わるところまで確認する。同じターミナルで順番に実行する。
+サーバーがすでにあることを前提にする。サーバーがなければ、[サーバーを動かす](/run-server/dev-server)で立ち上げて API キーを取得する。セッションを 1 つ作成し、最初のターンが終わるところまで確認する。以下の例のリポジトリ、プロファイル、`GATE-SPEC` スクリプトは、`--fake-model` で立ち上げた開発用サーバーを前提にしている。同じターミナルで順番に実行する。
 
-## API キーを取得する
+## サーバーに接続する
 
-```bash
-API=http://127.0.0.1:3000
-KEY=$(scripts/local.sh key quickstart \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
-echo "${KEY:0:4}…"
-```
-
-```text
-key_id …
-csp_…
-```
-
-`key_id` は stderr に出力されるキーの id である。キー本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` はキーの owner 名で、このキーで作成したセッションはこの owner のものになる。scope は [API キー](/api-keys) にある。
-
-キーが正しいか確認する。
+[準備](/getting-started/install)の `API` (サーバーのアドレス) と `KEY` (API キー) を使う。キーが正しいか確認する。
 
 ```bash
 curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
