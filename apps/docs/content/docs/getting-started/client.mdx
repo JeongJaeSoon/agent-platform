@@ -1,0 +1,108 @@
+---
+title: "클라이언트 설정과 오류"
+description: "Werft 클라이언트의 옵션, 오류 종류, 재시도와 timeout"
+---
+
+[SDK 설치](/getting-started/install)에서 만든 클라이언트의 나머지 설정과, 호출이 실패했을 때 SDK가 하는 일을 다룬다. 기능별 메서드는 [세션](/sessions/start), [메시지](/messages/send), [승인과 push](/approvals/request) 문서에 있다.
+
+## 클라이언트 옵션
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+const werft = new Werft({
+  baseUrl: "https://werft.example.com",
+  apiKey: process.env.WERFT_API_KEY,
+  maxRetries: 2,
+  timeoutMs: 60_000,
+});
+```
+
+| 옵션 | 기본값 | 설명 |
+| --- | --- | --- |
+| `baseUrl` | `WERFT_BASE_URL` 환경 변수 | 서버 주소. 기본 서버는 없어서 옵션이나 환경 변수 중 하나는 꼭 있어야 한다 |
+| `apiKey` | `WERFT_API_KEY` 환경 변수 | `Authorization: Bearer` 헤더로만 보낸다. 오류 메시지나 `console.log`에는 나오지 않는다 |
+| `maxRetries` | `2` | 한 호출의 재시도 횟수 |
+| `maxRetryDelayMs` | `60000` | `Retry-After`가 이보다 길면 기다리지 않고 실패한다 |
+| `timeoutMs` | `60000` | 한 번의 시도가 기다리는 시간 |
+| `fetch` | 전역 `fetch` | 요청을 보내는 함수. 프록시나 테스트용으로 바꾼다 |
+| `dangerouslyAllowBrowser` | `false` | 브라우저(`window`가 있는 곳)에서 만들기를 허락한다. 페이지에 key를 두면 새므로 쓰지 않는다 |
+| `allowInsecureHttp` | `false` | loopback이 아닌 주소로 `http://`를 허락한다 |
+
+## 승인용 key 따로 쓰기
+
+workspace의 key(개인·에이전트)는 자기가 시작한 세션의 요청을 승인하지 못한다. 승인에는 다른 key나 사람이 필요하다. `withOptions`는 설정을 이어받은 두 번째 클라이언트를 만든다.
+
+```ts
+const approver = werft.withOptions({
+  apiKey: process.env.WERFT_APPROVER_API_KEY,
+});
+```
+
+에이전트 key는 `profile_id`와 `repository_id` 대신 자기 에이전트의 `agent_release_id`로 세션을 만든다. 에이전트 key에는 `sessions:read`, `sessions:write`, `sessions:control`, 승인자 key에는 `sessions:read`, `sessions:approve`가 필요하고, 세션의 공유 범위에 승인자가 들어 있어야 한다. 설정과 실제 출력은 [샘플 README](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/README.md)에 있다.
+
+## 오류
+
+서버 오류는 `APIError`이고 `isApiError(error, code)`로 가른다.
+
+```ts title="errors.ts"
+import { isApiError } from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const sessionId = process.argv[2] ?? "";
+const { revision } = await werft.sessions.get(sessionId);
+try {
+  await werft.sessions.pause(sessionId, { expected_revision: revision + 1 });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT"))
+    console.log(`${error.status} ${error.code}`);
+  else throw error;
+}
+```
+
+```text
+409 REVISION_CONFLICT
+```
+
+| 오류 | 언제 |
+| --- | --- |
+| `APIError` | 서버가 오류로 답했다. `status`, `code`, `retryable`, `requestId`, `details`가 있다 |
+| `ConnectionError` | 응답을 읽지 못했다. 명령이 실행됐는지 모른다 |
+| `TimeoutError` | 한 번의 시도가 `timeoutMs`를 넘었다 |
+| `AbortedError` | 넘긴 `signal`이 abort했다 |
+| `TurnBlockedError` | `waitForTurn`에서, 세션이 `paused`·`stopped`·`recovery_required`·`closed`라 turn이 스스로 끝나지 않는다 |
+
+오류 코드 목록은 [HTTP API 레퍼런스](/reference/http-api/auth/getApiRoot)의 각 operation에 있다.
+
+## 재시도와 Idempotency-Key
+
+- 다시 보내는 경우: 오류 본문이 `retryable: true`일 때(429 포함), 프록시가 낸 502·504, 응답을 읽지 못한 연결 실패와 시도 timeout. 프록시 502·504(API 오류 본문이 없는 것)와 연결 실패·timeout은 GET과 `Idempotency-Key`가 있는 명령만 다시 보낸다. key가 없는 `openPullRequest`·`commentPullRequest`는 서버가 이미 실행했을 수 있어 이 경우에는 다시 보내지 않는다. 오류 본문에 `retryable: true`가 있으면 명령 종류와 관계없이 다시 보낸다.
+- 다시 보내지 않는 경우: 409 전부, 500, `retryable: true`가 아닌 그 밖의 4xx.
+- `Retry-After`가 있으면 그만큼 기다린다. `maxRetryDelayMs`를 넘으면 기다리지 않고 실패한다.
+- `sessions.create`와 `messages.send`처럼 `Idempotency-Key`가 필요한 명령은 SDK가 호출마다 key를 하나 만들고, 그 호출의 재시도에 같은 key를 보낸다. 프로세스를 다시 띄운 뒤 같은 명령을 이어서 재시도하려면 오류의 `idempotencyKey`를 저장해 두고 `{ idempotencyKey }`로 넘긴다.
+- `expected_revision`은 호출하는 쪽이 넘긴다. SDK는 대신 읽어 채우지 않는다.
+
+## SDK가 감싸는 API
+
+| 메서드 | 하는 일 | 문서 |
+| --- | --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | 세션 만들기·읽기·목록·사용량·공유 | [시작](/sessions/start) |
+| `sessions.messages.send` | 메시지 보내기 | [보내기](/messages/send) |
+| `sessions.turns.get` · `list` | turn 읽기 | [보내기](/messages/send) |
+| `sessions.events.stream` | 이벤트 스트림 | [스트리밍 받기](/messages/streaming) |
+| `sessions.requests.list` · `answer` | 권한 요청과 질문 | [승인 대기와 재개](/sessions/waiting-and-resume) |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 제어 | [상태와 수명](/sessions/lifecycle), [닫기](/sessions/close) |
+| `sessions.recoveryDecisions.create` | 복구 결정 | [상태와 수명](/sessions/lifecycle) |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | push 승인과 PR | [요청](/approvals/request) |
+| `receipts.get`, `auth.me`, `limits.get`, `profiles.list`, `root.get` | receipt, 내 정보, 한도, 프로필, 상태 | [receipt](/approvals/receipt) |
+
+`sessions.list`와 `turns.list`는 `await`하면 첫 페이지, `for await`하면 모든 항목을 준다. 필드 이름은 HTTP API와 같은 snake_case다. 에이전트·멤버·key 관리처럼 웹 로그인으로만 부르는 API는 감싸지 않는다. `limits.get`은 로그인한 workspace owner만 읽으므로 API key로 부르면 403이다.
+
+## 저장소의 예제
+
+[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md)에는 유즈케이스별 샘플이 있다. key와 카탈로그 확인, 세션 목록, 이벤트 스트림 이어 받기, 재시도와 Idempotency-Key, 질문·권한 요청 답변, 세션 제어와 복구, 막힌 close, push 승인과 PR을 다루고, 어떤 SDK API를 어느 샘플이 쓰는지 표로 정리했다. 저장소 checkout의 루트에서 `bun install` 뒤에 돌린다.
+
+## 다음 단계
+
+- [시작](/sessions/start): 세션 생성 요청의 필드와 오류
+- [스트리밍 받기](/messages/streaming): 이벤트 종류와 재연결

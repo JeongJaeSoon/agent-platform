@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Principal } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import { createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import { ForgeCredentialError } from "../ports/forge.ts";
 import {
   type GitHubApi,
   GitHubCallError,
@@ -35,7 +36,7 @@ const actor = {
 
 function harness(
   options: {
-    refuse?: GitHubGateError;
+    refuse?: GitHubGateError | ForgeCredentialError;
     fail?: GitHubCallError;
     run?: { id: number; html_url: string } | null;
   } = {},
@@ -278,6 +279,21 @@ describe("dispatching a workflow", () => {
       });
       expect(calls).toEqual([]);
     }
+  });
+
+  test("no connection reaching the repository is BACKEND_UNAVAILABLE with the gate's receipt", async () => {
+    const { service, calls } = harness({
+      refuse: new ForgeCredentialError("unreachable", "receipt-gate"),
+    });
+    expect(
+      await refusal(
+        service.dispatch(actor, SESSION, { workflow: "ci.yml", ref: "main" }),
+      ),
+    ).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { receipt_id: "receipt-gate" },
+    });
+    expect(calls).toEqual([]);
   });
 
   test("a caller without session.submit is refused before the gate", async () => {

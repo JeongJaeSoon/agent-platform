@@ -25,6 +25,8 @@ export type GitHubWorkspaceSettings = {
 
 /** The author App's user authorization, as linking a person needs it. */
 export type GitHubOAuthClient = {
+  /** The connection the client is, bound into the link's state. */
+  connectionId: string;
   clientId: string;
   clientSecret: string;
   /** Where GitHub shows the consent screen: the App page's origin. */
@@ -51,6 +53,8 @@ export type PutGitHubOAuthSecretResult =
 export interface GitHubOAuthStore {
   status(workspaceId: string): Promise<{
     authorApp: boolean;
+    /** The connection people link with, as the read rule picks it. */
+    connectionId: string | null;
     clientId: string | null;
     clientSecretSet: boolean;
   }>;

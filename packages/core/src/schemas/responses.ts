@@ -34,6 +34,7 @@ import {
   deleteTeamResponseSchema,
   dispatchWorkflowResponseSchema,
   getGitHubAppResponseSchema,
+  getGitHubRepositoryAppPinsResponseSchema,
   getReceiptResponseSchema,
   getSessionResponseSchema,
   getSlackAppManifestResponseSchema,
@@ -61,6 +62,7 @@ import {
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
   listCredentialBindingsResponseSchema,
+  listGitHubAppsResponseSchema,
   listGitHubRepositoriesResponseSchema,
   listInvitesResponseSchema,
   listLinkedAccountsResponseSchema,
@@ -92,6 +94,8 @@ import {
   putAgentGitHubEnabledResponseSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubRepositoryAppPinResponseSchema,
+  putGitHubUserLinkAppResponseSchema,
   putSlackBindingResponseSchema,
   putSlackConfigTokenResponseSchema,
   putSlackSecretResponseSchema,
@@ -166,6 +170,14 @@ export const responseSchemas = {
   "PUT /v1/workspaces/{id}/github-apps/{role}": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-apps/{role}":
     deleteGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-apps": listGitHubAppsResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps": putGitHubAppResponseSchema,
+  "GET /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins":
+    getGitHubRepositoryAppPinsResponseSchema,
+  "PUT /v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}":
+    putGitHubRepositoryAppPinResponseSchema,
+  "PUT /v1/workspaces/{id}/github-settings/user-link-app":
+    putGitHubUserLinkAppResponseSchema,
   "POST /v1/workspaces/{id}/github-apps/author/manifest":
     startGitHubAppManifestResponseSchema,
   "POST /v1/workspaces/{id}/github-apps/author/manifest/complete":
