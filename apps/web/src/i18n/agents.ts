@@ -107,12 +107,13 @@ export const agentsKo = {
     "이 프로필의 도구 목록에서 고릅니다. 카드에는 저장하지 않습니다.",
   "agentCard.noPreview": "이 모델을 돌리는 프로필이 없어 고를 도구가 없습니다.",
   "agentCard.toolOutside": "프로필에 없는 도구 · 끌 수만 있습니다",
+  "agentCard.toolForbidden": "금지 도구 · 아래에서 지우면 고를 수 있습니다",
   "agentCard.allowing": "고른 도구를 모두 허용하는 프로필 {count}개",
   "agentCard.allowingNone":
     "고른 도구를 모두 허용하는 프로필이 없어 저장할 수 없습니다. 체크를 줄이거나 다른 모델을 고르세요.",
   "agentCard.forbidden": "금지 도구",
   "agentCard.forbiddenHint":
-    "전에 적어 둔 금지 도구입니다. 체크해도 쓰지 않습니다. 지우면 체크한 도구를 그대로 씁니다.",
+    "전에 적어 둔 금지 도구입니다. 지우기 전에는 체크할 수 없고 쓰지 않습니다.",
   "agentCard.forbiddenClear": "금지 도구 지우기",
   "agent.created":
     "에이전트를 만들었습니다(버전 1). 세션에서 쓰려면 릴리스 탭에서 버전과 프로필을 골라 릴리스를 만들고 활성화하세요.",
@@ -436,12 +437,13 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.noPreview":
     "No profile runs this model, so there are no tools to choose.",
   "agentCard.toolOutside": "Not in the profile · can only be turned off",
+  "agentCard.toolForbidden": "Blocked · clear the list below to choose it",
   "agentCard.allowing": "{count} profiles allow every tool chosen",
   "agentCard.allowingNone":
     "No profile allows every tool chosen, so this cannot be saved. Check fewer tools or pick another model.",
   "agentCard.forbidden": "Blocked tools",
   "agentCard.forbiddenHint":
-    "Blocked earlier. They stay unused even when checked. Clear them to use the checked tools as they are.",
+    "Blocked earlier. Until cleared they cannot be checked and stay unused.",
   "agentCard.forbiddenClear": "Clear blocked tools",
   "agent.created":
     "Agent created as version 1. To use it in sessions, choose a version and a profile on the Release tab, then create and activate a release.",
@@ -753,12 +755,13 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.noPreview":
     "このモデルを実行するプロファイルがないため、選べるツールがありません。",
   "agentCard.toolOutside": "プロファイルにないツール · オフにのみできます",
+  "agentCard.toolForbidden": "禁止ツール · 下の一覧を消すと選べます",
   "agentCard.allowing": "選んだツールをすべて許可するプロファイル {count} 件",
   "agentCard.allowingNone":
     "選んだツールをすべて許可するプロファイルがないため保存できません。チェックを減らすか、別のモデルを選んでください。",
   "agentCard.forbidden": "禁止するツール",
   "agentCard.forbiddenHint":
-    "以前に設定した禁止ツールです。チェックしても使いません。消すと、チェックしたツールをそのまま使います。",
+    "以前に設定した禁止ツールです。消すまではチェックできず、使いません。",
   "agentCard.forbiddenClear": "禁止ツールを消す",
   "agent.created":
     "エージェントを作成しました（バージョン 1）。セッションで使うには、「リリース」タブでバージョンとプロファイルを選んでリリースを作成し、有効化してください。",

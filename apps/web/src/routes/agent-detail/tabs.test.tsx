@@ -341,6 +341,47 @@ describe("에이전트 상세 탭", () => {
     ).toEqual({ tools: ["Read"], mcp: null, forbidden: [] });
   });
 
+  test("금지 도구는 지우기 전까지 체크 목록에서 꺼진 채 바꿀 수 없고, 저장해도 금지로 남는다", async () => {
+    const server = agentServer();
+    const first = server.versions[0];
+    if (!first) throw new Error("agentServer starts with a version");
+    server.versions[0] = {
+      ...first,
+      card: {
+        ...first.card,
+        role: "금지 확인",
+        capabilities: { tools: null, mcp: null, forbidden: ["Read"] },
+      },
+    };
+    const { api } = renderAt(`${DETAIL}?tab=card`, {
+      ...meOk,
+      ...server.routes,
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "카드 편집" }));
+    await user.click(
+      await screen.findByRole("switch", {
+        name: "릴리스할 때 프로필이 허용하는 도구 전부",
+      }),
+    );
+    const read = screen.getByRole("checkbox", { name: /^Read/ });
+    expect(read.getAttribute("aria-checked")).toBe("false");
+    expect((read as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText("금지 도구 · 아래에서 지우면 고를 수 있습니다"),
+    ).toBeDefined();
+    await user.click(read);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(/저장했습니다/);
+    const patch = api.calls.find(
+      (call) =>
+        call.method === "PATCH" && call.path === `/v1/agents/${AGENT_ID}`,
+    );
+    expect(
+      (patch?.body as { card: { capabilities: unknown } }).card.capabilities,
+    ).toEqual({ tools: [], mcp: null, forbidden: ["Read"] });
+  });
+
   test("개요의 켜기까지 단계는 아직 켜지지 않았다고 하고 배포 탭으로 잇는다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const user = await setupUser();

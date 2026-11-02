@@ -29,7 +29,7 @@ In card editing (the "What it does" step of a new agent, and card editing on the
 - When saving, the `tool_policy.per_tool` entries of unchecked built-in tools are removed, because a release refuses a policy for a built-in tool it does not run. MCP tool policies stay.
 - A name in `tools` that the profile does not have shows checked as "Not in the profile" and can only be turned off.
 - Below the list is the number of profiles that allow every tool chosen. At 0, the card cannot be saved.
-- An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it.
+- An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it. Until then, those tools stay off in the checklist and cannot be changed.
 
 ## What the model reads today
 

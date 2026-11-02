@@ -235,6 +235,7 @@ export function AgentCardFields({
   onChange,
   errors = {},
   previewable,
+  previewId,
   onPreviewChange,
 }: {
   readonly draft: CardDraft;
@@ -243,7 +244,11 @@ export function AgentCardFields({
   readonly errors?: CardErrors | undefined;
   /** Which profiles may preview the tools; every usable one by default. */
   readonly previewable?: (profile: ProfileSummary) => boolean;
-  /** The profile picked to preview, which a release may then start from. */
+  /**
+   * The profile picked to preview, held by a caller that outlives this form
+   * (the new-agent flow, which releases with it); else the form holds it.
+   */
+  readonly previewId?: string | undefined;
   readonly onPreviewChange?: (profileId: string) => void;
 }) {
   const { t } = useI18n();
@@ -310,6 +315,7 @@ export function AgentCardFields({
             previewable={previewable}
             error={errors.tools}
             onChange={onChange}
+            previewId={previewId}
             onPreviewChange={onPreviewChange}
           />
         </>
@@ -332,6 +338,7 @@ function ToolFields({
   previewable,
   error,
   onChange,
+  previewId,
   onPreviewChange,
 }: {
   readonly draft: CardDraft;
@@ -339,11 +346,13 @@ function ToolFields({
   readonly previewable: ((profile: ProfileSummary) => boolean) | undefined;
   readonly error: string | undefined;
   readonly onChange: (draft: CardDraft) => void;
+  readonly previewId: string | undefined;
   readonly onPreviewChange: ((profileId: string) => void) | undefined;
 }) {
   const { t, locale } = useI18n();
   const candidates = previewProfiles(profiles, draft.model, previewable);
-  const [picked, setPicked] = useState<string>();
+  const [ownPick, setOwnPick] = useState<string>();
+  const picked = previewId ?? ownPick;
   const preview =
     candidates.find((profile) => profile.id === picked) ?? candidates[0];
   const offered = preview?.tools ?? [];
@@ -351,16 +360,13 @@ function ToolFields({
   const outside = all
     ? []
     : draft.tools.filter((tool) => !offered.includes(tool));
-  const runs = (tool: string) =>
-    (all || draft.tools.includes(tool)) && !draft.forbidden.includes(tool);
+  const forbidden = (tool: string) => draft.forbidden.includes(tool);
   const check = (tool: string, on: boolean) =>
     onChange({
       ...draft,
       tools: on
         ? [...without(draft.tools, tool), tool]
         : without(draft.tools, tool),
-      // Checking a forbidden tool is asking for it back.
-      forbidden: on ? without(draft.forbidden, tool) : draft.forbidden,
     });
   const allowing = allowingProfiles(
     runningProfiles(profiles, draft.model),
@@ -369,16 +375,14 @@ function ToolFields({
   const blocked = toolsBlocked(profiles, draft);
   return (
     <FieldSet className="gap-3">
-      <FieldLegend variant="label" className="mb-0">
-        {t("agentCard.tools")}
-      </FieldLegend>
+      <FieldLegend variant="label">{t("agentCard.tools")}</FieldLegend>
       {candidates.length > 0 ? (
         <Field>
           <FieldLabel>{t("agentCard.previewProfile")}</FieldLabel>
           <NativeSelect
             value={preview?.id ?? ""}
             onChange={(event) => {
-              setPicked(event.target.value);
+              setOwnPick(event.target.value);
               onPreviewChange?.(event.target.value);
             }}
           >
@@ -419,9 +423,14 @@ function ToolFields({
         <ToolRow
           key={tool}
           tool={tool}
-          note={builtinToolNote(locale, tool)}
-          checked={runs(tool)}
-          disabled={all}
+          // A forbidden tool stays off until the list below is cleared.
+          note={
+            forbidden(tool)
+              ? t("agentCard.toolForbidden")
+              : builtinToolNote(locale, tool)
+          }
+          checked={(all || draft.tools.includes(tool)) && !forbidden(tool)}
+          disabled={all || forbidden(tool)}
           onCheckedChange={(on) => check(tool, on)}
         />
       ))}

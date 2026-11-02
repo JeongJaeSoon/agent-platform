@@ -92,16 +92,13 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
     setDraft({
       ...draft,
       tools: on ? [...rest, tool] : rest,
-      forbidden: on
-        ? draft.forbidden.filter((item) => item !== tool)
-        : draft.forbidden,
     });
   };
   const row = (tool: string, note: string | undefined, outsider: boolean) => (
     <Field key={tool} orientation="horizontal">
       <Checkbox
         checked={outsider || runs(tool)}
-        disabled={!outsider && draft.all}
+        disabled={!outsider && (draft.all || draft.forbidden.includes(tool))}
         onCheckedChange={(on) => {
           if (!outsider || on !== true) check(tool, on === true);
         }}
@@ -119,9 +116,7 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
       onSubmit={(event) => event.preventDefault()}
     >
       <FieldSet className="gap-3">
-        <FieldLegend variant="label" className="mb-0">
-          쓸 수 있는 도구
-        </FieldLegend>
+        <FieldLegend variant="label">쓸 수 있는 도구</FieldLegend>
         <Field>
           <FieldLabel>도구를 보여 줄 프로필</FieldLabel>
           <NativeSelect
@@ -161,7 +156,15 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
             </FieldDescription>
           </FieldContent>
         </Field>
-        {offered.map((tool) => row(tool, NOTES[tool], false))}
+        {offered.map((tool) =>
+          row(
+            tool,
+            draft.forbidden.includes(tool)
+              ? "금지 도구 · 아래에서 지우면 고를 수 있습니다"
+              : NOTES[tool],
+            false,
+          ),
+        )}
         {outside.map((tool) =>
           row(tool, "프로필에 없는 도구 · 끌 수만 있습니다", true),
         )}
@@ -186,8 +189,8 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
               ))}
             </ul>
             <FieldDescription>
-              전에 적어 둔 금지 도구입니다. 체크해도 쓰지 않습니다. 지우면
-              체크한 도구를 그대로 씁니다.
+              전에 적어 둔 금지 도구입니다. 지우기 전에는 체크할 수 없고 쓰지
+              않습니다.
             </FieldDescription>
             <div>
               <Button

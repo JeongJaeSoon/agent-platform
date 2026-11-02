@@ -422,6 +422,7 @@ export function NewAgentFlow({
             form={card}
             catalog={catalog}
             focus={moved}
+            previewId={previewId}
             onPreviewChange={setPreviewId}
             onSave={async (values) => {
               clearTimeout(keepTimer.current);
@@ -543,6 +544,7 @@ function JobStep({
   form,
   catalog,
   focus,
+  previewId,
   onPreviewChange,
   onSave,
   refuse,
@@ -550,6 +552,7 @@ function JobStep({
   readonly form: StepForm<typeof NEW_CARD_STEP>;
   readonly catalog: UseQueryResult<{ items: ProfileSummary[] }>;
   readonly focus: boolean;
+  readonly previewId: string | undefined;
   readonly onPreviewChange: (profileId: string) => void;
   readonly onSave: (card: z.output<typeof NEW_CARD_STEP>) => Promise<unknown>;
   readonly refuse: (error: unknown) => string;
@@ -582,6 +585,7 @@ function JobStep({
         onChange={change}
         errors={fieldErrors}
         previewable={releasable}
+        previewId={previewId}
         onPreviewChange={onPreviewChange}
       />
       <Alerts lines={formAlerts(errors, CARD_ERROR_FIELDS)} />
