@@ -17,10 +17,14 @@ import { migrate } from "./migrate.ts";
 import { createPostgresSchedulerStore } from "./scheduler-store.ts";
 import * as schema from "./schema.ts";
 import {
+  agentReleases,
+  agents,
+  agentVersions,
   sessions,
   turns,
   unassignedSessions,
   workerLaunches,
+  workspaces,
 } from "./schema.ts";
 import { insertUnreservedLaunch } from "./testing/launches.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
@@ -145,11 +149,45 @@ function pass(backend: ExecutionBackend) {
   });
 }
 
+/** A release whose runtime_config_snapshot is `snapshot`. */
+async function releaseWith(snapshot: unknown): Promise<string> {
+  const workspaceId = crypto.randomUUID();
+  const agentId = crypto.randomUUID();
+  const versionId = crypto.randomUUID();
+  const id = `rel-${crypto.randomUUID()}`;
+  await db.insert(workspaces).values({ id: workspaceId, slug: id, name: id });
+  await db
+    .insert(agents)
+    .values({ id: agentId, workspaceId, slug: "bot", name: "bot" });
+  await db.insert(agentVersions).values({
+    id: versionId,
+    agentId,
+    versionNo: 1,
+    card: { role: "r", instructions: "i", model: "m", capabilities: {} },
+    contentSha256: "0".repeat(64),
+  });
+  await db.insert(agentReleases).values({
+    id,
+    agentId,
+    versionId,
+    cardSha256: "0".repeat(64),
+    runtimeProfileId: PROFILE,
+    profileDigest: "digest",
+    runtimeConfigSnapshot: snapshot,
+    effectiveTools: [],
+  });
+  return id;
+}
+
 /** A session with one queued turn, waiting for a launch. */
-async function queuedSession(partition = "default"): Promise<string> {
+async function queuedSession(
+  partition = "default",
+  agentReleaseId: string | null = null,
+): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(sessions).values({
     admissionState: "active",
+    agentReleaseId,
     branch: RUNNABLE.branch,
     id,
     ownerId: "owner-a",
@@ -229,6 +267,25 @@ afterEach(async () => {
 });
 
 describe("claim lifecycle", () => {
+  test("the binding carries the release's tools: none for a session without a release, [] for a release allowing none or one this image cannot read", async () => {
+    const toolsBound = async (agentReleaseId: string | null) => {
+      const backend = new NonceHoldingBackend();
+      await queuedSession("default", agentReleaseId);
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding.releaseTools;
+    };
+    expect(await toolsBound(null)).toBeNull();
+    expect(
+      await toolsBound(await releaseWith({ model: "m", tools: ["Read"] })),
+    ).toEqual(["Read"]);
+    expect(await toolsBound(await releaseWith({ tools: [] }))).toEqual([]);
+    expect(await toolsBound(await releaseWith({ tools: "Read" }))).toEqual([]);
+    expect(await toolsBound(await releaseWith({}))).toEqual([]);
+  });
+
   test("a claimed execution lost after its claim comes back as the next generation with a new nonce; the old nonce claims nothing", async () => {
     const backend = new NonceHoldingBackend();
     const sessionId = await queuedSession();

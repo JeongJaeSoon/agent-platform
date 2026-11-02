@@ -1,20 +1,109 @@
 ---
-title: "Before you start"
-description: Prepare a server address and an API key before you start
+title: "Install the SDK"
+description: "Install @werft-ai/sdk and create a client with a server address and an API key"
 ---
 
-Getting started assumes you already have a Werft server. If you do not, bring one up first in [Run a server](/run-server/dev-server).
+You use Werft through the TypeScript SDK `@werft-ai/sdk`. The SDK connects to a running Werft server with an API key. On this page you install the SDK, create a client with the server address and a key, and check the connection.
 
-## What you need
+## Prerequisites
 
 | Item | Description |
 | --- | --- |
-| Server address | The URL of the Werft API. For a development server it is `http://127.0.0.1:3000` |
-| API key | A key with the `sessions:read`, `sessions:write`, `sessions:approve`, and `sessions:control` scopes. On a development server, create one as in [Get an API key](/run-server/dev-server#get-an-api-key) |
-| curl, jq, uuidgen | Used for the HTTP calls and JSON handling in the examples |
+| Server address | The URL of the Werft server, for example `https://werft.example.com`. The development server is `http://127.0.0.1:3000` |
+| API key | A key that starts with `csp_`. Creating a session needs `sessions:read` and `sessions:write`; answering permission requests and closing a session also need `sessions:approve` and `sessions:control` |
+| Node 20.3 or later, or Bun | The runtime the SDK runs on |
 
-Keep the server address in `API` and the key in `KEY`, and go on to the next page in the same terminal. Key scopes and how to issue keys are described in [API key](/api-keys).
+<Callout type="info">
+If you have no server, start the development server in [Run a server](/run-server/dev-server) and [get an API key](/run-server/dev-server#get-an-api-key). For a server in operation, issue the key in the web console ([API key](/api-keys)).
+</Callout>
+
+## Install
+
+`@werft-ai/sdk` is not on the npm registry yet. For now, build the package from the repository and install it as a tarball. You need Bun 1.3.14, which the repository pins, and npm.
+
+```sh
+git clone https://github.com/JeongJaeSoon/agent-platform.git
+cd agent-platform
+bun install
+bun run --cwd packages/sdk build:package
+npm pack ./packages/sdk/dist
+```
+
+This writes `werft-ai-sdk-0.1.0.tgz` to the repository root. Create an app directory next to the repository and install that file there.
+
+```sh
+cd ..
+mkdir my-werft-app && cd my-werft-app
+npm init -y
+npm pkg set type=module
+npm install ../agent-platform/werft-ai-sdk-0.1.0.tgz
+```
+
+Once the package is on npm, the last line becomes `npm install @werft-ai/sdk`. The SDK package is under the Apache License 2.0. The server and the rest of the repository are source-available code under the PolyForm Small Business License 1.0.0.
+
+## Create a client
+
+Pass the server address (`baseUrl`) and the API key (`apiKey`) when you create `Werft`. The server address has no default. Do not write the key in code; read it from an environment variable.
+
+```ts title="werft.ts"
+import { Werft } from "@werft-ai/sdk";
+
+export const werft = new Werft({
+  baseUrl: "http://127.0.0.1:3000",
+  apiKey: process.env.WERFT_API_KEY,
+});
+```
+
+- `baseUrl` is the server's address. Do not append `/v1`.
+- Leave an option out and the client reads the `WERFT_BASE_URL` or `WERFT_API_KEY` environment variable. If either is missing, `new Werft()` throws a `TypeError`.
+- `http://` to an address other than loopback is refused, because the key would cross the network in clear text. Connect to a remote server over `https://`.
+- You cannot create a client in a browser, because a key in a page leaks.
+
+The remaining options, such as retries, timeouts and error types, are in [Client settings and errors](/getting-started/client).
+
+## Check the connection
+
+Read the key's owner and scopes, and the run profiles registered on the server.
+
+```ts title="check.ts"
+import { werft } from "./werft.ts";
+
+const me = await werft.auth.me();
+console.log(me.principal.kind, me.scopes);
+
+const { items } = await werft.profiles.list();
+for (const profile of items) console.log(profile.id, profile.repository_mode);
+```
+
+```bash
+WERFT_API_KEY=csp_… node check.ts
+```
+
+```text
+api_key [
+  'sessions:read',
+  'sessions:write',
+  'sessions:approve',
+  'sessions:control',
+  'sessions:recover'
+]
+claude-coding-auto required
+claude-coding-local required
+general none
+```
+
+Node 22.18 or later and Bun run `.ts` files directly. On an older Node, run `npx tsx check.ts`. A wrong key raises `APIError` (401), and a server that cannot be reached raises `ConnectionError`.
+
+<Callout type="info" title="Calling the HTTP API">
+Without the SDK, add an `Authorization: Bearer <key>` header to every request. The curl examples in these docs keep the server address in the `API` shell variable and the key in `KEY`.
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+The endpoints are in the [HTTP API reference](/reference/http-api/auth/getApiRoot).
+</Callout>
 
 ## Next steps
 
-- [Quickstart](/getting-started/quickstart): Create a session and watch the first turn finish
+- [Create your first session](/getting-started/quickstart): create a session with the SDK and read the model's answer

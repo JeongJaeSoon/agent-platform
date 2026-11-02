@@ -102,19 +102,22 @@ export interface AgentStore {
     workspaceId: string;
     slug: string;
     name: string;
+    description?: string;
     card: AgentCard;
     contentSha256: string;
     createdBy: string;
   }): Promise<CreateAgentResult>;
   /**
-   * Renames and/or adds a version. A card whose hash matches an existing
-   * version of the agent adds nothing.
+   * Renames, describes and/or adds a version. A card whose hash matches an
+   * existing version of the agent adds nothing.
    */
   update(input: {
     principal: Principal;
     workspaceId: string;
     agentId: string;
     name?: string;
+    /** `null` clears it. */
+    description?: string | null;
     card?: { card: AgentCard; contentSha256: string };
     updatedBy: string;
   }): Promise<UpdateAgentResult>;

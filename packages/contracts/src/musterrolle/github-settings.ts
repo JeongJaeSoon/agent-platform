@@ -50,6 +50,10 @@ export const GITHUB_REFUSAL_VALUES = [
   "github_settings_unsupported",
   "github_host_unsupported",
   "repository_none",
+  // No connection is pinned to the repository and more than one reaches it.
+  "ambiguous_app",
+  // The connection pinned to the repository was removed.
+  "pinned_app_removed",
 ] as const;
 export const githubRefusalSchema = z.enum(GITHUB_REFUSAL_VALUES);
 
@@ -221,7 +225,13 @@ const githubAppPermissionsSchema = z.record(
  * authorization. The client secret is never read back.
  */
 export const githubOAuthSchema = z.object({
-  /** The author App's, as GitHub last gave it; null without an App or a read. */
+  /**
+   * The author connection people link their accounts with: the one chosen,
+   * or the only author connection. Null with none, or with several and none
+   * chosen. Absent from servers before several Apps a role.
+   */
+  connection_id: z.uuid().nullable().optional(),
+  /** That connection's, as GitHub last gave it; null without one or a read. */
   client_id: z.string().nullable(),
   client_secret_set: z.boolean(),
   /** What the App's Callback URL must be; null when the console has no origin. */
@@ -398,6 +408,24 @@ export const putGitHubOAuthClientSecretResponseSchema = z.object({
   receipt_id: z.uuid(),
   oauth: githubOAuthSchema,
 });
+
+/** Another author connection for linking accounts; its client secret is entered again. */
+export const putGitHubUserLinkAppRequestSchema = z
+  .object({ connection_id: z.uuid() })
+  .strict();
+
+export const putGitHubUserLinkAppResponseSchema = z.object({
+  /** Null when the connection was already the one: nothing changed. */
+  receipt_id: z.uuid().nullable(),
+  oauth: githubOAuthSchema,
+});
+
+export type PutGitHubUserLinkAppRequest = z.infer<
+  typeof putGitHubUserLinkAppRequestSchema
+>;
+export type PutGitHubUserLinkAppResponse = z.infer<
+  typeof putGitHubUserLinkAppResponseSchema
+>;
 
 export type GitHubOAuth = z.infer<typeof githubOAuthSchema>;
 export type PutGitHubOAuthClientSecretRequest = z.infer<

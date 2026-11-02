@@ -68,6 +68,7 @@ const detail: AgentDetail = {
     workspace_id: "019a0000-0000-7000-8000-0000000000c1",
     slug: "finance",
     name: "재무 분석가",
+    description: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,

@@ -1,0 +1,108 @@
+---
+title: "クライアントの設定とエラー"
+description: "Werft クライアントのオプション、エラーの種類、リトライと timeout"
+---
+
+[SDK のインストール](/getting-started/install)で作ったクライアントの残りの設定と、呼び出しが失敗したときに SDK が行うことを扱う。機能ごとのメソッドは[セッション](/sessions/start)、[メッセージ](/messages/send)、[承認と push](/approvals/request) のドキュメントにある。
+
+## クライアントのオプション
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+const werft = new Werft({
+  baseUrl: "https://werft.example.com",
+  apiKey: process.env.WERFT_API_KEY,
+  maxRetries: 2,
+  timeoutMs: 60_000,
+});
+```
+
+| オプション | 既定値 | 説明 |
+| --- | --- | --- |
+| `baseUrl` | 環境変数 `WERFT_BASE_URL` | サーバーのアドレス。既定のサーバーはないので、オプションか環境変数のどちらかが必ず要る |
+| `apiKey` | 環境変数 `WERFT_API_KEY` | `Authorization: Bearer` ヘッダーでのみ送る。エラーメッセージや `console.log` には出ない |
+| `maxRetries` | `2` | 1 回の呼び出しのリトライ回数 |
+| `maxRetryDelayMs` | `60000` | `Retry-After` がこれより長ければ、待たずに失敗する |
+| `timeoutMs` | `60000` | 1 回の試行が待つ時間 |
+| `fetch` | グローバルの `fetch` | リクエストを送る関数。プロキシやテスト用に差し替える |
+| `dangerouslyAllowBrowser` | `false` | ブラウザ(`window` がある場所)で作ることを許す。ページにキーを置くと漏れるので使わない |
+| `allowInsecureHttp` | `false` | loopback 以外のアドレスへの `http://` を許す |
+
+## 承認用のキーを分けて使う
+
+workspace のキー(個人・エージェント)は、自分が始めたセッションのリクエストを承認できない。承認には別のキーか人が必要である。`withOptions` は設定を引き継いだ 2 つ目のクライアントを作る。
+
+```ts
+const approver = werft.withOptions({
+  apiKey: process.env.WERFT_APPROVER_API_KEY,
+});
+```
+
+エージェントのキーは、`profile_id` と `repository_id` の代わりに自分のエージェントの `agent_release_id` でセッションを作る。エージェントのキーには `sessions:read`、`sessions:write`、`sessions:control` が、承認者のキーには `sessions:read`、`sessions:approve` が必要で、セッションの共有範囲に承認者が入っていなければならない。設定と実際の出力は[サンプルの README](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/README.md) にある。
+
+## エラー
+
+サーバーのエラーは `APIError` で、`isApiError(error, code)` で見分ける。
+
+```ts title="errors.ts"
+import { isApiError } from "@werft-ai/sdk";
+import { werft } from "./werft.ts";
+
+const sessionId = process.argv[2] ?? "";
+const { revision } = await werft.sessions.get(sessionId);
+try {
+  await werft.sessions.pause(sessionId, { expected_revision: revision + 1 });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT"))
+    console.log(`${error.status} ${error.code}`);
+  else throw error;
+}
+```
+
+```text
+409 REVISION_CONFLICT
+```
+
+| エラー | いつ |
+| --- | --- |
+| `APIError` | サーバーがエラーで答えた。`status`、`code`、`retryable`、`requestId`、`details` がある |
+| `ConnectionError` | 応答を読めなかった。コマンドが実行されたかはわからない |
+| `TimeoutError` | 1 回の試行が `timeoutMs` を超えた |
+| `AbortedError` | 渡した `signal` が abort した |
+| `TurnBlockedError` | `waitForTurn` で、セッションが `paused`・`stopped`・`recovery_required`・`closed` のためターンが自分では終わらない |
+
+エラーコードの一覧は [HTTP API リファレンス](/reference/http-api/auth/getApiRoot)の各 operation にある。
+
+## リトライと Idempotency-Key
+
+- 再送する場合: エラー本文が `retryable: true` のとき(429 を含む)、プロキシが返した 502・504、応答を読めなかった接続失敗と試行の timeout。プロキシの 502・504(API エラー本文がないもの)と接続失敗・timeout は、GET と `Idempotency-Key` があるコマンドだけ再送する。キーのない `openPullRequest`・`commentPullRequest` はサーバーがすでに実行した可能性があるため、この場合は再送しない。エラー本文に `retryable: true` があれば、コマンドの種類にかかわらず再送する。
+- 再送しない場合: 409 すべて、500、`retryable: true` ではないその他の 4xx。
+- `Retry-After` があればその分待つ。`maxRetryDelayMs` を超えれば待たずに失敗する。
+- `sessions.create` や `messages.send` のように `Idempotency-Key` が必要なコマンドは、SDK が呼び出しごとにキーを 1 つ作り、その呼び出しのリトライに同じキーを送る。プロセスを立ち上げ直したあとで同じコマンドのリトライを続けるには、エラーの `idempotencyKey` を保存しておき、`{ idempotencyKey }` で渡す。
+- `expected_revision` は呼び出す側が渡す。SDK は代わりに読んで埋めない。
+
+## SDK がラップする API
+
+| メソッド | すること | ドキュメント |
+| --- | --- | --- |
+| `sessions.create` · `get` · `list` · `usage` · `share` | セッションの作成・読み取り・一覧・使用量・共有 | [開始](/sessions/start) |
+| `sessions.messages.send` | メッセージの送信 | [送信](/messages/send) |
+| `sessions.turns.get` · `list` | ターンの読み取り | [送信](/messages/send) |
+| `sessions.events.stream` | イベントストリーム | [ストリーミングの受信](/messages/streaming) |
+| `sessions.requests.list` · `answer` | 権限リクエストと質問 | [承認待ちと再開](/sessions/waiting-and-resume) |
+| `sessions.interrupt` · `pause` · `resume` · `terminate` · `close` · `changeProfile` | 制御 | [状態とライフサイクル](/sessions/lifecycle)、[クローズ](/sessions/close) |
+| `sessions.recoveryDecisions.create` | 復旧の決定 | [状態とライフサイクル](/sessions/lifecycle) |
+| `sessions.pushRequests.create` · `list` · `get` · `decide` · `openPullRequest` · `commentPullRequest` | push の承認と PR | [リクエスト](/approvals/request) |
+| `receipts.get`、`auth.me`、`limits.get`、`profiles.list`、`root.get` | receipt、自分の情報、上限、プロファイル、状態 | [receipt](/approvals/receipt) |
+
+`sessions.list` と `turns.list` は、`await` すると最初のページを、`for await` するとすべての項目を返す。フィールド名は HTTP API と同じ snake_case である。エージェント・メンバー・キーの管理のように Web ログインでしか呼べない API はラップしない。`limits.get` はログインした workspace owner だけが読めるので、API キーで呼ぶと 403 になる。
+
+## リポジトリのサンプル
+
+[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md) にはユースケースごとのサンプルがある。キーとカタログの確認、セッション一覧、イベントストリームの続きの受信、リトライと Idempotency-Key、質問・権限リクエストへの回答、セッションの制御と復旧、止まった close、push の承認と PR を扱い、どの SDK API をどのサンプルが使うかを表にまとめている。リポジトリの checkout のルートで `bun install` してから実行する。
+
+## 次のステップ
+
+- [開始](/sessions/start): セッション作成リクエストのフィールドとエラー
+- [ストリーミングの受信](/messages/streaming): イベントの種類と再接続

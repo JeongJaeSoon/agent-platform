@@ -308,7 +308,8 @@ export function createPostgresGitHubSettingsStore(
         .from(githubApps)
         .where(eq(githubApps.workspaceId, workspaceId));
       const of = (role: "author" | "reviewer") => {
-        const found = rows.find((row) => row.role === role);
+        const held = rows.filter((row) => row.role === role);
+        const found = held.length === 1 ? held[0] : undefined;
         return found === undefined
           ? null
           : {

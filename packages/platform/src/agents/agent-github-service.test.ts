@@ -154,21 +154,24 @@ function serviceWith(input: {
       const answer = input.installed?.[`${id}:${role}`];
       if (answer === undefined) return null;
       return {
-        kind: "app",
-        githubCom: true,
-        appId: 1,
-        quotaKey: () => {
-          throw new Error("not used");
-        },
-        credential: async () => {
-          throw new Error("not used");
-        },
-        api: () => {
-          throw new Error("not used");
-        },
-        installed: async () => {
-          if (answer instanceof Error) throw answer;
-          return answer;
+        kind: "fixed",
+        connection: {
+          kind: "app",
+          githubCom: true,
+          appId: 1,
+          quotaKey: () => {
+            throw new Error("not used");
+          },
+          credential: async () => {
+            throw new Error("not used");
+          },
+          api: () => {
+            throw new Error("not used");
+          },
+          installed: async () => {
+            if (answer instanceof Error) throw answer;
+            return answer;
+          },
         },
       };
     },

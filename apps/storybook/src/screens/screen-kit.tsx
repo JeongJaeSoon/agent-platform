@@ -4,6 +4,9 @@ import {
   cn,
   DisabledReason,
   IconTile,
+  PageBreadcrumb,
+  PageBreadcrumbCurrent,
+  PageBreadcrumbLink,
   PageFrame,
   Popover,
   PopoverContent,
@@ -30,6 +33,7 @@ import {
   Monitor,
   Settings,
   SlidersHorizontal,
+  Trophy,
   Users,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
@@ -49,6 +53,7 @@ export type NavKey =
   | "agents"
   | "profiles"
   | "operations"
+  | "achievements"
   | "members"
   | "settings";
 
@@ -74,6 +79,7 @@ const WORKSPACE_NAV: readonly NavEntry[] = [
     hue: "teal",
   },
   { key: "operations", label: "사용량·한도", icon: Gauge, hue: "pink" },
+  { key: "achievements", label: "성과", icon: Trophy, hue: "sky" },
   { key: "members", label: "구성원", icon: Users, hue: "green" },
   { key: "settings", label: "설정", icon: Settings, hue: "slate" },
 ];
@@ -327,39 +333,23 @@ function settingsListed(role: Role, key: SettingsKey) {
 }
 
 /**
- * The top bar's trail (layout.tsx PageTrail): a screen under a sidebar item
- * leads with the item as a link back to its list.
+ * The top bar's trail (layout.tsx): a screen under a sidebar item leads with
+ * the item as a link back to its list.
  */
 function Trail({ crumb }: { readonly crumb: readonly string[] }) {
   const leaf = crumb.at(-1) ?? "";
   const parents = crumb.slice(0, -1);
   return (
-    <Text
-      as="div"
-      variant="meta"
-      className="flex min-w-0 items-center gap-2 whitespace-nowrap text-control"
-    >
-      {parents.flatMap((label) => [
-        <a
-          key={label}
-          href="#nav"
-          className="shrink-0 text-subtle-foreground no-underline hover:text-foreground"
-        >
+    <PageBreadcrumb label="메뉴 위치">
+      {parents.map((label) => (
+        <PageBreadcrumbLink key={label} href="#nav">
           {label}
-        </a>,
-        <Text
-          key={`${label}/`}
-          as="span"
-          aria-hidden="true"
-          className="text-border-strong"
-        >
-          /
-        </Text>,
-      ])}
-      <Text as="span" weight="medium" truncate className="min-w-0">
+        </PageBreadcrumbLink>
+      ))}
+      <PageBreadcrumbCurrent className="wrap-anywhere">
         {leaf}
-      </Text>
-    </Text>
+      </PageBreadcrumbCurrent>
+    </PageBreadcrumb>
   );
 }
 

@@ -132,8 +132,8 @@ function factsOf(data: AgentDetail): Facts {
   return {
     version: version && {
       version_no: version.version_no,
-      role: version.card.role,
-      instructions: version.card.instructions,
+      role: version.card.role ?? null,
+      instructions: version.card.instructions ?? null,
       mcp_servers: (version.card.capabilities.mcp ?? []).map((m) => m.server),
       credential_refs: version.card.capabilities.credential_refs ?? [],
     },

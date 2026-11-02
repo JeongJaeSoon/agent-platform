@@ -93,7 +93,60 @@ scripts/local.sh key --workspace <workspace-id> --personal <user-id> --scopes se
 
 A key made for `<owner>` uses that name as its owner. `--workspace` goes only with `--personal`: the key is that member's personal key and acts as them. `--workspace` without `--personal`, or a workspace id in place of `<owner>`, is refused. No key reaches the whole workspace. Issue agent keys in the web console or with `POST /v1/api-keys`.
 
+## Use a key in the SDK
+
+`new Werft()` reads the `WERFT_BASE_URL` and `WERFT_API_KEY` environment variables. To set them in code, pass `baseUrl` and `apiKey`. Check which key calls what with `auth.me`, and whether the server answers with `root.get`. No scope is needed.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { Werft } from "@werft-ai/sdk";
+
+const client = new Werft({
+  baseUrl: process.env.WERFT_BASE_URL,
+  apiKey: process.env.WERFT_API_KEY,
+});
+const me = await client.auth.me();
+console.log(me.principal.kind, me.scopes);
+const root = await client.root.get();
+console.log(root.status);
+```
+
+```text
+api_key [
+  'sessions:read',
+  'sessions:write',
+  'sessions:approve',
+  'sessions:control',
+  'sessions:recover'
+]
+ok
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/auth/me" -H "Authorization: Bearer $KEY" | jq -c '{kind: .principal.kind, scopes}'
+curl -sS "$API/v1" -H "Authorization: Bearer $KEY" | jq -c '{status}'
+```
+
+```text
+{"kind":"api_key","scopes":["sessions:read","sessions:write","sessions:approve","sessions:control","sessions:recover"]}
+{"status":"ok"}
+```
+
+Reference: [`GET /v1/auth/me`](/reference/http-api/auth/getAuthMe), [`GET /v1`](/reference/http-api/auth/getApiRoot)
+
+</Tab>
+</Tabs>
+
+The SDK sends the key only in the `Authorization` header, and it refuses to create a client for an `http://` address that is not a browser or loopback address. The options are in [Client options](/getting-started/client#client-options).
+
+A personal or agent key issued in the web console cannot approve requests of a session it started (403 `self_approval`). Only the development server's operator key (`scripts/local.sh key`) is an exception. How to split the key that creates sessions from the key that approves is in [A separate key for approvals](/getting-started/client#a-separate-key-for-approvals). The agent key needs `sessions:read`, `sessions:write`, and `sessions:control`, and the approver key needs `sessions:read` and `sessions:approve`; the approver must also be in the session's share scope.
+
 ## Next steps
 
 - [Observability (OTel)](/observability)
-- [Quickstart](/getting-started/quickstart)
+- [Install the SDK](/getting-started/install)

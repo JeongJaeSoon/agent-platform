@@ -3,11 +3,47 @@ title: "Receiving a stream"
 description: Receive session events over SSE, and resume with Last-Event-ID after a disconnect
 ---
 
-`GET /v1/sessions/{id}/events` sends the session's events as Server-Sent Events. It first replays the events already stored from the beginning, then continues with new events as they are created. The scope is `sessions:read`. Use the `SID` from [Send](/messages/send).
+`sessions.events.stream` (`GET /v1/sessions/{id}/events`) receives the session's events as Server-Sent Events. It first replays the events already stored from the beginning, then continues with new events as they are created. The scope is `sessions:read`. Use the session from [Send](/messages/send) (`sessionId` in the SDK, `SID` in the HTTP API).
 
 ## Receive
 
-The stream sends a keepalive every 15 seconds, so it does not close even when everything is normal. The example below cuts it off with `--max-time`. That is why `curl: (28) Operation timed out` appears.
+The stream sends a keepalive every 15 seconds, so it does not close even when everything is normal. The example below cuts it off after 5 seconds. The SDK cuts it off with `signal` or `stream.close()`, and curl with `--max-time`.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { AbortedError, type SessionEvent } from "@werft-ai/sdk";
+
+const seen: SessionEvent[] = [];
+const stream = werft.sessions.events.stream(sessionId, {
+  signal: AbortSignal.timeout(5_000),
+});
+try {
+  for await (const event of stream) seen.push(event);
+} catch (error) {
+  if (!(error instanceof AbortedError)) throw error;
+}
+const counts = new Map<string, number>();
+for (const event of seen) counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+console.log(counts);
+```
+
+```text
+Map(6) {
+  'status' => 5,
+  'system' => 8,
+  'assistant' => 2,
+  'result' => 2,
+  'tool_use' => 1,
+  'tool_result' => 1
+}
+```
+
+The SDK's event has `id`, `turn_id`, `attempt_id`, `occurred_at`, `kind` (the event in the table below), and `payload` (the inner `data`).
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
@@ -16,14 +52,19 @@ grep '^event:' events.txt | sort | uniq -c
 ```
 
 ```text
-curl: (28) Operation timed out after 5005 milliseconds with 8000 bytes received
+curl: (28) Operation timed out after 5001 milliseconds with 9315 bytes received
    2 event: assistant
    2 event: result
-   4 event: status
+   5 event: status
    8 event: system
    1 event: tool_result
    1 event: tool_use
 ```
+
+Reference: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
 
 All events of this session's two turns (the preparation message and `ls`) arrived. One frame is three lines, `event:`, `data:`, and `id:`, plus a blank line.
 
@@ -50,6 +91,30 @@ Inner fields not in this table (`message`, `session_id` and so on) differ by eng
 
 ## Extract text and tool results
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+for (const event of seen) {
+  if (event.kind === "assistant")
+    console.log((event.payload as { text?: string }).text);
+  if (event.kind === "tool_result") {
+    const result = (event.payload as { tool_result?: { is_error?: boolean } })
+      .tool_result;
+    console.log({ is_error: result?.is_error });
+  }
+}
+```
+
+```text
+ready
+{ is_error: false }
+listed
+```
+
+</Tab>
+<Tab>
+
 ```bash
 awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
   | jq -r '.data.text // empty'
@@ -63,11 +128,40 @@ listed
 {"is_error":false}
 ```
 
+Reference: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
+
 Check whether a turn has finished with the turn's `status`, not with events ([Send](/messages/send#read-the-result)). Judge whether the work was done from the contents of `assistant` and `tool_result`.
 
 ## Resume after a disconnect
 
-Send the last `id` you received in the `Last-Event-ID` header to receive from the next event on. Events you already received do not come again.
+Pass the last `id` you received to receive from the next event on. The SDK passes `stream.lastEventId` as the `lastEventId` option, and the HTTP API passes it in the `Last-Event-ID` header. When the connection drops, the SDK reconnects on its own with this value. Events you already received do not come again.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const more = werft.sessions.events.stream(sessionId, {
+  lastEventId: stream.lastEventId,
+  signal: AbortSignal.timeout(3_000),
+});
+let count = 0;
+try {
+  for await (const _event of more) count++;
+} catch (error) {
+  if (!(error instanceof AbortedError)) throw error;
+}
+console.log(count);
+```
+
+```text
+0
+```
+
+</Tab>
+<Tab>
 
 ```bash
 LAST=$(awk '/^id: / { id = $2 } END { sub(/\r$/, "", id); print id }' events.txt)
@@ -80,6 +174,11 @@ grep -c '^event:' more.txt || true
 curl: (28) Operation timed out after 3005 milliseconds with 0 bytes received
 0
 ```
+
+Reference: the `Last-Event-ID` header of [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
 
 No new events came after that, so nothing arrived. If you sent the next message in the meantime, that turn's events would arrive.
 

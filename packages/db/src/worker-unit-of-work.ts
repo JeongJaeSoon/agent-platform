@@ -146,6 +146,7 @@ import {
 } from "./resume-control.ts";
 import {
   achievementJudgments,
+  agentReleases,
   approvalCheckpoints,
   attempts,
   catalogAuthority,
@@ -1406,8 +1407,26 @@ async function bindingOf(
     providerTokens: session.providerTokens,
     mcp: await sessionMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
+    releaseTools: await releaseToolsOf(tx, session),
     grants: await unspentGrants(tx, session.id, attempt.id),
   };
+}
+
+// A snapshot this image cannot read allows no tool rather than guessing.
+async function releaseToolsOf(
+  tx: Database,
+  session: SessionRow,
+): Promise<string[] | null> {
+  if (session.agentReleaseId === null) return null;
+  const [release] = await tx
+    .select({ snapshot: agentReleases.runtimeConfigSnapshot })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, session.agentReleaseId))
+    .limit(1);
+  const tools = (release?.snapshot as { tools?: unknown } | undefined)?.tools;
+  return Array.isArray(tools) && tools.every((tool) => typeof tool === "string")
+    ? tools
+    : [];
 }
 
 // Only for a turn not yet finished: a grant outlives nothing past the turn

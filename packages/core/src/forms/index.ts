@@ -1,6 +1,7 @@
 import {
   type AgentCard,
   acceptInviteRequestSchema,
+  agentCardRequestSchema,
   agentCardSchema,
   createAgentReleaseRequestSchema,
   createAgentRequestSchema,
@@ -91,7 +92,7 @@ const splitList = (text: string) =>
  */
 export function agentCardStep(base?: AgentCard) {
   return agentCardDraftSchema
-    .transform((draft): z.input<typeof agentCardSchema> => {
+    .transform((draft): z.input<typeof agentCardRequestSchema> => {
       return {
         ...base,
         role: draft.role.trim(),
@@ -106,5 +107,5 @@ export function agentCardStep(base?: AgentCard) {
         },
       };
     })
-    .pipe(agentCardSchema);
+    .pipe(agentCardRequestSchema);
 }
