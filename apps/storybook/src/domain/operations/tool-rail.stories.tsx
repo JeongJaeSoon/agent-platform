@@ -41,8 +41,15 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-/** Sorted by the slowest call first. */
-export const Slowest: Story = { args: { callSort: "slowest" } };
+/** The API's slowest order: longest first, unmeasured calls last. */
+export const Slowest: Story = {
+  args: {
+    callSort: "slowest",
+    calls: [...DETAIL.calls].sort(
+      (a, b) => (b.duration_ms ?? -1) - (a.duration_ms ?? -1),
+    ),
+  },
+};
 
 /** The tool is picked and its calls are read: each part keeps its place. */
 export const Loading: Story = {

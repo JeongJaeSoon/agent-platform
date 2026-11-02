@@ -127,6 +127,14 @@ const STAGES: Record<Stage, StageCopy> = {
   },
 };
 
+// The request's own `state` reads parked once the turn that asked has parked.
+const STILL_WAITING: ReadonlySet<Stage> = new Set([
+  "waiting",
+  "parking",
+  "expiredWaiting",
+  "lost",
+]);
+
 const PERMISSION: PermissionRequest = {
   request_id: "req_wait_01",
   turn_id: "turn_07",
@@ -173,6 +181,7 @@ function WaitStatesBody({
   readonly state: Stage;
 }) {
   const stage = STAGES[state];
+  const requestState = STILL_WAITING.has(state) ? "waiting" : "parked";
   const shared = {
     now: stage.lapsed ? AFTER_EXPIRY : NOW,
     disabled: stage.answered,
@@ -184,7 +193,7 @@ function WaitStatesBody({
     return (
       <QuestionCard
         {...shared}
-        request={QUESTION}
+        request={{ ...QUESTION, state: requestState }}
         onSubmit={() => {}}
         messages={{
           title: stage.head ? `질문 · ${stage.head.label}` : "질문",
@@ -200,7 +209,7 @@ function WaitStatesBody({
   return (
     <ApprovalCard
       {...shared}
-      request={PERMISSION}
+      request={{ ...PERMISSION, state: requestState }}
       onAllow={() => {}}
       onDeny={() => {}}
       subject={

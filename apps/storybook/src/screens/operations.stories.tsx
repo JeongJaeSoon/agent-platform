@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { UsageSummaryScope } from "@werft-ai/contracts";
+import type {
+  UsageSeriesResponse,
+  UsageSummaryScope,
+} from "@werft-ai/contracts";
 import {
   DetailLayout,
   Findings,
@@ -43,7 +46,6 @@ import {
   summaryOf,
   toolDetail,
   type UsageBreakdownRow,
-  type UsageSeriesResponse,
 } from "./operations-fixtures.ts";
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 

@@ -115,7 +115,7 @@ export const BASH_CALLS: readonly UsageToolCall[] = [
   {
     occurred_at: "2026-10-24T12:39:10Z",
     agent: "리뷰 봇",
-    session_id: "ses_05",
+    session_id: "0192f0c4-7d3a-7b4e-9f00-00000000c005",
     title: "PR #813 리뷰",
     duration_ms: null,
     outcome: "unknown",
@@ -123,7 +123,7 @@ export const BASH_CALLS: readonly UsageToolCall[] = [
   {
     occurred_at: "2026-10-24T12:38:02Z",
     agent: "리뷰 봇",
-    session_id: "ses_01",
+    session_id: "0192f0c4-7d3a-7b4e-9f00-00000000c001",
     title: "PR #812 리뷰",
     duration_ms: 2900,
     outcome: "ok",
@@ -139,7 +139,7 @@ export const BASH_CALLS: readonly UsageToolCall[] = [
   {
     occurred_at: "2026-10-24T12:31:15Z",
     agent: "리뷰 봇",
-    session_id: "ses_02",
+    session_id: "0192f0c4-7d3a-7b4e-9f00-00000000c002",
     title: "PR #811 리뷰",
     duration_ms: 3400,
     outcome: "failed",
@@ -155,7 +155,7 @@ export const BASH_CALLS: readonly UsageToolCall[] = [
   {
     occurred_at: "2026-10-24T12:25:33Z",
     agent: "문서 정리",
-    session_id: "ses_04",
+    session_id: "0192f0c4-7d3a-7b4e-9f00-00000000c004",
     title: "릴리스 노트 초안",
     duration_ms: 2100,
     outcome: "unknown",
@@ -163,7 +163,7 @@ export const BASH_CALLS: readonly UsageToolCall[] = [
   {
     occurred_at: "2026-10-24T12:22:07Z",
     agent: "데이터 질의",
-    session_id: "ses_03",
+    session_id: "0192f0c4-7d3a-7b4e-9f00-00000000c003",
     title: "주간 가입자 집계",
     duration_ms: 6200,
     outcome: "ok",

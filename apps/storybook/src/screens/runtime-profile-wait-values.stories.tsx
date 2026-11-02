@@ -74,7 +74,7 @@ function RuntimeProfileWaitValuesBody(_: { readonly state: ProfileState }) {
               <TableRow>
                 <TableHead scope="row">답 대기</TableHead>
                 <TableCell>
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
                     <WaitValue
                       label="일시정지까지"
                       seconds={WAIT.park_after_seconds}

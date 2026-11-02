@@ -1,6 +1,8 @@
 import {
   countSessionsResponseSchema,
   installationLimitsResponseSchema,
+  type UsageBreakdownResponse,
+  type UsageSeriesResponse,
   type UsageSummaryResponse,
   usageSummaryResponseSchema,
 } from "@werft-ai/contracts";
@@ -15,9 +17,9 @@ import {
 
 /*
  * The operations design's example data (ops-console
- * ccdeck-features-design.html `DATA`) as API responses. Existing APIs are
- * parsed with their contracts schema; the new ones (T5–T7) are typed with the
- * proposed shape. Display values are derived in the story, never stored here.
+ * ccdeck-features-design.html `DATA`) as API responses, parsed with or typed
+ * by their contracts schema. Display values are derived in the story, never
+ * stored here.
  */
 
 export const LIMITS = installationLimitsResponseSchema.parse({
@@ -50,22 +52,6 @@ export const SESSION_COUNTS = countSessionsResponseSchema.parse({
   total: Object.values(COUNTS).reduce((sum, n) => sum + n, 0),
 });
 
-// Proposed GET /v1/usage/series (T5).
-export interface UsageSeriesBucket {
-  readonly date: string;
-  readonly session_count: number;
-  readonly cost_usd: string;
-  readonly cost_complete: boolean;
-  readonly token_count: number;
-  readonly run_seconds: number;
-}
-export interface UsageSeriesResponse {
-  readonly period: { readonly since: string; readonly until: string };
-  readonly refreshed_at: string;
-  readonly buckets: readonly UsageSeriesBucket[];
-}
-
-// Proposed GET /v1/usage/breakdown (T6), one response per `by`.
 const TOKEN_COLUMNS = [
   "input_tokens",
   "output_tokens",
@@ -73,19 +59,8 @@ const TOKEN_COLUMNS = [
   "cache_creation_input_tokens",
 ] as const;
 export type TokenColumn = (typeof TOKEN_COLUMNS)[number];
-export type UsageBreakdownFigures = Record<TokenColumn, number> & {
-  readonly session_count: number;
-  readonly token_count: number;
-  readonly cost_usd: string;
-};
-export type UsageBreakdownRow = UsageBreakdownFigures & {
-  readonly key: string;
-  readonly label: string;
-};
-export interface UsageBreakdownResponse {
-  readonly rows: readonly UsageBreakdownRow[];
-  readonly totals: UsageBreakdownFigures;
-}
+export type UsageBreakdownRow = UsageBreakdownResponse["rows"][number];
+type UsageBreakdownFigures = UsageBreakdownResponse["totals"];
 
 const DAY_MS = 86_400_000;
 // The design's last bucket is 2026-10-23, the day before it was read.
