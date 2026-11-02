@@ -237,6 +237,12 @@ describe("markdownToSlackMrkdwn", () => {
     expect(markdownToSlackMrkdwn(sparse).length).toBeLessThan(
       sparse.length * 5,
     );
+    const long = [
+      Array(20).fill("h".repeat(40)).join("|"),
+      Array(20).fill("---").join("|"),
+      ...Array(50).fill(`${"x".repeat(200)}|`),
+    ].join("\n");
+    expect(markdownToSlackMrkdwn(long)).toBe(long);
     expect(markdownToSlackMrkdwn("|h|\n|-|\n|a``````b|")).toBe(
       `\`\`\`\nh\n--------\na\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`b\n\`\`\``,
     );
@@ -283,6 +289,9 @@ describe("markdownToSlackMrkdwn", () => {
           "\n",
         ),
         "a\n".repeat(31_250),
+        Array(16_000).fill("h").join("|"),
+        Array(16_000).fill("-").join("|"),
+        ...Array(16_000).fill("|"),
       ].join("\n"),
     );
     expect(performance.now() - started).toBeLessThan(1_000);

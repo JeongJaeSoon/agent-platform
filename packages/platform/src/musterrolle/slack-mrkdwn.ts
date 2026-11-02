@@ -240,15 +240,18 @@ const COLUMN_MAX = 40;
 function renderTable(rows: string[][], limit: number): string | null {
   // Cells past the header's count are dropped, as GitHub does.
   const columns = rows[0]?.length ?? 0;
-  const widths = Array.from({ length: columns }, (_, column) =>
-    Math.min(
-      COLUMN_MAX,
-      Math.max(...rows.map((row) => width(row[column] ?? ""))),
-    ),
-  );
-  const rowLength =
-    widths.reduce((sum, columnWidth) => sum + columnWidth, 0) + 3 * columns;
-  if (rows.length * rowLength > limit) return null;
+  // Every row carries every column's separator, so a wide header over many
+  // rows is refused before any cell is visited.
+  if (rows.length * 3 * Math.max(0, columns - 1) > limit) return null;
+  const widths = new Array<number>(columns).fill(0);
+  for (const row of rows) {
+    for (let column = 0; column < Math.min(columns, row.length); column += 1) {
+      widths[column] = Math.min(
+        COLUMN_MAX,
+        Math.max(widths[column] ?? 0, width(row[column] ?? "")),
+      );
+    }
+  }
   const line = (row: readonly string[]) =>
     widths
       .map((columnWidth, column) => {
@@ -257,9 +260,20 @@ function renderTable(rows: string[][], limit: number): string | null {
       })
       .join(" | ")
       .trimEnd();
-  const [header = [], ...body] = rows.map((row) => row.slice(0, columns));
-  const rule = widths.map((columnWidth) => "-".repeat(columnWidth)).join("-+-");
-  return ["```", line(header), rule, ...body.map(line), "```"].join("\n");
+  const output = [
+    "```",
+    line(rows[0] ?? []),
+    widths.map((columnWidth) => "-".repeat(columnWidth)).join("-+-"),
+  ];
+  let length = output.join("\n").length;
+  for (const row of rows.slice(1)) {
+    const text = line(row);
+    length += text.length + 1;
+    if (length > limit) return null;
+    output.push(text);
+  }
+  output.push("```");
+  return output.join("\n");
 }
 
 /** Drops a closing `##` run; a scan, since a regex backtracks on long spaces. */
