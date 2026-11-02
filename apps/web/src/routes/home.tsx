@@ -1272,21 +1272,12 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
       <Card className="p-4">
         <Steps
           completedLabel={t("common.done")}
+          unknownLabel={t("home.checklist.unknown")}
           items={steps.map((step) => ({
             id: step.key,
             title: t(step.key),
-            // Steps marks done or not; an unreadable step says so in words.
-            description:
-              step.state === "unknown" ? (
-                <>
-                  {t(step.hint)}
-                  {" · "}
-                  <span>{t("home.checklist.unknown")}</span>
-                </>
-              ) : (
-                t(step.hint)
-              ),
-            done: step.state === "done",
+            description: t(step.hint),
+            state: step.state === "pending" ? "todo" : step.state,
             action: step.to ? (
               <RowAction
                 asChild
