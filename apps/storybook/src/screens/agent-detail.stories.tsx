@@ -72,14 +72,19 @@ function AgentDetailScreen({
   readonly state: ScreenState;
   readonly tab: ShownTab;
   readonly viewer: Viewer;
-  readonly bound: readonly string[];
+  readonly bound: readonly string[] | "unknown";
   readonly sessions: readonly SessionFixture[] | "loading" | "error";
 }) {
   const detail = state === "draft" ? DRAFT : RELEASED;
   return (
     <ScreenShell
       current="agents"
-      crumb={["에이전트", detail.agent.name]}
+      // The layout's leaf title waits for the agent; no data, no leaf.
+      crumb={
+        state === "released" || state === "draft"
+          ? ["에이전트", detail.agent.name]
+          : ["에이전트"]
+      }
       role={viewer}
     >
       {state === "loading" ? (
@@ -155,14 +160,37 @@ export const AgentDetail: Story = {
 };
 export const AgentDetailMemberDraft: Story = {
   name: "Overview (member, not released)",
-  args: { state: "draft", viewer: "member", bound: [], sessions: [] },
+  // A member lacks credential.bind, so the bindings read answers 403.
+  args: { state: "draft", viewer: "member", bound: "unknown", sessions: [] },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("연결 상태를 불러오지 못했습니다."),
+    ).toBeVisible();
+    const credentials = canvas
+      .getByText("자격 증명 연결")
+      .closest("li") as HTMLElement;
+    await expect(credentials).toHaveAttribute("data-state", "unknown");
+    const release = canvas
+      .getByText("릴리스 만들기")
+      .closest("li") as HTMLElement;
+    await expect(release).toContainElement(
+      canvas.getByRole("button", { name: "릴리스 탭으로" }),
+    );
+  },
+};
+export const AgentDetailAdminDraft: Story = {
+  name: "Overview (admin, not released)",
+  args: { state: "draft", viewer: "admin", bound: [], sessions: [] },
   play: async ({ canvas }) => {
     await expect(
       canvas.getByText("연결이 필요합니다: BILLING_DB"),
     ).toBeVisible();
-    await expect(
+    const credentials = canvas
+      .getByText("자격 증명 연결")
+      .closest("li") as HTMLElement;
+    await expect(credentials).toContainElement(
       canvas.getByRole("button", { name: "릴리스 탭으로" }),
-    ).toBeVisible();
+    );
   },
 };
 export const AgentDetailAdmin: Story = {

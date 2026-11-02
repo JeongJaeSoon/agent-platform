@@ -201,7 +201,7 @@ const PICK_PAGE: ListAgentGitHubRepositoriesResponse = {
     {
       id: 51234567,
       account: "JeongJaeSoon",
-      connection_id: "ghc_author",
+      connection_id: "6e8f0a2b-4c5d-4e6f-8a9b-0c1d2e3f4a5b",
       role: "author",
       permissions: {},
       repository_count: 2,
@@ -232,7 +232,7 @@ const PICK_PAGE: ListAgentGitHubRepositoriesResponse = {
 
 const ACTIVITY: readonly ActivityReceipt[] = [
   {
-    id: "rcp_01JGHDISPATCH000000000001",
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c01",
     operation: "dispatch_workflow",
     status: "failed",
     result: {
@@ -245,7 +245,7 @@ const ACTIVITY: readonly ActivityReceipt[] = [
     created_at: "2026-11-02T01:30:00Z",
   },
   {
-    id: "rcp_01JGHMINT0000000000000002",
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c02",
     operation: "mint_github_token",
     status: "succeeded",
     result: {
@@ -256,7 +256,7 @@ const ACTIVITY: readonly ActivityReceipt[] = [
     created_at: "2026-11-02T01:20:00Z",
   },
   {
-    id: "rcp_01JGHRELEASE000000000003",
+    id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c03",
     operation: "create_agent_release",
     status: "succeeded",
     result: { release_id: RELEASE.id },

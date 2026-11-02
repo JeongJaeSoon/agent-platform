@@ -54,6 +54,7 @@ import {
 } from "@werft-ai/ui";
 import { ArrowLeft, Check, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { VIEWER } from "./screen-kit.tsx";
 
 /*
  * apps/web routes/agent-detail.tsx and its overview and card tab
@@ -92,31 +93,31 @@ const CARD: AgentDetail["versions"][number]["card"] = {
 };
 
 const AGENT_ID = "9b1c2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e";
-const SHA = "0".repeat(64);
+
 const VERSIONS: AgentDetail["versions"] = [
   {
-    id: "ver_01JBILLING00000000000000001",
+    id: "7c1e2d3f-4a5b-4c6d-8e9f-0a1b2c3d4e51",
     agent_id: AGENT_ID,
     version_no: 1,
     card: { ...CARD, capabilities: { ...CARD.capabilities, mcp: null } },
-    content_sha256: SHA,
-    created_by: null,
+    content_sha256: "1".repeat(64),
+    created_by: VIEWER.id,
     created_at: "2026-10-20T05:00:00Z",
   },
   {
-    id: "ver_01JBILLING00000000000000002",
+    id: "7c1e2d3f-4a5b-4c6d-8e9f-0a1b2c3d4e52",
     agent_id: AGENT_ID,
     version_no: 2,
     card: CARD,
-    content_sha256: SHA,
-    created_by: null,
+    content_sha256: "2".repeat(64),
+    created_by: VIEWER.id,
     created_at: "2026-10-22T05:00:00Z",
   },
 ];
 
 export const RELEASE: ReleaseFixture = {
-  id: "2e4f6a8b-0c1d-4e2f-9a3b-4c5d6e7f8a9b",
-  version_id: "ver_01JBILLING00000000000000002",
+  id: "sha256:9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c0b2d4f6e8a1c3e5f7b9d0a2c4e6f8b1d",
+  version_id: "7c1e2d3f-4a5b-4c6d-8e9f-0a1b2c3d4e52",
   label: "2026-10-22_14:00:00",
   runtime_profile_id: "claude-coding",
   repository_id: "werft-sandbox",
@@ -125,13 +126,13 @@ export const RELEASE: ReleaseFixture = {
 export const RELEASED: DetailFixture = {
   agent: {
     id: AGENT_ID,
-    workspace_id: "wsp_01JDEMO000000000000000000",
+    workspace_id: "3a9d5e7f-1b2c-4d3e-9f40-5a6b7c8d9e0f",
     slug: "billing",
     name: "결제 담당",
     status: "active",
     active_release_id: RELEASE.id,
     activation_revision: 1,
-    created_by: null,
+    created_by: VIEWER.id,
     created_at: "2026-10-20T05:00:00Z",
     updated_at: "2026-10-22T05:00:00Z",
   },
@@ -297,12 +298,19 @@ export function AgentPage({
             ))}
           </TabsList>
         </div>
-        <TabsContent
-          value={tab}
-          className="@container flex flex-col gap-8 pt-2"
-        >
-          {children}
-        </TabsContent>
+        {/* The route keeps every panel mounted and hides the others. */}
+        {AGENT_TABS.map(([name]) => (
+          <TabsContent
+            key={name}
+            value={name}
+            forceMount={true}
+            hidden={name !== tab}
+            tabIndex={name === tab ? 0 : -1}
+            className="@container flex flex-col gap-8 pt-2"
+          >
+            {name === tab ? children : null}
+          </TabsContent>
+        ))}
       </Tabs>
     </Page>
   );
@@ -391,8 +399,11 @@ export function AgentReadiness({
   bound,
 }: {
   readonly detail: DetailFixture;
-  /** Credential names with a live binding. */
-  readonly bound: readonly string[];
+  /**
+   * Credential names with a live binding, or "unknown" when the bindings
+   * read was refused (a member without credential.bind gets a 403).
+   */
+  readonly bound: readonly string[] | "unknown";
 }) {
   const latest = latestVersion(detail);
   const active = activeVersion(detail);
@@ -402,7 +413,8 @@ export function AgentReadiness({
       ...(active?.card.capabilities.credential_refs ?? []),
     ]),
   ];
-  const missing = refs.filter((ref) => !bound.includes(ref));
+  const missing =
+    bound === "unknown" ? [] : refs.filter((ref) => !bound.includes(ref));
   const released = detail.releases.length > 0;
   const upToDate =
     detail.agent.active_release_id !== null &&
@@ -414,18 +426,25 @@ export function AgentReadiness({
     {
       key: "credentials",
       title: "자격 증명 연결",
-      done: missing.length === 0,
+      state:
+        refs.length > 0 && bound === "unknown"
+          ? "unknown"
+          : missing.length === 0
+            ? "done"
+            : "todo",
       desc:
         refs.length === 0
           ? "이 카드는 자격 증명이 필요 없습니다."
-          : missing.length === 0
-            ? `필요한 ${refs.length}개를 모두 연결했습니다.`
-            : `연결이 필요합니다: ${missing.join(", ")}`,
+          : bound === "unknown"
+            ? "연결 상태를 불러오지 못했습니다."
+            : missing.length === 0
+              ? `필요한 ${refs.length}개를 모두 연결했습니다.`
+              : `연결이 필요합니다: ${missing.join(", ")}`,
     },
     {
       key: "release",
       title: "릴리스 만들기",
-      done: released,
+      state: released ? "done" : "todo",
       desc: released
         ? `릴리스 ${detail.releases.length}개가 있습니다.`
         : "릴리스 탭에서 버전과 실행 프로필로 릴리스를 만듭니다.",
@@ -433,7 +452,7 @@ export function AgentReadiness({
     {
       key: "activate",
       title: "활성화",
-      done: upToDate && runnable,
+      state: upToDate && runnable ? "done" : "todo",
       desc:
         detail.agent.active_release_id === null
           ? "아직 켜지지 않았습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다."
@@ -441,9 +460,9 @@ export function AgentReadiness({
             ? `최신 버전 ${latest.version_no}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 ${active.version_no}(으)로 시작합니다.`
             : "새 세션은 최신 버전으로 시작합니다.",
     },
-  ];
-  const firstOpen = steps.findIndex((step) => !step.done);
-  const ready = firstOpen === -1;
+  ] as const;
+  const firstOpen = steps.findIndex((step) => step.state === "todo");
+  const ready = firstOpen === -1 && steps[0].state === "done";
   return (
     <Section
       className="min-w-0"
@@ -459,7 +478,7 @@ export function AgentReadiness({
           {steps.map((step, index) => (
             <li
               key={step.key}
-              data-state={step.done ? "done" : "todo"}
+              data-state={step.state}
               className="flex min-w-0 items-center gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0"
             >
               <Text
@@ -467,18 +486,26 @@ export function AgentReadiness({
                 aria-hidden="true"
                 className={cn(
                   "grid size-6 flex-none place-items-center rounded-full border font-semibold text-caption",
-                  step.done
+                  step.state === "done"
                     ? "border-[var(--ap-tone-success-border)] bg-[var(--ap-tone-success-bg)] text-[var(--ap-tone-success-fg)]"
                     : "border-[var(--ap-color-border-strong)] text-muted-foreground",
                 )}
               >
-                {step.done ? <Check className="size-3.5" /> : index + 1}
+                {step.state === "done" ? (
+                  <Check className="size-3.5" />
+                ) : (
+                  index + 1
+                )}
               </Text>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <Text as="span" weight="medium">
                   {step.title}
                   <Text as="span" className="sr-only">
-                    {step.done ? " (완료)" : " (할 일)"}
+                    {step.state === "done"
+                      ? " (완료)"
+                      : step.state === "todo"
+                        ? " (할 일)"
+                        : ""}
                   </Text>
                 </Text>
                 <Text as="span" variant="meta">
@@ -553,7 +580,7 @@ export const SESSIONS: readonly SessionFixture[] = [
       id: AGENT_ID,
       name: "결제 담당",
       release_version_no: 2,
-      release_label: null,
+      release_label: RELEASE.label,
     },
     last_event_at: null,
     created_at: "2026-11-01T08:00:00Z",
@@ -706,7 +733,7 @@ export function AgentOverview({
 }: {
   readonly detail: DetailFixture;
   readonly viewer: Viewer;
-  readonly bound: readonly string[];
+  readonly bound: readonly string[] | "unknown";
   readonly sessions: readonly SessionFixture[] | "loading" | "error";
 }) {
   return (
@@ -887,6 +914,8 @@ export function VersionHistory({ detail }: { readonly detail: DetailFixture }) {
   const activeId = detail.active_release?.version_id;
   const beforeId =
     (activeId && activeId !== ordered[0]?.id ? activeId : ordered[1]?.id) ?? "";
+  const before = ordered.find((version) => version.id === beforeId);
+  const after = ordered[0];
   return (
     <details
       className="group flex flex-col gap-[var(--ap-space-block)]"
@@ -945,6 +974,120 @@ export function VersionHistory({ detail }: { readonly detail: DetailFixture }) {
           ))}
         </div>
       ) : null}
+      {ordered.length > 1 && before && after ? (
+        <RevisionDiff
+          before={before.card}
+          after={after.card}
+          beforeLabel={`버전 ${before.version_no}`}
+          afterLabel={`버전 ${after.version_no}`}
+        />
+      ) : null}
     </details>
+  );
+}
+
+type DiffLine = {
+  readonly kind: "same" | "added" | "removed";
+  readonly text: string;
+};
+
+function diffLines(before: string, after: string): DiffLine[] {
+  const a = before.split("\n");
+  const b = after.split("\n");
+  const width = b.length + 1;
+  const lcs = new Int32Array((a.length + 1) * width);
+  const at = (i: number, j: number) => lcs[i * width + j] ?? 0;
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i * width + j] =
+        a[i] === b[j]
+          ? at(i + 1, j + 1) + 1
+          : Math.max(at(i + 1, j), at(i, j + 1));
+    }
+  }
+  const lines: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    const left = a[i];
+    const right = b[j];
+    if (left !== undefined && left === right) {
+      lines.push({ kind: "same", text: left });
+      i++;
+      j++;
+    } else if (
+      left !== undefined &&
+      (right === undefined || at(i + 1, j) >= at(i, j + 1))
+    ) {
+      lines.push({ kind: "removed", text: left });
+      i++;
+    } else {
+      lines.push({ kind: "added", text: right ?? "" });
+      j++;
+    }
+  }
+  return lines;
+}
+
+const MARK = { same: " ", added: "+", removed: "-" } as const;
+const LINE = {
+  same: "block",
+  added: "block bg-[var(--ap-tone-progress-bg)]",
+  removed: "block bg-[var(--ap-tone-danger-bg)] line-through",
+} as const;
+
+/** Stand-in for apps/web components/revision-diff.tsx, same markup. */
+function RevisionDiff({
+  before,
+  after,
+  beforeLabel,
+  afterLabel,
+}: {
+  readonly before: unknown;
+  readonly after: unknown;
+  readonly beforeLabel: string;
+  readonly afterLabel: string;
+}) {
+  const lines = diffLines(
+    JSON.stringify(before, null, 2),
+    JSON.stringify(after, null, 2),
+  );
+  const changed = lines.some((line) => line.kind !== "same");
+  return (
+    <figure className="m-0 flex min-w-0 flex-col gap-2">
+      <figcaption className="text-muted-foreground text-sm">
+        {beforeLabel} → {afterLabel}
+      </figcaption>
+      {changed ? (
+        <pre className="m-0 overflow-x-auto rounded-card border p-3 font-mono text-xs">
+          {lines.map((line, index) => (
+            <Text
+              as="span"
+              // biome-ignore lint/suspicious/noArrayIndexKey: lines repeat; position is their identity
+              key={index}
+              className={cn(INHERIT, LINE[line.kind])}
+              data-kind={line.kind}
+            >
+              <Text
+                as="span"
+                className={cn(INHERIT, "inline-block w-[1.5ch]")}
+                aria-hidden="true"
+              >
+                {MARK[line.kind]}
+              </Text>
+              {line.kind === "same" ? null : (
+                <Text as="span" className="sr-only">
+                  {line.kind === "added" ? "추가: " : "삭제: "}
+                </Text>
+              )}
+              {line.text}
+              {"\n"}
+            </Text>
+          ))}
+        </pre>
+      ) : (
+        <Text variant="sub">두 버전의 카드가 같습니다.</Text>
+      )}
+    </figure>
   );
 }
