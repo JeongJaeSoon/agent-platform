@@ -44,6 +44,7 @@ export function ErrorState({
       )}
       role="alert"
       data-code={code}
+      data-framed={framed || undefined}
     >
       <span className="ap-state__icon ap-state__mark" aria-hidden="true">
         <CircleAlert size={16} strokeWidth={1.5} />

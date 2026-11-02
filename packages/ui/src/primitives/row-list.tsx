@@ -65,7 +65,8 @@ export function RowList({
 export type RowListItemProps = ComponentProps<"li"> & {
   /**
    * The row opens as a whole through the RowLink inside it: it takes the
-   * hover fill and the pointer, and the link's box stretches over it.
+   * hover fill and the pointer, and the link's box stretches over it. Use it
+   * only with a RowLink; in a `joined` list give the RowLink `inset`.
    */
   readonly opens?: boolean | undefined;
 };

@@ -7,7 +7,7 @@ const { RowLink, RowList, RowListItem } = await import("./row-list.tsx");
 
 function Teams({ inset = false }: { readonly inset?: boolean }) {
   return (
-    <RowList variant="joined">
+    <RowList variant={inset ? "joined" : "separate"}>
       <RowListItem opens>
         <RowLink inset={inset}>
           <a href="#teams/platform">플랫폼</a>
@@ -71,5 +71,37 @@ describe("RowLink", () => {
     const row = getByRole("listitem");
     expect(row.hasAttribute("data-opens")).toBe(false);
     expect(row.classList.contains("cursor-pointer")).toBe(false);
+  });
+});
+
+describe("RowLink Slot", () => {
+  test("자식 링크의 class·속성·클릭 처리를 그대로 두고 자기 class를 더한다", () => {
+    let clicks = 0;
+    const { getByRole } = render(
+      <RowList>
+        <RowListItem opens>
+          <RowLink className="font-semibold">
+            <a
+              href="#teams/platform"
+              className="text-foreground"
+              data-team="platform"
+              onClick={(event) => {
+                event.preventDefault();
+                clicks += 1;
+              }}
+            >
+              플랫폼
+            </a>
+          </RowLink>
+        </RowListItem>
+      </RowList>,
+    );
+    const link = getByRole("link", { name: "플랫폼" });
+    for (const name of ["text-foreground", "font-semibold", "after:inset-0"])
+      expect(link.classList.contains(name)).toBe(true);
+    expect(link.getAttribute("data-team")).toBe("platform");
+    expect(link.getAttribute("href")).toBe("#teams/platform");
+    link.click();
+    expect(clicks).toBe(1);
   });
 });

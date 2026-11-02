@@ -15,16 +15,25 @@ export interface KeyValueItem {
   readonly id?: Key | undefined;
 }
 
-export type KeyValueListProps = Omit<ComponentProps<"dl">, "children"> & {
-  readonly items: readonly KeyValueItem[];
-  /**
-   * `list` (mockup v4 `.kv-list`): label left, value right, 4px apart, for a
-   * card's summary. `grid` (`.dl`): a 140px label column, for a detail page.
-   */
-  readonly variant?: "list" | "grid" | undefined;
-  /** `grid` only: below the `sm` breakpoint each value goes under its label. */
-  readonly stack?: "sm" | undefined;
-};
+/**
+ * `list` (mockup v4 `.kv-list`): label left, value right, 4px apart, for a
+ * card's summary. `grid` (`.dl`): a 140px label column, for a detail page.
+ */
+type KeyValueListLayout =
+  | {
+      readonly variant: "grid";
+      /** Below the `sm` breakpoint each value goes under its label. */
+      readonly stack?: "sm" | undefined;
+    }
+  | {
+      readonly variant?: "list" | undefined;
+      readonly stack?: undefined;
+    };
+
+export type KeyValueListProps = Omit<ComponentProps<"dl">, "children"> &
+  KeyValueListLayout & {
+    readonly items: readonly KeyValueItem[];
+  };
 
 /** Labelled values as a `<dl>`, in either of mockup v4's two layouts. */
 export function KeyValueList({

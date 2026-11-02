@@ -185,6 +185,7 @@ describe("ErrorState framed", () => {
       </>,
     );
     const [framed, plain] = getAllByRole("alert");
+    expect(framed?.getAttribute("data-framed")).toBe("true");
     expect(framed?.classList.contains("rounded-card")).toBe(true);
     expect(framed?.classList.contains("border")).toBe(true);
     expect(framed?.classList.contains("bg-card")).toBe(true);
