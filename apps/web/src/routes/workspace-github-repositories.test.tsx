@@ -163,7 +163,7 @@ describe("GitHub 연결 › 저장소 시트", () => {
     expect(lists.at(-1)).toBe("?installation_id=78&page=1&per_page=20");
   });
 
-  test("닫기 버튼으로 시트를 닫는다", async () => {
+  test("닫기 버튼으로 시트를 닫으면 저장소 관리로 포커스가 돌아온다", async () => {
     renderAt(PATH, routes());
     const { user, sheet } = await openSheet();
     await user.click(within(sheet).getByRole("button", { name: "닫기" }));
@@ -172,6 +172,33 @@ describe("GitHub 연결 › 저장소 시트", () => {
         true,
       ),
     );
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "저장소 관리" }),
+      ).toBe(true),
+    );
+  });
+
+  test("행 메뉴로 연 창을 닫으면 그 행의 메뉴 버튼으로 포커스가 돌아온다", async () => {
+    renderAt(PATH, routes());
+    const { user, sheet } = await openSheet();
+    const menu = await within(sheet).findByRole("button", {
+      name: "acme/api 메뉴",
+    });
+    await user.click(menu);
+    await user.click(
+      await screen.findByRole("menuitem", { name: "기본 브랜치 바꾸기" }),
+    );
+    await screen.findByRole("dialog", { name: "acme/api의 기본 브랜치" });
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "acme/api의 기본 브랜치" }) ===
+          null,
+      ).toBe(true),
+    );
+    await waitFor(() => expect(document.activeElement === menu).toBe(true));
   });
 
   test("같은 역할 App이 여럿이면 정지되지 않은 첫 설치를 이름으로 읽는다", async () => {

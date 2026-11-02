@@ -236,6 +236,7 @@ function GitHubCard({
     setAdding(step);
   };
   const titleId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const connections = settings.connections;
   const accounts = new Set(
     connections.flatMap((connection) =>
@@ -259,7 +260,13 @@ function GitHubCard({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
         <IconTile icon={TileMark} hue="slate" size="two-line" />
         <div className="flex min-w-0 flex-1 flex-col">
-          <Heading id={titleId} level={2}>
+          <Heading
+            id={titleId}
+            ref={headingRef}
+            level={2}
+            tabIndex={-1}
+            className="focus-visible:outline-none"
+          >
             GitHub
           </Heading>
           <Text variant="sub">
@@ -329,7 +336,11 @@ function GitHubCard({
             blocked={settings.oauth.callback_url === null}
             opener={opener}
             onOutcome={onOutcome}
-            onAdded={() => void refresh()}
+            onAdded={() => {
+              // The first App replaces the empty state and the button with it.
+              setOpener(headingRef.current);
+              void refresh();
+            }}
           />
           <RepositorySheet
             open={sheet}
@@ -459,10 +470,9 @@ function AppList({
   const { t } = useI18n();
   const canManage = useHasPermission("workspace.manage");
   const keys = useKeyLines(canManage);
-  const [newKey, setNewKey] = useState<{
-    readonly connection: GitHubSettingsConnection;
-    readonly opener: HTMLElement | null;
-  } | null>(null);
+  const [newKey, setNewKey] = useState<GitHubSettingsConnection | null>(null);
+  // Kept past the close: the dialog reads it as it closes.
+  const [keyOpener, setKeyOpener] = useState<HTMLElement | null>(null);
   const [removing, setRemoving] = useState<GitHubSettingsConnection | null>(
     null,
   );
@@ -488,7 +498,10 @@ function AppList({
             keyLine={keys.data?.github_apps.find(
               (app) => app.connection_id === connection.connection_id,
             )}
-            onNewKey={(opener) => setNewKey({ connection, opener })}
+            onNewKey={(opener) => {
+              setKeyOpener(opener);
+              setNewKey(connection);
+            }}
             onRemove={() => setRemoving(connection)}
           />
         ))}
@@ -506,8 +519,8 @@ function AppList({
         </Button>
       ) : null}
       <NewKeyDialog
-        connection={newKey?.connection ?? null}
-        opener={newKey?.opener ?? null}
+        connection={newKey}
+        opener={keyOpener}
         onClose={() => setNewKey(null)}
         onOutcome={onOutcome}
         onSaved={() => void onChanged()}

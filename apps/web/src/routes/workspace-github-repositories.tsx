@@ -103,7 +103,7 @@ export function useRepositoryPage(
 
 /**
  * The installation a page is read from before one is chosen: the first one
- * not suspended, by account, of an author App, else of a reviewer App. Named,
+ * GitHub answers for, by account, of an author App, else of a reviewer App. Named,
  * since with several Apps of a role the server refuses to pick one, and the
  * catalog comes only with a page.
  */
@@ -114,7 +114,12 @@ export function defaultInstallation(
     connections
       .filter((held) => held.role === role)
       .flatMap((held) => held.installations)
-      .filter((installation) => installation.status !== "suspended")
+      // Unknown: GitHub did not answer for its App, and a page of it fails.
+      .filter(
+        (installation) =>
+          installation.status !== "suspended" &&
+          installation.status !== "unknown",
+      )
       .sort((a, b) => a.account.localeCompare(b.account) || a.id - b.id)[0]?.id;
   return usable("author") ?? usable("reviewer");
 }
@@ -152,8 +157,17 @@ export function RepositorySheet({
   const [editing, setEditing] = useState<{
     readonly row: CatalogRow;
     readonly what: "branch" | "pins";
-    readonly opener: HTMLElement | null;
   } | null>(null);
+  // Kept past the close: the dialog reads it as it closes.
+  const [editOpener, setEditOpener] = useState<HTMLElement | null>(null);
+  const edit = (
+    row: CatalogRow,
+    what: "branch" | "pins",
+    from: HTMLElement | null,
+  ) => {
+    setEditOpener(from);
+    setEditing({ row, what });
+  };
   const selectId = useId();
   const outsideId = useId();
   const list = useRepositoryPage(
@@ -198,19 +212,11 @@ export function RepositorySheet({
       <RowMenu label={t("github.sheet.rowMenu", { name })}>
         {(close) => (
           <>
-            <RowMenuItem
-              onSelect={() =>
-                setEditing({ row, what: "branch", opener: close() })
-              }
-            >
+            <RowMenuItem onSelect={() => edit(row, "branch", close())}>
               {t("github.sheet.branch")}
             </RowMenuItem>
             {row.pins ? (
-              <RowMenuItem
-                onSelect={() =>
-                  setEditing({ row, what: "pins", opener: close() })
-                }
-              >
+              <RowMenuItem onSelect={() => edit(row, "pins", close())}>
                 {t("github.sheet.pins")}
               </RowMenuItem>
             ) : null}
@@ -432,13 +438,13 @@ export function RepositorySheet({
         ) : null}
         <BranchDialog
           row={editing?.what === "branch" ? editing.row : null}
-          opener={editing?.opener ?? null}
+          opener={editOpener}
           onClose={() => setEditing(null)}
           onOutcome={onOutcome}
         />
         <PinsDialog
           row={editing?.what === "pins" ? editing.row : null}
-          opener={editing?.opener ?? null}
+          opener={editOpener}
           onClose={() => setEditing(null)}
           onOutcome={onOutcome}
         />
