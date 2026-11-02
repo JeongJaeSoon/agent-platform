@@ -51,6 +51,8 @@ PR 본문 끝에는 플랫폼이 쓰는 꼬리가 붙는다. 세션 id와 commit
 
 에이전트는 일하는 도중에 내장 MCP 도구 `attach_repository({ repository_id })`로 다른 저장소를 붙인다. 붙일 수 있는 것은 에이전트 release의 GitHub 설정(`github.repositories`)에 있고 프로필이 허용하는 저장소뿐이다. 사람 승인은 받지 않는다. 그 저장소에 쓰는 일은 지금처럼 push 요청 승인을 거친다.
 
+세션을 만들 때 `attached_repository_ids`를 보내지 않으면 세션 자신의 저장소 말고는 붙인 저장소 없이 시작한다. 처음부터 필요한 저장소는 그 목록에 넣고, 나머지는 에이전트가 필요할 때 붙인다.
+
 - 붙인 저장소는 작업 공간에 이름이 `repository_id`인 git 원격이 되고, 기본 브랜치를 `<repository_id>/<branch>`로 받아 온다. 에이전트는 토큰을 보지 않는다.
 - 같은 저장소를 다시 붙이면 아무것도 바꾸지 않고 성공한다. 받아 오는 중이면 `pending`을 돌려주고, 다시 부르면 결과를 읽는다.
 - 받아 오기에는 시간 상한 300초와 크기 상한 2 GiB가 있다. 넘으면 부착이 실패로 끝나고 `failure`에 이유(`fetch_timeout`, `fetch_too_large`)가 남는다.

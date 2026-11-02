@@ -3,11 +3,10 @@ import { SessionStatusLabel } from "@werft-ai/react/components";
 import { Badge, Link, RowList, RowListItem } from "@werft-ai/ui";
 
 /*
- * S-A4: a session row whose requests wait. SessionRow has no place for a
- * second badge beside its status, so the row is laid out here by hand.
+ * S-A4: a session row whose requests wait, parked or not, from GET
+ * /v1/sessions `input_wait.state`. SessionOverviewRow's `statusDetail` is
+ * text only, so the badge beside the status is laid out here by hand.
  */
-
-const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type RowState = "waiting" | "parked" | "expired";
 
@@ -45,7 +44,6 @@ function SessionListParkedBadgeScreen(
 ) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
       <SessionListParkedBadgeBody {...props} />
     </div>
   );

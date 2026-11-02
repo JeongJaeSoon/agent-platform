@@ -385,9 +385,6 @@ function MembersTab({
         </span>
       </div>
       <ListBody state={state} label="구성원 목록">
-        <div className="flex flex-wrap gap-2">
-          <PartRequest name="Avatar (UIKIT-V4-DATA-PARTS)" />
-        </div>
         {/* Console v4 .t-mem without agents managed and last active: GET
             /v1/members has neither yet (94S-816), and a column empty on
             every row is left out. */}

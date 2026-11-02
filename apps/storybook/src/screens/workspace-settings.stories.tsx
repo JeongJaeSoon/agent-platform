@@ -12,6 +12,7 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  FormActions,
   Input,
   LinkTab,
   LinkTabs,
@@ -32,7 +33,7 @@ import {
 import { Lock } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 
-import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 import {
   Heading,
   MUTED_TEXT,
@@ -371,7 +372,7 @@ function SlackConnectionPage({
                     <FieldError>저장하려면 새 token을 넣어 주세요.</FieldError>
                   ) : null}
                 </Field>
-                <div className="flex flex-wrap items-start justify-end gap-2">
+                <FormActions>
                   <Button
                     type="button"
                     variant="ghost"
@@ -383,7 +384,7 @@ function SlackConnectionPage({
                     취소
                   </Button>
                   <Button type="submit">저장</Button>
-                </div>
+                </FormActions>
               </form>
             </RowListItem>
           ) : null}
@@ -556,11 +557,6 @@ function WorkspaceSettingsScreen({
       >
         {/* One block, so the sub-nav mockup keeps its own margins. */}
         <div>
-          {page ? (
-            <div className="mb-4 flex flex-wrap gap-1">
-              <PartRequest name="Settings sub-nav" />
-            </div>
-          ) : null}
           {page ? (
             <LinkTabs aria-label="워크스페이스 설정 메뉴" className="mb-6">
               {SLACK_PAGES.map(([key, label]) => (

@@ -14,6 +14,11 @@ import type {
   SessionDetailRecord,
 } from "../ports/session-unit-of-work.ts";
 import {
+  attachCatalog,
+  attachmentContext,
+  memoryAttachmentStore,
+} from "../testing/repository-attachment-fakes.ts";
+import {
   type InstallationProfileEntry,
   type InstallationProfileState,
   profileFingerprint,
@@ -23,6 +28,7 @@ import {
   workspaceProfileState,
 } from "./catalog.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
+import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {
   createSessionService,
   SessionServiceError,
@@ -298,7 +304,7 @@ describe("a session pinned to an agent release", () => {
       };
     };
 
-    test("are stored as sent, and left out when not sent", async () => {
+    test("are stored as sent, and as none when not sent", async () => {
       const listed = create({}, { attached_repository_ids: ["docs"] });
       await listed.result;
       expect(listed.accepted[0]?.attachedRepositoryIds).toEqual(["docs"]);
@@ -307,7 +313,60 @@ describe("a session pinned to an agent release", () => {
       expect(empty.accepted[0]?.attachedRepositoryIds).toEqual([]);
       const omitted = create({}, {});
       await omitted.result;
-      expect(omitted.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
+      expect(omitted.accepted[0]?.attachedRepositoryIds).toEqual([]);
+      const repositoryless = create(
+        { releaseProfile: "either-v1" },
+        { profile_id: "either-v1", repository_id: undefined },
+      );
+      await repositoryless.result;
+      expect(repositoryless.accepted[0]?.attachedRepositoryIds).toEqual([]);
+    });
+
+    test("not sent, are left out where the session attaches none: without a release or on a none profile", async () => {
+      const unpinned = create({}, { agent_release_id: undefined });
+      expect(await unpinned.result).not.toBeInstanceOf(Error);
+      expect(unpinned.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
+      const bare = create(
+        { releaseProfile: "bare-v1" },
+        { profile_id: "bare-v1", repository_id: undefined },
+      );
+      expect(await bare.result).not.toBeInstanceOf(Error);
+      expect(bare.accepted[0]?.repository).toBe("none");
+      expect(bare.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
+    });
+
+    test("not sent, the session's agent attaches a repository for real; a null list from before has the release's whole list already", async () => {
+      const omitted = create({}, {});
+      await omitted.result;
+      const stored = omitted.accepted[0]?.attachedRepositoryIds ?? null;
+      for (const [attached, expected] of [
+        [stored, { status: "pending", already_attached: false }],
+        [null, { status: "attached", already_attached: true }],
+      ] as const) {
+        const store = memoryAttachmentStore(undefined, attached);
+        const attachments = createRepositoryAttachmentService({
+          store,
+          context: {
+            context: async () =>
+              attachmentContext({ attachedRepositoryIds: store.attached() }),
+          },
+          catalog: attachCatalog,
+          waitMs: 0,
+        });
+        const outcome = await attachments.attach({
+          sessionId: "11111111-1111-4111-8111-111111111111",
+          attemptId: "att_1",
+          actor: {
+            principal: { kind: "user", id: MEMBER },
+            actor_user_id: MEMBER,
+            agent_id: AGENT,
+          },
+          repositoryId: "docs",
+        });
+        expect(outcome).toMatchObject(expected);
+        expect(store.attached()).toEqual(attached === null ? null : ["docs"]);
+        expect(store.receipts).toHaveLength(attached === null ? 0 : 1);
+      }
     });
 
     test("are stored for a session started without a repository on an optional profile", async () => {

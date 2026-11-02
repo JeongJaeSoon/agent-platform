@@ -5,6 +5,7 @@ import {
   AlertTitle,
   Badge,
   Button,
+  CopyButton,
   EmptyState,
   ErrorState,
   formatTimestamp,
@@ -13,7 +14,7 @@ import {
   Page,
   Skeleton,
 } from "@werft-ai/ui";
-import { CircleAlert, Clock, Copy, Plus } from "lucide-react";
+import { CircleAlert, Clock, Plus } from "lucide-react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
@@ -194,15 +195,16 @@ function Row({ row }: { readonly row: KeyRow }) {
             <div className="min-w-0 font-mono text-foreground [overflow-wrap:anywhere]">
               {row.id}
             </div>
-            <Button
-              type="button"
+            <CopyButton
+              value={row.id}
               variant="ghost"
               size="sm"
               className={KEY_COPY}
               aria-label={`ID ${row.id} 복사`}
-            >
-              <Copy aria-hidden="true" className={ICON} />
-            </Button>
+              copiedLabel="복사했습니다"
+              copiedMessage="복사했습니다"
+              iconClassName={ICON}
+            />
           </div>
           <Dot />
           <div>발급 {at(row.created_at)}</div>

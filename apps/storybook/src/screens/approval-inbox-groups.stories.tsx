@@ -19,16 +19,21 @@ import {
 /*
  * S-A5: the approval inbox shows one turn's sibling requests as a group.
  * ApprovalInbox lives in @werft-ai/react/blocks, so the group is composed
- * from ApprovalCard rows here.
+ * from ApprovalCard rows here. The group is the requests' shared `group`,
+ * and when it parks is their `park_at`.
  */
-
-const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type GroupState = "waiting" | "parked" | "empty";
 
 const NOW = Date.parse("2026-10-21T01:00:00.000Z");
 const EXPIRES_AT = "2026-10-22T01:00:00.000Z";
 const SESSION_ID = "819f21a8-2c1e-4f0b-9a3d-000000000b07";
+const PARK_AT = "2026-10-21T01:10:00.000Z";
+const PARK_AT_LABEL = new Date(PARK_AT).toLocaleTimeString("ko-KR", {
+  timeZone: "Asia/Seoul",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 const REQUESTS: readonly PermissionRequest[] = [
   {
@@ -40,6 +45,9 @@ const REQUESTS: readonly PermissionRequest[] = [
     input: { command: "bun run deploy --dry-run" },
     created_at: "2026-10-21T00:59:00.000Z",
     expires_at: EXPIRES_AT,
+    state: "waiting",
+    park_at: PARK_AT,
+    group: "turn_07",
   },
   {
     request_id: "req_group_02",
@@ -50,6 +58,9 @@ const REQUESTS: readonly PermissionRequest[] = [
     input: { file_path: "CHANGELOG.md" },
     created_at: "2026-10-21T00:59:02.000Z",
     expires_at: EXPIRES_AT,
+    state: "waiting",
+    park_at: PARK_AT,
+    group: "turn_07",
   },
 ];
 
@@ -91,7 +102,7 @@ function ApprovalInboxGroupsBody({ state }: { readonly state: GroupState }) {
         {REQUESTS.map((request) => (
           <ApprovalCard
             key={request.request_id}
-            request={request}
+            request={{ ...request, state: parked ? "parked" : "waiting" }}
             now={NOW}
             onAllow={() => {}}
             onDeny={() => {}}
@@ -109,7 +120,7 @@ function ApprovalInboxGroupsBody({ state }: { readonly state: GroupState }) {
                 ? (at) =>
                     `${at}까지 답할 수 있습니다. 답하면 작업을 다시 띄웁니다(1분 안팎 걸립니다).`
                 : (at) =>
-                    `일시정지 예정: API 변경 필요 · ${at}까지 답할 수 있습니다`,
+                    `일시정지 예정: ${PARK_AT_LABEL} · ${at}까지 답할 수 있습니다`,
             }}
           />
         ))}
@@ -123,7 +134,6 @@ function ApprovalInboxGroupsScreen(
 ) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
       <ApprovalInboxGroupsBody {...props} />
     </div>
   );

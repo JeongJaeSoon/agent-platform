@@ -29,15 +29,18 @@ export const Default: Story = {
   ),
 };
 
-/** The console's five badge tones. */
+/**
+ * The console's five badge tones. A badge names a category; a status with
+ * meaning (running, failed…) is StatusLabel.
+ */
 export const Tones: Story = {
   render: () => (
     <div className="story-row">
       <Badge variant="gray">초안</Badge>
-      <Badge variant="blue">진행 중</Badge>
-      <Badge variant="green">연결됨</Badge>
-      <Badge variant="amber">확인 필요</Badge>
-      <Badge variant="red">실패</Badge>
+      <Badge variant="blue">팀</Badge>
+      <Badge variant="green">릴리스</Badge>
+      <Badge variant="amber">관리자</Badge>
+      <Badge variant="red">위험</Badge>
     </div>
   ),
 };

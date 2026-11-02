@@ -1,13 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Composer } from "@werft-ai/react/components";
-import { Badge } from "@werft-ai/ui";
 
 /*
  * S-A6: the message box while the session is parked. The server still
- * answers 409 SESSION_PAUSED; the screen says why before anyone types.
+ * answers 409 SESSION_PAUSED; the screen says why before anyone types,
+ * from GET /v1/sessions/{id} `input_wait.state: parked`.
  */
-
-const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type ComposerState = "parked";
 
@@ -32,7 +30,6 @@ function ComposerWhileParkedScreen(
 ) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
       <ComposerWhileParkedBody {...props} />
     </div>
   );
