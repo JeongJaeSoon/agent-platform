@@ -71,6 +71,44 @@ describe("Button", () => {
     expect(classes).toContain("disabled:pointer-events-none");
   });
 
+  test("aria-disabled도 0.45로 흐려지지만 포커스와 클릭은 남는다", () => {
+    let clicks = 0;
+    const { getByRole } = render(
+      <Button
+        type="button"
+        aria-disabled={true}
+        onClick={() => {
+          clicks += 1;
+        }}
+      >
+        저장 중
+      </Button>,
+    );
+    const button = getByRole("button", { name: "저장 중" });
+    const classes = button.className.split(" ");
+    expect(classes).toContain("aria-disabled:opacity-45");
+    expect(classes).not.toContain("aria-disabled:pointer-events-none");
+    button.focus();
+    expect(document.activeElement === button).toBe(true);
+    button.click();
+    expect(clicks).toBe(1);
+  });
+
+  test("호출자가 지정한 aria-disabled 투명도가 기본값을 이긴다", () => {
+    const { getByRole } = render(
+      <Button
+        type="button"
+        aria-disabled={true}
+        className="aria-disabled:opacity-50"
+      >
+        만들기
+      </Button>,
+    );
+    const classes = getByRole("button").className.split(" ");
+    expect(classes).toContain("aria-disabled:opacity-50");
+    expect(classes).not.toContain("aria-disabled:opacity-45");
+  });
+
   test("호출자 className이 같은 축의 variant 유틸리티를 이긴다", () => {
     const { getByRole } = render(
       <Button type="button" className="px-2">

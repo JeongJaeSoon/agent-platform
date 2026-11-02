@@ -40,6 +40,19 @@ export const Default: Story = {
 
 export const Disabled: Story = { ...Default, args: { disabled: true } };
 
+/** Busy while saving: as faded as `disabled`, but it keeps its focus. */
+export const AriaDisabled: Story = {
+  ...Default,
+  name: "aria-disabled",
+  args: { "aria-disabled": true },
+};
+
+export const AriaDisabledDark: Story = {
+  ...AriaDisabled,
+  name: "aria-disabled (dark)",
+  globals: { theme: "dark" },
+};
+
 export const Variants: Story = {
   render: () => (
     <div className="story-row">
