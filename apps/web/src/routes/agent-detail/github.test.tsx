@@ -610,7 +610,7 @@ describe("에이전트 GitHub 탭", () => {
       }),
     );
     await services.queryClient.invalidateQueries();
-    await screen.findByText("2026-10-11_11:00:00");
+    await screen.findAllByText("2026-10-11_11:00:00");
 
     await user.click(switchNamed("push 전 사람 승인"));
     await user.click(

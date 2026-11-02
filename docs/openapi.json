@@ -2479,6 +2479,10 @@
             "minLength": 1,
             "maxLength": 120
           },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
           "card": {
             "type": "object",
             "properties": {
@@ -2672,6 +2676,17 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 120
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "card": {
             "type": "object",
@@ -18315,6 +18330,17 @@
                   "minLength": 1,
                   "maxLength": 120
                 },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -18374,14 +18400,28 @@
                           "maximum": 9007199254740991
                         },
                         "role": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 200
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "instructions": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 300
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 300
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "mcp_servers": {
                           "type": "array",
@@ -18489,6 +18529,7 @@
                 "workspace_id",
                 "slug",
                 "name",
+                "description",
                 "status",
                 "active_release_id",
                 "activation_revision",
@@ -20323,6 +20364,17 @@
                 "minLength": 1,
                 "maxLength": 120
               },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -20376,6 +20428,7 @@
               "workspace_id",
               "slug",
               "name",
+              "description",
               "status",
               "active_release_id",
               "activation_revision",
@@ -20416,6 +20469,10 @@
                     "instructions": {
                       "type": "string",
                       "minLength": 1,
+                      "maxLength": 20000
+                    },
+                    "agent_instructions": {
+                      "type": "string",
                       "maxLength": 20000
                     },
                     "language": {
@@ -20577,8 +20634,6 @@
                     }
                   },
                   "required": [
-                    "role",
-                    "instructions",
                     "language",
                     "model",
                     "capabilities",
@@ -22680,6 +22735,17 @@
                   "minLength": 1,
                   "maxLength": 120
                 },
+                "description": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -22733,6 +22799,7 @@
                 "workspace_id",
                 "slug",
                 "name",
+                "description",
                 "status",
                 "active_release_id",
                 "activation_revision",
@@ -55132,6 +55199,7 @@
                       "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
                       "slug": "finance",
                       "name": "Finance analyst",
+                      "description": "Reads the quarterly reports and flags outliers.",
                       "status": "active",
                       "active_release_id": null,
                       "activation_revision": -1,
@@ -55948,8 +56016,8 @@
         "tags": [
           "Agents"
         ],
-        "summary": "Rename an agent or add a card version",
-        "description": "A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "summary": "Rename or describe an agent, or add a card version",
+        "description": "`name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

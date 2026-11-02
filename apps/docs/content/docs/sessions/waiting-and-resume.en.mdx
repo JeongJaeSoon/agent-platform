@@ -3,9 +3,37 @@ title: "Waiting for approval and resuming"
 description: Answer permission requests and questions, and pause and resume a session
 ---
 
-When a turn waits for a person's permission before running a tool, or asks a person a question, the session becomes `needs_input`. When you answer, the turn continues. To let a session rest for a while, pause it and resume it later. Continue using the `SID` created in [Start](/sessions/start). Answering needs `sessions:approve` on the key, and pause and resume need `sessions:control`. Only the session's creator, its agent's admins and owners and admins answer ([Permissions](/agents/permissions)).
+When a turn waits for a person's permission before running a tool, or asks a person a question, the session becomes `needs_input`. When you answer, the turn continues. To let a session rest for a while, pause it and resume it later. Continue using the session created in [Start](/sessions/start) (`sessionId` in the SDK, `SID` in the HTTP API). Answering needs `sessions:approve` on the key, and pause and resume need `sessions:control`. Only the session's creator, its agent's admins and owners and admins answer ([Permissions](/agents/permissions)). The examples below answer with the key that created the session. That works only with the development server's operator key (`scripts/local.sh key`). A personal or agent key issued in the web console cannot answer requests in a session it started (403 `self_approval`), so answer with a client made from another key ([A separate key for approvals](/getting-started/client#a-separate-key-for-approvals)).
 
 ## Pending requests
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"deny","steps":[{"tool":"Bash","input":{"command":"rm -rf build","description":"clean build"}}],"final":"cleaned"}',
+});
+let pending = await werft.sessions.requests.list(sessionId);
+while (pending.length === 0) {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  pending = await werft.sessions.requests.list(sessionId);
+}
+const [request] = pending;
+if (request.kind === "permission") console.log(request.tool, request.input);
+```
+
+```text
+Bash { command: 'rm -rf build', description: 'clean build' }
+```
+
+You can also leave the requests to a handler instead of reading them yourself. `onRequest` of `waitForTurn` passes the requests that appear while it waits for the turn, and `answerPending(werft, sessionId, handlers)` passes the requests open now, oldest first, once each ([Answer a question](#answer-a-question)).
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/messages" \
@@ -21,6 +49,11 @@ curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY
   | jq '.items[] | {request_id, kind, tool, input, expires_at}'
 ```
 
+Reference: [`GET /v1/sessions/{id}/pending-requests`](/reference/http-api/pending-requests/listPendingRequests)
+
+</Tab>
+</Tabs>
+
 A request is one of two kinds.
 
 - `kind: "permission"`: permission to run a tool. `tool` and `input` show what would run.
@@ -29,6 +62,27 @@ A request is one of two kinds.
 If a request is not answered within 30 minutes, it ends as a denial. Answering after that gets 409 `REQUEST_EXPIRED`.
 
 ## Deny
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const answered = await werft.sessions.requests.answer(sessionId, {
+  request_id: request.request_id,
+  kind: "permission",
+  decision: "deny",
+  reason: "Do not delete build output.",
+});
+console.log(answered.receipt_status, answered.approval?.surface);
+await waitForTurn(werft, sessionId, sent.turn_id);
+```
+
+```text
+accepted api
+```
+
+</Tab>
+<Tab>
 
 ```bash
 REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
@@ -47,9 +101,51 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
 To allow, use `"decision": "allow"`. `reason` is used only for a denial and is optional. The model receives that reason as the tool result and continues the turn. The response's `approval` records who answered (`answered_by`) and where (`surface`: `api`, `web`, `slack`).
 
 ## Answer a question
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const asked = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"ask","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}',
+});
+const answeredTurn = await waitForTurn(werft, sessionId, asked.turn_id, {
+  onRequest: {
+    question(request) {
+      const [question] = request.questions;
+      console.log(question.prompt, question.options.map((o) => o.label));
+      return {
+        answers: [
+          {
+            question_id: question.question_id,
+            selected_option_ids: [question.options[0].option_id],
+          },
+        ],
+      };
+    },
+  },
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${answeredTurn.turn_id}: ${answeredTurn.status}`);
+```
+
+```text
+Which environment? [ 'staging', 'production' ]
+answered: accepted
+turn 3: completed
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/messages" \
@@ -82,11 +178,43 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
 To answer in text instead of choosing, send `selected_option_ids: []` and `free_text`.
+
+A handler is one of two kinds: `permission` and `question`. If a handler returns `undefined`, or there is no handler for that kind, the request stays open and is left to a person. The `outcome` that `onAnswer` receives is one of `accepted` (the answer was accepted), `left_open` (the handler did not answer), `too_late` (the request had already expired or someone else answered; `code` is `REQUEST_EXPIRED` or `REQUEST_STALE`), or `conflict` (a different answer to the same request went first). When the session becomes `paused`, `stopped`, `recovery_required`, or `closed`, the turn does not end on its own, so `waitForTurn` throws `TurnBlockedError`.
 
 ## pause and resume
 
 Pause finishes the work in progress, saves a checkpoint (the working tree and the transcript), and then takes the worker down. Resume has a new worker restore the same working tree and the same conversation from that checkpoint. Both send the current `revision` as `expected_revision`. If the session changed in between, the response is 409 `REVISION_CONFLICT`.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForReceipt } from "@werft-ai/sdk";
+
+let session = await werft.sessions.get(sessionId);
+const paused = await werft.sessions.pause(sessionId, {
+  expected_revision: session.revision,
+  reason: "lunch",
+});
+const receipt = await waitForReceipt(werft, paused.receipt_id);
+console.log(receipt.operation, receipt.status);
+session = await werft.sessions.get(sessionId);
+console.log(session.admission_state, session.checkpoint_revision);
+```
+
+```text
+pause succeeded
+paused 2
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = idle ]; do
@@ -110,11 +238,34 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admissio
 }
 {
   "admission_state": "paused",
-  "checkpoint_revision": 3
+  "checkpoint_revision": 2
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/pause`](/reference/http-api/session-control/pauseSession)
+
+</Tab>
+</Tabs>
+
 A message sent while paused gets 409 `SESSION_PAUSED`. If it cannot drain within 60 seconds, `attention` becomes `PAUSE_BLOCKED`. If a request is open, answer it or interrupt.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const resumed = await werft.sessions.resume(sessionId, {
+  expected_revision: session.revision,
+});
+await waitForReceipt(werft, resumed.receipt_id);
+console.log((await werft.sessions.get(sessionId)).admission_state);
+```
+
+```text
+active
+```
+
+</Tab>
+<Tab>
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
@@ -137,6 +288,11 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admissio
   "admission_state": "active"
 }
 ```
+
+Reference: [`POST /v1/sessions/{id}/resume`](/reference/http-api/session-control/resumeSession)
+
+</Tab>
+</Tabs>
 
 ## Next steps
 

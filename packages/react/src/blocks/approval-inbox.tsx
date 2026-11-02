@@ -14,8 +14,8 @@ import {
   avatarInitials,
   avatarTone,
   Badge,
-  Button,
   cn,
+  RowAction,
   Skeleton,
 } from "@werft-ai/ui";
 import {
@@ -556,17 +556,14 @@ function PanelLine({
           {meta}
         </p>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
+      <RowAction
         className="shrink-0"
         aria-expanded={opened}
         aria-label={t("inbox.answerFor", { session: name })}
         onClick={(event) => onOpen(event.currentTarget)}
       >
         {t("inbox.answer")}
-      </Button>
+      </RowAction>
     </div>
   );
 }

@@ -191,7 +191,7 @@ export function CardEditor({
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             disabled={save.isPending}
             onClick={() => {
               onOutcome(null);

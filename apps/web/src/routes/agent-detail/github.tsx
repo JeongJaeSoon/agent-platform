@@ -25,6 +25,7 @@ import {
   Input,
   Link,
   RelativeTime,
+  RowAction,
   RowList,
   RowListItem,
   SettingRow,
@@ -995,10 +996,7 @@ function GitHubSettings({
                           : t("agentGitHub.refPattern", { ref: entry.ref })
                       }
                       actions={
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
+                        <RowAction
                           disabled={readOnly}
                           aria-label={t("agentGitHub.removeLabel", {
                             workflow: entry.workflow,
@@ -1013,7 +1011,7 @@ function GitHubSettings({
                           }
                         >
                           {t("agentGitHub.remove")}
-                        </Button>
+                        </RowAction>
                       }
                     />
                   ))}

@@ -29,6 +29,7 @@ import {
   cn,
   EmptyState,
   Heading,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -214,16 +215,13 @@ export function Credentials({
                         : t("agent.credentials.namedByCard")}
                     </Text>
                   </RowLines>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
+                  <RowAction
                     disabled={busy}
                     aria-label={t("agent.credentials.bindFor", { name: ref })}
                     onClick={() => bind.mutate(ref)}
                   >
                     {t("agent.credentials.bind")}
-                  </Button>
+                  </RowAction>
                 </RowListItem>
               ))}
             </RowList>
@@ -258,10 +256,8 @@ export function Credentials({
                       })}
                     </Text>
                   </RowLines>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
+                  <RowAction
+                    variant="danger"
                     disabled={busy}
                     aria-label={t("agent.credentials.revokeFor", {
                       name: binding.credential_ref,
@@ -269,7 +265,7 @@ export function Credentials({
                     onClick={() => setRevoking(binding)}
                   >
                     {t("agent.credentials.revoke")}
-                  </Button>
+                  </RowAction>
                 </RowListItem>
               ))}
             </RowList>

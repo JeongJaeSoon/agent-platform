@@ -1,11 +1,41 @@
 ---
 title: "Start"
-description: The fields, response, retries, and errors of a session create request
+description: The fields, response, Idempotency-Key, list, share scope, title, and errors of a session create request
 ---
 
-A session is a conversation that runs against one repository and one run profile. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`.
+A session is a conversation that runs against one run profile. If the profile uses a repository, you pick one repository too. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+
+<Callout>
+The `GATE-SPEC {…}` messages in the examples are scripts for the fake model of the [development server](/run-server/dev-server). The fake model calls tools and answers exactly as the script says, so the output is always the same. A server started with a real model will not make the same tool calls or print the same output; send it ordinary instructions instead.
+</Callout>
 
 ## Create
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"start","steps":[],"final":"started"}',
+});
+console.log(created);
+const sessionId = created.session_id;
+```
+
+```text
+{
+  session_id: '…',
+  turn_id: '1',
+  receipt_id: '…',
+  receipt_status: 'accepted',
+  status: 'queued'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -28,20 +58,49 @@ SID=$(echo "$created" | jq -r .session_id)
 }
 ```
 
+Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 | Field | Required | Description |
 | --- | --- | --- |
-| `profile_id` | Yes | The run profile id ([Choose a run profile](/agents/run-profiles)) |
-| `repository_id` | Yes | A repository id in the catalog. The worker clones this repository |
+| `profile_id` | Yes, unless `agent_release_id` is set | The run profile id ([Choose a run profile](/agents/run-profiles)) |
+| `repository_id` | Depends on the profile | A repository id in the catalog. The worker clones this repository. Required when the profile's `repository_mode` is `required`; not sent when it is `none` ([Sessions without a repository](/sessions/without-repository)) |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
 | `model` | | One of the models the profile allows. If omitted, the default model |
 | `title` | | The session's name. If omitted, derived from the first `message` ([Title](#title)) |
-| `agent_release_id` | | Binds this session to an agent release ([Create](/agents/create#bind-to-a-session)) |
+| `agent_release_id` | | Binds this session to an agent release ([Create](/agents/create#bind-to-a-session)). Then `profile_id` and `repository_id`, if omitted, are the release's values |
 
 The response is 201. The request is only accepted; read the result by fetching the turn ([Status and lifecycle](/sessions/lifecycle)).
 
 ## Idempotency-Key
 
-Every POST in the session API requires an `Idempotency-Key` header. Without it the response is 400. If you did not receive a response, send it again with **the same key and the same body**. The server runs the command only once. Session creation and messages return the original response as is, and controls such as interrupt return the current state of that receipt. The same key with a different body is 409 `IDEMPOTENCY_CONFLICT`.
+Every POST in the session API requires an `Idempotency-Key` header. If you did not receive a response, send it again with **the same key and the same body**. The server runs the command only once. Session creation and messages return the original response as is, and controls such as interrupt return the current state of that receipt. The same key with a different body is 409 `IDEMPOTENCY_CONFLICT`.
+
+The SDK makes one key per call and sends that same key on every retry of the call. To carry on with the same command after restarting the process, make the key yourself and pass it as `idempotencyKey`.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const params = {
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}',
+};
+const idempotencyKey = crypto.randomUUID();
+const first = await werft.sessions.create(params, { idempotencyKey });
+const second = await werft.sessions.create(params, { idempotencyKey });
+console.log(first.session_id === second.session_id ? "same session" : "two sessions");
+```
+
+```text
+same session
+```
+
+</Tab>
+<Tab>
 
 ```bash
 IDEM=$(uuidgen)
@@ -58,51 +117,172 @@ second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content
 same session
 ```
 
+Without the header the response is 400. Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 Use a new key for a new intent. If you send with a new key after a timeout, you may end up with two sessions.
 
 ## List
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const page = await werft.sessions.list({ limit: 5 });
+for (const session of page.items) {
+  console.log(session.id, session.title, session.status);
+}
+
+// for await walks every page.
+for await (const session of werft.sessions.list({ status: "idle" })) {
+  console.log(session.id);
+}
+```
+
+`await` gives the first page (`items`, `next_cursor`, `nextPage()`); `for await` gives the items of every page.
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, title, status}'
 ```
 
-Filter with `limit`, `cursor` (the response's `next_cursor`), and `status`. Only the sessions the key can see are returned.
+Read the next page by passing the response's `next_cursor` as `cursor`.
+
+Reference: [`GET /v1/sessions`](/reference/http-api/sessions/listSessions)
+
+</Tab>
+</Tabs>
+
+Filter with `limit` and `status`. Only the sessions the key can see are returned.
 
 `relation` narrows those further and never widens them. `started` is the sessions you started (for a key, the ones the key or its creator started), `shared` the ones someone else started and shared with you by name or through a team you belong to, and `administered` the sessions of agents you administer, directly or through a team. Someone else's session that the whole workspace sees appears only under `all`, the default. `q` finds sessions whose title contains it, ignoring case, or whose id starts with it. `agent_id` keeps the sessions created with one of that agent's releases, whichever release.
 
-Each item's `agent` (`id`, `name`, `release_version_no`, `release_label`) is the agent and release the session is pinned to; it is `null` for a session created without an agent release. `release_version_no` is the card version that release runs, and `release_label` is the release's name (when it was created, such as `2026-10-30_14:30:28`). `created_by` (`user_id`, `display_name`) is who started the session; for a key's session, the person who created the key. It stays the same after a takeover: the person who took the session over can read it, but it appears under `started` only for the person who started it. `channel` is where the creating request came from (`web`, `api` or `slack`). An older session whose starter or channel the record cannot tell reads `null`. `slack_permalink` is the link to the first message of a session started from Slack ([Original Slack message link](/integrations/slack#original-slack-message-link)); it is `null` for a session created another way or before links were kept.
+Each item's `agent` (`id`, `name`, `release_version_no`, `release_label`) is the agent and release the session is pinned to. `release_version_no` is the card version that release runs, and `release_label` is the release's name (when it was created, such as `2026-10-30_14:30:28`). It is `null` for a session created without an agent release. `created_by` (`user_id`, `display_name`) is who started the session; for a key's session, the person who created the key. It stays the same after a takeover: the person who took the session over can read it, but it appears under `started` only for the person who started it. `channel` is where the creating request came from (`web`, `api` or `slack`). An older session whose starter or channel the record cannot tell reads `null`. `slack_permalink` is the link to the first message of a session started from Slack ([Original Slack message link](/integrations/slack#original-slack-message-link)). It is `null` for a session created another way or before links were kept.
+
+The SDK has no per-status counts, so read them with the HTTP API. `GET /v1/sessions/counts` returns how many sessions the list would hold per status, read to its last page with the same `relation` and `q`, and their `total`. A session you cannot see is never counted.
 
 ```bash
 curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c
 ```
 
-`GET /v1/sessions/counts` returns how many sessions the list would hold per status, read to its last page with the same `relation` and `q`, and their `total`. A session you cannot see is never counted.
+Reference: [`GET /v1/sessions/counts`](/reference/http-api/sessions/countSessions)
 
 `repository` in the list and the detail is the repository the session was created against. `id` is the catalog key (the same as `repository_id`); `full_name` is a name to show, the repository URL's path without host, credentials, query or `.git` (`owner/name`, or `group/sub/name` on a forge with groups), or the catalog key when the URL does not read that way. `branch` is the branch the worker cloned, not `agent/<session-id>` that a push writes to. All three are recorded when the session is created, so they stay the same when an operator later changes the catalog or removes the repository. A session created without a repository has `repository: null`; a session created before the catalog existed has `id: null`. The repository URL itself is never in a response.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const session = await werft.sessions.get(sessionId);
+console.log(session.repository);
+```
+
+```text
+{ id: 'sample-app', full_name: 'agent/sample-app', branch: 'main' }
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .repository
 # {"id":"sample-app","full_name":"agent/sample-app","branch":"main"}
 ```
 
+Reference: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
+
+## Share scope
+
+Read the share scope to see who can see a session. Anyone who can see the session can read it. The scope is `sessions:read`.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const share = await werft.sessions.share(sessionId);
+console.log(share.scope, share.revision);
+```
+
+```text
+workspace 0
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '{scope, revision}'
+# {"scope":"workspace","revision":0}
+```
+
+Reference: [`GET /v1/sessions/{id}/share`](/reference/http-api/sessions/getSessionShare)
+
+</Tab>
+</Tabs>
+
+`scope` is one of `private` (only the creator), `people` (the people in `user_ids`), `team` (the current members of the teams in `team_ids`), or `workspace` (every member). A session that was never changed is `workspace` with `revision` 0. `POST /v1/sessions/{id}/share`, which changes the scope, is called only with a web login, so the SDK has no method for it ([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
+
 ## Title
 
 A `title` you send is stored with runs of whitespace and line breaks collapsed to one space and the ends trimmed. If that leaves nothing or more than 80 characters (an emoji or a combined character counts as one), the answer is 400. Without one, the title is derived from the first `message` by the same rule, cut to 79 characters and `…` past 80. No model is called, so the same message always gives the same title. A message of only whitespace, and a session created before titles existed, read `title: null`.
 
+The SDK has no rename, so call the HTTP API.
+
 ```bash
 curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
-  -H 'Content-Type: application/json' -d '{"title":"Fix the checkout test"}' | jq '{id, title}'
+  -H 'Content-Type: application/json' -d '{"title":"결제 테스트 고치기"}' | jq '{id, title}'
 ```
 
-The session's creator (for a key's session, that key), its agent's admins, and owners and admins rename it. Someone who only sees it through its share gets 403; someone who cannot see it, 404. No Idempotency-Key is needed. A change arrives on the SSE stream as a `status` event carrying `title`.
+The session's creator (for a key's session, that key), its agent's admins, and owners and admins rename it. Someone who only sees it through its share gets 403; someone who cannot see it, 404. No Idempotency-Key is needed. A change arrives on the SSE stream as a `status` event carrying `title`. Reference: [`PATCH /v1/sessions/{id}`](/reference/http-api/sessions/updateSession)
 
 ## Errors
+
+Server errors arrive in the SDK as `APIError`. Tell them apart with `isApiError(error, code)`; an error whose `retryable` is `true` is resent by the SDK on its own ([Retries and Idempotency-Key](/getting-started/client#retries-and-idempotency-key)).
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.create({
+    profile_id: "claude-coding-local",
+    repository_id: "sample-app",
+    model: "claude-opus-9",
+    message: "hello",
+  });
+} catch (error) {
+  if (isApiError(error, "UNSUPPORTED_CAPABILITY")) {
+    console.log(error.status, error.code, error.retryable, error.message);
+  } else throw error;
+}
+```
+
+```text
+422 UNSUPPORTED_CAPABILITY false Profile claude-coding-local does not offer model claude-opus-9
+```
+
+</Tab>
+<Tab>
 
 The error body has the same shape in every API. Resend with the same key only when `retryable` is `true`.
 
 ```text
 {"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
 ```
+
+Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
 
 | Response | Meaning |
 | --- | --- |
@@ -117,7 +297,10 @@ The error body has the same shape in every API. Resend with the same key only wh
 
 When execution slots run short, the request is not rejected. The session waits as `queued`.
 
+The SDK's error classes (`APIError`, `ConnectionError`, `TimeoutError`, and others), retry counts, and timeouts are the same for every call, so they are collected in [Client options and errors](/getting-started/client#errors).
+
 ## Next steps
 
 - [Status and lifecycle](/sessions/lifecycle): the states of sessions and turns
 - [Send](/messages/send): send more messages to the same session
+- [Examples in the repository](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md): SDK samples by use case: checking keys and the catalog, listing sessions, resuming events, retries, answering questions and permission requests, controls and recovery, push approval and PRs

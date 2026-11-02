@@ -1,5 +1,5 @@
 {
-  "id": "e459a9bf-f87f-4e83-aee6-15ba066c26e8",
+  "id": "a8da4eb5-7b94-4248-8218-4ae230d55eab",
   "prevId": "8ec91ca9-1d74-40ff-b3f6-78139d60c8e4",
   "version": "7",
   "dialect": "postgresql",
@@ -1678,6 +1678,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -1806,6 +1812,10 @@
         "agents_activation_check": {
           "name": "agents_activation_check",
           "value": "\"agents\".\"activation_revision\" >= -1 AND (\"agents\".\"active_release_id\" IS NULL) = (\"agents\".\"activation_revision\" = -1)"
+        },
+        "agents_description_check": {
+          "name": "agents_description_check",
+          "value": "\"agents\".\"description\" IS NULL OR length(\"agents\".\"description\") <= 2000"
         }
       },
       "isRLSEnabled": false
@@ -6601,56 +6611,6 @@
         }
       },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.push_continuations": {
-      "name": "push_continuations",
-      "schema": "",
-      "columns": {
-        "turn_id": {
-          "name": "turn_id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "continuation_turn_id": {
-          "name": "continuation_turn_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "push_continuations_turn_id_turns_id_fk": {
-          "name": "push_continuations_turn_id_turns_id_fk",
-          "tableFrom": "push_continuations",
-          "tableTo": "turns",
-          "columnsFrom": ["turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "push_continuations_continuation_turn_id_turns_id_fk": {
-          "name": "push_continuations_continuation_turn_id_turns_id_fk",
-          "tableFrom": "push_continuations",
-          "tableTo": "turns",
-          "columnsFrom": ["continuation_turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "push_continuations_continuation_turn_id_unique": {
-          "name": "push_continuations_continuation_turn_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["continuation_turn_id"]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

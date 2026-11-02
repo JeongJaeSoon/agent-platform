@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { githubFeaturesSchema } from "../musterrolle/github-settings.ts";
-import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "../shared/agent-card.ts";
+import {
+  AGENT_DESCRIPTION_MAX_LENGTH,
+  AGENT_INSTRUCTIONS_MAX_LENGTH,
+} from "../shared/agent-card.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,
@@ -18,7 +21,10 @@ import {
   workspaceIdSchema,
 } from "../shared/index.ts";
 
-export { AGENT_INSTRUCTIONS_MAX_LENGTH } from "../shared/agent-card.ts";
+export {
+  AGENT_DESCRIPTION_MAX_LENGTH,
+  AGENT_INSTRUCTIONS_MAX_LENGTH,
+} from "../shared/agent-card.ts";
 
 export const AGENT_STATUS_VALUES = ["active", "paused", "archived"] as const;
 export const agentStatusSchema = z.enum(AGENT_STATUS_VALUES);
@@ -125,9 +131,14 @@ export const agentCapabilitiesSchema = z
   .strict();
 
 /**
- * The card a person writes: role, instructions, model and capability range
- * (03 §4.1). `name` lives on the agent row, not here, so renaming an
- * agent does not mint a new immutable version.
+ * A card as read: model and capability range (03 §4.1). `name` and
+ * `description` live on the agent row, not here, so editing them does not
+ * mint a new immutable version.
+ *
+ * `role` and `instructions` never reach a run and are optional so a card
+ * without them reads; `agent_instructions` is what will. Requests still take
+ * `agentCardRequestSchema` until every image that may be rolled back to reads
+ * this shape (agent-wizard-rework.md, item 2).
  *
  * `.strict()` is what enforces "a card holds no secrets": there is
  * structurally nowhere to put one, and a credential field is rejected rather
@@ -135,13 +146,30 @@ export const agentCapabilitiesSchema = z
  */
 export const agentCardSchema = z
   .object({
-    role: z.string().min(1).max(200),
-    instructions: z.string().min(1).max(AGENT_INSTRUCTIONS_MAX_LENGTH),
+    role: z.string().min(1).max(200).optional(),
+    instructions: z
+      .string()
+      .min(1)
+      .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
+      .optional(),
+    agent_instructions: z
+      .string()
+      .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
+      .optional(),
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES).default("ko"),
     /** Must sit inside the runtime profile's model allowlist. */
     model: z.string().min(1).max(128),
     capabilities: agentCapabilitiesSchema,
     rules: z.array(agentRuleSchema).default([]),
+  })
+  .strict();
+
+/** The card a request may write: the shape every older image reads. */
+export const agentCardRequestSchema = agentCardSchema
+  .omit({ agent_instructions: true })
+  .extend({
+    role: z.string().min(1).max(200),
+    instructions: z.string().min(1).max(AGENT_INSTRUCTIONS_MAX_LENGTH),
   })
   .strict();
 
@@ -155,6 +183,15 @@ export const storedAgentCardSchema = agentCardSchema
   .extend({ tone: z.string().optional() })
   .transform(({ tone: _dropped, ...card }): AgentCard => card);
 
+// Postgres text cannot store NUL, so it is refused here rather than at insert.
+export const agentDescriptionSchema = z
+  .string()
+  .max(AGENT_DESCRIPTION_MAX_LENGTH)
+  .refine(
+    (description) => !description.includes("\u0000"),
+    "description must not contain NUL",
+  );
+
 /** `-1` until the first activation, which is why it is not a `revision`. */
 export const activationRevisionSchema = z.number().int().min(-1).max(INT4_MAX);
 
@@ -164,6 +201,8 @@ export const agentSchema = z
     workspace_id: workspaceIdSchema,
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
+    /** What the agent is for, to people only: no run reads it. */
+    description: agentDescriptionSchema.nullable(),
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
     activation_revision: activationRevisionSchema,
@@ -449,9 +488,14 @@ export const agentSummarySchema = z
     version: z
       .object({
         version_no: z.number().int().positive(),
-        role: z.string().min(1).max(200),
-        /** The first AGENT_SUMMARY_INSTRUCTIONS_MAX characters. */
-        instructions: z.string().min(1).max(AGENT_SUMMARY_INSTRUCTIONS_MAX),
+        /** Null for a card without one; the agent's `description` replaces it. */
+        role: z.string().min(1).max(200).nullable(),
+        /** The first AGENT_SUMMARY_INSTRUCTIONS_MAX characters, or null. */
+        instructions: z
+          .string()
+          .min(1)
+          .max(AGENT_SUMMARY_INSTRUCTIONS_MAX)
+          .nullable(),
         mcp_servers: z.array(mcpServerIdSchema),
         credential_refs: z.array(credentialRefSchema),
       })
@@ -538,14 +582,19 @@ export const createAgentRequestSchema = z
   .object({
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
-    card: agentCardSchema,
+    description: agentDescriptionSchema.optional(),
+    card: agentCardRequestSchema,
   })
   .strict();
-/** A `card` adds a version unless it equals one the agent already has. */
+/**
+ * A `card` adds a version unless it equals one the agent already has;
+ * `name` and `description` change the row only.
+ */
 export const updateAgentRequestSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
-    card: agentCardSchema.optional(),
+    description: agentDescriptionSchema.nullable().optional(),
+    card: agentCardRequestSchema.optional(),
   })
   .strict()
   .refine(
@@ -617,6 +666,7 @@ export type AgentStatus = z.infer<typeof agentStatusSchema>;
 export type AgentRule = z.infer<typeof agentRuleSchema>;
 export type AgentCapabilities = z.infer<typeof agentCapabilitiesSchema>;
 export type AgentCard = z.infer<typeof agentCardSchema>;
+export type AgentCardRequest = z.infer<typeof agentCardRequestSchema>;
 export type Agent = z.infer<typeof agentSchema>;
 export type AgentSummary = z.infer<typeof agentSummarySchema>;
 export type AgentListItem = z.infer<typeof agentListItemSchema>;
