@@ -468,10 +468,10 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
   // Ahead of auth and body checks, so refusals carry the header too.
   for (const route of DEPRECATED_ROUTES) {
     app.use(route.path, async (context, next) => {
-      if (context.req.method === route.method) {
-        context.header("Deprecation", "true");
-      }
       await next();
+      if (context.req.method === route.method) {
+        context.res.headers.set("Deprecation", "true");
+      }
     });
   }
   app.use("*", async (context, next) => {
