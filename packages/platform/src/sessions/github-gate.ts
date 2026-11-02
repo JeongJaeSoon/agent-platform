@@ -50,7 +50,6 @@ export function createGitHubGate(deps: {
   store: GitHubGateStore;
   catalog: SessionCatalog;
   connections: GitHubConnections;
-  /** Picks the console connection a repository is pinned to. */
   resolver?: GitHubConnectionResolver;
 }): GitHubGate {
   const { store, catalog, connections } = deps;

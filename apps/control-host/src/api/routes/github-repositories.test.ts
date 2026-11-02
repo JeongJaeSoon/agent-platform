@@ -228,7 +228,6 @@ function memoryRepositories() {
   return { store, receipts, rows, counts };
 }
 
-// The Postgres pin store's locking and receipts are its own integration test.
 function memoryPins() {
   const rows: GitHubRepositoryPin[] = [];
   const held = (repositoryId: string, role: string) =>
@@ -534,7 +533,6 @@ describe("the GitHub repository API", () => {
     const again = pickAgentGitHubRepositoryResponseSchema.parse(
       (await call("POST", agentPath(), { cookie: owner, body })).json,
     );
-    // The first pick pinned the repository to the App holding the installation.
     expect(first.connection_id).toBe(APP_ROW);
     expect(again).toEqual({
       catalog_id: "app",
@@ -560,7 +558,6 @@ describe("the GitHub repository API", () => {
   test("an owner reads a repository's pins and pins it to a connection whose App reaches it", async () => {
     const owner = cookieFor("owner");
     const pinsPath = workspacePath("/app/app-pins");
-    // The row from the pick above; picked again here should it run alone.
     await call("POST", agentPath(), {
       cookie: owner,
       body: {
@@ -595,8 +592,6 @@ describe("the GitHub repository API", () => {
       receipt_id: null,
     });
 
-    // A connection of another role, one not the workspace's, a file entry,
-    // a malformed or oversized body.
     const refusals = [
       [
         `${pinsPath}/reviewer`,
@@ -638,7 +633,6 @@ describe("the GitHub repository API", () => {
       (await call("GET", pinsPath, { cookie: cookieFor("member") })).status,
     ).toBe(403);
 
-    // GitHub not answering for the App is 502; nothing is pinned.
     github.failApp(APP_ID, 500);
     try {
       const failed = await call("PUT", `${pinsPath}/author`, {

@@ -51,7 +51,6 @@ function pinReceipt(input: {
   };
 }
 
-/** The connection each catalog repository's work uses, per role. */
 export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
   return {
     async get(repositoryId, role) {
@@ -113,7 +112,6 @@ export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
     set(input) {
       const workspaceId = input.workspaceId.toLowerCase();
       return db.transaction(async (tx) => {
-        // Serialized with the connection's removal and replacement.
         await lockGitHubApps(tx, workspaceId);
         const [connection] = await tx
           .select({

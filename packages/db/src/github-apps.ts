@@ -54,7 +54,6 @@ const keySlot = (row: Pick<Row, "id" | "workspaceId">): SecretSlot => ({
   purpose: "github_app_private_key",
 });
 
-/** The OAuth client secret of the connection people link with. */
 export const oauthSecretSlot = (
   row: Pick<Row, "id" | "workspaceId">,
 ): SecretSlot => ({
@@ -64,9 +63,8 @@ export const oauthSecretSlot = (
 });
 
 /**
- * The author connection people link their accounts with: the one chosen,
- * or, with none chosen, the only author connection (an earlier image
- * registers the first without choosing it). Null otherwise.
+ * With none chosen, the only author connection: an earlier image registers
+ * the first without choosing it.
  */
 export async function userLinkConnection(
   db: Database,
@@ -88,8 +86,6 @@ export async function userLinkConnection(
   return authors.length === 1 ? (authors[0] ?? null) : null;
 }
 
-// The secret belongs to the App it was made for: gone with the App, or once
-// another App or another connection takes over linking.
 async function dropOAuthSecret(
   tx: Database,
   row: Pick<Row, "id" | "workspaceId">,
@@ -101,7 +97,6 @@ async function dropOAuthSecret(
     .where(eq(githubWorkspaceSettings.workspaceId, row.workspaceId));
 }
 
-/** Upserts the settings row's link choice, as the never-saved ceiling when new. */
 async function chooseUserLink(
   tx: Database,
   workspaceId: string,
@@ -222,14 +217,8 @@ async function recordOf(
   };
 }
 
-// Sessions that can still take work: neither failed nor stopped.
 const ENDED_SESSION_STATUSES = ["failed", "stopped"] as const;
 
-/**
- * What removing the connection affects (decision github-agent.md 11.5): its
- * pinned repositories, the agents whose active release names one of them,
- * and the sessions still running on one.
- */
 async function usageOf(
   db: Database,
   row: Pick<Row, "id" | "workspaceId" | "role">,
@@ -398,7 +387,6 @@ export function createPostgresGitHubAppStore(
               )
               .returning({ id: catalogRepositoryGitHubApps.repositoryId })
           ).length;
-          // A new key for the same App keeps its OAuth client secret.
           if (link?.id === current.id) await dropOAuthSecret(tx, current);
         }
         const [row] = current
@@ -419,7 +407,6 @@ export function createPostgresGitHubAppStore(
               .returning();
         if (!row) throw new Error("GitHub App write returned no row");
         await writeSecretInTx(tx, key, keySlot(row), privateKey, userId);
-        // The pins this App had before it was removed come back with it.
         const pinsRestored =
           current?.appId === app.appId
             ? 0
@@ -436,9 +423,8 @@ export function createPostgresGitHubAppStore(
                   )
                   .returning({ id: catalogRepositoryGitHubApps.repositoryId })
               ).length;
-        // The first author connection is the one people link with; adding a
-        // second keeps the link on the first, which an earlier image may have
-        // left unchosen (decision github-agent.md 11.3).
+        // Writes down a first author connection an earlier image left
+        // unchosen, so adding a second keeps the link on it.
         let linked = link?.id === row.id;
         if (role === "author" && current === undefined) {
           const chosen = link?.id ?? (authors.length === 0 ? row.id : null);
@@ -504,7 +490,6 @@ export function createPostgresGitHubAppStore(
         }
         const usage = await usageOf(tx, row, linked);
         if (linked) {
-          // The last author connection: linking stops until another comes.
           await dropOAuthSecret(tx, row);
           await chooseUserLink(tx, workspaceId, null, null);
         }
@@ -564,7 +549,6 @@ export function createPostgresGitHubAppStore(
         const before = link?.id ?? null;
         const userId = audit.principal.actor?.userId ?? null;
         if (before === row.id) {
-          // Read as the only author connection: write it down, nothing else.
           await chooseUserLink(tx, workspaceId, row.id, userId);
           return { outcome: "stored", before, changed: false };
         }

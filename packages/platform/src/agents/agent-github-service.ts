@@ -84,13 +84,8 @@ export function createAgentGitHubService(deps: {
   githubSettings: Pick<GitHubSettingsStore, "get" | "appPermissions">;
   /** Each repository's connections, asked whether their App is installed. */
   connections?: GitHubConnections;
-  /** Picks the console connection a repository is pinned to. */
   resolver?: GitHubConnectionResolver;
-  /**
-   * The console connections and pins, so a feature's App permissions are
-   * read off the connection each repository is pinned to. Absent: the one
-   * App each role had before several Apps a role.
-   */
+  /** Absent: permissions come from `githubSettings.appPermissions`. */
   pinned?: {
     apps: Pick<GitHubAppStore, "list">;
     pins: Pick<GitHubPinStore, "list">;
@@ -148,9 +143,7 @@ export function createAgentGitHubService(deps: {
         );
         const app =
           pin === undefined
-            ? held.length === 1
-              ? held[0]
-              : undefined
+            ? undefined
             : held.find(
                 ({ id: connection }) => connection === pin.connectionId,
               );

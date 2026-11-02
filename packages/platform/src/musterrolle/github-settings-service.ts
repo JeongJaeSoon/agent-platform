@@ -389,10 +389,6 @@ export function createGitHubSettingsService(deps: {
       }
     },
 
-    /**
-     * The author connection people link their accounts with (decision
-     * github-agent.md 11.3); the client secret goes with the change.
-     */
     async putUserLinkApp(
       caller: Caller,
       workspaceId: string,

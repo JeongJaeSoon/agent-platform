@@ -111,7 +111,6 @@ function fakeConnection(
     kind?: "app" | "pat";
     githubCom?: boolean;
     appId?: number;
-    /** Its installation's answer for every repository; default true. */
     installed?: boolean | null;
   } = {},
 ) {
@@ -167,7 +166,6 @@ function harness(
     reviewer?: ReturnType<typeof fakeConnection> | null;
     dispatches?: GitHubDispatchRecord[];
     catalog?: SessionCatalog;
-    /** Console connections by role, in place of the fixed author/reviewer. */
     registered?: Partial<
       Record<GitHubAppRole, readonly RegisteredGitHubConnection[]>
     >;
@@ -1097,7 +1095,6 @@ function registered(
   return { fake, entry: { id, appId, connection: fake.connection } };
 }
 
-// Decision github-agent.md 11.2: a repository's console connection.
 describe("registered connections", () => {
   test("the one connection that reaches an unpinned repository pins it at the first mint and is used after", async () => {
     const a = registered(CONNECTION_A, 101);
@@ -1126,7 +1123,6 @@ describe("registered connections", () => {
     });
     expect(b.fake.issued).toEqual([]);
 
-    // Pinned now: b reaching it later does not move the work.
     const later = harness({
       registered: {
         author: [
@@ -1194,16 +1190,18 @@ describe("registered connections", () => {
   });
 
   test("no connection reaching it, or GitHub not answering, fails with a receipt and pins nothing", async () => {
-    for (const [installed, pinState] of [
-      [false, "none_unreachable"],
-      [null, "lookup_failed"],
+    for (const [installed, other, pinState] of [
+      [false, false, "none_unreachable"],
+      [null, false, "lookup_failed"],
+      // B reaches it, but A unanswered might too: never pick among the rest.
+      [null, true, "lookup_failed"],
     ] as const) {
       const { pins, rows } = memoryPins();
       const { grant, receipts } = harness({
         registered: {
           author: [
             registered(CONNECTION_A, 101, installed).entry,
-            registered(CONNECTION_B, 102, false).entry,
+            registered(CONNECTION_B, 102, other).entry,
           ],
         },
         pins,
@@ -1355,7 +1353,6 @@ describe("connection resolver", () => {
     });
     expect(plain.rows.size).toBe(0);
 
-    // The pin read found none, then another request pinned b first.
     const raced = memoryPins();
     const racing: Pick<GitHubPinStore, "get" | "pinFirst"> = {
       get: async () => null,

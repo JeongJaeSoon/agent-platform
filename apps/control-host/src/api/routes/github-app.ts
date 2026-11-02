@@ -25,8 +25,6 @@ import {
 } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 
-// `/github-app` is the author App's, kept as it was; `/github-apps/{role}`
-// names a role or a connection id.
 function target(context: Context<ApiEnvironment>): {
   workspaceId: string;
   ref: GitHubAppRef;

@@ -82,7 +82,6 @@ const apps = {
   },
 } as unknown as GitHubAppStore;
 
-/** Pins as the Postgres store keeps them, without the receipts. */
 function memoryPins(): GitHubPinStore & { rows: GitHubRepositoryPin[] } {
   const rows: GitHubRepositoryPin[] = [];
   const held = (repositoryId: string, role: string) =>
@@ -631,7 +630,6 @@ describe("picking a GitHub App repository for an agent", () => {
   });
 });
 
-// Two author Apps: "author-a" holds installation 11, "author-b" INSTALLATION.
 const twoAuthors = {
   async get(_workspaceId: string, id: string) {
     return ["author-a", "author-b", "reviewer-row"].includes(id)
@@ -686,7 +684,6 @@ describe("several Apps of one role (decision github-agent.md 11)", () => {
         pinnedBy: "selection",
       },
     ]);
-    // An admin's pin elsewhere is left as it is by a later pick.
     pins.rows[0] = {
       ...(pins.rows[0] as GitHubRepositoryPin),
       connectionId: "author-a",
@@ -706,7 +703,6 @@ describe("several Apps of one role (decision github-agent.md 11)", () => {
     }
     const named = await list(INSTALLATION);
     expect(named.installation_id).toBe(INSTALLATION);
-    // One App a role keeps the page it had.
     const single = serviceWith(
       {
         async installationRepositoriesPage() {

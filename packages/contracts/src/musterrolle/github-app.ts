@@ -8,10 +8,10 @@ import {
 import { githubAppRoleSchema } from "./github-settings.ts";
 import { displayNameSchema, workspaceParamsSchema } from "./workspaces.ts";
 
-// The workspace's GitHub Apps, registered in the console: the author App,
-// with which catalog repositories whose `auth` is `{ kind: github_app }`
-// clone, push and open pull requests, and an optional reviewer App that only
-// reviews. A private key goes in once and is never read back.
+// The workspace's GitHub App connections, registered in the console: author
+// Apps, with which catalog repositories whose `auth` is `{ kind: github_app }`
+// clone, push and open pull requests, and reviewer Apps that only review. A
+// private key goes in once and is never read back.
 
 /**
  * `role` names a role (`author`, `reviewer`), served while that role has at

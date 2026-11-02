@@ -333,7 +333,6 @@ describe("connectionsOf", () => {
       },
       fresh: false,
     });
-    // One connection a repository, so one token cache.
     expect(fixedOf(connections("app", "author"))).toBe(
       fixedOf(connections("app", "author")),
     );
@@ -344,7 +343,6 @@ describe("connectionsOf", () => {
   });
 });
 
-/** One role's first console connection, as there was one a role before. */
 function registeredFor({
   role,
   ...options
@@ -535,7 +533,6 @@ describe("the App registered in the console", () => {
       },
       { registered: (role) => registered.connections(role) },
     );
-    // Before the first read: candidates, none yet.
     expect(connections("app", "author")).toEqual({
       kind: "registered",
       candidates: [],

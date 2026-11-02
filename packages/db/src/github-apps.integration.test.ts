@@ -65,7 +65,6 @@ const REVIEWER = { kind: "role", role: "reviewer" } as const;
 const add = (role: GitHubAppRole) => ({ kind: "add", role }) as const;
 const byId = (id: string) => ({ kind: "connection", id }) as const;
 
-/** The role's connection while it has one, as a role address reads it. */
 async function findRole(
   store: GitHubAppStore,
   workspaceId: string,
@@ -285,7 +284,6 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(rows).toHaveLength(1);
   });
 
-  // Decision github-agent.md 11.1.
   test("two Apps of one role are two connections; a role address then refuses, a connection id does not", async () => {
     const store = createPostgresGitHubAppStore(db, key);
     const ws = await workspace();
@@ -310,7 +308,6 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(await store.delete(ws, AUTHOR, owner())).toEqual({
       outcome: "ambiguous_role",
     });
-    // A connection id takes a new key for its own App only.
     expect(
       await store.put(ws, byId(b.id), profile(103), pemOf(), owner()),
     ).toEqual({ outcome: "app_id_mismatch" });
@@ -333,11 +330,9 @@ integration("the GitHub App on PostgreSQL", () => {
       await store.put(ws, byId(randomUUID()), profile(102), pemOf(), owner()),
     ).toEqual({ outcome: "not_found" });
 
-    // One App is one connection, whatever the role.
     expect(
       await store.put(ws, add("reviewer"), profile(101), pemOf(), owner()),
     ).toEqual({ outcome: "same_app" });
-    // The constraint itself, not only the store, keeps it to one.
     const duplicate = await db
       .insert(githubApps)
       .values({
@@ -567,8 +562,6 @@ integration("the GitHub App on PostgreSQL", () => {
     ).toEqual([]);
   });
 
-  // Decision github-agent.md 11.3: the first author connection links; the
-  // choice moves only by setUserLink, and the secret goes with it.
   test("people link with the first author connection until another is chosen; its secret stays its own", async () => {
     const store = createPostgresGitHubAppStore(db, key);
     const oauth = createPostgresGitHubOAuthStore(db, key);
@@ -589,7 +582,6 @@ integration("the GitHub App on PostgreSQL", () => {
     const reviewer = await stored(
       await store.put(ws, REVIEWER, profile(113), pemOf(), owner()),
     );
-    // Adding another author connection leaves the link and its secret.
     expect(await oauth.status(ws)).toEqual({
       authorApp: true,
       connectionId: a.id,
@@ -599,8 +591,6 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(await store.usage(ws, a.id)).toMatchObject({ user_link: true });
     expect(await store.usage(ws, b.id)).toMatchObject({ user_link: false });
 
-    // Rule B: the linked connection is not removed while another author one
-    // could take over; the choice is the owner's to make first.
     expect(await store.delete(ws, byId(a.id), owner())).toEqual({
       outcome: "in_use_for_user_link",
     });
@@ -644,7 +634,6 @@ integration("the GitHub App on PostgreSQL", () => {
         .where(eq(receipts.id, audit(again))),
     ).toEqual([]);
 
-    // Now a goes; b, the linked one and the last author, goes with the link.
     expect((await store.delete(ws, byId(a.id), owner())).outcome).toBe(
       "deleted",
     );
@@ -663,7 +652,6 @@ integration("the GitHub App on PostgreSQL", () => {
     expect(settings?.chosen).toBeNull();
   });
 
-  // Decision github-agent.md 11.2 and 11.5.
   test("pins: the usage counts them, removal empties them, the same App added back fills them, another App by role clears them", async () => {
     const store = createPostgresGitHubAppStore(db, key);
     const pins = createPostgresGitHubPinStore(db);
@@ -687,7 +675,6 @@ integration("the GitHub App on PostgreSQL", () => {
         }),
       ).toMatchObject({ created: true, pin: { connectionId: b.id } });
     }
-    // A pin made stays: a later first mint or selection answers it.
     const held = await pins.pinFirst({
       repositoryId: repo("one"),
       role: "author",
@@ -706,8 +693,6 @@ integration("the GitHub App on PostgreSQL", () => {
     });
     expect(held).toMatchObject({ created: false, pin: { connectionId: b.id } });
 
-    // An agent with GitHub on whose active release names one of them, and a
-    // session still running on one.
     const agentId = randomUUID();
     await db.insert(agents).values({
       id: agentId,
@@ -759,7 +744,6 @@ integration("the GitHub App on PostgreSQL", () => {
     });
     expect(await store.usage(await workspace(), b.id)).toBeNull();
 
-    // Removing b keeps its pins, emptied, with the App they were made for.
     expect(await store.delete(ws, byId(b.id), owner())).toMatchObject({
       outcome: "deleted",
       usage: { pinned_repository_count: 2, agent_count: 1 },
@@ -771,7 +755,6 @@ integration("the GitHub App on PostgreSQL", () => {
       appId: 122,
       pinnedBy: "first_mint",
     });
-    // An admin re-pins one to a; the other waits for App 122 to come back.
     const actor = {
       principal: { kind: "user" as const, id: randomUUID() },
       actor_user_id: null,
@@ -835,8 +818,6 @@ integration("the GitHub App on PostgreSQL", () => {
     expect((await pins.get(repo("two"), "author"))?.connectionId).toBe(c.id);
     expect((await pins.get(repo("one"), "author"))?.connectionId).toBe(a.id);
 
-    // Replacing c by its id with another App is refused; by role it is
-    // ambiguous here, so clear one first and replace a through the role.
     await store.delete(ws, byId(c.id), owner());
     const replaced = await store.put(
       ws,
@@ -847,14 +828,17 @@ integration("the GitHub App on PostgreSQL", () => {
     );
     expect(replaced).toMatchObject({ outcome: "stored", pinsCleared: 1 });
     expect(await pins.get(repo("one"), "author")).toBeNull();
-    const [setReceipt] = await db
+    const setReceipts = await db
       .select({ result: receipts.result })
       .from(receipts)
       .where(
         and(eq(receipts.ownerId, ws), eq(receipts.operation, "set_github_app")),
       )
       .orderBy(receipts.createdAt);
-    expect(setReceipt).toBeDefined();
+    expect(setReceipts.at(-1)?.result).toMatchObject({
+      app_id: 123,
+      pins_cleared: 1,
+    });
     const pinRows = await db
       .select()
       .from(catalogRepositoryGitHubApps)
@@ -901,8 +885,6 @@ integration("the GitHub App on PostgreSQL", () => {
     });
     expect(JSON.stringify(written).includes(secret)).toBe(false);
 
-    // A second one sits beside it; people still link with the first, whose
-    // secret stays, and the new App's secret is not kept.
     const second = fakeGitHubClientSecret();
     const next = await stored(
       await store.put(ws, add("author"), profile(132), pemOf(), owner(), {

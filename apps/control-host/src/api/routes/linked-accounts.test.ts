@@ -36,7 +36,6 @@ const createApiApp = recordRouteErrors("routes/linked-accounts.test.ts");
 
 const PERSON = "019a0000-0000-7000-8000-0000000000a1";
 const GITHUB_CONNECTION = "019a0000-0000-7000-8000-0000000000c9";
-/** The connection people link with now; a test changes it mid-link. */
 let linkConnection = GITHUB_CONNECTION;
 const LINK_ID = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const RECEIPT = "4d6d1a3e-1f1c-4c3a-9f3e-2b1c1d1e1f10";
@@ -926,8 +925,6 @@ describe("POST /v1/linked-accounts/github/callback", () => {
     expect(githubExchanges.length).toBe(exchangesBefore);
   });
 
-  // Decision github-agent.md 11.3: the state is bound to the connection
-  // whose client issued it.
   test("a link started before the linking App changed is 400 and its code is not exchanged", async () => {
     const api = githubApp();
     const exchangesBefore = githubExchanges.length;

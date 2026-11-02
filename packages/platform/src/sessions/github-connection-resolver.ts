@@ -8,10 +8,6 @@ import type {
   RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
 
-/**
- * Which connection serves a repository's work for a role, as decision
- * github-agent.md 11 ("저장소에 고정된 연결") lays it out.
- */
 export type GitHubConnectionChoice =
   | {
       kind: "connection";
@@ -171,7 +167,6 @@ export function createGitHubConnectionResolver(deps: {
         appId: only.appId,
         pinnedBy: "first_mint",
       });
-      // Another request pinned it first: that pin decides.
       if (!created) return held(candidates, kept.connectionId);
       return {
         kind: "connection",

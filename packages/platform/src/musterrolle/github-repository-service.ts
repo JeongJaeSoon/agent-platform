@@ -263,8 +263,6 @@ export function createGitHubRepositoryService(deps: {
             )
           ).flat();
     if (apps.length === 0) return emptyPage(query, "no_author_app");
-    // Decision github-agent.md 11.4 as the lead read it: the page names its
-    // installation only when the role it would default to has several Apps.
     const defaultRole = apps[0]?.role;
     if (
       query.installation_id === undefined &&
@@ -461,10 +459,6 @@ export function createGitHubRepositoryService(deps: {
     }
   }
 
-  /**
-   * Whether the App's work reaches the row now: an installation covers it
-   * and GitHub has not suspended that installation. Throws GitHub's failure.
-   */
   async function reaches(
     app: Credential,
     row: { owner: string; name: string },
@@ -480,7 +474,6 @@ export function createGitHubRepositoryService(deps: {
     return installation !== undefined && installation.suspendedAt === null;
   }
 
-  /** True when any author App covers the row; false only when all said no. */
   async function installedByAny(
     apps: readonly Credential[],
     row: CatalogRepositoryRow,
@@ -521,7 +514,6 @@ export function createGitHubRepositoryService(deps: {
     );
   }
 
-  /** A console row by id; an operator file entry keeps its own App. */
   async function ownRow(repositoryId: string): Promise<CatalogRepositoryRow> {
     if (reserved.has(repositoryId)) {
       throw refused(
@@ -536,7 +528,6 @@ export function createGitHubRepositoryService(deps: {
     return row;
   }
 
-  /** Every row's pins in one read; empty without a pin store. */
   async function pinTable() {
     const pins = (await deps.pins?.list()) ?? [];
     return (id: string): GitHubRepositoryPins => {
@@ -782,7 +773,6 @@ export function createGitHubRepositoryService(deps: {
       }
       if (result.outcome !== "resolved") throw ACTOR_INACTIVE();
       if (result.changed) await reload();
-      // A pin made before, an admin's included, stays as it is.
       const pinned = await deps.pins?.pinFirst({
         repositoryId: result.repository.id,
         role: "author",
@@ -803,7 +793,6 @@ export function createGitHubRepositoryService(deps: {
       };
     },
 
-    /** The connections a repository's pins may be set to, and its pins. */
     async pinCandidates(
       caller: Caller,
       workspaceId: string,
@@ -846,10 +835,6 @@ export function createGitHubRepositoryService(deps: {
       };
     },
 
-    /**
-     * An admin's pin. The connection's App must cover the repository now,
-     * so a pin never points at an App that cannot reach it.
-     */
     async setPin(
       caller: Caller,
       workspaceId: string,

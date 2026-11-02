@@ -1096,11 +1096,7 @@ function dateOf(raw: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/**
- * A connection per console App, each rebuilt (and its token cache dropped)
- * when its App or key changes. `refresh` reads the store; until the first
- * read there are none.
- */
+/** Holds no connections until the first `refresh`. */
 export function createRegisteredGitHubConnections(
   options: {
     store: Pick<GitHubAppStore, "credentials"> | null;
@@ -1130,8 +1126,6 @@ export function createRegisteredGitHubConnections(
                 id: app.id,
                 appId: app.appId,
                 version,
-                // A new connection, so a changed App or key starts with an
-                // empty token cache.
                 connection: createGitHubConnection({
                   ...connectionOptions,
                   apiBase: app.apiBase,

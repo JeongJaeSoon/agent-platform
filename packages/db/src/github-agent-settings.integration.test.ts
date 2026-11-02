@@ -136,8 +136,7 @@ integration("GitHub agent settings, expand", () => {
     expect(await store.credentials("reviewer")).toEqual([]);
 
     // The image from before writes rows without a role or a switch: they
-    // land as an author App and an agent with GitHub on. Another author App
-    // is now a second connection; the same App twice is still refused.
+    // land as an author App and an agent with GitHub on.
     await insertApp(randomUUID(), 7);
     await expect(insertApp(randomUUID(), 7)).rejects.toThrow(
       "github_apps_workspace_app_uniq",

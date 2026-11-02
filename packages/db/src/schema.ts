@@ -526,9 +526,8 @@ export const slackConfigTokens = pgTable(
   ],
 );
 
-// The workspace's GitHub App connections, registered in the console: any
-// number per role, one row per App. Its private key is a secret_values row
-// owned by `github_app:<id>`.
+// A GitHub App connection registered in the console. Its private key is a
+// secret_values row owned by `github_app:<id>`.
 export const githubApps = pgTable(
   "github_apps",
   {

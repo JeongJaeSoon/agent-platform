@@ -62,7 +62,6 @@ export function createOutcomeRefresher(deps: {
   gate: GitHubGate;
   catalog: SessionCatalog;
   connections: GitHubConnections;
-  /** Picks the console connection a repository is pinned to. */
   resolver?: GitHubConnectionResolver;
   logger: Logger;
   claimMax?: number;
@@ -146,7 +145,6 @@ export function createOutcomeRefresher(deps: {
     return { byKey, unreachable };
   }
 
-  /** Why no App reached the repository: not installed, or GitHub failing. */
   async function reachFailure(
     repositoryId: string,
   ): Promise<SessionOutcomeCheckError> {
@@ -195,7 +193,6 @@ export function createOutcomeRefresher(deps: {
       if (error instanceof ForgeCredentialError) {
         return failed(await reachFailure(outcome.repositoryId));
       }
-      // A console connection that reaches nothing, or GitHub not saying which.
       if (error instanceof GitHubUnavailableError) {
         const source = deps.connections(outcome.repositoryId, "author");
         return failed(

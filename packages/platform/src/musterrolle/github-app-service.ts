@@ -346,7 +346,6 @@ export function createGitHubAppService(deps: {
       };
     },
 
-    /** Every connection, author ones first; no GitHub call. */
     async list(
       caller: Caller,
       workspaceId: string,
@@ -358,7 +357,6 @@ export function createGitHubAppService(deps: {
       };
     },
 
-    /** Adds a connection; any number may share a role. */
     async add(
       caller: Caller,
       workspaceId: string,
@@ -401,8 +399,7 @@ export function createGitHubAppService(deps: {
     /**
      * A manifest for a new author App and the GitHub URL the browser posts it
      * to, with a single-use state bound to the caller (design
-     * github-app-manifest.md). The App it makes is another author
-     * connection; `replace` is ignored.
+     * github-app-manifest.md).
      */
     async startManifest(
       caller: Caller,
@@ -577,11 +574,6 @@ export function createGitHubAppService(deps: {
       };
     },
 
-    /**
-     * Removes a connection (decision github-agent.md 11.5). Only the one
-     * people link their accounts with is kept while another author
-     * connection could take over; the last author connection goes.
-     */
     async remove(
       caller: Caller,
       workspaceId: string,
@@ -619,7 +611,6 @@ export function createGitHubAppService(deps: {
     },
   };
 
-  /** The role's only connection, or the connection that id names. */
   async function recordOf(
     store: GitHubAppStore,
     workspaceId: string,
@@ -631,7 +622,6 @@ export function createGitHubAppService(deps: {
     return held[0] ?? null;
   }
 
-  /** Checks the key against GitHub, then stores it for `target`. */
   async function write(
     store: GitHubAppStore,
     caller: Caller,

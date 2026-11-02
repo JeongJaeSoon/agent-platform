@@ -127,7 +127,6 @@ function memoryStore() {
     async put(_workspaceId, target, app, key, _audit, manifest) {
       if (failing) throw new Error("database went away");
       if (outranked) return { outcome: "outranked" };
-      // The routes here only ever add author connections.
       if (target.kind !== "add" || target.role !== "author") {
         throw new Error(`not reached: ${target.kind}`);
       }
@@ -438,8 +437,6 @@ describe("making the author GitHub App from a manifest", () => {
     ).toEqual(expect.arrayContaining(["expired", "actor", "not_found"]));
   });
 
-  // Decision github-agent.md 11: a manifest adds a connection beside the
-  // ones registered, with or without `replace`, which is ignored.
   test("with an author App registered, a manifest adds another author connection", async () => {
     memory.clear();
     memory.hold(5001);
@@ -453,7 +450,6 @@ describe("making the author GitHub App from a manifest", () => {
       expect(done.status).toBe(200);
     }
     expect(memory.held()).toEqual([5001, nextApp - 2, nextApp - 1]);
-    // Raced by a registration in between: still added, nothing overwritten.
     const raced = await started(call, owner, ORG);
     memory.hold(5002);
     const done = await call("manifest/complete", {

@@ -55,8 +55,7 @@ export function issueGitHubLinkState(
 
 /**
  * Spends the cookie whatever the outcome. The connection it was issued for
- * when it matches in time; null otherwise. The caller compares that to the
- * connection people link with now.
+ * when it matches in time; null otherwise.
  */
 export function consumeGitHubLinkState(
   context: Context,

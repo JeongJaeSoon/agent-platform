@@ -117,7 +117,6 @@ function memoryStore() {
         row.role === role &&
         (workspaceId === undefined || row.record.workspaceId === workspaceId),
     );
-  // A role address names a connection only while the role has at most one.
   const resolve = (
     workspaceId: string,
     target: GitHubAppTarget,
@@ -886,7 +885,6 @@ describe("the GitHub App API by role", () => {
         details: { reason_code: "ambiguous_role" },
       });
     }
-    // One App is one connection, whatever the role.
     const again = await call("POST", {
       cookie: owner,
       path: "github-apps",
