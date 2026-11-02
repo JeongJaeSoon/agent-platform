@@ -24,16 +24,17 @@ import {
   FormActions,
   formatTimestamp,
   Input,
+  Link,
   RowListItem,
   SettingRow,
   SettingsSection,
   Skeleton,
+  Steps,
 } from "@werft-ai/ui";
 import {
   type FormEvent,
   type ReactNode,
   useEffect,
-  useId,
   useRef,
   useState,
 } from "react";
@@ -54,17 +55,47 @@ import {
   SlackGuest,
   WorkspacePage,
 } from "./workspace-settings.tsx";
-import { SlackApps } from "./workspace-slack-apps.tsx";
+import { SlackApps, useWorkspaceSlackApps } from "./workspace-slack-apps.tsx";
 
 // Row buttons share one width down the right edge.
 const ACTION = "min-w-12";
+const SLACK_APPS_URL = "https://api.slack.com/apps";
 
 const tokenKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "slack-config-token");
 
-/** Workspace › Slack: who may use agents from Slack, the app-making token, and the apps it made. */
+function useConfigToken() {
+  const { client } = useAgentPlatform();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const canManage = useHasPermission("workspace.manage");
+  return useQuery({
+    queryKey: tokenKey(client, workspaceId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/workspaces/{id}/slack/config-token", {
+          params: { path: { id: workspaceId } },
+        }),
+      ),
+    enabled: workspaceId !== "" && canManage,
+    retry: (failures, error) => !storeOff(error) && failures < 3,
+  });
+}
+
+/**
+ * Workspace › Slack: the app-making token first, then who may use agents
+ * from Slack and the apps the token made. Until a token works and no app
+ * exists, nothing below it can take effect, so only the token is shown.
+ */
 export function WorkspaceSlackScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const token = useConfigToken();
+  const apps = useWorkspaceSlackApps();
+  // Both reads must answer: a pending or failed one is not an empty workspace,
+  // and members can read neither.
+  const tokenOnly =
+    token.data !== undefined &&
+    token.data.state !== "active" &&
+    apps.data?.items.length === 0;
   return (
     <WorkspacePage page="slack">
       {outcome ? (
@@ -74,8 +105,18 @@ export function WorkspaceSlackScreen() {
           <Notice>{outcome.text}</Notice>
         )
       ) : null}
-      <SlackGuest onOutcome={setOutcome} />
-      <ConfigToken onOutcome={setOutcome} after={<SlackApps />} />
+      <ConfigToken
+        start={tokenOnly && token.data?.state === "unset"}
+        onOutcome={setOutcome}
+        after={
+          tokenOnly ? null : (
+            <>
+              <SlackGuest onOutcome={setOutcome} />
+              <SlackApps />
+            </>
+          )
+        }
+      />
     </WorkspacePage>
   );
 }
@@ -85,9 +126,12 @@ export function WorkspaceSlackScreen() {
  * comes back. Replacing it is the same PUT as setting it the first time.
  */
 function ConfigToken({
+  start,
   onOutcome,
   after,
 }: {
+  /** No token and no app yet: one card that starts the connection. */
+  readonly start: boolean;
   readonly onOutcome: OnOutcome;
   /** Sections under the token card; its danger zone stays last on the page. */
   readonly after?: ReactNode;
@@ -100,44 +144,39 @@ function ConfigToken({
   const canManage = useHasPermission("workspace.manage");
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [missing, setMissing] = useState(false);
-  const inputId = useId();
-  const hintId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
-  // The form replaces the button that opened it; focus follows each swap so
-  // a keyboard user keeps their place.
+  // Saving or deleting can swap the button that held the focus for another.
+  const focusOnState = useRef(false);
+  const token = useConfigToken();
+  const summary = token.data;
+  // The form replaces the button that opened it; focus returns to that
+  // button when the form closes, unless the user already moved on.
   useEffect(() => {
-    if (editing) inputRef.current?.focus();
-    // Only when the closing form took focus with it, not when the user moved.
-    else if (wasEditing.current && document.activeElement === document.body)
+    if (
+      !editing &&
+      wasEditing.current &&
+      document.activeElement === document.body
+    )
       actionRef.current?.focus();
     wasEditing.current = editing;
   }, [editing]);
+  useEffect(() => {
+    if (summary?.state && focusOnState.current) {
+      focusOnState.current = false;
+      actionRef.current?.focus();
+    }
+  }, [summary?.state]);
 
-  const token = useQuery({
-    queryKey: tokenKey(client, workspaceId),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/workspaces/{id}/slack/config-token", {
-          params: { path: { id: workspaceId } },
-        }),
-      ),
-    enabled: workspaceId !== "" && canManage,
-    retry: (failures, error) => !storeOff(error) && failures < 3,
-  });
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: tokenKey(client, workspaceId) });
-  const refused = (error: ApiError) =>
-    onOutcome({
-      kind: "error",
-      text: isApiError(error, "CONFIG_TOKEN_INVALID")
-        ? t("workspace.tokenRejected")
-        : storeOff(error)
-          ? t("workspace.tokenStoreUnavailable")
-          : refusalText(t, error, "workspace.manage", role),
-    });
+  const refusal = (error: ApiError) =>
+    isApiError(error, "CONFIG_TOKEN_INVALID")
+      ? t("workspace.tokenRejected")
+      : storeOff(error)
+        ? t("workspace.tokenStoreUnavailable")
+        : refusalText(t, error, "workspace.manage", role);
 
   const save = useMutation<PutSlackConfigTokenResponse, ApiError, string>({
     // The variables hold the token; keep it nowhere once the attempt ends.
@@ -149,8 +188,12 @@ function ConfigToken({
           body: { value },
         }),
       ),
-    onMutate: () => onOutcome(null),
+    onMutate: () => {
+      onOutcome(null);
+      setFormError(null);
+    },
     onSuccess: async (stored) => {
+      if (summary?.state !== "active") focusOnState.current = true;
       setEditing(false);
       onOutcome({
         kind: "notice",
@@ -163,7 +206,11 @@ function ConfigToken({
       // Not awaited: the reset that drops the value waits for this callback.
       void refresh();
     },
-    onError: refused,
+    onError: (error) => {
+      setFormError(refusal(error));
+      // A lost answer may still have spent the pasted token; read the state.
+      void refresh();
+    },
   });
   const remove = useMutation<unknown, ApiError>({
     mutationFn: () =>
@@ -175,6 +222,7 @@ function ConfigToken({
     onMutate: () => onOutcome(null),
     onSuccess: async () => {
       setDeleting(false);
+      focusOnState.current = true;
       onOutcome({ kind: "notice", text: t("workspace.tokenDeleted") });
       await refresh();
     },
@@ -188,27 +236,49 @@ function ConfigToken({
           return;
         }
       }
-      refused(error);
+      onOutcome({ kind: "error", text: refusal(error) });
     },
   });
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const input = event.currentTarget.elements.namedItem("token");
-    const value = input instanceof HTMLInputElement ? input.value.trim() : "";
-    if (!value) {
-      setMissing(true);
-      if (input instanceof HTMLInputElement) input.focus();
-      return;
-    }
-    setMissing(false);
-    if (!save.isPending) {
-      // Detach the observer so gcTime 0 drops the attempt and its value.
-      save.mutate(value, { onSettled: () => save.reset() });
-    }
+  const close = () => {
+    setFormError(null);
+    setEditing(false);
   };
+  const form = editing ? (
+    <TokenForm
+      pending={save.isPending}
+      error={formError}
+      onCancel={close}
+      onSubmit={(value) => {
+        if (!save.isPending) {
+          // Detach the observer so gcTime 0 drops the attempt and its value.
+          save.mutate(value, { onSettled: () => save.reset() });
+        }
+      }}
+    />
+  ) : null;
 
-  const summary = token.data;
+  if (start) {
+    return (
+      <SettingsSection
+        title={t("workspace.slackStart")}
+        description={t("workspace.slackStartHint")}
+        rows={form ? <RowListItem>{form}</RowListItem> : undefined}
+        foot={
+          form ? undefined : (
+            <Button
+              ref={actionRef}
+              type="button"
+              onClick={() => setEditing(true)}
+            >
+              {t("workspace.tokenAdd")}
+            </Button>
+          )
+        }
+      />
+    );
+  }
+
   const rows = !canManage ? (
     <SettingRow
       title={t("workspace.token")}
@@ -241,77 +311,29 @@ function ConfigToken({
               ref={actionRef}
               type="button"
               size="sm"
-              variant={
-                summary?.state === "needs_reentry" ? "default" : "outline"
-              }
+              variant={summary?.state === "active" ? "outline" : "default"}
               className={ACTION}
               onClick={() => setEditing(true)}
             >
               {t(
-                summary?.state === "unset"
-                  ? "workspace.tokenAdd"
-                  : "workspace.tokenReplace",
+                summary?.state === "active"
+                  ? "workspace.tokenReplace"
+                  : summary?.state === "needs_reentry"
+                    ? "workspace.tokenReenter"
+                    : "workspace.tokenAdd",
               )}
             </Button>
           )
         }
       />
-      {editing ? (
-        <RowListItem>
-          <form
-            className="flex w-full flex-col gap-4"
-            noValidate
-            onSubmit={submit}
-          >
-            <Field>
-              <FieldLabel htmlFor={inputId}>
-                {t("workspace.tokenNew")}
-              </FieldLabel>
-              <Input
-                ref={inputRef}
-                id={inputId}
-                className="max-w-105"
-                name="token"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                aria-describedby={hintId}
-                onChange={(event) => {
-                  if (event.target.value.trim()) setMissing(false);
-                }}
-              />
-              <FieldDescription id={hintId}>
-                {t("workspace.tokenNewHint")}
-              </FieldDescription>
-              {missing ? (
-                <FieldError>{t("workspace.tokenMissing")}</FieldError>
-              ) : null}
-            </Field>
-            <FormActions>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setMissing(false);
-                  setEditing(false);
-                }}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" aria-disabled={save.isPending || undefined}>
-                {t("workspace.save")}
-              </Button>
-            </FormActions>
-          </form>
-        </RowListItem>
-      ) : null}
+      {form ? <RowListItem>{form}</RowListItem> : null}
     </>
   );
 
   return (
     <>
       <SettingsSection
-        title={t("workspace.token")}
+        title={t("workspace.tokenSection")}
         description={t("workspace.tokenHint")}
         rows={rows}
       />
@@ -345,6 +367,88 @@ function ConfigToken({
   );
 }
 
+/** Where to find the value in Slack, then the field that takes it. */
+function TokenForm({
+  pending,
+  error,
+  onCancel,
+  onSubmit,
+}: {
+  readonly pending: boolean;
+  readonly error: string | null;
+  readonly onCancel: () => void;
+  readonly onSubmit: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  const [missing, setMissing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Mounted by the button that opened it; the field is where the user goes.
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const input = event.currentTarget.elements.namedItem("token");
+    const value = input instanceof HTMLInputElement ? input.value.trim() : "";
+    if (!value) {
+      setMissing(true);
+      if (input instanceof HTMLInputElement) input.focus();
+      return;
+    }
+    setMissing(false);
+    onSubmit(value);
+  };
+  const shownError = missing ? t("workspace.tokenMissing") : error;
+
+  return (
+    <form className="flex w-full flex-col gap-4" noValidate onSubmit={submit}>
+      <Steps
+        items={[
+          {
+            id: "open",
+            title: (
+              <Link
+                href={SLACK_APPS_URL}
+                target="_blank"
+                newTabLabel={t("slack.newTab")}
+              >
+                {t("workspace.tokenStepOpen")}
+              </Link>
+            ),
+          },
+          { id: "generate", title: t("workspace.tokenStepGenerate") },
+          { id: "paste", title: t("workspace.tokenStepPaste") },
+        ]}
+      />
+      <Field>
+        <FieldLabel>{t("workspace.tokenNew")}</FieldLabel>
+        <Input
+          ref={inputRef}
+          className="max-w-105"
+          name="token"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => {
+            if (event.target.value.trim()) setMissing(false);
+          }}
+        />
+        <FieldDescription>{t("workspace.tokenNewHint")}</FieldDescription>
+        <FieldError>{shownError}</FieldError>
+      </Field>
+      <FormActions>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" aria-disabled={pending || undefined}>
+          {t("workspace.tokenSubmit")}
+        </Button>
+      </FormActions>
+    </form>
+  );
+}
+
 function TokenBadge({
   summary,
 }: {
@@ -368,6 +472,7 @@ function tokenLine(
   if (summary?.state === "needs_reentry") {
     return t("workspace.tokenNeedsReentryHint");
   }
+  if (summary?.state === "unset") return t("workspace.tokenUnsetHint");
   if (!summary?.updated_at) return undefined;
   const at = formatTimestamp(summary.updated_at, locale);
   return [
