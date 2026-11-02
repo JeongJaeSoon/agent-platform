@@ -111,7 +111,7 @@ export function SessionAchievements({
   const achievements = useSessionAchievements(session);
   const reviewable = useReviewable();
   // The list read right after a review may still be the old one; show the
-  // decision the POST returned, then read the card again.
+  // review the POST returned, then read the card again.
   const reviewed = (decided: SessionAchievement) => {
     queryClient.setQueryData<ListSessionAchievementsResponse>(
       achievementsKey(client, session.id),
@@ -219,13 +219,13 @@ function AchievementRow({
   const review = useMutation<
     ReviewAchievementResponse,
     ApiError,
-    ReviewAchievementRequest["decision"]
+    ReviewAchievementRequest["action"]
   >({
-    mutationFn: (decision) =>
+    mutationFn: (action) =>
       unwrap(
         client.POST("/v1/achievements/{id}/review", {
           params: { path: { id: achievement.id } },
-          body: { decision },
+          body: { action },
         }),
       ),
     onMutate: () => setFailure(null),

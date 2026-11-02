@@ -8,7 +8,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 - `ceiling` `GET`·`PUT /v1/workspaces/{id}/github-settings`: `ceiling`(workflows·actions·checks·issues·review), `revision`(처음 0, 쓸 때마다 +1, 다르면 `409 REVISION_CONFLICT`), `apps.author.permissions`. `set_github_ceiling` receipt.
 - `agent-github` 릴리스 본문의 `github`(`repositories`, `push_approval`, `features`, `actions_allow`) → `GET /v1/agents/{id}/github`의 `github`·`options`·`unsavable`.
 - `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
-- `push` `POST …/push-requests` `{}` → `requested` → `POST …/decision` `{decision, git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
+- `push` `POST …/push-requests` `{}` → `requested` → `POST …/approve` `{git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
 - `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
 - `dispatch` `POST /v1/sessions/{id}/github/workflow-dispatches` `{workflow, ref, inputs?}`. 게이트 순서대로 거절한다: 목록 밖 `403 workflow_not_allowed`, `agent/…` ref `403 agent_ref_refused`, App에 권한이 없으면 `409 app_permission_missing`(GitHub가 발급을 거절). 성공은 201 `{receipt_id, run}`.
 - `runs` `GET …/github/workflow-runs/{run_id}`(`actions_read`), `POST …/workflow-runs/{run_id}/rerun` `{failed_only?}`(플랫폼이 dispatch한 run만, 아니면 `403 run_ref_unprovable`).
@@ -84,7 +84,7 @@ ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 # 5. push 요청 → 승인 → push → PR
 . "$VERIFY_RUN/ids.sh"; ap_as owner
 P=$(ap_post "/v1/sessions/$SID/push-requests" '{}' | head -1); PRID=$(echo "$P" | jq -r .id); COMMIT=$(echo "$P" | jq -r .git_commit)
-ap_post "/v1/sessions/$SID/push-requests/$PRID/decision" "$(jq -nc --arg c "$COMMIT" '{decision:"approve", git_commit:$c}')"
+ap_post "/v1/sessions/$SID/push-requests/$PRID/approve" "$(jq -nc --arg c "$COMMIT" '{git_commit:$c}')"
 for i in $(seq 1 30); do s=$(ap_get "/v1/sessions/$SID/push-requests/$PRID" | head -1 | jq -r .state); case $s in pushed|failed) break ;; esac; sleep 2; done; echo "$s"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-agent-platform: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{}'      # 같은 PR, created: false

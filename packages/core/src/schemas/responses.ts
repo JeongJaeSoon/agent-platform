@@ -257,6 +257,10 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/push-requests": pushRequestSchema,
   "GET /v1/sessions/{id}/push-requests": listPushRequestsResponseSchema,
   "GET /v1/sessions/{id}/push-requests/{push_request_id}": pushRequestSchema,
+  "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve":
+    pushRequestSchema,
+  "POST /v1/sessions/{id}/push-requests/{push_request_id}/reject":
+    pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/decision":
     pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request":

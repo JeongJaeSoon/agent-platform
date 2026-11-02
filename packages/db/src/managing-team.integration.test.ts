@@ -129,7 +129,7 @@ integration("team roles and the managing team, expand", () => {
     });
     const pool = new Pool({ connectionString: database.url, max: 2 });
     const db = drizzle(pool, { schema });
-    const before = await migrationsThrough("0221_github_installation_records");
+    const before = await migrationsThrough("0222_push_continuations");
     try {
       await migrate(db, { migrationsFolder: before });
       const ws = randomUUID();

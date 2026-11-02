@@ -19,4 +19,18 @@ export type GitHubMcpSessionState = {
 export interface GitHubMcpStore {
   /** Null when the session pins no agent release. */
   sessionState(sessionId: string): Promise<GitHubMcpSessionState | null>;
+  /** The attempt's running turn, read when a push request starts. */
+  runningTurn(input: {
+    sessionId: string;
+    attemptId: string;
+  }): Promise<number | null>;
+  /**
+   * Marks that turn while it still runs: once it completes with a
+   * checkpoint, the platform queues a turn that tells the model to ask for
+   * the push again (94S-1243). False when no turn was marked.
+   */
+  markPushContinuation(input: {
+    sessionId: string;
+    turnId: number;
+  }): Promise<boolean>;
 }

@@ -1,5 +1,5 @@
 {
-  "id": "60940fc1-0806-4ace-b8c8-bc8523e3c239",
+  "id": "09111978-94ed-4450-9096-8ce428fceb72",
   "prevId": "efbcf170-4071-437f-8586-cdd7550b38eb",
   "version": "7",
   "dialect": "postgresql",
@@ -1718,12 +1718,6 @@
           "notNull": true,
           "default": true
         },
-        "managing_team_id": {
-          "name": "managing_team_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -1766,22 +1760,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "agents_managing_team_idx": {
-          "name": "agents_managing_team_idx",
-          "columns": [
-            {
-              "expression": "managing_team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"agents\".\"managing_team_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1800,15 +1778,6 @@
           "tableTo": "users",
           "columnsFrom": ["created_by"],
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "agents_managing_team_fk": {
-          "name": "agents_managing_team_fk",
-          "tableFrom": "agents",
-          "tableTo": "member_teams",
-          "columnsFrom": ["workspace_id", "managing_team_id"],
-          "columnsTo": ["workspace_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -5544,13 +5513,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'member'"
         }
       },
       "indexes": {
@@ -5631,12 +5593,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "member_team_members_role_check": {
-          "name": "member_team_members_role_check",
-          "value": "\"member_team_members\".\"role\" IN ('lead','member')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.member_teams": {
@@ -6870,6 +6827,56 @@
         }
       },
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.push_continuations": {
+      "name": "push_continuations",
+      "schema": "",
+      "columns": {
+        "turn_id": {
+          "name": "turn_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "continuation_turn_id": {
+          "name": "continuation_turn_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "push_continuations_turn_id_turns_id_fk": {
+          "name": "push_continuations_turn_id_turns_id_fk",
+          "tableFrom": "push_continuations",
+          "tableTo": "turns",
+          "columnsFrom": ["turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "push_continuations_continuation_turn_id_turns_id_fk": {
+          "name": "push_continuations_continuation_turn_id_turns_id_fk",
+          "tableFrom": "push_continuations",
+          "tableTo": "turns",
+          "columnsFrom": ["continuation_turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "push_continuations_continuation_turn_id_unique": {
+          "name": "push_continuations_continuation_turn_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["continuation_turn_id"]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
