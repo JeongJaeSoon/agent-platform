@@ -235,6 +235,7 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
       within(alert).getByRole("button", { name: "자격 증명 연결로 가기" }),
     );
     const heading = screen.getByRole("heading", { name: "자격 증명 연결" });
+    expect(heading.getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement === heading).toBe(true);
     const section = await step();
     expect(
