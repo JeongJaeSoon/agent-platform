@@ -240,20 +240,24 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
     },
   );
 
-  test("GitHub가 답하지 않아도 카탈로그 행은 남고, 설치 목록 자리에 이유를 보인다", async () => {
+  test("GitHub가 작성용 App에 답하지 않아도 카탈로그 행은 남고, 이유를 보이며 다른 설치를 고를 수 있다", async () => {
     const state = { rows: [row({})] as unknown[] };
-    renderAt(
+    const { api } = renderAt(
       PATH,
       routes(state, {
-        [`GET ${LIST}`]: () =>
-          json(200, {
-            ...page("", state.rows),
-            installations: [],
-            installation_id: null,
-            total_count: 0,
-            repositories: [],
-            unavailable: "github_unavailable",
-          }),
+        [`GET ${LIST}`]: (request: Request) => {
+          const search = new URL(request.url).search;
+          return search.includes("installation_id=78")
+            ? json(200, page(search, state.rows))
+            : json(200, {
+                ...page(search, state.rows),
+                installations: [installation(78, "other", "reviewer")],
+                installation_id: null,
+                total_count: 0,
+                repositories: [],
+                unavailable: "github_unavailable",
+              });
+        },
       }),
     );
     const user = await setupUser();
@@ -268,6 +272,11 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
     expect(
       browse.getByText(/^GitHub에서 App의 설치나 저장소를 받지 못했습니다/),
     ).toBeDefined();
+    await user.selectOptions(browse.getByLabelText("설치"), "78");
+    expect(await browse.findByText("acme/repo-001")).toBeDefined();
+    expect(api.calls.some((c) => c.search.includes("installation_id=78"))).toBe(
+      true,
+    );
   });
 
   test("기본 브랜치를 바꾸면 읽은 version과 함께 보낸다", async () => {

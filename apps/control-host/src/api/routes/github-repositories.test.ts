@@ -671,7 +671,17 @@ describe("the GitHub repository API", () => {
     github.suspendInstallations(true);
     try {
       for (const path of [workspacePath(), agentPath()]) {
-        const suspended = await call("GET", path, { cookie: owner });
+        const page = await call("GET", path, { cookie: owner });
+        expect(page.status, path).toBe(200);
+        expect(page.json, path).toMatchObject({
+          unavailable: "installation_suspended",
+          installations: [expect.objectContaining({ id: INSTALLATION })],
+        });
+        const suspended = await call(
+          "GET",
+          `${path}?installation_id=${INSTALLATION}`,
+          { cookie: owner },
+        );
         expect(suspended.status, path).toBe(409);
         expect(code(suspended.json)).toMatchObject({
           code: "INSTALLATION_SUSPENDED",

@@ -109,15 +109,18 @@ export const installedGitHubRepositorySchema = z
   .strict();
 
 /**
- * Why there is no page to show. GitHub failing for the default page is one
- * of GITHUB_UNAVAILABLE_VALUES here, so the catalog still comes back; for a
- * named installation it is 502 GITHUB_UNAVAILABLE with that `reason_code`.
+ * Why there is no page to show. For the default page GitHub failing is one
+ * of GITHUB_UNAVAILABLE_VALUES and every installation suspended is
+ * `installation_suspended`, so the catalog and the installations read still
+ * come back; for a named installation they are 502 GITHUB_UNAVAILABLE with
+ * that `reason_code` and 409 INSTALLATION_SUSPENDED.
  */
 export const GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   // No author App is registered.
   "no_author_app",
   // No registered App is installed anywhere.
   "no_installation",
+  "installation_suspended",
   ...GITHUB_UNAVAILABLE_VALUES,
 ] as const;
 

@@ -327,8 +327,42 @@ describe("the workspace's page of App installations", () => {
       },
       twoApps,
     );
-    expect((await authorDown.list()).unavailable).toBe("github_unavailable");
+    const down = await authorDown.list();
+    expect(down.unavailable).toBe("github_unavailable");
+    // The reviewer App's installations stay listed, to be named.
+    expect(down.installations.map(({ id }) => id)).toEqual([21]);
     expect((await authorDown.list(21)).installation_id).toBe(21);
+    // An installation dropped after the list was read is that, not a key fault.
+    const dropped = serviceWith({
+      async installations() {
+        return [installation(11)];
+      },
+      async installationRepositoriesPage() {
+        throw new GitHubAppCheckError("github_rejected", 404);
+      },
+    });
+    expect(await failed(dropped.list())).toEqual({
+      code: "NOT_FOUND",
+      details: { reason_code: "installation_not_found" },
+    });
+  });
+
+  test("with none named and every installation suspended, the page says so and lists them", async () => {
+    const { list } = serviceWith({
+      async installations() {
+        return [{ ...installation(11, "acme"), suspendedAt: new Date() }];
+      },
+    });
+    const page = await list();
+    // The default fake answers the same App for both roles.
+    expect([
+      page.unavailable,
+      page.installations.map(({ id }) => id).slice(0, 1),
+    ]).toEqual(["installation_suspended", [11]]);
+    expect(await failed(list(11))).toEqual({
+      code: "INSTALLATION_SUSPENDED",
+      details: { reason_code: "installation_suspended" },
+    });
   });
 
   test("with none named, the first installation not suspended is read", async () => {

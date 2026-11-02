@@ -285,8 +285,23 @@ export function createGitHubRepositoryService(deps: {
           a.installation.id - b.installation.id,
       );
     const named = query.installation_id !== undefined;
-    // The default page is the author App's when it has one; it answers the
-    // cause rather than failing, so the catalog beside it still shows.
+    const summaries = (counts: readonly (number | null)[] = []) =>
+      held.map(({ role, app, installation }, index) => ({
+        id: installation.id,
+        account: installation.account,
+        connection_id: app.id,
+        role,
+        permissions: installation.permissions,
+        repository_count: counts[index] ?? null,
+      }));
+    // The default page answers why it is empty rather than failing, so the
+    // catalog beside it still shows and another installation can be named.
+    const degraded = (unavailable: Unavailable): InstallationPage => ({
+      ...emptyPage(query, unavailable),
+      installations: summaries(),
+    });
+    // It is the author App's when it has one: its failure is not hidden
+    // behind the reviewer App's page.
     const defaultFailure =
       failures.find(({ role }) => role === "author") ?? failures[0];
     if (
@@ -294,7 +309,7 @@ export function createGitHubRepositoryService(deps: {
       defaultFailure !== undefined &&
       (held.length === 0 || defaultFailure.role === "author")
     ) {
-      return emptyPage(query, githubUnavailableOf(defaultFailure.error));
+      return degraded(githubUnavailableOf(defaultFailure.error));
     }
     const chosen = named
       ? held.find(
@@ -309,6 +324,7 @@ export function createGitHubRepositoryService(deps: {
       return emptyPage(query, "no_installation");
     }
     if (chosen.installation.suspendedAt !== null) {
+      if (!named) return degraded("installation_suspended");
       throw new SessionServiceError(
         "INSTALLATION_SUSPENDED",
         "GitHub has suspended this installation of the App",
@@ -322,10 +338,11 @@ export function createGitHubRepositoryService(deps: {
         perPage: query.per_page,
       })
       .catch((error: unknown) => {
-        if (named) throw githubFailure(error, "installation");
+        const failure = githubFailure(error, "installation");
+        if (named || failure.code !== "GITHUB_UNAVAILABLE") throw failure;
         return githubUnavailableOf(error);
       });
-    if (typeof page === "string") return emptyPage(query, page);
+    if (typeof page === "string") return degraded(page);
     const counts = await Promise.all(
       held.map((entry, index) =>
         entry === chosen
@@ -336,14 +353,7 @@ export function createGitHubRepositoryService(deps: {
       ),
     );
     return {
-      installations: held.map(({ role, app, installation }, index) => ({
-        id: installation.id,
-        account: installation.account,
-        connection_id: app.id,
-        role,
-        permissions: installation.permissions,
-        repository_count: counts[index] ?? null,
-      })),
+      installations: summaries(counts),
       installation_id: chosen.installation.id,
       role: chosen.role,
       page: query.page,
