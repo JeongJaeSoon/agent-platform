@@ -1,5 +1,6 @@
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 import {
+  Code,
   cn,
   GridTable,
   GridTableCell,
@@ -8,12 +9,13 @@ import {
   GridTableRow,
   RelativeTime,
   StatusDot,
-  type StatusDotStatus,
+  Text,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
 import { createContext, type JSX, type ReactNode, useContext } from "react";
 import { GitBranch } from "../console-icons.ts";
+import { statusDot } from "../status/vocabulary.ts";
 import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 import { useMinute } from "./use-minute.ts";
 
@@ -143,8 +145,12 @@ export interface SessionOverviewRowProps {
    */
   readonly renderLink: (link: SessionRowLink) => ReactNode;
   readonly messages: SessionOverviewRowMessages;
-  /** After the status, such as how long an answer has been awaited. */
-  readonly statusDetail?: string | undefined;
+  /**
+   * After the status, such as how long an answer has been awaited. Plain text
+   * lies under the row's opener; any other node is raised above it, so a
+   * tooltip trigger in it gets its own hover and focus.
+   */
+  readonly statusDetail?: ReactNode;
   /**
    * Draws the last activity; when omitted, "12분 전" with the exact time in
    * a tooltip.
@@ -155,15 +161,6 @@ export interface SessionOverviewRowProps {
   readonly now?: number | undefined;
   readonly className?: string | undefined;
 }
-
-const STATUS_DOT: Record<SessionStatus, StatusDotStatus> = {
-  queued: "idle",
-  running: "run",
-  needs_input: "wait",
-  idle: "idle",
-  failed: "failed",
-  stopped: "done",
-};
 
 export function SessionOverviewRow({
   session,
@@ -211,22 +208,27 @@ export function SessionOverviewRow({
         </span>
         {session.title ? (
           // Above the opener, so hovering shows the whole id.
-          <span
-            className="relative font-mono text-caption text-subtle-foreground"
-            title={session.id}
-          >
+          <Code className="relative text-subtle-foreground" title={session.id}>
             {shortId}
-          </span>
+          </Code>
         ) : null}
       </GridTableCell>
       <GridTableCell>
-        <StatusDot status={STATUS_DOT[session.status]} />
+        <StatusDot status={statusDot("session", session.status)} />
         <span className="sr-only">{messages.statusAxis}: </span>
         {/* A narrow column cuts the label, never the wait after it. */}
         <span className="flex min-w-0 whitespace-nowrap">
           <span className="min-w-0 truncate">{statusLabel}</span>
           {statusDetail ? (
-            <span className="flex-none whitespace-pre"> · {statusDetail}</span>
+            <span
+              className={cn(
+                "flex-none whitespace-pre",
+                typeof statusDetail === "string" ? null : "relative",
+              )}
+            >
+              {" · "}
+              {statusDetail}
+            </span>
           ) : null}
         </span>
       </GridTableCell>
@@ -236,9 +238,7 @@ export function SessionOverviewRow({
             {session.agent?.name ?? messages.unknown}
           </span>
           {session.model ? (
-            <span className="font-mono text-caption text-subtle-foreground">
-              {session.model}
-            </span>
+            <Code className="text-subtle-foreground">{session.model}</Code>
           ) : null}
         </GridTableCell>
       ) : (
@@ -258,8 +258,8 @@ export function SessionOverviewRow({
         {repositoryName ? (
           // A long name gives way first, so the branch stays in sight. Above
           // the opener, so hovering shows the whole name.
-          <span
-            className="relative flex min-w-0 font-mono text-caption"
+          <Code
+            className="relative flex min-w-0"
             title={branch ? `${repositoryName} · ${branch}` : repositoryName}
           >
             <span className="min-w-0 truncate">{repositoryName}</span>
@@ -268,11 +268,11 @@ export function SessionOverviewRow({
                 {` · ${branch}`}
               </span>
             ) : null}
-          </span>
+          </Code>
         ) : (
-          <span className="truncate text-caption text-subtle-foreground">
+          <Text as="span" variant="meta" className="truncate">
             {messages.noRepository}
-          </span>
+          </Text>
         )}
       </GridTableCell>
       {startedBy ? (

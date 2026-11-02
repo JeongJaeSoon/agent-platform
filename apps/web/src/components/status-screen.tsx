@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { Button, cn, Heading, Skeleton } from "@werft-ai/ui";
+import { Button, Card, cn, Heading, Skeleton, Text } from "@werft-ai/ui";
+import type { ReactNode } from "react";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 export type StatusKind =
@@ -23,93 +24,151 @@ export type StatusScreenProps =
       readonly kind: "error";
       readonly detail?: MessageKey;
       readonly onRetry?: () => void;
+    }
+  | {
+      /** A state only its screen can word, such as an invite's outcome. */
+      readonly kind: "custom";
+      /** `data-status`, naming the state for tests and styles. */
+      readonly status: string;
+      readonly title: string;
+      readonly body: string;
+      readonly alert?: boolean;
+      readonly actions?: ReactNode;
     };
 
-const BOX =
-  "flex flex-col items-start gap-2 rounded-card border bg-card p-4 text-card-foreground";
-const TITLE = "m-0 flex items-center gap-2 font-semibold text-body";
+type Frame = {
+  readonly status: string;
+  readonly title: string;
+  readonly body: string;
+  readonly tone?: "danger" | "attention" | undefined;
+  readonly actions?: ReactNode;
+};
+
+function StatusFrame({ status, title, body, tone, actions }: Frame) {
+  return (
+    <Card
+      className={cn(
+        "items-start px-4",
+        tone === "danger" && "border-[var(--ap-tone-danger-border)]",
+        tone === "attention" && "border-[var(--ap-tone-attention-border)]",
+      )}
+      data-status={status}
+      role={tone === "danger" ? "alert" : undefined}
+    >
+      <Heading>{title}</Heading>
+      <Text variant="sub">{body}</Text>
+      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </Card>
+  );
+}
 
 export function StatusScreen(props: StatusScreenProps) {
   const { t } = useI18n();
-  const { kind } = props;
-  const { redirect, action = true } = props.kind === "error" ? {} : props;
-  const { detail, onRetry } = props.kind === "error" ? props : {};
-  if (kind === "loading") {
-    return <Skeleton lines={3} label={t("status.loading.title")} />;
+  switch (props.kind) {
+    case "loading":
+      return <Skeleton lines={3} label={t("status.loading.title")} />;
+    // Full-page wait before any layout exists; a placeholder of lines would
+    // mimic content that is not there. Waits for the ui FullPageState.
+    case "checking-login":
+      return (
+        <Card
+          className="items-start px-4"
+          data-status={props.kind}
+          aria-busy="true"
+        >
+          <output className="m-0 flex items-center gap-2 font-semibold text-body">
+            <span
+              className="size-4 animate-spin rounded-full border-2 border-input border-t-primary motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            {t("status.checkingLogin.title")}
+          </output>
+        </Card>
+      );
+    case "custom":
+      return (
+        <StatusFrame
+          status={props.status}
+          title={props.title}
+          body={props.body}
+          tone={props.alert ? "danger" : undefined}
+          actions={props.actions}
+        />
+      );
+    case "error":
+      return (
+        <StatusFrame
+          status={props.kind}
+          title={t("status.error.title")}
+          body={t(props.detail ?? "error.UNKNOWN")}
+          tone="danger"
+          actions={
+            props.onRetry ? (
+              <Button type="button" variant="outline" onClick={props.onRetry}>
+                {t("common.retry")}
+              </Button>
+            ) : null
+          }
+        />
+      );
+    case "forbidden":
+      return (
+        <StatusFrame
+          status={props.kind}
+          title={t("status.forbidden.title")}
+          body={t("status.forbidden.body")}
+          tone="danger"
+        />
+      );
+    case "not-found":
+      return (
+        <StatusFrame
+          status={props.kind}
+          title={t("status.notFound.title")}
+          body={t("status.notFound.body")}
+          actions={
+            <Button asChild>
+              <Link to="/">{t("status.notFound.action")}</Link>
+            </Button>
+          }
+        />
+      );
+    case "login-required": {
+      const { redirect, action = true } = props;
+      return (
+        <StatusFrame
+          status={props.kind}
+          title={t("status.loginRequired.title")}
+          body={t("status.loginRequired.body")}
+          actions={
+            action ? (
+              <Button asChild>
+                <Link to="/login" search={redirect ? { redirect } : {}}>
+                  {t("status.loginRequired.action")}
+                </Link>
+              </Button>
+            ) : null
+          }
+        />
+      );
+    }
+    case "bootstrap-required":
+      return (
+        <StatusFrame
+          status={props.kind}
+          title={t("status.bootstrapRequired.title")}
+          body={t("status.bootstrapRequired.body")}
+          tone="attention"
+          actions={
+            props.action === false ? null : (
+              <Button asChild>
+                <Link to="/bootstrap">
+                  {t("status.bootstrapRequired.action")}
+                </Link>
+              </Button>
+            )
+          }
+        />
+      );
   }
-  // Full-page wait before any layout exists; a placeholder of lines would
-  // mimic content that is not there. Waits for the ui FullPageState.
-  if (kind === "checking-login") {
-    return (
-      <section className={BOX} data-status={kind} aria-busy="true">
-        <output className={TITLE}>
-          <span
-            className="size-4 animate-spin rounded-full border-2 border-input border-t-primary motion-reduce:animate-none"
-            aria-hidden="true"
-          />
-          {t("status.checkingLogin.title")}
-        </output>
-      </section>
-    );
-  }
-  const copy = {
-    "not-found": {
-      title: t("status.notFound.title"),
-      body: t("status.notFound.body"),
-    },
-    "login-required": {
-      title: t("status.loginRequired.title"),
-      body: t("status.loginRequired.body"),
-    },
-    forbidden: {
-      title: t("status.forbidden.title"),
-      body: t("status.forbidden.body"),
-    },
-    "bootstrap-required": {
-      title: t("status.bootstrapRequired.title"),
-      body: t("status.bootstrapRequired.body"),
-    },
-    error: {
-      title: t("status.error.title"),
-      body: t(detail ?? "error.UNKNOWN"),
-    },
-  }[kind];
-  const alert = kind === "forbidden" || kind === "error";
-  return (
-    <section
-      className={cn(
-        BOX,
-        alert && "border-[var(--ap-tone-danger-border)]",
-        kind === "bootstrap-required" &&
-          "border-[var(--ap-tone-attention-border)]",
-      )}
-      data-status={kind}
-      role={alert ? "alert" : undefined}
-    >
-      <Heading className="flex items-center gap-2">{copy.title}</Heading>
-      <p className="m-0">{copy.body}</p>
-      {kind === "login-required" && action ? (
-        <Button asChild>
-          <Link to="/login" search={redirect ? { redirect } : {}}>
-            {t("status.loginRequired.action")}
-          </Link>
-        </Button>
-      ) : null}
-      {kind === "not-found" ? (
-        <Button asChild>
-          <Link to="/">{t("status.notFound.action")}</Link>
-        </Button>
-      ) : null}
-      {kind === "bootstrap-required" && action ? (
-        <Button asChild>
-          <Link to="/bootstrap">{t("status.bootstrapRequired.action")}</Link>
-        </Button>
-      ) : null}
-      {kind === "error" && onRetry ? (
-        <Button type="button" variant="outline" onClick={onRetry}>
-          {t("common.retry")}
-        </Button>
-      ) : null}
-    </section>
-  );
 }

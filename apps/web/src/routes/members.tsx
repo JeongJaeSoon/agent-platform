@@ -71,6 +71,7 @@ import {
 } from "../auth/guard.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -84,8 +85,6 @@ import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
-const PRIMARY =
-  "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 
 // Role and actions keep one width on every row, so badges and buttons line
 // up under their headers; the actions track never drops below its button.
@@ -95,10 +94,6 @@ const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
 // 320px of columns plus the frame's 1px border on each side.
 const MEMBER_TABLE_MIN = "min-w-[322px]";
-
-type Outcome =
-  | { readonly kind: "notice"; readonly text: string }
-  | { readonly kind: "error"; readonly text: string };
 
 type MemberAction = "role" | "disable" | "enable";
 
@@ -269,7 +264,7 @@ export function MembersScreen() {
 
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
-      <OutcomeNote outcome={outcome} />
+      <OutcomeLine outcome={outcome} />
       <ListToolbar
         filter={null}
         search={{
@@ -332,18 +327,9 @@ export function InvitesScreen() {
           onRetry={() => void members.refetch()}
         />
       ) : null}
-      <OutcomeNote outcome={outcome} />
+      <OutcomeLine outcome={outcome} />
       <InviteList onOutcome={setOutcome} />
     </div>
-  );
-}
-
-function OutcomeNote({ outcome }: { readonly outcome: Outcome | null }) {
-  if (!outcome) return null;
-  return outcome.kind === "error" ? (
-    <FormError>{outcome.text}</FormError>
-  ) : (
-    <Notice>{outcome.text}</Notice>
   );
 }
 
@@ -820,7 +806,9 @@ function InviteList({
           {pending.map((invite) => (
             <RowListItem key={invite.id}>
               <RowLines>
-                <span className={PRIMARY}>{invite.email}</span>
+                <Text as="span" weight="medium" className="block break-words">
+                  {invite.email}
+                </Text>
                 <Text
                   as="span"
                   variant="meta"

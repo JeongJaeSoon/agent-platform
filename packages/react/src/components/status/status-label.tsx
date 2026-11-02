@@ -1,9 +1,4 @@
-import {
-  cn,
-  StatusDot,
-  type StatusDotStatus,
-  useReducedMotion,
-} from "@werft-ai/ui";
+import { cn, StatusDot, useReducedMotion } from "@werft-ai/ui";
 import type { JSX } from "react";
 
 import { AxisIcon } from "./axis-icon.tsx";
@@ -12,7 +7,7 @@ import {
   STATUS_AXIS_LABEL,
   type StatusAxis,
   type StatusStateOf,
-  type StatusTone,
+  statusDot,
 } from "./vocabulary.ts";
 
 export interface StatusLabelProps<A extends StatusAxis> {
@@ -36,17 +31,6 @@ export interface StatusLabelProps<A extends StatusAxis> {
   readonly appearance?: "pill" | "dot" | undefined;
   readonly className?: string | undefined;
 }
-
-// A moving state turns the ring; this is the colour once it stands still.
-const TONE_DOT: Record<StatusTone, StatusDotStatus> = {
-  attention: "wait",
-  caution: "wait",
-  progress: "run",
-  positive: "done",
-  danger: "failed",
-  neutral: "idle",
-  unknown: "idle",
-};
 
 export function StatusLabel<A extends StatusAxis>({
   axis,
@@ -78,7 +62,7 @@ export function StatusLabel<A extends StatusAxis>({
         data-stale={stale || undefined}
       >
         <StatusDot
-          status={spinning ? "run" : TONE_DOT[descriptor.tone]}
+          status={spinning ? "run" : statusDot(axis, state)}
           data-animated={spinning || undefined}
         />
         <span className="ap-visually-hidden">

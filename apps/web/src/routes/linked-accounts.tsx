@@ -32,14 +32,14 @@ import {
 } from "react";
 import { linkedAccountsQuery, queryKeysOf } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
+import { FormError } from "../components/auth-page.tsx";
 import {
   GitHubMark,
   GoogleDriveMark,
   SlackMark,
 } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import type { Outcome } from "../components/outcome.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 import { useAppServices } from "../services.tsx";
@@ -59,7 +59,6 @@ const SERVICE_DETAIL = cn(
   SERVICE_INDENT,
   "border-t pr-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
 );
-const PRIMARY = "block break-words font-semibold";
 
 // Refusals whose server message is the product copy written for the person
 // linking (contracts LINK_MESSAGES); the page shows those words unchanged.
@@ -222,14 +221,9 @@ export function LinkedAccountsScreen() {
     mutate(confirmed);
   }, [confirmed, confirming, mutate]);
 
-  const notice = outcome?.kind === "notice" ? outcome.text : null;
-
   return (
     <Page title={t("linked.title")} description={t("linked.intro")}>
-      {outcome?.kind === "error" ? <FormError>{outcome.text}</FormError> : null}
-      {/* Always mounted, so a screen reader hears the notice when it
-          changes. */}
-      <Notice>{notice}</Notice>
+      <OutcomeLine outcome={outcome} live />
       <RowList ref={listRef} variant="joined">
         <GitHubService
           accounts={accounts.isSuccess ? githubLive : undefined}
@@ -458,9 +452,9 @@ function GitHubService({
               )}
             >
               <RowLines>
-                <span className={PRIMARY}>
+                <Text as="span" weight="medium" className="block break-words">
                   {account.external_user_name ?? account.external_user_id}
-                </span>
+                </Text>
                 {account.external_user_name ? (
                   <Text
                     as="span"
@@ -610,16 +604,20 @@ function SlackAccountName({ account }: { readonly account: LinkedAccount }) {
     account.external_user_name === null &&
     account.external_tenant_name === null
   ) {
-    return <span className={PRIMARY}>{t("linked.slackAccount", ids)}</span>;
+    return (
+      <Text as="span" weight="medium" className="block break-words">
+        {t("linked.slackAccount", ids)}
+      </Text>
+    );
   }
   return (
     <>
-      <span className={PRIMARY}>
+      <Text as="span" weight="medium" className="block break-words">
         {t("linked.slackNamed", {
           user: account.external_user_name ?? ids.user,
           team: account.external_tenant_name ?? ids.team,
         })}
-      </span>
+      </Text>
       <Text as="span" variant="meta" className="block [overflow-wrap:anywhere]">
         {t("linked.slackIds", ids)}
       </Text>

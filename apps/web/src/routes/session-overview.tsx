@@ -2,9 +2,13 @@ import { Link } from "@tanstack/react-router";
 import type { SessionSummary } from "@werft-ai/contracts";
 import { usePendingRequests } from "@werft-ai/react";
 import {
+  type SessionOverviewHeadMessages,
   SessionOverviewRow,
+  type SessionOverviewRowMessages,
+  type SessionOverviewRowProps,
   SessionOverviewTable,
 } from "@werft-ai/react/components";
+import { formatElapsed } from "@werft-ai/ui";
 import { useEffect, useState } from "react";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -20,6 +24,40 @@ function useMinute(): number {
   return now;
 }
 
+/** The session list's column names; home leaves out the starter. */
+export function useSessionOverviewHead(): SessionOverviewHeadMessages {
+  const { t } = useI18n();
+  return {
+    session: t("sessionList.column.session"),
+    status: t("sessionList.column.status"),
+    model: t("sessionList.column.model"),
+    agent: t("sessionList.column.agent"),
+    repository: t("sessionList.column.repository"),
+    startedBy: t("sessionList.column.startedBy"),
+    recent: t("sessionList.column.recent"),
+  };
+}
+
+export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
+  const { t } = useI18n();
+  return {
+    status: (status) => t(`sessions.status.${status}`),
+    statusAxis: t("sessions.column.status"),
+    noRepository: t("sessionList.noRepository"),
+    unknown: t("sessionList.unknown"),
+    recent: t("sessionList.column.recent"),
+    open: (name) => t("sessionList.open", { name }),
+  };
+}
+
+export function sessionLink(id: string): SessionOverviewRowProps["renderLink"] {
+  return ({ children, ...link }) => (
+    <Link to="/sessions/$id" params={{ id }} {...link}>
+      {children}
+    </Link>
+  );
+}
+
 export function SessionsOverview({
   sessions,
 }: {
@@ -30,15 +68,7 @@ export function SessionsOverview({
   return (
     <SessionOverviewTable
       label={t("sessions.tableLabel")}
-      messages={{
-        session: t("sessionList.column.session"),
-        status: t("sessionList.column.status"),
-        model: t("sessionList.column.model"),
-        agent: t("sessionList.column.agent"),
-        repository: t("sessionList.column.repository"),
-        startedBy: t("sessionList.column.startedBy"),
-        recent: t("sessionList.column.recent"),
-      }}
+      messages={useSessionOverviewHead()}
     >
       {sessions.map((session) => (
         <Row key={session.id} session={session} now={now} />
@@ -54,7 +84,8 @@ function Row({
   readonly session: SessionSummary;
   readonly now: number;
 }) {
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
+  const messages = useSessionOverviewRowMessages();
   // "답변 대기 · 12분" reads the oldest open request, the inbox's own read.
   const waiting = session.status === "needs_input";
   const pending = usePendingRequests(session.id, waiting);
@@ -67,30 +98,11 @@ function Row({
       session={session}
       locale={locale}
       statusDetail={
-        waiting && since
-          ? t("sessionList.waitedMinutes", {
-              minutes: minutesSince(since, now),
-            })
-          : undefined
+        waiting && since ? formatElapsed(since, locale, now) : undefined
       }
-      messages={{
-        status: (status) => t(`sessions.status.${status}`),
-        statusAxis: t("sessions.column.status"),
-        noRepository: t("sessionList.noRepository"),
-        unknown: t("sessionList.unknown"),
-        recent: t("sessionList.column.recent"),
-        open: (name) => t("sessionList.open", { name }),
-      }}
+      messages={messages}
       now={now}
-      renderLink={({ children, ...link }) => (
-        <Link to="/sessions/$id" params={{ id: session.id }} {...link}>
-          {children}
-        </Link>
-      )}
+      renderLink={sessionLink(session.id)}
     />
   );
-}
-
-function minutesSince(iso: string, now: number) {
-  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / MINUTE_MS));
 }

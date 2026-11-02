@@ -5,6 +5,7 @@ import type {
   SessionStatus,
   TurnStatus,
 } from "@werft-ai/contracts";
+import type { StatusDotStatus } from "@werft-ai/ui";
 
 /**
  * session·admission·turn·receipt·execution are separate axes and are never merged into
@@ -145,4 +146,27 @@ export function describeStatus<A extends StatusAxis>(
     tone: "unknown",
     inFlight: false,
   };
+}
+
+// The dot's colour once the state stands still; a moving state turns the ring.
+const TONE_DOT: Record<StatusTone, StatusDotStatus> = {
+  attention: "wait",
+  caution: "wait",
+  progress: "run",
+  positive: "done",
+  danger: "failed",
+  neutral: "idle",
+  unknown: "idle",
+};
+
+/**
+ * The dot every screen draws for a state, from its tone; no screen keeps a
+ * table of its own. `stopped` is neutral, so it rests rather than reading
+ * as a success: a stopped session can be resumed.
+ */
+export function statusDot<A extends StatusAxis>(
+  axis: A,
+  state: StatusStateOf<A>,
+): StatusDotStatus {
+  return TONE_DOT[describeStatus(axis, state).tone];
 }

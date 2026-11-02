@@ -5,6 +5,7 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  Text,
   Textarea,
 } from "@werft-ai/ui";
 import {
@@ -106,14 +107,14 @@ export function Composer({
     >
       {queued.length > 0 ? (
         <div className="flex flex-col gap-1">
-          <p id={queuedId} className="text-muted-foreground text-xs">
+          <Text id={queuedId} variant="meta">
             {messages.queued}
-          </p>
+          </Text>
           <ol aria-labelledby={queuedId} className="flex flex-col gap-1">
             {queued.map((message) => (
               <li
                 key={message.id}
-                className="rounded-card border border-dashed px-3 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]"
+                className="rounded-card border border-dashed px-3 py-2 text-control leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
               >
                 {message.text}
               </li>

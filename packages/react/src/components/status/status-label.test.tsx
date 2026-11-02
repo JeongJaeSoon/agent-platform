@@ -10,7 +10,7 @@ import {
   setupDom,
   stubPrefersReducedMotion,
 } from "@werft-ai/ui/test-support/dom";
-import { describeStatus, STATUS_VOCABULARY } from "./vocabulary.ts";
+import { describeStatus, STATUS_VOCABULARY, statusDot } from "./vocabulary.ts";
 
 // Queries come from `render()`, never from `screen`: the DOM is registered
 // after this module's imports are evaluated, and `screen` binds document.body
@@ -215,6 +215,17 @@ describe("상태 어휘", () => {
         expect(descriptor.label).not.toBe(state);
       }
     }
+  });
+
+  test("멈춘 세션의 점은 완료가 아니라 쉬는 점이다", () => {
+    // Stopped can be resumed; only a confirmed success draws the done dot.
+    expect(describeStatus("session", "stopped").tone).toBe("neutral");
+    expect(statusDot("session", "stopped")).toBe("idle");
+    expect(statusDot("session", "running")).toBe("run");
+    expect(statusDot("session", "needs_input")).toBe("wait");
+    expect(statusDot("session", "failed")).toBe("failed");
+    expect(statusDot("turn", "completed")).toBe("done");
+    expect(statusDot("turn", "teleported" as never)).toBe("idle");
   });
 
   test("모르는 상태는 성공으로 그리지 않는다", () => {

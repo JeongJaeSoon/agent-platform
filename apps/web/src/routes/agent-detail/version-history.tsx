@@ -49,10 +49,7 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
         {ordered.map((version) => (
           <RowListItem key={version.id}>
             <RowLines>
-              <Text
-                as="span"
-                className="block break-words font-semibold text-body"
-              >
+              <Text as="span" weight="medium" className="block break-words">
                 {label(version)}
               </Text>
               <Text

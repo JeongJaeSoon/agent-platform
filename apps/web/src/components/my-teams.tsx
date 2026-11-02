@@ -7,6 +7,7 @@ import {
   Heading,
   RowList,
   RowListItem,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
@@ -16,8 +17,6 @@ import { LoadFailure } from "./load-failure.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 
 export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
-export const SECTION_TITLE = "m-0 font-semibold text-body";
-export const MUTED = "m-0 text-muted-foreground";
 
 /**
  * The teams the viewer is in, each linking to its page: a team's members
@@ -59,7 +58,7 @@ export function MyTeams({
         <EmptyState title={t("teams.mine.empty")} />
       ) : (
         <>
-          <p className={`${MUTED} text-sm`}>{t("teams.mine.intro")}</p>
+          <Text variant="sub">{t("teams.mine.intro")}</Text>
           <RowList>
             {items.map((team) => (
               <RowListItem key={team.id} className={OPENS_ROW}>

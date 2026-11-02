@@ -38,6 +38,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
+import { LoadFailure } from "../../components/load-failure.tsx";
 import {
   errorKey,
   type MessageKey,
@@ -236,6 +237,7 @@ function Activity({
           params: { path: { id: agentId } },
         }),
       ),
+    retry: false,
   });
   return (
     <section
@@ -253,9 +255,16 @@ function Activity({
         </Text>
       </div>
       {activity.error ? (
-        <FieldError>{failure(activity.error, t)}</FieldError>
-      ) : activity.isPending ? (
-        <Skeleton className="h-32 w-full" />
+        <LoadFailure
+          error={activity.error}
+          kept={activity.data !== undefined}
+          onRetry={() => void activity.refetch()}
+        />
+      ) : null}
+      {activity.data === undefined ? (
+        activity.error ? null : (
+          <Skeleton className="h-32 w-full" />
+        )
       ) : activity.data.items.length === 0 ? (
         <Text as="span" variant="sub">
           {t("agentGitHub.activityEmpty")}
@@ -1098,6 +1107,7 @@ export default function GitHubTab({
           params: { path: { id: agentId } },
         }),
       ),
+    retry: false,
   });
   const [keys, setKeys] = useState<readonly SectionKey[]>(["use", "activity"]);
   const [current, setCurrent] = useCurrentSection(keys.map((k) => SECTION[k]));
@@ -1116,8 +1126,10 @@ export default function GitHubTab({
       </div>
     );
   }
-  if (github.error) {
-    return <FieldError>{failure(github.error, t)}</FieldError>;
+  if (github.data === undefined) {
+    return (
+      <LoadFailure error={github.error} onRetry={() => void github.refetch()} />
+    );
   }
   const link = (key: SectionKey) => (
     <SideNavLink
@@ -1167,6 +1179,13 @@ export default function GitHubTab({
         }
       >
         <div ref={watchPage} className="flex flex-col gap-8">
+          {github.error ? (
+            <LoadFailure
+              error={github.error}
+              kept
+              onRetry={() => void github.refetch()}
+            />
+          ) : null}
           <GitHubSettings
             agentId={agentId}
             detail={detail}

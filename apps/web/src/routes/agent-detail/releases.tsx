@@ -28,6 +28,7 @@ import {
   Heading,
   NativeSelect,
   NativeSelectOption,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -55,7 +56,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { MUTED, SECTION } from "./classes.ts";
+import { SECTION } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // To the second, as the release label is: activations a few seconds apart
@@ -251,13 +252,13 @@ export function Releases({
                 onChange={onPick}
               />
               {profiles.isPending ? (
-                <p className={MUTED}>{t("agent.releases.profilesLoading")}</p>
+                <Skeleton label={t("agent.releases.profilesLoading")} />
               ) : profiles.error ? (
-                <p className="m-0 text-destructive text-sm" role="alert">
+                <FieldError>
                   {t("agent.releases.profilesFailed", {
                     reason: t(errorKey((profiles.error as ApiError).code)),
                   })}
-                </p>
+                </FieldError>
               ) : (
                 <ProfileSelect
                   label={t("agent.releases.profile")}

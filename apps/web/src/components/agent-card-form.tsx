@@ -19,6 +19,7 @@ import {
   NativeSelectOption,
   RadioGroup,
   RadioGroupItem,
+  Skeleton,
   Textarea,
 } from "@werft-ai/ui";
 import { useId } from "react";
@@ -202,15 +203,13 @@ export function AgentCardFields({
         </NativeSelect>
       </Field>
       {catalog.isPending ? (
-        <p className="text-muted-foreground text-sm">
-          {t("agentCard.modelsLoading")}
-        </p>
+        <Skeleton label={t("agentCard.modelsLoading")} />
       ) : catalog.error ? (
-        <p className="text-destructive text-sm" role="alert">
+        <FieldError>
           {t("agentCard.modelsFailed", {
             reason: t(errorKey((catalog.error as ApiError).code)),
           })}
-        </p>
+        </FieldError>
       ) : (
         <ModelSelect
           options={modelOptions(catalog.data.items, draft.model)}

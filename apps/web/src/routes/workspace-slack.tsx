@@ -46,9 +46,8 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import type { Outcome } from "../components/outcome.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   type OnOutcome,
@@ -101,13 +100,7 @@ export function WorkspaceSlackScreen() {
   const guest = <SlackGuest onOutcome={setOutcome} />;
   return (
     <WorkspacePage page="slack">
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <Notice>{outcome.text}</Notice>
-        )
-      ) : null}
+      <OutcomeLine outcome={outcome} />
       {/* Members can only read the guest setting; it leads for them. */}
       {canManage ? null : guest}
       <ConfigToken

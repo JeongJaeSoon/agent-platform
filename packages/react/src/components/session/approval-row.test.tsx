@@ -117,8 +117,13 @@ describe("ApprovalRow", () => {
     expect(view.container.querySelector("pre")).toBeNull();
     const summary = view.getByText("input");
     await user.click(summary);
-    const pre = (await view.findByText(/echo alpha/)) as HTMLElement;
-    expect(pre.tagName).toBe("PRE");
+    const pre = (await view.findByText(/echo alpha/)).closest(
+      "pre",
+    ) as HTMLElement;
+    expect(pre.getAttribute("data-slot")).toBe("code-block");
+    // Long input wraps, and a tall one scrolls inside its own box.
+    for (const name of ["whitespace-pre-wrap", "max-h-60", "overflow-y-auto"])
+      expect(pre.className.split(" ")).toContain(name);
     const line = view.getByRole("button", { name: ALLOW }).parentElement
       ?.parentElement as HTMLElement;
     expect(line.contains(summary)).toBe(true);
