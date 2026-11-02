@@ -85,7 +85,7 @@ SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_rele
 printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
 for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status)" = needs_input ] && break; sleep 2; done
 REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')
-ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", decision:"allow"}')"
+ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')"
 for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done
 ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```

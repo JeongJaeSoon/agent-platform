@@ -49,8 +49,8 @@ const approvals: PendingRequestHandlers = {
     console.log("asked:", request.tool, request.input);
     const command = (request.input as { command?: unknown } | null)?.command;
     if (request.tool === "Bash" && command === COMMAND)
-      return { decision: "allow" };
-    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+      return { action: "allow" };
+    return { action: "deny", reason: `This script only allows: ${COMMAND}` };
   },
 };
 
@@ -69,7 +69,7 @@ turn 1: completed
 ```
 
 - handler が `undefined` を返すか、その種類の handler がなければ、リクエストを開いたまま人に任せる。
-- 拒否は `{ decision: "deny", reason }` である。答えのないリクエストは 30 分後に拒否で終わる。詳しくは[承認待ちと再開](/sessions/waiting-and-resume)にある。
+- 拒否は `{ action: "deny", reason }` である。答えのないリクエストは 30 分後に拒否で終わる。詳しくは[承認待ちと再開](/sessions/waiting-and-resume)にある。
 - workspace のキー(個人・エージェント)は、自分が始めたセッションのリクエストを承認できない。承認用のキーを分けて使う方法は[クライアントの設定とエラー](/getting-started/client#承認用のキーを分けて使う)にある。
 
 ## 続けて送る

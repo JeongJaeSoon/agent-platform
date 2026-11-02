@@ -53,7 +53,7 @@ function fakePush(outcome: Outcome) {
       });
     }
     if (method === "POST" && path.endsWith("/answers")) {
-      expect(body).toMatchObject({ decision: "allow" });
+      expect(body).toMatchObject({ action: "allow" });
       answered.add((body as { request_id: string }).request_id);
       return json(
         { receipt_id: "answer-receipt", receipt_status: "accepted" },

@@ -115,7 +115,7 @@ describe("requests carry the generated shape", () => {
     );
     await werft(api.fetch).sessions.requests.answer(
       "s1",
-      { request_id: "q1", kind: "permission", decision: "allow" },
+      { request_id: "q1", kind: "permission", action: "allow" },
       { idempotencyKey: "after-restart" },
     );
     expect(api.seen[0]?.headers.get("idempotency-key")).toBe("after-restart");

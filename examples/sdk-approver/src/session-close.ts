@@ -31,9 +31,9 @@ const approvals: PendingRequestHandlers = {
       console.log(
         `permission ${request.request_id}: allow ${request.tool} "${command}"`,
       );
-      return { decision: "allow" };
+      return { action: "allow" };
     }
-    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+    return { action: "deny", reason: `This script only allows: ${COMMAND}` };
   },
 };
 

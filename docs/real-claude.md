@@ -115,7 +115,7 @@ allow_until_done() {
         jq -c 'first(.items[] | select(.kind == "permission")) | {request_id, tool, input}')
       if [ -n "$req" ]; then
         echo "$req"
-        post "/v1/sessions/$SID/answers" "$(echo "$req" | jq -c '{request_id, kind:"permission", decision:"allow"}')" | jq -c .
+        post "/v1/sessions/$SID/answers" "$(echo "$req" | jq -c '{request_id, kind:"permission", action:"allow"}')" | jq -c .
       fi
     fi
     sleep 3

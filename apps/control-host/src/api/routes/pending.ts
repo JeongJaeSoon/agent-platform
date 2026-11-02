@@ -1,8 +1,9 @@
 import {
   listPendingRequestsResponseSchema,
-  postSessionAnswerRequestSchema,
+  postSessionAnswerInputSchema,
   postSessionAnswerResponseSchema,
   sessionIdParamsSchema,
+  storedAnswer,
 } from "@werft-ai/contracts";
 import type { PendingRequestService } from "@werft-ai/platform";
 import {
@@ -28,7 +29,9 @@ export function registerPendingRoutes(
   apiRoute(router, "answerPendingRequest", async (context) => {
     const params = requireParams(context, sessionIdParamsSchema);
     const key = requireIdempotencyKey(context);
-    const body = await parseJsonBody(context, postSessionAnswerRequestSchema);
+    const body = storedAnswer(
+      await parseJsonBody(context, postSessionAnswerInputSchema),
+    );
     const accepted = await mapped(() =>
       service.answer(context.get("caller"), params.id, {
         idempotencyKey: key,

@@ -511,14 +511,14 @@ export function PendingAnswers({
                     send({
                       request_id: request.request_id,
                       kind: "permission",
-                      decision: "allow",
+                      action: "allow",
                     })
                   }
                   onDeny={(text) =>
                     send({
                       request_id: request.request_id,
                       kind: "permission",
-                      decision: "deny",
+                      action: "deny",
                       reason: text,
                     })
                   }

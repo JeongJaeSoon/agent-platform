@@ -70,7 +70,7 @@ curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY
 const answered = await werft.sessions.requests.answer(sessionId, {
   request_id: request.request_id,
   kind: "permission",
-  decision: "deny",
+  action: "deny",
   reason: "Do not delete build output.",
 });
 console.log(answered.receipt_status, answered.approval?.surface);
@@ -90,7 +90,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "deny", reason: "Do not delete build output."}')" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", action: "deny", reason: "Do not delete build output."}')" \
   | jq '{receipt_status, surface: .approval.surface}'
 ```
 
@@ -106,7 +106,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 </Tab>
 </Tabs>
 
-許可は `"decision": "allow"` である。`reason` は拒否の場合だけ使い、省略できる。モデルはその理由をツールの結果として受け取り、ターンを続ける。レスポンスの `approval` には、誰が(`answered_by`)、どこから(`surface`: `api`・`web`・`slack`)応答したかが残る。
+許可は `"action": "allow"` である。`reason` は拒否の場合だけ使い、省略できる。モデルはその理由をツールの結果として受け取り、ターンを続ける。レスポンスの `approval` には、誰が(`answered_by`)、どこから(`surface`: `api`・`web`・`slack`)応答したかが残る。
 
 ## 質問に答える
 
