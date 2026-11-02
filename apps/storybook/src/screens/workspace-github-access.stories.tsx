@@ -1,195 +1,468 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Badge,
   Button,
-  Card,
-  CardDescription,
-  CardFooter,
-  CardTitle,
-  ConfirmDialog,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  Heading,
+  IconTile,
   Page,
   RowList,
+  RowListItem,
   SettingRow,
   Switch,
+  Text,
 } from "@werft-ai/ui";
-import { Lock } from "lucide-react";
-import { type ReactNode, useId } from "react";
+import {
+  ArrowUpRight,
+  GitPullRequest,
+  MoreHorizontal,
+  Plus,
+} from "lucide-react";
+import { useId } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
- * GA-6 (docs/contributing/decisions/github-agent.md §7, mockup screen C):
- * the author App's permission table and the ceiling agents turn features on
- * under, as apps/web draws them below the App card. Values are what
- * GET /v1/workspaces/{id}/github-settings and …/github-app return.
+ * Workspace › GitHub connection (docs/contributing/decisions/github-agent.md
+ * §7): one GitHub card with the App list, the installation table and the
+ * repositories line, then the features agents may use and the member account
+ * link. Values are what GET /v1/workspaces/{id}/github-settings returns.
  */
 
 type Viewer = "owner" | "admin" | "member";
-type Feature = "review" | "actions" | "checks" | "issues" | "workflows";
-type State = "ready" | "lowering" | "conflict" | "unread";
+type State = "ready" | "short" | "empty";
+type Feature = "actions" | "workflows" | "review";
 
-// github-settings: ceiling, agents_using; github-app: permissions.
-const PERMISSIONS: Record<string, "read" | "write" | "admin"> = {
-  contents: "write",
-  pull_requests: "write",
-  metadata: "read",
-  actions: "write",
-  checks: "write",
-  issues: "write",
-  administration: "write",
-};
-const CEILING: Record<Feature, boolean> = {
-  review: false,
-  actions: true,
-  checks: false,
-  issues: false,
-  workflows: false,
-};
-const AGENTS_USING: Record<Feature, number> = {
-  review: 0,
-  actions: 2,
-  checks: 0,
-  issues: 0,
-  workflows: 0,
-};
+const CARD = "flex flex-col gap-4 rounded-card border bg-card p-4";
+const MANAGER_COLUMNS =
+  "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";
+const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
+const MANAGER_NARROW = "minmax(0,1fr) 88px 32px";
+const MEMBER_NARROW = "minmax(0,1fr) 88px";
+const NARROW_ONLY = "[@container(min-width:761px)]:hidden";
 
-const GUIDANCE: readonly (readonly [
-  string,
-  string,
-  "read" | "write",
-  boolean,
-])[] = [
-  ["contents", "저장소 내용", "write", true],
-  ["pull_requests", "Pull request", "write", true],
-  ["metadata", "메타데이터", "read", true],
-  ["actions", "Actions", "write", false],
-  ["checks", "Checks", "write", false],
-  ["issues", "Issues", "write", false],
-  ["workflows", "Workflows", "write", false],
-];
-const LEVEL = { read: "읽기", write: "쓰기", admin: "관리" } as const;
-
-const FEATURES: readonly (readonly [Feature, string, string])[] = [
-  ["review", "리뷰 승인", "리뷰용 App으로 PR에 승인 리뷰를 남깁니다."],
+// connections[]: name, role, app_id, installations[] with status and detail.
+const APPS = [
+  {
+    name: "werft-agent",
+    role: "작성용",
+    id: 101,
+    key: "2026. 10. 01. 김민지 저장",
+  },
+  {
+    name: "werft-reviewer",
+    role: "리뷰 승인용",
+    id: 202,
+    key: "2026. 10. 12. 저장",
+  },
+] as const;
+const INSTALLATIONS = [
+  {
+    account: "acme",
+    type: "조직",
+    repos: "12개 선택",
+    app: "werft-agent",
+    by: "김민지 · 2026. 10. 01.",
+    status: ["연결됨", "green"],
+  },
+  {
+    account: "acme",
+    type: "조직",
+    repos: "전체 40개",
+    app: "werft-reviewer",
+    by: "설치 2026. 10. 12.",
+    status: ["승인 대기", "amber"],
+  },
+  {
+    account: "minji-kim",
+    type: "개인 계정",
+    repos: "3개 선택",
+    app: "werft-agent",
+    by: "설치 2026. 09. 20.",
+    status: ["연결됨", "green"],
+  },
+] as const;
+const FEATURES: readonly (readonly [Feature, string, string, number])[] = [
   [
     "actions",
     "Actions 실행",
     "에이전트 허용 목록의 워크플로를 실행하거나 다시 실행합니다.",
+    2,
   ],
   [
     "workflows",
     "워크플로 파일 수정",
     ".github/workflows 아래 파일을 바꾼 commit도 push합니다.",
+    0,
+  ],
+  [
+    "review",
+    "PR 리뷰 승인",
+    "PR에 코멘트·변경 요청·승인 리뷰를 남깁니다. 리뷰 승인용 App이 있어야 켤 수 있습니다.",
+    1,
   ],
 ];
 
-const CARD_BODY = "flex flex-col gap-3 p-4";
-const META = "text-caption text-subtle-foreground";
-const STATUS = `${META} min-w-14 text-right`;
-const ROWS = "rounded-none border-x-0 border-b-0 bg-transparent";
-
-function SettingsCard({
-  title,
-  description,
-  rows,
-  foot,
-  children,
-}: {
-  readonly title: string;
-  readonly description: string;
-  readonly rows: ReactNode;
-  readonly foot?: ReactNode;
-  readonly children?: ReactNode;
-}) {
-  const titleId = useId();
+function MenuButton({ label }: { readonly label: string }) {
   return (
-    <Card flush role="region" aria-labelledby={titleId}>
-      <div className={CARD_BODY}>
-        <CardTitle id={titleId} role="heading" aria-level={2}>
-          {title}
-        </CardTitle>
-        <CardDescription className="text-description">
-          {description}
-        </CardDescription>
-        {children}
-      </div>
-      <RowList variant="joined" className={ROWS}>
-        {rows}
-      </RowList>
-      {foot ? <CardFooter variant="form">{foot}</CardFooter> : null}
-    </Card>
+    <Button type="button" variant="ghost" size="icon-sm" aria-label={label}>
+      <MoreHorizontal aria-hidden="true" />
+    </Button>
   );
 }
 
-function PermissionRows({ unread }: { readonly unread: boolean }) {
-  if (unread)
-    return (
-      <SettingRow title="아직 GitHub에서 권한을 읽지 않았습니다. 소유자나 관리자가 이 화면을 열면 읽습니다." />
-    );
-  const extras = Object.keys(PERMISSIONS).filter(
-    (name) => !GUIDANCE.some(([key]) => key === name),
-  );
+function AppRows({
+  manage,
+  state,
+}: {
+  readonly manage: boolean;
+  readonly state: State;
+}) {
   return (
-    <>
-      {GUIDANCE.map(([name, label, guided, base]) => {
-        const level = PERMISSIONS[name];
+    <RowList variant="joined" aria-label="GitHub App">
+      {APPS.map((app) => {
+        const short = state === "short" && app.role === "작성용";
+        const pending = app.role === "리뷰 승인용";
         return (
-          <SettingRow
-            key={name}
-            title={label}
-            badge={<Badge variant="mono">{name}</Badge>}
-            description={`안내 ${LEVEL[guided]} · ${base ? "기본" : "선택"}`}
-            meta={
-              <div>
-                {level === undefined ? (
-                  <Badge variant={base ? "amber" : "gray"}>App에 없음</Badge>
-                ) : (
-                  <Badge variant="green">App {LEVEL[level]}</Badge>
-                )}
+          <RowListItem key={app.id} className="flex-col items-stretch gap-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Text as="span" weight="medium" truncate>
+                    {app.name}
+                  </Text>
+                  <Badge>{app.role}</Badge>
+                </div>
+                <Text variant="meta">{`App ID ${app.id} · 키 ${app.key}`}</Text>
               </div>
-            }
-          />
+              {short ? (
+                <Badge variant="amber">권한 추가 필요</Badge>
+              ) : pending ? (
+                <Badge variant="amber">승인 대기 1곳</Badge>
+              ) : (
+                <Badge variant="green">연결됨</Badge>
+              )}
+              {manage ? <MenuButton label={`${app.name} 메뉴`} /> : null}
+            </div>
+            {short ? (
+              <div className="flex flex-col gap-2">
+                <Text className="text-(color:--ap-tone-caution-fg)">
+                  Actions 실행을(를) 쓰려면 이 App에 Actions 쓰기 권한이
+                  필요합니다. 더하면 GitHub가 설치한 계정마다 owner에게 승인을
+                  요청합니다. 다시 설치하지 않아도 됩니다.
+                </Text>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm">
+                    GitHub에서 권한 추가
+                    <ArrowUpRight aria-hidden="true" className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-link"
+                  >
+                    App 소유자에게 보낼 안내 복사
+                  </Button>
+                </div>
+              </div>
+            ) : pending ? (
+              <div className="flex flex-col gap-2">
+                <Text className="text-(color:--ap-tone-caution-fg)">
+                  acme의 owner가 Pull requests 쓰기을(를) 승인하면 그 계정
+                  저장소에서도 이 App의 권한이 모두 동작합니다.
+                </Text>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-fit text-link"
+                >
+                  owner에게 보낼 안내 복사
+                </Button>
+              </div>
+            ) : null}
+          </RowListItem>
         );
       })}
-      {extras.map((name) => (
-        <SettingRow
-          key={name}
-          title="Administration"
-          badge={<Badge variant="mono">{name}</Badge>}
-          description="안내에 없음 · 플랫폼이 쓰지 않음"
-          meta={
-            <div>
-              <Badge variant="red">
-                App {LEVEL[PERMISSIONS[name] ?? "read"]} · 안내보다 넓음
-              </Badge>
-            </div>
-          }
-        />
-      ))}
-    </>
+    </RowList>
   );
 }
 
-function GitHubAccessScreen({
+function Installations({ manage }: { readonly manage: boolean }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <GridTable
+        aria-label="GitHub App을 설치한 조직과 개인 계정"
+        columns={manage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
+        narrowAt={760}
+        narrowColumns={manage ? MANAGER_NARROW : MEMBER_NARROW}
+        framed
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>이름</GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>유형</GridTableColumnHeader>
+          {manage ? (
+            <GridTableColumnHeader hideNarrow>저장소</GridTableColumnHeader>
+          ) : null}
+          <GridTableColumnHeader hideNarrow>App</GridTableColumnHeader>
+          {manage ? (
+            <GridTableColumnHeader hideNarrow>
+              연결한 사람
+            </GridTableColumnHeader>
+          ) : null}
+          <GridTableColumnHeader>상태</GridTableColumnHeader>
+          {manage ? (
+            <GridTableColumnHeader>
+              <Text as="span" className="sr-only">
+                메뉴
+              </Text>
+            </GridTableColumnHeader>
+          ) : null}
+        </GridTableHeader>
+        {INSTALLATIONS.map((row) => {
+          const moved = manage
+            ? [row.type, row.repos, row.app]
+            : [row.type, row.app];
+          return (
+            <GridTableRow key={`${row.account}:${row.app}`}>
+              <GridTableCell {...{ role: "rowheader" }} lines>
+                <Text as="span" weight="medium" truncate>
+                  {row.account}
+                </Text>
+                <Text as="span" variant="meta" className={NARROW_ONLY}>
+                  {moved.join(" · ")}
+                </Text>
+                {manage ? (
+                  <Text as="span" variant="meta" className={NARROW_ONLY}>
+                    {`연결: ${row.by}`}
+                  </Text>
+                ) : null}
+              </GridTableCell>
+              <GridTableCell hideNarrow>
+                <Text as="span" variant="sub">
+                  {row.type}
+                </Text>
+              </GridTableCell>
+              {manage ? (
+                <GridTableCell hideNarrow>{row.repos}</GridTableCell>
+              ) : null}
+              <GridTableCell hideNarrow>
+                <Text as="span" truncate>
+                  {row.app}
+                </Text>
+              </GridTableCell>
+              {manage ? (
+                <GridTableCell hideNarrow>
+                  <Text as="span" truncate>
+                    {row.by}
+                  </Text>
+                </GridTableCell>
+              ) : null}
+              <GridTableCell>
+                <Badge variant={row.status[1]}>{row.status[0]}</Badge>
+              </GridTableCell>
+              {manage ? (
+                <GridTableCell align="end">
+                  <MenuButton label={`${row.account} · ${row.app} 메뉴`} />
+                </GridTableCell>
+              ) : null}
+            </GridTableRow>
+          );
+        })}
+      </GridTable>
+      <Text variant="meta">GitHub에서 읽음 · 3분 전</Text>
+    </div>
+  );
+}
+
+function GitHubCard({
+  manage,
+  state,
+}: {
+  readonly manage: boolean;
+  readonly state: State;
+}) {
+  const titleId = useId();
+  const empty = state === "empty";
+  return (
+    <section aria-labelledby={titleId} className={CARD}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+        <IconTile icon={GitPullRequest} hue="slate" size="two-line" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Heading id={titleId} level={2}>
+            GitHub
+          </Heading>
+          <Text variant="sub">
+            {empty ? "연결 없음" : "App 2개 · 계정 2곳"}
+          </Text>
+        </div>
+        {manage && !empty ? (
+          <div className="max-sm:basis-full max-sm:pl-[calc(var(--ap-size-tile-two-line)+0.75rem)]">
+            <Button type="button">
+              <Plus aria-hidden="true" />
+              조직 추가
+            </Button>
+          </div>
+        ) : null}
+      </div>
+      <Text variant="sub">
+        에이전트가 작업할 조직과 개인 계정에 GitHub App을 설치합니다. 어느
+        저장소까지 열지는 설치할 때 GitHub에서 정합니다.
+      </Text>
+      {empty ? (
+        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
+          <Text weight="medium">아직 연결된 GitHub App이 없습니다</Text>
+          <Text variant="sub">
+            GitHub에서 App을 만들면 콘솔이 키를 받아 보관합니다. 만든 뒤 조직에
+            설치하면 여기 표에 나옵니다.
+          </Text>
+          {manage ? (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button">GitHub App 만들기</Button>
+              <Button type="button" variant="outline">
+                이미 있는 App 연결
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2">
+            <Heading level={3}>GitHub App</Heading>
+            <AppRows manage={manage} state={state} />
+            {manage ? (
+              <Button type="button" variant="ghost" className="w-fit text-link">
+                <Plus aria-hidden="true" />
+                App 추가
+              </Button>
+            ) : null}
+          </div>
+          <Installations manage={manage} />
+          {manage ? (
+            <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <Text weight="medium">에이전트가 쓰는 저장소</Text>
+                <Text variant="sub">
+                  에이전트가 고른 저장소 8개 · 설치 밖 1개
+                </Text>
+              </div>
+              <Button type="button" variant="outline">
+                저장소 관리
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+function FeaturesCard({
+  manage,
+  state,
+}: {
+  readonly manage: boolean;
+  readonly state: State;
+}) {
+  const titleId = useId();
+  const hintId = useId();
+  return (
+    <section aria-labelledby={titleId} className={CARD}>
+      <div className="flex flex-col gap-1">
+        <Heading id={titleId} level={2}>
+          에이전트가 쓸 수 있는 기능
+        </Heading>
+        <Text variant="sub">
+          워크스페이스 전체의 상한입니다. 에이전트마다 켜는 것은 에이전트의
+          GitHub 탭에서 합니다. 스위치를 바꾸면 바로 저장되고, 앞 릴리스로 도는
+          세션도 다음 GitHub 요청부터 따릅니다.
+        </Text>
+      </div>
+      <RowList variant="joined">
+        <SettingRow
+          title="PR 작성·수정"
+          description="clone, push, PR 열기·코멘트. GitHub를 쓰는 에이전트는 늘 씁니다."
+          actions={
+            <Text as="div" variant="meta">
+              항상 켜짐
+            </Text>
+          }
+        />
+        {FEATURES.map(([feature, title, hint, using]) => {
+          const on = feature !== "workflows";
+          const badge =
+            feature === "actions" && state === "short" ? (
+              <Badge variant="amber">App 권한 필요</Badge>
+            ) : feature === "review" ? (
+              <Badge variant="amber">일부 계정 승인 대기</Badge>
+            ) : null;
+          const meta = `활성 릴리스에서 켠 에이전트 ${using}개`;
+          return (
+            <SettingRow
+              key={feature}
+              title={title}
+              badge={badge}
+              description={hint}
+              meta={
+                <Text as="div" variant="meta">
+                  {feature === "review"
+                    ? `werft-reviewer(으)로 · ${meta}`
+                    : meta}
+                </Text>
+              }
+              control={
+                <Switch
+                  checked={on}
+                  disabled={!manage}
+                  aria-describedby={manage ? undefined : hintId}
+                />
+              }
+            />
+          );
+        })}
+      </RowList>
+      {manage ? null : (
+        <Text id={hintId} variant="meta">
+          워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할:
+          구성원.
+        </Text>
+      )}
+    </section>
+  );
+}
+
+function UserLinkRow({ manage }: { readonly manage: boolean }) {
+  const titleId = useId();
+  return (
+    <section
+      aria-labelledby={titleId}
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border bg-card p-4"
+    >
+      <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1">
+        <Heading id={titleId} level={2}>
+          구성원 GitHub 계정 연결
+        </Heading>
+        <Text variant="sub">werft-agent(으)로 연결합니다.</Text>
+      </div>
+      <Badge variant="green">켜짐</Badge>
+      {manage ? <MenuButton label="구성원 GitHub 계정 연결 메뉴" /> : null}
+    </section>
+  );
+}
+
+function GitHubScreen({
   viewer,
   state,
 }: {
   readonly viewer: Viewer;
   readonly state: State;
 }) {
-  const editable = viewer !== "member";
-  const hintId = useId();
-  // The owner turned Actions off and pressed save; the dialog asks first.
-  const shown = state === "lowering" ? { ...CEILING, actions: false } : CEILING;
-  const lacks = (feature: Feature) =>
-    feature === "review"
-      ? "리뷰용 App 없음 · 허용해도 리뷰 요청은 거절됩니다."
-      : state !== "unread" && PERMISSIONS[feature] === undefined
-        ? "App에 권한 없음 · 허용해도 GitHub가 토큰 발급을 거절합니다."
-        : null;
+  const manage = viewer !== "member";
   return (
     <ScreenShell
       current="settings"
@@ -198,181 +471,62 @@ function GitHubAccessScreen({
     >
       <Page
         title="GitHub 연결 설정"
-        description="에이전트가 GitHub 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 GitHub App입니다. 소유자와 관리자만 바꿀 수 있습니다."
+        description="에이전트가 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 GitHub 연결입니다. 에이전트마다 쓸 저장소는 에이전트의 GitHub 탭에서 고릅니다."
       >
         <div className="flex flex-col gap-10">
-          {state === "conflict" ? (
-            <Alert variant="red" role="alert">
-              <AlertDescription>
-                다른 사람이 먼저 최대 권한을 바꿨습니다. 지금 저장된 값을 다시
-                불러왔으니 확인하고 다시 저장하세요.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <SettingsCard
-            title="App 권한"
-            description="작성용 App이 GitHub에 요청한 권한을 마지막으로 읽은 값입니다. 플랫폼은 작업마다 필요한 권한만 골라 토큰을 발급합니다."
-            rows={<PermissionRows unread={state === "unread"} />}
-          >
-            {state === "unread" ? null : (
-              <Alert variant="amber">
-                <AlertTitle>
-                  작성용 App이 안내보다 넓은 권한을 가졌습니다
-                </AlertTitle>
-                <AlertDescription>
-                  administration 쓰기. 플랫폼은 이 권한으로 토큰을 발급하지
-                  않지만, 키가 새면 GitHub에서는 쓸 수 있습니다. GitHub의 App
-                  설정에서 빼고 설치의 권한 변경을 승인하세요.
-                </AlertDescription>
-              </Alert>
-            )}
-          </SettingsCard>
-          <SettingsCard
-            title="에이전트가 켤 수 있는 최대 권한"
-            description="에이전트 GitHub 탭은 여기서 허용한 권한 안에서만 켭니다. 실행 프로필의 상한처럼 소유자와 관리자만 바꿉니다. 낮추면 이미 켠 에이전트도 다음 GitHub 요청부터 거절됩니다."
-            rows={
-              <>
-                <SettingRow
-                  title="PR 작성·수정"
-                  badge={<Badge>기본</Badge>}
-                  description="clone, push, PR 열기·코멘트. GitHub를 쓰는 모든 에이전트가 가집니다."
-                  actions={<div className={STATUS}>항상 켜짐</div>}
-                />
-                {FEATURES.map(([feature, title, hint]) => {
-                  const note = lacks(feature);
-                  return (
-                    <SettingRow
-                      key={feature}
-                      title={title}
-                      description={hint}
-                      meta={
-                        <>
-                          <div className={META}>
-                            활성 릴리스에서 켠 에이전트 {AGENTS_USING[feature]}
-                            개
-                          </div>
-                          {note ? (
-                            <div className="text-caption text-(color:--ap-tone-caution-fg)">
-                              {note}
-                            </div>
-                          ) : null}
-                        </>
-                      }
-                      status={
-                        <div aria-hidden="true" className={STATUS}>
-                          {shown[feature] ? "허용" : "허용 안 함"}
-                        </div>
-                      }
-                      control={
-                        <Switch
-                          checked={shown[feature]}
-                          disabled={!editable}
-                          aria-describedby={editable ? undefined : hintId}
-                        />
-                      }
-                    />
-                  );
-                })}
-              </>
-            }
-            foot={
-              editable ? (
-                <>
-                  <div className={META}>
-                    바꾸면 감사 기록(receipt)에 남습니다.
-                  </div>
-                  <div className="flex gap-2">
-                    {state === "lowering" ? (
-                      <Button type="button" size="sm" variant="ghost">
-                        되돌리기
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="submit"
-                      size="sm"
-                      className="aria-disabled:opacity-45"
-                      aria-disabled={state !== "lowering" || undefined}
-                    >
-                      저장
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div id={hintId} className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex shrink-0 items-center gap-1 text-caption text-subtle-foreground">
-                    <Lock
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0"
-                      strokeWidth={1.5}
-                    />
-                    읽기 전용
-                  </div>
-                  <div className={META}>
-                    워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금
-                    역할: 구성원.
-                  </div>
-                </div>
-              )
-            }
-          />
+          <GitHubCard manage={manage} state={state} />
+          {state === "empty" ? null : (
+            <>
+              <FeaturesCard manage={manage} state={state} />
+              <UserLinkRow manage={manage} />
+            </>
+          )}
         </div>
       </Page>
-      <ConfirmDialog
-        open={state === "lowering"}
-        onOpenChange={() => {}}
-        title="최대 권한을 낮출까요?"
-        consequence="Actions 실행(활성 릴리스에서 켠 에이전트 2개) 권한을 끕니다. 앞 릴리스로 도는 세션도 다음 GitHub 요청부터 거절됩니다."
-        confirmLabel="낮추고 저장"
-        cancelLabel="취소"
-        onConfirm={() => {}}
-      />
     </ScreenShell>
   );
 }
 
 const meta = {
-  title: "Screens/Workspace GitHub access (GA-6)",
-  component: GitHubAccessScreen,
+  title: "Screens/Workspace GitHub connection",
+  component: GitHubScreen,
   parameters: { layout: "fullscreen" },
   args: { viewer: "owner", state: "ready" },
   argTypes: {
     viewer: { control: "inline-radio", options: ["owner", "admin", "member"] },
     state: {
       control: "inline-radio",
-      options: ["ready", "lowering", "conflict", "unread"],
+      options: ["ready", "short", "empty"],
     },
   },
-} satisfies Meta<typeof GitHubAccessScreen>;
+} satisfies Meta<typeof GitHubScreen>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WorkspaceGitHubAccess: Story = { name: "Owner" };
-export const WorkspaceGitHubAccessLowering: Story = {
-  name: "Owner lowering (confirm)",
-  args: { state: "lowering" },
+export const WorkspaceGitHub: Story = { name: "Owner" };
+export const WorkspaceGitHubShort: Story = {
+  name: "Owner, App permission short",
+  args: { state: "short" },
 };
-export const WorkspaceGitHubAccessConflict: Story = {
-  name: "Revision conflict",
-  args: { state: "conflict" },
+export const WorkspaceGitHubEmpty: Story = {
+  name: "No App yet",
+  args: { state: "empty" },
 };
-export const WorkspaceGitHubAccessUnread: Story = {
-  name: "Permissions not read yet",
-  args: { state: "unread" },
-};
-export const WorkspaceGitHubAccessMember: Story = {
+export const WorkspaceGitHubMember: Story = {
   name: "Member (read-only)",
   args: { viewer: "member" },
 };
-export const WorkspaceGitHubAccessDark: Story = {
+export const WorkspaceGitHubDark: Story = {
   name: "Owner (dark)",
   globals: { theme: "dark" },
 };
-export const WorkspaceGitHubAccessMobile: Story = {
-  name: "Owner (390px)",
+export const WorkspaceGitHubMobile: Story = {
+  name: "Owner, short (390px)",
+  args: { state: "short" },
   globals: MOBILE,
 };
-export const WorkspaceGitHubAccessMemberMobile: Story = {
+export const WorkspaceGitHubMemberMobile: Story = {
   name: "Member (390px)",
   args: { viewer: "member" },
   globals: MOBILE,

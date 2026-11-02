@@ -187,6 +187,10 @@ function ReceiptRow({
     result.reason_code
       ? t(`agentGitHub.refusal.${result.reason_code}` as MessageKey)
       : null,
+    result.reason_code === "ambiguous_app" ||
+    result.reason_code === "pinned_app_removed"
+      ? t(`agentGitHub.refusalNext.${result.reason_code}`)
+      : null,
     release
       ? t("agentGitHub.activity.release", { release: release.label })
       : null,

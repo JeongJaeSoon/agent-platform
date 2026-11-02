@@ -1,157 +1,153 @@
 import type {
   GitHubAppPermissionLevel,
   GitHubAppPermissions,
+  GitHubAppRole,
   GitHubCeiling,
+  GitHubSettingsConnection,
+  GitHubSettingsInstallation,
 } from "@werft-ai/contracts";
 
-/** The ceiling features the console offers; checks and issues have no work yet. */
-export const OFFERED_FEATURES = ["actions", "workflows", "review"] as const;
-export type OfferedFeature = (typeof OFFERED_FEATURES)[number];
-
-export const RANK: Record<GitHubAppPermissionLevel, number> = {
+const RANK: Record<GitHubAppPermissionLevel, number> = {
   read: 1,
   write: 2,
   admin: 3,
 };
 
-/** What every agent's token asks the author App for. */
-export const BASE_NEED: GitHubAppPermissions = {
-  contents: "write",
-  pull_requests: "write",
-  metadata: "read",
-};
+/** contracts githubPermissionsMissing; apps/web imports only its types. */
+export function githubPermissionsMissing(
+  granted: GitHubAppPermissions,
+  asked: GitHubAppPermissions,
+): string[] {
+  return Object.entries(asked)
+    .filter(([name, level]) => {
+      const held = granted[name];
+      return held === undefined || RANK[held] < RANK[level];
+    })
+    .map(([name]) => name)
+    .sort();
+}
 
-/** What turning a feature on adds to the author App's need. */
-export const FEATURE_NEED: Record<
-  Exclude<OfferedFeature, "review">,
-  GitHubAppPermissions
-> = {
+/** The ceiling features the console offers; checks and issues have no work yet. */
+export const OFFERED_FEATURES = ["actions", "workflows", "review"] as const;
+export type OfferedFeature = (typeof OFFERED_FEATURES)[number];
+
+/** `base` is writing a PR, always on for an agent with GitHub. */
+export type Feature = "base" | OfferedFeature;
+
+/** What each feature's token asks its role's App for (contracts githubPermissionsFor). */
+export const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
+  base: { contents: "write", pull_requests: "write", metadata: "read" },
   actions: { actions: "write" },
   workflows: { workflows: "write" },
+  review: { contents: "read", pull_requests: "write" },
 };
 
-/** What the reviewer App's token asks for (contracts githubPermissionsFor "review"). */
-export const REVIEW_NEED: GitHubAppPermissions = {
-  contents: "read",
-  pull_requests: "write",
-};
+export const roleOf = (feature: Feature): GitHubAppRole =>
+  feature === "review" ? "reviewer" : "author";
 
-// Rows keep this order inside each status; the rest follow by name.
-const ORDER = [
-  "contents",
-  "pull_requests",
-  "metadata",
-  "actions",
-  "workflows",
-] as const;
-
-export type PermissionStatus = "missing" | "short" | "wide" | "ok";
-
-export type PermissionRow = {
-  readonly name: string;
-  readonly need: GitHubAppPermissionLevel | null;
-  readonly app: GitHubAppPermissionLevel | null;
-  readonly status: PermissionStatus;
-  /** The feature this permission serves, when one does. */
-  readonly feature: "base" | Exclude<OfferedFeature, "review"> | null;
-};
-
-const STATUS_ORDER: Record<PermissionStatus, number> = {
-  missing: 0,
-  short: 1,
-  wide: 2,
-  ok: 3,
-};
-
-export function authorNeed(ceiling: GitHubCeiling): GitHubAppPermissions {
-  return {
-    ...BASE_NEED,
-    ...(ceiling.actions ? FEATURE_NEED.actions : {}),
-    ...(ceiling.workflows ? FEATURE_NEED.workflows : {}),
-  };
+/** The features on under the ceiling, writing a PR always among them. */
+export function featuresOn(ceiling: GitHubCeiling): Feature[] {
+  return ["base", ...OFFERED_FEATURES.filter((feature) => ceiling[feature])];
 }
 
-export function statusOf(
-  need: GitHubAppPermissionLevel | null,
-  app: GitHubAppPermissionLevel | null,
-): PermissionStatus {
-  if (need !== null && app === null) return "missing";
-  if (need !== null && app !== null && RANK[app] < RANK[need]) return "short";
-  if (app !== null && (need === null || RANK[app] > RANK[need])) return "wide";
-  return "ok";
+export type Shortfall = {
+  readonly feature: Feature;
+  /** Permission names, sorted, at the level FEATURE_NEED gives. */
+  readonly missing: readonly string[];
+};
+
+/**
+ * What the connection's App lacks for the features turned on, one entry a
+ * feature. Nothing before the App was read: unread is not short.
+ */
+export function appShortfalls(
+  connection: Pick<GitHubSettingsConnection, "role" | "permissions">,
+  ceiling: GitHubCeiling,
+): Shortfall[] {
+  const held = connection.permissions;
+  if (held === null) return [];
+  return featuresOn(ceiling)
+    .filter((feature) => roleOf(feature) === connection.role)
+    .map((feature) => ({
+      feature,
+      missing: githubPermissionsMissing(held, FEATURE_NEED[feature]),
+    }))
+    .filter((shortfall) => shortfall.missing.length > 0);
 }
 
-function featureOf(name: string): PermissionRow["feature"] {
-  if (name in BASE_NEED) return "base";
-  if (name === "actions" || name === "workflows") return name;
-  return null;
+/** The permissions those features need, merged at the highest level asked. */
+export function neededFor(shortfalls: readonly Shortfall[]) {
+  const need: GitHubAppPermissions = {};
+  for (const { feature, missing } of shortfalls) {
+    for (const name of missing) {
+      const level = FEATURE_NEED[feature][name];
+      if (level && (need[name] === undefined || need[name] === "read")) {
+        need[name] = level;
+      }
+    }
+  }
+  return need;
 }
 
 /**
- * The author App's permissions against what the features turned on need,
- * one row a permission either side names, problems first.
+ * What the installation has not approved of `asked`, as its own last read
+ * says. Empty when that read is not known now: an installation GitHub did
+ * not answer for is "unknown", never waiting on an approval.
  */
-export function permissionRows(
-  app: GitHubAppPermissions,
+export function unapproved(
+  installation: GitHubSettingsInstallation,
+  asked: GitHubAppPermissions | null,
+): string[] {
+  if (asked === null || installation.status !== "approval_pending") return [];
+  const approved = installation.detail?.permissions;
+  return approved ? githubPermissionsMissing(approved, asked) : [];
+}
+
+export type FeatureMark = "appShort" | "pending" | null;
+
+/**
+ * A feature row's one mark: an App of its role lacks what it needs, or an
+ * installation of an App that has it has not approved it yet. Approvals of
+ * permissions the feature does not use leave it unmarked.
+ */
+export function featureMark(
+  feature: Feature,
+  connections: readonly GitHubSettingsConnection[],
   ceiling: GitHubCeiling,
-): PermissionRow[] {
-  const need = authorNeed(ceiling);
-  const names = new Set([...Object.keys(need), ...Object.keys(app)]);
-  const rank = (name: string) => {
-    const at = (ORDER as readonly string[]).indexOf(name);
-    return at === -1 ? ORDER.length : at;
-  };
-  return [...names]
-    .map((name) => {
-      const needed = need[name] ?? null;
-      const held = app[name] ?? null;
-      return {
-        name,
-        need: needed,
-        app: held,
-        status: statusOf(needed, held),
-        feature: featureOf(name),
-      };
-    })
-    .sort(
-      (a, b) =>
-        STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
-        rank(a.name) - rank(b.name) ||
-        a.name.localeCompare(b.name),
-    );
-}
-
-/** The first permission in `need` the App lacks or holds below it, or null. */
-export function firstShortfall(
-  need: GitHubAppPermissions,
-  app: GitHubAppPermissions | null,
-): { name: string; held: GitHubAppPermissionLevel | null } | null {
-  if (app === null) return null;
-  for (const [name, level] of Object.entries(need)) {
-    const held = app[name] ?? null;
-    if (held === null || RANK[held] < RANK[level]) return { name, held };
+): FeatureMark {
+  if (feature !== "base" && !ceiling[feature]) return null;
+  const need = FEATURE_NEED[feature];
+  const ofRole = connections.filter(
+    (connection) => connection.role === roleOf(feature),
+  );
+  if (
+    ofRole.some(
+      (connection) =>
+        connection.permissions !== null &&
+        githubPermissionsMissing(connection.permissions, need).length > 0,
+    )
+  ) {
+    return "appShort";
   }
-  return null;
+  return ofRole.some((connection) =>
+    connection.installations.some(
+      (installation) => unapproved(installation, need).length > 0,
+    ),
+  )
+    ? "pending"
+    : null;
 }
 
-/** The App asks for more than the installation has accepted so far. */
-export function approvalPending(
-  app: GitHubAppPermissions | null | undefined,
-  installation: GitHubAppPermissions | null | undefined,
-): boolean {
-  if (!app || !installation) return false;
-  return Object.entries(app).some(([name, level]) => {
-    const held = installation[name];
-    return held === undefined || RANK[level] > RANK[held];
-  });
-}
-
-/** `owner` of a GitHub clone URL, or null when it is not one. */
-export function ownerOf(url: string): string | null {
-  try {
-    const owner = new URL(url).pathname.split("/")[1];
-    return owner ? owner : null;
-  } catch {
-    return null;
-  }
+/** The App's page under its owner, where its permissions are set. */
+export function permissionsUrl(
+  connection: Pick<GitHubSettingsConnection, "owner" | "html_url">,
+): string | null {
+  const slug = new URL(connection.html_url).pathname
+    .split("/")
+    .filter(Boolean)
+    .at(-1);
+  if (!connection.owner || !slug) return null;
+  return connection.owner.type === "organization"
+    ? `https://github.com/organizations/${connection.owner.login}/settings/apps/${slug}/permissions`
+    : `https://github.com/settings/apps/${slug}/permissions`;
 }

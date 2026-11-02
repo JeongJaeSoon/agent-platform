@@ -1,796 +1,622 @@
 import { describe, expect, test } from "bun:test";
+import type { GitHubSettingsResponse } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
-  apiError,
+  AUTHOR_CONNECTION,
   GITHUB_SETTINGS,
+  githubConnection,
+  githubInstallation,
   githubSettings,
   json,
   me,
   memberMe,
+  REVIEWER_CONNECTION,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { cleanup, renderAt, screen, waitFor, within } = await appHarness();
+const { renderAt, screen, waitFor, within } = await appHarness();
 
 const PATH = "/settings/workspace/github";
-const APP = `/v1/workspaces/${WORKSPACE_ID}/github-apps/author`;
-const REVIEWER = `/v1/workspaces/${WORKSPACE_ID}/github-apps/reviewer`;
-const SETTINGS = `/v1/workspaces/${WORKSPACE_ID}/github-settings`;
-const NO_CEILING = {
-  ceiling: {
-    workflows: false,
-    actions: false,
-    checks: false,
-    issues: false,
-    review: false,
-  },
-  revision: 0,
-  agents_using: { workflows: 0, actions: 0, checks: 0, issues: 0, review: 0 },
-  oauth: { client_id: null, client_secret_set: false, callback_url: null },
-  connections: [],
-  apps: { author: null, reviewer: null },
-};
-const KEY_TEXT = "fake-pem-text";
-const settingsRead = {
-  [`GET ${GITHUB_SETTINGS}`]: () => json(200, githubSettings()),
-};
-const UNSET = {
-  github_app: null,
-  check: null,
+const APPS = `/v1/workspaces/${WORKSPACE_ID}/github-apps`;
+const REPOSITORIES = `/v1/workspaces/${WORKSPACE_ID}/github-repositories`;
+const PERMISSIONS_URL =
+  "https://github.com/organizations/acme/settings/apps/werft-agent/permissions";
+
+const reviewer = githubConnection({
+  connection_id: REVIEWER_CONNECTION,
+  role: "reviewer",
+  name: "werft-review",
+  app_id: 202,
+  html_url: "https://github.com/apps/werft-review",
+  permissions: { contents: "read", pull_requests: "write", metadata: "read" },
+});
+
+const settingsWith = (
+  connections: GitHubSettingsResponse["connections"],
+  over: Partial<GitHubSettingsResponse> = {},
+): GitHubSettingsResponse => ({
+  ...githubSettings(),
+  connections,
+  ...over,
+});
+
+const twoAccounts = () =>
+  settingsWith([
+    githubConnection({
+      installations: [
+        githubInstallation({
+          id: 11,
+          account: "acme",
+          detail: {
+            connected: {
+              by: {
+                user_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+                display_name: "Kim",
+              },
+              at: "2026-10-20T00:00:00.000Z",
+            },
+          },
+        }),
+        githubInstallation({
+          id: 12,
+          account: "jae",
+          account_type: "user",
+          detail: {
+            repository_selection: "all",
+            repository_count: 3,
+            html_url: "https://github.com/settings/installations/12",
+          },
+        }),
+      ],
+    }),
+  ]);
+
+const repositoryPage = (over: object = {}) => ({
   installations: [],
-  repositories: [
-    {
-      id: "sandbox",
-      url: "https://github.com/acme/sandbox.git",
-      installation_id: null,
-    },
-  ],
-};
-const REGISTERED = {
-  github_app: {
-    app_id: 4242,
-    slug: "werft-test",
-    name: "werft test",
-    html_url: "https://github.com/apps/werft-test",
-    private_key: { updated_at: "2026-10-30T05:00:00.000Z", updated_by: null },
-    created_at: "2026-10-30T05:00:00.000Z",
-    updated_at: "2026-10-30T05:00:00.000Z",
-  },
-  check: { state: "ok" },
-  installations: [
-    {
-      id: 77,
-      account: "acme",
-      repository_selection: "selected",
-      html_url: "https://github.com/settings/installations/77",
-    },
-  ],
-  repositories: [
-    {
-      id: "sandbox",
-      url: "https://github.com/acme/sandbox.git",
-      installation_id: 77,
-    },
-    {
-      id: "other",
-      url: "https://github.com/acme/other.git",
-      installation_id: null,
-    },
-  ],
-};
-const NO_REVIEWER = { ...UNSET, repositories: [] };
-const cardOf = (name: string) => within(screen.getByRole("region", { name }));
-const authorCard = async () => {
-  await screen.findByRole("region", { name: "GitHub App" });
-  return cardOf("GitHub App");
-};
-const refusal = (status: number, code: string, reason_code: string) =>
-  json(status, {
-    error: {
-      code,
-      message: "server words",
-      retryable: false,
-      request_id: "req-1",
-      details: { reason_code },
-    },
+  installation_id: null,
+  page: 1,
+  per_page: 20,
+  total_count: 0,
+  repositories: [],
+  unavailable: "no_installation",
+  catalog: [],
+  ...over,
+});
+
+const routes = (
+  settings: GitHubSettingsResponse,
+  extra: Record<string, () => Response> = {},
+  who = me(),
+) => ({
+  "GET /v1/auth/me": () => json(200, who),
+  [`GET ${GITHUB_SETTINGS}`]: () => json(200, settings),
+  [`GET ${APPS}`]: () => json(200, { github_apps: [] }),
+  [`GET ${REPOSITORIES}`]: () => json(200, repositoryPage()),
+  ...extra,
+});
+
+const installationTable = () =>
+  screen.findByRole("table", {
+    name: "GitHub App을 설치한 조직과 개인 계정",
   });
-const keyFile = () =>
-  new File([KEY_TEXT], "app.pem", { type: "application/x-pem-file" });
+const cellsOf = (row: HTMLElement) =>
+  Array.from(row.children).filter((cell) =>
+    ["columnheader", "cell", "rowheader"].includes(
+      cell.getAttribute("role") ?? "",
+    ),
+  );
 
-async function register(appId = "4242", card = "GitHub App") {
-  const user = await setupUser();
-  await screen.findByRole("region", { name: card });
-  // The reviewer App waits behind "Advanced".
-  const advanced = cardOf(card).queryByRole("button", { name: "설정 열기" });
-  if (advanced) await user.click(advanced);
-  const open = card === "GitHub App" ? "이미 있는 App 추가" : "등록";
-  await user.click(await cardOf(card).findByRole("button", { name: open }));
-  const input = screen.getByLabelText("App ID");
-  expect(document.activeElement === input).toBe(true);
-  await user.type(input, appId);
-  await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
-  await user.click(screen.getByRole("button", { name: "연결" }));
-  return user;
-}
+/** Every link destination visible now, menus included only while open. */
+const hrefs = () =>
+  Array.from(document.querySelectorAll("a[href]"), (link) =>
+    link.getAttribute("href"),
+  ).filter((href): href is string => href?.startsWith("https://") ?? false);
 
-describe("워크스페이스 GitHub 연결", () => {
-  test("App ID와 .pem 파일을 등록하면 다시 읽은 App과 설치·저장소 상태가 보이고, 키는 캐시에 남지 않는다", async () => {
-    let saved = false;
-    const { api, services } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${APP}`]: () => json(200, saved ? REGISTERED : UNSET),
-      [`PUT ${APP}`]: () => {
-        saved = true;
-        return json(200, {
-          github_app: REGISTERED.github_app,
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-        });
-      },
-    });
-    expect(await (await authorCard()).findByText("등록 안 됨")).toBeDefined();
-    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
-    await register();
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "GitHub App을 저장했습니다.",
-    );
+describe("GitHub 연결 › 카드와 설치 표", () => {
+  test("설치 표의 머리와 본문은 칸 수가 같다(관리자·구성원)", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    const rows = within(await installationTable()).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    for (const row of rows) expect(cellsOf(row)).toHaveLength(7);
     expect(
-      api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
-    ).toEqual([{ app_id: 4242, private_key: KEY_TEXT }]);
-    expect(await screen.findByText("키 확인됨")).toBeDefined();
-    expect((await authorCard()).getByText("werft test")).toBeDefined();
-    expect(
-      screen
-        .getByRole("link", { name: /GitHub에서 저장소 관리/ })
-        .getAttribute("href"),
-    ).toBe("https://github.com/apps/werft-test/installations/new");
-    // The account the App is installed on, with its agent repositories.
-    const app = await authorCard();
-    expect(app.getByText("acme")).toBeDefined();
-    expect(app.getByText("고른 저장소만 · 에이전트 저장소 1개")).toBeDefined();
-    expect(app.getByText("권한 승인됨")).toBeDefined();
-    // Repositories under the account that holds them.
-    const repositories = cardOf("에이전트가 쓰는 저장소");
-    expect(repositories.getByText("acme")).toBeDefined();
-    expect(repositories.getByText("설치됨")).toBeDefined();
-    expect(repositories.getByText("설치 안 됨")).toBeDefined();
-    // The summary over the page counts what still needs a look.
-    const summary = within(
-      screen.getByRole("navigation", { name: "연결 요약" }),
-    );
-    expect(summary.getByText("1곳")).toBeDefined();
-    expect(summary.getByText("2개")).toBeDefined();
-    expect(summary.getByText("1개 확인 필요")).toBeDefined();
-    expect(summary.getByText("준비됨")).toBeDefined();
-    expect(screen.getByRole("heading", { name: "위험 구역" })).toBeDefined();
-    await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe("교체"),
-    );
-    await waitFor(() =>
-      expect(
-        JSON.stringify(
-          services.queryClient
-            .getMutationCache()
-            .getAll()
-            .map((mutation) => mutation.state.variables),
-        ),
-      ).not.toContain(KEY_TEXT),
-    );
+      within(rows[0] as HTMLElement)
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["이름", "유형", "저장소", "App", "연결한 사람", "상태", "메뉴"]);
   });
 
-  test("App 링크는 설치가 없으면 설치를, 설치가 있으면 저장소 관리를 말한다", async () => {
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${APP}`]: () => json(200, { ...REGISTERED, installations: [] }),
-      [`GET ${REVIEWER}`]: () => json(200, REGISTERED),
-    });
-    const author = await authorCard();
-    const install = await author.findByRole("link", {
-      name: /GitHub에서 설치/,
-    });
-    expect(install.getAttribute("href")).toBe(
-      "https://github.com/apps/werft-test/installations/new",
+  test("구성원에게는 저장소 칸·메뉴·관리 동작이 없다", async () => {
+    const members = settingsWith(
+      twoAccounts().connections.map((connection) => ({
+        ...connection,
+        installations: connection.installations.map((installation) => ({
+          ...installation,
+          detail: null,
+        })),
+      })),
     );
-    expect(author.queryByRole("link", { name: /저장소 관리/ })).toBeNull();
-    // A registered reviewer App opens its "Advanced" block by itself.
-    const reviewer = cardOf("리뷰 승인용 App");
+    renderAt(PATH, routes(members, {}, memberMe()));
+    const rows = within(await installationTable()).getAllByRole("row");
+    for (const row of rows) expect(cellsOf(row)).toHaveLength(4);
     expect(
-      reviewer
-        .getByRole("link", { name: /GitHub에서 저장소 관리/ })
-        .getAttribute("href"),
-    ).toBe("https://github.com/apps/werft-test/installations/new");
-    expect(
-      reviewer.queryByRole("link", { name: /GitHub에서 설치/ }),
-    ).toBeNull();
-  });
-
-  test("App ID나 파일이 없으면 서버에 묻지 않고 그 칸으로 간다", async () => {
-    const { api } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${APP}`]: () => json(200, UNSET),
-    });
-    const user = await setupUser();
-    await user.click(
-      await (await authorCard()).findByRole("button", {
-        name: "이미 있는 App 추가",
-      }),
-    );
-    // The form says why an old .pem cannot be fetched again, and links the docs.
-    const described = (
-      screen.getByLabelText("App ID").getAttribute("aria-describedby") ?? ""
-    )
-      .split(" ")
-      .map((id) => document.getElementById(id)?.textContent ?? "")
-      .join(" ");
-    expect(described).toContain("예전에 받은 .pem을 다시 내려받을 수 없습니다");
-    expect(
-      screen
-        .getByRole("link", { name: /GitHub 문서: 개인 키 관리/ })
-        .getAttribute("href"),
-    ).toContain("managing-private-keys-for-github-apps");
-    await user.click(screen.getByRole("button", { name: "연결" }));
-    expect(screen.getByText("App ID를 숫자로 넣어 주세요.")).toBeDefined();
-    expect(document.activeElement === screen.getByLabelText("App ID")).toBe(
+      within(rows[0] as HTMLElement)
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["이름", "유형", "App", "상태"]);
+    expect(screen.queryAllByRole("button", { name: /메뉴$/ })).toEqual([]);
+    expect(screen.queryByRole("button", { name: "저장소 관리" }) === null).toBe(
       true,
     );
-    await user.type(screen.getByLabelText("App ID"), "4242");
-    await user.click(screen.getByRole("button", { name: "연결" }));
-    expect(screen.getByText(".pem 파일을 골라 주세요.")).toBeDefined();
-    expect(
-      document.activeElement === screen.getByLabelText("Private key (.pem)"),
-    ).toBe(true);
-    expect(api.calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /조직 추가/ }) === null).toBe(
+      true,
+    );
+    expect(screen.queryByRole("button", { name: "App 추가" }) === null).toBe(
+      true,
+    );
+    expect(screen.queryByText("에이전트가 쓰는 저장소") === null).toBe(true);
   });
 
-  test("서버가 거절한 이유마다 그 문구를 보이고 서버의 영어 문구는 없다", async () => {
-    const cases = [
+  test("좁은 폭에서 접히는 칸의 내용은 이름 칸 안에 들어 있다", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    const table = await installationTable();
+    expect(table.getAttribute("data-narrow-at")).toBe("760");
+    const [header, first] = within(table).getAllByRole("row") as HTMLElement[];
+    const kept = (row: HTMLElement | undefined) =>
+      cellsOf(row as HTMLElement).filter(
+        (cell) => !cell.hasAttribute("data-hide-narrow"),
+      );
+    // Name, status, menu stay; the rest folds into the name.
+    expect(kept(header)).toHaveLength(3);
+    expect(kept(first)).toHaveLength(3);
+    const name = within(first as HTMLElement).getByRole("rowheader");
+    const moved = Array.from(
+      name.querySelectorAll("[class*='min-width:761px']"),
+      (line) => line.textContent,
+    );
+    expect(moved).toEqual([
+      "조직 · 12개 선택 · werft-agent",
+      expect.stringMatching(/^연결: Kim · 2026/),
+    ]);
+  });
+
+  test("연결한 사람이 없으면 설치 날짜를 보인다", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    const rows = within(await installationTable()).getAllByRole("row");
+    expect(
+      within(rows[2] as HTMLElement).getByText(/^설치 2026/),
+    ).toBeDefined();
+  });
+
+  test("확인 못 한 설치는 승인 대기로 보이지 않는다", async () => {
+    const unread = settingsWith([
+      githubConnection({
+        key_status: "unknown",
+        check: {
+          state: "failed",
+          reason_code: "github_unavailable",
+          checked_at: "2026-11-01T00:00:00.000Z",
+        },
+        installations: [
+          githubInstallation({
+            status: "unknown",
+            detail: { permissions: { metadata: "read" }, approval: "unknown" },
+          }),
+        ],
+      }),
+    ]);
+    renderAt(PATH, routes(unread));
+    const table = await installationTable();
+    expect(within(table).getByText("확인 못 함")).toBeDefined();
+    await screen.findByText("에이전트가 쓸 수 있는 기능");
+    expect(screen.queryByText(/승인 대기/) === null).toBe(true);
+    expect(screen.queryByText("GitHub에서 승인") === null).toBe(true);
+  });
+
+  test("없애야 할 것이 화면에 없다", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    await installationTable();
+    expect(screen.getAllByRole("table")).toHaveLength(1);
+    for (const gone of [
+      /위험 구역/,
+      /repositories\.yaml/,
+      /키 교체/,
+      /최대 권한/,
+    ]) {
+      expect(screen.queryByText(gone) === null).toBe(true);
+    }
+    expect(screen.queryByRole("alert") === null).toBe(true);
+  });
+});
+
+describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
+  test("권한이 모자란 App 행에만 권한 추가 링크가 하나 있고, 같은 App의 두 기능도 링크는 하나다", async () => {
+    const short = settingsWith([githubConnection()], {
+      ceiling: { ...githubSettings().ceiling, actions: true, workflows: true },
+    });
+    renderAt(PATH, routes(short));
+    const need = await screen.findByText(
+      /Actions 실행, 워크플로 파일 수정을\(를\) 쓰려면 이 App에 Actions 쓰기, Workflows 쓰기 권한이 필요합니다/,
+    );
+    expect(need).toBeDefined();
+    expect(
+      screen.getAllByRole("link", { name: /GitHub에서 권한 추가/ }),
+    ).toHaveLength(1);
+    expect(hrefs()).toEqual([PERMISSIONS_URL]);
+    expect(screen.getByText("권한 추가 필요")).toBeDefined();
+  });
+
+  test("구성원은 모자란 권한을 읽기만 하고 링크·안내 복사는 보지 않는다", async () => {
+    const short = settingsWith(
       [
-        refusal(400, "BAD_REQUEST", "invalid_private_key"),
-        "이 파일은 RSA private key가 아닙니다. GitHub App 페이지의 Private keys에서 받은 .pem 파일을 고르세요.",
+        githubConnection({
+          installations: [
+            githubInstallation({ id: 2, status: "approval_pending" }),
+          ],
+        }),
       ],
-      [
-        refusal(400, "BAD_REQUEST", "github_app_rejected"),
-        "GitHub가 이 App ID와 키를 받지 않았습니다. App ID와, 그 App에서 받은 키인지 확인하세요.",
-      ],
-      [
-        refusal(503, "BACKEND_UNAVAILABLE", "github_unreachable"),
-        "GitHub에 연결하지 못해 저장하지 않았습니다. 잠시 뒤 다시 시도하세요.",
-      ],
-      [
-        apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
-        "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
-      ],
-    ] as const;
-    for (const [response, text] of cases) {
-      renderAt(PATH, {
-        "GET /v1/auth/me": () => json(200, me()),
-        ...settingsRead,
-        [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-        [`GET ${APP}`]: () => json(200, UNSET),
-        [`PUT ${APP}`]: () => response.clone(),
-      });
-      await register();
-      expect((await screen.findByRole("alert")).textContent).toBe(text);
-      // The form stays so the owner can pick another file.
-      expect(screen.getByLabelText("App ID")).toBeDefined();
-      cleanup();
+      { ceiling: { ...githubSettings().ceiling, workflows: true } },
+    );
+    renderAt(PATH, routes(short, {}, memberMe()));
+    expect(
+      await screen.findByText(/이 App에 Workflows 쓰기 권한이 필요합니다/),
+    ).toBeDefined();
+    expect(screen.getByText(/acme의 owner가 .*승인하면/)).toBeDefined();
+    expect(hrefs()).toEqual([]);
+    expect(screen.queryByText(/안내 복사/) === null).toBe(true);
+  });
+
+  test("권한이 맞으면 GitHub 링크는 설치 행 메뉴의 관리뿐이고, 화면의 링크 목적지는 겹치지 않는다", async () => {
+    renderAt(PATH, routes(twoAccounts()));
+    await installationTable();
+    expect(hrefs()).toEqual([]);
+    const user = await setupUser();
+    for (const name of ["acme · werft-agent 메뉴", "jae · werft-agent 메뉴"]) {
+      await user.click(screen.getByRole("button", { name }));
+      const menu = await screen.findByRole("menu", { name });
+      const items = within(menu).getAllByRole("menuitem");
+      expect(items.map((item) => item.textContent)).toEqual([
+        "GitHub에서 관리(새 탭에서 열림)",
+      ]);
+      const seen = hrefs();
+      expect(new Set(seen).size).toBe(seen.length);
+      await user.keyboard("{Escape}");
+      await waitFor(() =>
+        expect(screen.queryByRole("menu", { name }) === null).toBe(true),
+      );
     }
   });
 
-  test("GitHub에 닿지 못한 읽기는 확인 실패와 설치 상태를 모른다고 보인다", async () => {
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${APP}`]: () =>
-        json(200, {
-          ...REGISTERED,
-          check: { state: "failed", reason_code: "github_unreachable" },
-          installations: [],
-          repositories: REGISTERED.repositories.map((r) => ({
-            ...r,
-            installation_id: null,
-          })),
+  test("기능과 상관없는 권한의 승인 대기는 기능 배지를 더하지 않고 App 행에만 보인다", async () => {
+    const pending = settingsWith(
+      [
+        githubConnection({
+          permissions: {
+            actions: "write",
+            issues: "write",
+            metadata: "read",
+            contents: "write",
+            pull_requests: "write",
+          },
+          installations: [
+            githubInstallation({
+              status: "approval_pending",
+              detail: {
+                approval: "pending",
+                permissions: {
+                  actions: "write",
+                  metadata: "read",
+                  contents: "write",
+                  pull_requests: "write",
+                },
+              },
+            }),
+          ],
         }),
-    });
-    expect(await screen.findByText("확인 실패")).toBeDefined();
-    // The catalog list is its own read.
-    await waitFor(() =>
-      expect(screen.getAllByText("확인 못 함")).toHaveLength(2),
+      ],
+      { ceiling: { ...githubSettings().ceiling, actions: true } },
     );
-    expect(screen.queryByText("설치 안 됨")).toBeNull();
+    renderAt(PATH, routes(pending));
+    expect(await screen.findByText("승인 대기 1곳")).toBeDefined();
+    expect(
+      screen.getByText(/acme의 owner가 Issues 쓰기을\(를\) 승인하면/),
+    ).toBeDefined();
+    expect(screen.queryByText("일부 계정 승인 대기") === null).toBe(true);
+    expect(screen.queryByText("App 권한 필요") === null).toBe(true);
   });
 
-  test("삭제를 확인하면 지우고 등록 안 됨으로 돌아간다", async () => {
-    let deleted = false;
-    const { api } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${APP}`]: () => json(200, deleted ? UNSET : REGISTERED),
-      [`DELETE ${APP}`]: () => {
-        deleted = true;
-        return json(200, {
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-        });
-      },
-    });
-    const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", { name: "GitHub App 삭제" }),
-    );
-    const dialog = await screen.findByRole("dialog", {
-      name: "GitHub App을 삭제할까요?",
-    });
-    expect(within(dialog).getByText("werft test")).toBeDefined();
-    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "GitHub App을 삭제했습니다.",
-    );
-    expect(await (await authorCard()).findByText("등록 안 됨")).toBeDefined();
-    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
-  });
-
-  test("저장을 두 번 눌러도 한 번만 보낸다", async () => {
-    const { api } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${APP}`]: () => json(200, UNSET),
-      [`PUT ${APP}`]: () =>
-        json(200, {
-          github_app: REGISTERED.github_app,
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-        }),
-    });
-    const user = await setupUser();
-    await user.click(
-      await (await authorCard()).findByRole("button", {
-        name: "이미 있는 App 추가",
+  test("⋯ 새 키 등록은 같은 연결에 같은 App ID로 키를 저장한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(twoAccounts(), {
+        [`PUT ${APPS}/${AUTHOR_CONNECTION}`]: () =>
+          json(200, {
+            github_app: {
+              role: "author",
+              connection_id: AUTHOR_CONNECTION,
+              app_id: 101,
+              slug: "werft-agent",
+              name: "werft-agent",
+              html_url: "https://github.com/apps/werft-agent",
+              private_key: {
+                updated_at: "2026-11-03T00:00:00.000Z",
+                updated_by: null,
+              },
+              created_at: "2026-10-01T00:00:00.000Z",
+              updated_at: "2026-11-03T00:00:00.000Z",
+            },
+            receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
+          }),
       }),
     );
-    await user.type(screen.getByLabelText("App ID"), "4242");
-    await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
-    // Two submits in one tick, before the first has read the file.
-    const form = screen.getByRole("button", { name: "연결" }).closest("form");
-    form?.requestSubmit();
-    form?.requestSubmit();
-    await screen.findByRole("status");
-    expect(api.calls.filter((c) => c.method === "PUT")).toHaveLength(1);
-  });
-
-  test("키가 거절되면 확인 실패이고, 빈 설치 카드도 다시 등록하라고 말한다", async () => {
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      ...settingsRead,
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${APP}`]: () =>
-        json(200, {
-          ...REGISTERED,
-          check: { state: "failed", reason_code: "github_rejected" },
-          installations: [],
-        }),
-    });
-    expect(await screen.findByText("확인 실패")).toBeDefined();
-    expect(
-      screen.getAllByText(
-        "GitHub가 이 App을 받지 않습니다. App이 삭제되었거나 키가 폐기되었다면 새 키로 다시 등록하세요.",
-      ),
-    ).toHaveLength(2);
-    expect(screen.queryByText(/GitHub에 연결하지 못해/)).toBeNull();
-  });
-
-  test("리뷰용 App은 비어 있으면 권장 권한과 위험을 말하고, 등록하면 저장소마다 설치·승인 대기를 보이고 따로 지운다", async () => {
-    let reviewer: "unset" | "set" | "deleted" = "unset";
-    const { api } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
-      [`GET ${APP}`]: () => json(200, REGISTERED),
-      [`GET ${REVIEWER}`]: () =>
-        json(
-          200,
-          reviewer === "set"
-            ? {
-                ...REGISTERED,
-                github_app: {
-                  ...REGISTERED.github_app,
-                  app_id: 4343,
-                  name: "werft reviewer",
-                  role: "reviewer",
-                  permissions: { contents: "read", pull_requests: "write" },
-                },
-                repositories: [
-                  {
-                    ...REGISTERED.repositories[0],
-                    installation_permissions: {
-                      contents: "read",
-                      pull_requests: "read",
-                    },
-                  },
-                  REGISTERED.repositories[1],
-                ],
-              }
-            : NO_REVIEWER,
-        ),
-      [`PUT ${REVIEWER}`]: () => {
-        reviewer = "set";
-        return json(200, {
-          github_app: { ...REGISTERED.github_app, app_id: 4343 },
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-        });
-      },
-      [`DELETE ${REVIEWER}`]: () => {
-        reviewer = "deleted";
-        return json(200, {
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-        });
-      },
-    });
-    const title = "리뷰 승인용 App";
-    await screen.findByRole("region", { name: title });
-    const card = () => cardOf(title);
-    // Behind "Advanced" by default: one App on the page.
-    expect(await card().findByText("고급 · 등록 안 됨")).toBeDefined();
-    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
     const user = await setupUser();
-    const toggle = card().getByRole("button", { name: "설정 열기" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    await user.click(toggle);
-    expect(card().getByText("등록 안 됨")).toBeDefined();
-    expect(card().getByText(/Pull requests 읽기·쓰기/)).toBeDefined();
-    expect(
-      card().getByText(/GitHub가 필수 리뷰로 세지 않습니다/),
-    ).toBeDefined();
-    await user.click(card().getByRole("button", { name: "접기" }));
-    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
-
-    await register("4343", title);
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "리뷰용 App을 저장했습니다.",
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
     );
-    expect(
-      api.calls
-        .filter((c) => c.method === "PUT")
-        .map((c) => [c.path, (c.body as { app_id: number }).app_id]),
-    ).toEqual([[REVIEWER, 4343]]);
-    expect(await card().findByText("werft reviewer")).toBeDefined();
-    expect(card().getByText("권한 변경 승인 대기")).toBeDefined();
-    expect(card().getByText("설치 안 됨")).toBeDefined();
-    expect(card().queryByText(/Pull requests 읽기·쓰기/)).toBeNull();
-
-    // Its replace and delete join the author App's in the one danger zone.
-    expect(card().queryByRole("button", { name: /삭제|교체/ })).toBeNull();
-    const zone = within(screen.getByRole("region", { name: "위험 구역" }));
-    expect(
-      zone.getAllByRole("button").map((b) => b.getAttribute("aria-label")),
-    ).toEqual([
-      "GitHub App 교체",
-      "GitHub App 삭제",
-      "리뷰용 App 교체",
-      "리뷰용 App 삭제",
-    ]);
-    await user.click(zone.getByRole("button", { name: "리뷰용 App 삭제" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "새 키 등록" }),
+    );
     const dialog = await screen.findByRole("dialog", {
-      name: "리뷰용 App을 삭제할까요?",
+      name: "werft-agent의 새 키 등록",
     });
-    expect(within(dialog).getByText("werft reviewer")).toBeDefined();
-    await user.click(within(dialog).getByRole("button", { name: "삭제" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "리뷰용 App을 삭제했습니다.",
-    );
-    expect(await card().findByText("등록 안 됨")).toBeDefined();
-    expect(
-      api.calls.filter((c) => c.method === "DELETE").map((c) => c.path),
-    ).toEqual([REVIEWER]);
-    expect((await authorCard()).getByText("werft test")).toBeDefined();
-  });
-
-  test("작성용 App이 없어도 남은 리뷰용 App은 위험 구역에서 교체·삭제한다", async () => {
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
-      [`GET ${APP}`]: () => json(200, UNSET),
-      [`GET ${REVIEWER}`]: () =>
-        json(200, {
-          ...REGISTERED,
-          github_app: { ...REGISTERED.github_app, name: "werft reviewer" },
-        }),
-    });
-    const zone = within(
-      await screen.findByRole("region", { name: "위험 구역" }),
-    );
-    expect(
-      zone.getAllByRole("button").map((b) => b.getAttribute("aria-label")),
-    ).toEqual(["리뷰용 App 교체", "리뷰용 App 삭제"]);
-  });
-
-  test("리뷰용 App 등록이 역할 충돌로 거절되면 그 이유를 말한다", async () => {
-    const cases = [
+    expect(within(dialog).queryByLabelText("App ID") === null).toBe(true);
+    const pem = new File(
       [
-        "same_app",
-        "작성용 App과 같은 App은 리뷰용으로 등록할 수 없습니다. 리뷰용 App을 따로 만들어 등록하세요.",
+        "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n",
       ],
-      [
-        "no_author_app",
-        "작성용 App을 먼저 등록해야 리뷰용 App을 등록할 수 있습니다.",
-      ],
-    ] as const;
-    for (const [reason, text] of cases) {
-      renderAt(PATH, {
-        "GET /v1/auth/me": () => json(200, me()),
-        [`GET ${SETTINGS}`]: () => json(200, NO_CEILING),
-        [`GET ${APP}`]: () => json(200, UNSET),
-        [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-        [`PUT ${REVIEWER}`]: () => refusal(409, "GITHUB_APP_CONFLICT", reason),
-      });
-      await register("4343", "리뷰 승인용 App");
-      expect((await screen.findByRole("alert")).textContent).toBe(text);
-      cleanup();
-    }
-  });
-
-  test("구성원은 이유만 읽고 서버에 묻지 않는다", async () => {
-    const { api } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, memberMe()),
-      ...settingsRead,
-    });
+      "key.pem",
+    );
+    await user.upload(within(dialog).getByLabelText("Private key (.pem)"), pem);
+    await user.click(
+      within(dialog).getByRole("button", { name: "확인하고 저장" }),
+    );
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "이미 있는 App 추가" }),
-      ).toBeNull(),
+        api.calls.filter((call) => call.method === "PUT").map((c) => c.path),
+      ).toEqual([`${APPS}/${AUTHOR_CONNECTION}`]),
     );
-    expect(api.calls.some((c) => c.path === APP || c.path === REVIEWER)).toBe(
-      false,
+    const body = api.calls.find((call) => call.method === "PUT")?.body as {
+      app_id?: unknown;
+    };
+    expect(body.app_id).toBe(101);
+    expect(await screen.findByText("새 키를 저장했습니다.")).toBeDefined();
+  });
+
+  test("리뷰 승인용으로 연결할 때만 작성·승인 위험 안내를 보인다", async () => {
+    renderAt(PATH, routes(settingsWith([githubConnection()])));
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "App 추가" }));
+    await user.click(
+      await screen.findByRole("button", { name: "이미 있는 App 연결" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "이미 있는 App 연결",
+    });
+    expect(
+      within(dialog).queryByText("같은 에이전트의 작성과 승인") === null,
+    ).toBe(true);
+    await user.click(
+      within(dialog).getByRole("radio", { name: /리뷰 승인용/ }),
+    );
+    expect(
+      await within(dialog).findByText("같은 에이전트의 작성과 승인"),
+    ).toBeDefined();
+  });
+
+  test("App마다 역할 배지가 붙고 역할별 구획은 없다", async () => {
+    renderAt(PATH, routes(settingsWith([githubConnection(), reviewer])));
+    const list = await screen.findByRole("list", { name: "GitHub App" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[0] as HTMLElement).getByText("작성용")).toBeDefined();
+    expect(
+      within(items[1] as HTMLElement).getByText("리뷰 승인용"),
+    ).toBeDefined();
+  });
+});
+
+describe("GitHub 연결 › App 연결 해제", () => {
+  const OTHER = "1a2b3c4d-0000-4000-8000-00000000000c";
+  const usage = (userLink: boolean) => () =>
+    json(200, {
+      github_app: null,
+      check: null,
+      installations: [],
+      repositories: [],
+      manifest_blocked: null,
+      usage: {
+        pinned_repository_count: 3,
+        agent_count: 2,
+        active_session_count: 1,
+        user_link: userLink,
+      },
+    });
+
+  test("구성원 계정 연결에 쓰는 App은 다른 작성용 App이 있으면 해제하지 않게 한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(
+        settingsWith([
+          githubConnection(),
+          githubConnection({ connection_id: OTHER, name: "werft-agent-2" }),
+        ]),
+        { [`GET ${APPS}/${AUTHOR_CONNECTION}`]: usage(true) },
+      ),
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "연결 해제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "App 연결을 해제할까요?",
+    });
+    expect(
+      await within(dialog).findByText(/다른 작성용 App으로 바꾼 뒤 해제할 수/),
+    ).toBeDefined();
+    const confirm = within(dialog).getByRole("button", { name: "연결 해제" });
+    expect(
+      (confirm as HTMLButtonElement).disabled ||
+        confirm.getAttribute("aria-disabled") === "true",
+    ).toBe(true);
+    await user.click(confirm);
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  test("영향을 읽지 못하면 해제하지 않게 한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(settingsWith([githubConnection()]), {
+        [`GET ${APPS}/${AUTHOR_CONNECTION}`]: () =>
+          json(503, {
+            error: {
+              code: "BACKEND_UNAVAILABLE",
+              message: "down",
+              retryable: false,
+              request_id: "req-1",
+            },
+          }),
+      }),
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "연결 해제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "App 연결을 해제할까요?",
+    });
+    expect(
+      await within(dialog).findByText(/읽지 못해 해제할 수 없습니다/),
+    ).toBeDefined();
+    const confirm = within(dialog).getByRole("button", { name: "연결 해제" });
+    await user.click(confirm);
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  test("마지막 작성용 App은 영향을 보이고 해제한다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes(settingsWith([githubConnection()]), {
+        [`GET ${APPS}/${AUTHOR_CONNECTION}`]: usage(true),
+        [`DELETE ${APPS}/${AUTHOR_CONNECTION}`]: () =>
+          json(200, { receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f" }),
+      }),
+    );
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "werft-agent 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "연결 해제" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "App 연결을 해제할까요?",
+    });
+    expect(
+      await within(dialog).findByText(
+        /고정된 저장소 3개, 활성 릴리스에서 쓰는 에이전트 적어도 2개, 끝나지 않은 세션 1개.*새로 GitHub 계정을 연결할 수 없게.*다시 더하면 이 고정이 되살아납니다/,
+      ),
+    ).toBeDefined();
+    await user.click(within(dialog).getByRole("button", { name: "연결 해제" }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.method === "DELETE").map((c) => c.path),
+      ).toEqual([`${APPS}/${AUTHOR_CONNECTION}`]),
     );
   });
 });
 
-describe("워크스페이스 GitHub 연결 — 사용자 계정 연결", () => {
-  const registered = (settings = githubSettings()) => ({
-    "GET /v1/auth/me": () => json(200, me()),
-    [`GET ${APP}`]: () => json(200, REGISTERED),
-    [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-    [`GET ${GITHUB_SETTINGS}`]: () => json(200, settings),
-  });
-  const section = async () =>
-    within(await screen.findByRole("region", { name: "사용자 계정 연결" }));
-
-  test("Client ID와 콜백 URL을 보이고, 콜백 URL은 복사하면 화면의 알림 줄이 알린다", async () => {
-    renderAt(PATH, registered());
-    const card = await section();
-    expect(await card.findByText("Iv23lifake")).toBeDefined();
-    expect(
-      card.getByText("http://console.test/settings/linked-accounts/github"),
-    ).toBeDefined();
-    expect(card.getByText("입력됨")).toBeDefined();
-    expect(card.getByRole("button", { name: "교체" })).toBeDefined();
-    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-    const written: string[] = [];
-    const user = await setupUser();
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async (text: string) => void written.push(text) },
-    });
-    try {
-      await user.click(card.getByRole("button", { name: "콜백 URL 복사" }));
-      expect(written).toEqual([
-        "http://console.test/settings/linked-accounts/github",
-      ]);
-      expect((await screen.findByRole("status")).textContent).toBe("복사됨");
-    } finally {
-      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
-      else Reflect.deleteProperty(navigator, "clipboard");
-    }
-  });
-
-  test("콘솔 주소와 client secret이 없으면 무엇이 빠졌는지 말한다", async () => {
-    const { api } = renderAt(
+describe("GitHub 연결 › 저장소 관리", () => {
+  test("설치가 모두 사라져도 저장소 관리로 들어갈 수 있다", async () => {
+    renderAt(
       PATH,
-      registered(
-        githubSettings({
-          client_id: null,
-          callback_url: null,
-          client_secret_set: false,
-        }),
-      ),
+      routes(settingsWith([githubConnection()]), {
+        [`GET ${REPOSITORIES}`]: () =>
+          json(
+            200,
+            repositoryPage({
+              catalog: [
+                {
+                  id: "sandbox",
+                  github_repository_id: 7,
+                  full_name: "acme/sandbox",
+                  url: "https://github.com/acme/sandbox.git",
+                  branch: "main",
+                  source: "selection",
+                  editable: true,
+                  version: 1,
+                  installed: false,
+                  updated_at: null,
+                  agent_count: 2,
+                  pins: { author: null, reviewer: null },
+                },
+              ],
+            }),
+          ),
+      }),
     );
-    const card = await section();
     expect(
-      await card.findByText(/운영자에게 CONSOLE_ORIGIN 설정을 요청하세요/),
+      await screen.findByText("아직 GitHub App을 설치한 계정이 없습니다."),
     ).toBeDefined();
     expect(
-      card.getByText(
-        "GitHub App을 등록하면 GitHub가 알려 주는 값이 여기에 보입니다.",
-      ),
+      await screen.findByText("에이전트가 고른 저장소 1개 · 설치 밖 1개"),
     ).toBeDefined();
-    expect(card.getByText("입력 안 됨")).toBeDefined();
-    expect(card.queryByRole("button", { name: "콜백 URL 복사" })).toBeNull();
-    // A secret is one App's: none can be typed before its client id is known.
-    expect(card.queryByRole("button", { name: "입력" })).toBeNull();
-    // Still none after the read the App read prompts: no more reads follow.
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(
-      api.calls.filter((c) => c.method === "GET" && c.path === GITHUB_SETTINGS),
-    ).toHaveLength(2);
-  });
-
-  test("설정을 먼저 읽은 뒤 App 조회가 Client ID를 채우면, 사용자 연결은 다시 읽어 그 값을 보인다", async () => {
-    let reads = 0;
-    let firstRead = () => {};
-    const settingsAnswered = new Promise<void>((resolve) => {
-      firstRead = resolve;
-    });
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      // An App registered before the client id column: reading it fills the column.
-      [`GET ${APP}`]: async () => {
-        await settingsAnswered;
-        return json(200, REGISTERED);
-      },
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${GITHUB_SETTINGS}`]: () => {
-        reads += 1;
-        firstRead();
-        return json(
-          200,
-          githubSettings(
-            reads === 1
-              ? { client_id: null, client_secret_set: false }
-              : { client_id: "Iv23lifake", client_secret_set: false },
-          ),
-        );
-      },
-    });
-    const card = await section();
-    expect(await card.findByText("Iv23lifake")).toBeDefined();
-    expect(card.getByRole("button", { name: "입력" })).toBeDefined();
-  });
-
-  test("App 조회보다 먼저 떠난 설정 읽기가 늦게 비어 있는 값으로 오면, 그 뒤 다시 읽는다", async () => {
-    let reads = 0;
-    let appAnswered = () => {};
-    const app = new Promise<void>((resolve) => {
-      appAnswered = resolve;
-    });
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${APP}`]: () => {
-        appAnswered();
-        return json(200, REGISTERED);
-      },
-      [`GET ${REVIEWER}`]: () => json(200, NO_REVIEWER),
-      [`GET ${GITHUB_SETTINGS}`]: async () => {
-        reads += 1;
-        if (reads > 1) {
-          return json(200, githubSettings({ client_id: "Iv23lifake" }));
-        }
-        // Read before the App read filled the column, answered after it.
-        await app;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        return json(
-          200,
-          githubSettings({ client_id: null, client_secret_set: false }),
-        );
-      },
-    });
-    const card = await section();
-    expect(await card.findByText("Iv23lifake")).toBeDefined();
-    expect(reads).toBe(2);
-  });
-
-  test("App을 교체하면 사용자 연결도 다시 읽어 새 App의 Client ID를 보인다", async () => {
-    let saved = false;
-    renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${APP}`]: () => json(200, REGISTERED),
-      [`GET ${GITHUB_SETTINGS}`]: () =>
-        json(
-          200,
-          githubSettings(
-            saved
-              ? { client_id: "Iv23linew", client_secret_set: false }
-              : { client_id: "Iv23liold", client_secret_set: true },
-          ),
-        ),
-      [`PUT ${APP}`]: () => {
-        saved = true;
-        return json(200, {
-          github_app: REGISTERED.github_app,
-          receipt_id: "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f",
-        });
-      },
-    });
-    const card = await section();
-    expect(await card.findByText("Iv23liold")).toBeDefined();
     const user = await setupUser();
-    // Replacing is in the danger zone and asks first, naming the App.
-    await user.click(screen.getByRole("button", { name: "GitHub App 교체" }));
-    const dialog = await screen.findByRole("dialog", {
-      name: "GitHub App을 교체할까요?",
+    await user.click(screen.getByRole("button", { name: "저장소 관리" }));
+    const sheet = await screen.findByRole("dialog", { name: "저장소" });
+    const outside = within(sheet).getByRole("table", {
+      name: "설치 밖 저장소",
     });
-    expect(within(dialog).getByText("werft test")).toBeDefined();
-    await user.click(within(dialog).getByRole("button", { name: "교체" }));
-    // Then how the new App comes in: made from a manifest, or one that exists.
-    const danger = within(screen.getByRole("region", { name: "위험 구역" }));
-    const made = await danger.findByRole("button", { name: "새 App 만들기" });
-    await waitFor(() => expect(document.activeElement === made).toBe(true));
-    await user.click(
-      danger.getByRole("button", { name: "이미 있는 App 추가" }),
-    );
-    const input = await screen.findByLabelText("App ID");
-    await waitFor(() => expect(document.activeElement === input).toBe(true));
-    expect(
-      screen.getByRole("region", { name: "위험 구역" }).contains(input),
-    ).toBe(true);
-    // Replacing is not adding an existing App: no intro, no connect note.
-    expect(screen.queryByText(/예전에 받은 \.pem/)).toBeNull();
-    await user.type(input, "4243");
-    await user.upload(screen.getByLabelText("Private key (.pem)"), keyFile());
-    await user.click(screen.getByRole("button", { name: "확인하고 저장" }));
-    expect(await card.findByText("Iv23linew")).toBeDefined();
-    expect(card.queryByText("Iv23liold")).toBeNull();
-    expect(card.getByText("입력 안 됨")).toBeDefined();
+    expect(within(outside).getByText("acme/sandbox")).toBeDefined();
+    expect(within(outside).getAllByText("설치 밖").length).toBeGreaterThan(0);
   });
+});
 
-  test("그 사이 App이 바뀌었다는 거절은 알리고 사용자 연결을 다시 읽는다", async () => {
-    let reads = 0;
-    const { api } = renderAt(PATH, {
-      "GET /v1/auth/me": () => json(200, me()),
-      [`GET ${APP}`]: () => json(200, REGISTERED),
-      [`GET ${GITHUB_SETTINGS}`]: () => {
-        reads += 1;
-        return json(
-          200,
-          githubSettings({
-            client_id: reads === 1 ? "Iv23liold" : "Iv23linew",
-            client_secret_set: false,
+describe("GitHub 연결 › 설치를 마치고 돌아오면", () => {
+  test("연결한 사람을 한 번 기록하고 주소에서 지운다", async () => {
+    const { api, history } = renderAt(
+      `${PATH}?installation_id=11&setup_action=install&state=st4te`,
+      routes(twoAccounts(), {
+        [`POST ${APPS}/installations/complete`]: () =>
+          json(200, {
+            connection_id: AUTHOR_CONNECTION,
+            installation_id: 11,
+            recorded: true,
           }),
-        );
-      },
-      [`PUT ${GITHUB_SETTINGS}/oauth-client-secret`]: () =>
-        refusal(409, "REVISION_CONFLICT", "github_app_changed"),
-    });
-    const card = await section();
-    const user = await setupUser();
-    await user.click(await card.findByRole("button", { name: "입력" }));
-    await user.type(card.getByLabelText("Client secret"), "typed-value");
-    await user.click(card.getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "다른 곳에서 먼저 바꿨습니다 — 다시 불러온 뒤 시도하세요.",
+      }),
     );
-    expect(await card.findByText("Iv23linew")).toBeDefined();
-    const sent = api.calls.filter((c) => c.method === "PUT");
     expect(
-      sent.map((c) => (c.body as { client_id: string }).client_id),
-    ).toEqual(["Iv23liold"]);
+      await screen.findByText("GitHub 설치를 연결했습니다."),
+    ).toBeDefined();
+    expect(
+      api.calls.filter((call) => call.method === "POST").map((c) => c.body),
+    ).toEqual([{ installation_id: 11, state: "st4te" }]);
+    await waitFor(() => expect(history.location.search).toBe(""));
   });
 
-  test("빈 client secret은 서버에 보내지 않고 그 칸으로 돌아간다", async () => {
-    const { api } = renderAt(
-      PATH,
-      registered(githubSettings({ client_secret_set: false })),
+  test("state가 만료되면 연결한 사람을 기록하지 못했다고 알린다", async () => {
+    renderAt(
+      `${PATH}?installation_id=11&state=old`,
+      routes(twoAccounts(), {
+        [`POST ${APPS}/installations/complete`]: () =>
+          json(400, {
+            error: {
+              code: "BAD_REQUEST",
+              message: "state",
+              retryable: false,
+              request_id: "req-1",
+              details: { reason_code: "state_invalid" },
+            },
+          }),
+      }),
     );
-    const card = await section();
-    const user = await setupUser();
-    await user.click(await card.findByRole("button", { name: "입력" }));
-    const input = card.getByLabelText("Client secret");
-    expect(document.activeElement === input).toBe(true);
-    expect(input.getAttribute("type")).toBe("password");
-    await user.click(card.getByRole("button", { name: "저장" }));
-    expect(await card.findByText("client secret을 넣어 주세요.")).toBeDefined();
-    expect(document.activeElement === input).toBe(true);
-    expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
-    // Cancelling closes the form and hands focus back to its button.
-    await user.click(card.getByRole("button", { name: "취소" }));
-    await waitFor(() =>
-      expect(
-        document.activeElement === card.getByRole("button", { name: "입력" }),
-      ).toBe(true),
-    );
+    expect(
+      await screen.findByText(/1시간이 지났거나 이미 쓰인 링크/),
+    ).toBeDefined();
   });
 });

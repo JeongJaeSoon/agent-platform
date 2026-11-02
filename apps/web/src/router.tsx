@@ -74,7 +74,10 @@ import {
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
-import { WorkspaceGitHubScreen } from "./routes/workspace-github.tsx";
+import {
+  gitHubSetupSearch,
+  WorkspaceGitHubScreen,
+} from "./routes/workspace-github.tsx";
 import {
   GitHubNewAppCallback,
   gitHubNewAppSearch,
@@ -352,6 +355,8 @@ const oldWorkspaceSlackApps = createRoute({
 const workspaceGitHub = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/github",
+  // GitHub's setup URL comes back here with what an install started here carries.
+  validateSearch: gitHubSetupSearch,
   component: WorkspaceGitHubScreen,
 });
 

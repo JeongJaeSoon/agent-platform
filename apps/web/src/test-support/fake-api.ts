@@ -1,7 +1,10 @@
 import type { ApiClient } from "@werft-ai/client";
 import type {
   AuthMeResponse,
+  GitHubInstallationDetail,
   GitHubOAuth,
+  GitHubSettingsConnection,
+  GitHubSettingsInstallation,
   GitHubSettingsResponse,
   MemberActions,
   MemberRefusal,
@@ -319,6 +322,70 @@ export function githubSettings(
     },
     connections: [],
     apps: { author: null, reviewer: null },
+  };
+}
+
+/** The App every author fixture asks for: what writing a PR needs. */
+export const BASE_PERMISSIONS = {
+  contents: "write",
+  pull_requests: "write",
+  metadata: "read",
+} as const;
+
+export const AUTHOR_CONNECTION = "1a2b3c4d-0000-4000-8000-00000000000a";
+export const REVIEWER_CONNECTION = "1a2b3c4d-0000-4000-8000-00000000000b";
+
+/** An author App read from GitHub with its key taken, installed nowhere. */
+export function githubConnection(
+  over: Partial<GitHubSettingsConnection> = {},
+): GitHubSettingsConnection {
+  return {
+    connection_id: AUTHOR_CONNECTION,
+    role: "author",
+    name: "werft-agent",
+    app_id: 101,
+    html_url: "https://github.com/apps/werft-agent",
+    owner: { login: "acme", type: "organization" },
+    permissions: { ...BASE_PERMISSIONS },
+    key_status: "ok",
+    installations: [],
+    installations_read_at: "2026-11-01T00:00:00.000Z",
+    check: { state: "ok", checked_at: "2026-11-01T00:00:00.000Z" },
+    ...over,
+  };
+}
+
+/** An active installation as owners read it; `detail: null` is a member's. */
+export function githubInstallation(
+  over: Partial<Omit<GitHubSettingsInstallation, "detail">> & {
+    readonly detail?: Partial<GitHubInstallationDetail> | null;
+  } = {},
+): GitHubSettingsInstallation {
+  const { detail, ...rest } = over;
+  return {
+    id: 1,
+    account: "acme",
+    account_type: "organization",
+    status: "active",
+    ...rest,
+    detail:
+      detail === null
+        ? null
+        : {
+            connection_id: AUTHOR_CONNECTION,
+            role: "author",
+            account_id: 9001,
+            permissions: { ...BASE_PERMISSIONS },
+            approval: "approved",
+            repository_count: 12,
+            repository_selection: "selected",
+            html_url:
+              "https://github.com/organizations/acme/settings/installations/1",
+            created_at: "2026-10-01T00:00:00.000Z",
+            suspended_at: null,
+            connected: null,
+            ...detail,
+          },
   };
 }
 
