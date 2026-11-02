@@ -76,6 +76,9 @@ export const agentsKo = {
     "저장소가 꼭 필요한 프로필은 에이전트 상세의 릴리스 탭에서 기본 저장소와 함께 릴리스합니다.",
   "agents.flow.noProfileWithoutRepository":
     "저장소 없이 릴리스할 수 있는 프로필이 없습니다",
+  "agents.flow.noProfile": "릴리스할 수 있는 프로필이 없습니다",
+  "agents.flow.noProfileHint":
+    "쓸 수 있는 실행 프로필이 생기면 에이전트 상세의 릴리스 탭에서 릴리스합니다.",
   "agents.flow.activateIntro": "켜면 새 세션이 이 릴리스로 시작합니다.",
   "agents.flow.turnOn": "에이전트 켜기",
   "agents.flow.activating": "켜는 중…",
@@ -393,6 +396,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Profiles that need a repository are released from the agent's Releases tab, together with a default repository.",
   "agents.flow.noProfileWithoutRepository":
     "No profile can be released without a repository",
+  "agents.flow.noProfile": "No profile can be released",
+  "agents.flow.noProfileHint":
+    "Once a usable runtime profile exists, release from the agent's Releases tab.",
   "agents.flow.activateIntro":
     "Once it is on, new sessions start with this release.",
   "agents.flow.turnOn": "Turn the agent on",
@@ -696,6 +702,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "リポジトリが必須のプロファイルは、エージェント詳細のリリースタブで既定のリポジトリと一緒にリリースします。",
   "agents.flow.noProfileWithoutRepository":
     "リポジトリなしでリリースできるプロファイルがありません",
+  "agents.flow.noProfile": "リリースできるプロファイルがありません",
+  "agents.flow.noProfileHint":
+    "使える実行プロファイルができたら、エージェント詳細のリリースタブでリリースします。",
   "agents.flow.activateIntro":
     "有効にすると、新しいセッションはこのリリースで開始します。",
   "agents.flow.turnOn": "エージェントを有効化",

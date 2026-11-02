@@ -1226,6 +1226,71 @@ describe("새 에이전트", () => {
     });
   });
 
+  test("고른 프로필이 그사이 저장소가 꼭 필요해지면 다른 프로필로 바꾸고, 남은 것이 없으면 안내만 남긴다", async () => {
+    const server = agentServer({ repositoryMode: "optional" });
+    const listed = (await (
+      (server.routes["GET /v1/profiles"] as () => Response)() as Response
+    ).json()) as { items: ProfileSummary[] };
+    const required = new Set<string>();
+    const { api, services } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: listed.items.map((p) =>
+            required.has(p.id) ? { ...p, repository_mode: "required" } : p,
+          ),
+        }),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("릴리스");
+    const profile = (await screen.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(profile.value).toBe(PROFILE);
+
+    required.add(PROFILE);
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(profile.value).toBe("claude-coding-fast"));
+
+    required.add("claude-coding-fast");
+    await services.queryClient.invalidateQueries();
+    expect(
+      await screen.findByText("저장소 없이 릴리스할 수 있는 프로필이 없습니다"),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "릴리스 만들기" }) === null,
+    ).toBe(true);
+    expect(
+      api.calls.some((c) => c.path === `/v1/agents/${AGENT_ID}/releases`),
+    ).toBe(false);
+  });
+
+  test("쓸 수 있는 프로필이 하나도 없으면 릴리스 폼 대신 그렇다고 알린다", async () => {
+    const server = agentServer({ repositoryMode: "optional" });
+    const listed = server.routes["GET /v1/profiles"] as () => Response;
+    let empty = false;
+    const { services } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      // The job step picks its model from the list; it empties after.
+      "GET /v1/profiles": () => (empty ? json(200, { items: [] }) : listed()),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("릴리스");
+    await screen.findByLabelText("프로필");
+    empty = true;
+    await services.queryClient.invalidateQueries();
+    expect(
+      await screen.findByText("릴리스할 수 있는 프로필이 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByLabelText("프로필") === null).toBe(true);
+  });
+
   test("모든 프로필에 저장소가 꼭 필요하면 릴리스 폼 대신 릴리스 탭으로 안내한다", async () => {
     const server = agentServer();
     const { api } = renderAt("/agents/new", { ...meOk, ...server.routes });

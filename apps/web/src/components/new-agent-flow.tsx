@@ -711,11 +711,23 @@ function ReleaseForm({
   const someNeedRepository = profiles.some(
     (p) => pickable(p) && needsRepository(p),
   );
-  if (first === undefined && someNeedRepository) {
+  if (first === undefined) {
     return (
       <Alert variant="amber">
-        <AlertTitle>{t("agents.flow.noProfileWithoutRepository")}</AlertTitle>
-        <AlertDescription>{t("agents.flow.repositoryLater")}</AlertDescription>
+        <AlertTitle>
+          {t(
+            someNeedRepository
+              ? "agents.flow.noProfileWithoutRepository"
+              : "agents.flow.noProfile",
+          )}
+        </AlertTitle>
+        <AlertDescription>
+          {t(
+            someNeedRepository
+              ? "agents.flow.repositoryLater"
+              : "agents.flow.noProfileHint",
+          )}
+        </AlertDescription>
       </Alert>
     );
   }
