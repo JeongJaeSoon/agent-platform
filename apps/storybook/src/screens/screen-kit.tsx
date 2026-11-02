@@ -30,6 +30,7 @@ import {
   Monitor,
   Settings,
   SlidersHorizontal,
+  Trophy,
   Users,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
@@ -49,6 +50,7 @@ export type NavKey =
   | "agents"
   | "profiles"
   | "operations"
+  | "achievements"
   | "members"
   | "settings";
 
@@ -74,6 +76,7 @@ const WORKSPACE_NAV: readonly NavEntry[] = [
     hue: "teal",
   },
   { key: "operations", label: "사용량·한도", icon: Gauge, hue: "pink" },
+  { key: "achievements", label: "성과", icon: Trophy, hue: "sky" },
   { key: "members", label: "구성원", icon: Users, hue: "green" },
   { key: "settings", label: "설정", icon: Settings, hue: "slate" },
 ];
