@@ -56,6 +56,8 @@ import {
   describeMismatches,
   earlierProfileClaims,
   earlierProfileKey,
+  otherToolsClaims,
+  otherToolsKey,
   parseImageRuntime,
   planArchiveRepin,
   planRepin,
@@ -819,6 +821,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     model?: string | null;
     profileFingerprint?: string | null;
     profileId?: string | null;
+    releaseTools?: readonly string[] | null;
     repositoryId?: string | null;
   }) => {
     const resolved = await catalog();
@@ -834,6 +837,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       repoUrl: repository.url,
       repositoryId: REPOSITORY_ID,
       repositoryMode: "repository" as const,
+      releaseTools: null,
       ...overrides,
     };
   };
@@ -1004,6 +1008,99 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     expect(alternateDigests(image, [`${sessionId}#gone`])).toEqual([]);
   });
 
+  test("a session's release tools are offered beside the profile's it runs: a checkpoint made with either is ready", async () => {
+    const resolved = await catalog();
+    const profile = resolved.profiles[PROFILE_ID] as CatalogProfile;
+    const releaseTools = ["Read", "Grep"];
+    const session = await sessionOf({ releaseTools });
+    const runClaim = sessionClaim(session, resolved);
+    // The tools run are the profile's until the claim runs the release's.
+    expect(runClaim.runtime_config.tools).toEqual(profile.tools);
+    expect(runClaim).toEqual(
+      sessionClaim({ ...session, releaseTools: null }, resolved),
+    );
+    // What an image whose claims run the release's tools seals under.
+    const narrowed = {
+      ...runClaim,
+      runtime_config: { ...runClaim.runtime_config, tools: releaseTools },
+    };
+    for (const [sealedClaim, alternatesNeeded] of [
+      [narrowed, true],
+      [runClaim, false],
+    ] as const) {
+      const objects = createMemoryCheckpointObjectStore({ versioned: true });
+      const seeded = await seed(
+        objects,
+        [],
+        undefined,
+        imageClaimFingerprint(sealedClaim).profileSha256,
+      );
+      const { sessionId } = seeded.row;
+      const pointer = pointerOf({
+        ...seeded.row,
+        manifestVersion: seeded.row.manifestVersion as string,
+      });
+      const other = otherToolsClaims({ ...session, id: sessionId }, resolved);
+      expect(
+        other.map(([key, claim]) => [key, claim.runtime_config.tools]),
+      ).toEqual([[otherToolsKey(sessionId), releaseTools]]);
+      const image = imageOf({
+        [sessionId]: runClaim,
+        ...Object.fromEntries(other),
+      });
+      const runtime = planRuntime(seeded.manifest.runtime, image, sessionId);
+      expect(
+        (await restorePlan(objects, pointer, seeded, runtime)).status,
+      ).toBe(alternatesNeeded ? "incompatible" : "ready");
+      expect(
+        (
+          await restorePlan(
+            objects,
+            pointer,
+            seeded,
+            runtime,
+            alternateDigests(
+              image,
+              other.map(([key]) => key),
+            ),
+          )
+        ).status,
+      ).toBe("ready");
+    }
+
+    // No other list: no release, or one that keeps every profile tool. A
+    // release that allows none is a list of its own.
+    const withId = { ...session, id: "s1" };
+    expect(
+      otherToolsClaims({ ...withId, releaseTools: null }, resolved),
+    ).toEqual([]);
+    expect(
+      otherToolsClaims({ ...withId, releaseTools: profile.tools }, resolved),
+    ).toEqual([]);
+    expect(
+      otherToolsClaims({ ...withId, releaseTools: [] }, resolved).map(
+        ([, claim]) => claim.runtime_config.tools,
+      ),
+    ).toEqual([[]]);
+    // An earlier profile is offered with both lists, the run one first.
+    expect(
+      earlierProfileClaims(
+        { ...withId, releaseTools: ["Grep", "Read", "NotInProfile"] },
+        [
+          {
+            profileId: PROFILE_ID,
+            profileFingerprint: profileFingerprint(profile),
+            model: profile.model,
+          },
+        ],
+        resolved,
+      ).map(([key, claim]) => [key, claim.runtime_config.tools]),
+    ).toEqual([
+      [earlierProfileKey("s1", PROFILE_ID), profile.tools],
+      [otherToolsKey(earlierProfileKey("s1", PROFILE_ID)), ["Read", "Grep"]],
+    ]);
+  });
+
   test("earlier profiles are offered as the gateway's claim offers them", async () => {
     const resolved = await catalog();
     const base = resolved.profiles[PROFILE_ID] as CatalogProfile;
@@ -1033,6 +1130,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     const session = {
       id: "s1",
       ownerId: "owner-1",
+      releaseTools: null,
       repositoryMode: "repository" as const,
     };
 
@@ -1179,6 +1277,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       profileFingerprint: profileFingerprint(general),
       profileId: "general",
       repoUrl: null,
+      releaseTools: null,
       repositoryId: null,
       repositoryMode: "none" as const,
     };
@@ -1190,7 +1289,12 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       imageClaimFingerprint(asRepository).profileSha256,
     );
     const [earlier] = earlierProfileClaims(
-      { id: "s1", ownerId: "owner-a", repositoryMode: "none" },
+      {
+        id: "s1",
+        ownerId: "owner-a",
+        releaseTools: null,
+        repositoryMode: "none",
+      },
       [
         {
           profileId: "general",

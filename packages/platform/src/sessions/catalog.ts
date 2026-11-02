@@ -725,6 +725,37 @@ export function runtimeProviderOf(
 }
 
 /**
+ * Whether a claim runs a session's release tools instead of its profile's.
+ * Off until an image that offers both lists as restore configs is the
+ * rollback floor: an older one cannot resume a checkpoint made with the
+ * release's (docs/contributing/decisions/agent-wizard-rework.md, 3a).
+ */
+export const CLAIM_RUNS_RELEASE_TOOLS = false;
+
+/**
+ * The built-in tools a claim hands over under `profile`: `run` for the
+ * engine, `other` for the list a checkpoint of the session may have been
+ * made with instead, null when it is the same list or the session has no
+ * release (`releaseTools` null). The release's are taken within the profile,
+ * so neither list ever holds a tool the profile does not.
+ */
+export function claimToolLists(
+  profile: CatalogProfile,
+  releaseTools: readonly string[] | null,
+  runRelease: boolean = CLAIM_RUNS_RELEASE_TOOLS,
+): { run: readonly string[]; other: readonly string[] | null } {
+  if (releaseTools === null) return { run: profile.tools, other: null };
+  const chosen = new Set(releaseTools);
+  const release = profile.tools.filter((tool) => chosen.has(tool));
+  if (release.length === profile.tools.length) {
+    return { run: profile.tools, other: null };
+  }
+  return runRelease
+    ? { run: release, other: profile.tools }
+    : { run: profile.tools, other: release };
+}
+
+/**
  * The profile as a claim hands it to the worker, which hashes it into the
  * checkpoint fingerprint; `scripts/lib/checkpoint-pins.ts` rebuilds it to ask
  * a target image for that digest. A session without a repository has no
@@ -734,10 +765,11 @@ export function runtimeConfigOf(
   profile: CatalogProfile,
   providerToken: string,
   hasRepository: boolean,
+  tools: readonly string[] = profile.tools,
 ): RuntimeConfig {
   return {
     model: profile.model,
-    tools: profile.tools,
+    tools: [...tools],
     permission_mode: profile.permission_mode,
     provider: runtimeProviderOf(profile, providerToken),
     ...(hasRepository && profile.project_settings?.claude_md === true

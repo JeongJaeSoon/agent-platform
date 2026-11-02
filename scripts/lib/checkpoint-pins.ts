@@ -32,6 +32,7 @@ import {
   acceptedRuntimeVersions,
   allowedRun,
   type CatalogProfile,
+  claimToolLists,
   runtimeConfigOf,
   type SessionCatalog,
   sessionProfile,
@@ -160,21 +161,66 @@ export function planRuntime(
  * catalog no longer lets run — the pair gone, the repository re-pointed, the
  * profile edited since the session was created — is refused, as a claim
  * would refuse it (worker-unit-of-work.ts `runnablePairOf`, 258).
+ * The tools are the ones the claim runs (catalog.ts claimToolLists).
  * The token is a stand-in; the digest leaves the credential out.
  */
 export function sessionClaim(
-  session: {
-    readonly branch: string | null;
-    readonly model: string | null;
-    readonly ownerId: string;
-    readonly profileFingerprint: string | null;
-    readonly profileId: string | null;
-    readonly repoUrl: string | null;
-    readonly repositoryId: string | null;
-    readonly repositoryMode: "repository" | "none";
-  },
+  session: ClaimedSession,
   catalog: SessionCatalog,
 ): SessionClaim {
+  const profile = runnableProfile(session, catalog);
+  return claimOf(
+    session.ownerId,
+    profile,
+    session.repositoryMode === "repository",
+    claimToolLists(profile, session.releaseTools).run,
+  );
+}
+
+/**
+ * The claim for the session's own profile with the tool list a claim offers
+ * besides the one it runs (worker-gateway.ts `restoreRuntimesOf`), keyed by
+ * otherToolsKey; none when the two lists are the same. Refused as
+ * sessionClaim refuses.
+ */
+export function otherToolsClaims(
+  session: ClaimedSession & { readonly id: string },
+  catalog: SessionCatalog,
+): [key: string, claim: SessionClaim][] {
+  const profile = runnableProfile(session, catalog);
+  const { other } = claimToolLists(profile, session.releaseTools);
+  return other === null
+    ? []
+    : [
+        [
+          otherToolsKey(session.id),
+          claimOf(
+            session.ownerId,
+            profile,
+            session.repositoryMode === "repository",
+            other,
+          ),
+        ],
+      ];
+}
+
+export type ClaimedSession = {
+  readonly branch: string | null;
+  readonly model: string | null;
+  readonly ownerId: string;
+  readonly profileFingerprint: string | null;
+  readonly profileId: string | null;
+  // The release's runtime_config_snapshot.tools; null without a release.
+  readonly releaseTools: readonly string[] | null;
+  readonly repoUrl: string | null;
+  readonly repositoryId: string | null;
+  readonly repositoryMode: "repository" | "none";
+};
+
+function runnableProfile(
+  session: ClaimedSession,
+  catalog: SessionCatalog,
+): CatalogProfile {
   const without = session.repositoryMode === "none";
   const run =
     session.profileId === null || (!without && session.repositoryId === null)
@@ -202,7 +248,7 @@ export function sessionClaim(
       `profile ${session.profileId} has other settings in the catalog than the session was created with`,
     );
   }
-  return claimOf(session.ownerId, profile, !without);
+  return profile;
 }
 
 /**
@@ -220,6 +266,7 @@ function claimOf(
   ownerId: string,
   profile: CatalogProfile,
   hasRepository: boolean,
+  tools: readonly string[],
 ): SessionClaim {
   return {
     principal: { owner_scope: ownerId },
@@ -227,6 +274,7 @@ function claimOf(
       profile,
       "verify-restore-stand-in",
       hasRepository,
+      tools,
     ),
     ...(hasRepository ? {} : { workspace: { repository: null } }),
   };
@@ -240,10 +288,16 @@ export function earlierProfileKey(sessionId: string, profileId: string) {
   return `${sessionId}#${profileId}`;
 }
 
+/** The claim key for a session's, or an earlier profile's, other tool list. */
+export function otherToolsKey(key: string) {
+  return `${key}#other-tools`;
+}
+
 /**
  * The claims for the profiles a session's restorable checkpoints were made
  * under other than the one it runs now (`earlier`, newest first), keyed by
- * earlierProfileKey and chosen as the gateway's claim chooses them: the
+ * earlierProfileKey, each followed by its other tool list's under
+ * otherToolsKey, and chosen as the gateway's claim chooses them: the
  * catalog must still hold the profile with the same fingerprint, the
  * repository need not allow it any longer, and no more than
  * MAX_RESTORE_PROFILES are offered.
@@ -252,6 +306,7 @@ export function earlierProfileClaims(
   session: {
     readonly id: string;
     readonly ownerId: string;
+    readonly releaseTools: readonly string[] | null;
     readonly repositoryMode: "repository" | "none";
   },
   earlier: readonly {
@@ -274,15 +329,20 @@ export function earlierProfileClaims(
           )
         : null;
       if (!profile) return [];
+      const key = earlierProfileKey(session.id, profileId);
+      const { run, other } = claimToolLists(profile, session.releaseTools);
+      const claimWith = (tools: readonly string[]) =>
+        claimOf(
+          session.ownerId,
+          profile,
+          session.repositoryMode === "repository",
+          tools,
+        );
       return [
-        [
-          earlierProfileKey(session.id, profileId),
-          claimOf(
-            session.ownerId,
-            profile,
-            session.repositoryMode === "repository",
-          ),
-        ] as [string, SessionClaim],
+        [key, claimWith(run)] as [string, SessionClaim],
+        ...(other === null
+          ? []
+          : [[otherToolsKey(key), claimWith(other)] as [string, SessionClaim]]),
       ];
     })
     .slice(0, MAX_RESTORE_PROFILES);

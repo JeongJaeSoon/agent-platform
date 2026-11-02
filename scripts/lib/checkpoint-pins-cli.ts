@@ -13,6 +13,7 @@
  * when capture or repin refuses, 5 when a plan check fails.
  */
 
+import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresCheckpointStore,
@@ -48,6 +49,7 @@ import {
   describeMismatches,
   earlierProfileClaims,
   type ImageRuntime,
+  otherToolsClaims,
   parseImageRuntime,
   planArchiveRepin,
   planRepin,
@@ -289,17 +291,29 @@ async function plans(
     owner_id: string;
     profile_fingerprint: string | null;
     profile_id: string | null;
+    release_id: string | null;
+    release_tools: unknown;
     repo_url: string | null;
     repository_id: string | null;
     repository_mode: "repository" | "none";
     revision: number;
   }>(
     `SELECT s.id, s.checkpoint_revision AS revision, c.manifest_ref, c.manifest_version,
-            s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch
+            s.owner_id, s.profile_id, s.profile_fingerprint, s.model, s.repository_id, s.repository_mode, s.repo_url, s.branch,
+            s.agent_release_id AS release_id, r.runtime_config_snapshot->'tools' AS release_tools
      FROM sessions s LEFT JOIN checkpoints c
        ON c.session_id = s.id AND c.revision = s.checkpoint_revision
+     LEFT JOIN agent_releases r ON r.id = s.agent_release_id
      WHERE s.checkpoint_revision IS NOT NULL ORDER BY s.id`,
   );
+  // As the claim's binding reads them (worker-unit-of-work.ts releaseToolsOf).
+  const releaseToolsOf = (pointer: (typeof pointers)[number]) =>
+    pointer.release_id === null
+      ? null
+      : Array.isArray(pointer.release_tools) &&
+          pointer.release_tools.every((tool) => typeof tool === "string")
+        ? (pointer.release_tools as string[])
+        : [];
   // The profiles each session's restorable checkpoints were made under other
   // than its own, newest first, as a claim offers them
   // (worker-unit-of-work.ts withRestoreProfiles, worker-gateway.ts
@@ -335,20 +349,27 @@ async function plans(
       env: process.env,
     });
     const claims: Record<string, unknown> = {};
+    const ownOtherKeys = new Map<string, string[]>();
     for (const pointer of pointers) {
+      const session = {
+        id: pointer.id,
+        branch: pointer.branch,
+        model: pointer.model,
+        ownerId: pointer.owner_id,
+        profileFingerprint: pointer.profile_fingerprint,
+        profileId: pointer.profile_id,
+        releaseTools: releaseToolsOf(pointer),
+        repoUrl: pointer.repo_url,
+        repositoryId: pointer.repository_id,
+        repositoryMode: pointer.repository_mode,
+      };
       try {
-        claims[pointer.id] = sessionClaim(
-          {
-            branch: pointer.branch,
-            model: pointer.model,
-            ownerId: pointer.owner_id,
-            profileFingerprint: pointer.profile_fingerprint,
-            profileId: pointer.profile_id,
-            repoUrl: pointer.repo_url,
-            repositoryId: pointer.repository_id,
-            repositoryMode: pointer.repository_mode,
-          },
-          catalog,
+        claims[pointer.id] = sessionClaim(session, catalog);
+        const other = otherToolsClaims(session, catalog);
+        for (const [key, claim] of other) claims[key] = claim;
+        ownOtherKeys.set(
+          pointer.id,
+          other.map(([key]) => key),
         );
       } catch (error) {
         claimErrors.set(pointer.id, (error as Error).message);
@@ -359,6 +380,7 @@ async function plans(
         {
           id: pointer.id,
           ownerId: pointer.owner_id,
+          releaseTools: releaseToolsOf(pointer),
           repositoryMode: pointer.repository_mode,
         },
         earlier
@@ -373,7 +395,10 @@ async function plans(
       for (const [key, claim] of made) claims[key] = claim;
       earlierKeys.set(
         pointer.id,
-        made.map(([key]) => key),
+        [
+          ...(ownOtherKeys.get(pointer.id) ?? []),
+          ...made.map(([key]) => key),
+        ].slice(0, MAX_RESTORE_PROFILES),
       );
     }
     imageRuntime = await readImageRuntime(image.name, claims);

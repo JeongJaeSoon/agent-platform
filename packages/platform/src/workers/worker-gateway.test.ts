@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   GITHUB_CEILING_NONE,
+  type RuntimeConfig,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
 import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
@@ -23,6 +24,7 @@ import type {
   ReadyInput,
   RestoreBaseInput,
   RestoreBaseResult,
+  WorkerBinding,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import {
@@ -1482,6 +1484,147 @@ describe("WorkerGateway", () => {
       [["github"], ["Read", "mcp__github__request_push"]],
       [undefined, ["Read"]],
     ]);
+  });
+
+  test("a claim runs the profile's tools and offers its release's for restore, and the switched claim offers them back", async () => {
+    const current = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "plan" as const,
+      repository: "none" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const earlier = { ...current, tools: ["Read", "Bash"] };
+    const binding: WorkerBinding = {
+      sessionId: scope.session_id,
+      attemptId: "att_1",
+      leaseEpoch: 1,
+      executionGeneration: 1,
+      authRevision: 0,
+      leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+      leaseRemainingMs: 29_950,
+      profileId: "current",
+      profileFingerprint: profileFingerprint(current),
+      model: "claude-sonnet-5",
+      unmetered: false,
+      ownerScope: "owner-a",
+      repository: null,
+      restore: null,
+      restoreProfiles: [
+        {
+          profileId: "earlier",
+          profileFingerprint: profileFingerprint(earlier),
+          model: "claude-sonnet-5",
+        },
+      ],
+      costUsd: 0,
+      providerTokens: 0,
+      githubMcp: { releaseId: "rel-1", tools: ["mcp__github__request_push"] },
+      // Forbids Edit; Glob is not the profile's and never runs.
+      releaseTools: ["Read", "Bash", "Glob"],
+    };
+    const claimWith = (bound: WorkerBinding, runReleaseTools?: boolean) =>
+      createWorkerGateway({
+        work: work({
+          claimAtomic: async () => ({ outcome: "claimed", binding: bound }),
+        }),
+        catalog: withSeededInstallation({
+          profiles: { current, earlier },
+          repositories: {},
+        }),
+        checkpoints: acceptAllCheckpoints,
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+          ...(runReleaseTools === undefined ? {} : { runReleaseTools }),
+        },
+      }).bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+    // What the fingerprint reads of a config; the tokens differ per claim.
+    const shape = (config: RuntimeConfig) => ({
+      model: config.model,
+      tools: config.tools,
+      mcp: config.mcp_servers?.map((server) => server.name) ?? [],
+    });
+    const github = "mcp__github__request_push";
+
+    const claimed = await claimWith(binding);
+    const withoutRelease = await claimWith({ ...binding, releaseTools: null });
+    const unbound = { ...binding };
+    delete unbound.releaseTools;
+    // The tools run do not change with the release.
+    expect(claimed.runtime_config.tools).toEqual([
+      "Read",
+      "Edit",
+      "Bash",
+      github,
+    ]);
+    expect(shape(claimed.runtime_config)).toEqual(
+      shape(withoutRelease.runtime_config),
+    );
+    expect(shape((await claimWith(unbound)).runtime_config)).toEqual(
+      shape(withoutRelease.runtime_config),
+    );
+    expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
+    // Newest first: the profile run now (before the built-in server, then
+    // with the release's tools), then the earlier profile the same way.
+    expect(claimed.restore_runtime_configs?.map(shape)).toEqual([
+      { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
+      {
+        model: "claude-sonnet-5",
+        tools: ["Read", "Bash", github],
+        mcp: ["github"],
+      },
+      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
+      {
+        model: "claude-sonnet-5",
+        tools: ["Read", "Bash", github],
+        mcp: ["github"],
+      },
+      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
+    ]);
+    // The earlier profile allows only the release's tools: one list.
+    expect(withoutRelease.restore_runtime_configs?.map(shape)).toEqual([
+      { model: "claude-sonnet-5", tools: ["Read", "Edit", "Bash"], mcp: [] },
+      {
+        model: "claude-sonnet-5",
+        tools: ["Read", "Bash", github],
+        mcp: ["github"],
+      },
+      { model: "claude-sonnet-5", tools: ["Read", "Bash"], mcp: [] },
+    ]);
+
+    // Switched on, the claim runs the release's tools and offers the
+    // profile's: a checkpoint either image made resumes on the other.
+    const switched = await claimWith(binding, true);
+    expect(switched.runtime_config.tools).toEqual(["Read", "Bash", github]);
+    expect(claimed.restore_runtime_configs?.map(shape)).toContainEqual(
+      shape(switched.runtime_config),
+    );
+    expect(switched.restore_runtime_configs?.map(shape)).toContainEqual(
+      shape(claimed.runtime_config),
+    );
+    expect(bootstrapClaimResponseSchema.safeParse(switched).success).toBe(true);
+    // `[]` is a release that allows no built-in tool, not one missing.
+    const none = await claimWith({ ...binding, releaseTools: [] }, true);
+    expect(none.runtime_config.tools).toEqual([github]);
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {
