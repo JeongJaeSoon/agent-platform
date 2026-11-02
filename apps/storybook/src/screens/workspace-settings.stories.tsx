@@ -12,6 +12,7 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  FormActions,
   Input,
   LinkTab,
   LinkTabs,
@@ -371,7 +372,7 @@ function SlackConnectionPage({
                     <FieldError>저장하려면 새 token을 넣어 주세요.</FieldError>
                   ) : null}
                 </Field>
-                <div className="flex flex-wrap items-start justify-end gap-2">
+                <FormActions>
                   <Button
                     type="button"
                     variant="ghost"
@@ -383,7 +384,7 @@ function SlackConnectionPage({
                     취소
                   </Button>
                   <Button type="submit">저장</Button>
-                </div>
+                </FormActions>
               </form>
             </RowListItem>
           ) : null}

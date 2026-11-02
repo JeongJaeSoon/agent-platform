@@ -171,9 +171,12 @@ describe("에이전트 상세 탭", () => {
   test("카드 탭은 읽기 두 칸으로 시작하고, 카드 편집은 제자리에서 열고 취소하면 버튼으로 돌아간다", async () => {
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
+    expect(
+      within(summary).getByRole("heading", { level: 2, name: "에이전트 카드" }),
+    ).toBeDefined();
     expect(
       [...summary.querySelectorAll("dt")].map((term) => term.textContent),
     ).toEqual([
@@ -690,9 +693,9 @@ describe("에이전트 상세 탭", () => {
     );
     const user = await setupUser();
     await user.click(screen.getByRole("tab", { name: "카드" }));
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     expect(
       within(summary).getByText(/일시정지 상태라 새 세션은 쓰지 않습니다/),
     ).toBeDefined();
@@ -771,9 +774,9 @@ describe("에이전트 상세 탭", () => {
     );
     expect(server.detail().releases).toHaveLength(1);
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...server.routes });
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     expect(
       await within(summary).findByText(/릴리스는 만들었지만 아직 켜지 않은/),
     ).toBeDefined();
@@ -788,9 +791,9 @@ describe("에이전트 상세 탭", () => {
       ...server.routes,
       [`GET ${path}`]: () => json(200, { ...server.detail(), versions: [] }),
     });
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     await waitFor(() =>
       expect(
         within(summary).getByText("식별자", { selector: "dt" })
@@ -823,9 +826,9 @@ describe("에이전트 상세 탭", () => {
 
   test("카드 탭은 카드를 읽기 전용으로 보이고 원문 JSON을 함께 둔다", async () => {
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     const value = (term: string) =>
       within(summary).getByText(term, { selector: "dt" }).nextElementSibling
         ?.textContent;
@@ -834,12 +837,50 @@ describe("에이전트 상세 탭", () => {
     expect(value("모델")).toBe("claude-sonnet-5");
     expect(value("쓸 수 있는 도구")).toBe("프로필이 허용하는 도구 전부");
     expect(within(summary).queryByRole("textbox")).toBeNull();
-    const raw = (
-      screen
-        .getByRole("heading", { name: "카드 원문" })
-        .closest("section") as HTMLElement
-    ).querySelector("pre");
+    const raw = screen
+      .getByRole("region", { name: "카드 원문" })
+      .querySelector("pre");
     expect(JSON.parse(raw?.textContent ?? "").role).toBe("결제 문의 담당");
+  });
+
+  test("카드 원문을 복사하면 버튼이 복사했다고 바뀌고, 실패하면 직접 복사하라고 한다", async () => {
+    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
+    const section = await screen.findByRole("region", { name: "카드 원문" });
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const written: string[] = [];
+    let refuse = true;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          if (refuse) throw new Error("denied");
+          written.push(text);
+        },
+      },
+    });
+    try {
+      const button = within(section).getByRole("button", { name: "복사" });
+      button.click();
+      await within(section).findByText(
+        "복사하지 못했습니다. 원문을 직접 선택해 복사하세요.",
+      );
+      expect(button.textContent).toBe("복사");
+
+      refuse = false;
+      button.click();
+      await waitFor(() => expect(button.textContent).toBe("복사했습니다"));
+      expect(written).toEqual([
+        section.querySelector("pre")?.textContent ?? "",
+      ]);
+      expect(
+        within(section).queryByText(
+          "복사하지 못했습니다. 원문을 직접 선택해 복사하세요.",
+        ),
+      ).toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   test("관리하지 않는 구성원에게 관리자 탭은 이유만 보이고 편집 행동이 없다", async () => {

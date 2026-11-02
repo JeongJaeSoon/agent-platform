@@ -51,6 +51,8 @@ The platform adds a tail to the end of the PR body: the session id and commit, t
 
 While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval.
 
+A session created without `attached_repository_ids` starts with no repository attached besides its own. Put the repositories it needs from the start in that list; the agent attaches the rest when it needs them.
+
 - The attached repository becomes a git remote named `repository_id` in the workspace, with its default branch fetched to `<repository_id>/<branch>`. The agent never sees a token.
 - Attaching the same repository again changes nothing and succeeds. While the fetch is running the tool answers `pending`; call it again to read the outcome.
 - The fetch is limited to 300 seconds and 2 GiB. Past either, the attachment fails with the reason in `failure` (`fetch_timeout`, `fetch_too_large`).

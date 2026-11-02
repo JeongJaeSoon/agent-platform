@@ -391,6 +391,33 @@ describe("API key", () => {
     }
   });
 
+  test("key ID 복사에 실패하면 행 안에서 직접 복사하라고 알린다", async () => {
+    renderAt(AGENTS, { ...ownerOk, ...keysServer([key()]) });
+    expect(await screen.findByText(KEY_ID)).toBeDefined();
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    });
+    try {
+      const button = screen.getByRole("button", { name: `ID ${KEY_ID} 복사` });
+      await act(async () => button.click());
+      const row = rows()[0] as HTMLElement;
+      expect(within(row).getByRole("alert").textContent).toBe(
+        "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
+      );
+      expect(button.textContent).toBe("");
+      expect(within(row).getByRole("status").textContent).toBe("");
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   test("만료 임박과 만료됨은 상태 색으로, 만료 없는 key는 그렇다고 보인다", async () => {
     const soon = new Date(Date.now() + 2 * DAY).toISOString();
     const past = new Date(Date.now() - DAY).toISOString();

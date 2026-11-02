@@ -9,6 +9,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  CopyButton,
   DangerZone,
   DangerZoneRow,
   FieldError,
@@ -17,10 +18,8 @@ import {
   SettingRow,
   Skeleton,
 } from "@werft-ai/ui";
-import { Copy } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useHasPermission, useMe } from "../../../auth/guard.tsx";
-import { copyText } from "../../../components/copy.ts";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { useAppServices } from "../../../services.tsx";
 import type { Notify } from "../toast.tsx";
@@ -236,23 +235,20 @@ export function SlackConnect({
                 actions={
                   notify ? (
                     <>
-                      <Button
-                        type="button"
+                      <CopyButton
+                        value={record.app_id}
                         variant="outline"
                         size="sm"
                         aria-label={t("slack.copyAppId")}
-                        onClick={() => {
-                          const value = record.app_id ?? "";
-                          void copyText(value, { current: null }).then((ok) =>
-                            notify(
-                              t(ok ? "slack.copied" : "slack.copyAppIdFailed"),
-                            ),
-                          );
-                        }}
-                      >
-                        <Copy aria-hidden="true" strokeWidth={1.5} />
-                        {t("slack.copy")}
-                      </Button>
+                        label={t("slack.copy")}
+                        icon="copy"
+                        iconClassName="stroke-[1.5]"
+                        onResult={(ok) =>
+                          notify(
+                            t(ok ? "slack.copied" : "slack.copyAppIdFailed"),
+                          )
+                        }
+                      />
                       <Button asChild variant="outline" size="sm">
                         <Link
                           href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}

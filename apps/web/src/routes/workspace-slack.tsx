@@ -21,6 +21,7 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  FormActions,
   formatTimestamp,
   Input,
   RowListItem,
@@ -286,7 +287,7 @@ function ConfigToken({
                 <FieldError>{t("workspace.tokenMissing")}</FieldError>
               ) : null}
             </Field>
-            <div className="flex flex-wrap items-start justify-end gap-2">
+            <FormActions>
               <Button
                 type="button"
                 variant="ghost"
@@ -300,7 +301,7 @@ function ConfigToken({
               <Button type="submit" aria-disabled={save.isPending || undefined}>
                 {t("workspace.save")}
               </Button>
-            </div>
+            </FormActions>
           </form>
         </RowListItem>
       ) : null}

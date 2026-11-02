@@ -532,7 +532,7 @@ export const sessionSummarySchema = z.object({
     .optional()
     .meta({
       description:
-        "The catalog repositories besides `repository_id` the session was created with (`attached_repository_ids` at create). The session reaches only those of them its agent release's GitHub settings still list. Null when none were given: every repository the release lists, besides its own, is reachable. Absent from a server older than the field.",
+        "The catalog repositories besides `repository_id` the session works on: those it was created with (`attached_repository_ids` at create) and those its agent attached since with `attach_repository`. The session reaches only those of them its agent release's GitHub settings still list. Null on a session that attaches none (no agent release, or a profile whose `repository_mode` is `none`), and on one created before an omitted list meant `[]`: every repository the release lists, besides its own, is reachable. Absent from a server older than the field.",
     }),
   current_turn_id: turnIdSchema.nullable(),
   queued_turn_count: z.number().int().nonnegative(),
@@ -607,7 +607,7 @@ export const createSessionRequestSchema = z
       })
       .optional()
       .meta({
-        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on, at most ${ATTACHED_REPOSITORIES_MAX}. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release or on a profile whose \`repository_mode\` is \`none\`. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the session may use every repository its release lists; \`[]\`, none besides its own.`,
+        description: `Catalog repositories besides the session's own that it may fetch, push to and open pull requests on, at most ${ATTACHED_REPOSITORIES_MAX}. Each one has to be listed in the agent release's GitHub settings (\`github.repositories\`), allowed for the profile, and other than the session's repository; otherwise 403 \`GITHUB_REFUSED\` with \`repository_not_allowed\`, as is any list sent for a session without an agent release or on a profile whose \`repository_mode\` is \`none\`. A session started without a repository on an \`optional\` profile works on these alone, and names one in each push request. Omitted, the same as \`[]\`: the session starts with none besides its own, and its agent attaches others the release lists with the built-in MCP tool \`attach_repository\` when it needs them.`,
       }),
     message: messageTextSchema,
     // Pins the session to this release of an agent: the session then belongs
