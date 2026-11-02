@@ -33,6 +33,7 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  Heading,
   Input,
   RowAction,
   RowList,
@@ -266,15 +267,17 @@ function TeamPage({ id }: { readonly id: string }) {
   // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
   // heads the tab with the way back beside it.
   return (
-    <Section
-      title={team.error ? t("teams.title") : team.data.name}
-      titleProps={{ className: "[overflow-wrap:anywhere]" }}
-      actions={back}
-    >
+    <div className="flex flex-col gap-[var(--ap-space-section)]">
+      <div className="flex items-start justify-between gap-4">
+        <Heading className="min-w-0 [overflow-wrap:anywhere]">
+          {team.error ? t("teams.title") : team.data.name}
+        </Heading>
+        {back}
+      </div>
       {team.error ? (
         <ListError error={team.error} onRetry={() => void team.refetch()} />
       ) : (
-        <div className="flex flex-col gap-[var(--ap-space-section)]">
+        <>
           <OutcomeLine outcome={outcome} />
           {manages && <TeamSettings team={team.data} onOutcome={setOutcome} />}
           <TeamMembers
@@ -285,9 +288,9 @@ function TeamPage({ id }: { readonly id: string }) {
           {manages && (
             <TeamDangerZone team={team.data} onOutcome={setOutcome} />
           )}
-        </div>
+        </>
       )}
-    </Section>
+    </div>
   );
 }
 
