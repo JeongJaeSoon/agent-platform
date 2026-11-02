@@ -138,13 +138,29 @@ function toDate(value: string | Date): Date {
  * time ahead reads "방금": a past-only value (created_at, last_event_at) is
  * ahead only because `now` is a minute tick behind or the clocks differ. An
  * unparseable string comes back unchanged, as formatTimestamp does. How long
- * something has lasted is formatElapsed's.
+ * something has lasted is formatElapsed's. With `inSentence`, English
+ * starts lower-case ("Expires tomorrow 15:14"); ko and ja have no case.
  */
 export function formatRelativeTime(
   value: string | Date,
   locale: TimestampLocale = "ko",
   now: number | Date = Date.now(),
-  options: { readonly future?: boolean | undefined } = {},
+  options: {
+    readonly future?: boolean | undefined;
+    readonly inSentence?: boolean | undefined;
+  } = {},
+): string {
+  const phrase = relativePhrase(value, locale, now, options.future);
+  return options.inSentence && locale === "en"
+    ? phrase.charAt(0).toLowerCase() + phrase.slice(1)
+    : phrase;
+}
+
+function relativePhrase(
+  value: string | Date,
+  locale: TimestampLocale,
+  now: number | Date,
+  allowFuture: boolean | undefined,
 ): string {
   const date = toDate(value);
   if (Number.isNaN(date.getTime())) return String(value);
@@ -152,7 +168,7 @@ export function formatRelativeTime(
   const phrases = PHRASES[locale];
   const delta = new Date(now).getTime() - date.getTime();
   const future = delta < 0;
-  if (future && !options.future) return phrases.now;
+  if (future && !allowFuture) return phrases.now;
   const elapsed = Math.abs(delta);
   if (elapsed < MINUTE) return phrases.now;
   if (elapsed < HOUR) {

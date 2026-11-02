@@ -49,6 +49,15 @@ export const Inline: Story = {
   render: (_args, { globals }) => <Sentence locale={globals.locale} />,
 };
 
+/** `size="inherit"`: code inside a row's main value takes its size and weight. */
+export const Inherit: Story = {
+  render: () => (
+    <Text weight="medium">
+      <Code size="inherit">claude-opus-5-5</Code>
+    </Text>
+  ),
+};
+
 /** v4 `.code`: tool output over several lines, newlines kept. */
 export const Block: Story = {
   render: () => <CodeBlock>{TOOL_OUTPUT}</CodeBlock>,
