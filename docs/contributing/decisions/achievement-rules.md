@@ -320,6 +320,7 @@ input:    <definition>{규칙의 성과 정의}</definition>
 - 오류·시간 초과(10초)·응답 모양 오류는 1분·5분·30분 뒤 세 번까지 다시 한다. 그 뒤 `failed`이고 세션 상세에 이유가 보인다.
 - 예산을 넘으면 `deferred`로 두고 다음 날(UTC 0시) 다시 집는다. always 짝은 그때도 성과로 남긴다. 미룬 판정에 새 trigger가 들어오면 2분 뒤 다시 돌려 새 근거의 always 짝을 세고, luna 짝은 다시 미룬다.
 - 연결이 사용 중지되면 `skipped`(`judge_unavailable`)이고 설정 화면이 경고를 보인다.
+- 판정기가 짝 하나를 거부하면(`refusal`) 그 짝은 성과가 아니고 다시 묻지 않는다. 판정은 `succeeded`로 끝나고 `error_code`에 `judge_refused`를 남긴다.
 - **수동 다시 판정**: owner·admin이 세션 상세에서 누른다(`trigger: manual`). 규칙을 고쳐도 지난 세션을 자동으로 다시 판정하지 않는다. 기간 일괄 다시 판정은 [LATER](#8-later).
 
 ## 5. API와 권한

@@ -23,6 +23,8 @@ export type ClaimedJudgment = {
   leaseToken: string;
   /** Tries so far, this one included. */
   attempts: number;
+  /** Why the last finished try failed. */
+  errorCode: AchievementJudgmentError | null;
 };
 
 /** A rule in use for the session, with its type. */
@@ -34,6 +36,7 @@ export type JudgedRule = {
   builtin: boolean;
   evidenceKind: AchievementEvidenceKind;
   judge: AchievementRuleJudge;
+  definition: string;
 };
 
 /** A session_outcomes row, as evidence. */
@@ -47,6 +50,8 @@ export type OutcomeEvidence =
       mergedAt: Date | null;
       additions: number | null;
       deletions: number | null;
+      /** Cut to 200 characters; null on rows from before titles were kept. */
+      title: string | null;
     }
   | {
       kind: "github_review";
@@ -69,6 +74,18 @@ export type JudgeInForce = {
   budgetResetsAt: Date;
   /** The session's other judgments that called the judge. */
   sessionJudgments: number;
+  /** A `luna` pair counts when its "yes" is at least this likely. */
+  threshold: number;
+  transcript: "none" | "recent";
+  /** The input digest of the session's last judgment that succeeded. */
+  lastInputDigest: string | null;
+};
+
+/** One ended turn: what the person said and the engine's final answer. */
+export type TranscriptTurn = {
+  sequence: number;
+  message: string;
+  result: string | null;
 };
 
 export type JudgmentContext = {
@@ -95,6 +112,8 @@ export type NewAchievement = {
   evidenceId: string | null;
   payload: AchievementPayload | null;
   judge: AchievementRuleJudge;
+  /** Luna's "yes" probability; null for an `always` rule. */
+  probability: number | null;
   reviewState: AchievementReviewState;
 };
 
@@ -104,6 +123,17 @@ export type JudgmentResult = {
   rules: string[];
   evidenceIds: string[];
   achievements: NewAchievement[];
+  /** Set when the `luna` pairs were judged, with or without a call. */
+  luna?: {
+    connectionId: string;
+    /** Of every pair's request; the same digest again is not sent. */
+    inputDigest: string;
+    /**
+     * Pairs answered "no": the family's achievement for that evidence is
+     * superseded, unless a person confirmed or rejected it.
+     */
+    declined: { ruleFamilyId: string; evidenceId: string | null }[];
+  };
 } & (
   | { status: "succeeded" | "skipped" | "failed" }
   /** Tried again after `retryInMs`. */
@@ -125,11 +155,19 @@ export interface AchievementJudgmentStore {
    */
   context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
   /**
+   * Extends the lease by `leaseMs` from now while no one took it over, even
+   * once it ran out; false once it was taken over or finished.
+   */
+  renew(judgment: ClaimedJudgment, leaseMs: number): Promise<boolean>;
+  /** The session's last `turns` ended turns, oldest first. */
+  transcript(sessionId: string, turns: number): Promise<TranscriptTurn[]>;
+  /**
    * Writes the result and the achievements in one transaction under the
    * lease; one a rule family already has for the evidence is kept. A retry
    * goes back to queued and a deferral to deferred, or, when the session
    * has another pending judgment already, moves that one's wait instead and
-   * ends as `failed`. False when the lease was taken over meanwhile.
+   * ends as `failed`. False when the lease was taken over or the
+   * judgment was finished meanwhile.
    */
   finish(judgment: ClaimedJudgment, result: JudgmentResult): Promise<boolean>;
   /** Null when the owner has no such session. */
