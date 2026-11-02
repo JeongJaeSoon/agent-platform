@@ -14,6 +14,7 @@ import {
   checkpointOutputObjects,
   checkpointOutputsDigest,
   createAchievementJudge,
+  DecisionsCallError,
   type DecisionsRequest,
   type SessionOutputsResult,
   type TeamActor,
@@ -1814,7 +1815,7 @@ integration("achievement judgments on PostgreSQL", () => {
 
   describe("Luna pairs", () => {
     function lunaReplica(
-      probability: () => number | "refuse",
+      probability: () => number | "refuse" | "fail",
       options: {
         leaseMs?: number;
         delayMs?: number;
@@ -1852,6 +1853,7 @@ integration("achievement judgments on PostgreSQL", () => {
                 await Bun.sleep(options.delayMs);
               }
               const yes = probability();
+              if (yes === "fail") throw new DecisionsCallError("timeout");
               if (yes === "refuse") {
                 return { answers: [{ type: "refusal", name: "achievement" }] };
               }
@@ -2134,6 +2136,49 @@ integration("achievement judgments on PostgreSQL", () => {
       ]);
       // The first judgment has no judgment before it to change from.
       expect(listed?.judgment?.evidence_change).toBeNull();
+    });
+
+    test("a judgment that asked and then failed keeps the threshold it asked with, but no digest, so the next try asks again", async () => {
+      for (const answers of [
+        [0.95, "fail"],
+        ["fail", "fail"],
+      ] as const) {
+        const ws = await workspace();
+        await judgeSettings(ws.workspaceId, {
+          connection_id: "conn-1",
+          threshold: 0.9,
+        });
+        await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+        const sessionId = await session(ws.workspaceId);
+        await pullRequest(sessionId, ws.workspaceId);
+        await pullRequest(sessionId, ws.workspaceId);
+        let call = 0;
+        let failing = true;
+        const replica = lunaReplica(() =>
+          failing ? (answers[call++] ?? 0.95) : 0.95,
+        );
+        await quietPassed(sessionId);
+        await replica.judge.runOnce();
+        const [tried] = await judgmentsOf(sessionId);
+        expect(tried).toMatchObject({
+          status: "queued",
+          threshold: 0.9,
+          inputDigest: null,
+        });
+        expect(tried?.errorCode).toBe("judge_timeout");
+
+        failing = false;
+        const sentBefore = replica.sent.length;
+        await db
+          .update(achievementJudgments)
+          .set({ nextAttemptAt: sql`now() - interval '1 second'` })
+          .where(eq(achievementJudgments.id, tried?.id ?? ""));
+        await replica.judge.runOnce();
+        expect(replica.sent.length).toBe(sentBefore + 2);
+        const [retried] = await judgmentsOf(sessionId);
+        expect(retried).toMatchObject({ status: "succeeded", threshold: 0.9 });
+        expect(retried?.inputDigest).toMatch(/^[0-9a-f]{64}$/);
+      }
     });
 
     test("a person's rejection stands against a yes and a no alike", async () => {

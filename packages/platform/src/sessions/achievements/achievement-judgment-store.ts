@@ -135,9 +135,13 @@ export type JudgmentResult = {
      * superseded, unless a person confirmed or rejected it.
      */
     declined: { ruleFamilyId: string; evidenceId: string | null }[];
-    /** The threshold the pairs were asked against; null when none was asked. */
-    threshold: number | null;
   };
+  /**
+   * The threshold `luna` pairs were asked against, set once a call went out
+   * whether or not the try then failed; apart from `luna`, whose digest a
+   * failed try must not keep.
+   */
+  threshold?: number;
 } & (
   | { status: "succeeded" | "skipped" | "failed" }
   /** Tried again after `retryInMs`. */

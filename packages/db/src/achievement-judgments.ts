@@ -574,8 +574,10 @@ export function createPostgresAchievementJudgments(
                 inputDigest: result.luna.inputDigest,
                 backend: "luna",
                 connectionId: result.luna.connectionId,
-                threshold: result.luna.threshold,
               }),
+          ...(result.threshold === undefined
+            ? {}
+            : { threshold: result.threshold }),
         };
         const self = eq(achievementJudgments.id, judgment.id);
         // A session has one pending judgment, and a newer trigger's judges
