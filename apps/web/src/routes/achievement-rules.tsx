@@ -1065,7 +1065,10 @@ function TypesCard({
                 <TableCell data-k={k.fields} className={STACK_CELL}>
                   {typeFields(t, type)}
                 </TableCell>
-                <TableCell data-k={k.rules} className={STACK_CELL}>
+                <TableCell
+                  data-k={k.rules}
+                  className={`${STACK_CELL} [overflow-wrap:anywhere]`}
+                >
                   {rules
                     .filter((rule) => rule.type_id === type.id)
                     .map((rule) => rule.title)
