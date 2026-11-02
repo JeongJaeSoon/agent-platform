@@ -33,6 +33,7 @@ import { useId } from "react";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { OUT_FILES_ID, SessionAchievements } from "./session-achievements.tsx";
 
 const UNITS = ["byte", "kilobyte", "megabyte", "gigabyte"] as const;
 
@@ -370,6 +371,7 @@ export function SessionOutputsTab({
       : isApiError(outcomes.error, "NOT_FOUND"));
   return (
     <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <SessionAchievements session={session} />
       <SessionAttribution session={session} />
       <SessionPullRequests session={session} outcomes={outcomes} />
       <SessionGitHubRefusals session={session} />
@@ -461,7 +463,11 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
   const items = outputs.data?.items ?? [];
   if (items.length === 0) return null;
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
+    <section
+      id={OUT_FILES_ID}
+      className="flex flex-col gap-2"
+      aria-labelledby={titleId}
+    >
       <Heading id={titleId}>{t("session.outputs.files")}</Heading>
       <ul className="m-0 flex list-none flex-col gap-2 rounded-card border bg-card p-4">
         {items.map((item) => {

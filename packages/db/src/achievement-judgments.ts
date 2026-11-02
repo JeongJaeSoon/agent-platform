@@ -18,6 +18,7 @@ import {
   ACHIEVEMENT_JUDGMENT_QUIET_MS,
   type AchievementJudgmentStore,
   type JudgmentEgressStore,
+  MANAGEMENT_ROLES,
   type OutcomeEvidence,
 } from "@werft-ai/platform";
 import {
@@ -35,7 +36,8 @@ import {
   sql,
 } from "drizzle-orm";
 import { managing } from "./achievement-rules.ts";
-import { findPgError, receiptActorOf } from "./control-shared.ts";
+import { lockedAdministers } from "./agent-admins.ts";
+import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -177,9 +179,41 @@ async function spentToday(
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 
-function achievementOf(
-  row: typeof sessionAchievements.$inferSelect,
-): SessionAchievement {
+type AchievementRow = {
+  row: typeof sessionAchievements.$inferSelect;
+  ruleTitle: string;
+  ruleVersion: number;
+  typeKey: string;
+};
+
+/** Achievements with their rule version's title and number and type key. */
+function achievementsWhere(db: Database, where: SQL | undefined) {
+  return db
+    .select({
+      row: sessionAchievements,
+      ruleTitle: achievementRules.title,
+      ruleVersion: achievementRules.version,
+      typeKey: achievementTypes.key,
+    })
+    .from(sessionAchievements)
+    .innerJoin(
+      achievementRules,
+      eq(achievementRules.id, sessionAchievements.ruleId),
+    )
+    .innerJoin(
+      achievementTypes,
+      eq(achievementTypes.id, sessionAchievements.typeId),
+    )
+    .where(where)
+    .orderBy(asc(sessionAchievements.createdAt), asc(sessionAchievements.id));
+}
+
+function achievementOf({
+  row,
+  ruleTitle,
+  ruleVersion,
+  typeKey,
+}: AchievementRow): SessionAchievement {
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -194,6 +228,9 @@ function achievementOf(
     evidence_id: row.evidenceId,
     payload: row.payload as AchievementPayload | null,
     judge: row.judge as AchievementRuleJudge,
+    rule_title: ruleTitle,
+    rule_version: ruleVersion,
+    type_key: typeKey,
     probability: row.probability,
     judgment_id: row.judgmentId,
     review_state: row.reviewState as AchievementReviewState,
@@ -627,24 +664,19 @@ export function createPostgresAchievementJudgments(
     async list(ownerId, rawSessionId) {
       const sessionId = rawSessionId.toLowerCase();
       const [session] = await db
-        .select({ id: sessions.id })
+        .select({ id: sessions.id, settings: workspaces.settings })
         .from(sessions)
+        .leftJoin(workspaces, eq(workspaces.id, sessions.workspaceId))
         .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
         .limit(1);
       if (!session) return null;
-      const items = await db
-        .select()
-        .from(sessionAchievements)
-        .where(
-          and(
-            eq(sessionAchievements.sessionId, sessionId),
-            isNull(sessionAchievements.supersededAt),
-          ),
-        )
-        .orderBy(
-          asc(sessionAchievements.createdAt),
-          asc(sessionAchievements.id),
-        );
+      const items = await achievementsWhere(
+        db,
+        and(
+          eq(sessionAchievements.sessionId, sessionId),
+          isNull(sessionAchievements.supersededAt),
+        ),
+      );
       const [latest] = await db
         .select()
         .from(achievementJudgments)
@@ -654,10 +686,111 @@ export function createPostgresAchievementJudgments(
           desc(achievementJudgments.id),
         )
         .limit(1);
+      const [spent] = await db
+        .select({
+          finished: count(achievementJudgments.finishedAt),
+          usd: sql<string>`COALESCE(sum(${achievementJudgments.costUsd}), 0)`,
+        })
+        .from(achievementJudgments)
+        .where(eq(achievementJudgments.sessionId, sessionId));
       return {
         items: items.map(achievementOf),
         judgment: latest ? judgmentOf(latest) : null,
+        judgment_count: spent?.finished ?? 0,
+        judge_cost_usd: Number(spent?.usd ?? 0),
+        threshold: judgeSettingsOf(session.settings).threshold,
       };
+    },
+
+    async find(ownerId, achievementId) {
+      const [found] = await db
+        .select({
+          sessionId: sessionAchievements.sessionId,
+          agentId: sessionAchievements.agentId,
+        })
+        .from(sessionAchievements)
+        .where(
+          and(
+            eq(sessionAchievements.id, achievementId),
+            eq(sessionAchievements.ownerId, ownerId),
+            isNull(sessionAchievements.supersededAt),
+          ),
+        )
+        .limit(1);
+      return found ?? null;
+    },
+
+    review({ actor, achievementId, decision, note, receiptId }) {
+      return db.transaction(async (tx) => {
+        const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
+        if (me?.live !== true) return { outcome: "actor_inactive" as const };
+        const [found] = await tx
+          .select()
+          .from(sessionAchievements)
+          .where(
+            and(
+              eq(sessionAchievements.id, achievementId),
+              eq(sessionAchievements.ownerId, actor.principal.ownerId),
+              eq(sessionAchievements.workspaceId, actor.workspaceId),
+              isNull(sessionAchievements.supersededAt),
+            ),
+          )
+          .for("update");
+        if (!found) return { outcome: "not_found" as const };
+        const reviewers: readonly string[] =
+          MANAGEMENT_ROLES["achievement.review"] ?? [];
+        if (
+          !reviewers.includes(me.role) &&
+          (found.agentId === null ||
+            !(await lockedAdministers(
+              tx,
+              actor.workspaceId,
+              found.agentId,
+              actor.userId,
+            )))
+        ) {
+          return { outcome: "actor_inactive" as const };
+        }
+        const from =
+          decision === "confirm" ? ["needs_review"] : ["auto", "needs_review"];
+        if (!from.includes(found.reviewState)) {
+          return { outcome: "not_reviewable" as const };
+        }
+        const reviewState = decision === "confirm" ? "confirmed" : "rejected";
+        await tx
+          .update(sessionAchievements)
+          .set({
+            reviewState,
+            reviewedBy: actor.userId,
+            reviewedAt: sql`now()`,
+            reviewNote: note,
+          })
+          .where(eq(sessionAchievements.id, found.id));
+        // The note is the reviewer's words; the receipt names the decision.
+        await tx.insert(receipts).values({
+          id: receiptId,
+          ownerId: actor.principal.ownerId,
+          actor: receiptActorOf(actor.principal),
+          operation: "review_achievement",
+          targetRef: {
+            session_id: found.sessionId,
+            turn_id: null,
+            request_id: null,
+          },
+          result: { achievement_id: found.id, review_state: reviewState },
+          status: "succeeded",
+          requestId: actor.principal.requestId ?? null,
+        });
+        const [reviewed] = await achievementsWhere(
+          tx,
+          eq(sessionAchievements.id, found.id),
+        );
+        if (!reviewed) throw new Error("reviewed achievement vanished");
+        return {
+          outcome: "reviewed" as const,
+          achievement: achievementOf(reviewed),
+        };
+      });
     },
   };
 }

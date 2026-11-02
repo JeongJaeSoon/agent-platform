@@ -15,6 +15,7 @@ import {
   listSessionAchievementsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   rejudgeSessionResponseSchema,
+  reviewAchievementResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
 import {
@@ -715,6 +716,11 @@ describe("achievement rule management", () => {
   });
 });
 
+const NO_REVIEWS = {
+  find: async () => null,
+  review: async () => ({ outcome: "not_found" as const }),
+};
+
 describe("a session's achievements", () => {
   const SESSION = "11111111-1111-4111-8111-111111111111";
   const DOWN = "22222222-2222-4222-8222-222222222222";
@@ -742,6 +748,9 @@ describe("a session's achievements", () => {
           deletions: 1,
         },
         judge: "always",
+        rule_title: "Merged PR",
+        rule_version: 1,
+        type_key: "pull_request",
         probability: null,
         judgment_id: ID,
         review_state: "auto",
@@ -759,6 +768,9 @@ describe("a session's achievements", () => {
       created_at: AT,
       finished_at: AT,
     },
+    judgment_count: 1,
+    judge_cost_usd: 0,
+    threshold: 0.9,
   };
   const asked: Array<[string, string]> = [];
   const api = createApiApp({
@@ -797,6 +809,7 @@ describe("a session's achievements", () => {
               return owner === "owner-a" && session === SESSION ? listed : null;
             },
             rejudge: async () => ({ outcome: "not_found" }),
+            ...NO_REVIEWS,
           },
         }),
       ),
@@ -855,6 +868,7 @@ describe("a session's achievements", () => {
                 return listed;
               },
               rejudge: async () => ({ outcome: "not_found" }),
+              ...NO_REVIEWS,
             },
           }),
         ),
@@ -916,6 +930,7 @@ describe("POST /v1/sessions/{id}/achievement-judgments", () => {
             },
           }),
           store: {
+            ...NO_REVIEWS,
             list: async () => null,
             rejudge: async ({ actor, sessionId, receiptId }) => {
               asked.push({ userId: actor.userId, sessionId, receiptId });
@@ -974,5 +989,263 @@ describe("POST /v1/sessions/{id}/achievement-judgments", () => {
     outcome = "actor_inactive";
     expect((await rejudge(SESSION, "owner")).status).toBe(403);
     expect((await rejudge(DOWN, "owner")).status).toBe(503);
+  });
+});
+
+describe("POST /v1/achievements/{id}/review", () => {
+  const SESSION = "77777777-7777-4777-8777-777777777777";
+  const ACHIEVEMENT = "88888888-8888-4888-8888-888888888888";
+  const DOWN = "99999999-9999-4999-8999-999999999999";
+  const AGENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const asked: Array<{
+    userId: string;
+    achievementId: string;
+    decision: string;
+    note: string | null;
+    receiptId: string;
+  }> = [];
+  let outcome: "reviewed" | "not_found" | "actor_inactive" | "not_reviewable" =
+    "reviewed";
+  let agentAdmin = false;
+  let visible = true;
+  beforeEach(() => {
+    asked.length = 0;
+    outcome = "reviewed";
+    agentAdmin = false;
+    visible = true;
+  });
+  const reviewed = {
+    id: ACHIEVEMENT,
+    session_id: SESSION,
+    agent_id: AGENT,
+    agent_release_id: null,
+    rule_id: ID,
+    rule_family_id: ID,
+    type_id: ID,
+    title: "out/report.md",
+    link: `/sessions/${SESSION}`,
+    evidence_kind: "out_file" as const,
+    evidence_id: "out/report.md",
+    payload: { path: "out/report.md", size: 12 },
+    judge: "always" as const,
+    rule_title: "Design document",
+    rule_version: 3,
+    type_key: "document",
+    probability: null,
+    judgment_id: ID,
+    review_state: "confirmed" as const,
+    reviewed_by: USER,
+    reviewed_at: AT,
+    review_note: null,
+    created_at: AT,
+  };
+  const reviewing = createApiApp({
+    authMode: "api-key",
+    identity,
+    keyStore: {
+      async find(candidate) {
+        return keyHash.equals(Buffer.from(candidate))
+          ? {
+              id: KEY_ID,
+              ownerId: WORKSPACE,
+              workspaceId: WORKSPACE,
+              kind: "personal" as const,
+              createdByUserId: USER,
+              creatorRole: "owner" as const,
+              scopes: ["sessions:read", "sessions:write"],
+            }
+          : null;
+      },
+    },
+    registerRoutes: (router) =>
+      registerSessionAchievementRoutes(
+        router,
+        createSessionAchievementService({
+          authorization: createAuthorizationPolicy({
+            decisions,
+            identity: {
+              async reread(subject) {
+                const { principal } = subject;
+                return principal.kind === "api_key"
+                  ? {
+                      status: "ok",
+                      principal,
+                      keyCreator: { userId: USER, role: "owner" },
+                    }
+                  : { status: "ok", principal };
+              },
+            },
+            sessions: {
+              visibleTo: async () => visible,
+              originOf: async () => ({
+                creatorUserId: OTHER_USER,
+                creatorApiKeyId: null,
+              }),
+            },
+            agents: {
+              async agentOf(_workspace, resource) {
+                return resource.kind === "agent" ? resource.id : null;
+              },
+              async isAdmin(_workspace, agentId) {
+                return agentAdmin && agentId === AGENT;
+              },
+            },
+          }),
+          store: {
+            list: async () => null,
+            rejudge: async () => ({ outcome: "not_found" }),
+            find: async (_owner, achievementId) =>
+              achievementId === ACHIEVEMENT || achievementId === DOWN
+                ? { sessionId: SESSION, agentId: AGENT }
+                : null,
+            review: async (input) => {
+              asked.push({
+                userId: input.actor.userId,
+                achievementId: input.achievementId,
+                decision: input.decision,
+                note: input.note,
+                receiptId: input.receiptId,
+              });
+              if (input.achievementId === DOWN) {
+                throw Object.assign(new Error("connection refused"), {
+                  code: "ECONNREFUSED",
+                });
+              }
+              return outcome === "reviewed"
+                ? { outcome, achievement: reviewed }
+                : { outcome };
+            },
+          },
+        }),
+      ),
+  });
+  const review = (id: string, who: Who, body: unknown) => {
+    const headers: Record<string, string> = {
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      "Content-Type": "application/json",
+    };
+    if (who === "key") headers.Authorization = `Bearer ${KEY}`;
+    else if (who !== null && who !== "agent_key") {
+      headers.Cookie = cookieFor(who);
+    }
+    return reviewing.request(`/v1/achievements/${id}/review`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  };
+
+  test("an owner or an admin confirms or rejects, with a note, and gets the achievement and the receipt", async () => {
+    for (const who of ["owner", "admin"] as const) {
+      const response = await review(ACHIEVEMENT.toUpperCase(), who, {
+        decision: "confirm",
+        note: "checked the file",
+      });
+      expect(response.status).toBe(200);
+      const body = reviewAchievementResponseSchema.parse(await response.json());
+      expect(body.achievement).toEqual(reviewed);
+      expect(asked.at(-1)).toEqual({
+        userId: USER,
+        achievementId: ACHIEVEMENT,
+        decision: "confirm",
+        note: "checked the file",
+        receiptId: body.receipt_id,
+      });
+    }
+    expect(
+      (await review(ACHIEVEMENT, "owner", { decision: "reject" })).status,
+    ).toBe(200);
+    expect(asked.at(-1)?.note).toBeNull();
+  });
+
+  test("asks for achievement.review on the achievement's agent", async () => {
+    recorded.length = 0;
+    await review(ACHIEVEMENT, "admin", { decision: "reject" });
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        action: "achievement.review",
+        resource: { kind: "agent", id: AGENT, owner_scope: WORKSPACE },
+      }),
+    ]);
+  });
+
+  test("a member reviews only as the agent's admin; an API key never; no login 401", async () => {
+    expect(
+      (await review(ACHIEVEMENT, "member", { decision: "reject" })).status,
+    ).toBe(403);
+    expect(
+      (await review(ACHIEVEMENT, "key", { decision: "reject" })).status,
+    ).toBe(403);
+    expect(
+      (await review(ACHIEVEMENT, null, { decision: "reject" })).status,
+    ).toBe(401);
+    expect(asked).toEqual([]);
+    agentAdmin = true;
+    expect(
+      (await review(ACHIEVEMENT, "member", { decision: "reject" })).status,
+    ).toBe(200);
+    expect(asked).toHaveLength(1);
+  });
+
+  test("an unknown achievement or an unseen session is 404 and nothing is written", async () => {
+    expect(
+      (
+        await review("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "owner", {
+          decision: "confirm",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await review("not-a-uuid", "owner", { decision: "confirm" })).status,
+    ).toBe(404);
+    visible = false;
+    agentAdmin = true;
+    expect(
+      (await review(ACHIEVEMENT, "member", { decision: "confirm" })).status,
+    ).toBe(404);
+    expect(asked).toEqual([]);
+  });
+
+  test("a decided achievement is 409 not_reviewable; a lost role 403; a gone row 404; an outage 503", async () => {
+    outcome = "not_reviewable";
+    const conflict = await review(ACHIEVEMENT, "owner", {
+      decision: "confirm",
+    });
+    expect(conflict.status).toBe(409);
+    const body = apiErrorResponseSchema.parse(await conflict.json());
+    expect(body.error.code).toBe("REVISION_CONFLICT");
+    expect(body.error.details).toEqual({ reason_code: "not_reviewable" });
+    outcome = "actor_inactive";
+    expect(
+      (await review(ACHIEVEMENT, "owner", { decision: "reject" })).status,
+    ).toBe(403);
+    outcome = "not_found";
+    expect(
+      (await review(ACHIEVEMENT, "owner", { decision: "reject" })).status,
+    ).toBe(404);
+    expect((await review(DOWN, "owner", { decision: "reject" })).status).toBe(
+      503,
+    );
+  });
+
+  test("a decision other than confirm or reject, an empty or long note, or another field is 400; an oversized body 413", async () => {
+    expect(
+      (
+        await review(ACHIEVEMENT, "owner", {
+          decision: "confirm",
+          note: "x".repeat(REQUEST_BODY_MAX_BYTES),
+        })
+      ).status,
+    ).toBe(413);
+    for (const body of [
+      {},
+      { decision: "approve" },
+      { decision: "confirm", note: "" },
+      { decision: "confirm", note: "x".repeat(501) },
+      { decision: "confirm", review_state: "confirmed" },
+    ]) {
+      expect((await review(ACHIEVEMENT, "owner", body)).status).toBe(400);
+    }
+    expect(asked).toEqual([]);
   });
 });

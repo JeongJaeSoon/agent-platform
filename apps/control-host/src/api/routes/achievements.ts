@@ -4,6 +4,7 @@ import {
   achievementJudgeChangeResponseSchema,
   achievementJudgeRequestSchema,
   achievementJudgeResponseSchema,
+  achievementParamsSchema,
   achievementRuleChangeResponseSchema,
   achievementRuleFamilyParamsSchema,
   achievementRuleRequestSchema,
@@ -16,6 +17,8 @@ import {
   listAchievementTypesResponseSchema,
   listSessionAchievementsResponseSchema,
   rejudgeSessionResponseSchema,
+  reviewAchievementRequestSchema,
+  reviewAchievementResponseSchema,
   sessionIdParamsSchema,
   updateAchievementCategoryRequestSchema,
   updateAchievementTypeRequestSchema,
@@ -241,5 +244,13 @@ export function registerSessionAchievementRoutes(
       service.rejudge(context.get("caller"), params.id),
     );
     return jsonWithSchema(context, rejudgeSessionResponseSchema, queued, 202);
+  });
+  apiRoute(router, "reviewAchievement", async (context) => {
+    const params = requireParams(context, achievementParamsSchema);
+    const body = await parseJsonBody(context, reviewAchievementRequestSchema);
+    const reviewed = await mapped(() =>
+      service.review(context.get("caller"), params.id, body),
+    );
+    return jsonWithSchema(context, reviewAchievementResponseSchema, reviewed);
   });
 }

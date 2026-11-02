@@ -364,6 +364,10 @@ export const sessionAchievementSchema = z
     /** Null for a type a person made. */
     payload: achievementPayloadSchema.nullable(),
     judge: achievementRuleJudgeSchema,
+    /** The rule version's title and number, and its type's key. */
+    rule_title: achievementRuleTitleSchema,
+    rule_version: z.number().int().positive(),
+    type_key: achievementTypeKeySchema,
     /** Null for `always`. */
     probability: z.number().min(0).max(1).nullable(),
     judgment_id: z.uuid(),
@@ -392,8 +396,46 @@ export const listSessionAchievementsResponseSchema = z
     items: z.array(sessionAchievementSchema),
     /** The session's latest judgment; null before its first. */
     judgment: achievementJudgmentSchema.nullable(),
+    /** The session's finished judgments, and what their calls cost. */
+    judgment_count: z.number().int().nonnegative(),
+    judge_cost_usd: z.number().nonnegative(),
+    /**
+     * The workspace's threshold now; a judgment does not keep the one it
+     * judged with.
+     */
+    threshold: z.number().min(0).max(1),
   })
   .strict();
+
+export const ACHIEVEMENT_REVIEW_DECISION_VALUES = [
+  "confirm",
+  "reject",
+] as const;
+export const ACHIEVEMENT_REVIEW_NOTE_MAX = 500;
+
+export const achievementParamsSchema = z.object({ id: z.uuid() }).strict();
+
+/** `confirm` counts a `needs_review` achievement; `reject` drops one not yet decided. */
+export const reviewAchievementRequestSchema = z
+  .object({
+    decision: z.enum(ACHIEVEMENT_REVIEW_DECISION_VALUES),
+    note: z.string().min(1).max(ACHIEVEMENT_REVIEW_NOTE_MAX).optional(),
+  })
+  .strict();
+
+export const reviewAchievementResponseSchema = z
+  .object({
+    achievement: sessionAchievementSchema,
+    receipt_id: receiptIdSchema,
+  })
+  .strict();
+
+export type ReviewAchievementRequest = z.infer<
+  typeof reviewAchievementRequestSchema
+>;
+export type ReviewAchievementResponse = z.infer<
+  typeof reviewAchievementResponseSchema
+>;
 
 /** The judgment the session's manual rejudge queued, or merged into. */
 export const rejudgeSessionResponseSchema = z

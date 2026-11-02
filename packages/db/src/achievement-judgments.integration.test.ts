@@ -50,6 +50,8 @@ import {
   achievementJudgments,
   achievementJudgmentUsage,
   achievementTypes,
+  agentAdmins,
+  agents,
   attempts,
   memberships,
   receipts,
@@ -2294,5 +2296,223 @@ integration("achievement judgments on PostgreSQL", () => {
         { sequence: 4, message: "ask 4", result: "answer 4" },
       ]);
     });
+  });
+
+  async function decided(ws: Awaited<ReturnType<typeof workspace>>) {
+    await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+    await rule(ws, await typeId(ws.workspaceId, "document"));
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    outputsBySession.set(sessionId, {
+      status: "ready",
+      revision: 1,
+      outputs: [
+        {
+          path: "out/report.md",
+          bytes: 42,
+          sha256: "b".repeat(64),
+          key: `sessions/${sessionId}/outputs/${"b".repeat(64)}`,
+        },
+      ],
+    });
+    await quietPassed(sessionId);
+    await replica().runOnce();
+    const listed = await judgments.list(ws.workspaceId, sessionId);
+    if (!listed) throw new Error("not listed");
+    const pull = listed.items.find(
+      (item) => item.evidence_kind === "github_pull_request",
+    );
+    const file = listed.items.find((item) => item.evidence_kind === "out_file");
+    if (!pull || !file) throw new Error("no achievements");
+    return { sessionId, listed, pull, file };
+  }
+
+  function reviewing(
+    actor: TeamActor,
+    achievementId: string,
+    decision: "confirm" | "reject",
+    note: string | null = null,
+  ) {
+    return judgments.review({
+      actor,
+      achievementId,
+      decision,
+      note,
+      receiptId: randomUUID(),
+    });
+  }
+
+  test("the list names each achievement's rule version and type, and gives the finished judgments, their cost and the threshold", async () => {
+    const ws = await workspace();
+    const { sessionId, listed, file } = await decided(ws);
+    expect(listSessionAchievementsResponseSchema.parse(listed)).toEqual(listed);
+    expect(file).toMatchObject({
+      rule_title: "Counted",
+      rule_version: 1,
+      type_key: "document",
+    });
+    expect(listed).toMatchObject({
+      judgment_count: 1,
+      judge_cost_usd: 0,
+      threshold: 0.9,
+    });
+    // A pending judgment is not counted; the ledger's cost is.
+    const [judgment] = await judgmentsOf(sessionId);
+    await db
+      .update(achievementJudgments)
+      .set({ costUsd: 0.000_25 })
+      .where(eq(achievementJudgments.id, judgment?.id ?? ""));
+    await queueAchievementJudgment(db, sessionId, { trigger: "manual" });
+    await db
+      .update(workspaces)
+      .set({
+        settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', '{"threshold": 0.75}'::jsonb)`,
+      })
+      .where(eq(workspaces.id, ws.workspaceId));
+    expect(await judgments.list(ws.workspaceId, sessionId)).toMatchObject({
+      judgment: { status: "queued", trigger: "manual" },
+      judgment_count: 1,
+      judge_cost_usd: 0.000_25,
+      threshold: 0.75,
+    });
+  });
+
+  test("a person confirms a needs_review achievement or rejects an undecided one once, with a review_achievement receipt", async () => {
+    const ws = await workspace();
+    const { sessionId, pull, file } = await decided(ws);
+    expect(await judgments.find(ws.workspaceId, file.id)).toEqual({
+      sessionId,
+      agentId: null,
+    });
+    expect(await judgments.find("another-owner", file.id)).toBeNull();
+
+    expect((await reviewing(ws.owner, pull.id, "confirm")).outcome).toBe(
+      "not_reviewable",
+    );
+    const receiptId = randomUUID();
+    const confirmed = await judgments.review({
+      actor: ws.owner,
+      achievementId: file.id,
+      decision: "confirm",
+      note: "Read it",
+      receiptId,
+    });
+    if (confirmed.outcome !== "reviewed") throw new Error(confirmed.outcome);
+    expect(confirmed.achievement).toMatchObject({
+      id: file.id,
+      review_state: "confirmed",
+      reviewed_by: ws.owner.userId,
+      review_note: "Read it",
+      rule_title: "Counted",
+      type_key: "document",
+    });
+    expect(confirmed.achievement.reviewed_at).not.toBeNull();
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, receiptId));
+    expect(receipt).toMatchObject({
+      ownerId: ws.workspaceId,
+      operation: "review_achievement",
+      status: "succeeded",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      result: { achievement_id: file.id, review_state: "confirmed" },
+    });
+    expect(JSON.stringify(receipt)).not.toContain("Read it");
+
+    const rejected = await reviewing(ws.owner, pull.id, "reject");
+    expect(rejected).toMatchObject({
+      outcome: "reviewed",
+      achievement: { review_state: "rejected" },
+    });
+    for (const [id, decision] of [
+      [file.id, "reject"],
+      [pull.id, "reject"],
+      [pull.id, "confirm"],
+    ] as const) {
+      expect((await reviewing(ws.owner, id, decision)).outcome).toBe(
+        "not_reviewable",
+      );
+    }
+    const other = await workspace();
+    expect((await reviewing(other.owner, file.id, "reject")).outcome).toBe(
+      "not_found",
+    );
+  });
+
+  test("confirmed and rejected achievements stay as decided when the session is judged again", async () => {
+    const ws = await workspace();
+    const { sessionId, pull, file } = await decided(ws);
+    await reviewing(ws.owner, file.id, "reject");
+    await reviewing(ws.owner, pull.id, "reject");
+    const rejudged = await judgments.rejudge({
+      actor: ws.owner,
+      sessionId,
+      receiptId: randomUUID(),
+    });
+    expect(rejudged.outcome).toBe("queued");
+    await quietPassed(sessionId);
+    await replica().runOnce();
+    expect((await judgmentsOf(sessionId)).map((row) => row.status)).toEqual([
+      "succeeded",
+      "succeeded",
+    ]);
+    const after = await judgments.list(ws.workspaceId, sessionId);
+    expect(
+      after?.items.map((item) => [item.id, item.review_state]).sort(),
+    ).toEqual(
+      [
+        [pull.id, "rejected"],
+        [file.id, "rejected"],
+      ].sort(),
+    );
+  });
+
+  test("a member reviews an agent's achievements only while administering it; a suspended person never", async () => {
+    const ws = await workspace();
+    const { pull, file } = await decided(ws);
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId: ws.workspaceId,
+      slug: `agent-${agentId.slice(0, 8)}`,
+      name: "Fixer",
+    });
+    await db
+      .update(sessionAchievements)
+      .set({ agentId })
+      .where(eq(sessionAchievements.id, file.id));
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "member",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws.workspaceId, userId, role: "member" });
+    const member: TeamActor = { ...ws.owner, userId };
+
+    expect((await reviewing(member, file.id, "confirm")).outcome).toBe(
+      "actor_inactive",
+    );
+    // An achievement without an agent has no agent admins.
+    expect((await reviewing(member, pull.id, "reject")).outcome).toBe(
+      "actor_inactive",
+    );
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId: ws.workspaceId, agentId, userId });
+    expect((await reviewing(member, file.id, "confirm")).outcome).toBe(
+      "reviewed",
+    );
+    await db
+      .update(memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(memberships.userId, ws.owner.userId));
+    expect((await reviewing(ws.owner, pull.id, "reject")).outcome).toBe(
+      "actor_inactive",
+    );
   });
 });

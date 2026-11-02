@@ -215,6 +215,8 @@ const ADMIN_PERMISSIONS: AuthMeResponse["permissions"] = [
   "agent.admin.manage",
   "credential.bind",
   "binding.manage",
+  "achievement_rule.manage",
+  "achievement.review",
 ];
 /** What the server's role table gives each role on its workspace. */
 export const PERMISSIONS: Record<WorkspaceRole, AuthMeResponse["permissions"]> =
