@@ -33,7 +33,7 @@ type Reason =
 const FEATURE: Record<Feature, { title: string; hint: string }> = {
   review: {
     title: "리뷰 승인",
-    hint: "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 필수 리뷰·CODEOWNERS는 저장소의 GitHub 설정을 따릅니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
+    hint: "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 권장 권한이면 GitHub는 이 승인을 필수 리뷰로 세지 않으므로, 브랜치 규칙이 리뷰를 요구하면 쓰기 권한이 있는 사람의 승인처럼 GitHub가 인정하는 승인이 따로 필요합니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
   },
   actions: {
     title: "Actions 실행",
