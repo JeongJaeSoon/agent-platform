@@ -86,7 +86,7 @@ commit `95b0e7b5`부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 
 
 ### control-host 롤백 하한: release 도구로 실행
 
-이 변경부터 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 도구는 worker가 뜰 때 받는 claim에 실리고, worker는 끝날 때까지 그 도구로 돈다. 그래서 카드에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 claim부터 좁혀진다. 배포 전에 뜬 worker는 입력 없이 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초)가 지나거나 pause·재시작으로 끝날 때까지 프로필의 도구를 쓴다. release가 없는 세션, 카드가 프로필 도구를 모두 남기는 release의 세션은 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
+이 변경부터 control-host는 release로 만든 세션을 release에 고정된 도구(`agent_releases.runtime_config_snapshot.tools`, 프로필 도구 안)로 실행한다. 그 전에는 프로필의 도구 전부였다. 도구는 worker가 뜰 때 받는 claim에 실리고, worker는 끝날 때까지 그 도구로 돈다. 그래서 카드에 `tools`를 고르거나 `forbidden`을 적은 에이전트는 이미 진행 중인 세션도 다음 claim부터 좁혀진다. 배포 전에 뜬 worker는 마지막 턴이 끝난 뒤 입력 없이 `WORKER_IDLE_TIMEOUT_SEC`(기본 1800초)가 지나거나 pause·재시작으로 끝날 때까지 프로필의 도구를 쓴다. release가 없는 세션, 카드가 프로필 도구를 모두 남기는 release의 세션은 그대로다. worker 이미지와 worker protocol은 바뀌지 않는다.
 
 - **롤백 하한은 commit `2648f2ac`다.** 도구 목록은 checkpoint의 profile digest에 들어간다. `2648f2ac`부터의 control-host는 claim의 복원 후보에 프로필 도구와 release 도구 두 목록을 모두 넣으므로, 이 변경과 `2648f2ac` 사이는 어느 쪽으로 옮겨도 서로의 checkpoint를 복원한다(아래 복원 후보 상한의 예외는 뺀다). 그보다 앞선 빌드로 롤백하면 release 도구로 만든 checkpoint를 복원하지 못하고, 그 세션은 첫 launch 뒤 `recovery_required`(`incompatible_checkpoint`)로 멈춘다. 롤포워드한 뒤 `retry_restore`로 같은 checkpoint를 다시 시도하면 된다. 그래서 `2648f2ac`보다 앞선 빌드에서 이 변경이 든 빌드로 바로 올리지 말고, `2648f2ac` 이상의 빌드를 먼저 배포해 롤백 대상으로 만든다.
 - **좁혀질 release 수.** 배포 전에 읽기 쿼리로 센다. 카드가 프로필 도구를 모두 고른 release도 세므로 상한이다.
@@ -109,7 +109,7 @@ commit `95b0e7b5`부터 worker는 직전 checkpoint의 bundle 사슬 위에 새 
   ```
 
   `unreadable`은 `tools`가 없거나 문자열 배열이 아닌 snapshot이다. 그런 release의 세션은 내장 도구 없이 돈다(허용하지 않는 쪽으로 읽는다). 정상 경로로 만든 release는 늘 문자열 배열 `tools`를 싣는다.
-- **복원 후보 상한.** claim의 복원 후보는 16개까지다(worker 계약). 모든 프로필 목록을 release 목록보다 먼저 넣는다. 실제로 도구가 좁혀지는 release의 세션 중 이전 프로필이 많은 세션(GitHub 설정이 없으면 16개, 있으면 8개 이상)은 두 가지를 잃는다. 이 변경 뒤에는 현재 프로필의 프로필 목록이 한 칸을 더 써서 가장 오래된 이전 프로필의 후보 하나가 빠진다. `2648f2ac`로 롤백하면 그 빌드의 claim은 프로필 목록만으로 상한이 차서 release 도구 후보를 넣지 못하므로, 이 변경 뒤 release 도구로 만든 checkpoint를 복원하지 못한다. 어느 쪽이든 그 후보로만 맞는 checkpoint는 복원이 `incompatible_checkpoint`로 멈추고, 롤포워드 뒤 `retry_restore`로 다시 시도한다.
+- **복원 후보 상한.** claim의 복원 후보는 16개까지다(worker 계약). 모든 프로필 목록을 release 목록보다 먼저 넣는다. 실제로 도구가 좁혀지는 release의 세션 중 이전 프로필이 많은 세션(GitHub 설정이 없으면 16개, 있으면 8개 이상)은 두 가지를 잃는다. ① 이 변경 뒤에는 현재 프로필의 프로필 목록이 한 칸을 더 써서 가장 오래된 이전 프로필의 후보 하나가 빠진다. 그 후보로만 맞는 checkpoint는 복원이 `incompatible_checkpoint`로 멈추고, 같은 후보 규칙을 쓰는 빌드에서는 다시 시도해도 같다. 그 세션은 `start_fresh`(이전 context를 버림)나 `close`로 끝낸다. ② `2648f2ac`로 롤백하면 그 빌드의 claim은 프로필 목록만으로 상한이 차서 release 도구 후보를 넣지 못하므로, 이 변경 뒤 release 도구로 만든 checkpoint를 복원하지 못한다. 이쪽은 롤포워드한 뒤 `retry_restore`로 다시 시도하면 된다.
 
 ### worker protocol 필드를 걷어내는 순서
 
