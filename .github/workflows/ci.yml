@@ -619,23 +619,20 @@ jobs:
         with:
           name: storybook-dist
           path: _site/storybook
-      # A tab opened before this deploy still loads the chunks it was built
-      # with; scripts/storybook-pages.sh says why.
-      - name: Storybook chunks of the last hour's deploys
-        env:
-          LIVE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/storybook
-        run: |
-          scripts/storybook-pages.sh keep _site/storybook "$LIVE"
-          scripts/storybook-pages.sh check _site/storybook
+      - name: Storybook in place below /storybook/
+        run: scripts/storybook-pages.sh check _site/storybook
       - name: Pages site
         run: |
           mkdir -p _site/api
           cp docs/api/index.html docs/api/scalar.js docs/openapi.json _site/api/
           ls _site _site/api _site/storybook
       - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          name: pages-site
           path: _site
+          include-hidden-files: true
+          retention-days: 1
 
   # Publishes the site assembled above to GitHub Pages. Main pushes only: a PR or a
   # feature-branch run never deploys, and is the only job here that may write
@@ -657,8 +654,23 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pages-site
+          path: _site
+      # A tab opened before this deploy still loads the chunks it was built
+      # with; scripts/storybook-pages.sh says why. Inside the github-pages
+      # group, so the live site it reads is the one this deploy replaces.
+      - name: Storybook chunks of builds retired within the hour
+        env:
+          LIVE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/storybook
+        run: scripts/storybook-pages.sh keep _site/storybook "$LIVE"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
       - id: deploy
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
