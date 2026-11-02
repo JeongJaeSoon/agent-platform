@@ -854,27 +854,26 @@ export function createGitHubAppDirectory(
             page,
             headers: await appHeaders(auth),
           });
-          for (const installation of data) {
-            // A user or an organization has a login, an enterprise a slug.
-            const account = installation.account as {
-              login?: string;
-              slug?: string;
-            } | null;
-            all.push({
-              id: Number(installation.id),
-              account:
-                account?.login ?? account?.slug ?? String(installation.id),
-              ...accountOf(installation.account),
-              repositorySelection: installation.repository_selection,
-              htmlUrl: installation.html_url ?? null,
-              permissions: permissionsOf(installation.permissions),
-              createdAt: dateOf(installation.created_at),
-              suspendedAt: dateOf(installation.suspended_at),
-            });
-          }
+          for (const installation of data)
+            all.push(installationOf(installation));
           if (data.length < INSTALLATIONS_PER_PAGE) break;
         }
         return all;
+      }),
+    installation: (app, installationId) =>
+      asking("App installation", app, async (client, auth) => {
+        const headers = await appHeaders(auth);
+        try {
+          const { data } = await client.request(
+            "GET /app/installations/{installation_id}",
+            { installation_id: installationId, headers },
+          );
+          return installationOf(data);
+        } catch (error) {
+          // Not this App's installation, or no longer there.
+          if (statusOf(error) === 404) return null;
+          throw error;
+        }
       }),
     installationFor: (app, repo) =>
       asking("App installation lookup", app, (client, auth) =>
@@ -1087,6 +1086,32 @@ function accountOf(raw: unknown): {
     accountType: type === "User" ? "user" : "organization",
     accountId:
       typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null,
+  };
+}
+
+function installationOf(installation: {
+  id: number;
+  account: unknown;
+  repository_selection: "all" | "selected";
+  html_url?: string | null;
+  permissions?: unknown;
+  created_at?: string;
+  suspended_at?: string | null;
+}): GitHubAppInstallationView {
+  // A user or an organization has a login, an enterprise a slug.
+  const account = installation.account as {
+    login?: string;
+    slug?: string;
+  } | null;
+  return {
+    id: Number(installation.id),
+    account: account?.login ?? account?.slug ?? String(installation.id),
+    ...accountOf(installation.account),
+    repositorySelection: installation.repository_selection,
+    htmlUrl: installation.html_url ?? null,
+    permissions: permissionsOf(installation.permissions),
+    createdAt: dateOf(installation.created_at),
+    suspendedAt: dateOf(installation.suspended_at),
   };
 }
 

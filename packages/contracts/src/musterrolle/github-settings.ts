@@ -241,7 +241,8 @@ export const githubOAuthSchema = z.object({
 /**
  * An installation's state, in this order: `suspended` whatever it approved;
  * `approval_pending` when it has not approved every permission the App asks
- * for; `unknown` when the App's permissions were never read to compare.
+ * for; `unknown` when the App's permissions were never read to compare, or
+ * when GitHub did not answer and the installation is from the last list read.
  */
 export const GITHUB_INSTALLATION_STATUS_VALUES = [
   "active",
@@ -268,6 +269,23 @@ export const githubInstallationDetailSchema = z
     html_url: z.string().url().nullable(),
     created_at: z.iso.datetime().nullable(),
     suspended_at: z.iso.datetime().nullable(),
+    /**
+     * Who finished installing it from the console, and when; null for an
+     * installation made on GitHub directly, or before the console kept it.
+     * `by` is null once that person's account is gone. Shown, never used
+     * to decide access: GitHub's setup URL can be forged.
+     */
+    connected: z
+      .object({
+        by: z
+          .object({ user_id: z.uuid(), display_name: z.string().min(1) })
+          .strict()
+          .nullable(),
+        at: z.iso.datetime(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -338,9 +356,15 @@ export const githubSettingsConnectionSchema = z
      * refused it, `unknown` when GitHub did not answer.
      */
     key_status: z.enum(["ok", "rejected", "unknown"]),
-    /** Where the App is installed, as of `installations_read_at`. */
+    /**
+     * Where the App is installed, as of `installations_read_at`. When this
+     * read failed, the last list GitHub gave, each `status: unknown`.
+     */
     installations: z.array(githubSettingsInstallationSchema),
-    /** When `installations` was read from GitHub; null when it never was. */
+    /**
+     * When `installations` was read from GitHub: this read, or the last one
+     * that answered; null when none did.
+     */
     installations_read_at: z.iso.datetime().nullable(),
     check: githubConnectionCheckSchema,
   })

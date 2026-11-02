@@ -24,6 +24,7 @@ export * from "./enqueue.ts";
 export * from "./execution-revocation.ts";
 export * from "./github-app-manifest-states.ts";
 export * from "./github-apps.ts";
+export * from "./github-installations.ts";
 export * from "./github-oauth.ts";
 export * from "./github-packages.ts";
 export * from "./github-pins.ts";
