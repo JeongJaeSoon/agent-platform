@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button, RowLines, RowList, RowListItem } from "@werft-ai/ui";
+import { Button, RowLines, RowLink, RowList, RowListItem } from "@werft-ai/ui";
+import { expect } from "storybook/test";
 
 type Locale = "ko" | "ja" | "en";
 
@@ -60,6 +61,30 @@ function Teams({
           >
             {t.open}
           </Button>
+        </RowListItem>
+      ))}
+    </RowList>
+  );
+}
+
+/** Each row opens as a whole through its name link; no Open button. */
+function OpeningTeams({ locale }: { readonly locale: unknown }) {
+  const t = COPY[(locale as Locale) in COPY ? (locale as Locale) : "ko"];
+  return (
+    <RowList variant="joined">
+      {t.teams.map((team) => (
+        <RowListItem key={team.name} opens={true}>
+          <RowLines>
+            <RowLink>
+              <a
+                href={`#teams/${team.name}`}
+                className="font-semibold text-foreground no-underline [overflow-wrap:anywhere]"
+              >
+                {team.name}
+              </a>
+            </RowLink>
+            <span className="text-muted-foreground text-xs">{team.detail}</span>
+          </RowLines>
         </RowListItem>
       ))}
     </RowList>
@@ -127,4 +152,41 @@ export const English: Story = {
   ...Variants,
   name: "Variants (en)",
   globals: { locale: "en" },
+};
+
+/**
+ * `opens` with a RowLink: the name link's box covers the row, so a click
+ * anywhere on it follows the link, and the row is one Tab stop.
+ */
+export const OpensAsWhole: Story = {
+  name: "Opens as a whole",
+  render: (_, { globals }) => <OpeningTeams locale={globals.locale} />,
+  play: async ({ canvasElement }) => {
+    for (const row of canvasElement.querySelectorAll("li")) {
+      const link = row.querySelector("a");
+      const detail = row.querySelector("span.text-xs");
+      if (!(link && detail)) throw new Error("no row link");
+      const box = detail.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        box.x + box.width / 2,
+        box.y + box.height / 2,
+      );
+      await expect(hit === link).toBe(true);
+    }
+  },
+};
+
+export const OpensAsWholeDark: Story = {
+  ...OpensAsWhole,
+  name: "Opens as a whole (dark)",
+  globals: { theme: "dark" },
+};
+
+export const OpensAsWholeMobile: Story = {
+  ...OpensAsWhole,
+  name: "Opens as a whole (390px)",
+  globals: {
+    locale: "en",
+    viewport: { value: "mobile390", isRotated: false },
+  },
 };

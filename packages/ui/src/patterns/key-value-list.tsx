@@ -22,12 +22,15 @@ export type KeyValueListProps = Omit<ComponentProps<"dl">, "children"> & {
    * card's summary. `grid` (`.dl`): a 140px label column, for a detail page.
    */
   readonly variant?: "list" | "grid" | undefined;
+  /** `grid` only: below the `sm` breakpoint each value goes under its label. */
+  readonly stack?: "sm" | undefined;
 };
 
 /** Labelled values as a `<dl>`, in either of mockup v4's two layouts. */
 export function KeyValueList({
   items,
   variant = "list",
+  stack,
   className,
   ...props
 }: KeyValueListProps): JSX.Element {
@@ -38,8 +41,11 @@ export function KeyValueList({
       <dl
         data-slot="key-value-list"
         data-variant="grid"
+        data-stack={stack}
         className={cn(
           "m-0 grid grid-cols-[140px_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-control",
+          stack === "sm" &&
+            "grid-cols-1 gap-y-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-2",
           className,
         )}
         {...props}

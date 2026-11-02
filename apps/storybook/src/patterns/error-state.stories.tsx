@@ -62,3 +62,21 @@ export const InCard: Story = {
     ),
   ],
 };
+
+/** `framed`: the same card as InCard, drawn by the state itself. */
+export const Framed: Story = {
+  ...CodeAndRetry,
+  args: { ...CodeAndRetry.args, framed: true },
+};
+
+export const FramedDark: Story = {
+  ...Framed,
+  name: "Framed (dark)",
+  globals: { theme: "dark" },
+};
+
+export const FramedMobile: Story = {
+  ...Framed,
+  name: "Framed (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
+};

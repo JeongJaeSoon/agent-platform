@@ -18,6 +18,8 @@ export interface ErrorStateProps {
   readonly evidenceLink?:
     | { readonly href: string; readonly label?: string }
     | undefined;
+  /** Draws the card frame, for a failure that stands in a card's place. */
+  readonly framed?: boolean | undefined;
   readonly className?: string | undefined;
 }
 
@@ -29,11 +31,17 @@ export function ErrorState({
   retry,
   retryLabel = "다시 시도",
   evidenceLink,
+  framed = false,
   className,
 }: ErrorStateProps): JSX.Element {
   return (
     <div
-      className={cn("ap-state", "ap-state--error", className)}
+      className={cn(
+        "ap-state",
+        "ap-state--error",
+        framed && "rounded-card border bg-card",
+        className,
+      )}
       role="alert"
       data-code={code}
     >
