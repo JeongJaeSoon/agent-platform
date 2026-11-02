@@ -208,6 +208,37 @@ describe("1분 미만 도구 시간", () => {
   });
 });
 
+describe("ToolRail loading", () => {
+  test("도구 목록을 읽는 동안 첫 섹션 제목이 비지 않고, 이름이 오면 그 이름만 남는다", () => {
+    const rail = (name: string | undefined) => (
+      <ToolRail
+        name={name}
+        tool={undefined}
+        perDay={undefined}
+        calls={undefined}
+        callSort="recent"
+        onCallSortChange={() => {}}
+      />
+    );
+    const view = withPlatform(rail(undefined), "en");
+    // The accessible name skips the aria-hidden skeleton.
+    expect(
+      view.getByRole("heading", { level: 2, name: "Loading tools" }),
+    ).toBeTruthy();
+    view.rerender(
+      <AgentPlatformProvider
+        client={{} as ApiClient}
+        locale="en"
+        renderLink={() => null}
+      >
+        {rail("Bash")}
+      </AgentPlatformProvider>,
+    );
+    expect(view.getByRole("heading", { level: 2, name: "Bash" })).toBeTruthy();
+    expect(view.container.querySelector("aside h2")?.textContent).toBe("Bash");
+  });
+});
+
 describe("SessionCounts", () => {
   const link = (
     status: string,

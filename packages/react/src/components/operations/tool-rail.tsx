@@ -96,6 +96,9 @@ export function ToolRail({
         title={
           <Text as="span" mono className="text-body font-semibold leading-5">
             <Value width="5rem">{name}</Value>
+            {name === undefined ? (
+              <span className="sr-only">{messages.loading}</span>
+            ) : null}
           </Text>
         }
         description={note}
