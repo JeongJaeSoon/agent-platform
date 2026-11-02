@@ -250,12 +250,13 @@ function post(
   });
 }
 
-const decide = (
+const resolve = (
   target: ReturnType<typeof app>,
+  action: "approve" | "reject" | "decision",
   body: unknown,
   token = "csp_approver",
   headers?: Record<string, string>,
-) => post(target, `/${PUSH}/decision`, body, token, headers);
+) => post(target, `/${PUSH}/${action}`, body, token, headers);
 
 async function errorOf(response: Response | Promise<Response>) {
   const settled = await response;
@@ -540,14 +541,14 @@ describe("push request routes", () => {
     expect(unknown.status).toBe(404);
   });
 
-  test("decision: a holder of sessions:approve decides the reviewed commit", async () => {
+  test("approve: a holder of sessions:approve approves the reviewed commit", async () => {
     const target = app();
-    const response = await decide(target, {
-      decision: "approve",
+    const response = await resolve(target, "approve", {
       git_commit: COMMIT,
       reason: "looks right",
     });
     expect(response.status).toBe(200);
+    expect(response.headers.get("Deprecation")).toBeNull();
     expect(pushRequestSchema.parse(await response.json()).state).toBe(
       "approved",
     );
@@ -564,9 +565,11 @@ describe("push request routes", () => {
     ]);
   });
 
-  test("decision: a credential without sessions:approve is refused with a receipt, body unread", async () => {
+  test("approve: a credential without sessions:approve is refused with a receipt, body unread", async () => {
     const target = app();
-    expect(await errorOf(decide(target, "{not json", "csp_writer"))).toEqual({
+    expect(
+      await errorOf(resolve(target, "approve", "{not json", "csp_writer")),
+    ).toEqual({
       status: 403,
       code: "FORBIDDEN",
       details: { refusal: "missing_scope", receipt_id: RECEIPT },
@@ -582,10 +585,10 @@ describe("push request routes", () => {
     expect(target.seen.decided).toEqual([]);
   });
 
-  test("decision: an unverified caller (AUTH_MODE=none) decides nothing and writes nothing", async () => {
+  test("approve: an unverified caller (AUTH_MODE=none) approves nothing and writes nothing", async () => {
     const target = app({ authMode: "none" });
     for (const response of [
-      decide(target, { decision: "approve", git_commit: COMMIT }, "", {
+      resolve(target, "approve", { git_commit: COMMIT }, "", {
         "Idempotency-Key": "key-1",
         "X-Owner-Id": "owner-a",
       }),
@@ -608,7 +611,7 @@ describe("push request routes", () => {
     expect(target.seen).toEqual({ created: [], decided: [], refusals: [] });
   });
 
-  test("decision: the store's refusals map to 409 and 404", async () => {
+  test("every path maps the store's refusals to 409 and 404", async () => {
     const cases = [
       ["already_decided", 409, "PUSH_REQUEST_DECIDED"],
       ["checkpoint_moved", 409, "CHECKPOINT_MOVED"],
@@ -625,54 +628,85 @@ describe("push request routes", () => {
           }),
         },
       });
-      expect(
-        await errorOf(
-          decide(target, { decision: "reject", git_commit: COMMIT }),
-        ),
-      ).toEqual({ status, code, details: { refusal, receipt_id: RECEIPT } });
+      for (const [path, body] of [
+        ["approve", { git_commit: COMMIT }],
+        ["reject", { git_commit: COMMIT }],
+        ["decision", { decision: "reject", git_commit: COMMIT }],
+      ] as const) {
+        expect(await errorOf(resolve(target, path, body))).toEqual({
+          status,
+          code,
+          details: { refusal, receipt_id: RECEIPT },
+        });
+      }
     }
   });
 
-  test("decision: body, key and size are checked", async () => {
+  test("approve, reject: body, key and size are checked", async () => {
     const target = app();
     for (const body of [
-      { decision: "approve" },
-      { decision: "merge", git_commit: COMMIT },
-      { decision: "approve", git_commit: "HEAD" },
+      {},
+      { git_commit: "HEAD" },
+      // The path names the action; the body may not.
+      { decision: "approve", git_commit: COMMIT },
     ]) {
-      expect(await errorOf(decide(target, body))).toMatchObject({
+      expect(await errorOf(resolve(target, "approve", body))).toMatchObject({
         status: 400,
         code: "BAD_REQUEST",
       });
     }
     expect(
       await errorOf(
-        decide(
-          target,
-          { decision: "reject", git_commit: COMMIT },
-          undefined,
-          {},
-        ),
+        resolve(target, "reject", { git_commit: COMMIT }, undefined, {}),
       ),
     ).toMatchObject({ status: 400, code: "BAD_REQUEST" });
-    expect(
-      await errorOf(
-        decide(target, {
-          decision: "reject",
-          git_commit: COMMIT,
-          reason: "x".repeat(65 * 1024),
-        }),
-      ),
-    ).toMatchObject({ status: 413, code: "PAYLOAD_TOO_LARGE" });
+    for (const path of ["approve", "reject", "decision"] as const) {
+      expect(
+        await errorOf(
+          resolve(target, path, {
+            git_commit: COMMIT,
+            reason: "x".repeat(65 * 1024),
+          }),
+        ),
+      ).toMatchObject({ status: 413, code: "PAYLOAD_TOO_LARGE" });
+    }
     const conflict = app({
       store: { decide: async () => ({ outcome: "conflict" }) },
     });
     expect(
-      await errorOf(
-        decide(conflict, { decision: "reject", git_commit: COMMIT }),
-      ),
+      await errorOf(resolve(conflict, "reject", { git_commit: COMMIT })),
     ).toMatchObject({ status: 409, code: "IDEMPOTENCY_CONFLICT" });
     expect(target.seen.decided).toEqual([]);
+  });
+
+  test("decision (deprecated): answers as /approve or /reject, under the same key scope and hash, with a Deprecation header", async () => {
+    const target = app();
+    for (const action of ["approve", "reject"] as const) {
+      const body = { git_commit: COMMIT, reason: "ok" };
+      const current = await resolve(target, action, body);
+      const old = await resolve(target, "decision", {
+        decision: action,
+        ...body,
+      });
+      expect([current.status, old.status]).toEqual([200, 200]);
+      expect(current.headers.get("Deprecation")).toBeNull();
+      expect(old.headers.get("Deprecation")).toBe("true");
+    }
+    const [approved, oldApproved, rejected, oldRejected] = target.seen.decided;
+    expect(oldApproved).toEqual(approved);
+    expect(oldRejected).toEqual(rejected);
+    expect(approved?.decision).toBe("approve");
+    expect(rejected?.decision).toBe("reject");
+    expect(approved?.payloadHash).not.toBe(rejected?.payloadHash);
+    for (const body of [
+      { git_commit: COMMIT },
+      { decision: "merge", git_commit: COMMIT },
+    ]) {
+      expect(await errorOf(resolve(target, "decision", body))).toMatchObject({
+        status: 400,
+        code: "BAD_REQUEST",
+      });
+    }
   });
 });
 
@@ -693,7 +727,7 @@ describe("a key approving the session it started (GA-8)", () => {
       },
     });
     const response = await target.api.request(
-      `/v1/sessions/${SESSION}/push-requests/${PUSH}/decision`,
+      `/v1/sessions/${SESSION}/push-requests/${PUSH}/approve`,
       {
         method: "POST",
         headers: {
@@ -701,7 +735,7 @@ describe("a key approving the session it started (GA-8)", () => {
           "Content-Type": "application/json",
           "Idempotency-Key": crypto.randomUUID(),
         },
-        body: JSON.stringify({ decision: "approve", git_commit: COMMIT }),
+        body: JSON.stringify({ git_commit: COMMIT }),
       },
     );
     expect(response.status).toBe(403);
@@ -783,12 +817,7 @@ describe("push receipts name the person behind the credential", () => {
         });
       expect((await send("", {})).status).toBe(201);
       expect(
-        (
-          await send(`/${PUSH}/decision`, {
-            decision: "approve",
-            git_commit: COMMIT,
-          })
-        ).status,
+        (await send(`/${PUSH}/approve`, { git_commit: COMMIT })).status,
       ).toBe(200);
       const actor = { principal, actor_user_id: person, agent_id: null };
       expect(target.seen.created.map((input) => input.actor)).toEqual([actor]);

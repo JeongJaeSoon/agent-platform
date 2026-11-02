@@ -12,8 +12,7 @@ Reject a commit that must not be sent out. It needs the same `sessions:approve` 
 
 ```ts
 const second = await werft.sessions.pushRequests.create(sessionId);
-const rejected = await werft.sessions.pushRequests.decide(sessionId, second.id, {
-  decision: "reject",
+const rejected = await werft.sessions.pushRequests.reject(sessionId, second.id, {
   git_commit: second.git_commit,
   reason: "needs tests first",
 });
@@ -35,11 +34,11 @@ push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
   -d '{}')
 PUSH_ID=$(echo "$push" | jq -r .id)
 PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
-curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "reject", git_commit: $c, reason: "needs tests first"}')" \
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c, reason: "needs tests first"}')" \
   | jq '{state, decision_reason}'
 ```
 
@@ -50,16 +49,16 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 }
 ```
 
-Reference: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+Reference: [`POST …/push-requests/{push_request_id}/reject`](/reference/http-api/push-requests/rejectPushRequest)
 
 </Tab>
 </Tabs>
 
 `reason` is optional. A rejection does not check whether the commit changed.
 
-## One decision only
+## Approve or reject once
 
-Deciding again on an already decided request is 409 `PUSH_REQUEST_DECIDED`. That attempt is also kept as a receipt.
+Approving or rejecting a request that was already approved or rejected is 409 `PUSH_REQUEST_DECIDED`. That attempt is also kept as a receipt.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -68,8 +67,7 @@ Deciding again on an already decided request is 409 `PUSH_REQUEST_DECIDED`. That
 import { isApiError } from "@werft-ai/sdk";
 
 try {
-  await werft.sessions.pushRequests.decide(sessionId, second.id, {
-    decision: "approve",
+  await werft.sessions.pushRequests.approve(sessionId, second.id, {
     git_commit: second.git_commit,
   });
 } catch (error) {
@@ -93,11 +91,11 @@ decide_push failed already_decided
 <Tab>
 
 ```bash
-again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')")
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c}')")
 echo "$again" | jq '{code: .error.code}'
 curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -H "Authorization: Bearer $KEY" \
   | jq '{operation, status, refusal: .result.refusal}'
@@ -114,11 +112,11 @@ curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -
 }
 ```
 
-Reference: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest), [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
+Reference: [`POST …/push-requests/{push_request_id}/approve`](/reference/http-api/push-requests/approvePushRequest), [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
 
 </Tab>
 </Tabs>
 
 ## Next steps
 
-- [receipt](/approvals/receipt): read the record of the request, decision, and push
+- [receipt](/approvals/receipt): read the record of the request, the approval or rejection, and the push

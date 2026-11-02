@@ -1,9 +1,12 @@
 import {
   createPushRequestRequestSchema,
+  type DecidePushRequestRequest,
   decidePushRequestRequestSchema,
   listPushRequestsResponseSchema,
+  type PushDecision,
   pushRequestParamsSchema,
   pushRequestSchema,
+  resolvePushRequestRequestSchema,
   sessionIdParamsSchema,
 } from "@werft-ai/contracts";
 import type { PushActor, PushRequestService } from "@werft-ai/platform";
@@ -57,15 +60,42 @@ export function registerPushRequestRoutes(
     return jsonWithSchema(context, pushRequestSchema, request);
   });
 
-  apiRoute(router, "decidePushRequest", async (context) => {
-    const params = requireParams(context, pushRequestParamsSchema);
-    const key = requireIdempotencyKey(context);
-    const decided = await mapped(() =>
-      service.decide(actorOf(context), params.id, params.push_request_id, {
-        idempotencyKey: key,
-        readBody: () => parseJsonBody(context, decidePushRequestRequestSchema),
-      }),
-    );
-    return jsonWithSchema(context, pushRequestSchema, decided);
-  });
+  // `/approve`, `/reject` and the old `/decision` share one idempotency
+  // scope and hash the same body, so a key replays across them.
+  const resolve =
+    (
+      readBody: (
+        context: Context<ApiEnvironment>,
+      ) => Promise<DecidePushRequestRequest>,
+    ) =>
+    async (context: Context<ApiEnvironment>) => {
+      const params = requireParams(context, pushRequestParamsSchema);
+      const key = requireIdempotencyKey(context);
+      const resolved = await mapped(() =>
+        service.decide(actorOf(context), params.id, params.push_request_id, {
+          idempotencyKey: key,
+          readBody: () => readBody(context),
+        }),
+      );
+      return jsonWithSchema(context, pushRequestSchema, resolved);
+    };
+  const withAction = (decision: PushDecision) =>
+    resolve(async (context) => ({
+      decision,
+      ...(await parseJsonBody(context, resolvePushRequestRequestSchema)),
+    }));
+
+  apiRoute(router, "approvePushRequest", withAction("approve"));
+  apiRoute(router, "rejectPushRequest", withAction("reject"));
+  apiRoute(
+    router,
+    "decidePushRequest",
+    async (context, next) => {
+      context.header("Deprecation", "true");
+      await next();
+    },
+    resolve((context) =>
+      parseJsonBody(context, decidePushRequestRequestSchema),
+    ),
+  );
 }

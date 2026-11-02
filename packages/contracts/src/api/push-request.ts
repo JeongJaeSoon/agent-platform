@@ -128,13 +128,17 @@ export const createPushRequestRequestSchema = z
 
 export const PUSH_DECISION_VALUES = ["approve", "reject"] as const;
 export const pushDecisionSchema = z.enum(PUSH_DECISION_VALUES);
-export const decidePushRequestRequestSchema = z
+// The body of `/approve` and `/reject`; the path names the action.
+export const resolvePushRequestRequestSchema = z
   .object({
-    decision: pushDecisionSchema,
     // The commit the decider reviewed; an approval of any other is refused.
     git_commit: gitCommitShaSchema,
     reason: z.string().min(1).max(1000).optional(),
   })
+  .strict();
+/** @deprecated The body of the old `/decision` path; use `/approve` or `/reject`. */
+export const decidePushRequestRequestSchema = resolvePushRequestRequestSchema
+  .extend({ decision: pushDecisionSchema })
   .strict();
 
 export const listPushRequestsResponseSchema = z.object({
@@ -216,6 +220,9 @@ export type CreatePushRequestRequest = z.infer<
 >;
 export type DecidePushRequestRequest = z.infer<
   typeof decidePushRequestRequestSchema
+>;
+export type ResolvePushRequestRequest = z.infer<
+  typeof resolvePushRequestRequestSchema
 >;
 export type ListPushRequestsResponse = z.infer<
   typeof listPushRequestsResponseSchema

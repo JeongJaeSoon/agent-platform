@@ -1225,7 +1225,7 @@ export interface paths {
         put?: never;
         /**
          * Ask for the session's latest checkpoint to be pushed
-         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.
+         * @description Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.
          *
          *     A session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.
          *
@@ -1262,6 +1262,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{id}/push-requests/{push_request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a push request
+         * @description Approves a `requested` push request: the platform pushes the pinned commit to the request's branch. `git_commit` must be the commit the approver reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.
+         *
+         *     Only a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/reject` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.
+         *
+         *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
+         */
+        post: operations["approvePushRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{id}/push-requests/{push_request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a push request
+         * @description Rejects a `requested` push request; nothing is pushed. `git_commit` is required as for an approval but not compared: a rejection is not refused when the session has moved on.
+         *
+         *     Only a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/approve` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.
+         *
+         *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
+         */
+        post: operations["rejectPushRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{id}/push-requests/{push_request_id}/decision": {
         parameters: {
             query?: never;
@@ -1272,10 +1320,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve or reject a push request
-         * @description Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.
-         *
-         *     Only a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. A workspace key (personal or agent) that started the session never decides its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.
+         * Approve or reject a push request (deprecated)
+         * @deprecated
+         * @description Deprecated: use `POST .../approve` or `POST .../reject`, which take the same body without `decision`. This path answers with a `Deprecation: true` header and will be removed once its callers move. `decision: approve` behaves as `/approve` and `decision: reject` as `/reject`; the three paths share one Idempotency-Key scope.
          *
          *     **Scope:** `sessions:approve` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -3916,8 +3963,12 @@ export interface components {
             branch?: string;
         };
         DecidePushRequestRequest: {
+            git_commit: string;
+            reason?: string;
             /** @enum {string} */
             decision: "approve" | "reject";
+        };
+        ResolvePushRequestRequest: {
             git_commit: string;
             reason?: string;
         };
@@ -17417,6 +17468,402 @@ export interface operations {
             };
         };
     };
+    approvePushRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+                push_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "git_commit": "4f2a9c1e7b3d5a8f0c6e2b9d1a4f7c3e5b8d0a2c"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ResolvePushRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description The request as answered. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "5b9e2c17-4f3a-4d6e-8a1b-7c0d9e2f3a41",
+                     *       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "repository_id": "sample-app",
+                     *       "checkpoint_revision": 3,
+                     *       "git_commit": "4f2a9c1e7b3d5a8f0c6e2b9d1a4f7c3e5b8d0a2c",
+                     *       "target_branch": "agent/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "state": "approved",
+                     *       "requested_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "decided_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "decided_at": "2026-10-11T08:35:00Z",
+                     *       "decision_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PushRequest"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `PUSH_REQUEST_DECIDED`: The push request was already approved or rejected.
+             *     - `CHECKPOINT_MOVED`: The commit or checkpoint named no longer matches what the push request pinned. Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.
+             */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "IDEMPOTENCY_CONFLICT" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    rejectPushRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
+                "Idempotency-Key": string;
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path: {
+                id: string;
+                push_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "git_commit": "4f2a9c1e7b3d5a8f0c6e2b9d1a4f7c3e5b8d0a2c"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ResolvePushRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description The request as answered. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "5b9e2c17-4f3a-4d6e-8a1b-7c0d9e2f3a41",
+                     *       "session_id": "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "repository_id": "sample-app",
+                     *       "checkpoint_revision": 3,
+                     *       "git_commit": "4f2a9c1e7b3d5a8f0c6e2b9d1a4f7c3e5b8d0a2c",
+                     *       "target_branch": "agent/0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01",
+                     *       "state": "rejected",
+                     *       "requested_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "decided_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "decided_at": "2026-10-11T08:35:00Z",
+                     *       "decision_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PushRequest"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /**
+             * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
+             *     - `PUSH_REQUEST_DECIDED`: The push request was already approved or rejected.
+             *     - `CHECKPOINT_MOVED`: The commit or checkpoint named no longer matches what the push request pinned. Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.
+             */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "IDEMPOTENCY_CONFLICT" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     decidePushRequest: {
         parameters: {
             query?: never;
@@ -17444,7 +17891,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The decided request. */
+            /** @description The request as answered. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
