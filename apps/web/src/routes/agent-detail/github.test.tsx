@@ -417,7 +417,8 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
       "false",
     );
-    const status = screen.getByText("push 전 승인").parentElement as HTMLElement;
+    const status = screen.getByText("push 전 승인")
+      .parentElement as HTMLElement;
     expect(within(status).getByText("켜짐")).toBeTruthy();
     expect(within(status).queryByText("꺼짐")).toBeNull();
   });
