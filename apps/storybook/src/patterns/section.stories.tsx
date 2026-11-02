@@ -75,8 +75,8 @@ export const DefaultDark: Story = {
 };
 
 /**
- * The space between sections belongs to the page (mockup v4 `.section`
- * margin-top 32): the screen sets it, the part does not.
+ * The 32px between sections belongs to the page: the screen sets it, the
+ * part does not.
  */
 export const Stacked: Story = {
   render: (_args, context) => {

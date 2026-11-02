@@ -46,6 +46,7 @@ const COPY = {
     open: (title: string) => `세션 열기: ${title}`,
     openMember: (name: string) => `구성원 열기: ${name}`,
     changeRole: "역할 변경",
+    manage: "관리",
     running: "실행 중",
     waiting: "답변 대기",
     done: "끝남",
@@ -72,6 +73,7 @@ const COPY = {
     open: (title: string) => `セッションを開く: ${title}`,
     openMember: (name: string) => `メンバーを開く: ${name}`,
     changeRole: "ロール変更",
+    manage: "管理",
     running: "実行中",
     waiting: "回答待ち",
     done: "終了",
@@ -98,6 +100,7 @@ const COPY = {
     open: (title: string) => `Open session: ${title}`,
     openMember: (name: string) => `Open member: ${name}`,
     changeRole: "Change role",
+    manage: "Manage",
     running: "Running",
     waiting: "Waiting for reply",
     done: "Ended",
@@ -400,11 +403,31 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
     }
     const box = cell.getBoundingClientRect();
     const rtl = style.direction === "rtl";
+    // An action header centres its label in a button-wide box; the box, not
+    // the text, ends at the column's end.
+    const label = cell.matches("[data-action]") ? cell.firstElementChild : null;
+    if (label) {
+      const own = label.getBoundingClientRect();
+      await expect(
+        Math.abs(rtl ? own.left - box.left : own.right - box.right),
+      ).toBeLessThanOrEqual(1);
+      continue;
+    }
     const ends: number[] = [];
     const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const parent = node.parentElement;
       if (!node.textContent?.trim() || !parent || parent.closest(".sr-only")) {
+        continue;
+      }
+      // A row's button, in a raised cell, centres its label; the button's own
+      // box is what lines up.
+      const control = cell.matches("[data-raised]")
+        ? parent.closest("button")
+        : null;
+      if (control && cell.contains(control)) {
+        const own = control.getBoundingClientRect();
+        ends.push(rtl ? own.left : own.right);
         continue;
       }
       let [left, right] = [box.left, box.right];
@@ -445,6 +468,43 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
       lines.map((line) => getComputedStyle(line).lineHeight),
     ).toEqual(["20px", ...lines.slice(1).map(() => "16px")]);
   }
+}
+
+const T_MANAGED =
+  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+
+/** The table draws its own frame; the last column holds each row's button. */
+function ManagedMembers({ locale }: { readonly locale: unknown }) {
+  const t = copyOf(locale);
+  return (
+    <GridTable aria-label={t.members} columns={T_MANAGED} framed={true}>
+      <GridTableHeader>
+        <GridTableColumnHeader>{t.name}</GridTableColumnHeader>
+        <GridTableColumnHeader>{t.role}</GridTableColumnHeader>
+        <GridTableColumnHeader action={true}>{t.manage}</GridTableColumnHeader>
+      </GridTableHeader>
+      {MEMBERS.map((member) => (
+        <GridTableRow key={member.email}>
+          <GridTableCell className="font-medium">{member.name}</GridTableCell>
+          <GridTableCell>
+            <Badge variant={member.owner ? "blue" : "gray"}>
+              {member.owner ? t.owner : t.member}
+            </Badge>
+          </GridTableCell>
+          <GridTableCell align="end" raised={true}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-w-[var(--ap-row-action-min-width)]"
+            >
+              {t.changeRole}
+            </Button>
+          </GridTableCell>
+        </GridTableRow>
+      ))}
+    </GridTable>
+  );
 }
 
 const meta = {
@@ -728,4 +788,51 @@ export const English390: Story = {
     locale: "en",
     viewport: { value: "mobile390", isRotated: false },
   },
+};
+
+/**
+ * `framed` puts the card frame on the table itself, and an `action` column
+ * header centres its label in a button-wide box at the column's end.
+ */
+export const FramedWithActions: Story = {
+  name: "Framed, with an action column",
+  render: (_, { globals }) => <ManagedMembers locale={globals.locale} />,
+  play: async ({ canvasElement }) => {
+    await expectAlignedColumns(canvasElement);
+    const table = canvasElement.querySelector("[role=table]");
+    if (!table) throw new Error("no table");
+    await expect(getComputedStyle(table).borderTopWidth).toBe("1px");
+    const label = canvasElement.querySelector(
+      "[data-action] > span",
+    ) as HTMLElement | null;
+    const button = canvasElement.querySelector("[role=row] button");
+    if (!(label && button)) throw new Error("no action column");
+    // The label's box ends where the buttons end, at least a button wide.
+    const own = label.getBoundingClientRect();
+    await expect(
+      Math.abs(own.right - button.getBoundingClientRect().right),
+    ).toBeLessThanOrEqual(1);
+    await expect(own.width).toBeGreaterThanOrEqual(
+      Number.parseFloat(getComputedStyle(button).minWidth),
+    );
+    // The label's text sits in the middle of that box.
+    const text = document.createRange();
+    text.selectNodeContents(label);
+    const words = text.getBoundingClientRect();
+    await expect(
+      Math.abs(words.left + words.width / 2 - (own.left + own.width / 2)),
+    ).toBeLessThanOrEqual(1);
+  },
+};
+
+export const FramedWithActionsDark: Story = {
+  ...FramedWithActions,
+  name: "Framed, with an action column (dark)",
+  globals: { theme: "dark" },
+};
+
+export const FramedWithActionsMobile: Story = {
+  ...FramedWithActions,
+  name: "Framed, with an action column (390)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
 };

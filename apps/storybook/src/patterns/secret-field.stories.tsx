@@ -58,7 +58,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The caller sets the 420px cap (mockup v4 workspace ID). */
+/** The caller sets the 420px cap, as the workspace ID field does. */
 export const Default: Story = {};
 
 export const DefaultDark: Story = {
