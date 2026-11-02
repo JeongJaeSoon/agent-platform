@@ -24,6 +24,11 @@ export function RowLines({
 
 export type RowListProps = ComponentProps<"ul"> & {
   readonly variant?: "separate" | "joined";
+  /**
+   * `joined` only: the card frame around the rows, on by default. Off when
+   * the list sits inside a frame of its own, beside an empty state.
+   */
+  readonly framed?: boolean | undefined;
 };
 
 /**
@@ -32,6 +37,7 @@ export type RowListProps = ComponentProps<"ul"> & {
  */
 export function RowList({
   variant = "separate",
+  framed = true,
   className,
   ...props
 }: RowListProps): JSX.Element {
@@ -39,11 +45,15 @@ export function RowList({
     <ul
       data-slot="row-list"
       data-variant={variant}
+      data-framed={(variant === "joined" && framed) || undefined}
       className={cn(
         "m-0 flex list-none flex-col p-0",
         variant === "separate"
           ? "gap-2 [&>li]:rounded-card [&>li]:border [&>li]:bg-card"
-          : "overflow-hidden rounded-card border bg-card [&>li:last-child]:border-b-0 [&>li]:border-b",
+          : cn(
+              "[&>li:last-child]:border-b-0 [&>li]:border-b",
+              framed && "overflow-hidden rounded-card border bg-card",
+            ),
         className,
       )}
       {...props}
