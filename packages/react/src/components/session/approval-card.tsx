@@ -6,6 +6,7 @@ import {
   FieldError,
   FieldLabel,
   formatTimestamp,
+  Text,
   Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
@@ -138,9 +139,13 @@ export function ApprovalCard({
             <span aria-hidden="true" className="text-muted-foreground">
               ·
             </span>
-            <span className="min-w-0 text-caption [overflow-wrap:anywhere]">
+            <Text
+              as="span"
+              variant="meta"
+              className="min-w-0 text-inherit [overflow-wrap:anywhere]"
+            >
               {subject}
-            </span>
+            </Text>
           </span>
         )}
         <span className="flex items-center gap-2">
