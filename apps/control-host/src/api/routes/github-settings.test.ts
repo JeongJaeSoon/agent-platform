@@ -30,6 +30,7 @@ const createApiApp = recordRouteErrors("routes/github-settings.test.ts");
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const OTHER_WORKSPACE = "019a0000-0000-7000-8000-0000000000b1";
+const AUTHOR_CONNECTION = "019a0000-0000-7000-8000-0000000000c9";
 
 const sessions = new Map<string, ResolvedWebSession>();
 function cookieFor(role: MembershipRole, workspaceId = WORKSPACE): string {
@@ -131,6 +132,7 @@ function appWith(
           oauth: {
             status: async () => ({
               authorApp: options.authorApp ?? false,
+              connectionId: options.authorApp ? AUTHOR_CONNECTION : null,
               clientId: stored ? "Iv23liClient" : null,
               clientSecretSet: (stored?.length ?? 0) > 0,
             }),
@@ -330,7 +332,12 @@ describe("the GitHub settings API", () => {
         issues: 0,
         review: 0,
       },
-      oauth: { client_id: null, client_secret_set: false, callback_url: null },
+      oauth: {
+        connection_id: null,
+        client_id: null,
+        client_secret_set: false,
+        callback_url: null,
+      },
       connections: [],
       apps: {
         author: { permissions: { contents: "write", actions: "write" } },
@@ -501,6 +508,91 @@ describe("PUT the GitHub OAuth client secret", () => {
     });
     expect(response.status).toBe(503);
     expect(code(response.json).code).toBe("BACKEND_UNAVAILABLE");
+  });
+});
+
+describe("PUT the App people link their accounts with", () => {
+  const path = "/user-link-app";
+  const CONNECTION = "019a0000-0000-7000-8000-0000000000d7";
+  const REVIEWER = "019a0000-0000-7000-8000-0000000000d8";
+  const apps = {
+    setUserLink: async (_workspaceId: string, connectionId: string) =>
+      connectionId === CONNECTION
+        ? { outcome: "stored", before: null, changed: true }
+        : connectionId === REVIEWER
+          ? { outcome: "role_mismatch" }
+          : { outcome: "not_found" },
+  } as unknown as GitHubAppStore;
+
+  test("an owner names an author connection; a reviewer one is 400, an unknown one 404", async () => {
+    const { call } = appWith({ authorApp: true, apps });
+    const owner = cookieFor("owner");
+    const stored = await call("PUT", {
+      cookie: owner,
+      path,
+      body: { connection_id: CONNECTION },
+    });
+    expect(stored.status).toBe(200);
+    expect(stored.json.receipt_id).toEqual(expect.any(String));
+    expect(stored.json.oauth.connection_id).toBe(AUTHOR_CONNECTION);
+    const reviewer = await call("PUT", {
+      cookie: owner,
+      path,
+      body: { connection_id: REVIEWER },
+    });
+    expect(reviewer.status).toBe(400);
+    expect(code(reviewer.json).details).toEqual({
+      reason_code: "role_mismatch",
+    });
+    expect(
+      (
+        await call("PUT", {
+          cookie: owner,
+          path,
+          body: { connection_id: crypto.randomUUID() },
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  test("a member, an API key, another workspace, a bad or oversized body and no secret store are refused", async () => {
+    const { call } = appWith({ authorApp: true, apps });
+    const body = { connection_id: CONNECTION };
+    expect(
+      (await call("PUT", { cookie: cookieFor("member"), path, body })).status,
+    ).toBe(403);
+    expect((await call("PUT", { key: true, path, body })).status).toBe(403);
+    expect((await call("PUT", { path, body })).status).toBe(401);
+    expect(
+      (
+        await call("PUT", {
+          cookie: cookieFor("owner"),
+          path,
+          body,
+          workspaceId: OTHER_WORKSPACE,
+        })
+      ).status,
+    ).toBe(404);
+    for (const bad of [{}, { connection_id: "conn-a" }]) {
+      expect(
+        (await call("PUT", { cookie: cookieFor("owner"), path, body: bad }))
+          .status,
+      ).toBe(400);
+    }
+    expect(
+      (
+        await call("PUT", {
+          cookie: cookieFor("owner"),
+          path,
+          body: { connection_id: "a".repeat(REQUEST_BODY_MAX_BYTES) },
+        })
+      ).status,
+    ).toBe(413);
+    const off = appWith({ authorApp: true });
+    expect(
+      (await off.call("PUT", { cookie: cookieFor("owner"), path, body }))
+        .status,
+    ).toBe(503);
   });
 });
 

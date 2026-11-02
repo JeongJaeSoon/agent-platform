@@ -138,7 +138,8 @@ function app(
   };
   const gate = createGitHubGate({
     catalog: CATALOG,
-    connections: (_id, role) => (role === "author" ? connection : null),
+    connections: (_id, role) =>
+      role === "author" ? { kind: "fixed", connection } : null,
     store: {
       context: async (sessionId) => ({
         ownerId: "owner-a",

@@ -3124,7 +3124,8 @@ describe("egress and claim through the real GitHub gate", () => {
     };
     const gate = createGitHubGate({
       catalog,
-      connections: (_id, role) => (role === "author" ? connection : null),
+      connections: (_id, role) =>
+        role === "author" ? { kind: "fixed", connection } : null,
       store: {
         context: async (sessionId): Promise<GitHubSessionContext | null> => ({
           ownerId: "owner-a",

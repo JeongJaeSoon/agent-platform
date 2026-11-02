@@ -60,6 +60,14 @@ export type ForgeComment = {
  */
 export class ForgeCredentialError extends Error {
   override readonly name = "ForgeCredentialError";
+
+  /** The gate's failed receipt, when the gate left one. */
+  constructor(
+    message: string,
+    readonly receiptId: string | null = null,
+  ) {
+    super(message);
+  }
 }
 
 /**

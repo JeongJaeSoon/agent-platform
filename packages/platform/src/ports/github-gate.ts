@@ -281,8 +281,27 @@ export class GitHubPermissionError extends Error {
   override readonly name = "GitHubPermissionError";
 }
 
-/** The connection of a catalog repository for `role`, or null. */
+/** A connection registered in the console: a `github_apps` row. */
+export type RegisteredGitHubConnection = {
+  id: string;
+  appId: number;
+  connection: GitHubConnection;
+};
+
+/**
+ * What can serve a catalog repository for a role: its own connection (a
+ * catalog App, a PAT), or the console's connections of that role, of which
+ * the repository's pin picks one (decision github-agent.md 11).
+ */
+export type GitHubConnectionSource =
+  | { kind: "fixed"; connection: GitHubConnection }
+  | {
+      kind: "registered";
+      candidates: readonly RegisteredGitHubConnection[];
+    };
+
+/** The connections of a catalog repository for `role`, or null for none. */
 export type GitHubConnections = (
   repositoryId: string,
   role: GitHubAppRole,
-) => GitHubConnection | null;
+) => GitHubConnectionSource | null;
