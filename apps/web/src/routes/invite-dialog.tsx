@@ -38,7 +38,8 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
 import { roleLabel, useRole, WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
+import { FormError } from "../components/auth-page.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { useDialogFunnel } from "../funnel/tanstack-funnel.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -123,10 +124,6 @@ export function InviteDialog({
     </Dialog>
   );
 }
-
-type Outcome =
-  | { readonly kind: "notice"; readonly text: string }
-  | { readonly kind: "error"; readonly text: string };
 
 /*
  * Mounted while the dialog is open, so each opening starts on the first
@@ -249,11 +246,7 @@ function InviteFlow({
                   })}
                 </FieldDescription>
               </Field>
-              {outcome?.kind === "error" ? (
-                <FormError>{outcome.text}</FormError>
-              ) : outcome ? (
-                <Notice>{outcome.text}</Notice>
-              ) : null}
+              <OutcomeLine outcome={outcome} />
               <DialogFooter>
                 <Button
                   type="button"

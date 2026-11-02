@@ -1495,7 +1495,12 @@ describe("새 에이전트", () => {
       screen.getByRole("button", {
         name: "초안 저장하고 다음",
       }) as HTMLButtonElement;
-    expect(await screen.findByText(/모델 목록을 불러오는 중/)).toBeDefined();
+    // The model select's slot waits as a skeleton that names what it waits for.
+    expect(
+      (await screen.findByText(/모델 목록을 불러오는 중/)).closest(
+        "output[aria-busy=true]",
+      ),
+    ).not.toBeNull();
     expect(create().disabled).toBe(true);
     fail();
     expect((await screen.findByRole("alert")).textContent).toContain(
@@ -1625,6 +1630,33 @@ describe("에이전트 상세", () => {
         "저장했습니다. 카드 내용이 같아 새 버전은 생기지 않았습니다.",
       ),
     ).toBeDefined();
+  });
+
+  test("프로필 목록을 읽는 동안 프로필 칸 자리는 skeleton이 그 이름으로 알린다", async () => {
+    const server = agentServer();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const profiles = server.routes["GET /v1/profiles"];
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": async (...args: Parameters<typeof profiles>) => {
+        await gate;
+        return profiles(...args);
+      },
+    });
+    const dialog = await openRelease(await setupUser());
+    expect(
+      dialog
+        .getByText("프로필 목록을 불러오는 중…")
+        .closest("output[aria-busy=true]"),
+    ).not.toBeNull();
+    expect(dialog.queryByLabelText("프로필")).toBeNull();
+    release();
+    expect(await dialog.findByLabelText("프로필")).toBeDefined();
+    expect(dialog.queryByText("프로필 목록을 불러오는 중…")).toBeNull();
   });
 
   test("release를 만들고 활성화한다: 저장·release·활성화는 서로 다른 문구다", async () => {
