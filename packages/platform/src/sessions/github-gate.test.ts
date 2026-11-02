@@ -1219,6 +1219,9 @@ describe("registered connections", () => {
         status: "failed",
         result: { role: "author", connection_id: null, pin_state: pinState },
       });
+      expect((error as ForgeCredentialError).receiptId).toBe(
+        `receipt-${receipts.length}`,
+      );
       expect(rows.size).toBe(0);
     }
   });

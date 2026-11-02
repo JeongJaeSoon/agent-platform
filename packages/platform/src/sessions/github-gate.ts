@@ -297,7 +297,9 @@ export function createGitHubGate(deps: {
             : "No GitHub App connection reaches the repository";
         // The author's work keeps the not-installed answer it had with one
         // App (forge_failed, push_failed); a review has its own.
-        if (work.purpose !== "review") throw new ForgeCredentialError(message);
+        if (work.purpose !== "review") {
+          throw new ForgeCredentialError(message, receiptId);
+        }
         throw new GitHubUnavailableError(message, receiptId);
       }
       const { connection, connectionId } = choice;
@@ -335,7 +337,9 @@ export function createGitHubGate(deps: {
             null,
             operation,
           );
-          if (work.purpose !== "review") throw error;
+          if (work.purpose !== "review") {
+            throw new ForgeCredentialError(error.message, receiptId);
+          }
           throw new GitHubUnavailableError(error.message, receiptId);
         }
         throw error;
