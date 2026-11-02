@@ -175,6 +175,9 @@ describe("에이전트 상세 탭", () => {
       name: "에이전트 카드",
     });
     expect(
+      within(summary).getByRole("heading", { level: 2, name: "에이전트 카드" }),
+    ).toBeDefined();
+    expect(
       [...summary.querySelectorAll("dt")].map((term) => term.textContent),
     ).toEqual([
       "이름",
