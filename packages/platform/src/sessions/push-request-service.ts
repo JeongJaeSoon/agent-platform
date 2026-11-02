@@ -174,8 +174,8 @@ export function createPushRequestService(deps: {
       if (session === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      if (session.repositoryId === null) return refuse("no_repository");
       const repositoryId = body.repository_id ?? session.repositoryId;
+      if (repositoryId === null) return refuse("no_repository");
       const repository = { repository_id: repositoryId };
       const entry = Object.hasOwn(catalog.repositories, repositoryId)
         ? catalog.repositories[repositoryId]

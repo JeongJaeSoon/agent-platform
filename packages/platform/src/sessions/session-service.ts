@@ -667,9 +667,17 @@ export function createSessionService(deps: {
       }
       const attached = input.body.attached_repository_ids;
       if (attached !== undefined) {
-        if (release === null || repositoryId === null) {
+        if (release === null) {
           throw notAllowed(
-            "Only a session of an agent release, on a repository, attaches others",
+            "Only a session of an agent release attaches repositories",
+          );
+        }
+        // Nothing on the session row tells `none` from `optional` without a
+        // repository, so an empty list on `none` is refused here.
+        const profile = catalogProfile(catalog, profileId);
+        if (profile === undefined || repositoryModeOf(profile) === "none") {
+          throw notAllowed(
+            `Profile ${profileId} runs without repositories and attaches none`,
           );
         }
         // The switch is read at every use, not here, as for the session's

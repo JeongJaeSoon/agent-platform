@@ -1244,10 +1244,6 @@ export const sessions = pgTable(
       "sessions_repository_mode_check",
       sql`(${table.repositoryMode} = 'repository' AND ${table.repoUrl} IS NOT NULL AND ${table.branch} IS NOT NULL) OR (${table.repositoryMode} = 'none' AND ${table.repositoryId} IS NULL AND ${table.repoUrl} IS NULL AND ${table.branch} IS NULL)`,
     ),
-    check(
-      "sessions_attached_repositories_check",
-      sql`${table.attachedRepositoryIds} IS NULL OR ${table.repositoryMode} = 'repository'`,
-    ),
     uniqueIndex("sessions_pod_uniq")
       .on(table.podId)
       .where(sql`${table.podId} IS NOT NULL`),

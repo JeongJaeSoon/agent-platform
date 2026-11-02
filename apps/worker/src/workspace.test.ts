@@ -604,6 +604,35 @@ describe("GitWorkspace without a repository", () => {
     expect(workspace.instructionsCommit()).toBeNull();
   });
 
+  test("attaches a repository's branch as a remote to the local git", async () => {
+    await rm(root, { recursive: true });
+    await prepare(none);
+    const docs = join(scratch, "docs.git");
+    git(["init", "--quiet", "--bare", "--initial-branch=trunk", docs], scratch);
+    const seed = join(scratch, "docs-seed");
+    git(["clone", "--quiet", docs, seed], scratch);
+    await writeFile(join(seed, "DOCS.md"), "docs\n");
+    git(["add", "DOCS.md"], seed);
+    git(["commit", "--quiet", "-m", "docs"], seed);
+    git(["push", "--quiet", "origin", "HEAD:trunk"], seed);
+
+    const result = await new GitWorkspace(root, "CLAUDE.md").attachRepositories(
+      {
+        descriptor: {
+          ...none,
+          additional_repositories: [{ id: "docs", url: docs, branch: "trunk" }],
+        },
+        signal: new AbortController().signal,
+      },
+    );
+    expect(result).toEqual({ attached: ["docs"], failed: [] });
+    expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(
+      git(["rev-parse", "HEAD"], seed),
+    );
+    expect(git(["remote"], root)).toBe("docs");
+    expect(git(["symbolic-ref", "--short", "HEAD"], root)).toBe("main");
+  });
+
   test("keeps the local git a previous attempt left, with its work, and fetches nothing", async () => {
     await prepare(none);
     const head = git(["rev-parse", "HEAD"], root);
