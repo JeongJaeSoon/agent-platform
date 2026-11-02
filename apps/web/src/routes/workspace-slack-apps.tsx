@@ -218,7 +218,7 @@ function AppState({ item }: { readonly item: MadeApp }) {
       )}
       {connected ? (
         <span className="text-caption text-muted-foreground">
-          {link ? "Sign in with Slack" : `@${item.agent?.slug}`}
+          {link ? t("workspace.slackAppsSignIn") : `@${item.agent?.slug}`}
         </span>
       ) : null}
     </RowLines>
