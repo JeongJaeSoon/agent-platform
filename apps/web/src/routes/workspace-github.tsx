@@ -1,800 +1,848 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  type ApiClient,
-  type ApiError,
-  isApiError,
-  unwrap,
-} from "@werft-ai/client";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
-  GetGitHubAppResponse,
-  GitHubAppRole,
-  PutGitHubAppRequest,
-  PutGitHubAppResponse,
+  GitHubApp,
+  GitHubSettingsConnection,
+  GitHubSettingsInstallation,
+  GitHubSettingsResponse,
 } from "@werft-ai/contracts";
+import { githubAppWarnings } from "@werft-ai/core/forms";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
   ConfirmDialog,
-  DangerZone,
-  DangerZoneRow,
-  ErrorState,
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
+  CopyButton,
+  cn,
   formatTimestamp,
-  Input,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  Heading,
+  IconTile,
   Link,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  RelativeTime,
   RowList,
   RowListItem,
-  SettingRow,
   Skeleton,
+  Text,
+  type TimestampLocale,
 } from "@werft-ai/ui";
-import { Building2 } from "lucide-react";
-import {
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { ArrowUpRight, Plus } from "lucide-react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import {
-  permissionReason,
   refusalText,
   useHasPermission,
   useMe,
   useRole,
 } from "../auth/guard.tsx";
-import { FormError, Notice } from "../components/auth-page.tsx";
-import { IconTile } from "../components/icon-tile.tsx";
+import { GitHubMark } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import type { Outcome } from "../components/outcome.tsx";
+import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { RowMenu, RowMenuItem, RowMenuLink } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { approvalPending } from "./github-permission-table.ts";
 import {
-  AppPermissionTable,
-  AppTile,
-  Ceiling,
-  GITHUB_APP_ANCHOR,
-  GITHUB_REVIEWER_ANCHOR,
+  appShortfalls,
+  neededFor,
+  permissionsUrl,
+  type Shortfall,
+  unapproved,
+} from "./github-permission-table.ts";
+import {
+  FeatureList,
+  featureName,
   githubSettingsKey,
+  permissionName,
+  permissionsText,
   useGitHubSettings,
 } from "./workspace-github-access.tsx";
-import { NewAppForm } from "./workspace-github-new-app.tsx";
-import { RepositoryCatalog } from "./workspace-github-repositories.tsx";
 import {
-  GITHUB_USER_LINK_ANCHOR,
-  GitHubUserLinkSection,
-  userLinkReady,
-} from "./workspace-github-user-link.tsx";
+  AddAppDialog,
+  type AddAppStep,
+  NewKeyDialog,
+} from "./workspace-github-app-dialogs.tsx";
+import { githubNavigation } from "./workspace-github-new-app.tsx";
 import {
-  type OnOutcome,
-  SettingsCard,
-  WorkspacePage,
-} from "./workspace-settings.tsx";
-import { storeOff } from "./workspace-slack.tsx";
+  outsideInstallations,
+  RepositorySheet,
+  repositoriesKey,
+  useRepositoryPage,
+} from "./workspace-github-repositories.tsx";
+import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
+import { type OnOutcome, WorkspacePage } from "./workspace-settings.tsx";
 
-// Row buttons share one width down the right edge.
-const ACTION = "min-w-12";
-// GitHub's own limit is far below this; the server refuses past it anyway.
-const KEY_FILE_MAX_BYTES = 16_384;
+const GITHUB_WEB = "https://github.com/";
+const CARD = "flex flex-col gap-4 rounded-card border bg-card p-6";
+// Installation table: name, type, repositories, App, connected by, status, menu.
+const MANAGER_COLUMNS =
+  "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";
+const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
+// At and under 760px of table: name (with the rest moved under it), status, menu.
+const MANAGER_NARROW = "minmax(0,1fr) 88px 32px";
+const MEMBER_NARROW = "minmax(0,1fr) 88px";
+// Shown only while the table is narrow: the columns it dropped, in the name.
+const NARROW_ONLY = "[@container(min-width:761px)]:hidden";
 
-const appKey = (client: ApiClient, workspaceId: string, role: GitHubAppRole) =>
-  scopedKey(client, "workspace", workspaceId, "github-apps", role);
+/** The address GitHub's setup URL brings the browser back to. */
+export type GitHubSetupSearch = {
+  installation_id?: number;
+  state?: string;
+};
+
+export function gitHubSetupSearch(
+  search: Record<string, unknown>,
+): GitHubSetupSearch {
+  const id = Number(search.installation_id);
+  return {
+    ...(Number.isSafeInteger(id) && id > 0 ? { installation_id: id } : {}),
+    ...(typeof search.state === "string" ? { state: search.state } : {}),
+  };
+}
+
+const appsKey = (
+  client: Parameters<typeof scopedKey>[0],
+  workspaceId: string,
+) => scopedKey(client, "workspace", workspaceId, "github-apps");
+
+/** "2026. 10. 30.": formatTimestamp without its time. */
+const dateOf = (iso: string, locale: TimestampLocale) =>
+  formatTimestamp(iso, locale).replace(/,? \d{2}:\d{2}$/, "");
 
 const reasonOf = (error: ApiError): unknown =>
   (error.details as { reason_code?: unknown } | null)?.reason_code;
 
-const REPOSITORIES_ANCHOR = "github-repositories";
-const META = "text-caption text-subtle-foreground";
-const PRIVATE_KEYS_DOC =
-  "https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps";
-
-/** Workspace › GitHub: the App agents reach GitHub repositories with. */
+/** Workspace › GitHub: the Apps agents reach GitHub with and where they are installed. */
 export function WorkspaceGitHubScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const settings = useGitHubSettings();
+  useSetupReturn(setOutcome);
+  const connected = (settings.data?.connections.length ?? 0) > 0;
   return (
     <WorkspacePage page="github">
-      {outcome ? (
-        outcome.kind === "error" ? (
-          <FormError>{outcome.text}</FormError>
-        ) : (
-          <Notice>{outcome.text}</Notice>
-        )
-      ) : null}
-      <GitHubApp
-        appRole="author"
-        onOutcome={setOutcome}
-        danger={
-          <GitHubApp appRole="reviewer" part="danger" onOutcome={setOutcome} />
-        }
-      >
-        <ReviewerAdvanced onOutcome={setOutcome} />
-      </GitHubApp>
+      <OutcomeLine outcome={outcome} live />
+      {settings.isPending ? (
+        <div className={CARD}>
+          <Skeleton width="40%" />
+        </div>
+      ) : settings.isError ? (
+        <LoadFailure
+          error={settings.error}
+          onRetry={() => void settings.refetch()}
+        />
+      ) : (
+        <>
+          <GitHubCard settings={settings.data} onOutcome={setOutcome} />
+          {connected ? (
+            <FeaturesCard settings={settings} onOutcome={setOutcome} />
+          ) : null}
+          {connected ? (
+            <GitHubUserLinkRow settings={settings} onOutcome={setOutcome} />
+          ) : null}
+        </>
+      )}
     </WorkspacePage>
   );
 }
 
 /**
- * The reviewer App, behind "Advanced": most workspaces run on the author App
- * alone, and reviews stay with people until one is registered.
+ * Back from GitHub's install page with `installation_id` and the state the
+ * console started: record who connected it, once, and wipe both from the
+ * address bar.
  */
-function ReviewerAdvanced({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+function useSetupReturn(onOutcome: OnOutcome) {
+  const search = useSearch({ from: "/authed/settings/workspace/github" });
+  const [sent] = useState(() => search);
+  const navigate = useNavigate();
   const { t } = useI18n();
-  const canManage = useHasPermission("workspace.manage");
-  const reviewer = useGitHubAppQuery("reviewer");
-  const registered = Boolean(reviewer.data?.github_app);
-  const [chosen, setChosen] = useState<boolean | null>(null);
-  // Open while one is registered, and stay open once it is deleted here.
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const workspaceId = useMe()?.workspace?.id;
+  const started = useRef(false);
   useEffect(() => {
-    if (registered) setChosen((was) => was ?? true);
-  }, [registered]);
-  const open = chosen ?? registered;
-  const panelId = useId();
-  if (!canManage) return null;
+    if (started.current || workspaceId === undefined) return;
+    if (sent.installation_id === undefined || sent.state === undefined) return;
+    started.current = true;
+    void navigate({
+      to: "/settings/workspace/github",
+      search: {},
+      replace: true,
+    });
+    void unwrap(
+      client.POST("/v1/workspaces/{id}/github-apps/installations/complete", {
+        params: { path: { id: workspaceId } },
+        body: { installation_id: sent.installation_id, state: sent.state },
+      }),
+    ).then(
+      () => {
+        onOutcome({ kind: "notice", text: t("github.install.done") });
+        void queryClient.invalidateQueries({
+          queryKey: githubSettingsKey(client, workspaceId),
+        });
+      },
+      (error: unknown) =>
+        onOutcome({
+          kind: "error",
+          text:
+            isApiError(error) && reasonOf(error) === "state_invalid"
+              ? t("github.install.stateInvalid")
+              : t("github.install.notRecorded"),
+        }),
+    );
+  }, [sent, workspaceId, navigate, client, queryClient, onOutcome, t]);
+}
+
+/** The keys' dates and who saved them; only owners and admins read these. */
+function useKeyLines(enabled: boolean) {
+  const { client } = useAgentPlatform();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  return useQuery({
+    queryKey: appsKey(client, workspaceId),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/workspaces/{id}/github-apps", {
+          params: { path: { id: workspaceId } },
+        }),
+      ),
+    enabled: enabled && workspaceId !== "",
+  });
+}
+
+function GitHubCard({
+  settings,
+  onOutcome,
+}: {
+  readonly settings: GitHubSettingsResponse;
+  readonly onOutcome: OnOutcome;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const canManage = useHasPermission("workspace.manage");
+  const [adding, setAdding] = useState<AddAppStep | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const titleId = useId();
+  const connections = settings.connections;
+  const accounts = new Set(
+    connections.flatMap((connection) =>
+      connection.installations.map((installation) => installation.account),
+    ),
+  );
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: githubSettingsKey(client, workspaceId),
+      }),
+      queryClient.invalidateQueries({ queryKey: appsKey(client, workspaceId) }),
+      queryClient.invalidateQueries({
+        queryKey: repositoriesKey(client, workspaceId),
+      }),
+    ]);
+  const empty = connections.length === 0;
+
   return (
-    <section
-      id={GITHUB_REVIEWER_ANCHOR}
-      aria-label={t("github.reviewer.title")}
-    >
-      <RowList variant="joined">
-        <SettingRow
-          title={
-            <span className="flex items-center gap-2">
-              <AppTile app="reviewer" />
-              {t("github.reviewer.title")}
-            </span>
-          }
-          badge={
-            <Badge>
-              {registered
-                ? t("github.reviewer.advanced")
-                : t("github.reviewer.advancedUnset")}
-            </Badge>
-          }
-          description={t("github.reviewer.hint")}
-          actions={
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-expanded={open}
-              aria-controls={open ? panelId : undefined}
-              onClick={() => setChosen(!open)}
-            >
-              {t(open ? "github.reviewer.close" : "github.reviewer.open")}
-            </Button>
-          }
-        />
-        {open ? (
-          <li id={panelId} className="list-none">
-            <RowList variant="joined" className="rounded-none border-0">
-              <GitHubApp appRole="reviewer" onOutcome={onOutcome} />
-            </RowList>
-          </li>
+    <section aria-labelledby={titleId} className={CARD}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
+        <IconTile icon={TileMark} hue="slate" size="two-line" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Heading id={titleId} level={2}>
+            GitHub
+          </Heading>
+          <Text variant="sub">
+            {empty
+              ? t("github.card.none")
+              : t("github.card.counts", {
+                  apps: connections.length,
+                  accounts: accounts.size,
+                })}
+          </Text>
+        </div>
+        {canManage && !empty ? (
+          // Under 640px it drops to its own line, where the text starts.
+          <div className="max-sm:basis-full max-sm:pl-[calc(var(--ap-size-tile-two-line)+0.75rem)]">
+            <AddAccount connections={connections} onOutcome={onOutcome} />
+          </div>
         ) : null}
-      </RowList>
+      </div>
+      <Text variant="sub">{t("github.card.hint")}</Text>
+      {empty ? (
+        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-6">
+          <Text weight="medium">{t("github.empty.title")}</Text>
+          <Text variant="sub">{t("github.empty.hint")}</Text>
+          {canManage ? (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => setAdding("new")}>
+                {t("github.empty.create")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAdding("existing")}
+              >
+                {t("github.add.existing")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <AppList
+            settings={settings}
+            onAdd={() => setAdding("choose")}
+            onOutcome={onOutcome}
+            onChanged={refresh}
+          />
+          <Installations connections={connections} />
+          {canManage ? (
+            <RepositoriesLine onOpen={() => setSheet(true)} />
+          ) : null}
+        </>
+      )}
+      {canManage ? (
+        <>
+          <AddAppDialog
+            step={adding}
+            onStep={setAdding}
+            blocked={settings.oauth.callback_url === null}
+            onOutcome={onOutcome}
+            onAdded={() => void refresh()}
+          />
+          <RepositorySheet
+            open={sheet}
+            onOpenChange={setSheet}
+            connections={connections}
+            onOutcome={onOutcome}
+          />
+        </>
+      ) : null}
     </section>
   );
 }
 
-/** One line over the page: what is connected, and what still needs a look. */
-function GitHubSummary({
-  app,
-  userLink,
-}: {
-  readonly app: GetGitHubAppResponse;
-  readonly userLink: boolean | undefined;
-}) {
-  const { t } = useI18n();
-  const needsCheck = app.repositories.filter(
-    (repository) => repositoryState(app, repository) !== "installed",
-  ).length;
-  const cell = (href: string, label: string, value: ReactNode) => (
-    <Link
-      href={`#${href}`}
-      className="flex min-w-0 flex-col gap-1 rounded-card border bg-card px-3 py-2 font-normal text-foreground no-underline hover:bg-hover hover:no-underline"
-    >
-      <span className={META}>{label}</span>
-      <span className="flex min-w-0 flex-wrap items-center gap-2 font-medium text-control">
-        {value}
-      </span>
-    </Link>
-  );
+function TileMark({ className }: { readonly className?: string }) {
   return (
-    <nav
-      aria-label={t("github.summary.label")}
-      className="grid grid-cols-2 gap-2 lg:grid-cols-4"
-    >
-      {cell(
-        GITHUB_APP_ANCHOR,
-        t("github.app"),
-        app.github_app ? (
-          <>
-            <AppTile app="author" />
-            <span className="truncate">{app.github_app.name}</span>
-          </>
-        ) : (
-          <Badge>{t("github.unset")}</Badge>
-        ),
-      )}
-      {cell(
-        GITHUB_APP_ANCHOR,
-        t("github.summary.accounts"),
-        t("github.summary.accountsValue", { count: app.installations.length }),
-      )}
-      {cell(
-        REPOSITORIES_ANCHOR,
-        t("github.repositories"),
-        <>
-          {t("github.summary.repositoriesValue", {
-            count: app.repositories.length,
-          })}
-          {needsCheck > 0 ? (
-            <Badge variant="amber">
-              {t("github.summary.needsCheck", { count: needsCheck })}
-            </Badge>
-          ) : null}
-        </>,
-      )}
-      {cell(
-        GITHUB_USER_LINK_ANCHOR,
-        t("github.summary.userLink"),
-        userLink === undefined ? null : userLink ? (
-          <Badge variant="green">{t("github.summary.ready")}</Badge>
-        ) : (
-          <Badge variant="amber">{t("github.summary.setupNeeded")}</Badge>
-        ),
-      )}
-    </nav>
+    <GitHubMark
+      className={cn(className, "text-(--ap-color-tile-foreground)")}
+    />
   );
 }
 
-type RepositoryState = "unknown" | "notInstalled" | "pending" | "installed";
+/**
+ * "조직 추가": the App's install page on GitHub, through a state the console
+ * keeps so it can say who connected the installation. With several Apps,
+ * a menu picks which one is installed.
+ */
+function AddAccount({
+  connections,
+  onOutcome,
+}: {
+  readonly connections: readonly GitHubSettingsConnection[];
+  readonly onOutcome: OnOutcome;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const start = useMutation<{ install_url: string }, ApiError, string>({
+    mutationFn: (connectionId) =>
+      unwrap(
+        client.POST(
+          "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
+          { params: { path: { id: workspaceId, connectionId } } },
+        ),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: ({ install_url }) => {
+      if (install_url.startsWith(GITHUB_WEB)) {
+        githubNavigation.assign(install_url);
+      }
+    },
+    onError: (error) =>
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "workspace.manage", role),
+      }),
+  });
+  const text = (
+    <>
+      <Plus aria-hidden="true" />
+      {t("github.card.addAccount")}
+    </>
+  );
+  const only = connections.length === 1 ? connections[0] : undefined;
+  if (only) {
+    return (
+      <Button
+        type="button"
+        aria-disabled={start.isPending || undefined}
+        onClick={() => {
+          if (!start.isPending) start.mutate(only.connection_id);
+        }}
+      >
+        {text}
+      </Button>
+    );
+  }
+  return (
+    <RowMenu label={t("github.card.addAccount")} text={text}>
+      {(close) =>
+        connections.map((connection) => (
+          <RowMenuItem
+            key={connection.connection_id}
+            onSelect={() => {
+              close();
+              if (!start.isPending) start.mutate(connection.connection_id);
+            }}
+          >
+            {t("github.card.install", { name: connection.name })}
+          </RowMenuItem>
+        ))
+      }
+    </RowMenu>
+  );
+}
 
-function repositoryState(
-  data: GetGitHubAppResponse,
-  repository: GetGitHubAppResponse["repositories"][number],
-): RepositoryState {
-  if (data.check?.state !== "ok") return "unknown";
-  if (repository.installation_id === null) return "notInstalled";
+type AppState = "rejected" | "short" | "pending" | "unknown" | "ok";
+
+function appState(
+  connection: GitHubSettingsConnection,
+  shortfalls: readonly Shortfall[],
+): AppState {
+  if (connection.key_status === "rejected") return "rejected";
+  if (shortfalls.length > 0) return "short";
   if (
-    approvalPending(
-      data.github_app?.permissions,
-      repository.installation_permissions,
+    connection.installations.some(
+      (installation) => installation.status === "approval_pending",
     )
   ) {
     return "pending";
   }
-  return "installed";
+  return connection.key_status === "unknown" ? "unknown" : "ok";
 }
 
-/** The accounts the App is installed on, each with how its repositories stand. */
-function Installations({ data }: { readonly data: GetGitHubAppResponse }) {
+function AppList({
+  settings,
+  onAdd,
+  onOutcome,
+  onChanged,
+}: {
+  readonly settings: GitHubSettingsResponse;
+  readonly onAdd: () => void;
+  readonly onOutcome: OnOutcome;
+  readonly onChanged: () => Promise<unknown>;
+}) {
   const { t } = useI18n();
+  const canManage = useHasPermission("workspace.manage");
+  const keys = useKeyLines(canManage);
+  const [newKey, setNewKey] = useState<GitHubSettingsConnection | null>(null);
+  const [removing, setRemoving] = useState<GitHubSettingsConnection | null>(
+    null,
+  );
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const titleId = useId();
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <h3 className="m-0 font-semibold text-control">
-        {t("github.installations")}
-      </h3>
-      {data.installations.length === 0 ? (
-        <>
-          <p className={`m-0 ${META}`}>{t("github.installationsEmpty")}</p>
-          {data.check?.state === "failed" ? (
-            <p className={`m-0 ${META}`}>
-              {t(
-                data.check.reason_code === "github_rejected"
-                  ? "github.rejectedNow"
-                  : "github.unreachable",
-              )}
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {data.installations.map((installation) => {
-            const repositories = data.repositories.filter(
-              (repository) => repository.installation_id === installation.id,
-            );
-            const pending = repositories.some(
-              (repository) => repositoryState(data, repository) === "pending",
-            );
-            return (
-              <li
-                key={installation.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border px-3 py-2"
-              >
-                <IconTile icon={Building2} hue="slate" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate font-medium text-control">
-                    {installation.account}
-                  </span>
-                  <span className={META}>
-                    {t("github.installationLine", {
-                      selection: t(
-                        installation.repository_selection === "all"
-                          ? "github.selectionAll"
-                          : "github.selectionSelected",
-                      ),
-                      count: repositories.length,
-                    })}
-                  </span>
-                </span>
-                {repositories.length > 0 ? (
-                  pending ? (
-                    <Badge variant="amber">{t("github.approvalPending")}</Badge>
-                  ) : (
-                    <Badge variant="green">
-                      {t("github.installationApproved")}
-                    </Badge>
-                  )
-                ) : null}
-                {installation.html_url ? (
-                  <Link
-                    href={installation.html_url}
-                    target="_blank"
-                    newTabLabel={t("github.newTab")}
-                  >
-                    {t("github.openOnGitHub")}
-                  </Link>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <Link href={`#${REPOSITORIES_ANCHOR}`} className="text-caption">
-        {t("github.repositoriesByAccount")}
-      </Link>
+    <div className="flex flex-col gap-2">
+      <Heading
+        id={titleId}
+        ref={headingRef}
+        level={3}
+        tabIndex={-1}
+        className="focus-visible:outline-none"
+      >
+        {t("github.apps.title")}
+      </Heading>
+      <RowList variant="joined" aria-labelledby={titleId}>
+        {settings.connections.map((connection) => (
+          <AppRow
+            key={connection.connection_id}
+            connection={connection}
+            settings={settings}
+            keyLine={keys.data?.github_apps.find(
+              (app) => app.connection_id === connection.connection_id,
+            )}
+            onNewKey={() => setNewKey(connection)}
+            onRemove={() => setRemoving(connection)}
+          />
+        ))}
+      </RowList>
+      {canManage ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-fit text-link"
+          aria-haspopup="dialog"
+          onClick={onAdd}
+        >
+          <Plus aria-hidden="true" />
+          {t("github.apps.add")}
+        </Button>
+      ) : null}
+      <NewKeyDialog
+        connection={newKey}
+        onClose={() => setNewKey(null)}
+        onOutcome={onOutcome}
+        onSaved={() => void onChanged()}
+      />
+      <RemoveApp
+        connection={removing}
+        onClose={() => setRemoving(null)}
+        onOutcome={onOutcome}
+        onRemoved={async () => {
+          await onChanged();
+          headingRef.current?.focus();
+        }}
+      />
     </div>
   );
 }
 
-function useGitHubAppQuery(appRole: GitHubAppRole) {
-  const { client } = useAgentPlatform();
-  const workspaceId = useMe()?.workspace?.id ?? "";
+function AppRow({
+  connection,
+  settings,
+  keyLine,
+  onNewKey,
+  onRemove,
+}: {
+  readonly connection: GitHubSettingsConnection;
+  readonly settings: GitHubSettingsResponse;
+  readonly keyLine: GitHubApp | undefined;
+  readonly onNewKey: () => void;
+  readonly onRemove: () => void;
+}) {
+  const { t, locale } = useI18n();
   const canManage = useHasPermission("workspace.manage");
-  return useQuery({
-    queryKey: appKey(client, workspaceId, appRole),
+  const shortfalls = appShortfalls(connection, settings.ceiling);
+  const state = appState(connection, shortfalls);
+  const pending = connection.installations.filter(
+    (installation) => installation.status === "approval_pending",
+  );
+  const key = keyLine?.private_key;
+  const meta = key
+    ? key.updated_by
+      ? t("github.apps.keyLine", {
+          id: String(connection.app_id),
+          at: dateOf(key.updated_at, locale),
+          by: key.updated_by.display_name,
+        })
+      : t("github.apps.keyLineAt", {
+          id: String(connection.app_id),
+          at: dateOf(key.updated_at, locale),
+        })
+    : t("github.apps.idLine", { id: String(connection.app_id) });
+  return (
+    <RowListItem className="flex-col items-stretch gap-2">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Text as="span" weight="medium" truncate>
+              {connection.name}
+            </Text>
+            <Badge>{t(`github.role.${connection.role}`)}</Badge>
+            <WideBadge connection={connection} />
+          </div>
+          <Text variant="meta">{meta}</Text>
+        </div>
+        <AppStateBadge state={state} pending={pending.length} />
+        {canManage ? (
+          <RowMenu label={t("github.apps.menu", { name: connection.name })}>
+            {(close) => (
+              <>
+                <RowMenuItem
+                  onSelect={() => {
+                    close();
+                    onNewKey();
+                  }}
+                >
+                  {t("github.apps.newKey")}
+                </RowMenuItem>
+                <RowMenuItem
+                  tone="danger"
+                  onSelect={() => {
+                    close();
+                    onRemove();
+                  }}
+                >
+                  {t("github.apps.remove")}
+                </RowMenuItem>
+              </>
+            )}
+          </RowMenu>
+        ) : null}
+      </div>
+      {state === "rejected" ? (
+        <Text className="text-(color:--ap-tone-danger-fg)">
+          {t("github.apps.rejected")}
+        </Text>
+      ) : state === "short" ? (
+        <NeedBlock connection={connection} shortfalls={shortfalls} />
+      ) : state === "pending" ? (
+        <PendingBlock connection={connection} pending={pending} />
+      ) : null}
+    </RowListItem>
+  );
+}
+
+function AppStateBadge({
+  state,
+  pending,
+}: {
+  readonly state: AppState;
+  readonly pending: number;
+}) {
+  const { t } = useI18n();
+  switch (state) {
+    case "rejected":
+      return <Badge variant="red">{t("github.apps.state.rejected")}</Badge>;
+    case "short":
+      return <Badge variant="amber">{t("github.apps.state.short")}</Badge>;
+    case "pending":
+      return (
+        <Badge variant="amber">
+          {t("github.apps.state.pending", { count: pending })}
+        </Badge>
+      );
+    case "unknown":
+      return <Badge>{t("github.apps.state.unknown")}</Badge>;
+    case "ok":
+      return <Badge variant="green">{t("github.apps.state.ok")}</Badge>;
+  }
+}
+
+/** Permissions wider than the role's guidance: one badge, the names behind it. */
+function WideBadge({
+  connection,
+}: {
+  readonly connection: GitHubSettingsConnection;
+}) {
+  const { t } = useI18n();
+  const wide = githubAppWarnings(connection.role, connection.permissions);
+  if (wide.length === 0) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Badge asChild variant="gray">
+          <button type="button">{t("github.apps.wide")}</button>
+        </Badge>
+      </PopoverTrigger>
+      <PopoverContent>
+        {t("github.apps.wideBody", {
+          list: wide
+            .map(
+              (item) =>
+                `${permissionName(t, item.permission)} ${t(`github.permissions.level.${item.level}`)}`,
+            )
+            .join(", "),
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const noteButton = "h-auto min-h-7 whitespace-normal text-link";
+
+/** What the App lacks for the features on, where to add it, and a note for its owner. */
+function NeedBlock({
+  connection,
+  shortfalls,
+}: {
+  readonly connection: GitHubSettingsConnection;
+  readonly shortfalls: readonly Shortfall[];
+}) {
+  const { t } = useI18n();
+  const need = permissionsText(t, neededFor(shortfalls));
+  const features = shortfalls.map((item) => featureName(t, item.feature));
+  const url = permissionsUrl(connection);
+  const note = t("github.apps.ownerNote", {
+    name: connection.name,
+    permissions: need,
+    url: url ?? connection.html_url,
+  });
+  return (
+    <div className="flex flex-col gap-2">
+      <Text className="text-(color:--ap-tone-caution-fg)">
+        {t("github.apps.need", {
+          features: features.join(", "),
+          permissions: need,
+        })}
+      </Text>
+      <div className="flex flex-wrap items-center gap-2">
+        {url ? (
+          <ExternalButton href={url} text={t("github.apps.addPermissions")} />
+        ) : null}
+        <CopyButton
+          value={note}
+          variant="ghost"
+          size="sm"
+          className={noteButton}
+          icon="none"
+          label={t("github.apps.copyOwnerNote")}
+          copiedLabel={t("github.copied")}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Installations that have not approved what the App asks for yet. */
+function PendingBlock({
+  connection,
+  pending,
+}: {
+  readonly connection: GitHubSettingsConnection;
+  readonly pending: readonly GitHubSettingsInstallation[];
+}) {
+  const { t } = useI18n();
+  const missing = new Set(
+    pending.flatMap((installation) =>
+      unapproved(installation, connection.permissions),
+    ),
+  );
+  const asked = Object.fromEntries(
+    [...missing].sort().map((name) => [name, connection.permissions?.[name]]),
+  );
+  const permissions =
+    missing.size > 0
+      ? permissionsText(t, asked as Record<string, "read" | "write" | "admin">)
+      : t("github.apps.pendingSome");
+  const accounts = pending.map((installation) => installation.account);
+  const note = t("github.apps.installNote", {
+    name: connection.name,
+    permissions,
+    lines: pending
+      .map(
+        (installation) =>
+          `- ${installation.account}: ${installation.detail?.html_url ?? GITHUB_WEB}`,
+      )
+      .join("\n"),
+  });
+  return (
+    <div className="flex flex-col gap-2">
+      <Text className="text-(color:--ap-tone-caution-fg)">
+        {t("github.apps.pendingLine", {
+          accounts: accounts.join(", "),
+          permissions,
+        })}
+      </Text>
+      <CopyButton
+        value={note}
+        variant="ghost"
+        size="sm"
+        className={cn(noteButton, "w-fit")}
+        icon="none"
+        label={t("github.apps.copyInstallNote")}
+        copiedLabel={t("github.copied")}
+      />
+    </div>
+  );
+}
+
+function ExternalButton({
+  href,
+  text,
+}: {
+  readonly href: string;
+  readonly text: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <Button asChild variant="outline" size="sm">
+      <Link
+        href={href}
+        target="_blank"
+        newTabLabel={t("github.newTab")}
+        className="text-foreground hover:no-underline"
+      >
+        {text}
+        <ArrowUpRight aria-hidden="true" className="size-3.5" />
+      </Link>
+    </Button>
+  );
+}
+
+/** Disconnecting an App, with what goes with it read first. */
+function RemoveApp({
+  connection,
+  onClose,
+  onOutcome,
+  onRemoved,
+}: {
+  readonly connection: GitHubSettingsConnection | null;
+  readonly onClose: () => void;
+  readonly onOutcome: OnOutcome;
+  readonly onRemoved: () => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const id = connection?.connection_id ?? "";
+  const usage = useQuery({
+    queryKey: [...appsKey(client, workspaceId), id, "usage"],
     queryFn: () =>
       unwrap(
         client.GET("/v1/workspaces/{id}/github-apps/{role}", {
-          params: { path: { id: workspaceId, role: appRole } },
+          params: { path: { id: workspaceId, role: id } },
         }),
       ),
-    enabled: workspaceId !== "" && canManage,
-    retry: (failures, error) => !storeOff(error) && failures < 3,
+    enabled: connection !== null && workspaceId !== "",
+    gcTime: 0,
   });
-}
-
-/**
- * One role's App. The author's page holds the rest of the screen, with
- * `children` (the reviewer's card) right under its own card.
- */
-function GitHubApp({
-  appRole,
-  onOutcome,
-  part = "page",
-  danger,
-  children,
-}: {
-  readonly appRole: GitHubAppRole;
-  readonly onOutcome: OnOutcome;
-  /** "danger": only this App's danger zone rows, for the author's zone. */
-  readonly part?: "page" | "danger";
-  /** Another App's danger zone rows, after this one's. */
-  readonly danger?: ReactNode;
-  readonly children?: ReactNode;
-}) {
-  const author = appRole === "author";
-  const { t, locale } = useI18n();
-  const deletedText = t(author ? "github.deleted" : "github.reviewer.deleted");
-  const { client } = useAgentPlatform();
-  const queryClient = useQueryClient();
-  const role = useRole();
-  const workspaceId = useMe()?.workspace?.id ?? "";
-  const canManage = useHasPermission("workspace.manage");
-  // "choose": a confirmed replace, before picking how the new App comes in.
-  const [mode, setMode] = useState<"new" | "existing" | "choose" | null>(null);
-  const editing = mode === "existing";
-  const setEditing = (on: boolean) => setMode(on ? "existing" : null);
-  const [deleting, setDeleting] = useState(false);
-  const [replacing, setReplacing] = useState(false);
-  const [missing, setMissing] = useState<"appId" | "key" | null>(null);
-  const appIdId = useId();
-  const appIdHint = useId();
-  const introId = useId();
-  const keyId = useId();
-  const keyHint = useId();
-  const appIdRef = useRef<HTMLInputElement>(null);
-  const actionRef = useRef<HTMLButtonElement>(null);
-  const wasEditing = useRef(false);
-  const submitting = useRef(false);
-  // The form replaces the button that opened it; focus follows each swap so
-  // a keyboard user keeps their place.
-  const chooseRef = useRef<HTMLButtonElement>(null);
-  const open = mode !== null;
-  useEffect(() => {
-    if (editing) appIdRef.current?.focus();
-    else if (mode === "choose") chooseRef.current?.focus();
-    else if (
-      !open &&
-      wasEditing.current &&
-      document.activeElement === document.body
-    )
-      actionRef.current?.focus();
-    wasEditing.current = open;
-  }, [editing, open, mode]);
-
-  const app = useGitHubAppQuery(appRole);
-  // Either App can be deleted alone, so the zone stays while the reviewer's
-  // rows have an App to act on.
-  const reviewerApp = useGitHubAppQuery("reviewer");
-  const settings = useGitHubSettings(author);
-  // The settings carry the App's permissions and the user-linking client id
-  // (whose secret goes with the App), so they are read again with it.
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: appKey(client, workspaceId, appRole),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: githubSettingsKey(client, workspaceId),
-      }),
-    ]);
-  const refused = (error: ApiError) => {
-    const reason = reasonOf(error);
-    onOutcome({
-      kind: "error",
-      text:
-        reason === "invalid_private_key"
-          ? t("github.invalidKey")
-          : reason === "same_app"
-            ? t(author ? "github.sameAsReviewer" : "github.reviewer.sameApp")
-            : reason === "no_author_app"
-              ? t("github.reviewer.noAuthorApp")
-              : reason === "github_app_rejected"
-                ? t("github.rejected")
-                : reason === "github_unreachable"
-                  ? t("github.saveUnreachable")
-                  : storeOff(error)
-                    ? t("workspace.tokenStoreUnavailable")
-                    : refusalText(t, error, "workspace.manage", role),
-    });
-  };
-
-  const save = useMutation<PutGitHubAppResponse, ApiError, PutGitHubAppRequest>(
-    {
-      // The variables hold the private key; keep it nowhere once the attempt ends.
-      gcTime: 0,
-      mutationFn: (body) =>
-        unwrap(
-          client.PUT("/v1/workspaces/{id}/github-apps/{role}", {
-            params: { path: { id: workspaceId, role: appRole } },
-            body,
-          }),
-        ),
-      onMutate: () => onOutcome(null),
-      onSuccess: () => {
-        setEditing(false);
-        onOutcome({
-          kind: "notice",
-          text: t(author ? "github.saved" : "github.reviewer.saved"),
-        });
-        // Not awaited: the reset that drops the key waits for this callback.
-        void refresh();
-      },
-      onError: refused,
-    },
-  );
   const remove = useMutation<unknown, ApiError>({
     mutationFn: () =>
       unwrap(
         client.DELETE("/v1/workspaces/{id}/github-apps/{role}", {
-          params: { path: { id: workspaceId, role: appRole } },
+          params: { path: { id: workspaceId, role: id } },
         }),
       ),
     onMutate: () => onOutcome(null),
     onSuccess: async () => {
-      setDeleting(false);
-      onOutcome({ kind: "notice", text: deletedText });
-      await refresh();
+      const name = connection?.name ?? "";
+      onClose();
+      onOutcome({ kind: "notice", text: t("github.apps.removed", { name }) });
+      await onRemoved();
     },
-    onError: async (error) => {
-      setDeleting(false);
-      // Another tab or person deleted it first: it is gone either way.
-      if (isApiError(error, "NOT_FOUND")) {
-        const again = await app.refetch();
-        if (again.data?.github_app === null) {
-          onOutcome({ kind: "notice", text: deletedText });
-          return;
-        }
-      }
-      refused(error);
+    onError: (error) => {
+      onClose();
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "workspace.manage", role),
+      });
     },
   });
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget.elements;
-    const idInput = form.namedItem("app_id");
-    const keyInput = form.namedItem("private_key");
-    const appId = Number(
-      idInput instanceof HTMLInputElement ? idInput.value.trim() : "",
-    );
-    const file =
-      keyInput instanceof HTMLInputElement ? keyInput.files?.[0] : undefined;
-    if (!Number.isSafeInteger(appId) || appId <= 0) {
-      setMissing("appId");
-      if (idInput instanceof HTMLInputElement) idInput.focus();
-      return;
-    }
-    if (file === undefined || file.size === 0) {
-      setMissing("key");
-      if (keyInput instanceof HTMLInputElement) keyInput.focus();
-      return;
-    }
-    setMissing(null);
-    if (file.size > KEY_FILE_MAX_BYTES) {
-      onOutcome({ kind: "error", text: t("github.invalidKey") });
-      return;
-    }
-    // Reading the file yields, so isPending alone lets a second submit in.
-    if (save.isPending || submitting.current) return;
-    submitting.current = true;
-    const privateKey = await file.text();
-    // Detach the observer so gcTime 0 drops the attempt and its key.
-    save.mutate(
-      { app_id: appId, private_key: privateKey },
-      {
-        onSettled: () => {
-          submitting.current = false;
-          save.reset();
-        },
-      },
-    );
-  };
-
-  const data = app.data;
-  const registered = data?.github_app ?? null;
-  const installUrl = registered
-    ? `${registered.html_url}/installations/new`
-    : null;
-
-  const appRows = !canManage ? (
+  const read = usage.data?.usage;
+  const consequence: ReactNode = usage.isPending ? (
+    <Skeleton width="80%" />
+  ) : read ? (
     <>
-      <SettingRow
-        title={t("github.app")}
-        description={permissionReason(t, "workspace.manage", role)}
-      />
-      {/* Members read the App's permissions from the settings' last read. */}
-      {author && settings.data?.apps.author ? (
-        <RowListItem>
-          <AppPermissionTable
-            permissions={settings.data.apps.author.permissions}
-            ceiling={settings.data.ceiling}
-          />
-        </RowListItem>
-      ) : null}
+      {t("github.apps.removeUsage", {
+        pinned: read.pinned_repository_count,
+        agents: read.agent_count,
+        sessions: read.active_session_count,
+      })}
+      {read.user_link ? ` ${t("github.apps.removeUserLink")}` : ""}{" "}
+      {t("github.apps.removeHint")}
     </>
-  ) : app.isPending ? (
-    <RowListItem>
-      <Skeleton width="50%" />
-    </RowListItem>
-  ) : app.isError ? (
-    <RowListItem>
-      {storeOff(app.error) ? (
-        <ErrorState
-          title={t("status.loadFailed")}
-          message={t("workspace.tokenStoreUnavailable")}
-        />
-      ) : (
-        <LoadFailure error={app.error} onRetry={() => void app.refetch()} />
-      )}
-    </RowListItem>
   ) : (
-    <>
-      <SettingRow
-        title={
-          <span className="flex min-w-0 items-center gap-2">
-            <AppTile app={appRole} />
-            {registered?.name ??
-              t(author ? "github.app" : "github.reviewer.app")}
-          </span>
-        }
-        badge={<AppBadge data={data} />}
-        description={appLine(data, t, locale, appRole)}
-        actions={
-          mode !== null && !registered ? undefined : (
-            <>
-              {installUrl ? (
-                <Link
-                  href={installUrl}
-                  target="_blank"
-                  newTabLabel={t("github.newTab")}
-                >
-                  {t(
-                    data?.installations.length
-                      ? "github.manageRepositories"
-                      : "github.install",
-                  )}
-                </Link>
-              ) : null}
-              {/* Replacing a registered App is in the danger zone. */}
-              {registered ? null : author ? (
-                <>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className={ACTION}
-                    onClick={() => setEditing(true)}
-                  >
-                    {t("github.addExisting")}
-                  </Button>
-                  <Button
-                    ref={actionRef}
-                    type="button"
-                    size="sm"
-                    className={ACTION}
-                    onClick={() => setMode("new")}
-                  >
-                    {t("github.newApp")}
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  ref={actionRef}
-                  type="button"
-                  size="sm"
-                  className={ACTION}
-                  onClick={() => setEditing(true)}
-                >
-                  {t("github.register")}
-                </Button>
-              )}
-            </>
-          )
-        }
-      />
-      {editing && !registered ? appForm() : null}
-      {mode === "new" && !registered ? newAppForm() : null}
-      {author && registered && data ? (
-        <RowListItem className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-          <AppPermissionTable
-            permissions={registered.permissions ?? null}
-            ceiling={settings.data?.ceiling}
-          />
-          <Installations data={data} />
-        </RowListItem>
-      ) : null}
-    </>
+    t("github.apps.removeHint")
   );
-
-  function newAppForm() {
-    return (
-      <NewAppForm
-        workspaceId={workspaceId}
-        replace={registered !== null}
-        blocked={Boolean(data?.manifest_blocked)}
-        onCancel={() => setMode(null)}
-        onOutcome={onOutcome}
-      />
-    );
-  }
-
-  // Under the card's row for a first App, under the danger zone's row when it
-  // replaces one. Hoisted: appRows above renders it.
-  function appForm() {
-    // A first author App: the reviewer and the replace forms skip the intro.
-    const adding = author && !registered;
-    return (
-      <RowListItem>
-        <form
-          className="flex w-full flex-col gap-4"
-          noValidate
-          onSubmit={(event) =>
-            void submit(event).catch(() => {
-              submitting.current = false;
-              onOutcome({ kind: "error", text: t("github.invalidKey") });
-            })
-          }
-        >
-          {adding ? (
-            <div
-              id={introId}
-              className="text-description text-muted-foreground"
-            >
-              {t("github.addExistingHint")}{" "}
-              <Link
-                href={PRIVATE_KEYS_DOC}
-                target="_blank"
-                newTabLabel={t("github.newTab")}
-              >
-                {t("github.privateKeysLink")}
-              </Link>
-            </div>
-          ) : null}
-          <Field>
-            <FieldLabel htmlFor={appIdId}>{t("github.appId")}</FieldLabel>
-            <Input
-              ref={appIdRef}
-              id={appIdId}
-              className="max-w-80"
-              name="app_id"
-              inputMode="numeric"
-              autoComplete="off"
-              spellCheck={false}
-              defaultValue={registered ? String(registered.app_id) : ""}
-              // Focus lands here, so the intro is read with the field.
-              aria-describedby={adding ? `${introId} ${appIdHint}` : appIdHint}
-              aria-invalid={missing === "appId" || undefined}
-            />
-            <FieldDescription id={appIdHint}>
-              {t("github.appIdHint")}
-            </FieldDescription>
-            {missing === "appId" ? (
-              <FieldError>{t("github.appIdMissing")}</FieldError>
-            ) : null}
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={keyId}>{t("github.key")}</FieldLabel>
-            <Input
-              id={keyId}
-              className="max-w-105"
-              name="private_key"
-              type="file"
-              accept=".pem,application/x-pem-file"
-              aria-describedby={keyHint}
-              aria-invalid={missing === "key" || undefined}
-              onChange={() => {
-                if (missing === "key") setMissing(null);
-              }}
-            />
-            <FieldDescription id={keyHint}>
-              {t("github.keyHint")}
-            </FieldDescription>
-            {missing === "key" ? (
-              <FieldError>{t("github.keyMissing")}</FieldError>
-            ) : null}
-          </Field>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {adding ? (
-              <div className={`${META} mr-auto`}>{t("github.connectNote")}</div>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setMissing(null);
-                setEditing(false);
-              }}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button type="submit" aria-disabled={save.isPending || undefined}>
-              {t(registered ? "github.save" : "github.connect")}
-            </Button>
-          </div>
-        </form>
-      </RowListItem>
-    );
-  }
-
-  const confirm = (
+  return (
     <ConfirmDialog
-      open={deleting}
-      onOpenChange={setDeleting}
-      title={t(author ? "github.deleteTitle" : "github.reviewer.deleteTitle")}
-      consequence={t(
-        author ? "github.deleteHint" : "github.reviewer.deleteHint",
-      )}
-      confirmLabel={t("workspace.delete")}
+      open={connection !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      title={t("github.apps.removeTitle")}
+      target={connection?.name}
+      consequence={consequence}
+      confirmLabel={t("github.apps.remove")}
       cancelLabel={t("common.cancel")}
-      target={registered?.name}
       tone="danger"
       busy={remove.isPending}
       onConfirm={() => {
@@ -802,276 +850,260 @@ function GitHubApp({
       }}
     />
   );
+}
 
-  const replaceRow = t(
-    author ? "github.replaceRow" : "github.reviewer.replaceRow",
-  );
-  const replaceHint = t(
-    author ? "github.replaceHint" : "github.reviewer.replaceHint",
-  );
-  // The author's danger zone holds the reviewer's rows too, so both Apps'
-  // replace and delete sit last on the page.
-  const dangerRows =
-    canManage && registered ? (
-      <>
-        {mode === "choose" ? (
-          <SettingRow
-            title={replaceRow}
-            description={t("github.replaceChoose")}
-            actions={
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setMode(null)}
-                >
-                  {t("common.cancel")}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditing(true)}
-                >
-                  {t("github.addExisting")}
-                </Button>
-                <Button
-                  ref={chooseRef}
-                  type="button"
-                  size="sm"
-                  onClick={() => setMode("new")}
-                >
-                  {t("github.newApp")}
-                </Button>
-              </>
-            }
-          />
-        ) : mode === "new" ? (
-          <>
-            <SettingRow
-              title={replaceRow}
-              description={t("github.replaceRowHint")}
-            />
-            {newAppForm()}
-          </>
-        ) : editing ? (
-          <>
-            <SettingRow
-              title={replaceRow}
-              description={t("github.replaceRowHint")}
-            />
-            {appForm()}
-          </>
-        ) : (
-          <DangerZoneRow
-            title={replaceRow}
-            description={t("github.replaceRowHint")}
-            actionLabel={t("github.replace")}
-            actionName={replaceRow}
-            actionRef={actionRef}
-            onAction={() => setReplacing(true)}
-          />
-        )}
-        <DangerZoneRow
-          title={t(author ? "github.delete" : "github.reviewer.delete")}
-          description={t(
-            author ? "github.deleteHint" : "github.reviewer.deleteHint",
-          )}
-          actionLabel={t("workspace.delete")}
-          actionName={t(author ? "github.delete" : "github.reviewer.delete")}
-          onAction={() => setDeleting(true)}
-        />
-        <ConfirmDialog
-          open={replacing}
-          onOpenChange={setReplacing}
-          title={t(
-            author ? "github.replaceTitle" : "github.reviewer.replaceTitle",
-          )}
-          consequence={`${replaceHint} ${t(author ? "github.replaceNext" : "github.reviewer.replaceNext")}`}
-          target={registered.name}
-          confirmLabel={t("github.replace")}
-          cancelLabel={t("common.cancel")}
-          tone="danger"
-          onConfirm={() => {
-            setReplacing(false);
-            // Only the author App can come from a manifest.
-            setMode(author ? "choose" : "existing");
-          }}
-        />
-        {confirm}
-      </>
-    ) : null;
+type Row = {
+  readonly connection: GitHubSettingsConnection;
+  readonly installation: GitHubSettingsInstallation;
+};
 
-  if (part === "danger") return dangerRows;
-
-  if (!author) {
-    // Rows inside ReviewerAdvanced's list, under its "Advanced" row.
+/** One row an installation (an account × an App), the account first. */
+function Installations({
+  connections,
+}: {
+  readonly connections: readonly GitHubSettingsConnection[];
+}) {
+  const { t, locale } = useI18n();
+  const canManage = useHasPermission("workspace.manage");
+  const rows: Row[] = connections
+    .flatMap((connection) =>
+      connection.installations.map((installation) => ({
+        connection,
+        installation,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        a.installation.account.localeCompare(b.installation.account) ||
+        a.connection.name.localeCompare(b.connection.name),
+    );
+  const readAt = connections
+    .map((connection) => connection.installations_read_at)
+    .filter((at): at is string => at !== null)
+    .sort()[0];
+  if (rows.length === 0) {
     return (
-      <>
-        {appRows}
-        {canManage && registered
-          ? data?.repositories.map((repository) => (
-              <SettingRow
-                key={repository.id}
-                title={repository.id}
-                description={repository.url}
-                badge={<InstallBadge data={data} repository={repository} />}
-              />
-            ))
-          : null}
-        {registered ? null : (
-          <SettingRow
-            title={t("github.reviewer.permissionsTitle")}
-            description={t("github.reviewer.permissions")}
-          />
-        )}
-        <SettingRow
-          title={t("github.reviewer.riskTitle")}
-          description={t("github.reviewer.risk")}
-        />
-      </>
+      <Text variant="sub" className="rounded-card border border-dashed p-4">
+        {t("github.table.empty")}
+      </Text>
     );
   }
 
-  // GET …/github-apps reads GitHub now; the settings carry the last read.
-  // Owners and admins see the fresh one, and none once the App is deleted.
-  const fresh = canManage && app.isSuccess;
-  const reviewerRegistered = reviewerApp.data?.github_app ?? null;
-  const authorSide = fresh
-    ? registered && {
-        name: registered.name,
-        permissions: registered.permissions ?? null,
-      }
-    : settings.data?.apps.author
-      ? { name: null, permissions: settings.data.apps.author.permissions }
-      : null;
-  const reviewerSide =
-    canManage && reviewerApp.isSuccess
-      ? reviewerRegistered && {
-          name: reviewerRegistered.name,
-          permissions: reviewerRegistered.permissions ?? null,
-        }
-      : settings.data?.apps.reviewer
-        ? { name: null, permissions: settings.data.apps.reviewer.permissions }
-        : null;
+  const type = (installation: GitHubSettingsInstallation) =>
+    t(`github.table.type.${installation.account_type}`);
+  const repos = (installation: GitHubSettingsInstallation) => {
+    const detail = installation.detail;
+    if (!detail) return "";
+    const count = detail.repository_count;
+    return detail.repository_selection === "all"
+      ? count === null
+        ? t("github.table.reposAllUnknown")
+        : t("github.table.reposAll", { count })
+      : count === null
+        ? t("github.table.reposSelectedUnknown")
+        : t("github.table.reposSelected", { count });
+  };
+  const connectedBy = (installation: GitHubSettingsInstallation) => {
+    const connected = installation.detail?.connected;
+    if (connected) {
+      const at = dateOf(connected.at, locale);
+      return connected.by ? `${connected.by.display_name} · ${at}` : at;
+    }
+    const created = installation.detail?.created_at;
+    return created
+      ? t("github.table.installedAt", { at: dateOf(created, locale) })
+      : "—";
+  };
 
   return (
-    <>
-      {canManage && data ? (
-        <GitHubSummary
-          app={data}
-          userLink={settings.data ? userLinkReady(settings.data) : undefined}
-        />
+    <div className="flex flex-col gap-2">
+      <GridTable
+        aria-label={t("github.table.label")}
+        columns={canManage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
+        narrowAt={760}
+        narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
+        framed
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("github.table.name")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>
+            {t("github.table.type")}
+          </GridTableColumnHeader>
+          {canManage ? (
+            <GridTableColumnHeader hideNarrow>
+              {t("github.table.repositories")}
+            </GridTableColumnHeader>
+          ) : null}
+          <GridTableColumnHeader hideNarrow>
+            {t("github.table.app")}
+          </GridTableColumnHeader>
+          {canManage ? (
+            <GridTableColumnHeader hideNarrow>
+              {t("github.table.connectedBy")}
+            </GridTableColumnHeader>
+          ) : null}
+          <GridTableColumnHeader>
+            {t("github.table.status")}
+          </GridTableColumnHeader>
+          {canManage ? (
+            <GridTableColumnHeader aria-label={t("github.table.menu")} />
+          ) : null}
+        </GridTableHeader>
+        {rows.map(({ connection, installation }) => {
+          const label = `${installation.account} · ${connection.name}`;
+          const moved = canManage
+            ? [type(installation), repos(installation), connection.name]
+            : [type(installation), connection.name];
+          return (
+            <GridTableRow
+              key={`${connection.connection_id}:${installation.id}`}
+            >
+              <GridTableCell {...{ role: "rowheader" }} lines>
+                <Text as="span" weight="medium" truncate>
+                  {installation.account}
+                </Text>
+                <Text as="span" variant="meta" className={NARROW_ONLY}>
+                  {moved.join(" · ")}
+                </Text>
+                {canManage ? (
+                  <Text as="span" variant="meta" className={NARROW_ONLY}>
+                    {t("github.table.connectedLine", {
+                      by: connectedBy(installation),
+                    })}
+                  </Text>
+                ) : null}
+              </GridTableCell>
+              <GridTableCell hideNarrow>
+                <Text as="span" variant="sub">
+                  {type(installation)}
+                </Text>
+              </GridTableCell>
+              {canManage ? (
+                <GridTableCell hideNarrow>{repos(installation)}</GridTableCell>
+              ) : null}
+              <GridTableCell hideNarrow>
+                <Text as="span" truncate>
+                  {connection.name}
+                </Text>
+              </GridTableCell>
+              {canManage ? (
+                <GridTableCell hideNarrow>
+                  <Text as="span" truncate>
+                    {connectedBy(installation)}
+                  </Text>
+                </GridTableCell>
+              ) : null}
+              <GridTableCell>
+                <InstallationBadge installation={installation} />
+              </GridTableCell>
+              {canManage ? (
+                <GridTableCell align="end">
+                  {installation.detail?.html_url ? (
+                    <RowMenu label={t("github.table.rowMenu", { name: label })}>
+                      {(close) => (
+                        <RowMenuLink
+                          href={installation.detail?.html_url ?? GITHUB_WEB}
+                          newTabLabel={t("github.newTab")}
+                          onSelect={close}
+                        >
+                          {t(
+                            installation.status === "approval_pending"
+                              ? "github.table.approve"
+                              : "github.table.manage",
+                          )}
+                        </RowMenuLink>
+                      )}
+                    </RowMenu>
+                  ) : null}
+                </GridTableCell>
+              ) : null}
+            </GridTableRow>
+          );
+        })}
+      </GridTable>
+      {readAt ? (
+        <Text variant="meta">
+          {t("github.table.readAt")} ·{" "}
+          <RelativeTime value={readAt} locale={locale} />
+        </Text>
       ) : null}
-      <SettingsCard
-        id={GITHUB_APP_ANCHOR}
-        title={t("github.app")}
-        description={t("github.appHint")}
-        rows={appRows}
-      />
-      {children}
-      {canManage && registered ? (
-        <RepositoryCatalog
-          id={REPOSITORIES_ANCHOR}
-          installBadge={(repositoryId) => {
-            const repository = data?.repositories.find(
-              (held) => held.id === repositoryId,
-            );
-            return data && repository ? (
-              <InstallBadge data={data} repository={repository} />
-            ) : null;
-          }}
-          onChanged={() =>
-            queryClient.invalidateQueries({
-              queryKey: appKey(client, workspaceId, appRole),
-            })
-          }
-          onOutcome={onOutcome}
-        />
-      ) : null}
-      <Ceiling
-        settings={settings}
-        author={authorSide || null}
-        reviewer={reviewerSide || null}
-        onOutcome={onOutcome}
-      />
-      {canManage && registered ? (
-        <GitHubUserLinkSection
-          workspaceId={workspaceId}
-          appReadAt={app.dataUpdatedAt}
-          onOutcome={onOutcome}
-        />
-      ) : null}
-      {canManage && (registered || reviewerApp.data?.github_app) ? (
-        <DangerZone title={t("workspace.danger")}>
-          {dangerRows}
-          {danger}
-        </DangerZone>
-      ) : null}
-    </>
+    </div>
   );
 }
 
-function InstallBadge({
-  data,
-  repository,
+const INSTALLATION_BADGE = {
+  active: "green",
+  approval_pending: "amber",
+  suspended: "gray",
+  unknown: "gray",
+} as const;
+
+function InstallationBadge({
+  installation,
 }: {
-  readonly data: GetGitHubAppResponse;
-  readonly repository: GetGitHubAppResponse["repositories"][number];
+  readonly installation: GitHubSettingsInstallation;
 }) {
   const { t } = useI18n();
-  switch (repositoryState(data, repository)) {
-    case "unknown":
-      return <Badge>{t("github.unknown")}</Badge>;
-    case "notInstalled":
-      return <Badge variant="amber">{t("github.notInstalled")}</Badge>;
-    case "pending":
-      return <Badge variant="amber">{t("github.approvalPending")}</Badge>;
-    case "installed":
-      return <Badge variant="green">{t("github.installed")}</Badge>;
-  }
+  return (
+    <Badge variant={INSTALLATION_BADGE[installation.status]}>
+      {t(`github.table.state.${installation.status}`)}
+    </Badge>
+  );
 }
 
-function AppBadge({
-  data,
+/** Its own line, apart from the table: open even once every installation is gone. */
+function RepositoriesLine({ onOpen }: { readonly onOpen: () => void }) {
+  const { t } = useI18n();
+  const list = useRepositoryPage(undefined, 1);
+  const catalog = list.data?.catalog ?? [];
+  const outside = outsideInstallations(catalog).length;
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Text weight="medium">{t("github.repos.title")}</Text>
+        <Text variant="sub">
+          {list.data
+            ? outside > 0
+              ? t("github.repos.countsOutside", {
+                  count: catalog.length,
+                  outside,
+                })
+              : t("github.repos.counts", { count: catalog.length })
+            : " "}
+        </Text>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        aria-haspopup="dialog"
+        onClick={onOpen}
+      >
+        {t("github.repos.manage")}
+      </Button>
+    </div>
+  );
+}
+
+function FeaturesCard({
+  settings,
+  onOutcome,
 }: {
-  readonly data: GetGitHubAppResponse | undefined;
+  readonly settings: ReturnType<typeof useGitHubSettings>;
+  readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  if (!data?.github_app) return <Badge>{t("github.unset")}</Badge>;
-  if (data.check?.state === "failed") {
-    return <Badge variant="red">{t("github.checkFailed")}</Badge>;
-  }
-  return <Badge variant="green">{t("github.connected")}</Badge>;
-}
-
-function appLine(
-  data: GetGitHubAppResponse | undefined,
-  t: ReturnType<typeof useI18n>["t"],
-  locale: ReturnType<typeof useI18n>["locale"],
-  role: GitHubAppRole,
-): string {
-  const app = data?.github_app;
-  if (!app) {
-    return t(
-      role === "author" ? "github.unsetLine" : "github.reviewer.unsetLine",
-    );
-  }
-  if (data.check?.state === "failed") {
-    return t(
-      data.check.reason_code === "github_rejected"
-        ? "github.rejectedNow"
-        : "github.unreachable",
-    );
-  }
-  const at = formatTimestamp(app.private_key.updated_at, locale);
-  const id = String(app.app_id);
-  return app.private_key.updated_by
-    ? t("github.appLine", {
-        id,
-        at,
-        by: app.private_key.updated_by.display_name,
-      })
-    : t("github.appLineAt", { id, at });
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className={CARD}>
+      <div className="flex flex-col gap-1">
+        <Heading id={titleId} level={2}>
+          {t("github.ceiling.title")}
+        </Heading>
+        <Text variant="sub">{t("github.ceiling.hint")}</Text>
+      </div>
+      <FeatureList settings={settings} onOutcome={onOutcome} />
+    </section>
+  );
 }

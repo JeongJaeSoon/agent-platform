@@ -5,81 +5,75 @@ import {
   isApiError,
   unwrap,
 } from "@werft-ai/client";
-import type { CatalogGitHubRepository } from "@werft-ai/contracts";
+import type {
+  GitHubAppRole,
+  GitHubSettingsConnection,
+  ListGitHubRepositoriesResponse,
+} from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  Heading,
   Input,
-  RowListItem,
-  SettingRow,
+  NativeSelect,
+  NativeSelectOption,
   Skeleton,
+  Text,
 } from "@werft-ai/ui";
-import { Building2 } from "lucide-react";
-import {
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import { scopedKey } from "../api/queries.ts";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
-import { IconTile } from "../components/icon-tile.tsx";
+import { FormError } from "../components/auth-page.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { useI18n } from "../i18n/i18n.tsx";
+import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
+import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import {
-  INSTALLED_PER_PAGE,
-  InstalledRepositoryPage,
   installationUnusable,
   retryUnlessUnusable,
 } from "./installed-repositories.tsx";
-import { type OnOutcome, SettingsCard } from "./workspace-settings.tsx";
-
-const ACTION = "min-w-12";
+import type { OnOutcome } from "./workspace-settings.tsx";
 
 export const repositoriesKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-repositories");
 
-const reasonOf = (error: ApiError): unknown =>
-  (error.details as { reason_code?: unknown } | null)?.reason_code;
+const PER_PAGE = 20;
+const COLUMNS = "minmax(0,1fr) 112px 64px 32px";
+const NARROW_COLUMNS = "minmax(0,1fr) 104px 48px 32px";
 
-const accountOf = (repository: CatalogGitHubRepository) =>
-  repository.full_name?.split("/")[0] ?? repository.id;
+type CatalogRow = ListGitHubRepositoriesResponse["catalog"][number];
 
-/**
- * The catalog's GitHub repositories, by account: rows agents' picks
- * resolved (their branch changed here) and the operator file's entries,
- * read-only; beside them, a page at a time, what the author App's
- * installations reach.
- */
-export function RepositoryCatalog({
-  id,
-  installBadge,
-  onChanged,
-  onOutcome,
-}: {
-  readonly id: string;
-  /** How the App's own read places a repository, when it lists it. */
-  readonly installBadge: (repositoryId: string) => ReactNode | null;
-  /** After a write: the App's read lists the catalog too. */
-  readonly onChanged: () => Promise<unknown>;
-  readonly onOutcome: OnOutcome;
-}) {
-  const { t } = useI18n();
+const UNAVAILABLE: Record<string, MessageKey> = {
+  no_author_app: "github.repo.pickNoApp",
+  no_installation: "github.repo.pickNoInstallation",
+  github_unavailable: "error.GITHUB_UNAVAILABLE",
+  github_app_auth_failed: "error.GITHUB_UNAVAILABLE",
+  installation_suspended: "error.INSTALLATION_SUSPENDED",
+};
+
+/** One page of one installation, and the whole catalog beside it. */
+export function useRepositoryPage(
+  installation: number | undefined,
+  page: number,
+  enabled = true,
+) {
   const { client } = useAgentPlatform();
   const workspaceId = useMe()?.workspace?.id ?? "";
-  const [browsing, setBrowsing] = useState(false);
-  const [installation, setInstallation] = useState<number | undefined>();
-  const [page, setPage] = useState(1);
-  const browseId = useId();
-  const titleId = useId();
-  const list = useQuery({
+  return useQuery({
     queryKey: [
       ...repositoriesKey(client, workspaceId),
       installation ?? null,
@@ -95,201 +89,388 @@ export function RepositoryCatalog({
                 ? {}
                 : { installation_id: installation }),
               page,
-              per_page: INSTALLED_PER_PAGE,
+              per_page: PER_PAGE,
             },
           },
         }),
       ),
-    enabled: workspaceId !== "",
+    enabled: enabled && workspaceId !== "",
     placeholderData: (previous) => previous,
     retry: retryUnlessUnusable,
   });
-  const gone = installation !== undefined && installationUnusable(list.error);
+}
+
+/** Catalog rows agents picked that no installation reaches now. */
+export const outsideInstallations = (catalog: readonly CatalogRow[]) =>
+  catalog.filter((row) => row.installed === false);
+
+/**
+ * The repositories sheet: an installation's repositories a page at a time,
+ * and the ones agents picked that no installation reaches. It opens from
+ * its own line, so it stays reachable once an installation is gone.
+ */
+export function RepositorySheet({
+  open,
+  onOpenChange,
+  connections,
+  onOutcome,
+}: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly connections: readonly GitHubSettingsConnection[];
+  readonly onOutcome: OnOutcome;
+}) {
+  const { t } = useI18n();
+  const [installation, setInstallation] = useState<number | undefined>();
+  const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<{
+    readonly row: CatalogRow;
+    readonly what: "branch" | "pins";
+  } | null>(null);
+  const selectId = useId();
+  const outsideId = useId();
+  const list = useRepositoryPage(installation, page, open);
+  // The picked installation is gone or suspended: back to the first one.
+  const gone =
+    installation !== undefined &&
+    (installationUnusable(list.error) ||
+      (list.data !== undefined &&
+        !list.data.installations.some((held) => held.id === installation)));
   useEffect(() => {
     if (!gone) return;
     setInstallation(undefined);
     setPage(1);
   }, [gone]);
+
+  const appName = (connectionId: string) =>
+    connections.find((held) => held.connection_id === connectionId)?.name ?? "";
+  const data = list.data;
+  const catalogOf = (catalogId: string | null) =>
+    catalogId === null
+      ? undefined
+      : data?.catalog.find((row) => row.id === catalogId);
+  const outside = data ? outsideInstallations(data.catalog) : [];
+  const from = data ? (data.page - 1) * data.per_page + 1 : 0;
+  const to = data ? from + data.repositories.length - 1 : 0;
+  const current = data?.installations.find(
+    (held) => held.id === data.installation_id,
+  );
+  const tableName = current
+    ? t("github.sheet.tableOf", {
+        account: current.account,
+        app: appName(current.connection_id),
+      })
+    : t("github.sheet.title");
+
+  const menu = (row: CatalogRow | undefined, name: string) =>
+    row?.editable ? (
+      <RowMenu label={t("github.sheet.rowMenu", { name })}>
+        {(close) => (
+          <>
+            <RowMenuItem
+              onSelect={() => {
+                close();
+                setEditing({ row, what: "branch" });
+              }}
+            >
+              {t("github.sheet.branch")}
+            </RowMenuItem>
+            {row.pins ? (
+              <RowMenuItem
+                onSelect={() => {
+                  close();
+                  setEditing({ row, what: "pins" });
+                }}
+              >
+                {t("github.sheet.pins")}
+              </RowMenuItem>
+            ) : null}
+          </>
+        )}
+      </RowMenu>
+    ) : null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="top-0 right-0 left-auto flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-none border-y-0 border-r-0 p-6 sm:max-w-[40rem]">
+        <DialogHeader>
+          <DialogTitle>{t("github.sheet.title")}</DialogTitle>
+          <DialogDescription>{t("github.sheet.hint")}</DialogDescription>
+        </DialogHeader>
+        {list.isPending ? (
+          <Skeleton width="60%" />
+        ) : list.isError && !gone ? (
+          <LoadFailure error={list.error} onRetry={() => void list.refetch()} />
+        ) : data ? (
+          <>
+            {data.installations.length > 0 ? (
+              <Field>
+                <FieldLabel htmlFor={selectId}>
+                  {t("github.repo.installation")}
+                </FieldLabel>
+                <NativeSelect
+                  id={selectId}
+                  size="sm"
+                  value={String(data.installation_id ?? "")}
+                  onChange={(event) => {
+                    setInstallation(Number(event.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {data.installation_id === null ? (
+                    <NativeSelectOption value="" disabled>
+                      {t("github.repo.installationChoose")}
+                    </NativeSelectOption>
+                  ) : null}
+                  {data.installations.map((held) => (
+                    <NativeSelectOption key={held.id} value={String(held.id)}>
+                      {t("github.sheet.installation", {
+                        account: held.account,
+                        app: appName(held.connection_id),
+                        count:
+                          held.repository_count === null
+                            ? "—"
+                            : String(held.repository_count),
+                      })}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+            ) : null}
+            {data.unavailable !== null ? (
+              <Text variant="sub">
+                {t(
+                  UNAVAILABLE[data.unavailable] ??
+                    "github.repo.pickNoInstallation",
+                )}
+              </Text>
+            ) : data.repositories.length === 0 ? (
+              <Text variant="sub">{t("github.repo.pickEmpty")}</Text>
+            ) : (
+              <>
+                <GridTable
+                  aria-label={tableName}
+                  columns={COLUMNS}
+                  narrowAt={480}
+                  narrowColumns={NARROW_COLUMNS}
+                  framed
+                >
+                  <GridTableHeader>
+                    <GridTableColumnHeader>
+                      {t("github.sheet.col.repository")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader>
+                      {t("github.repo.branch")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader align="end">
+                      {t("github.sheet.col.agents")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader
+                      aria-label={t("github.sheet.col.menu")}
+                    />
+                  </GridTableHeader>
+                  {data.repositories.map((repository) => {
+                    const row = catalogOf(repository.catalog_id);
+                    return (
+                      <GridTableRow key={repository.github_repository_id}>
+                        <GridTableCell {...{ role: "rowheader" }}>
+                          <Text as="span" truncate>
+                            {repository.full_name}
+                          </Text>
+                          {repository.private ? (
+                            <Badge>{t("github.repo.private")}</Badge>
+                          ) : null}
+                        </GridTableCell>
+                        <GridTableCell>
+                          <Text as="span" truncate>
+                            {row?.branch ?? repository.default_branch}
+                          </Text>
+                        </GridTableCell>
+                        <GridTableCell align="end">
+                          {repository.agent_count}
+                        </GridTableCell>
+                        <GridTableCell align="end">
+                          {menu(row, repository.full_name)}
+                        </GridTableCell>
+                      </GridTableRow>
+                    );
+                  })}
+                </GridTable>
+                {data.total_count > data.per_page || data.page > 1 ? (
+                  <nav
+                    aria-label={tableName}
+                    className="flex items-center justify-end gap-2"
+                  >
+                    <Text as="span" variant="meta">
+                      {t("github.repo.pageOf", {
+                        from: Math.min(from, data.total_count),
+                        to: Math.max(to, 0),
+                        total: data.total_count,
+                      })}
+                    </Text>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={data.page <= 1}
+                      onClick={() => setPage(data.page - 1)}
+                    >
+                      {t("github.repo.previousPage")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={data.page * data.per_page >= data.total_count}
+                      onClick={() => setPage(data.page + 1)}
+                    >
+                      {t("github.repo.nextPage")}
+                    </Button>
+                  </nav>
+                ) : null}
+              </>
+            )}
+            {outside.length > 0 ? (
+              <section
+                aria-labelledby={outsideId}
+                className="flex flex-col gap-2"
+              >
+                <Heading id={outsideId} level={3}>
+                  {t("github.sheet.outside")}
+                </Heading>
+                <Text variant="meta">{t("github.sheet.outsideHint")}</Text>
+                <GridTable
+                  aria-labelledby={outsideId}
+                  columns={COLUMNS}
+                  narrowAt={480}
+                  narrowColumns={NARROW_COLUMNS}
+                  framed
+                >
+                  <GridTableHeader>
+                    <GridTableColumnHeader>
+                      {t("github.sheet.col.repository")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader>
+                      {t("github.sheet.col.status")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader align="end">
+                      {t("github.sheet.col.agents")}
+                    </GridTableColumnHeader>
+                    <GridTableColumnHeader
+                      aria-label={t("github.sheet.col.menu")}
+                    />
+                  </GridTableHeader>
+                  {outside.map((row) => {
+                    const name = row.full_name ?? row.id;
+                    return (
+                      <GridTableRow key={row.id}>
+                        <GridTableCell {...{ role: "rowheader" }}>
+                          <Text as="span" truncate>
+                            {name}
+                          </Text>
+                        </GridTableCell>
+                        <GridTableCell>
+                          <Badge variant="amber">
+                            {t("github.sheet.outsideBadge")}
+                          </Badge>
+                        </GridTableCell>
+                        <GridTableCell align="end">
+                          {row.agent_count}
+                        </GridTableCell>
+                        <GridTableCell align="end">
+                          {menu(row, name)}
+                        </GridTableCell>
+                      </GridTableRow>
+                    );
+                  })}
+                </GridTable>
+              </section>
+            ) : null}
+          </>
+        ) : null}
+        <BranchDialog
+          row={editing?.what === "branch" ? editing.row : null}
+          onClose={() => setEditing(null)}
+          onOutcome={onOutcome}
+        />
+        <PinsDialog
+          row={editing?.what === "pins" ? editing.row : null}
+          onClose={() => setEditing(null)}
+          onOutcome={onOutcome}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function useRefreshRepositories() {
+  const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: repositoriesKey(client, workspaceId),
-      }),
-      onChanged(),
-    ]);
-
-  const repositories = list.data?.catalog ?? [];
-  const groups = new Map<string, CatalogGitHubRepository[]>();
-  for (const repository of repositories) {
-    const account = accountOf(repository);
-    groups.set(account, [...(groups.get(account) ?? []), repository]);
-  }
-
-  return (
-    <SettingsCard
-      id={id}
-      title={t("github.repositories")}
-      badge={<Badge>{repositories.length}</Badge>}
-      description={t("github.repositoriesHint")}
-      foot={
-        <span className="text-caption text-subtle-foreground">
-          {t("github.repositoriesFoot")}
-        </span>
-      }
-      rows={
-        list.isPending ? (
-          <RowListItem>
-            <Skeleton className="h-5 w-48" />
-          </RowListItem>
-        ) : list.isError ? (
-          <RowListItem>
-            <LoadFailure error={list.error} onRetry={() => list.refetch()} />
-          </RowListItem>
-        ) : repositories.length === 0 ? (
-          <SettingRow title={t("github.repositoriesEmpty")} />
-        ) : (
-          [...groups].map(([account, held]) => (
-            <AccountGroup key={account} account={account}>
-              {held.map((repository) => (
-                <RepositoryRow
-                  key={repository.id}
-                  repository={repository}
-                  badge={installBadge(repository.id)}
-                  refresh={refresh}
-                  onOutcome={onOutcome}
-                />
-              ))}
-            </AccountGroup>
-          ))
-        )
-      }
-    >
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          aria-expanded={browsing}
-          aria-controls={browsing ? browseId : undefined}
-          onClick={() => setBrowsing(!browsing)}
-        >
-          {t("github.repo.browse")}
-        </Button>
-      </div>
-      {browsing && list.data ? (
-        <section
-          id={browseId}
-          aria-labelledby={titleId}
-          className="flex flex-col gap-2 rounded-md border p-3"
-        >
-          <h3 id={titleId} className="m-0 font-medium text-control">
-            {t("github.repo.pickTitle")}
-          </h3>
-          <p className="m-0 text-caption text-subtle-foreground">
-            {t("github.repo.pickHint")}
-          </p>
-          <InstalledRepositoryPage
-            page={list.data}
-            onInstallation={(next) => {
-              setInstallation(next);
-              setPage(1);
-            }}
-            onPage={setPage}
-            meta={(repository) =>
-              repository.agent_count > 0
-                ? t("github.repo.agentCount", {
-                    count: repository.agent_count,
-                  })
-                : undefined
-            }
-          />
-        </section>
-      ) : null}
-    </SettingsCard>
-  );
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  return () =>
+    queryClient.invalidateQueries({
+      queryKey: repositoriesKey(client, workspaceId),
+    });
 }
 
-function AccountGroup({
-  account,
-  children,
-}: {
-  readonly account: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <>
-      <RowListItem className="gap-2 bg-surface-sunken py-2 font-medium text-caption">
-        <IconTile icon={Building2} hue="slate" />
-        {account}
-      </RowListItem>
-      {children}
-    </>
-  );
-}
-
-function RepositoryRow({
-  repository,
-  badge,
-  refresh,
+function BranchDialog({
+  row,
+  onClose,
   onOutcome,
 }: {
-  readonly repository: CatalogGitHubRepository;
-  readonly badge: ReactNode | null;
-  readonly refresh: () => Promise<unknown>;
+  readonly row: CatalogRow | null;
+  readonly onClose: () => void;
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
-  const [editing, setEditing] = useState(false);
+  const refresh = useRefreshRepositories();
   const [invalid, setInvalid] = useState(false);
-  const branchId = useId();
-  const branchHint = useId();
-  const branchRef = useRef<HTMLInputElement>(null);
-  const editRef = useRef<HTMLButtonElement>(null);
-  const wasEditing = useRef(false);
-  useEffect(() => {
-    if (editing) branchRef.current?.focus();
-    else if (wasEditing.current) editRef.current?.focus();
-    wasEditing.current = editing;
-  }, [editing]);
-  const name = repository.full_name ?? repository.id;
-
+  const [error, setError] = useState<string | null>(null);
+  const inputId = useId();
+  const hintId = useId();
+  const name = row?.full_name ?? row?.id ?? "";
+  const close = () => {
+    setInvalid(false);
+    setError(null);
+    onClose();
+  };
   const save = useMutation<unknown, ApiError, string>({
     mutationFn: (branch) =>
       unwrap(
         client.PATCH("/v1/workspaces/{id}/github-repositories/{repositoryId}", {
-          params: { path: { id: workspaceId, repositoryId: repository.id } },
-          body: { branch, version: repository.version ?? 1 },
+          params: { path: { id: workspaceId, repositoryId: row?.id ?? "" } },
+          body: { branch, version: row?.version ?? 1 },
         }),
       ),
-    onMutate: () => onOutcome(null),
+    onMutate: () => setError(null),
     onSuccess: async (_, branch) => {
-      setEditing(false);
+      close();
       onOutcome({
         kind: "notice",
         text: t("github.repo.saved", { name, branch }),
       });
       await refresh();
     },
-    onError: async (error) => {
-      if (isApiError(error, "BAD_REQUEST") && reasonOf(error) === undefined) {
+    onError: async (failure) => {
+      if (
+        isApiError(failure, "BAD_REQUEST") &&
+        (failure.details as { reason_code?: unknown } | null)?.reason_code ===
+          undefined
+      ) {
         setInvalid(true);
-        branchRef.current?.focus();
         return;
       }
-      onOutcome({
-        kind: "error",
-        text: isApiError(error, "REVISION_CONFLICT")
+      setError(
+        isApiError(failure, "REVISION_CONFLICT")
           ? t("github.repo.conflict")
-          : refusalText(t, error, "workspace.manage", role),
-      });
+          : refusalText(t, failure, "workspace.manage", role),
+      );
       await refresh();
     },
   });
-
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const input = event.currentTarget.elements.namedItem("branch");
@@ -297,96 +478,186 @@ function RepositoryRow({
     // The server holds the full rule and answers 400 past it.
     if (branch === "" || /\s/.test(branch)) {
       setInvalid(true);
-      branchRef.current?.focus();
+      if (input instanceof HTMLInputElement) input.focus();
       return;
     }
     setInvalid(false);
-    if (branch === repository.branch) {
-      setEditing(false);
+    if (branch === row?.branch) close();
+    else if (!save.isPending) save.mutate(branch);
+  };
+  return (
+    <Dialog
+      open={row !== null}
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("github.sheet.branchTitle", { name })}</DialogTitle>
+        </DialogHeader>
+        {error === null ? null : <FormError>{error}</FormError>}
+        <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
+          <Field>
+            <FieldLabel htmlFor={inputId}>{t("github.repo.branch")}</FieldLabel>
+            <Input
+              id={inputId}
+              name="branch"
+              autoComplete="off"
+              spellCheck={false}
+              defaultValue={row?.branch}
+              aria-describedby={hintId}
+              aria-invalid={invalid || undefined}
+            />
+            <FieldDescription id={hintId}>
+              {t("github.repo.branchHint")}
+            </FieldDescription>
+            {invalid ? (
+              <FieldError>{t("github.repo.branchInvalid")}</FieldError>
+            ) : null}
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={close}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" aria-disabled={save.isPending || undefined}>
+              {t("github.repo.save")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Which connection of each role issues the repository's tokens. */
+function PinsDialog({
+  row,
+  onClose,
+  onOutcome,
+}: {
+  readonly row: CatalogRow | null;
+  readonly onClose: () => void;
+  readonly onOutcome: OnOutcome;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const refresh = useRefreshRepositories();
+  const [error, setError] = useState<string | null>(null);
+  const name = row?.full_name ?? row?.id ?? "";
+  const candidates = useQuery({
+    queryKey: [
+      ...repositoriesKey(client, workspaceId),
+      "pins",
+      row?.id ?? null,
+    ],
+    queryFn: () =>
+      unwrap(
+        client.GET(
+          "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins",
+          {
+            params: { path: { id: workspaceId, repositoryId: row?.id ?? "" } },
+          },
+        ),
+      ),
+    enabled: row !== null && workspaceId !== "",
+  });
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+  const save = useMutation<
+    unknown,
+    ApiError,
+    { role: GitHubAppRole; connectionId: string }
+  >({
+    mutationFn: ({ role: pinRole, connectionId }) =>
+      unwrap(
+        client.PUT(
+          "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}",
+          {
+            params: {
+              path: {
+                id: workspaceId,
+                repositoryId: row?.id ?? "",
+                role: pinRole,
+              },
+            },
+            body: { connection_id: connectionId },
+          },
+        ),
+      ),
+    onMutate: () => setError(null),
+    onError: (failure) =>
+      setError(refusalText(t, failure, "workspace.manage", role)),
+  });
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const pins = candidates.data?.pins;
+    if (!pins || save.isPending) return;
+    const form = event.currentTarget.elements;
+    const changed = (["author", "reviewer"] as const).flatMap((pinRole) => {
+      const field = form.namedItem(pinRole);
+      const value = field instanceof HTMLSelectElement ? field.value : "";
+      return value && value !== pins[pinRole]
+        ? [{ role: pinRole, connectionId: value }]
+        : [];
+    });
+    try {
+      for (const pin of changed) await save.mutateAsync(pin);
+    } catch {
+      await refresh();
       return;
     }
-    if (!save.isPending) save.mutate(branch);
+    close();
+    if (changed.length > 0) {
+      onOutcome({
+        kind: "notice",
+        text: t("github.sheet.pinsSaved", { name }),
+      });
+      await refresh();
+    }
   };
-
-  const description = `${t("github.repo.branch")} ${repository.branch}`;
-  if (!repository.editable) {
-    return (
-      <SettingRow
-        title={name}
-        badge={<Badge>{t("github.repo.file")}</Badge>}
-        description={description}
-        meta={t("github.repo.fileHint")}
-      />
-    );
-  }
   return (
-    <>
-      <SettingRow
-        title={name}
-        badge={
-          badge ??
-          (repository.installed === null ? null : repository.installed ? (
-            <Badge variant="green">{t("github.installed")}</Badge>
-          ) : (
-            <Badge variant="amber">{t("github.notInstalled")}</Badge>
-          ))
-        }
-        description={description}
-        meta={repository.source === "seed" ? t("github.repo.seed") : undefined}
-        actions={
-          editing ? null : (
-            <Button
-              ref={editRef}
-              type="button"
-              size="sm"
-              variant="outline"
-              className={ACTION}
-              aria-label={t("github.repo.editName", { name })}
-              onClick={() => setEditing(true)}
-            >
-              {t("github.repo.edit")}
-            </Button>
-          )
-        }
-      />
-      {editing ? (
-        <RowListItem>
+    <Dialog
+      open={row !== null}
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("github.sheet.pinsTitle", { name })}</DialogTitle>
+          <DialogDescription>{t("github.sheet.pinsHint")}</DialogDescription>
+        </DialogHeader>
+        {error === null ? null : <FormError>{error}</FormError>}
+        {candidates.isPending ? (
+          <Skeleton width="60%" />
+        ) : candidates.isError ? (
+          <LoadFailure
+            error={candidates.error}
+            onRetry={() => void candidates.refetch()}
+          />
+        ) : (
           <form
-            className="flex w-full flex-col gap-4"
+            className="flex flex-col gap-4"
             noValidate
-            onSubmit={submit}
+            onSubmit={(event) => void submit(event)}
           >
-            <Field>
-              <FieldLabel htmlFor={branchId}>
-                {t("github.repo.branch")}
-              </FieldLabel>
-              <Input
-                ref={branchRef}
-                id={branchId}
-                name="branch"
-                className="max-w-80"
-                autoComplete="off"
-                spellCheck={false}
-                defaultValue={repository.branch}
-                aria-describedby={branchHint}
-                aria-invalid={invalid || undefined}
+            {(["author", "reviewer"] as const).map((pinRole) => (
+              <PinField
+                key={pinRole}
+                pinRole={pinRole}
+                pinned={candidates.data.pins[pinRole]}
+                candidates={candidates.data.candidates.filter(
+                  (candidate) => candidate.role === pinRole,
+                )}
               />
-              <FieldDescription id={branchHint}>
-                {t("github.repo.branchHint")}
-              </FieldDescription>
-              {invalid ? (
-                <FieldError>{t("github.repo.branchInvalid")}</FieldError>
-              ) : null}
-            </Field>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setInvalid(false);
-                  setEditing(false);
-                }}
-              >
+            ))}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={close}>
                 {t("common.cancel")}
               </Button>
               <Button type="submit" aria-disabled={save.isPending || undefined}>
@@ -394,8 +665,48 @@ function RepositoryRow({
               </Button>
             </div>
           </form>
-        </RowListItem>
-      ) : null}
-    </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PinField({
+  pinRole,
+  pinned,
+  candidates,
+}: {
+  readonly pinRole: GitHubAppRole;
+  readonly pinned: string | null;
+  readonly candidates: readonly {
+    readonly connection_id: string;
+    readonly name: string;
+    readonly installed: boolean | null;
+  }[];
+}) {
+  const { t } = useI18n();
+  const id = useId();
+  if (candidates.length === 0) return null;
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{t(`github.role.${pinRole}`)}</FieldLabel>
+      <NativeSelect id={id} name={pinRole} defaultValue={pinned ?? ""}>
+        {pinned === null ? (
+          <NativeSelectOption value="">
+            {t("github.sheet.unpinned")}
+          </NativeSelectOption>
+        ) : null}
+        {candidates.map((candidate) => (
+          <NativeSelectOption
+            key={candidate.connection_id}
+            value={candidate.connection_id}
+          >
+            {candidate.installed === false
+              ? t("github.sheet.notReaching", { name: candidate.name })
+              : candidate.name}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </Field>
   );
 }

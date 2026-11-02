@@ -1,36 +1,44 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type UseQueryResult,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
-import type {
-  GitHubSettingsResponse,
-  PutGitHubOAuthClientSecretResponse,
-} from "@werft-ai/contracts";
+import type { GitHubSettingsResponse } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
+  ConfirmDialog,
+  CopyButton,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
+  Heading,
   Input,
-  RowListItem,
-  SettingRow,
-  Skeleton,
+  NativeSelect,
+  NativeSelectOption,
+  Text,
 } from "@werft-ai/ui";
-import { Check, Copy } from "lucide-react";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
-import { refusalText, useRole } from "../auth/guard.tsx";
-import { copyText } from "../components/copy.ts";
-import { LoadFailure } from "../components/load-failure.tsx";
+import { type FormEvent, useId, useRef, useState } from "react";
+import {
+  refusalText,
+  useHasPermission,
+  useMe,
+  useRole,
+} from "../auth/guard.tsx";
+import { FormError } from "../components/auth-page.tsx";
+import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { githubSettingsKey } from "./workspace-github-access.tsx";
-import { type OnOutcome, SettingsCard } from "./workspace-settings.tsx";
+import type { OnOutcome } from "./workspace-settings.tsx";
 import { storeOff } from "./workspace-slack.tsx";
-
-const ACTION = "min-w-12";
-
-/** The section's anchor, which the GitHub page's summary links to. */
-export const GITHUB_USER_LINK_ANCHOR = "github-user-link";
 
 export function githubSettingsQuery(client: ApiClient, workspaceId: string) {
   return {
@@ -54,293 +62,349 @@ export function userLinkReady(settings: GitHubSettingsResponse | undefined) {
 }
 
 /**
- * Workspace › GitHub › user linking: what an owner or admin copies into the
- * author App's settings on GitHub, and its client secret. The secret is
- * typed here once and never shown again, not even in part.
+ * Members link their GitHub accounts through an author App's user
+ * authorization. Saving the secret is not proof it works, so the line says
+ * only whether it is set; a failed link is told to the member linking.
  */
-export function GitHubUserLinkSection({
-  workspaceId,
-  appReadAt,
+export function GitHubUserLinkRow({
+  settings,
   onOutcome,
 }: {
-  readonly workspaceId: string;
-  /** When the author App was last read (`dataUpdatedAt`). */
-  readonly appReadAt: number;
+  readonly settings: UseQueryResult<GitHubSettingsResponse>;
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const [editing, setEditing] = useState(false);
-  const [missing, setMissing] = useState(false);
-  const secretId = useId();
-  const secretHint = useId();
-  const secretRef = useRef<HTMLInputElement>(null);
-  const actionRef = useRef<HTMLButtonElement>(null);
-  // The App the secret is typed for: a replacement meanwhile is refused.
-  const editingFor = useRef<string | null>(null);
-  const wasEditing = useRef(false);
-  useEffect(() => {
-    if (editing) secretRef.current?.focus();
-    else if (wasEditing.current && document.activeElement === document.body)
-      actionRef.current?.focus();
-    wasEditing.current = editing;
-  }, [editing]);
-
-  // The App card above already read these settings.
-  const settings = useQuery({
-    ...githubSettingsQuery(client, workspaceId),
-    refetchOnMount: false,
-  });
-  // Reading the App fills the client id of one registered before that column;
-  // a settings read that started earlier still says none. Once that read is
-  // in, read again, once per App read.
-  const checkedFor = useRef(0);
-  useEffect(() => {
-    if (settings.data?.oauth.client_id !== null || settings.isFetching) return;
-    if (checkedFor.current === appReadAt) return;
-    checkedFor.current = appReadAt;
-    void queryClient.invalidateQueries({
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const canManage = useHasPermission("workspace.manage");
+  const [dialog, setDialog] = useState<"secret" | "callback" | null>(null);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const selectId = useId();
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const refresh = () =>
+    queryClient.invalidateQueries({
       queryKey: githubSettingsKey(client, workspaceId),
     });
-  }, [
-    settings.data,
-    settings.isFetching,
-    appReadAt,
-    client,
-    queryClient,
-    workspaceId,
-  ]);
+
+  const choose = useMutation<unknown, ApiError, string>({
+    mutationFn: (connectionId) =>
+      unwrap(
+        client.PUT("/v1/workspaces/{id}/github-settings/user-link-app", {
+          params: { path: { id: workspaceId } },
+          body: { connection_id: connectionId },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: () => {
+      setSwitching(null);
+      onOutcome({ kind: "notice", text: t("githubUserLink.appChosen") });
+      void refresh();
+    },
+    onError: (error) => {
+      setSwitching(null);
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "workspace.manage", role),
+      });
+      void refresh();
+    },
+  });
+
+  const data = settings.data;
+  if (!data) return null;
+  const oauth = data.oauth;
+  const authors = data.connections.filter(
+    (connection) => connection.role === "author",
+  );
+  const chosen = authors.find(
+    (connection) => connection.connection_id === oauth.connection_id,
+  );
+  const ready = userLinkReady(data);
+  const titleId = `${selectId}-title`;
+
+  return (
+    <section
+      aria-labelledby={titleId}
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border bg-card p-6"
+    >
+      <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1">
+        <Heading id={titleId} level={2}>
+          {t("githubUserLink.title")}
+        </Heading>
+        <Text variant="sub">
+          {chosen
+            ? t("githubUserLink.via", { name: chosen.name })
+            : t(
+                authors.length > 1
+                  ? "githubUserLink.choose"
+                  : "githubUserLink.noApp",
+              )}
+        </Text>
+      </div>
+      {canManage && authors.length > 1 ? (
+        <NativeSelect
+          id={selectId}
+          size="sm"
+          aria-label={t("githubUserLink.appLabel")}
+          className="w-auto"
+          value={oauth.connection_id ?? ""}
+          disabled={choose.isPending}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (!next) return;
+            // Another App's secret is entered again: ask while one is set.
+            if (oauth.client_secret_set) setSwitching(next);
+            else choose.mutate(next);
+          }}
+        >
+          {oauth.connection_id ? null : (
+            <NativeSelectOption value="" disabled>
+              {t("githubUserLink.appChoose")}
+            </NativeSelectOption>
+          )}
+          {authors.map((connection) => (
+            <NativeSelectOption
+              key={connection.connection_id}
+              value={connection.connection_id}
+            >
+              {connection.name}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      ) : null}
+      <Badge variant={ready ? "green" : "amber"}>
+        {t(ready ? "githubUserLink.on" : "githubUserLink.setupNeeded")}
+      </Badge>
+      {canManage && (oauth.client_id || oauth.callback_url) ? (
+        <RowMenu label={t("githubUserLink.menu")} triggerRef={menuRef}>
+          {(close) => (
+            <>
+              {oauth.client_id ? (
+                <RowMenuItem
+                  onSelect={() => {
+                    close();
+                    setDialog("secret");
+                  }}
+                >
+                  {t(
+                    oauth.client_secret_set
+                      ? "githubUserLink.replace"
+                      : "githubUserLink.enter",
+                  )}
+                </RowMenuItem>
+              ) : null}
+              {oauth.callback_url ? (
+                <RowMenuItem
+                  onSelect={() => {
+                    close();
+                    setDialog("callback");
+                  }}
+                >
+                  {t("githubUserLink.callbackView")}
+                </RowMenuItem>
+              ) : null}
+            </>
+          )}
+        </RowMenu>
+      ) : null}
+      <SecretDialog
+        open={dialog === "secret"}
+        clientId={oauth.client_id}
+        onClose={() => {
+          setDialog(null);
+          menuRef.current?.focus();
+        }}
+        onOutcome={onOutcome}
+        onSaved={() => void refresh()}
+      />
+      <Dialog
+        open={dialog === "callback"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("githubUserLink.callback")}</DialogTitle>
+            <DialogDescription>
+              {t("githubUserLink.callbackHint")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex min-w-0 items-center gap-2">
+            <Text
+              as="div"
+              mono
+              className="min-w-0 flex-1 [overflow-wrap:anywhere]"
+            >
+              {oauth.callback_url}
+            </Text>
+            {oauth.callback_url ? (
+              <CopyButton
+                value={oauth.callback_url}
+                variant="outline"
+                size="sm"
+                label={t("githubUserLink.copy")}
+                copiedLabel={t("githubUserLink.copied")}
+                description={t("githubUserLink.callback")}
+              />
+            ) : null}
+          </div>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDialog(null)}
+            >
+              {t("common.done")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={switching !== null}
+        onOpenChange={(open) => {
+          if (!open) setSwitching(null);
+        }}
+        title={t("githubUserLink.switchTitle")}
+        consequence={t("githubUserLink.switchBody")}
+        confirmLabel={t("githubUserLink.switchConfirm")}
+        cancelLabel={t("common.cancel")}
+        busy={choose.isPending}
+        onConfirm={() => {
+          if (switching && !choose.isPending) choose.mutate(switching);
+        }}
+      />
+    </section>
+  );
+}
+
+/** The client secret, typed once and never shown again, not even in part. */
+function SecretDialog({
+  open,
+  clientId,
+  onClose,
+  onOutcome,
+  onSaved,
+}: {
+  readonly open: boolean;
+  /** The App the secret is typed for: another one meanwhile is refused. */
+  readonly clientId: string | null;
+  readonly onClose: () => void;
+  readonly onOutcome: OnOutcome;
+  readonly onSaved: () => void;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const role = useRole();
+  const workspaceId = useMe()?.workspace?.id ?? "";
+  const [missing, setMissing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputId = useId();
+  const hintId = useId();
   const save = useMutation<
-    PutGitHubOAuthClientSecretResponse,
+    unknown,
     ApiError,
     { clientId: string; secret: string }
   >({
     // The variables hold the secret; keep it nowhere once the attempt ends.
     gcTime: 0,
-    mutationFn: ({ clientId, secret }) =>
+    mutationFn: ({ clientId: id, secret }) =>
       unwrap(
         client.PUT("/v1/workspaces/{id}/github-settings/oauth-client-secret", {
           params: { path: { id: workspaceId } },
-          body: { client_id: clientId, client_secret: secret },
+          body: { client_id: id, client_secret: secret },
         }),
       ),
-    onMutate: () => onOutcome(null),
+    onMutate: () => setError(null),
     onSuccess: () => {
-      setEditing(false);
+      close();
       onOutcome({ kind: "notice", text: t("githubUserLink.saved") });
-      void queryClient.invalidateQueries({
-        queryKey: githubSettingsKey(client, workspaceId),
-      });
+      onSaved();
     },
-    onError: (error) => {
-      onOutcome({
-        kind: "error",
-        text: storeOff(error)
+    onError: (failure) => {
+      setError(
+        storeOff(failure)
           ? t("workspace.tokenStoreUnavailable")
-          : refusalText(t, error, "workspace.manage", role),
-      });
-      // Another App by now: show its client id before a secret is typed again.
-      if (error.code === "REVISION_CONFLICT") {
-        setEditing(false);
-        void queryClient.invalidateQueries({
-          queryKey: githubSettingsKey(client, workspaceId),
-        });
-      }
+          : refusalText(t, failure, "workspace.manage", role),
+      );
+      // Another App by now: its client id shows before a secret is typed again.
+      if (failure.code === "REVISION_CONFLICT") onSaved();
     },
   });
+  function close() {
+    setMissing(false);
+    setError(null);
+    onClose();
+  }
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     const input = form.elements.namedItem("client_secret");
-    const value = input instanceof HTMLInputElement ? input.value.trim() : "";
-    if (value === "") {
+    const secret = input instanceof HTMLInputElement ? input.value.trim() : "";
+    if (secret === "") {
       setMissing(true);
-      secretRef.current?.focus();
+      if (input instanceof HTMLInputElement) input.focus();
       return;
     }
     setMissing(false);
-    const clientId = editingFor.current;
     if (save.isPending || clientId === null) return;
     // Out of the DOM before the request goes, so nothing keeps it after.
     form.reset();
-    save.mutate({ clientId, secret: value }, { onSettled: () => save.reset() });
+    save.mutate({ clientId, secret }, { onSettled: () => save.reset() });
   };
 
-  const oauth = settings.data?.oauth;
-  const rows = settings.isPending ? (
-    <RowListItem>
-      <Skeleton width="50%" />
-    </RowListItem>
-  ) : settings.isError ? (
-    <RowListItem>
-      <LoadFailure
-        error={settings.error}
-        onRetry={() => void settings.refetch()}
-      />
-    </RowListItem>
-  ) : (
-    <>
-      <SettingRow
-        title={t("githubUserLink.clientId")}
-        description={
-          oauth?.client_id ? undefined : t("githubUserLink.clientIdUnset")
-        }
-        meta={oauth?.client_id ? <Value text={oauth.client_id} /> : undefined}
-      />
-      <SettingRow
-        title={t("githubUserLink.callback")}
-        description={
-          oauth?.callback_url ? undefined : t("githubUserLink.callbackUnset")
-        }
-        meta={
-          oauth?.callback_url ? (
-            <Value
-              text={oauth.callback_url}
-              copy={{ label: t("githubUserLink.copyCallback"), onOutcome }}
-            />
-          ) : undefined
-        }
-      />
-      <SettingRow
-        title={t("githubUserLink.secret")}
-        badge={
-          oauth?.client_secret_set ? (
-            <Badge variant="green">{t("githubUserLink.secretSet")}</Badge>
-          ) : (
-            <Badge>{t("githubUserLink.secretUnset")}</Badge>
-          )
-        }
-        description={t("githubUserLink.secretHint")}
-        actions={
-          editing || !oauth?.client_id ? undefined : (
-            <Button
-              ref={actionRef}
-              type="button"
-              size="sm"
-              variant={oauth.client_secret_set ? "outline" : "default"}
-              className={ACTION}
-              onClick={() => {
-                editingFor.current = oauth.client_id;
-                setEditing(true);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("githubUserLink.secret")}</DialogTitle>
+          <DialogDescription>
+            {t("githubUserLink.secretHint")}
+          </DialogDescription>
+        </DialogHeader>
+        {error === null ? null : <FormError>{error}</FormError>}
+        <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
+          <Field>
+            <FieldLabel htmlFor={inputId}>
+              {t("githubUserLink.secret")}
+            </FieldLabel>
+            <Input
+              id={inputId}
+              name="client_secret"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby={hintId}
+              aria-invalid={missing || undefined}
+              onChange={() => {
+                if (missing) setMissing(false);
               }}
-            >
-              {t(
-                oauth?.client_secret_set
-                  ? "githubUserLink.replace"
-                  : "githubUserLink.enter",
-              )}
+            />
+            <FieldDescription id={hintId}>
+              {t("githubUserLink.secretInputHint")}
+            </FieldDescription>
+            {missing ? (
+              <FieldError>{t("githubUserLink.secretMissing")}</FieldError>
+            ) : null}
+          </Field>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={close}>
+              {t("common.cancel")}
             </Button>
-          )
-        }
-      />
-      {editing ? (
-        <RowListItem>
-          <form
-            className="flex w-full flex-col gap-4"
-            noValidate
-            onSubmit={submit}
-          >
-            <Field>
-              <FieldLabel htmlFor={secretId}>
-                {t("githubUserLink.secret")}
-              </FieldLabel>
-              <Input
-                ref={secretRef}
-                id={secretId}
-                className="max-w-105"
-                name="client_secret"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                aria-describedby={secretHint}
-                aria-invalid={missing || undefined}
-                onChange={() => {
-                  if (missing) setMissing(false);
-                }}
-              />
-              <FieldDescription id={secretHint}>
-                {t("githubUserLink.secretInputHint")}
-              </FieldDescription>
-              {missing ? (
-                <FieldError>{t("githubUserLink.secretMissing")}</FieldError>
-              ) : null}
-            </Field>
-            <div className="flex flex-wrap items-start justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setMissing(false);
-                  setEditing(false);
-                }}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" aria-disabled={save.isPending || undefined}>
-                {t("githubUserLink.save")}
-              </Button>
-            </div>
-          </form>
-        </RowListItem>
-      ) : null}
-    </>
-  );
-
-  return (
-    <SettingsCard
-      id={GITHUB_USER_LINK_ANCHOR}
-      title={t("githubUserLink.title")}
-      description={t("githubUserLink.intro")}
-      rows={rows}
-    />
-  );
-}
-
-/** A value to paste into GitHub, with a copy button when it is a URL to copy. */
-function Value({
-  text,
-  copy,
-}: {
-  readonly text: string;
-  /** Offers copying; the result goes to the screen's outcome line. */
-  readonly copy?: { readonly label: string; readonly onOutcome: OnOutcome };
-}) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState<boolean | null>(null);
-  return (
-    <span className="inline-flex min-w-0 flex-wrap items-center gap-1">
-      <code className="min-w-0 font-mono text-caption text-foreground [overflow-wrap:anywhere]">
-        {text}
-      </code>
-      {copy ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-my-1 h-6 min-w-6 gap-1 px-1 text-xs"
-          aria-label={copy.label}
-          onClick={() =>
-            void copyText(text, { current: null }).then((ok) => {
-              setCopied(ok);
-              copy.onOutcome(
-                ok
-                  ? { kind: "notice", text: t("githubUserLink.copied") }
-                  : { kind: "error", text: t("githubUserLink.copyFailed") },
-              );
-            })
-          }
-        >
-          {copied ? (
-            <Check aria-hidden="true" className="size-3.5 shrink-0" />
-          ) : (
-            <Copy aria-hidden="true" className="size-3.5 shrink-0" />
-          )}
-          {copied ? <span>{t("githubUserLink.copied")}</span> : null}
-        </Button>
-      ) : null}
-    </span>
+            <Button type="submit" aria-disabled={save.isPending || undefined}>
+              {t("githubUserLink.save")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
