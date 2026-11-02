@@ -394,6 +394,55 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     expect(modules).toEqual([[], ["github.com/acme/docs"]]);
   });
 
+  test("the next claim's attached repository is added again once the workspace is restored, before the engine starts", async () => {
+    const access = { kind: "egress_token" as const, token: "[REDACTED]" };
+    const docs = {
+      id: "docs",
+      url: "https://github.com/acme/docs.git",
+      branch: "main",
+      access,
+    };
+    const gateway = new FakeWorkerGateway();
+    const claim = gateway.bootstrapClaim.bind(gateway);
+    gateway.bootstrapClaim = async (request) => ({
+      ...(await claim(request)),
+      workspace: { repository: null, additional_repositories: [docs] },
+      repository_access: access,
+    });
+    const steps: unknown[] = [];
+    const run = new ScriptedRun();
+    run.onSend = (sent) => finish(run, sent);
+    const worker = new WorkerHost({
+      checkpoints: unwiredCheckpoints,
+      execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+      gateway,
+      runtimes: {
+        launcherFor: () => ({
+          start: () => {
+            steps.push("started");
+            return run;
+          },
+        }),
+      },
+      timeouts,
+      workspace: {
+        ...noWorkspace,
+        prepare: async () => {
+          steps.push("restored");
+          return "restore";
+        },
+        attachRepositories: async ({ descriptor }) => {
+          steps.push(descriptor.additional_repositories);
+          return { attached: ["docs"], failed: [] };
+        },
+      },
+    });
+    gateway.enqueue("hello");
+    await worker.runLoop();
+
+    expect(steps).toEqual(["restored", [docs], "started"]);
+  });
+
   test("an attachment handed out before the workspace is prepared waits for it", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.attachOrders = [

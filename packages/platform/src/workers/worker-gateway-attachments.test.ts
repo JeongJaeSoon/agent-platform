@@ -252,6 +252,30 @@ describe("a repository attached mid-session", () => {
     expect(claimed.repository_access?.token.length).toBeGreaterThan(0);
   });
 
+  test("the next attempt's claim names it, so the worker adds the remote again after a restore", async () => {
+    const w = wired();
+    const claim = async () =>
+      bootstrapClaimResponseSchema.parse(
+        await w.gateway.bootstrapClaim(
+          { kind: "bootstrap" },
+          {
+            execution_id: "e",
+            execution_generation: 1,
+            credential: { kind: "launch_nonce", nonce: "n" },
+          },
+        ),
+      );
+    expect((await claim()).workspace.additional_repositories ?? []).toEqual(
+      [],
+    );
+    await w.attach("docs");
+    expect(
+      (await claim()).workspace.additional_repositories?.map(
+        ({ id, url, branch }) => ({ id, url, branch }),
+      ),
+    ).toEqual([{ id: "docs", url: onGitHub("docs").url, branch: "main" }]);
+  });
+
   test("a beat says so, the control poll hands it out until a report settles it", async () => {
     const w = wired();
     const beat = () =>
