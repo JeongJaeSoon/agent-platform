@@ -34,6 +34,7 @@ import {
   GridTableRow,
   Heading,
   Input,
+  RowAction,
   RowList,
   RowListItem,
   SearchInput,
@@ -609,17 +610,14 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell align="end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="min-w-[var(--ap-row-action-min-width)]"
+                        <RowAction
+                          variant="danger"
                           disabled={remove.isPending}
                           aria-label={t("teams.removeMemberFor", { name })}
                           onClick={() => setRemoving(member)}
                         >
                           {t("teams.removeMember")}
-                        </Button>
+                        </RowAction>
                       </GridTableCell>
                     )}
                   </GridTableRow>

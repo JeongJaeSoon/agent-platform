@@ -13,9 +13,8 @@ import {
   CREDENTIAL_REVOKE_NOTICE,
   type ProfileSummary,
 } from "@werft-ai/contracts";
-import { avatarTone } from "@werft-ai/ui";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { type Locale, translate } from "../i18n/i18n.tsx";
+import type { Locale } from "../i18n/i18n.tsx";
 import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -37,6 +36,8 @@ afterAll(() => viewport.restore());
 // After the DOM exists: Radix picks a no-op layout effect when loaded before
 // it, and its dialogs then never reach the page.
 const { agentRefusal } = await import("./agents.tsx");
+const { avatarTone } = await import("@werft-ai/ui");
+const { translate } = await import("../i18n/i18n.tsx");
 const { createBrowserHistory } = await import("@tanstack/react-router");
 const { App } = await import("../app.tsx");
 const { createServices } = await import("../services.tsx");
@@ -144,7 +145,9 @@ const showList = async (user: User, name: string) =>
   user.click(await screen.findByRole("button", { name }));
 // The state badge of the card or row an agent's name links from.
 const stateOf = (link: HTMLElement) =>
-  link.closest("tr, [data-slot=card]")?.querySelector("[data-state]");
+  link
+    .closest("[role=row], [data-slot=card]")
+    ?.querySelector("[data-slot=badge][data-state]");
 const showTable = async (user: User) =>
   user.click(await screen.findByRole("button", { name: "표" }));
 
@@ -224,6 +227,41 @@ describe("agentRefusal", () => {
 describe("에이전트 목록", () => {
   beforeEach(() => localStorage.clear());
 
+  test("표는 좁으면 수정 열을 숨기고, 그 시각을 이름 칸에 상대 시각으로 보인다", async () => {
+    const server = agentServer();
+    renderAt("/agents", { ...meOk, ...server.routes });
+    await showTable(await setupUser());
+    const table = await screen.findByRole("table", { name: "에이전트" });
+    expect(table.dataset.narrowAt).toBe("480");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((head) => [head.textContent, head.dataset.hideNarrow ?? null]),
+    ).toEqual([
+      ["에이전트", null],
+      ["상태", null],
+      ["수정", "true"],
+    ]);
+    const row = (
+      await within(table).findByRole("link", { name: "결제 담당" })
+    ).closest("[role=row]") as HTMLElement;
+    const [agentCell, , updatedCell] = within(row).getAllByRole("cell");
+    const updatedAt = server.detail().agent.updated_at;
+    expect(updatedCell?.dataset.hideNarrow).toBe("true");
+    expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
+      updatedAt,
+    );
+    // Only below the table's narrow width; the time in it is the same one.
+    const narrow = [...(agentCell?.querySelectorAll("span") ?? [])].find(
+      (line) => line.className.includes("[@container(width<480px)]:block"),
+    );
+    expect(narrow?.className).toContain("hidden");
+    expect(narrow?.textContent).toMatch(/ 수정$/);
+    expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
+      updatedAt,
+    );
+  });
+
   test("목록과 상태를 카드로 보이고, 표로 바꿔도 상세로 잇는다", async () => {
     const server = agentServer();
     renderAt("/agents", { ...meOk, ...server.routes });
@@ -243,7 +281,7 @@ describe("에이전트 목록", () => {
     await showTable(await setupUser());
     const link = await screen.findByRole("link", { name: "결제 담당" });
     expect(link.getAttribute("href")).toBe(DETAIL);
-    const row = link.closest("tr") as HTMLElement;
+    const row = link.closest("[role=row]") as HTMLElement;
     expect(within(row).getAllByRole("link")).toHaveLength(1);
     expect(row.className).toContain("cursor-pointer");
     expect(link.className).toContain("after:inset-0");
@@ -299,7 +337,7 @@ describe("에이전트 목록", () => {
     await showTable(await setupUser());
     await waitFor(() =>
       expect(
-        screen.getByRole("link", { name: "draft" }).closest("tr"),
+        screen.getByRole("link", { name: "draft" }).closest("[role=row]"),
       ).not.toBeNull(),
     );
     expect(badges()).toEqual(expected);
@@ -308,7 +346,7 @@ describe("에이전트 목록", () => {
       ["draft", "live", "held", "old"].map((name) =>
         screen
           .getByRole("link", { name })
-          .closest("tr")
+          .closest("[role=row]")
           ?.hasAttribute("data-inactive"),
       ),
     ).toEqual([false, false, false, true]);
@@ -887,7 +925,7 @@ describe("에이전트 목록 탭과 보기", () => {
 
     renderAt("/agents", { ...meOk, ...server.routes });
     const link = await screen.findByRole("link", { name: "결제 담당" });
-    expect(link.closest("tr")).not.toBeNull();
+    expect(link.closest("[role=row]")).not.toBeNull();
     expect(
       screen.getByRole("button", { name: "표" }).getAttribute("aria-pressed"),
     ).toBe("true");
@@ -936,7 +974,7 @@ describe("Slack 조치 링크", () => {
   const slackLinkOf = (name: string) =>
     screen
       .getByRole("link", { name })
-      .closest("tr, [data-slot=card]")
+      .closest("[role=row], [data-slot=card]")
       ?.querySelector<HTMLAnchorElement>("a[href*='tab=slack']") ?? null;
 
   test("조치가 필요한 카드와 행에만 그 에이전트의 Slack 탭 링크를 이유와 함께 단다", async () => {
@@ -963,7 +1001,7 @@ describe("Slack 조치 링크", () => {
     await showTable(user);
     await waitFor(() =>
       expect(
-        screen.getByRole("link", { name: "에이전트 0" }).closest("tr"),
+        screen.getByRole("link", { name: "에이전트 0" }).closest("[role=row]"),
       ).not.toBeNull(),
     );
     check();
@@ -1917,8 +1955,9 @@ describe("에이전트 상세", () => {
       expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
       const user = await setupUser();
-      // The table frame is a tab stop; the cut note's toggle is the next one.
-      (table.closest("[data-slot=table-container]") as HTMLElement).focus();
+      // Nothing in the never-activated row before the note takes the focus,
+      // so the cut note's toggle is the next tab stop after "새 릴리스".
+      screen.getByRole("button", { name: "새 릴리스" }).focus();
       await user.tab();
       expect(document.activeElement === toggle).toBe(true);
       await user.keyboard("{Enter}");

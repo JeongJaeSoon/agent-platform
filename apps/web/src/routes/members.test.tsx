@@ -240,7 +240,8 @@ describe("구성원 화면", () => {
     expect(mateRow.hasAttribute("data-inactive")).toBe(false);
     expect(
       within(goneRow as HTMLElement).getByRole("button", {
-        name: "다시 활성화",
+        // Named for its row, as "Disable Mate" is.
+        name: "Gone 다시 활성화",
       }),
     ).toBeDefined();
   });
@@ -411,7 +412,7 @@ describe("구성원 화면", () => {
       "[role=row]",
     ) as HTMLElement;
     const enable = within(row).getByRole("button", {
-      name: "다시 활성화",
+      name: /^\S+ 다시 활성화$/,
     }) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
     expect(descriptionOf(lockOf(enable))).toBe(
@@ -436,7 +437,7 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "다시 활성화" }),
+      await screen.findByRole("button", { name: /^\S+ 다시 활성화$/ }),
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
       "소유자는 관리자가 다시 활성화할 수 없습니다.",
@@ -472,7 +473,7 @@ describe("구성원 화면", () => {
     ) as HTMLElement;
     await waitFor(() =>
       expect(
-        within(row).getByRole("button", { name: "다시 활성화" }),
+        within(row).getByRole("button", { name: /^\S+ 다시 활성화$/ }),
       ).toBeDefined(),
     );
     expect(api.calls.find((c) => c.path.endsWith("/disable"))?.body).toEqual(
@@ -494,7 +495,7 @@ describe("구성원 화면", () => {
     });
     const user = await setupUser();
     await user.click(
-      await screen.findByRole("button", { name: "다시 활성화" }),
+      await screen.findByRole("button", { name: /^\S+ 다시 활성화$/ }),
     );
     expect(
       await screen.findByText(
@@ -1333,7 +1334,7 @@ describe("구성원 페이지와 서버 검색", () => {
     });
     const user = await setupUser();
     const enable = (await screen.findByRole("button", {
-      name: "다시 활성화",
+      name: /^\S+ 다시 활성화$/,
     })) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
     expect(descriptionOf(lockOf(enable))).toBe(

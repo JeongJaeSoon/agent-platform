@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   type AgentCard,
-  agentCardSchema,
+  type AgentCardRequest,
+  agentCardRequestSchema,
   type ListAgentsQuery,
   SESSION_SCOPE_VALUES,
 } from "@werft-ai/contracts";
@@ -93,7 +94,7 @@ const CATALOG: SessionCatalog = withSeededInstallation({
 });
 
 function cardWith(instructions: string, tools: string[] | null = ["Read"]) {
-  return agentCardSchema.parse({
+  return agentCardRequestSchema.parse({
     role: "재무 분석가",
     instructions,
     model: "claude-sonnet-5",
@@ -195,7 +196,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
   async function newAgent(
     agents: AgentService,
     owner: Caller,
-    card: AgentCard = cardWith("v1"),
+    card: AgentCardRequest = cardWith("v1"),
   ) {
     return agents.createAgent(owner, {
       slug: `agent-${randomUUID().slice(0, 8)}`,
@@ -978,6 +979,76 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     expect(statements.length).toBe(one);
   });
 
+  test("a description is the row's: set, changed and cleared without a version, and a card without a role still summarises", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const agentsService = service();
+    const operations = async () =>
+      (
+        await db
+          .select({ operation: receipts.operation })
+          .from(receipts)
+          .where(eq(receipts.ownerId, workspaceId))
+          .orderBy(receipts.createdAt)
+      ).map((row) => row.operation);
+
+    const created = await agentsService.createAgent(owner, {
+      slug: `agent-${randomUUID().slice(0, 8)}`,
+      name: "재무 분석가",
+      description: "분기 보고서를 읽는다",
+      card: cardWith("v1"),
+    });
+    expect(created.agent.description).toBe("분기 보고서를 읽는다");
+    const id = created.agent.id;
+    const before = await operations();
+
+    const described = await agentsService.updateAgent(owner, id, {
+      description: "이상치를 요약한다",
+    });
+    expect(described.agent.description).toBe("이상치를 요약한다");
+    expect(described.versions).toEqual(created.versions);
+    const same = await agentsService.updateAgent(owner, id, {
+      description: "이상치를 요약한다",
+    });
+    expect(same.agent.updated_at).toBe(described.agent.updated_at);
+    const cleared = await agentsService.updateAgent(owner, id, {
+      description: null,
+    });
+    expect(cleared.agent.description).toBeNull();
+    expect(cleared.versions).toEqual(created.versions);
+    expect((await operations()).slice(before.length)).toEqual([
+      "update_agent",
+      "update_agent",
+    ]);
+
+    const {
+      role: _role,
+      instructions: _instructions,
+      ...bare
+    } = cardWith("v2");
+    await db.insert(agentVersions).values({
+      id: randomUUID(),
+      agentId: id,
+      versionNo: 2,
+      card: bare,
+      contentSha256: "2".repeat(64),
+      createdBy: owner.actor?.userId ?? null,
+    });
+    const page = await agentsService.listAgents(owner, {
+      ...PAGE,
+      include: "summary",
+    });
+    const item = page.items.find((agent) => agent.id === id);
+    expect(item?.description).toBeNull();
+    expect(item?.summary?.version).toMatchObject({
+      version_no: 2,
+      role: null,
+      instructions: null,
+    });
+    const detail = await agentsService.getAgent(owner, id);
+    expect(detail.versions.at(-1)?.card.role).toBeUndefined();
+  });
+
   test("an owner creates an agent, adds versions, releases and activates one", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
@@ -1695,7 +1766,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     const owner = await person(workspaceId, "owner");
     const agentsService = service();
     const withPolicy = (bash: "ask" | "deny") =>
-      agentCardSchema.parse({
+      agentCardRequestSchema.parse({
         ...cardWith("policy", ["Read", "Bash"]),
         capabilities: {
           tools: ["Read", "Bash"],

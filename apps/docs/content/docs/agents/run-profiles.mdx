@@ -7,8 +7,30 @@ description: 세션이 어떤 모델·도구·권한 모드로 도는지 정하�
 
 ## 목록 보기
 
+SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const profiles = await werft.profiles.list();
+for (const profile of profiles.items) {
+  console.log(profile.id, profile.model, profile.repository_mode);
+}
+```
+
+```text
+claude-coding-auto claude-sonnet-5 required
+claude-coding-local claude-sonnet-5 required
+general claude-sonnet-5 none
+```
+
+</Tab>
+<Tab>
+
 ```bash
-curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, runtime_kind, runtime_version, billing, repository_mode}'
 ```
 
 ```text
@@ -31,6 +53,11 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
 }
 ```
 
+레퍼런스: [`GET /v1/profiles`](/reference/http-api/agents/listProfiles)
+
+</Tab>
+</Tabs>
+
 | 필드 | 뜻 |
 | --- | --- |
 | `model` | 기본 모델 |
@@ -43,6 +70,33 @@ provider 주소와 자격 증명은 목록에 나오지 않는다. 그 값은 wo
 ## 세션에서 고르기
 
 세션을 만들 때 `profile_id`로 고른다. 프로필이 모델을 여럿 허용하면 `model`로 그중 하나를 고르고, 빼면 기본 모델로 돈다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  model: "claude-sonnet-5",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"profile","steps":[],"final":"ok"}',
+});
+const sessionId = created.session_id;
+console.log((await werft.sessions.get(sessionId)).runtime);
+```
+
+```text
+{
+  kind: 'claude_agent_sdk',
+  version: '0.3.270',
+  profile_id: 'claude-coding-local',
+  model: 'claude-sonnet-5',
+  permission_mode: 'default'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -65,13 +119,40 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 }
 ```
 
+레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession), [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
+
 카탈로그에 없는 프로필, 그 저장소에서 돌 수 없는 프로필, 프로필이 허용하지 않는 모델은 422다.
 
-에이전트 release를 만들 때는 `runtime_profile_id`로 고른다. 카드의 `model`이 그 프로필이 실행할 수 있는 모델 중 하나이고, 카드의 도구가 모두 프로필에 있어야 한다([만들기](/agents/create#release-만들기)).
+에이전트 release를 만들 때는 `runtime_profile_id`로 고른다. 카드의 `model`이 그 프로필이 실행할 수 있는 모델 중 하나이고, 카드의 도구가 모두 프로필에 있어야 한다([만들기](/agents/create#릴리스-만들기)).
 
 ## 진행 중인 세션의 프로필 바꾸기
 
-`POST /v1/sessions/{id}/profile`로 바꾼다. 돌고 있는 turn은 시작한 프로필로 끝나고, 그다음 입력부터 새 프로필로 돈다. 대화와 작업 트리는 마지막 checkpoint에서 이어진다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
+`sessions.changeProfile`(`POST /v1/sessions/{id}/profile`)로 바꾼다. 돌고 있는 turn은 시작한 프로필로 끝나고, 그다음 입력부터 새 프로필로 돈다. 대화와 작업 트리는 마지막 checkpoint에서 이어진다. 같은 프로필로 바꾸면 아무것도 바뀌지 않고 receipt만 남는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { revision } = await werft.sessions.get(sessionId);
+const changed = await werft.sessions.changeProfile(sessionId, {
+  expected_revision: revision,
+  profile_id: "claude-coding-local",
+});
+console.log(changed.receipt_status);
+```
+
+```text
+succeeded
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -88,6 +169,11 @@ curl -sS "$API/v1/sessions/$SID/profile" \
 ```text
 {"receipt_id":"…","receipt_status":"succeeded"}
 ```
+
+레퍼런스: [`POST /v1/sessions/{id}/profile`](/reference/http-api/session-control/changeSessionProfile)
+
+</Tab>
+</Tabs>
 
 새 프로필이 runtime 종류·버전이나 과금 방식이 다르거나 그 저장소와 짝이 아니면 422 `UNSUPPORTED_CAPABILITY`다. 에이전트 release로 만든 세션은 release가 프로필을 정하므로 409 `RELEASE_PROFILE_MISMATCH`다. scope는 `sessions:control`이다.
 

@@ -3,9 +3,29 @@ title: "拒否"
 description: push リクエストを拒否する。拒否した後に新しくリクエストできる
 ---
 
-送り出してはいけない commit なら拒否する。承認と同じ `sessions:approve` が必要である。セッションごとに開いているリクエストは 1 つなので、直す点があれば、拒否してセッションに次のメッセージを送った後、新しくリクエストする。[リクエスト](/approvals/request)の `SID` を使う。前のリクエストは終了しているので、新しいリクエストを作る。
+送り出してはいけない commit なら拒否する。承認と同じ `sessions:approve` が必要である。セッションごとに開いているリクエストは 1 つなので、直す点があれば、拒否してセッションに次のメッセージを送った後、新しくリクエストする。[リクエスト](/approvals/request)のセッション(SDK は `sessionId`、HTTP API は `SID`)を使う。前のリクエストは終了しているので、新しいリクエストを作る。
 
 ## 拒否する
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const second = await werft.sessions.pushRequests.create(sessionId);
+const rejected = await werft.sessions.pushRequests.decide(sessionId, second.id, {
+  decision: "reject",
+  git_commit: second.git_commit,
+  reason: "needs tests first",
+});
+console.log(rejected.state, rejected.decision_reason);
+```
+
+```text
+rejected needs tests first
+```
+
+</Tab>
+<Tab>
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
@@ -30,11 +50,47 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 }
 ```
 
+リファレンス: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+
+</Tab>
+</Tabs>
+
 `reason` は省略できる。拒否では、commit が変わったかどうかは検査しない。
 
 ## 判断は 1 回
 
 すでに判断したリクエストに再度判断すると、409 `PUSH_REQUEST_DECIDED` になる。その試行も receipt として残る。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.pushRequests.decide(sessionId, second.id, {
+    decision: "approve",
+    git_commit: second.git_commit,
+  });
+} catch (error) {
+  if (!isApiError(error, "PUSH_REQUEST_DECIDED")) throw error;
+  console.log(error.code);
+  const receiptId = (error.details as { receipt_id?: string } | null)?.receipt_id;
+  if (receiptId) {
+    const receipt = await werft.receipts.get(receiptId);
+    const result = receipt.result as { refusal?: string | null } | null;
+    console.log(receipt.operation, receipt.status, result?.refusal);
+  }
+}
+```
+
+```text
+PUSH_REQUEST_DECIDED
+decide_push failed already_decided
+```
+
+</Tab>
+<Tab>
 
 ```bash
 again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
@@ -57,6 +113,11 @@ curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -
   "refusal": "already_decided"
 }
 ```
+
+リファレンス: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest), [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
+
+</Tab>
+</Tabs>
 
 ## 次のステップ
 

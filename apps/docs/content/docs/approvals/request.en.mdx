@@ -15,7 +15,28 @@ A session does not push to the repository directly. The session's work is saved 
 
 ## Prepare a session that changes files
 
-Use `API` and `KEY` from the [Quickstart](/getting-started/quickstart). This script appends a line to the repository's `README.md`, and the turn ends once you allow the permission request.
+The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key). This script appends a line to the repository's `README.md`, and the turn ends once you allow the permission request. Allowing it with the key that created the session works only with the development server's operator key. With a key issued in the web console, allow it from a client made with another key ([A separate key for approvals](/getting-started/client#a-separate-key-for-approvals)).
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+const note = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}',
+});
+const sessionId = note.session_id;
+await waitForTurn(werft, sessionId, note.turn_id, {
+  onRequest: { permission: () => ({ decision: "allow" }) },
+});
+```
+
+</Tab>
+<Tab>
 
 ```bash
 SID=$(curl -sS "$API/v1/sessions" \
@@ -39,9 +60,39 @@ until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $K
 done
 ```
 
+Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession), [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
 ## Request
 
-Send an empty JSON object (`{}`) as the request body. The requester does not choose what is sent or where. The platform pins the session's latest checkpoint and its commit at that moment, the session's repository, and the branch `agent/<session-id>`.
+The SDK passes only the session id, and the HTTP API sends an empty JSON object (`{}`) as the request body. The requester does not choose what is sent or where. The platform pins the session's latest checkpoint and its commit at that moment, the session's repository, and the branch `agent/<session-id>`.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const push = await werft.sessions.pushRequests.create(sessionId);
+console.log({
+  state: push.state,
+  repository_id: push.repository_id,
+  checkpoint_revision: push.checkpoint_revision,
+  target_branch: push.target_branch,
+});
+```
+
+```text
+{
+  state: 'requested',
+  repository_id: 'sample-app',
+  checkpoint_revision: 0,
+  target_branch: 'agent/…'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
@@ -64,7 +115,12 @@ PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
 }
 ```
 
-The response is 201. Use `GET /v1/sessions/{id}/push-requests` for the session's list of requests and `GET …/push-requests/{push_request_id}` for one request.
+Reference: [`POST /v1/sessions/{id}/push-requests`](/reference/http-api/push-requests/createPushRequest)
+
+</Tab>
+</Tabs>
+
+The response is 201. Use `pushRequests.list` (`GET /v1/sessions/{id}/push-requests`) for the session's list of requests and `pushRequests.get` (`GET …/push-requests/{push_request_id}`) for one request.
 
 | Response | Meaning |
 | --- | --- |

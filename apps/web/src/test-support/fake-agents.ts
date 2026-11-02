@@ -1,5 +1,6 @@
 import {
   type AgentCard,
+  type AgentCardRequest,
   type AgentDetail,
   type AgentRelease,
   type AgentVersion,
@@ -22,7 +23,7 @@ const VERSION_IDS = [
   "8d9e0f1a-2b3c-4d4e-9f5a-6b7c8d9e0f1a",
 ];
 
-export const CARD: AgentCard = {
+export const CARD: AgentCardRequest = {
   role: "결제 문의 담당",
   instructions: "결제 문의에 답한다.",
   language: "ko",
@@ -70,6 +71,7 @@ export function agentServer({
         workspace_id: WORKSPACE_ID,
         slug: "billing",
         name: "결제 담당",
+        description: null,
         status: "active",
         active_release_id: active,
         activation_revision: revision,

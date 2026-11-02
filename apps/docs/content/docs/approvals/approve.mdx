@@ -3,11 +3,29 @@ title: "승인"
 description: push 요청이 고정한 commit을 확인하고 승인한다. 플랫폼이 몇 초 안에 push한다
 ---
 
-승인에는 `sessions:approve`가 필요하다. 개인 key와 에이전트 key 모두 이 scope를 받을 수 있지만, 세션을 시작한 key는 그 세션의 push 요청을 승인하지 못한다. 다른 key나 사람이 승인한다. 세션을 돌리는 worker의 자격으로는 `/v1`을 부를 수 없으므로(401) 에이전트가 스스로 승인하지 못한다. [요청](/approvals/request)의 `SID`, `PUSH_ID`, `PUSH_COMMIT`을 쓴다.
+승인에는 `sessions:approve`가 필요하다. 개인 key와 에이전트 key 모두 이 scope를 받을 수 있지만, 세션을 시작한 key는 그 세션의 push 요청을 승인하지 못한다. 다른 key나 사람이 승인한다. 세션을 돌리는 worker의 자격으로는 `/v1`을 부를 수 없으므로(401) 에이전트가 스스로 승인하지 못한다. [요청](/approvals/request)의 `sessionId`와 `push`(HTTP API는 `SID`, `PUSH_ID`, `PUSH_COMMIT`)를 쓴다. SDK에서 승인자 key를 따로 쓰려면 `werft.withOptions({ apiKey })`로 두 번째 클라이언트를 만든다.
 
 ## 승인하기
 
 결정 본문의 `git_commit`은 요청이 고정한 commit과 같아야 한다. 승인하는 사람이 무엇을 승인하는지 확인했다는 표시다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const decided = await werft.sessions.pushRequests.decide(sessionId, push.id, {
+  decision: "approve",
+  git_commit: push.git_commit,
+});
+console.log(decided.state);
+```
+
+```text
+approved
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
@@ -25,9 +43,39 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 }
 ```
 
+레퍼런스: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+
+</Tab>
+</Tabs>
+
 ## push 결과 보기
 
 플랫폼은 3초마다 승인된 요청을 하나씩 집어 push한다. 요청이 `pushing`을 거쳐 `pushed`나 `failed`가 될 때까지 기다린다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForPushRequest } from "@werft-ai/sdk";
+
+const done = await waitForPushRequest(werft, sessionId, push.id);
+console.log(done.state);
+if (done.push_receipt_id) {
+  const receipt = await werft.receipts.get(done.push_receipt_id);
+  const result = receipt.result as { refusal?: string | null } | null;
+  console.log(receipt.operation, receipt.status, result?.refusal);
+}
+```
+
+```text
+failed
+push failed no_push_credential
+```
+
+`waitForPushRequest`는 요청이 `pushed`·`failed`·`rejected`가 될 때까지 기다린다.
+
+</Tab>
+<Tab>
 
 ```bash
 until curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY" \
@@ -51,7 +99,12 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 }
 ```
 
-로컬 스택의 `sample-app` 저장소에는 push 자격 증명이 없어서 `no_push_credential`로 끝난다. 운영자가 저장소에 GitHub App이나 PAT를 설정하면([GitHub](/integrations/github)) `pushed`가 되고, receipt의 `result`에 `remote_ref`(`refs/heads/agent/<session-id>`)와 `previous_commit`이 남는다.
+레퍼런스: [`GET …/push-requests/{push_request_id}`](/reference/http-api/push-requests/getPushRequest)
+
+</Tab>
+</Tabs>
+
+개발용 서버의 `sample-app` 저장소에는 push 자격 증명이 없어서 `no_push_credential`로 끝난다. 운영자가 저장소에 GitHub App이나 PAT를 설정하면([GitHub](/integrations/github)) `pushed`가 되고, receipt의 `result`에 `remote_ref`(`refs/heads/agent/<session-id>`)와 `previous_commit`이 남는다.
 
 플랫폼은 그 commit 하나만 그 브랜치에 보낸다. force push는 하지 않는다. 기본 브랜치에는 보내지 않는다.
 
@@ -72,7 +125,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | 403 `FORBIDDEN` | key에 `sessions:approve`가 없거나, 세션을 보기만 하고 승인할 사람(만든 사람, 에이전트 관리자, owner·admin)이 아니다 |
 | 403 `FORBIDDEN` (`details.refusal: self_approval`) | 세션을 시작한 key로 승인했다. 실패 `decide_push` receipt가 남는다. 다른 key나 사람이 승인한다 |
 
-거절된 시도에도 receipt가 남는다. 오류 본문의 `error.details.receipt_id`로 읽는다.
+거절된 시도에도 receipt가 남는다. 오류 본문의 `error.details.receipt_id`(SDK는 `APIError`의 `details.receipt_id`)로 읽는다.
 
 ## 다음 단계
 

@@ -7,6 +7,7 @@ import {
   FieldError,
   FieldLabel,
   formatTimestamp,
+  RowAction,
   Text,
   Textarea,
 } from "@werft-ai/ui";
@@ -220,25 +221,23 @@ export function ApprovalRow({
         )}
         {expired || denying ? null : (
           <div className="flex shrink-0 gap-2">
-            <Button
-              type="button"
+            <RowAction
+              variant="default"
               disabled={blocked}
               aria-label={messages.allowName(request.tool)}
               onClick={onAllow}
             >
               <Busy shown={pending} />
               {messages.allow}
-            </Button>
-            <Button
+            </RowAction>
+            <RowAction
               ref={denyRef}
-              type="button"
-              variant="outline"
               disabled={blocked}
               aria-label={messages.denyName(request.tool)}
               onClick={() => setDenying(true)}
             >
               {messages.deny}
-            </Button>
+            </RowAction>
           </div>
         )}
       </div>
@@ -270,7 +269,7 @@ export function ApprovalRow({
             </Button>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               disabled={pending}
               onClick={() => {
                 returnFocus.current = true;
