@@ -1,9 +1,11 @@
 -- migrate:no-transaction
 -- Every statement may run again: a failure part way leaves the ones before
 -- it committed, and the next run starts from the top. The pending index is
--- built last, so once it is valid the migration is done and no re-run drops
--- it; the queued index it replaces stays until the next migration, so ON
--- CONFLICT always has one. The widened CHECK accepts every row the old one did.
+-- built last; the journal row is written only after it, so a crash between
+-- the two runs this again and drops and rebuilds that index. The queued
+-- index it replaces stays until the next migration, so the running code's
+-- ON CONFLICT still finds one meanwhile. The widened CHECK accepts every row
+-- the old one did.
 CREATE TABLE IF NOT EXISTS "achievement_judgment_usage" (
 	"exchange_id" text PRIMARY KEY NOT NULL,
 	"judgment_id" uuid NOT NULL,

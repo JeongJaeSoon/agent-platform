@@ -130,8 +130,20 @@ function judgeSettingsOf(settings: unknown) {
   );
 }
 
-// The UTC day by the database's clock, the one leases and retries keep.
-const DAY_START = sql`date_trunc('day', now(), 'UTC')`;
+/**
+ * The UTC day `at` falls in, whatever the connection's TimeZone: the day is
+ * counted on the UTC calendar, so a DST change elsewhere never moves it.
+ */
+export function utcDayOf(at: SQL): { start: SQL; next: SQL } {
+  const day = sql`date_trunc('day', (${at}) AT TIME ZONE 'UTC')`;
+  return {
+    start: sql`(${day} AT TIME ZONE 'UTC')`,
+    next: sql`((${day} + interval '1 day') AT TIME ZONE 'UTC')`,
+  };
+}
+
+// By the database's clock, the one leases and retries keep.
+const TODAY = utcDayOf(sql`now()`);
 
 /**
  * What the workspace's judgment calls made since UTC midnight cost, and when
@@ -144,19 +156,19 @@ async function spentToday(
   const [spent] = await db
     .select({
       usd: sql<string>`COALESCE(sum(${achievementJudgmentUsage.costUsd}), 0)`,
-      resetsAt: sql<string>`(${DAY_START} + interval '1 day')::text`,
+      resetsAtMs: sql<string>`(extract(epoch FROM ${TODAY.next}) * 1000)::float8`,
     })
     .from(achievementJudgmentUsage)
     .where(
       and(
         eq(achievementJudgmentUsage.workspaceId, workspaceId),
-        sql`${achievementJudgmentUsage.createdAt} >= ${DAY_START}`,
+        sql`${achievementJudgmentUsage.createdAt} >= ${TODAY.start}`,
       ),
     );
   if (!spent) throw new Error("aggregate returned no row");
   return {
     spentUsd: Number(spent.usd),
-    budgetResetsAt: new Date(spent.resetsAt),
+    budgetResetsAt: new Date(Number(spent.resetsAtMs)),
   };
 }
 
@@ -387,22 +399,27 @@ export function createPostgresAchievementJudgments(
           tokenHash: null,
         };
         const self = eq(achievementJudgments.id, judgment.id);
-        // A session has one pending judgment: a newer trigger's waits for
-        // the retry or the next day too, and judges everything this one would.
+        // A session has one pending judgment, and a newer trigger's judges
+        // everything this one would. It waits for the retry too; a deferral
+        // leaves it as it is, to count its always pairs after its own quiet
+        // time and defer its luna pairs itself.
+        const pending = and(
+          eq(achievementJudgments.sessionId, held.sessionId),
+          inArray(achievementJudgments.status, ["queued", "deferred"]),
+        );
         const fold = async (at: SQL, deferred: boolean) => {
-          const [other] = await tx
-            .update(achievementJudgments)
-            .set({
-              nextAttemptAt: sql`GREATEST(${achievementJudgments.nextAttemptAt}, ${at})`,
-              ...(deferred ? { status: "deferred", attempts: 0 } : {}),
-            })
-            .where(
-              and(
-                eq(achievementJudgments.sessionId, held.sessionId),
-                inArray(achievementJudgments.status, ["queued", "deferred"]),
-              ),
-            )
-            .returning({ id: achievementJudgments.id });
+          const [other] = deferred
+            ? await tx
+                .select({ id: achievementJudgments.id })
+                .from(achievementJudgments)
+                .where(pending)
+            : await tx
+                .update(achievementJudgments)
+                .set({
+                  nextAttemptAt: sql`GREATEST(${achievementJudgments.nextAttemptAt}, ${at})`,
+                })
+                .where(pending)
+                .returning({ id: achievementJudgments.id });
           return other !== undefined;
         };
         const end = (status: "succeeded" | "skipped" | "failed") =>
