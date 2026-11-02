@@ -198,3 +198,33 @@ export function priceProviderUsage(usage: ProviderUsage): {
     pricedBy: known === undefined ? "fallback" : "table",
   };
 }
+
+/**
+ * The achievement judge's models, priced apart from any session: Luna
+ * charges its input and nothing for its answer (achievement-rules.md §4).
+ */
+export const JUDGE_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
+  "gpt-6-luna": price(0.1, 0, 0),
+};
+
+/** One judgment call; a model the table does not know is priced high. */
+export function priceJudgmentUsage(usage: ProviderUsage): {
+  costUsd: number;
+  pricedBy: "table" | "fallback";
+} {
+  const known = Object.hasOwn(JUDGE_MODEL_PRICES, usage.model)
+    ? JUDGE_MODEL_PRICES[usage.model]
+    : undefined;
+  const rates = known ?? FALLBACK_PRICE;
+  const input =
+    usage.inputTokens +
+    usage.cacheCreationInputTokens +
+    usage.cacheReadInputTokens;
+  return {
+    costUsd:
+      (input * rates.inputUsdPerMtok +
+        usage.outputTokens * rates.outputUsdPerMtok) /
+      1_000_000,
+    pricedBy: known === undefined ? "fallback" : "table",
+  };
+}

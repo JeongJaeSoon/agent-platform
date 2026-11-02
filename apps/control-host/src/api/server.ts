@@ -23,6 +23,7 @@ import {
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
   createPostgresInviteStore,
+  createPostgresJudgmentEgress,
   createPostgresLinkedAccountStore,
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
@@ -973,6 +974,9 @@ const workers = createWorkerGateway({
     store: githubPackagesStore,
     upstreams: githubPackagesConfig.upstreams,
   },
+  // No judge upstream yet: the judgment route answers 503 until the
+  // `openai_decisions` connection can name one.
+  judgments: { store: createPostgresJudgmentEgress(db) },
   ...(titleEgressUrl === null
     ? {}
     : {

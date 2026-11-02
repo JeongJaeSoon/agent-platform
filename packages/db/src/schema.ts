@@ -3853,6 +3853,8 @@ export const achievementJudgments = pgTable(
     }).notNull(),
     leaseToken: uuid("lease_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /** sha256 of the judgment's egress token; good while the lease holds. */
+    tokenHash: bytea("token_hash"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3864,12 +3866,15 @@ export const achievementJudgments = pgTable(
       columns: [table.sessionId, table.ownerId, table.workspaceId],
       foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
     }),
-    uniqueIndex("achievement_judgments_queued_uniq")
+    uniqueIndex("achievement_judgments_pending_uniq")
       .on(table.sessionId)
-      .where(sql`${table.status} = 'queued'`),
-    index("achievement_judgments_due_idx")
+      .where(sql`${table.status} IN ('queued', 'deferred')`),
+    index("achievement_judgments_pending_due_idx")
       .on(table.nextAttemptAt)
-      .where(sql`${table.status} IN ('queued', 'running')`),
+      .where(sql`${table.status} IN ('queued', 'running', 'deferred')`),
+    uniqueIndex("achievement_judgments_token_uniq")
+      .on(table.tokenHash)
+      .where(sql`${table.tokenHash} IS NOT NULL`),
     index("achievement_judgments_session_idx").on(
       table.sessionId,
       table.createdAt,
@@ -3897,6 +3902,40 @@ export const achievementJudgments = pgTable(
     check(
       "achievement_judgments_lease_check",
       sql`(${table.leaseToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
+
+// One call a judgment made through the judgment route, as the proxy
+// reported it: what the judgment's totals and the workspace's daily spend
+// add up, once per exchange however often the report is retried.
+export const achievementJudgmentUsage = pgTable(
+  "achievement_judgment_usage",
+  {
+    exchangeId: text("exchange_id").primaryKey(),
+    judgmentId: uuid("judgment_id")
+      .notNull()
+      .references(() => achievementJudgments.id),
+    workspaceId: uuid("workspace_id").notNull(),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull(),
+    // Rounded up to the micro-dollar, as the judgment's total adds it.
+    costUsd: numeric("cost_usd", {
+      precision: 14,
+      scale: 6,
+      mode: "number",
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("achievement_judgment_usage_workspace_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+    check(
+      "achievement_judgment_usage_amounts_check",
+      sql`${table.inputTokens} >= 0 AND ${table.costUsd} >= 0`,
     ),
   ],
 );

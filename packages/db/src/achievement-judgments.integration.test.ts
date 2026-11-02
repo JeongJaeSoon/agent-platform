@@ -7,6 +7,7 @@ import {
   scopesForRole,
 } from "@werft-ai/contracts";
 import {
+  ACHIEVEMENT_JUDGMENT_QUIET_MS,
   type AchievementJudgmentStore,
   type ClaimedJudgment,
   callerFor,
@@ -26,7 +27,9 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
   createPostgresAchievementJudgments,
+  createPostgresJudgmentEgress,
   queueAchievementJudgment,
+  utcDayOf,
 } from "./achievement-judgments.ts";
 import {
   createPostgresAchievementRuleStore,
@@ -44,6 +47,7 @@ import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {
   achievementJudgments,
+  achievementJudgmentUsage,
   achievementTypes,
   attempts,
   memberships,
@@ -567,7 +571,7 @@ integration("achievement judgments on PostgreSQL", () => {
     // Still uncommitted when the retry looks: it takes the queued slot first.
     const during = await claimedRetry();
     const trigger = held((tx) =>
-      queueAchievementJudgment(tx, during.sessionId),
+      queueAchievementJudgment(tx, during.sessionId).then(() => {}),
     );
     await trigger.started;
     const finishing = judgments.finish(during.claimed, during.retry);
@@ -593,7 +597,7 @@ integration("achievement judgments on PostgreSQL", () => {
             sql`SELECT 1 FROM sessions WHERE id = ${sessionId} FOR UPDATE`,
           )
           .then(() => {}),
-      (tx) => queueAchievementJudgment(tx, sessionId),
+      (tx) => queueAchievementJudgment(tx, sessionId).then(() => {}),
     );
     await checkpoint.started;
     const finishing = judgments.finish(claimed, retry);
@@ -1192,5 +1196,608 @@ integration("achievement judgments on PostgreSQL", () => {
     for (const row of rows) {
       expect(row).toMatchObject({ attempts: 1, achievements: 1 });
     }
+  });
+
+  async function judgeSettings(
+    workspaceId: string,
+    settings: Record<string, unknown>,
+  ) {
+    await db
+      .update(workspaces)
+      .set({
+        settings: sql`jsonb_build_object('achievement_judge', ${JSON.stringify(settings)}::jsonb)`,
+      })
+      .where(eq(workspaces.id, workspaceId));
+  }
+
+  async function claimOne(sessionId: string) {
+    const [claimed] = (
+      await judgments.claim({ max: 100, leaseMs: 60_000 })
+    ).filter((row) => row.sessionId === sessionId);
+    return claimed;
+  }
+
+  test("a deferred judgment waits for the next UTC day and is claimed again once due; a trigger meanwhile queues it again after the quiet time", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    const claimed = await claimOne(sessionId);
+    if (!claimed) throw new Error("not claimed");
+    const until = new Date(Date.now() + 3_600_000);
+    const deferral = {
+      status: "deferred" as const,
+      until,
+      errorCode: null,
+      rules: [],
+      evidenceIds: [],
+      achievements: [],
+    };
+    expect(await judgments.finish(claimed, deferral)).toBe(true);
+    const [deferred] = await judgmentsOf(sessionId);
+    expect(deferred).toMatchObject({
+      status: "deferred",
+      attempts: 0,
+      nextAttemptAt: until,
+      leaseToken: null,
+      finishedAt: null,
+    });
+    expect(await claimOne(sessionId)).toBeUndefined();
+    await db
+      .update(achievementJudgments)
+      .set({ nextAttemptAt: sql`now() - interval '1 second'` })
+      .where(eq(achievementJudgments.sessionId, sessionId));
+    const due = await claimOne(sessionId);
+    expect(due?.id).toBe(claimed.id);
+    if (!due) throw new Error("not claimed");
+    expect(await judgments.finish(due, deferral)).toBe(true);
+
+    // New evidence must not wait for the next day's budget to have its
+    // always pairs counted: the deferred judgment runs again after the
+    // quiet time, and the judge defers its luna pairs again.
+    await review(sessionId, ws.workspaceId);
+    const [again] = await judgmentsOf(sessionId);
+    expect(again).toMatchObject({ id: claimed.id, status: "queued" });
+    expect(again?.nextAttemptAt.getTime()).toBeLessThan(until.getTime());
+    expect(await claimOne(sessionId)).toBeUndefined();
+    await quietPassed(sessionId);
+    expect((await claimOne(sessionId))?.id).toBe(claimed.id);
+  });
+
+  test("context reads the judge settings, today's spend from the call ledger by the database's day, and the session's other judged judgments", async () => {
+    const egress = createPostgresJudgmentEgress(db);
+    const ws = await workspace();
+    await judgeSettings(ws.workspaceId, {
+      connection_id: "conn-1",
+      daily_budget_usd: 0.5,
+      max_per_session: 3,
+    });
+    const sessionId = await session(ws.workspaceId);
+    const other = await session(ws.workspaceId);
+    const row = (
+      values: Partial<typeof achievementJudgments.$inferInsert>,
+    ) => ({
+      id: randomUUID(),
+      workspaceId: ws.workspaceId,
+      ownerId: ws.workspaceId,
+      trigger: "evidence",
+      nextAttemptAt: new Date(),
+      sessionId: other,
+      status: "succeeded",
+      ...values,
+    });
+    // Still waiting for its retry, it made a call just before midnight:
+    // yesterday's spend, however long it stays unfinished.
+    const unfinished = row({ costUsd: 0.4, calls: 1, status: "deferred" });
+    const finished = row({ costUsd: 0.1, calls: 2, finishedAt: new Date() });
+    const judged = row({
+      costUsd: 0.05,
+      calls: 1,
+      status: "failed",
+      sessionId,
+      finishedAt: new Date(),
+    });
+    await db.insert(achievementJudgments).values([
+      unfinished,
+      finished,
+      judged,
+      row({
+        costUsd: 0,
+        calls: 0,
+        status: "skipped",
+        sessionId,
+        finishedAt: new Date(),
+      }),
+    ]);
+    const usage = (
+      judgment: { id: string },
+      costUsd: number,
+      createdAt: ReturnType<typeof sql>,
+    ) => ({
+      exchangeId: randomUUID(),
+      judgmentId: judgment.id,
+      workspaceId: ws.workspaceId,
+      inputTokens: 1,
+      costUsd,
+      createdAt,
+    });
+    await db
+      .insert(achievementJudgmentUsage)
+      .values([
+        usage(
+          unfinished,
+          0.4,
+          sql`date_trunc('day', now(), 'UTC') - interval '1 minute'`,
+        ),
+        usage(finished, 0.06, sql`date_trunc('day', now(), 'UTC')`),
+        usage(finished, 0.04, sql`now()`),
+        usage(judged, 0.05, sql`now()`),
+      ]);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    const claimed = await claimOne(sessionId);
+    if (!claimed) throw new Error("not claimed");
+    // Its own call is today's spend, but not one of the session's others.
+    expect(
+      await egress.recordUsage({
+        exchangeId: randomUUID(),
+        judgmentId: claimed.id,
+        inputTokens: 1,
+        costUsd: 0.01,
+      }),
+    ).toMatchObject({ outcome: "recorded" });
+    const midnight = await db.execute<{ at: string }>(
+      sql`SELECT ${utcDayOf(sql`now()`).next}::text AS at`,
+    );
+    expect((await judgments.context(claimed)).judge).toEqual({
+      connectionId: "conn-1",
+      dailyBudgetUsd: 0.5,
+      maxPerSession: 3,
+      spentUsd: 0.16,
+      budgetResetsAt: new Date(midnight.rows[0]?.at ?? ""),
+      sessionJudgments: 1,
+    });
+  });
+
+  test("a judgment token authorizes only while its lease holds; usage lands on the judgment once per exchange, never on the session", async () => {
+    const egress = createPostgresJudgmentEgress(db);
+    const ws = await workspace();
+    await judgeSettings(ws.workspaceId, {
+      connection_id: "conn-1",
+      daily_budget_usd: 2,
+    });
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    const claimed = await claimOne(sessionId);
+    if (!claimed) throw new Error("not claimed");
+    const hash = new Uint8Array(32).fill(7);
+    expect(
+      await egress.issueToken({ ...claimed, leaseToken: randomUUID() }, hash),
+    ).toBe(false);
+    expect(await egress.issueToken(claimed, hash)).toBe(true);
+    expect(await egress.authorizeToken({ tokenHash: hash })).toEqual({
+      outcome: "ok",
+      judgmentId: claimed.id,
+      connectionId: "conn-1",
+      dailyBudgetUsd: 2,
+      spentUsd: 0,
+    });
+    expect(
+      await egress.authorizeToken({ tokenHash: new Uint8Array(32).fill(8) }),
+    ).toEqual({ outcome: "invalid_token" });
+
+    const before = await db
+      .select({ costUsd: sessions.costUsd, tokens: sessions.providerTokens })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const first = {
+      exchangeId: randomUUID(),
+      judgmentId: claimed.id,
+      inputTokens: 600,
+      costUsd: 0.00006,
+    };
+    expect(await egress.recordUsage(first)).toEqual({
+      outcome: "recorded",
+      costUsd: 0.00006,
+    });
+    // The proxy reports an exchange again when its report got no answer.
+    expect(await egress.recordUsage(first)).toEqual({
+      outcome: "replayed",
+      costUsd: 0.00006,
+    });
+    expect(await egress.recordUsage({ ...first, inputTokens: 601 })).toEqual({
+      outcome: "conflict",
+    });
+    expect(
+      await egress.recordUsage({
+        exchangeId: randomUUID(),
+        judgmentId: claimed.id,
+        inputTokens: 1,
+        costUsd: 0.0000001,
+      }),
+    ).toEqual({ outcome: "recorded", costUsd: 0.000001 });
+    expect(
+      await egress.recordUsage({
+        exchangeId: randomUUID(),
+        judgmentId: randomUUID(),
+        inputTokens: 1,
+        costUsd: 1,
+      }),
+    ).toEqual({ outcome: "unknown_judgment" });
+    const [ledger] = await judgmentsOf(sessionId);
+    expect(ledger).toMatchObject({
+      calls: 2,
+      inputTokens: 601,
+      // Each call rounded up to a whole micro-dollar.
+      costUsd: 0.000061,
+    });
+    expect(
+      await db
+        .select({ costUsd: sessions.costUsd, tokens: sessions.providerTokens })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId)),
+    ).toEqual(before);
+    expect(await egress.authorizeToken({ tokenHash: hash })).toMatchObject({
+      outcome: "ok",
+      spentUsd: 0.000061,
+    });
+
+    // The finish ends the lease and the token with it; the ledger stays.
+    await judgments.finish(claimed, {
+      status: "succeeded",
+      errorCode: null,
+      rules: [],
+      evidenceIds: [],
+      achievements: [],
+    });
+    expect(await egress.authorizeToken({ tokenHash: hash })).toEqual({
+      outcome: "invalid_token",
+    });
+    expect((await judgmentsOf(sessionId))[0]).toMatchObject({
+      tokenHash: null,
+      calls: 2,
+    });
+    // A report arriving after the finish still counts.
+    expect(
+      await egress.recordUsage({
+        exchangeId: randomUUID(),
+        judgmentId: claimed.id,
+        inputTokens: 10,
+        costUsd: 0.000001,
+      }),
+    ).toMatchObject({ outcome: "recorded" });
+    expect((await judgmentsOf(sessionId))[0]?.calls).toBe(3);
+  });
+
+  test("a judgment token dies with its lease: refused once the lease runs out, and not revived when another claim takes the judgment over", async () => {
+    const egress = createPostgresJudgmentEgress(db);
+    const ws = await workspace();
+    await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    const claimed = await claimOne(sessionId);
+    if (!claimed) throw new Error("not claimed");
+    const hash = new Uint8Array(32).fill(9);
+    expect(await egress.issueToken(claimed, hash)).toBe(true);
+    await db
+      .update(achievementJudgments)
+      .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+      .where(eq(achievementJudgments.id, claimed.id));
+    expect(await egress.authorizeToken({ tokenHash: hash })).toEqual({
+      outcome: "invalid_token",
+    });
+
+    const takeover = await claimOne(sessionId);
+    expect(takeover?.id).toBe(claimed.id);
+    if (!takeover) throw new Error("not claimed");
+    expect(await egress.authorizeToken({ tokenHash: hash })).toEqual({
+      outcome: "invalid_token",
+    });
+    expect(await egress.issueToken(claimed, hash)).toBe(false);
+    const fresh = new Uint8Array(32).fill(10);
+    expect(await egress.issueToken(takeover, fresh)).toBe(true);
+    expect(await egress.authorizeToken({ tokenHash: fresh })).toMatchObject({
+      outcome: "ok",
+      judgmentId: claimed.id,
+    });
+  });
+
+  /** A workspace over its day's judgment budget, with a luna rule on pull requests and an always rule on reviews. */
+  async function overBudget() {
+    const ws = await workspace();
+    await judgeSettings(ws.workspaceId, {
+      connection_id: "conn-1",
+      daily_budget_usd: 0.01,
+    });
+    await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+    const counted = await rule(ws, await typeId(ws.workspaceId, "code_review"));
+    const spender = await session(ws.workspaceId);
+    const spent = randomUUID();
+    await db.insert(achievementJudgments).values({
+      id: spent,
+      workspaceId: ws.workspaceId,
+      ownerId: ws.workspaceId,
+      sessionId: spender,
+      trigger: "evidence",
+      status: "succeeded",
+      nextAttemptAt: new Date(),
+      calls: 1,
+      costUsd: 0.01,
+      finishedAt: new Date(),
+    });
+    await db.insert(achievementJudgmentUsage).values({
+      exchangeId: randomUUID(),
+      judgmentId: spent,
+      workspaceId: ws.workspaceId,
+      inputTokens: 100,
+      costUsd: 0.01,
+    });
+    return { ws, counted };
+  }
+
+  async function ledgerOf(workspaceId: string) {
+    return db
+      .select()
+      .from(achievementJudgmentUsage)
+      .where(eq(achievementJudgmentUsage.workspaceId, workspaceId));
+  }
+
+  test("over budget, new evidence on a deferred judgment has its always pair counted within the quiet time, the luna pair deferred again, and no call made", async () => {
+    const { ws, counted } = await overBudget();
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    await replica().runOnce();
+    const [deferred] = await judgmentsOf(sessionId);
+    expect(deferred).toMatchObject({ status: "deferred", calls: 0 });
+    expect(await achievementsOf(sessionId)).toEqual([]);
+
+    await review(sessionId, ws.workspaceId);
+    const [requeued] = await judgmentsOf(sessionId);
+    expect(requeued).toMatchObject({ id: deferred?.id, status: "queued" });
+    expect(requeued?.nextAttemptAt.getTime()).toBeLessThanOrEqual(
+      Date.now() + ACHIEVEMENT_JUDGMENT_QUIET_MS + 5_000,
+    );
+    await quietPassed(sessionId);
+    await replica().runOnce();
+
+    expect(
+      (await achievementsOf(sessionId)).map((row) => [
+        row.ruleId,
+        row.evidenceKind,
+      ]),
+    ).toEqual([[counted.id, "github_review"]]);
+    const [again] = await judgmentsOf(sessionId);
+    expect(again).toMatchObject({
+      id: deferred?.id,
+      status: "deferred",
+      calls: 0,
+      inputTokens: 0,
+      costUsd: 0,
+      tokenHash: null,
+    });
+    expect(again?.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
+    // Only the call that spent the budget: none was made over it.
+    expect(await ledgerOf(ws.workspaceId)).toHaveLength(1);
+  });
+
+  test("a judgment deferred while a trigger queued another leaves that one queued for its quiet time, committed before or while it finishes", async () => {
+    const deferral = (until: Date) => ({
+      status: "deferred" as const,
+      until,
+      errorCode: null,
+      rules: [],
+      evidenceIds: [],
+      achievements: [],
+    });
+    const running = async () => {
+      const { ws } = await overBudget();
+      const sessionId = await session(ws.workspaceId);
+      await pullRequest(sessionId, ws.workspaceId);
+      await quietPassed(sessionId);
+      const claimed = await claimOne(sessionId);
+      if (!claimed) throw new Error("not claimed");
+      return { sessionId, claimed };
+    };
+    const until = new Date(Date.now() + 3_600_000);
+
+    const before = await running();
+    await queueAchievementJudgment(db, before.sessionId);
+    expect(await judgments.finish(before.claimed, deferral(until))).toBe(true);
+    const folded = await judgmentsOf(before.sessionId);
+    expect(folded.map((row) => row.status)).toEqual(["failed", "queued"]);
+    expect(folded[1]?.nextAttemptAt.getTime()).toBeLessThan(until.getTime());
+
+    const during = await running();
+    const trigger = held((tx) =>
+      queueAchievementJudgment(tx, during.sessionId).then(() => {}),
+    );
+    await trigger.started;
+    const finishing = judgments.finish(during.claimed, deferral(until));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    trigger.release();
+    await trigger.done;
+    expect(await finishing).toBe(true);
+    const raced = await judgmentsOf(during.sessionId);
+    expect(raced.map((row) => row.status)).toEqual(["failed", "queued"]);
+    expect(raced[1]?.nextAttemptAt.getTime()).toBeLessThan(until.getTime());
+  });
+
+  test("the UTC day and the next one are on the UTC calendar whatever the connection's TimeZone", async () => {
+    // US daylight saving time starts that day.
+    const day = utcDayOf(sql`'2026-03-08T12:00:00Z'::timestamptz`);
+    const read = await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL TimeZone = 'America/New_York'`);
+      const result = await tx.execute<{ start: string; next: string }>(
+        sql`SELECT (extract(epoch FROM ${day.start}) * 1000)::float8 AS start,
+                   (extract(epoch FROM ${day.next}) * 1000)::float8 AS next`,
+      );
+      return result.rows[0];
+    });
+    expect(new Date(Number(read?.start)).toISOString()).toBe(
+      "2026-03-08T00:00:00.000Z",
+    );
+    expect(new Date(Number(read?.next)).toISOString()).toBe(
+      "2026-03-09T00:00:00.000Z",
+    );
+  });
+
+  test("two reports of one exchange at once count it once: one recorded, one replayed", async () => {
+    const egress = createPostgresJudgmentEgress(db);
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    await quietPassed(sessionId);
+    const claimed = await claimOne(sessionId);
+    if (!claimed) throw new Error("not claimed");
+    // Holds both reports mid-write: the first at its insert's foreign key,
+    // the second behind the first's uncommitted exchange.
+    const blocker = held(async (tx) => {
+      await tx.execute(
+        sql`SELECT 1 FROM achievement_judgments WHERE id = ${claimed.id} FOR UPDATE`,
+      );
+    });
+    await blocker.started;
+    const report = {
+      exchangeId: randomUUID(),
+      judgmentId: claimed.id,
+      inputTokens: 5,
+      costUsd: 0.001,
+    };
+    const both = Promise.all([
+      egress.recordUsage(report),
+      egress.recordUsage(report),
+    ]);
+    for (let waited = 0; ; waited += 20) {
+      const waiting = await db.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      if ((waiting.rows[0]?.n ?? 0) >= 2) break;
+      if (waited > 5_000) throw new Error("reports never met");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    blocker.release();
+    await blocker.done;
+    const outcomes = (await both).map((result) => result.outcome).sort();
+    expect(outcomes).toEqual(["recorded", "replayed"]);
+    expect((await judgmentsOf(sessionId))[0]).toMatchObject({
+      calls: 1,
+      inputTokens: 5,
+      costUsd: 0.001,
+    });
+    expect(await ledgerOf(ws.workspaceId)).toHaveLength(1);
+  });
+
+  test("a turns trigger queues on every Nth turn only with every_n_turns set and a conversation rule in use", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId, "Fix the build");
+    const turns = (turn: number) =>
+      db.transaction((tx) =>
+        queueAchievementJudgment(tx, sessionId, { trigger: "turns", turn }),
+      );
+    // Off by default.
+    expect(await turns(10)).toBeNull();
+    await judgeSettings(ws.workspaceId, { every_n_turns: 5 });
+    // No conversation rule yet.
+    expect(await turns(10)).toBeNull();
+    const conversation = await rules().createType({
+      actor: ws.owner,
+      receiptId: randomUUID(),
+      key: `talk_${randomUUID().slice(0, 6)}`,
+      name: "Talk",
+      evidenceKind: "conversation",
+    });
+    if (conversation.outcome !== "created") throw new Error("no type");
+    await rule(ws, conversation.type.id, "luna");
+    expect(await turns(7)).toBeNull();
+    const queued = await turns(10);
+    expect(queued).not.toBeNull();
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { id: queued, trigger: "turns", status: "queued" },
+    ]);
+    // A later trigger merges into it and keeps its trigger.
+    expect(await turns(15)).toBe(queued);
+    expect(await judgmentsOf(sessionId)).toHaveLength(1);
+  });
+
+  test("an idle trigger queues only with on_idle on; a manual one always", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    const queue = (trigger: "idle" | "manual") =>
+      db.transaction((tx) =>
+        queueAchievementJudgment(tx, sessionId, { trigger }),
+      );
+    expect(await queue("idle")).toBeNull();
+    await judgeSettings(ws.workspaceId, { on_idle: true, on_evidence: false });
+    const idle = await queue("idle");
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { id: idle, trigger: "idle" },
+    ]);
+
+    const other = await session(ws.workspaceId);
+    await judgeSettings(ws.workspaceId, { on_idle: false, on_evidence: false });
+    const manual = await db.transaction((tx) =>
+      queueAchievementJudgment(tx, other, { trigger: "manual" }),
+    );
+    expect(await judgmentsOf(other)).toMatchObject([
+      { id: manual, trigger: "manual" },
+    ]);
+  });
+
+  test("a manual rejudge queues with a rejudge_session receipt; another owner's session is not found", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    const receiptId = randomUUID();
+    const result = await judgments.rejudge({
+      actor: ws.owner,
+      sessionId,
+      receiptId,
+    });
+    if (result.outcome !== "queued") throw new Error(result.outcome);
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { id: result.judgmentId, trigger: "manual", status: "queued" },
+    ]);
+    const [written] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, receiptId));
+    expect(written).toMatchObject({
+      operation: "rejudge_session",
+      status: "succeeded",
+      targetRef: { session_id: sessionId, turn_id: null, request_id: null },
+      result: { judgment_id: result.judgmentId },
+    });
+
+    const elsewhere = await workspace();
+    const foreign = await session(elsewhere.workspaceId);
+    expect(
+      await judgments.rejudge({
+        actor: ws.owner,
+        sessionId: foreign,
+        receiptId: randomUUID(),
+      }),
+    ).toEqual({ outcome: "not_found" });
+    expect(await judgmentsOf(foreign)).toEqual([]);
+  });
+
+  test("a trigger merging into a pending judgment leaves it the newest trigger", async () => {
+    const ws = await workspace();
+    const sessionId = await session(ws.workspaceId);
+    await pullRequest(sessionId, ws.workspaceId);
+    const [pending] = await judgmentsOf(sessionId);
+    expect(pending).toMatchObject({ trigger: "evidence", status: "queued" });
+    if (!pending) throw new Error("not queued");
+    const result = await judgments.rejudge({
+      actor: ws.owner,
+      sessionId,
+      receiptId: randomUUID(),
+    });
+    expect(result).toEqual({ outcome: "queued", judgmentId: pending.id });
+    expect(await judgmentsOf(sessionId)).toMatchObject([
+      { id: pending.id, trigger: "manual", status: "queued" },
+    ]);
   });
 });

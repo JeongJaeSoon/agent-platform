@@ -15,6 +15,7 @@ import {
   listAchievementRulesResponseSchema,
   listAchievementTypesResponseSchema,
   listSessionAchievementsResponseSchema,
+  rejudgeSessionResponseSchema,
   sessionIdParamsSchema,
   updateAchievementCategoryRequestSchema,
   updateAchievementTypeRequestSchema,
@@ -233,5 +234,12 @@ export function registerSessionAchievementRoutes(
       listSessionAchievementsResponseSchema,
       listed,
     );
+  });
+  apiRoute(router, "rejudgeSession", async (context) => {
+    const params = requireParams(context, sessionIdParamsSchema);
+    const queued = await mapped(() =>
+      service.rejudge(context.get("caller"), params.id),
+    );
+    return jsonWithSchema(context, rejudgeSessionResponseSchema, queued, 202);
   });
 }

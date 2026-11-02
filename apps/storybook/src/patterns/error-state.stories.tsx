@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ErrorState } from "@werft-ai/ui";
+import { Card, ErrorState } from "@werft-ai/ui";
 import { fn } from "storybook/test";
 
 const meta = {
@@ -51,14 +51,32 @@ export const CodeAndRetry: Story = {
   },
 };
 
-/** In a card, where the console shows it. */
+/** In a card, where the console shows it today (`Card className="py-0"`). */
 export const InCard: Story = {
   ...CodeAndRetry,
   decorators: [
     (Story) => (
-      <div className="rounded-card border bg-card">
+      <Card className="py-0">
         <Story />
-      </div>
+      </Card>
     ),
   ],
+};
+
+/** `framed`: the same card as InCard, drawn by the state itself. */
+export const Framed: Story = {
+  ...CodeAndRetry,
+  args: { ...CodeAndRetry.args, framed: true },
+};
+
+export const FramedDark: Story = {
+  ...Framed,
+  name: "Framed (dark)",
+  globals: { theme: "dark" },
+};
+
+export const FramedMobile: Story = {
+  ...Framed,
+  name: "Framed (390px)",
+  globals: { viewport: { value: "mobile390", isRotated: false } },
 };

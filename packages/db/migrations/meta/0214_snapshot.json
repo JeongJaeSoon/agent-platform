@@ -1,5 +1,5 @@
 {
-  "id": "01648dd0-c937-4478-8a49-58b67e171ce4",
+  "id": "d552e30d-e40b-4a8c-925f-d71d8df0d2b9",
   "prevId": "f2a563d6-092f-4236-9708-a909f22d3c89",
   "version": "7",
   "dialect": "postgresql",
@@ -130,6 +130,93 @@
       },
       "isRLSEnabled": false
     },
+    "public.achievement_judgment_usage": {
+      "name": "achievement_judgment_usage",
+      "schema": "",
+      "columns": {
+        "exchange_id": {
+          "name": "exchange_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "judgment_id": {
+          "name": "judgment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "achievement_judgment_usage_workspace_idx": {
+          "name": "achievement_judgment_usage_workspace_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "achievement_judgment_usage_judgment_id_achievement_judgments_id_fk": {
+          "name": "achievement_judgment_usage_judgment_id_achievement_judgments_id_fk",
+          "tableFrom": "achievement_judgment_usage",
+          "tableTo": "achievement_judgments",
+          "columnsFrom": ["judgment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "achievement_judgment_usage_amounts_check": {
+          "name": "achievement_judgment_usage_amounts_check",
+          "value": "\"achievement_judgment_usage\".\"input_tokens\" >= 0 AND \"achievement_judgment_usage\".\"cost_usd\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.achievement_judgments": {
       "name": "achievement_judgments",
       "schema": "",
@@ -254,6 +341,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -269,8 +362,8 @@
         }
       },
       "indexes": {
-        "achievement_judgments_queued_uniq": {
-          "name": "achievement_judgments_queued_uniq",
+        "achievement_judgments_pending_uniq": {
+          "name": "achievement_judgments_pending_uniq",
           "columns": [
             {
               "expression": "session_id",
@@ -280,13 +373,13 @@
             }
           ],
           "isUnique": true,
-          "where": "\"achievement_judgments\".\"status\" = 'queued'",
+          "where": "\"achievement_judgments\".\"status\" IN ('queued', 'deferred')",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "achievement_judgments_due_idx": {
-          "name": "achievement_judgments_due_idx",
+        "achievement_judgments_pending_due_idx": {
+          "name": "achievement_judgments_pending_due_idx",
           "columns": [
             {
               "expression": "next_attempt_at",
@@ -296,7 +389,23 @@
             }
           ],
           "isUnique": false,
-          "where": "\"achievement_judgments\".\"status\" IN ('queued', 'running')",
+          "where": "\"achievement_judgments\".\"status\" IN ('queued', 'running', 'deferred')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "achievement_judgments_token_uniq": {
+          "name": "achievement_judgments_token_uniq",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"achievement_judgments\".\"token_hash\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -352,7 +461,7 @@
         },
         "achievement_judgments_error_code_check": {
           "name": "achievement_judgments_error_code_check",
-          "value": "\"achievement_judgments\".\"error_code\" IS NULL OR \"achievement_judgments\".\"error_code\" IN ('judge_unavailable','outputs_unavailable')"
+          "value": "\"achievement_judgments\".\"error_code\" IS NULL OR \"achievement_judgments\".\"error_code\" IN ('judge_unavailable','outputs_unavailable','session_limit')"
         },
         "achievement_judgments_cost_check": {
           "name": "achievement_judgments_cost_check",
@@ -8038,130 +8147,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.session_repository_attachments": {
-      "name": "session_repository_attachments",
-      "schema": "",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "repository_id": {
-          "name": "repository_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "attempt_id": {
-          "name": "attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "branch": {
-          "name": "branch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "git_commit": {
-          "name": "git_commit",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "failure": {
-          "name": "failure",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "receipt_id": {
-          "name": "receipt_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_at": {
-          "name": "requested_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "settled_at": {
-          "name": "settled_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "session_repository_attachments_pending_idx": {
-          "name": "session_repository_attachments_pending_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"session_repository_attachments\".\"status\" = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "session_repository_attachments_session_id_sessions_id_fk": {
-          "name": "session_repository_attachments_session_id_sessions_id_fk",
-          "tableFrom": "session_repository_attachments",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "session_repository_attachments_receipt_id_receipts_id_fk": {
-          "name": "session_repository_attachments_receipt_id_receipts_id_fk",
-          "tableFrom": "session_repository_attachments",
-          "tableTo": "receipts",
-          "columnsFrom": ["receipt_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "session_repository_attachments_session_id_repository_id_pk": {
-          "name": "session_repository_attachments_session_id_repository_id_pk",
-          "columns": ["session_id", "repository_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "session_repository_attachments_status_check": {
-          "name": "session_repository_attachments_status_check",
-          "value": "\"session_repository_attachments\".\"status\" IN ('pending','attached','failed')"
-        },
-        "session_repository_attachments_settled_check": {
-          "name": "session_repository_attachments_settled_check",
-          "value": "(\"session_repository_attachments\".\"status\" = 'attached') = (\"session_repository_attachments\".\"git_commit\" IS NOT NULL) AND (\"session_repository_attachments\".\"status\" = 'failed') = (\"session_repository_attachments\".\"failure\" IS NOT NULL) AND (\"session_repository_attachments\".\"status\" = 'pending') = (\"session_repository_attachments\".\"settled_at\" IS NULL)"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.session_share_targets": {

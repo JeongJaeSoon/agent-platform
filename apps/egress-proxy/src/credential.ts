@@ -112,7 +112,8 @@ export type EgressPurpose =
   | "repository"
   | "object_store"
   | "mcp"
-  | "packages";
+  | "packages"
+  | "judgment";
 
 export type CredentialRoute = {
   purpose: EgressPurpose;
@@ -137,6 +138,8 @@ export type CredentialRoute = {
 };
 
 const PROVIDER_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
+// The achievement judge's one call, made by the API with a judgment token.
+const JUDGMENT_PATH = "/decisions/v1/decisions";
 // Claude Code asks for the beta surface with `?beta=true`; nothing else.
 const PROVIDER_QUERIES = new Set(["", "?beta=true"]);
 
@@ -228,6 +231,11 @@ export function routeOf(
           path,
           search,
         }
+      : null;
+  }
+  if (pathname === JUDGMENT_PATH) {
+    return method === "POST" && search === ""
+      ? { purpose: "judgment", path: "/v1/decisions", search }
       : null;
   }
   if (pathname.startsWith("/provider/")) {
@@ -505,8 +513,11 @@ export function tokenOf(
 }
 
 export type EgressGrant = {
-  sessionId: string;
-  attemptId: string;
+  /** A session route's grant: the attempt its use is charged to. */
+  sessionId: string | null;
+  attemptId: string | null;
+  /** The judgment route's grant: the judgment its use is charged to. */
+  judgmentId: string | null;
   upstream: URL;
   headers: Array<[string, string]>;
   /**
@@ -536,10 +547,19 @@ export function parseGrant(
   authorizer?: URL,
 ): EgressGrant | null {
   if (typeof body !== "object" || body === null) return null;
-  const { session_id, attempt_id, upstream } = body as Record<string, unknown>;
-  if (typeof session_id !== "string" || typeof attempt_id !== "string") {
-    return null;
-  }
+  const { session_id, attempt_id, judgment_id, upstream } = body as Record<
+    string,
+    unknown
+  >;
+  const session =
+    typeof session_id === "string" &&
+    typeof attempt_id === "string" &&
+    judgment_id === undefined;
+  const judgment =
+    typeof judgment_id === "string" &&
+    session_id === undefined &&
+    attempt_id === undefined;
+  if (!session && !judgment) return null;
   if (typeof upstream !== "object" || upstream === null) return null;
   const { url, headers, target } = upstream as Record<string, unknown>;
   if (typeof url !== "string" || !Array.isArray(headers)) return null;
@@ -580,8 +600,9 @@ export function parseGrant(
     pairs.push([entry[0].toLowerCase(), entry[1]]);
   }
   return {
-    sessionId: session_id,
-    attemptId: attempt_id,
+    sessionId: session ? (session_id as string) : null,
+    attemptId: session ? (attempt_id as string) : null,
+    judgmentId: judgment ? (judgment_id as string) : null,
     upstream: parsed,
     headers: pairs,
     target: target ?? null,
@@ -1008,18 +1029,12 @@ export function startCredentialProxy(
     exchangeId: string,
     usage: MessagesUsage,
   ): Promise<void> {
-    const fields = {
-      session_id: grant.sessionId,
-      attempt_id: grant.attemptId,
-      exchange_id: exchangeId,
-      model: usage.model,
-    };
-    const body = JSON.stringify({
-      exchange_id: exchangeId,
-      session_id: grant.sessionId,
-      attempt_id: grant.attemptId,
-      usage,
-    });
+    const charged =
+      grant.judgmentId === null
+        ? { session_id: grant.sessionId, attempt_id: grant.attemptId }
+        : { judgment_id: grant.judgmentId };
+    const fields = { ...charged, exchange_id: exchangeId, model: usage.model };
+    const body = JSON.stringify({ exchange_id: exchangeId, ...charged, usage });
     for (let tried = 0; ; tried++) {
       let status: number | null = null;
       try {
@@ -1357,8 +1372,9 @@ export function startCredentialProxy(
       ...(route.repository === undefined
         ? {}
         : { repository_id: route.repository }),
-      session_id: grant.sessionId,
-      attempt_id: grant.attemptId,
+      ...(grant.judgmentId === null
+        ? { session_id: grant.sessionId, attempt_id: grant.attemptId }
+        : { judgment_id: grant.judgmentId }),
       client,
     };
     // The upstream is the catalog's, not the worker's, and it is still held
@@ -1539,8 +1555,11 @@ export function startCredentialProxy(
           }),
         ),
       ) ?? null;
-    // count_tokens is free; only a Messages answer is metered.
-    if (route.purpose !== "provider" || route.path !== "/v1/messages") {
+    // count_tokens is free; only a Messages answer and a judgment are metered.
+    if (
+      route.purpose !== "judgment" &&
+      (route.purpose !== "provider" || route.path !== "/v1/messages")
+    ) {
       return new Response(guarded, { status: response.status, headers });
     }
     const meter = usageMeter(response.headers.get("content-type"));
@@ -1793,6 +1812,7 @@ export function startCredentialProxy(
               purpose: route.purpose,
               session_id: grant.sessionId,
               attempt_id: grant.attemptId,
+              judgment_id: grant.judgmentId,
               status: again.kind === "refused" ? again.status : 200,
               stale,
               client,
@@ -1851,6 +1871,18 @@ export function startCredentialProxy(
               : `egress denied: credential_unbound (receipt ${authorized.receiptId})`,
             route.purpose,
           );
+        }
+        // A judgment's grant charges no session, and a session's no
+        // judgment: either on the other's route is an authorizer fault.
+        if (
+          (route.purpose === "judgment") !==
+          (authorized.grant.judgmentId !== null)
+        ) {
+          release();
+          logger.error("Egress authorizer granted for another route", {
+            purpose: route.purpose,
+          });
+          return reply(503, "egress token refused", route.purpose);
         }
         // Authorized: from here the exchange deadline bounds it, not the
         // idle clock, which a silent non-streaming call would trip.

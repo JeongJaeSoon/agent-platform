@@ -462,7 +462,7 @@ export function OrgKeysScreen() {
   );
 }
 
-function CopyButton({
+function KeyIdCopyButton({
   value,
   label,
   field,
@@ -521,7 +521,7 @@ function KeyIdMeta({ id }: { readonly id: string }) {
       <code className="min-w-0 font-mono text-foreground [overflow-wrap:anywhere]">
         {id}
       </code>
-      <CopyButton
+      <KeyIdCopyButton
         value={id}
         label={t("apiKeys.copyIdFor", { id })}
         onResult={(ok) => setFailed(!ok)}

@@ -28,7 +28,7 @@ const requiredEnv = ["DATABASE_URL", "AUTH_MODE"];
 describe("readiness probe", () => {
   test("journal head is the last migration tag", () => {
     expect(expectedMigrationHead().tag).toBe(
-      "0214_session_repository_attachments",
+      "0216_session_repository_attachments",
     );
   });
 
@@ -92,7 +92,7 @@ describe("readiness probe", () => {
     })();
     expect(result).toMatchObject({ ready: false, check: "schema" });
     expect(result.ready === false && result.reason).toContain(
-      "0214_session_repository_attachments",
+      "0216_session_repository_attachments",
     );
 
     // Same timestamp, different SQL behind it: not the schema this build ships.

@@ -14,6 +14,7 @@ export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./confirm-dialog.tsx";
+export { CopyButton, type CopyButtonProps } from "./copy-button.tsx";
 export {
   DangerZone,
   type DangerZoneProps,
@@ -66,6 +67,10 @@ export {
 } from "./secret-field.tsx";
 export { Section, type SectionProps } from "./section.tsx";
 export { SettingRow, type SettingRowProps } from "./setting-row.tsx";
+export {
+  SettingsSection,
+  type SettingsSectionProps,
+} from "./settings-section.tsx";
 export {
   SideNav,
   SideNavGroup,

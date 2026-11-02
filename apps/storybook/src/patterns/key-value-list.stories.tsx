@@ -109,7 +109,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** A card's summary (mockup v4 `.kv-list`): 4px apart, values on the right. */
+/** A card's summary: 4px apart, values on the right. */
 export const List: Story = {};
 
 export const ListDark: Story = {
@@ -117,7 +117,7 @@ export const ListDark: Story = {
   globals: { theme: "dark" },
 };
 
-/** A detail page's facts (mockup v4 `.dl`): a 140px label column. */
+/** A detail page's facts: a 140px label column. */
 export const Grid: Story = {
   args: { variant: "grid" },
   render: (args, context) => (
@@ -238,6 +238,31 @@ export const GridMobile: Story = {
   name: "Grid (390px)",
   globals: {
     locale: "ja",
+    viewport: { value: "mobile390", isRotated: false },
+  },
+};
+
+/** `stack="sm"`: two columns from `sm`, each value under its label below. */
+export const GridStacked: Story = {
+  ...Grid,
+  name: "Grid, stacked below sm",
+  args: { variant: "grid", stack: "sm" },
+};
+
+export const GridStackedMobile: Story = {
+  ...GridStacked,
+  name: "Grid, stacked below sm (390px)",
+  globals: {
+    locale: "ja",
+    viewport: { value: "mobile390", isRotated: false },
+  },
+};
+
+export const GridStackedMobileDark: Story = {
+  ...GridStackedMobile,
+  name: "Grid, stacked below sm (390px, dark)",
+  globals: {
+    theme: "dark",
     viewport: { value: "mobile390", isRotated: false },
   },
 };

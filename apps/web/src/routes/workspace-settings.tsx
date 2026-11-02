@@ -13,9 +13,9 @@ import {
   FieldLabel,
   Input,
   Page,
-  RowList,
   SecretField,
   SettingRow,
+  SettingsSection as SettingsCard,
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
@@ -42,7 +42,6 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 // GitHub-style settings (V4-SETTINGS-LAYOUT A): one column of sections, each
 // a title over a rule, labels above their fields and help under them.
 const SECTIONS = "flex flex-col gap-10";
-const SUB = "m-0 text-control text-muted-foreground";
 const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
 // Wide enough for the longer of On/Off, so the label does not reflow on a flip.
@@ -111,79 +110,7 @@ export function WorkspaceSettingsScreen() {
   );
 }
 
-export function SettingsCard({
-  id,
-  title,
-  titleAs: Heading = "h2",
-  badge,
-  description,
-  descriptionId,
-  rows,
-  foot,
-  onSubmit,
-  children,
-}: {
-  /** A fragment others link to. */
-  readonly id?: string;
-  readonly title: string;
-  /** `h3` under a page whose own sections are `h2`, as a team's are. */
-  readonly titleAs?: "h2" | "h3";
-  /** After the title, outside the heading's name: a count. */
-  readonly badge?: ReactNode;
-  readonly description?: string;
-  readonly descriptionId?: string;
-  /** SettingRows under the body, edge to edge like the foot. */
-  readonly rows?: ReactNode;
-  readonly foot?: ReactNode;
-  readonly onSubmit?: (event: FormEvent) => void;
-  readonly children?: ReactNode;
-}) {
-  const titleId = useId();
-  const content = (
-    <>
-      {children}
-      {rows ? <RowList variant="joined">{rows}</RowList> : null}
-      {foot ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {foot}
-        </div>
-      ) : null}
-    </>
-  );
-  return (
-    <section id={id} aria-labelledby={titleId} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1 border-b pb-2">
-        <div className="flex items-center gap-2">
-          <Heading
-            id={titleId}
-            className="m-0 font-semibold text-body leading-6"
-          >
-            {title}
-          </Heading>
-          {badge}
-        </div>
-        {description ? (
-          // The rule above runs to the page's edge; the text keeps to a
-          // reading line.
-          <p
-            id={descriptionId}
-            className={`${SUB} max-w-[var(--ap-layout-reading-width)]`}
-          >
-            {description}
-          </p>
-        ) : null}
-      </div>
-      {onSubmit ? (
-        // noValidate: the server owns the limits and says why it refused.
-        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-          {content}
-        </form>
-      ) : (
-        content
-      )}
-    </section>
-  );
-}
+export { SettingsCard };
 
 export function ReadOnlyMark() {
   const { t } = useI18n();

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   FAST_MODEL_PRICES,
   MODEL_PRICES,
+  priceJudgmentUsage,
   priceProviderUsage,
 } from "./model-prices.ts";
 
@@ -213,5 +214,30 @@ describe("priceProviderUsage", () => {
     expect(over.costUsd).toBeGreaterThan((50_001 * highest.input) / 1_000_000);
     expect(at("claude-sonnet-4-6", 900_000).pricedBy).toBe("table");
     expect(at("claude-opus-4-6", 900_000).pricedBy).toBe("table");
+  });
+});
+
+describe("priceJudgmentUsage", () => {
+  test("gpt-6-luna charges $0.10 a million input tokens and nothing for output", () => {
+    expect(
+      priceJudgmentUsage({
+        ...nothing,
+        model: "gpt-6-luna",
+        inputTokens: 600,
+        outputTokens: 5,
+        speed: "unknown",
+        inferenceGeo: "unknown",
+      }),
+    ).toEqual({ costUsd: 0.00006, pricedBy: "table" });
+  });
+
+  test("a model the judge table does not know is charged the highest rate", () => {
+    const priced = priceJudgmentUsage({
+      ...nothing,
+      model: "claude-sonnet-5",
+      inputTokens: 1_000_000,
+    });
+    expect(priced.pricedBy).toBe("fallback");
+    expect(priced.costUsd).toBeGreaterThan(2);
   });
 });

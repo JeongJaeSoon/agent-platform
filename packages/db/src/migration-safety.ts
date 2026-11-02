@@ -8,6 +8,7 @@ import { readJournal } from "./migration-folder.ts";
 // backfill of one inside the migration transaction holds its row locks to
 // the end. A new table of that kind goes on this list.
 export const GROWING_TABLES: readonly string[] = [
+  "achievement_judgment_usage",
   "achievement_judgments",
   "agent_activation_events",
   "approval_checkpoints",

@@ -5,6 +5,7 @@ import type {
   AchievementJudgmentStore,
   ClaimedJudgment,
   JudgedRule,
+  JudgeInForce,
   JudgmentContext,
   JudgmentResult,
 } from "./achievement-judgment-store.ts";
@@ -53,9 +54,19 @@ const REVIEW = {
   commitId: "c".repeat(40),
 };
 
+const NO_JUDGE: JudgeInForce = {
+  connectionId: null,
+  dailyBudgetUsd: 1,
+  maxPerSession: 20,
+  spentUsd: 0,
+  budgetResetsAt: new Date("2026-11-03T00:00:00.000Z"),
+  sessionJudgments: 0,
+};
+
 function judgeOf(
-  context: Omit<JudgmentContext, "session"> & {
+  context: Omit<JudgmentContext, "session" | "judge"> & {
     title?: string | null;
+    judge?: Partial<JudgeInForce>;
   },
   outputs: SessionOutputsResult = { status: "none" },
   options: {
@@ -66,27 +77,28 @@ function judgeOf(
 ) {
   const finished: JudgmentResult[] = [];
   const warnings: string[] = [];
-  const store: AchievementJudgmentStore = {
-    claim: async () => [{ ...CLAIMED, attempts: options.attempts ?? 1 }],
-    context: async () => {
-      if (options.contextFails) throw new Error("connection refused");
-      return {
-        session: {
-          id: SESSION,
-          title: context.title ?? null,
-          agentId: "agent-1",
-          agentReleaseId: "release-1",
-        },
-        rules: context.rules,
-        outcomes: context.outcomes,
-      };
-    },
-    finish: async (_judgment, result) => {
-      finished.push(result);
-      return true;
-    },
-    list: async () => null,
-  };
+  const store: Pick<AchievementJudgmentStore, "claim" | "context" | "finish"> =
+    {
+      claim: async () => [{ ...CLAIMED, attempts: options.attempts ?? 1 }],
+      context: async () => {
+        if (options.contextFails) throw new Error("connection refused");
+        return {
+          session: {
+            id: SESSION,
+            title: context.title ?? null,
+            agentId: "agent-1",
+            agentReleaseId: "release-1",
+          },
+          rules: context.rules,
+          outcomes: context.outcomes,
+          judge: { ...NO_JUDGE, ...context.judge },
+        };
+      },
+      finish: async (_judgment, result) => {
+        finished.push(result);
+        return true;
+      },
+    };
   const reads: string[] = [];
   const judge = createAchievementJudge({
     store,
@@ -237,6 +249,103 @@ describe("achievement judge", () => {
         achievements: [],
       },
     ]);
+  });
+
+  test("over the day's budget, a luna pair defers the judgment to the store's next UTC midnight; always rules still count", async () => {
+    const { judge, finished } = judgeOf({
+      rules: [
+        rule("pull_request", "github_pull_request", { judge: "luna" }),
+        rule("code_review", "github_review"),
+      ],
+      outcomes: [PULL_REQUEST, REVIEW],
+      judge: {
+        connectionId: "conn-1",
+        dailyBudgetUsd: 1,
+        spentUsd: 1,
+        budgetResetsAt: new Date("2026-11-04T00:00:00.000Z"),
+      },
+    });
+    await judge.runOnce();
+    expect(finished).toHaveLength(1);
+    expect(finished[0]).toMatchObject({
+      status: "deferred",
+      until: new Date("2026-11-04T00:00:00.000Z"),
+      errorCode: null,
+    });
+    expect(finished[0]?.achievements.map((a) => a.ruleId)).toEqual([
+      "rule-code_review",
+    ]);
+  });
+
+  test("a zero budget never holds back always rules: alone they succeed, beside a luna pair they still count", async () => {
+    const zero = { connectionId: "conn-1", dailyBudgetUsd: 0, spentUsd: 0 };
+    const alone = judgeOf({
+      rules: [rule("code_review", "github_review")],
+      outcomes: [REVIEW],
+      judge: zero,
+    });
+    await alone.judge.runOnce();
+    expect(alone.finished[0]).toMatchObject({
+      status: "succeeded",
+      errorCode: null,
+    });
+    expect(alone.finished[0]?.achievements.map((a) => a.ruleId)).toEqual([
+      "rule-code_review",
+    ]);
+    const beside = judgeOf({
+      rules: [
+        rule("pull_request", "github_pull_request", { judge: "luna" }),
+        rule("code_review", "github_review"),
+      ],
+      outcomes: [PULL_REQUEST, REVIEW],
+      judge: zero,
+    });
+    await beside.judge.runOnce();
+    expect(beside.finished[0]).toMatchObject({ status: "deferred" });
+    expect(beside.finished[0]?.achievements.map((a) => a.ruleId)).toEqual([
+      "rule-code_review",
+    ]);
+  });
+
+  test("under the budget, a session at its judgment cap is skipped with session_limit", async () => {
+    const at = (spentUsd: number, sessionJudgments: number) =>
+      judgeOf({
+        rules: [rule("pull_request", "github_pull_request", { judge: "luna" })],
+        outcomes: [PULL_REQUEST],
+        judge: {
+          connectionId: "conn-1",
+          dailyBudgetUsd: 1,
+          maxPerSession: 2,
+          spentUsd,
+          sessionJudgments,
+        },
+      });
+    const capped = at(0.5, 2);
+    await capped.judge.runOnce();
+    expect(capped.finished[0]).toMatchObject({
+      status: "skipped",
+      errorCode: "session_limit",
+    });
+    // Under both, a judge is still missing until its backend exists.
+    const open = at(0.5, 1);
+    await open.judge.runOnce();
+    expect(open.finished[0]).toMatchObject({
+      status: "skipped",
+      errorCode: "judge_unavailable",
+    });
+  });
+
+  test("with no connection, budget and cap are not consulted", async () => {
+    const { judge, finished } = judgeOf({
+      rules: [rule("pull_request", "github_pull_request", { judge: "luna" })],
+      outcomes: [PULL_REQUEST],
+      judge: { spentUsd: 5, sessionJudgments: 50 },
+    });
+    await judge.runOnce();
+    expect(finished[0]).toMatchObject({
+      status: "skipped",
+      errorCode: "judge_unavailable",
+    });
   });
 
   test("a rule without evidence of its kind leaves the judgment succeeded with nothing", async () => {
