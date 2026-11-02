@@ -40,10 +40,8 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
           aria-hidden="true"
           className="size-4 text-muted-foreground transition-transform group-open:rotate-90"
         />
-        <Heading id={titleId} className="leading-normal">
-          {t("agent.versions.title")}
-        </Heading>
-        <Text as="span" variant="meta" className="text-muted-foreground">
+        <Heading id={titleId}>{t("agent.versions.title")}</Heading>
+        <Text as="span" variant="meta">
           {ordered.length}
         </Text>
       </summary>
@@ -60,7 +58,7 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
               <Text
                 as="span"
                 variant="meta"
-                className="block text-muted-foreground leading-4 [overflow-wrap:anywhere]"
+                className="block [overflow-wrap:anywhere]"
               >
                 {formatTimestamp(version.created_at, locale)}
                 {version.id === activeVersionId

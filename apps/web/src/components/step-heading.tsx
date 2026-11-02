@@ -27,12 +27,7 @@ export function StepHeading({
     if (focus) heading.current?.focus();
   }, [focus]);
   return (
-    <Heading
-      ref={heading}
-      id={id}
-      tabIndex={-1}
-      className="leading-normal outline-none"
-    >
+    <Heading ref={heading} id={id} tabIndex={-1} className="outline-none">
       {children}
     </Heading>
   );

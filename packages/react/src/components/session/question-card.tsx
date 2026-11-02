@@ -155,7 +155,7 @@ export function QuestionCard({
           aria-hidden="true"
         />
         {/* Not a heading: the level depends on the screen around the card. */}
-        <Text id={titleId} className="font-semibold text-body leading-normal">
+        <Text id={titleId} className="font-semibold text-body">
           {messages.title}
         </Text>
         <p

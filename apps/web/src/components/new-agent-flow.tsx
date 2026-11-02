@@ -571,9 +571,7 @@ function JobStep({
       onSubmit={submitStep(form, onSave, refuse)}
     >
       <StepHeading focus={focus}>{t("agents.flow.job")}</StepHeading>
-      <Text variant="sub" className="leading-normal">
-        {t("agents.flow.jobIntro")}
-      </Text>
+      <Text variant="sub">{t("agents.flow.jobIntro")}</Text>
       <AgentCardFields
         draft={draft}
         catalog={catalog}
@@ -623,9 +621,7 @@ function ReleaseStep({
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.release")}</StepHeading>
-      <Text variant="sub" className="leading-normal">
-        {t("agents.flow.releaseIntro")}
-      </Text>
+      <Text variant="sub">{t("agents.flow.releaseIntro")}</Text>
       {agent.error ? (
         <Alerts lines={[refuse(agent.error)]} />
       ) : profiles.error ? (
@@ -844,9 +840,9 @@ function ActivateStep({
   return (
     <section className={AGENT_FORM}>
       <StepHeading focus={focus}>{t("agents.flow.activate")}</StepHeading>
-      <Text variant="sub" className="text-sm">
+      <p className="m-0 text-muted-foreground text-sm">
         {t("agents.flow.activateIntro")}
-      </Text>
+      </p>
       {activate.error ? <Alerts lines={[refuse(activate.error)]} /> : null}
       {agent.error ? <Alerts lines={[refuse(agent.error)]} /> : null}
       <div className="flex flex-wrap gap-2">

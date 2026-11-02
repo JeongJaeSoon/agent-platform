@@ -41,7 +41,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { SECTION } from "./classes.ts";
+import { MUTED, SECTION } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
@@ -167,22 +167,15 @@ export function Credentials({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <Heading
-        id={titleId}
-        ref={titleRef}
-        tabIndex={-1}
-        className="leading-normal"
-      >
+      <Heading id={titleId} ref={titleRef} tabIndex={-1}>
         {t("agent.credentials.title")}
       </Heading>
-      <Text variant="sub" className="text-body leading-normal">
-        {t("agent.credentials.intro")}
-      </Text>
+      <p className={MUTED}>{t("agent.credentials.intro")}</p>
       {bindings.isPending ? (
         <StatusScreen kind="loading" />
       ) : bindings.error ? (
         isApiError(bindings.error, "FORBIDDEN") ? (
-          <Text variant="sub" className="text-sm">
+          <Text variant="meta">
             {permissionReason(t, "agent.manage", role)}
           </Text>
         ) : (
@@ -214,7 +207,7 @@ export function Credentials({
                     <Text
                       as="span"
                       variant="meta"
-                      className="block text-muted-foreground leading-4 [overflow-wrap:anywhere]"
+                      className="block [overflow-wrap:anywhere]"
                     >
                       {missing.includes(ref)
                         ? t("agent.credentials.neededToActivate")
@@ -257,7 +250,7 @@ export function Credentials({
                     <Text
                       as="span"
                       variant="meta"
-                      className="block text-muted-foreground leading-4 [overflow-wrap:anywhere]"
+                      className="block [overflow-wrap:anywhere]"
                     >
                       {t("agent.credentials.running", {
                         count: binding.running_sessions,

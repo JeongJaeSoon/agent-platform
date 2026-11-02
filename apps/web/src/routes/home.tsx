@@ -757,9 +757,7 @@ export function HomeScreen() {
             title={t("home.overview.title")}
             action={
               cards ? (
-                <Text variant="meta" className="text-muted-foreground">
-                  {t("home.overview.basis")}
-                </Text>
+                <Text variant="meta">{t("home.overview.basis")}</Text>
               ) : undefined
             }
           >
@@ -952,9 +950,7 @@ function HomeSection({
       aria-labelledby={titleId}
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
-        <Heading id={titleId} className="leading-normal">
-          {title}
-        </Heading>
+        <Heading id={titleId}>{title}</Heading>
         {action}
       </div>
       {children}
@@ -1023,16 +1019,10 @@ function SlackTodo({
           return (
             <RowListItem key={agent.id}>
               <RowLines>
-                <Heading
-                  level={3}
-                  className="font-medium text-control leading-normal"
-                >
+                <Heading level={3} className="font-medium text-control">
                   {title}
                 </Heading>
-                <Text
-                  variant="meta"
-                  className="text-muted-foreground [overflow-wrap:anywhere]"
-                >
+                <Text variant="meta" className="[overflow-wrap:anywhere]">
                   {t("home.todo.note", {
                     agent: agent.name,
                     effect: t(`home.todo.effect.${action}`),
@@ -1095,7 +1085,7 @@ function NoRequests() {
       <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--ap-color-surface-sunken) text-subtle-foreground">
         <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
       </span>
-      <Text className="font-semibold text-body leading-normal">
+      <Text className="font-semibold text-body">
         {t("home.requests.empty")}
       </Text>
       <p className="m-0">{t("home.requests.emptyHint")}</p>
@@ -1199,10 +1189,7 @@ function GlanceCard({
         <div className="flex items-center gap-3">
           <IconTile {...tile} size="two-line" />
           <div className="flex min-w-0 flex-1 flex-col gap-(--ap-row-line-gap)">
-            <Text
-              variant="meta"
-              className="text-muted-foreground leading-(--ap-leading-caption)"
-            >
+            <Text variant="meta" className="leading-(--ap-leading-caption)">
               {eyebrow}
             </Text>
             <Heading level={3} className="leading-(--ap-leading-body)">
@@ -1213,9 +1200,7 @@ function GlanceCard({
         </div>
         <div>
           <p className="m-0 font-semibold text-number tabular-nums">{value}</p>
-          <Text variant="meta" className="text-muted-foreground">
-            {note}
-          </Text>
+          <Text variant="meta">{note}</Text>
         </div>
         <dl className="m-0 flex flex-1 flex-col gap-1">
           {rows.map((row, index) => (
@@ -1255,7 +1240,6 @@ function GlanceCard({
             <Text
               variant="meta"
               truncate={true}
-              className="text-muted-foreground"
               title={typeof footer === "string" ? footer : undefined}
             >
               {footer}
@@ -1294,7 +1278,7 @@ function RecentSessionTable({
       // Framed as the table it stands in for, inside its padding.
       <Text
         variant="sub"
-        className="rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body leading-normal"
+        className="rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body"
       >
         {t("sessions.empty")}
       </Text>
@@ -1444,11 +1428,7 @@ function RecentRow({
                 className="size-3.5 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <Text
-                as="span"
-                variant="meta"
-                className="truncate text-muted-foreground"
-              >
+              <Text as="span" variant="meta" className="truncate">
                 {t("home.recent.noRepository")}
               </Text>
             </>
@@ -1479,10 +1459,8 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
       data-slot="home-checklist"
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
-        <Heading id={titleId} className="leading-normal">
-          {t("home.checklist.title")}
-        </Heading>
-        <Text as="span" variant="meta" className="text-muted-foreground">
+        <Heading id={titleId}>{t("home.checklist.title")}</Heading>
+        <Text as="span" variant="meta">
           {t("home.checklist.progress", { done, total: steps.length })}
         </Text>
       </div>

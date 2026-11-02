@@ -320,7 +320,7 @@ export function AgentReadiness({
                 )}
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <Text as="span" weight="medium" className="leading-normal">
+                <Text as="span" weight="medium">
                   {step.title}
                   <span className="sr-only">
                     {" "}
@@ -331,11 +331,7 @@ export function AgentReadiness({
                         : ""}
                   </span>
                 </Text>
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="text-muted-foreground"
-                >
+                <Text as="span" variant="meta">
                   {step.desc}
                 </Text>
               </div>
@@ -540,7 +536,7 @@ export function CardSummary({
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">
             <Heading id={titleId}>{t("agent.card.summaryTitle")}</Heading>
-            <Text as="span" variant="meta" className="text-muted-foreground">
+            <Text as="span" variant="meta">
               {!version
                 ? t("agent.noActive")
                 : !live
@@ -636,18 +632,14 @@ export function CardSummary({
               : []),
           ]}
         />
-        {card ? null : (
-          <Text variant="sub" className="leading-normal">
-            {t("agent.noActive")}
-          </Text>
-        )}
+        {card ? null : <Text variant="sub">{t("agent.noActive")}</Text>}
       </Card>
       {card ? (
         <Card role="region" className="min-w-0 px-4" aria-labelledby={rawId}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 flex-col gap-0.5">
               <Heading id={rawId}>{t("agent.card.raw")}</Heading>
-              <Text as="span" variant="meta" className="text-muted-foreground">
+              <Text as="span" variant="meta">
                 {live ? t("agent.card.rawSubActive") : t("agent.card.rawSub")}
               </Text>
             </div>

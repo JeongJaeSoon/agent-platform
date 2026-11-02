@@ -86,9 +86,7 @@ export function StatusScreen(props: StatusScreenProps) {
       data-status={kind}
       role={alert ? "alert" : undefined}
     >
-      <Heading className="flex items-center gap-2 leading-normal">
-        {copy.title}
-      </Heading>
+      <Heading className="flex items-center gap-2">{copy.title}</Heading>
       <p className="m-0">{copy.body}</p>
       {kind === "login-required" && action ? (
         <Button asChild>

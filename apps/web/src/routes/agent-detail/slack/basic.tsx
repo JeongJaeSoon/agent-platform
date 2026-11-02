@@ -42,7 +42,7 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       title={t("slack.dmSetting")}
       description={t("slack.dmHint")}
       status={
-        <Text as="span" variant="sub" className="leading-normal">
+        <Text as="span" variant="sub">
           {bindings.isError && !bindings.data
             ? "—"
             : t(dmOn(dm) ? "slack.on" : "slack.off")}
@@ -127,7 +127,7 @@ export function SlackMentionOnly({
       title={t("slack.mentionOnly")}
       description={t("slack.mentionOnlyHint")}
       status={
-        <Text as="span" variant="sub" className="leading-normal">
+        <Text as="span" variant="sub">
           {lost
             ? "—"
             : settings.data

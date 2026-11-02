@@ -214,9 +214,7 @@ export function Releases({
   return (
     <section className={SECTION} aria-labelledby={titleId}>
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-3">
-        <Heading id={titleId} className="leading-normal">
-          {t("agent.releases.title")}
-        </Heading>
+        <Heading id={titleId}>{t("agent.releases.title")}</Heading>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button

@@ -418,7 +418,7 @@ export function SessionAttribution({
   const data = attribution.data;
   if (!hasRepository(session) || data === undefined) return null;
   return (
-    <Text variant="meta" className="text-muted-foreground">
+    <Text variant="meta">
       {data.attribution === "co_author" && data.login !== null ? (
         t("session.attribution.coAuthor", { login: data.login })
       ) : data.attribution === "unlinked" ? (
@@ -475,11 +475,7 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
                 <Code className="text-control [overflow-wrap:anywhere]">
                   {name}
                 </Code>
-                <Text
-                  as="span"
-                  variant="meta"
-                  className="text-muted-foreground"
-                >
+                <Text as="span" variant="meta">
                   {item.omitted === null
                     ? formatBytes(item.bytes, locale)
                     : `${formatBytes(item.bytes, locale)} · ${t("session.outputs.tooLarge")}`}

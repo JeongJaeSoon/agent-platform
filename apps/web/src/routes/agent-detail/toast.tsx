@@ -68,7 +68,7 @@ function Toast({
     };
   }, [text, onDone]);
   const body = shown ? (
-    <Text className="max-w-sm rounded-card border bg-popover px-4 py-3 text-popover-foreground leading-normal shadow-pop">
+    <Text className="max-w-sm rounded-card border bg-popover px-4 py-3 text-popover-foreground shadow-pop">
       {shown}
     </Text>
   ) : null;

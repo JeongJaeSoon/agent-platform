@@ -288,9 +288,7 @@ export function SlackChannels({
             )}
           </div>
           {homeStep ? (
-            <Text variant="sub" className="leading-normal">
-              {t("slack.homeStepHint")}
-            </Text>
+            <Text variant="sub">{t("slack.homeStepHint")}</Text>
           ) : null}
           <output
             aria-live="polite"
@@ -350,11 +348,7 @@ export function SlackChannels({
                     }
                     actions={
                       <span className="flex items-center gap-2">
-                        <Text
-                          as="span"
-                          aria-hidden="true"
-                          className="leading-normal text-inherit"
-                        >
+                        <Text as="span" aria-hidden="true">
                           {t("slack.inUse")}
                         </Text>
                         <Switch
@@ -515,10 +509,10 @@ function ChannelsLock({
       aria-labelledby={titleId}
       className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--ap-tone-caution-border) bg-background p-4 text-center"
     >
-      <Text id={titleId} className="font-semibold leading-normal">
+      <Text id={titleId} className="font-semibold">
         {t("slack.channelsLocked.title")}
       </Text>
-      <Text variant="sub" className="max-w-prose leading-normal">
+      <Text variant="sub" className="max-w-prose">
         {t("slack.channelsLocked.body")}
       </Text>
       <Button

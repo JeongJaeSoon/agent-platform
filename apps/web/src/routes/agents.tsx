@@ -278,7 +278,7 @@ function AgentList({
       ) : (
         <div>
           {truncated ? (
-            <Text variant="meta" className="mb-3 text-muted-foreground">
+            <Text variant="meta" className="mb-3">
               {t("agentAdmins.mine.truncated", {
                 count: ADMINISTERED_LIST_LIMIT,
               })}
@@ -374,11 +374,7 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
                     <span className="sr-only">{t("agents.slug")} </span>
                     {agent.slug}
                   </Code>
-                  <Text
-                    as="span"
-                    variant="meta"
-                    className="text-muted-foreground @[480px]:hidden"
-                  >
+                  <Text as="span" variant="meta" className="@[480px]:hidden">
                     {t("agents.updated", {
                       at: formatTimestamp(agent.updated_at, locale),
                     })}
