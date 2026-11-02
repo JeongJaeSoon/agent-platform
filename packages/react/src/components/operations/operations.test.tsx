@@ -220,17 +220,12 @@ describe("ToolRail loading", () => {
         onCallSortChange={() => {}}
       />
     );
-    const { container, rerender } = withPlatform(rail(undefined), "en");
-    const heading = () => container.querySelector("aside h2");
-    // What assistive tech reads: the decorative skeleton is aria-hidden.
-    const spoken = () => {
-      const copy = heading()?.cloneNode(true) as Element | undefined;
-      for (const hidden of copy?.querySelectorAll("[aria-hidden=true]") ?? [])
-        hidden.remove();
-      return copy?.textContent;
-    };
-    expect(spoken()).toBe("Loading tools");
-    rerender(
+    const view = withPlatform(rail(undefined), "en");
+    // The accessible name skips the aria-hidden skeleton.
+    expect(
+      view.getByRole("heading", { level: 2, name: "Loading tools" }),
+    ).toBeTruthy();
+    view.rerender(
       <AgentPlatformProvider
         client={{} as ApiClient}
         locale="en"
@@ -239,8 +234,8 @@ describe("ToolRail loading", () => {
         {rail("Bash")}
       </AgentPlatformProvider>,
     );
-    expect(heading()?.textContent).toBe("Bash");
-    expect(spoken()).toBe("Bash");
+    expect(view.getByRole("heading", { level: 2, name: "Bash" })).toBeTruthy();
+    expect(view.container.querySelector("aside h2")?.textContent).toBe("Bash");
   });
 });
 
