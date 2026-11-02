@@ -20,7 +20,6 @@ export type GitHubAppProfile = {
   clientId: string | null;
 };
 
-/** The account that owns the App on GitHub; its settings page hangs off it. */
 export type GitHubAppOwner = {
   login: string;
   type: "organization" | "user";
@@ -141,7 +140,6 @@ export interface GitHubAppStore {
     /** Left out: the row keeps the client id it has. */
     clientId?: string | null,
   ): Promise<void>;
-  /** The workspace's registered Apps of every role. */
   list(
     workspaceId: string,
   ): Promise<Array<GitHubAppRecord & { role: GitHubAppRole }>>;
@@ -212,7 +210,6 @@ export type GitHubInstallationRepository = {
   private: boolean;
 };
 
-/** A failed App call as the newer API answers it (GITHUB_UNAVAILABLE_VALUES). */
 export const githubUnavailableOf = (error: unknown): GitHubUnavailable =>
   error instanceof GitHubAppCheckError && error.reason === "github_rejected"
     ? "github_app_auth_failed"

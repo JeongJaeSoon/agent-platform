@@ -49,7 +49,6 @@ type InstallationPage = Pick<
 > & {
   repositories: GitHubInstallationRepository[];
   unavailable: Unavailable | null;
-  /** The role of the App whose installation this page is of. */
   role: GitHubAppRole;
 };
 type Credential = Pick<
@@ -59,7 +58,6 @@ type Credential = Pick<
 
 /** How many resolved rows the list asks GitHub about, one call each. */
 export const CATALOG_INSTALLED_CHECK_MAX = 100;
-/** How many installations the list counts repositories of, two calls each. */
 export const INSTALLATION_COUNT_MAX = 20;
 
 const refused = (reasonCode: string, message: string) =>
@@ -241,13 +239,8 @@ export function createGitHubRepositoryService(deps: {
             () => null,
           );
 
-  /**
-   * One page of one installation of the workspace's Apps: the author App's
-   * first by account when none is named. An App GitHub does not answer for
-   * leaves its installations out; the request fails only when that may hide
-   * the one asked for. The picker passes only the author role, since a pick
-   * resolves through an author App.
-   */
+  // An App GitHub does not answer for leaves its installations out; the
+  // request fails only when that may hide the installation asked for.
   async function installationPage(
     workspaceId: string,
     query: GitHubRepositoryPageQuery,

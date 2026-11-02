@@ -30,14 +30,13 @@ const UNAVAILABLE: Record<string, MessageKey> = {
   no_installation: "github.repo.pickNoInstallation",
 };
 
-/** A named installation GitHub no longer has: the caller goes back to the first. */
 export const installationGone = (error: unknown) =>
   isApiError(error) &&
   error.code === "NOT_FOUND" &&
   (error.details as { reason_code?: unknown } | null)?.reason_code ===
     "installation_not_found";
 
-/** react-query's three retries, none for a vanished installation. */
+/** react-query's default three retries, none for a vanished installation. */
 export const retryUnlessGone = (failures: number, error: unknown) =>
   !installationGone(error) && failures < 3;
 

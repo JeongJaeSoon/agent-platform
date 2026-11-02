@@ -93,10 +93,6 @@ export function createGitHubSettingsService(deps: {
             () => null,
           );
 
-  /**
-   * One registered App as GitHub answers for it now. Its installations are
-   * read with the App's own JWT, so one App failing leaves the others' rows.
-   */
   async function connectionOf(
     record: GitHubAppRecord & { role: GitHubAppRole },
     credential: GitHubAppCredential,
@@ -222,7 +218,6 @@ export function createGitHubSettingsService(deps: {
     );
   }
 
-  /** Whether the caller manages the workspace; decided, never recorded. */
   async function manages(caller: Caller, workspaceId: string) {
     const decision = await authorization
       .authorize(

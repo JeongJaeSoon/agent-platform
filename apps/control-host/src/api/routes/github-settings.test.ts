@@ -187,8 +187,6 @@ function appWith(
 const ACTIONS_ON = { ...GITHUB_CEILING_NONE, actions: true };
 const code = (json: unknown) => apiErrorResponseSchema.parse(json).error;
 
-// Two author Apps and a reviewer App, as the store will hold them once a
-// role takes several; GitHub answers for App 11 and 13 and fails App 12.
 function threeApps() {
   const at = new Date("2026-11-02T09:00:00.000Z");
   const rows = [

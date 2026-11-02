@@ -222,11 +222,9 @@ describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
             c.search.includes("installation_id=78"),
         ),
       ).toBe(true);
-      // The first installation's page again, from the cache. The select is
-      // read directly: happy-dom calls it non-labellable mid re-render.
+      // Read directly: happy-dom calls the select non-labellable mid re-render.
       expect(region.querySelector("select")?.value).toBe("77");
     });
-    // Settled on it, not on the failure.
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(screen.queryByText("불러오지 못했습니다")).toBeNull();
     expect(repos.getByRole("button", { name: "acme/api 편집" })).toBeDefined();

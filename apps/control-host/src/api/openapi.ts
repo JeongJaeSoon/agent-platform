@@ -710,7 +710,6 @@ const EXAMPLE_GITHUB_INSTALLATION_SUMMARY = {
   repository_count: 1,
 };
 
-// GET github-settings as an owner or admin reads it; a member's `detail` is null.
 const EXAMPLE_GITHUB_CONNECTION = {
   connection_id: "019a0000-0000-7000-8000-0000000000b1",
   role: "author",

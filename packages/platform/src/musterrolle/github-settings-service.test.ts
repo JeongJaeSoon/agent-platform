@@ -65,7 +65,6 @@ type FakeConnection = {
   id: string;
   role: GitHubAppRole;
   appId: number;
-  /** Every App call for it fails this way. */
   fails?: GitHubAppCheckFailure;
   installations?: GitHubAppInstallationView[];
 };

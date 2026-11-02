@@ -157,7 +157,9 @@ function serviceWith(
       page: 1,
       per_page: 30,
     });
-  return { pick, list, resolved };
+  const agentPage = () =>
+    service.agentPage(caller, AGENT, { page: 1, per_page: 30 });
+  return { pick, list, agentPage, resolved };
 }
 
 const credentialOf = (id: string, appId: number) => ({
@@ -169,7 +171,6 @@ const credentialOf = (id: string, appId: number) => ({
   updatedAt: new Date(),
 });
 
-// An author App (1) and a reviewer App (2).
 const twoApps = {
   async find(_workspaceId: string, role: string) {
     return { id: role === "author" ? "author-row" : "reviewer-row" };
@@ -244,11 +245,30 @@ describe("the workspace's page of App installations", () => {
       twoApps,
     );
     expect((await list()).installations.map(({ id }) => id)).toEqual([11]);
-    // The one asked for may be the failed App's: that is GitHub's failure.
     expect(await failed(list(21))).toEqual({
       code: "GITHUB_UNAVAILABLE",
       details: { reason_code: "github_app_auth_failed" },
     });
+  });
+
+  test("an agent's picker reads the author App's installations only, since a pick resolves through it", async () => {
+    const { agentPage } = serviceWith(
+      {
+        async installations(app) {
+          return app.appId === 1
+            ? [installation(11, "acme")]
+            : [installation(21, "other")];
+        },
+        async installationRepositoriesPage() {
+          return { repositories: [], totalCount: 0 };
+        },
+      },
+      twoApps,
+    );
+    const page = await agentPage();
+    expect(page.installations.map(({ id, role }) => [id, role])).toEqual([
+      [11, "author"],
+    ]);
   });
 
   test("an installation no App has is 404; a suspended one is 409", async () => {
@@ -388,7 +408,6 @@ describe("picking a GitHub App repository for an agent", () => {
         "GITHUB_UNAVAILABLE",
         "github_app_auth_failed",
       ],
-      // The token for the installation: it went away after it was listed.
       [
         new GitHubAppCheckError("github_rejected", 404),
         "NOT_FOUND",
