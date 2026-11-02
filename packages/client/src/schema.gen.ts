@@ -25660,13 +25660,29 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description A page of the workspace's live teams. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *           "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *           "name": "research admins",
+                     *           "member_count": 2,
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-10-23T09:00:00Z",
+                     *           "revision": 3
+                     *         }
+                     *       ],
+                     *       "next_cursor": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["ListTeamsResponse"];
                 };
             };
@@ -25746,17 +25762,36 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "name": "research admins"
+                 *     }
+                 */
                 "application/json": components["schemas"]["CreateTeamRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The team, created with no members; `receipt_id` names its `create_team` receipt. */
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "team": {
+                     *         "id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *         "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "name": "research admins",
+                     *         "member_count": 0,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "revision": 1
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
@@ -25977,13 +26012,40 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The team and the people in it now. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *       "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *       "name": "research admins",
+                     *       "member_count": 2,
+                     *       "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *       "created_at": "2026-10-23T09:00:00Z",
+                     *       "revision": 3,
+                     *       "members": [
+                     *         {
+                     *           "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "email": "ada@example.com",
+                     *           "display_name": "Ada Owner",
+                     *           "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "added_at": "2026-10-23T09:00:00Z"
+                     *         },
+                     *         {
+                     *           "user_id": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21",
+                     *           "email": "grace@example.com",
+                     *           "display_name": null,
+                     *           "added_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "added_at": "2026-10-24T09:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": components["schemas"]["TeamDetail"];
                 };
             };
@@ -26065,13 +26127,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The team is archived: from now on it answers 404 and lists leave it out. `receipt_id` names its `delete_team` receipt. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["DeleteTeamResponse"];
                 };
             };
@@ -26168,17 +26235,36 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "name": "research leads"
+                 *     }
+                 */
                 "application/json": components["schemas"]["UpdateTeamRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The team after the rename. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "team": {
+                     *         "id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *         "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "name": "research leads",
+                     *         "member_count": 2,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "revision": 4
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
@@ -26320,17 +26406,36 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "user_id": "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21"
+                 *     }
+                 */
                 "application/json": components["schemas"]["AddTeamMemberRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The team with the person in it. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "team": {
+                     *         "id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *         "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "name": "research admins",
+                     *         "member_count": 2,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "revision": 3
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
@@ -26458,13 +26563,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The team without the person. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "team": {
+                     *         "id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *         "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+                     *         "name": "research leads",
+                     *         "member_count": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-10-23T09:00:00Z",
+                     *         "revision": 5
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["TeamChangeResponse"];
                 };
             };
@@ -26558,13 +26677,34 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The people and the teams named the agent's admins. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "users": [
+                     *         {
+                     *           "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "email": "ada@example.com",
+                     *           "display_name": "Ada Owner",
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-10-23T09:00:00Z"
+                     *         }
+                     *       ],
+                     *       "teams": [
+                     *         {
+                     *           "team_id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *           "name": "research admins",
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-10-24T09:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": components["schemas"]["AgentAdmins"];
                 };
             };
@@ -26646,17 +26786,46 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "team_id": "019a0000-0000-7000-8000-00000000b0a1"
+                 *     }
+                 */
                 "application/json": components["schemas"]["AddAgentAdminRequest"];
             };
         };
         responses: {
-            /** @description Success */
+            /** @description The agent's admins after the change. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "admins": {
+                     *         "users": [
+                     *           {
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "email": "ada@example.com",
+                     *             "display_name": "Ada Owner",
+                     *             "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "created_at": "2026-10-23T09:00:00Z"
+                     *           }
+                     *         ],
+                     *         "teams": [
+                     *           {
+                     *             "team_id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *             "name": "research admins",
+                     *             "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "created_at": "2026-10-24T09:00:00Z"
+                     *           }
+                     *         ]
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["AgentAdminChangeResponse"];
                 };
             };
@@ -26785,13 +26954,30 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description The agent's admins after the change. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "admins": {
+                     *         "users": [
+                     *           {
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "email": "ada@example.com",
+                     *             "display_name": "Ada Owner",
+                     *             "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *             "created_at": "2026-10-23T09:00:00Z"
+                     *           }
+                     *         ],
+                     *         "teams": []
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
                     "application/json": components["schemas"]["AgentAdminChangeResponse"];
                 };
             };

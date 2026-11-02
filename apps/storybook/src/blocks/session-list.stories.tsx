@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SessionList } from "@werft-ai/react/blocks";
 
 import { apiError, type FakeRoutes } from "../../.storybook/fake-client.ts";
-import { SESSION } from "../domain/session/session-fixtures.ts";
 import {
   type Globals,
   hostFor,
   page,
   pending,
+  SESSIONS,
   shared,
 } from "./block-fixtures.tsx";
 
@@ -24,25 +24,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   parameters: {
     api: {
-      "GET /v1/sessions": () =>
-        page(
-          [
-            SESSION,
-            {
-              ...SESSION,
-              id: "0192f0c4-7d3a-7b4e-9f00-0000000000a2",
-              status: "needs_input",
-            },
-            {
-              ...SESSION,
-              id: "0192f0c4-7d3a-7b4e-9f00-0000000000a3",
-              status: "failed",
-              admission_state: "recovery_required",
-              queued_turn_count: 0,
-            },
-          ],
-          "next",
-        ),
+      "GET /v1/sessions": () => page(SESSIONS, "next"),
     } satisfies FakeRoutes,
   },
 };

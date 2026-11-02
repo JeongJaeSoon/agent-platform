@@ -1,0 +1,96 @@
+import type { components } from "@werft-ai/client";
+import {
+  errorKey,
+  type MessageKey,
+  type Translate,
+} from "../../../i18n/i18n.tsx";
+import { storeOff } from "../../workspace-slack.tsx";
+
+export type Binding =
+  components["schemas"]["ListSlackBindingsResponse"]["items"][number];
+type BindingInput = components["schemas"]["PutSlackBindingRequest"];
+export type BindingChange = {
+  readonly body: BindingInput;
+  readonly kind: "reaction" | "home" | "connect";
+};
+// With no row yet the server makes one on the first DM and answers it.
+export const dmOn = (dm: Binding | undefined) =>
+  dm === undefined || dm.mode !== "off";
+
+export const SECTION = {
+  channels: "slack-channels",
+  basic: "slack-basic",
+  advanced: "slack-advanced",
+  danger: "slack-danger",
+} as const;
+export type SectionKey = keyof typeof SECTION;
+export const SECTION_LABEL = {
+  channels: "slack.channels",
+  basic: "slack.basic",
+  advanced: "slack.advanced",
+  danger: "slack.danger",
+} as const;
+export const SLACK_WARNING_KEY = {
+  repository_required: {
+    title: "slack.repositoryRequired.title",
+    body: "slack.repositoryRequired.body",
+  },
+  profile_unavailable: {
+    title: "slack.profileUnavailable.title",
+    body: "slack.profileUnavailable.body",
+  },
+  no_active_release: {
+    title: "slack.noActiveRelease.title",
+    body: "slack.noActiveRelease.body",
+  },
+} as const satisfies Record<
+  components["schemas"]["GetSlackAppResponse"]["warnings"][number]["code"],
+  { title: MessageKey; body: MessageKey }
+>;
+export const SECTION_BOX =
+  "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
+export const HEADING = "m-0 font-semibold text-body leading-5";
+export const RECHECK_ID = "slack-events-recheck";
+export const UNVERIFIED_POLL_MS = 10_000;
+export const EVENTS_BADGE = {
+  verified: "green",
+  pending: "amber",
+  failed: "red",
+} as const;
+
+export function slackFailure(error: unknown, t: Translate): string {
+  const code = (error as { code?: string } | null)?.code ?? "INTERNAL_ERROR";
+  if (code === "CONFIG_TOKEN_INVALID" || code === "SLACK_LINK_NOT_CONFIGURED")
+    return t("slack.error.config");
+  if (code === "SLACK_APP_CREATING") return t("slack.error.creating");
+  if (code === "AGENT_NOT_ACTIVE") return t("slack.activateFirst");
+  if (code === "SLACK_NOT_INSTALLED") return t("slack.error.notInstalled");
+  if (code === "SLACK_INSTALL_DENIED") return t("slack.error.denied");
+  if (code === "SLACK_INSTALL_STATE_INVALID") return t("slack.error.expired");
+  if (code === "SLACK_INSTALL_REJECTED" || code === "SLACK_INSTALL_CONFLICT")
+    return t("slack.error.rejected");
+  if (code === "CURSOR_EXPIRED") return t("slack.error.cursor");
+  if (storeOff(error)) return t("workspace.tokenStoreUnavailable");
+  return t(errorKey(code));
+}
+
+export function slackState(
+  error: unknown,
+  identity: object | undefined,
+  record:
+    | {
+        readonly secrets: { readonly slack_bot_token: { configured: boolean } };
+      }
+    | null
+    | undefined,
+) {
+  return error
+    ? "error"
+    : identity
+      ? "connected"
+      : record?.secrets.slack_bot_token.configured
+        ? "reinstall"
+        : record
+          ? "pending"
+          : "none";
+}

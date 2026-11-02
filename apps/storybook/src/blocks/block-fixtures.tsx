@@ -1,5 +1,6 @@
 import type {
   SessionDetail as SessionDetailData,
+  SessionSummary,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
 import { ErrorState, Skeleton } from "@werft-ai/ui";
@@ -14,6 +15,8 @@ const HOST = {
     loading: "불러오는 중",
     failed: "불러오지 못했습니다.",
     retry: "다시 시도",
+    recent: "최근 세션",
+    waiting: "대기 세션",
     unavailable: {
       answer: "세션 승인 권한이 있어야 답할 수 있습니다.",
       control: "세션 제어 권한이 있어야 할 수 있습니다.",
@@ -24,6 +27,8 @@ const HOST = {
     loading: "読み込み中",
     failed: "読み込めませんでした。",
     retry: "再試行",
+    recent: "最近のセッション",
+    waiting: "待機中のセッション",
     unavailable: {
       answer: "回答するには sessions:approve の権限が必要です。",
       control: "この操作には sessions:control の権限が必要です。",
@@ -34,6 +39,8 @@ const HOST = {
     loading: "Loading",
     failed: "The read failed.",
     retry: "Retry",
+    recent: "Recent sessions",
+    waiting: "Waiting sessions",
     unavailable: {
       answer: "You need the sessions:approve permission for this.",
       control: "You need the sessions:control permission for this.",
@@ -62,6 +69,32 @@ export const page = (items: unknown[], next_cursor: string | null = null) =>
 
 /** A request that never answers, so the block stays in its loading state. */
 export const pending = () => new Promise<Response>(() => {});
+
+export const SESSIONS: SessionSummary[] = [
+  SESSION,
+  {
+    ...SESSION,
+    id: "0192f0c4-7d3a-7b4e-9f00-0000000000a2",
+    status: "needs_input",
+  },
+  {
+    ...SESSION,
+    id: "0192f0c4-7d3a-7b4e-9f00-0000000000a3",
+    status: "failed",
+    admission_state: "recovery_required",
+    queued_turn_count: 0,
+  },
+];
+
+/** What `GET /v1/sessions?status=needs_input` answers. */
+export const WAITING: SessionSummary[] = [
+  { ...SESSION, status: "needs_input" },
+  {
+    ...SESSION,
+    id: "0192f0c4-7d3a-7b4e-9f00-0000000000a2",
+    status: "needs_input",
+  },
+];
 
 export const DETAIL: SessionDetailData = {
   ...SESSION,
