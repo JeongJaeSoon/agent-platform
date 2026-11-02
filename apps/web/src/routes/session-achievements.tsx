@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ApiError, unwrap } from "@werft-ai/client";
+import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   AchievementJudgment,
   ListSessionAchievementsResponse,
@@ -26,6 +26,7 @@ import {
 import { useId, useState } from "react";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
 /** The outputs tab's `out/` file list, which a file achievement points at. */
@@ -124,6 +125,15 @@ export function SessionAchievements({
     );
     return achievements.refetch();
   };
+  // A session gone from view is the detail screen's to report.
+  if (achievements.error && !isApiError(achievements.error, "NOT_FOUND")) {
+    return (
+      <LoadFailure
+        error={achievements.error}
+        onRetry={() => void achievements.refetch()}
+      />
+    );
+  }
   const data = achievements.data;
   if (data === undefined || (data.items.length === 0 && !data.judgment)) {
     return null;

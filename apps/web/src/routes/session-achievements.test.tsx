@@ -508,6 +508,25 @@ describe("session achievements", () => {
     );
   });
 
+  test("a list that cannot be read says so and offers to ask again", async () => {
+    let failing = true;
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      routes(() =>
+        failing
+          ? apiError(503, "SERVICE_UNAVAILABLE", "store down")
+          : json(200, listed),
+      ),
+    );
+    await (await setupUser()).click(
+      await screen.findByRole("tab", { name: /^결과물/ }),
+    );
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    failing = false;
+    await (await setupUser()).click(retry);
+    expect(await screen.findByRole("region", { name: /^성과/ })).toBeTruthy();
+  });
+
   test("a session with no achievements and no judgment shows no card", async () => {
     const { api } = renderAt(
       `/sessions/${SESSION_ID}`,
