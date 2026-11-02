@@ -11,7 +11,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { agentCardSchema, SESSION_SCOPE_VALUES } from "@werft-ai/contracts";
+import {
+  agentCardRequestSchema,
+  SESSION_SCOPE_VALUES,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   createDatabaseIdentityReader,
@@ -180,7 +183,7 @@ function useDatabase(engine: string) {
 }
 
 const card = (instructions: string) =>
-  agentCardSchema.parse({
+  agentCardRequestSchema.parse({
     role: "r",
     instructions,
     model: "claude-sonnet-5",

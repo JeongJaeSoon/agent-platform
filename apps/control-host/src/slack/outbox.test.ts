@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import {
-  agentCardSchema,
+  agentCardRequestSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
   SLACK_NOTICE_MESSAGES,
@@ -261,7 +261,7 @@ async function agentInSlack() {
   const created = await agentsService.createAgent(owner, {
     slug: "notes",
     name: "Notes",
-    card: agentCardSchema.parse({
+    card: agentCardRequestSchema.parse({
       role: "r",
       instructions: "i",
       model: "claude-sonnet-5",

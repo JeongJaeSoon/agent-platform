@@ -316,6 +316,9 @@ export function createAgentService(deps: {
         workspaceId: caller.ownerId,
         slug: request.slug,
         name: request.name,
+        ...(request.description === undefined
+          ? {}
+          : { description: request.description }),
         card: request.card,
         contentSha256: cardContentSha256(request.card),
         createdBy: userId,
@@ -344,6 +347,9 @@ export function createAgentService(deps: {
         workspaceId: caller.ownerId,
         agentId,
         ...(request.name === undefined ? {} : { name: request.name }),
+        ...(request.description === undefined
+          ? {}
+          : { description: request.description }),
         ...(request.card === undefined
           ? {}
           : {

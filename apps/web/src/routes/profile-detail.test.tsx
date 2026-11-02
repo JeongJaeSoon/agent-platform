@@ -32,6 +32,7 @@ function agent(
     workspace_id: WORKSPACE_ID,
     slug: `agent-${n}`,
     name,
+    description: null,
     status: "active",
     active_release_id: release,
     activation_revision: release === null ? -1 : 0,

@@ -904,6 +904,13 @@
       "when": 1793621571906,
       "tag": "0219_github_app_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "7",
+      "when": 1793623860001,
+      "tag": "0220_agent_description",
+      "breakpoints": true
     }
   ]
 }
