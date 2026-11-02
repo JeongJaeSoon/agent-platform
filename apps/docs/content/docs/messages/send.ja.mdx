@@ -3,9 +3,24 @@ title: "送信"
 description: セッションにメッセージを送って次のターンを作り、そのターンの結果を読む
 ---
 
-メッセージ 1 つがターン 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。
+メッセージ 1 つがターン 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。例の `GATE-SPEC {…}` メッセージは、開発用サーバーの fake モデルが読むスクリプトである([開始](/sessions/start))。
 
 ## セッションを 1 つ用意する
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"m1","steps":[],"final":"ready"}',
+});
+const sessionId = created.session_id;
+```
+
+</Tab>
+<Tab>
 
 ```bash
 SID=$(curl -sS "$API/v1/sessions" \
@@ -17,7 +32,34 @@ SID=$(curl -sS "$API/v1/sessions" \
   | jq -r .session_id)
 ```
 
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 ## 送信する
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"m2","steps":[{"tool":"Bash","input":{"command":"ls","description":"list files"}}],"final":"listed"}',
+});
+console.log(sent);
+```
+
+```text
+{
+  turn_id: '2',
+  receipt_id: '…',
+  receipt_status: 'accepted'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 sent=$(curl -sS "$API/v1/sessions/$SID/messages" \
@@ -37,13 +79,37 @@ TURN=$(echo "$sent" | jq -r .turn_id)
 }
 ```
 
+リファレンス: [`POST /v1/sessions/{id}/messages`](/reference/http-api/messages-and-turns/appendSessionMessage)
+
+</Tab>
+</Tabs>
+
 レスポンスは 202 である。前のターンがまだ実行中なら、新しいターンは `queued` で待機し、順番が来たら実行される。
 
 - `message` は UTF-8 で 32,768 バイトまでである。超えると 413 になる。
 - 1 つのセッションに溜められる待機中の入力は、デフォルトで 20 個である。超えると 429 になる。
-- `Idempotency-Key` が必要である。レスポンスを受け取れなかったときは、同じキーと同じ本文でもう一度送る。ターンは 1 回だけ作られる。
+- `Idempotency-Key` が必要である。レスポンスを受け取れなかったときは、同じキーと同じ本文でもう一度送る。ターンは 1 回だけ作られる。SDK はキーを作って付け、再試行にも同じキーを使う。
 
 ## 結果を読む
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+const turn = await waitForTurn(werft, sessionId, sent.turn_id, {
+  signal: AbortSignal.timeout(5 * 60_000),
+});
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+```
+
+```text
+turn 2: completed
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" \
@@ -60,9 +126,16 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN" -H "Authorization: Bearer $KEY" | j
 }
 ```
 
+リファレンス: [`GET /v1/sessions/{id}/turns/{turn_id}`](/reference/http-api/messages-and-turns/getSessionTurn)
+
+</Tab>
+</Tabs>
+
 ターンが終わったかどうかは、この `status` だけで判断する。5 つの値のどれかであれば終了している。`completed` は、エンジンがターンを正常に終えたという意味であり、依頼した作業をすべて終えたという意味ではない。モデルがツールを 1 つ呼んだだけで応答を終えても、ツールがエラーを受け取っても `completed` である。作業ができたかどうかは、[ストリーミング](/messages/streaming)の `assistant`・`tool_result` イベントを読んで判断し、不十分なら同じセッションに次のメッセージを送る。
 
 ## 送信できないとき
+
+SDK では、下のレスポンスが `APIError` として届き、`isApiError(error, "SESSION_PAUSED")` のように判別する。409 は SDK が再送しない。
 
 | レスポンス | 意味 |
 | --- | --- |

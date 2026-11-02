@@ -10,6 +10,7 @@ import { isApiError } from "@werft-ai/client";
 import { meQuery, viewerQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
+import { AchievementsScreen } from "./routes/achievements.tsx";
 import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import {
   AgentDetailScreen,
@@ -426,6 +427,12 @@ const operationsLimits = createRoute({
   component: lazyRouteComponent(loadOperations, "OperationsLimitsScreen"),
 });
 
+const achievements = createRoute({
+  getParentRoute: () => authed,
+  path: "/achievements",
+  component: AchievementsScreen,
+});
+
 const agents = createRoute({
   getParentRoute: () => authed,
   path: "/agents",
@@ -488,6 +495,7 @@ const routeTree = root.addChildren([
       operationsTools,
       operationsLimits,
     ]),
+    achievements,
   ]),
 ]);
 

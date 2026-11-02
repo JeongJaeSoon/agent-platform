@@ -4,26 +4,19 @@ import {
   receiptActorOf,
   type SecretKey,
 } from "@werft-ai/platform";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   lockGitHubApps,
   oauthSecretSlot,
+  userLinkConnection,
   writeOAuthSecret,
 } from "./github-apps.ts";
 import type { Database } from "./queries.ts";
-import {
-  githubApps,
-  githubWorkspaceSettings,
-  receipts,
-  workspaces,
-} from "./schema.ts";
+import { githubWorkspaceSettings, receipts, workspaces } from "./schema.ts";
 import {
   createPostgresSecretStore,
   secretAuditRefusal,
 } from "./secret-values.ts";
-
-const author = (workspaceId: string) =>
-  and(eq(githubApps.workspaceId, workspaceId), eq(githubApps.role, "author"));
 
 /** `https://github.com/apps/<slug>` → `https://github.com`. */
 function webBaseOf(htmlUrl: string): string | null {
@@ -43,39 +36,32 @@ export function createPostgresGitHubOAuthStore(
   return {
     async status(named) {
       const workspaceId = named.toLowerCase();
-      const [row] = await db
-        .select({
-          clientId: githubApps.clientId,
-          secretSet: githubWorkspaceSettings.oauthClientSecretSet,
-        })
-        .from(githubApps)
-        .leftJoin(
-          githubWorkspaceSettings,
-          eq(githubWorkspaceSettings.workspaceId, githubApps.workspaceId),
-        )
-        .where(author(workspaceId))
-        .limit(1);
+      const [row, [settings]] = await Promise.all([
+        userLinkConnection(db, workspaceId),
+        db
+          .select({ secretSet: githubWorkspaceSettings.oauthClientSecretSet })
+          .from(githubWorkspaceSettings)
+          .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+          .limit(1),
+      ]);
       return {
-        authorApp: row !== undefined,
+        authorApp: row !== null,
+        connectionId: row?.id ?? null,
         clientId: row?.clientId ?? null,
-        clientSecretSet: row?.secretSet ?? false,
+        clientSecretSet: row !== null && (settings?.secretSet ?? false),
       };
     },
 
     async client(named): Promise<GitHubOAuthClient | null> {
       if (secrets === null) return null;
-      const workspaceId = named.toLowerCase();
-      const [row] = await db
-        .select()
-        .from(githubApps)
-        .where(author(workspaceId))
-        .limit(1);
-      if (row === undefined || row.clientId === null) return null;
+      const row = await userLinkConnection(db, named.toLowerCase());
+      if (row === null || row.clientId === null) return null;
       const webBase = webBaseOf(row.htmlUrl);
       if (webBase === null) return null;
       const clientSecret = await secrets.get(oauthSecretSlot(row));
       if (clientSecret === null) return null;
       return {
+        connectionId: row.id,
         clientId: row.clientId,
         clientSecret,
         webBase,
@@ -96,12 +82,8 @@ export function createPostgresGitHubOAuthStore(
         if (!workspace) return { outcome: "workspace_not_found" as const };
         // Serialized with the App's replacement and deletion, which drop it.
         await lockGitHubApps(tx, workspaceId);
-        const [row] = await tx
-          .select()
-          .from(githubApps)
-          .where(author(workspaceId))
-          .limit(1);
-        if (row === undefined) return { outcome: "no_author_app" as const };
+        const row = await userLinkConnection(tx, workspaceId);
+        if (row === null) return { outcome: "no_author_app" as const };
         if (row.clientId !== clientId) {
           return { outcome: "client_changed" as const };
         }
@@ -118,6 +100,7 @@ export function createPostgresGitHubOAuthStore(
           status: "succeeded",
           result: {
             app_id: row.appId,
+            connection_id: row.id,
             role: "author",
             purpose: "oauth_client_secret",
             last4: clientSecret.slice(-4),

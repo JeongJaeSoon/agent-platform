@@ -22,7 +22,7 @@ export function HomeHero({ lang }: { lang: Locale }) {
           Quickstart
         </Link>
         <Link
-          href={localizeHref("/sdk", lang)}
+          href={localizeHref("/getting-started/install", lang)}
           className={`${button} border hover:bg-fd-accent`}
         >
           TypeScript SDK

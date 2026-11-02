@@ -61,6 +61,7 @@ describe("app shell", () => {
     [
       ["실행 프로필", "/profiles"],
       ["사용량·한도", "/operations"],
+      ["성과", "/achievements"],
       ["구성원", "/members"],
       ["설정", "/settings/workspace"],
     ],
@@ -76,6 +77,7 @@ describe("app shell", () => {
         [
           ["실행 프로필", "/profiles"],
           ["사용량·한도", "/operations"],
+          ["성과", "/achievements"],
         ],
       ],
     ],
@@ -110,19 +112,28 @@ describe("app shell", () => {
     });
     const group = within(nav).getByRole("group", { name: "워크스페이스" });
     expect(heading.getAttribute("aria-expanded")).toBe("true");
-    expect(within(group).getAllByRole("link")).toHaveLength(4);
+    expect(within(group).getAllByRole("link")).toHaveLength(5);
     // Every page shows its own tile colour.
     expect(
       Array.from(nav.querySelectorAll("[data-slot=icon-tile]"), (tile) =>
         tile.getAttribute("data-hue"),
       ),
-    ).toEqual(["blue", "violet", "orange", "teal", "pink", "green", "slate"]);
+    ).toEqual([
+      "blue",
+      "violet",
+      "orange",
+      "teal",
+      "pink",
+      "sky",
+      "green",
+      "slate",
+    ]);
     const user = await setupUser();
     await user.click(heading);
     expect(heading.getAttribute("aria-expanded")).toBe("false");
     expect(within(group).queryAllByRole("link")).toHaveLength(0);
     await user.click(heading);
-    expect(within(group).getAllByRole("link")).toHaveLength(4);
+    expect(within(group).getAllByRole("link")).toHaveLength(5);
   });
 
   test("a member keeps their own settings in the account menu", async () => {
@@ -171,6 +182,7 @@ describe("app shell", () => {
   for (const [path, title] of [
     ["/operations", "사용량·한도"],
     ["/operations/limits", "사용량·한도"],
+    ["/achievements", "성과"],
     ["/profiles", "실행 프로필"],
   ] as const) {
     test(`${path} is named ${title} in the top bar and the page head`, async () => {
@@ -270,6 +282,35 @@ describe("app shell", () => {
       expect(header?.textContent).toBe("메뉴 열기세션/에이전트 지도"),
     );
     expect(contentColumn()?.dataset.slot).toBe("page-frame");
+  });
+
+  test("the top bar's trail is a named nav: a list, the item a link back, the page current", async () => {
+    renderAt("/sessions/map", {
+      ...signedIn,
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    const [header] = await screen.findAllByRole("banner");
+    const trail = await within(header as HTMLElement).findByRole("navigation", {
+      name: "메뉴 위치",
+    });
+    // The item and the page; the separator between them is hidden.
+    await waitFor(() =>
+      expect(within(trail).getAllByRole("listitem")).toHaveLength(2),
+    );
+    const back = within(trail).getByRole("link", { name: "세션" });
+    expect(back.getAttribute("href")).toBe("/sessions");
+    expect(
+      [...trail.querySelectorAll("[aria-current=page]")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["에이전트 지도"]);
+    // The separator is drawn, not read.
+    expect(
+      within(trail)
+        .getAllByRole("listitem", { hidden: true })
+        .filter((item) => item.getAttribute("aria-hidden") === "true")
+        .map((item) => item.textContent),
+    ).toEqual(["/"]);
   });
 
   test("the sessions list opens the agent map", async () => {

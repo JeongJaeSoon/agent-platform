@@ -725,6 +725,49 @@ export function runtimeProviderOf(
 }
 
 /**
+ * Whether a claim runs a session's release tools instead of its profile's.
+ * Off until an image that offers both lists as restore configs is the
+ * rollback floor: an older one cannot resume a checkpoint made with the
+ * release's (docs/contributing/decisions/agent-wizard-rework.md, 3a).
+ */
+export const CLAIM_RUNS_RELEASE_TOOLS = false;
+
+export type ToolList = "profile" | "release";
+
+/**
+ * The built-in tool lists a session's checkpoints may be made with under
+ * `profile`, and the one its engine runs. `release` is null when the
+ * session has no release (`releaseTools` null) or it keeps every profile
+ * tool; it is taken within the profile, so no list ever holds a tool the
+ * profile does not.
+ *
+ * A claim offers the profile lists of every restore profile before any
+ * release list: the protocol caps restore configs, and the profile lists
+ * are what every checkpoint from before release lists ran with.
+ */
+export function claimToolLists(
+  profile: CatalogProfile,
+  releaseTools: readonly string[] | null,
+  runRelease: boolean = CLAIM_RUNS_RELEASE_TOOLS,
+): {
+  profile: readonly string[];
+  release: readonly string[] | null;
+  runs: ToolList;
+} {
+  const chosen = releaseTools === null ? null : new Set(releaseTools);
+  const release = chosen && profile.tools.filter((tool) => chosen.has(tool));
+  const narrower =
+    release !== null && release.length !== profile.tools.length
+      ? release
+      : null;
+  return {
+    profile: profile.tools,
+    release: narrower,
+    runs: runRelease && narrower !== null ? "release" : "profile",
+  };
+}
+
+/**
  * The profile as a claim hands it to the worker, which hashes it into the
  * checkpoint fingerprint; `scripts/lib/checkpoint-pins.ts` rebuilds it to ask
  * a target image for that digest. A session without a repository has no
@@ -734,10 +777,11 @@ export function runtimeConfigOf(
   profile: CatalogProfile,
   providerToken: string,
   hasRepository: boolean,
+  tools: readonly string[] = profile.tools,
 ): RuntimeConfig {
   return {
     model: profile.model,
-    tools: profile.tools,
+    tools: [...tools],
     permission_mode: profile.permission_mode,
     provider: runtimeProviderOf(profile, providerToken),
     ...(hasRepository && profile.project_settings?.claude_md === true
