@@ -213,7 +213,9 @@ function isTableStart(lines: readonly string[], index: number): boolean {
 }
 
 function isTableRow(line: string): boolean {
-  return line.includes("|") && !/^\s*(>|#{1,6}\s)/.test(line);
+  return (
+    line.includes("|") && !/^\s*(>|#{1,6}\s|[-*+]\s|\d{1,9}[.)]\s)/.test(line)
+  );
 }
 
 /** A cell goes into a code block, so its code shows without the backticks. */
@@ -234,7 +236,8 @@ function cellText(cell: string, kept: Kept): string {
 // A long cell is not padded past this, so one cell cannot widen every row.
 const COLUMN_MAX = 40;
 
-function renderTable(rows: string[][]): string {
+/** Null when padding would grow the table past `limit` characters. */
+function renderTable(rows: string[][], limit: number): string | null {
   // Cells past the header's count are dropped, as GitHub does.
   const columns = rows[0]?.length ?? 0;
   const widths = Array.from({ length: columns }, (_, column) =>
@@ -243,6 +246,9 @@ function renderTable(rows: string[][]): string {
       Math.max(...rows.map((row) => width(row[column] ?? ""))),
     ),
   );
+  const rowLength =
+    widths.reduce((sum, columnWidth) => sum + columnWidth, 0) + 3 * columns;
+  if (rows.length * rowLength > limit) return null;
   const line = (row: readonly string[]) =>
     widths
       .map((columnWidth, column) => {
@@ -277,19 +283,24 @@ function convertLines(text: string, kept: Kept): string {
     const line = lines[index] ?? "";
 
     if (isTableStart(lines, index)) {
+      const start = index;
       const rows = [splitRow(line)];
       index += 2;
       while (index < lines.length && isTableRow(lines[index] ?? "")) {
         rows.push(splitRow(lines[index] ?? ""));
         index += 1;
       }
+      const source = lines.slice(start, index);
       index -= 1;
+      const table = renderTable(
+        rows.map((row) => row.map((cell) => cellText(cell, kept))),
+        4 * source.join("\n").length + 1_000,
+      );
+      // A sparse table that would balloon stays as the lines it was.
       output.push(
-        kept.keep(
-          renderTable(
-            rows.map((row) => row.map((cell) => cellText(cell, kept))),
-          ),
-        ),
+        table === null
+          ? source.map((row) => inline(row, kept, BODY)).join("\n")
+          : kept.keep(table),
       );
       indents = [];
       continue;

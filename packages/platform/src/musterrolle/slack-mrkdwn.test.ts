@@ -233,6 +233,10 @@ describe("markdownToSlackMrkdwn", () => {
     expect(markdownToSlackMrkdwn(ragged).length).toBeLessThan(
       ragged.length * 2,
     );
+    const sparse = `|${"h|".repeat(2_000)}\n|${"-|".repeat(2_000)}\n${"|x|\n".repeat(2_000)}`;
+    expect(markdownToSlackMrkdwn(sparse).length).toBeLessThan(
+      sparse.length * 5,
+    );
     expect(markdownToSlackMrkdwn("|h|\n|-|\n|a``````b|")).toBe(
       `\`\`\`\nh\n--------\na\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`b\n\`\`\``,
     );
@@ -241,6 +245,16 @@ describe("markdownToSlackMrkdwn", () => {
   test("a table keeps backticks inside its code and ends before a quote", () => {
     expect(markdownToSlackMrkdwn("| x |\n| --- |\n| ``a`b`` |\n> q | z")).toBe(
       "```\nx\n---\na`b\n```\n> q | z",
+    );
+  });
+
+  test("a list right after a table is not part of it", () => {
+    expect(
+      markdownToSlackMrkdwn(
+        "| Name |\n| --- |\n| Alice |\n- **Note:** choose A | B\n1. Pick A | B",
+      ),
+    ).toBe(
+      "```\nName\n-----\nAlice\n```\n• *Note:* choose A | B\n1. Pick A | B",
     );
   });
 
