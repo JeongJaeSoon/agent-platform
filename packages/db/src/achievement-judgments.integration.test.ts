@@ -57,6 +57,7 @@ import {
   receipts,
   sessionAchievements,
   sessionOutcomes,
+  sessionShares,
   sessions,
   turns,
   users,
@@ -2514,5 +2515,61 @@ integration("achievement judgments on PostgreSQL", () => {
     expect((await reviewing(ws.owner, pull.id, "reject")).outcome).toBe(
       "actor_inactive",
     );
+  });
+
+  test("a session made private since the read is not reviewed by an agent admin who no longer sees it", async () => {
+    const ws = await workspace();
+    const { sessionId, file } = await decided(ws);
+    const agentId = randomUUID();
+    await db.insert(agents).values({
+      id: agentId,
+      workspaceId: ws.workspaceId,
+      slug: `agent-${agentId.slice(0, 8)}`,
+      name: "Fixer",
+    });
+    await db
+      .update(sessionAchievements)
+      .set({ agentId })
+      .where(eq(sessionAchievements.id, file.id));
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "member",
+    });
+    await db
+      .insert(memberships)
+      .values({ workspaceId: ws.workspaceId, userId, role: "member" });
+    await db
+      .insert(agentAdmins)
+      .values({ workspaceId: ws.workspaceId, agentId, userId });
+    const member: TeamActor = { ...ws.owner, userId };
+    await db.insert(sessionShares).values({
+      sessionId,
+      ownerId: ws.owner.principal.ownerId,
+      workspaceId: ws.workspaceId,
+      scope: "private",
+    });
+
+    expect((await reviewing(member, file.id, "confirm")).outcome).toBe(
+      "not_found",
+    );
+    const [row] = await db
+      .select({ reviewState: sessionAchievements.reviewState })
+      .from(sessionAchievements)
+      .where(eq(sessionAchievements.id, file.id));
+    expect(row?.reviewState).toBe("needs_review");
+    expect(
+      await db
+        .select({ id: receipts.id })
+        .from(receipts)
+        .where(
+          and(
+            eq(receipts.operation, "review_achievement"),
+            eq(receipts.ownerId, ws.owner.principal.ownerId),
+          ),
+        ),
+    ).toHaveLength(0);
   });
 });

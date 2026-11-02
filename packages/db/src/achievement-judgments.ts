@@ -12,6 +12,7 @@ import {
   type GitHubPullRequestOutcomeState,
   type GitHubReviewEvent,
   type SessionAchievement,
+  type WorkspaceRole,
   workspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import {
@@ -40,6 +41,7 @@ import { lockedAdministers } from "./agent-admins.ts";
 import { findPgError, lockPeople, receiptActorOf } from "./control-shared.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import type { Database } from "./queries.ts";
+import { lockSessionReach } from "./requester-locks.ts";
 import {
   achievementJudgments,
   achievementJudgmentUsage,
@@ -724,33 +726,67 @@ export function createPostgresAchievementJudgments(
       return db.transaction(async (tx) => {
         const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
         if (me?.live !== true) return { outcome: "actor_inactive" as const };
-        const [found] = await tx
-          .select()
+        const current = and(
+          eq(sessionAchievements.id, achievementId),
+          eq(sessionAchievements.ownerId, actor.principal.ownerId),
+          eq(sessionAchievements.workspaceId, actor.workspaceId),
+          isNull(sessionAchievements.supersededAt),
+        );
+        const [target] = await tx
+          .select({
+            sessionId: sessionAchievements.sessionId,
+            agentId: sessionAchievements.agentId,
+          })
           .from(sessionAchievements)
-          .where(
-            and(
-              eq(sessionAchievements.id, achievementId),
-              eq(sessionAchievements.ownerId, actor.principal.ownerId),
-              eq(sessionAchievements.workspaceId, actor.workspaceId),
-              isNull(sessionAchievements.supersededAt),
-            ),
-          )
+          .where(current)
+          .limit(1);
+        if (!target) return { outcome: "not_found" as const };
+        // The share may have narrowed since the service's session.read:
+        // check it again under the session row (requester-locks.ts order).
+        const [session] = await tx
+          .select({
+            id: sessions.id,
+            workspaceId: sessions.workspaceId,
+            createdByUserId: sessions.createdByUserId,
+            createdByApiKeyId: sessions.createdByApiKeyId,
+            agentReleaseId: sessions.agentReleaseId,
+          })
+          .from(sessions)
+          .where(eq(sessions.id, target.sessionId))
+          .limit(1)
           .for("update");
-        if (!found) return { outcome: "not_found" as const };
+        if (!session) return { outcome: "not_found" as const };
         const reviewers: readonly string[] =
           MANAGEMENT_ROLES["achievement.review"] ?? [];
         if (
           !reviewers.includes(me.role) &&
-          (found.agentId === null ||
+          (target.agentId === null ||
             !(await lockedAdministers(
               tx,
               actor.workspaceId,
-              found.agentId,
+              target.agentId,
               actor.userId,
             )))
         ) {
           return { outcome: "actor_inactive" as const };
         }
+        const reach = await lockSessionReach(
+          tx,
+          {
+            userId: actor.userId,
+            apiKeyId: null,
+            role: me.role as WorkspaceRole,
+            keyAgentId: null,
+          },
+          session,
+        );
+        if (reach !== "ok") return { outcome: "not_found" as const };
+        const [found] = await tx
+          .select()
+          .from(sessionAchievements)
+          .where(current)
+          .for("update");
+        if (!found) return { outcome: "not_found" as const };
         const from =
           decision === "confirm" ? ["needs_review"] : ["auto", "needs_review"];
         if (!from.includes(found.reviewState)) {
