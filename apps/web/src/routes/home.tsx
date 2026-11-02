@@ -27,7 +27,6 @@ import {
 } from "@werft-ai/react/components";
 import {
   Badge,
-  buttonVariants,
   Card,
   cn,
   formatElapsed,
@@ -981,18 +980,19 @@ function SlackTodo({
                   })}
                 </Text>
               </RowLines>
-              <Link
-                to="/agents/$id"
-                params={{ id: agent.id }}
-                search={{ tab: "slack" }}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-                aria-label={t("home.todo.ctaName", {
-                  action: t(`home.todo.cta.${action}`),
-                  agent: agent.name,
-                })}
-              >
-                {t(`home.todo.cta.${action}`)}
-              </Link>
+              <RowAction asChild>
+                <Link
+                  to="/agents/$id"
+                  params={{ id: agent.id }}
+                  search={{ tab: "slack" }}
+                  aria-label={t("home.todo.ctaName", {
+                    action: t(`home.todo.cta.${action}`),
+                    agent: agent.name,
+                  })}
+                >
+                  {t(`home.todo.cta.${action}`)}
+                </Link>
+              </RowAction>
             </RowListItem>
           );
         })}
