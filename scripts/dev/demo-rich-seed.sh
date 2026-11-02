@@ -14,8 +14,9 @@ cd "$repo"
 . .claude/skills/verify-agent-platform/scripts/lib.sh "$run" >/dev/null
 accounts="$run/demo-rich-accounts.json"
 # Its imports name apps/ from the repository root, as /app is in the image.
+# /app itself is root's; the script only needs to be readable there.
 inside=/app/scripts/dev/demo-rich-seed.ts
-ap_compose exec -T api mkdir -p /app/scripts/dev
+ap_compose exec -T -u 0 api mkdir -p /app/scripts/dev
 ap_compose cp scripts/dev/demo-rich-seed.ts "api:$inside" >/dev/null
 # Written through stdin so the file belongs to the container's user;
 # `compose cp` would keep the host owner and its 0600 would lock it out.

@@ -18,7 +18,6 @@ import { SecretKey } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { DEMO_PASSWORD } from "../../apps/control-host/src/api/demo-accounts.ts";
-import { FAKE_MESSAGES_ENDPOINT } from "../../apps/control-host/src/api/demo-data.ts";
 
 const BASE = `http://127.0.0.1:${process.env.PORT ?? 3000}`;
 const MOCK_SLACK = "http://mock-slack:4020";
@@ -27,6 +26,8 @@ const MODEL = "claude-sonnet-5";
 const CODING = "claude-coding-local";
 const GENERAL = "general";
 const SETTLE_MS = 420_000;
+// infra/compose.fake-model.yml
+const FAKE_MODEL_CONFIG_DIR = "/app/config/fake-model";
 
 const results: string[] = [];
 function note(line: string) {
@@ -1009,10 +1010,14 @@ const BLOCKED_CEILING = "legacy-batch";
 const ceilingId = (name: string) => `op_${name}_v1`;
 
 async function ensureInstallationCeilings(owner: Web) {
-  const items = await readWorkspaceProfiles(owner);
-  const base = items.find((item: any) => item.id === CODING);
-  if (!base?.installation)
-    throw new Error(`profile ${CODING} has no installation ceiling to copy`);
+  const items = await step("read profiles", () => readWorkspaceProfiles(owner));
+  const base = items?.find((item: any) => item.id === CODING);
+  if (!base?.installation) {
+    note(
+      `FAIL installation ceilings: ${CODING} has no installation ceiling to copy`,
+    );
+    return;
+  }
   const specs = [
     {
       name: GITHUB_CEILING,
@@ -1031,9 +1036,15 @@ async function ensureInstallationCeilings(owner: Web) {
   ];
   for (const spec of specs) {
     await step(`installation ceiling ${spec.name}`, async () => {
-      if (items.some((item: any) => item.id === ceilingId(spec.name))) return;
+      if (items!.some((item: any) => item.id === ceilingId(spec.name))) return;
       await owner.ok(201, "POST", "/v1/installation-profiles", {
         ...spec,
+        ...(base.installation.title_model
+          ? { title_model: base.installation.title_model }
+          : {}),
+        ...(base.installation.project_settings
+          ? { project_settings: base.installation.project_settings }
+          : {}),
         connection_id: base.installation.connection_id,
         runtime_kind: base.runtime_kind,
         runtime_version: base.runtime_version,
@@ -1111,7 +1122,7 @@ function startFakeGitHub() {
       hostname: "127.0.0.1",
       port: FAKE_GITHUB_PORT,
       fetch(request) {
-        const { pathname } = new URL(request.url);
+        const { pathname, searchParams } = new URL(request.url);
         const path = pathname.replace(/^\/api\/v3/, "");
         if (path === "/app") return Response.json(GH_APP);
         if (path === "/app/installations")
@@ -1127,11 +1138,14 @@ function startFakeGitHub() {
             { status: 201 },
           );
         }
-        if (path === "/installation/repositories")
+        if (path === "/installation/repositories") {
+          const perPage = Number(searchParams.get("per_page") ?? 30);
+          const page = Number(searchParams.get("page") ?? 1);
           return Response.json({
             total_count: GH_REPOS.length,
-            repositories: GH_REPOS,
+            repositories: GH_REPOS.slice((page - 1) * perPage, page * perPage),
           });
+        }
         const byId = /^\/repositories\/(\d+)$/.exec(path);
         const found = byId
           ? GH_REPOS.find((repo) => repo.id === Number(byId[1]))
@@ -2331,18 +2345,15 @@ async function main() {
     await keepAlive();
     return;
   }
+  // /v1/profiles keeps each provider to the operator, so the config this
+  // api reads is what says the sessions below go to the fake model.
+  if (process.env["PLATFORM_CONFIG_DIR"] !== FAKE_MODEL_CONFIG_DIR)
+    throw new Error("this api does not run the fake-model catalog");
   const owner = new Web("owner");
   await owner.login("demo-owner@example.test", DEMO_PASSWORD);
   const me = await owner.ok<any>(200, "GET", "/v1/auth/me");
   const workspaceId = me.workspace.id;
   const catalog = await owner.ok<any>(200, "GET", "/v1/profiles");
-  for (const profile of catalog.items ?? catalog.profiles ?? []) {
-    if (
-      profile.provider?.endpoint &&
-      profile.provider.endpoint !== FAKE_MESSAGES_ENDPOINT
-    )
-      throw new Error(`profile ${profile.id} is not the fake model`);
-  }
   note(
     `permission_wait per profile: ${JSON.stringify((catalog.items ?? []).map((p: any) => [p.id, p.permission_wait]))}`,
   );

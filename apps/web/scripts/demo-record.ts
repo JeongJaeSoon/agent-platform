@@ -10,8 +10,9 @@
  *     [--account owner] [--max-pages 500]
  *
  * <accounts.md> holds the stack's account table between `<!-- accounts -->`
- * markers, one row per account: key | role | name | email | password | ...
- * The password is read from it and never printed. <demo> is a checkout of
+ * markers, one row per account: key | role | name | email | password | ...,
+ * or is the demo-rich-accounts.json scripts/dev/demo-rich-seed.sh keeps in
+ * its run directory. The password is read from it and never printed. <demo> is a checkout of
  * JeongJaeSoon/agent-platform-demo; README "콘솔 데모" has the steps that
  * follow (gitleaks fingerprints, demo-scan, the push).
  */
@@ -75,7 +76,7 @@ const SEEDS = [
  * `{ "<key>": { "email", "password" } }` file scripts/dev/demo-rich-seed.sh
  * keeps.
  */
-export function accountFrom(
+function accountFrom(
   text: string,
   key: string,
 ): { email: string; password: string } {
