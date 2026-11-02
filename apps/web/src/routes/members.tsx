@@ -94,7 +94,8 @@ const MEMBER_COLUMNS =
   "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
 const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
-const MEMBER_TABLE_MIN = "min-w-[320px]";
+// 320px of columns plus the frame's 1px border on each side.
+const MEMBER_TABLE_MIN = "min-w-[322px]";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }
@@ -457,140 +458,134 @@ function MemberTable({
           so it scrolls instead. The padding keeps the opener's focus ring,
           2px outside the row, inside the scroller's clip. */}
       <div className="-m-1 grid overflow-x-auto p-1">
-        <div className="rounded-card border bg-card">
-          <GridTable
-            aria-label={t("members.tableLabel")}
-            columns={MEMBER_COLUMNS}
-            narrowAt={640}
-            narrowColumns={MEMBER_NARROW_COLUMNS}
-            className={MEMBER_TABLE_MIN}
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>
-                {t("members.column.name")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader>
-                {t("members.column.role")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader align="end">
-                {/* Over the row buttons' centred labels. */}
-                <span className="min-w-[var(--ap-row-action-min-width)] text-center">
-                  {t("members.column.actions")}
-                </span>
-              </GridTableColumnHeader>
-            </GridTableHeader>
-            {items.map((member) => {
-              const disabled = member.disabled_at !== null;
-              const keepWhy = disabled
-                ? reasonOf(t, "enable", member.actions.enable)
-                : reasonOf(t, "disable", member.actions.disable);
-              const busy =
-                (changeRole.isPending &&
-                  changeRole.variables?.member.user_id === member.user_id) ||
-                (setAccess.isPending &&
-                  setAccess.variables?.member.user_id === member.user_id);
-              const button = disabled ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={busy || keepWhy !== undefined}
-                  onClick={() => setAccess.mutate({ member, enable: true })}
+        <GridTable
+          aria-label={t("members.tableLabel")}
+          columns={MEMBER_COLUMNS}
+          narrowAt={640}
+          narrowColumns={MEMBER_NARROW_COLUMNS}
+          framed={true}
+          className={MEMBER_TABLE_MIN}
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("members.column.name")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("members.column.role")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader action={true}>
+              {t("members.column.actions")}
+            </GridTableColumnHeader>
+          </GridTableHeader>
+          {items.map((member) => {
+            const disabled = member.disabled_at !== null;
+            const keepWhy = disabled
+              ? reasonOf(t, "enable", member.actions.enable)
+              : reasonOf(t, "disable", member.actions.disable);
+            const busy =
+              (changeRole.isPending &&
+                changeRole.variables?.member.user_id === member.user_id) ||
+              (setAccess.isPending &&
+                setAccess.variables?.member.user_id === member.user_id);
+            const button = disabled ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={busy || keepWhy !== undefined}
+                onClick={() => setAccess.mutate({ member, enable: true })}
+              >
+                {t("members.enable")}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={busy || keepWhy !== undefined}
+                aria-label={t("members.disableFor", {
+                  name: member.display_name,
+                })}
+                onClick={() => setConfirming(member)}
+              >
+                {t("members.disable")}
+              </Button>
+            );
+            return (
+              <GridTableRow
+                key={member.user_id}
+                inactive={disabled}
+                data-disabled={disabled}
+              >
+                <GridTableCell lines={true}>
+                  <GridTableRowOpener
+                    aria-label={t(
+                      disabled ? "members.editForDisabled" : "members.editFor",
+                      { name: member.display_name },
+                    )}
+                    onClick={(event) => {
+                      editOpener.current = event.currentTarget;
+                      setEditingId(member.user_id);
+                    }}
+                  />
+                  {/* v4 .strong: body text at weight 500, not link blue;
+                      blue stays for links that move (→). */}
+                  {/* Below md the "you" badge drops to its own line under
+                      the name, so the name gets the whole column (QA L-17). */}
+                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
+                    <span className="truncate">{member.display_name}</span>
+                    {disabled ? (
+                      <span className="sr-only">
+                        {` (${t("members.state.disabled")})`}
+                      </span>
+                    ) : null}
+                    {member.user_id === self ? (
+                      <Badge
+                        variant="gray"
+                        className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
+                      >
+                        {t("members.you")}
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <span
+                    className="text-muted-foreground text-xs"
+                    title={member.email}
+                  >
+                    {member.email}
+                  </span>
+                </GridTableCell>
+                <GridTableCell>
+                  <Badge variant={member.role === "member" ? "gray" : "blue"}>
+                    {roleLabel(t, member.role)}
+                  </Badge>
+                </GridTableCell>
+                {/* The button keeps one width as "disable" turns "enable". */}
+                <GridTableCell
+                  raised={true}
+                  align="end"
+                  className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
                 >
-                  {t("members.enable")}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={busy || keepWhy !== undefined}
-                  aria-label={t("members.disableFor", {
-                    name: member.display_name,
-                  })}
-                  onClick={() => setConfirming(member)}
-                >
-                  {t("members.disable")}
-                </Button>
-              );
-              return (
-                <GridTableRow
-                  key={member.user_id}
-                  inactive={disabled}
-                  data-disabled={disabled}
-                >
-                  <GridTableCell lines={true}>
-                    <GridTableRowOpener
-                      aria-label={t(
-                        disabled
-                          ? "members.editForDisabled"
-                          : "members.editFor",
+                  {keepWhy ? (
+                    <DisabledReason
+                      reason={keepWhy}
+                      label={t(
+                        disabled ? "members.enableFor" : "members.disableFor",
                         { name: member.display_name },
                       )}
-                      onClick={(event) => {
-                        editOpener.current = event.currentTarget;
-                        setEditingId(member.user_id);
-                      }}
-                    />
-                    {/* v4 .strong: body text at weight 500, not link blue;
-                      blue stays for links that move (→). */}
-                    {/* Below md the "you" badge drops to its own line under
-                      the name, so the name gets the whole column (QA L-17). */}
-                    <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] font-medium text-foreground @max-md:grid-cols-[minmax(0,auto)]">
-                      <span className="truncate">{member.display_name}</span>
-                      {disabled ? (
-                        <span className="sr-only">
-                          {` (${t("members.state.disabled")})`}
-                        </span>
-                      ) : null}
-                      {member.user_id === self ? (
-                        <Badge
-                          variant="gray"
-                          className="ms-1.5 @max-md:col-start-1 @max-md:row-start-2 @max-md:ms-0"
-                        >
-                          {t("members.you")}
-                        </Badge>
-                      ) : null}
-                    </span>
-                    <span
-                      className="text-muted-foreground text-xs"
-                      title={member.email}
                     >
-                      {member.email}
-                    </span>
-                  </GridTableCell>
-                  <GridTableCell>
-                    <Badge variant={member.role === "member" ? "gray" : "blue"}>
-                      {roleLabel(t, member.role)}
-                    </Badge>
-                  </GridTableCell>
-                  {/* The button keeps one width as "disable" turns "enable". */}
-                  <GridTableCell
-                    raised={true}
-                    align="end"
-                    className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
-                  >
-                    {keepWhy ? (
-                      <DisabledReason
-                        reason={keepWhy}
-                        label={t(
-                          disabled ? "members.enableFor" : "members.disableFor",
-                          { name: member.display_name },
-                        )}
-                      >
-                        {button}
-                      </DisabledReason>
-                    ) : (
-                      button
-                    )}
-                  </GridTableCell>
-                </GridTableRow>
-              );
-            })}
-          </GridTable>
-        </div>
+                      {button}
+                    </DisabledReason>
+                  ) : (
+                    button
+                  )}
+                </GridTableCell>
+              </GridTableRow>
+            );
+          })}
+        </GridTable>
       </div>
       {editing ? (
         <MemberEditDialog

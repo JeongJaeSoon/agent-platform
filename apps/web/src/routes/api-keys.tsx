@@ -44,6 +44,7 @@ import {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
+  RowList,
   Link as TextLink,
 } from "@werft-ai/ui";
 import {
@@ -635,8 +636,11 @@ function KeyList({
 
   return (
     <>
-      <ul
-        className="m-0 flex list-none flex-col rounded-card border p-0"
+      {/* The page's own background shows through: no card fill. */}
+      <RowList
+        variant="joined"
+        framed={false}
+        className="rounded-card border"
         aria-label={t("apiKeys.listTitle")}
       >
         {items.map((key) => {
@@ -651,7 +655,7 @@ function KeyList({
           return (
             <li
               key={key.id}
-              className="flex min-h-12 flex-col items-start gap-2 border-b px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
+              className="flex min-h-12 flex-col items-start gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3"
               data-revoked={key.revoked_at !== null}
             >
               <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -714,7 +718,7 @@ function KeyList({
             </li>
           );
         })}
-      </ul>
+      </RowList>
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {

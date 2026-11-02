@@ -36,6 +36,7 @@ import {
   RowList,
   RowListItem,
   SearchInput,
+  SettingsSection,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
@@ -71,7 +72,6 @@ import {
 } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { SettingsCard } from "./workspace-settings.tsx";
 
 // The name and its button share a row; the button drops under the field only
 // when the row is too narrow for both.
@@ -333,7 +333,7 @@ function TeamSettings({
   };
 
   return (
-    <SettingsCard title={t("teams.settings")} titleAs="h3">
+    <SettingsSection title={t("teams.settings")} titleAs="h3">
       <form className={INLINE_FORM} onSubmit={submit}>
         <TeamNameField value={name} onChange={setName} />
         <Button
@@ -344,7 +344,7 @@ function TeamSettings({
           {t("teams.rename")}
         </Button>
       </form>
-    </SettingsCard>
+    </SettingsSection>
   );
 }
 
@@ -497,7 +497,7 @@ function TeamMembers({
   };
 
   return (
-    <SettingsCard
+    <SettingsSection
       title={t("teams.members")}
       titleAs="h3"
       badge={
@@ -540,95 +540,89 @@ function TeamMembers({
               }
             />
           ) : (
-            <div className="rounded-card border bg-card">
-              <GridTable
-                aria-label={t("teams.tableLabel")}
-                columns={columns}
-                narrowAt={640}
-                narrowColumns={narrowColumns}
-              >
-                <GridTableHeader>
+            <GridTable
+              aria-label={t("teams.tableLabel")}
+              columns={columns}
+              narrowAt={640}
+              narrowColumns={narrowColumns}
+              framed={true}
+            >
+              <GridTableHeader>
+                <GridTableColumnHeader>
+                  {t("members.column.name")}
+                </GridTableColumnHeader>
+                {roles && (
                   <GridTableColumnHeader>
-                    {t("members.column.name")}
+                    {t("members.column.role")}
                   </GridTableColumnHeader>
-                  {roles && (
-                    <GridTableColumnHeader>
-                      {t("members.column.role")}
-                    </GridTableColumnHeader>
-                  )}
-                  <GridTableColumnHeader hideNarrow={true}>
-                    {t("teams.column.addedAt")}
+                )}
+                <GridTableColumnHeader hideNarrow={true}>
+                  {t("teams.column.addedAt")}
+                </GridTableColumnHeader>
+                {manages && (
+                  <GridTableColumnHeader action={true}>
+                    {t("members.column.actions")}
                   </GridTableColumnHeader>
-                  {manages && (
-                    <GridTableColumnHeader align="end">
-                      {/* Over the row buttons' centred labels. */}
-                      <span className="min-w-[var(--ap-row-action-min-width)] text-center">
-                        {t("members.column.actions")}
-                      </span>
-                    </GridTableColumnHeader>
-                  )}
-                </GridTableHeader>
-                {shown.map((member) => {
-                  const name = member.display_name ?? member.email;
-                  const memberRole = roles?.get(member.user_id);
-                  return (
-                    <GridTableRow key={member.user_id}>
-                      <GridTableCell>
-                        <Avatar
-                          initials={avatarInitials(name)}
-                          tone={avatarTone(member.user_id)}
-                        />
-                        <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                          <span className="truncate font-medium">{name}</span>
-                          {member.display_name !== null && (
-                            <span
-                              className="truncate text-muted-foreground text-xs"
-                              title={member.email}
-                            >
-                              {member.email}
-                            </span>
-                          )}
-                        </span>
-                      </GridTableCell>
-                      {roles && (
-                        <GridTableCell>
-                          {memberRole && (
-                            <Badge
-                              variant={
-                                memberRole === "member" ? "gray" : "blue"
-                              }
-                            >
-                              {roleLabel(t, memberRole)}
-                            </Badge>
-                          )}
-                        </GridTableCell>
-                      )}
-                      <GridTableCell
-                        hideNarrow={true}
-                        className="text-caption text-muted-foreground tabular-nums"
-                      >
-                        {formatTimestamp(member.added_at, locale)}
-                      </GridTableCell>
-                      {manages && (
-                        <GridTableCell align="end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="min-w-[var(--ap-row-action-min-width)]"
-                            disabled={remove.isPending}
-                            aria-label={t("teams.removeMemberFor", { name })}
-                            onClick={() => setRemoving(member)}
+                )}
+              </GridTableHeader>
+              {shown.map((member) => {
+                const name = member.display_name ?? member.email;
+                const memberRole = roles?.get(member.user_id);
+                return (
+                  <GridTableRow key={member.user_id}>
+                    <GridTableCell>
+                      <Avatar
+                        initials={avatarInitials(name)}
+                        tone={avatarTone(member.user_id)}
+                      />
+                      <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                        <span className="truncate font-medium">{name}</span>
+                        {member.display_name !== null && (
+                          <span
+                            className="truncate text-muted-foreground text-xs"
+                            title={member.email}
                           >
-                            {t("teams.removeMember")}
-                          </Button>
-                        </GridTableCell>
-                      )}
-                    </GridTableRow>
-                  );
-                })}
-              </GridTable>
-            </div>
+                            {member.email}
+                          </span>
+                        )}
+                      </span>
+                    </GridTableCell>
+                    {roles && (
+                      <GridTableCell>
+                        {memberRole && (
+                          <Badge
+                            variant={memberRole === "member" ? "gray" : "blue"}
+                          >
+                            {roleLabel(t, memberRole)}
+                          </Badge>
+                        )}
+                      </GridTableCell>
+                    )}
+                    <GridTableCell
+                      hideNarrow={true}
+                      className="text-caption text-muted-foreground tabular-nums"
+                    >
+                      {formatTimestamp(member.added_at, locale)}
+                    </GridTableCell>
+                    {manages && (
+                      <GridTableCell align="end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="min-w-[var(--ap-row-action-min-width)]"
+                          disabled={remove.isPending}
+                          aria-label={t("teams.removeMemberFor", { name })}
+                          onClick={() => setRemoving(member)}
+                        >
+                          {t("teams.removeMember")}
+                        </Button>
+                      </GridTableCell>
+                    )}
+                  </GridTableRow>
+                );
+              })}
+            </GridTable>
           )}
         </div>
       )}
@@ -650,7 +644,7 @@ function TeamMembers({
           if (removing) remove.mutate(removing);
         }}
       />
-    </SettingsCard>
+    </SettingsSection>
   );
 }
 
