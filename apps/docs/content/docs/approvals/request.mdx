@@ -15,7 +15,7 @@ description: 세션이 만든 commit을 저장소의 agent/<session-id> 브랜�
 
 ## 파일을 바꾸는 세션 준비
 
-SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다. 이 대본은 저장소의 `README.md`에 한 줄을 더하고, 권한 요청을 허락하면 turn이 끝난다.
+SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다. 이 대본은 저장소의 `README.md`에 한 줄을 더하고, 권한 요청을 허락하면 turn이 끝난다. 세션을 만든 key로 허락하는 이 예제는 개발용 서버의 운영자 key에서만 된다. 웹 콘솔에서 발급한 key라면 허락에는 다른 key로 만든 클라이언트를 쓴다([승인용 key 따로 쓰기](/getting-started/client#승인용-key-따로-쓰기)).
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

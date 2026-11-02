@@ -104,7 +104,7 @@ curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '
 
 ## interrupt
 
-実行中のターン 1 つだけを止める。worker は残り、次のメッセージを受け付ける。下のスクリプトは応答を 5 分遅らせるので、その間ターンは `running` のままになる。
+実行中のターン 1 つだけを止める。worker は残り、次のメッセージを受け付ける。下のスクリプトは応答を 5 分遅らせるので、その間ターンは `running` のままになる。この遅延は開発用サーバーの fake モデルでだけ効く。実際のモデルでは、時間のかかる作業をさせたターンで試す。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

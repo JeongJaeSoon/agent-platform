@@ -3,7 +3,7 @@ title: "Waiting for approval and resuming"
 description: Answer permission requests and questions, and pause and resume a session
 ---
 
-When a turn waits for a person's permission before running a tool, or asks a person a question, the session becomes `needs_input`. When you answer, the turn continues. To let a session rest for a while, pause it and resume it later. Continue using the session created in [Start](/sessions/start) (`sessionId` in the SDK, `SID` in the HTTP API). Answering needs `sessions:approve` on the key, and pause and resume need `sessions:control`. Only the session's creator, its agent's admins and owners and admins answer ([Permissions](/agents/permissions)).
+When a turn waits for a person's permission before running a tool, or asks a person a question, the session becomes `needs_input`. When you answer, the turn continues. To let a session rest for a while, pause it and resume it later. Continue using the session created in [Start](/sessions/start) (`sessionId` in the SDK, `SID` in the HTTP API). Answering needs `sessions:approve` on the key, and pause and resume need `sessions:control`. Only the session's creator, its agent's admins and owners and admins answer ([Permissions](/agents/permissions)). The examples below answer with the key that created the session. That works only with the development server's operator key (`scripts/local.sh key`). A personal or agent key issued in the web console cannot answer requests in a session it started (403 `self_approval`), so answer with a client made from another key ([A separate key for approvals](/getting-started/client#a-separate-key-for-approvals)).
 
 ## Pending requests
 

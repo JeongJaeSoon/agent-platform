@@ -3,7 +3,7 @@ title: "Send"
 description: Send a message to a session to create the next turn, and read that turn's result
 ---
 
-One message is one turn. Messages in the same session run one after another in the same worker, the same working tree, and the same Claude Code conversation. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+One message is one turn. Messages in the same session run one after another in the same worker, the same working tree, and the same Claude Code conversation. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key). The `GATE-SPEC {…}` messages in the examples are scripts for the development server's fake model ([Start](/sessions/start)).
 
 ## Prepare a session
 

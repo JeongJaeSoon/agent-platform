@@ -104,7 +104,7 @@ curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '
 
 ## interrupt
 
-돌고 있는 turn 하나만 멈춘다. worker는 남아 다음 메시지를 받는다. 아래 대본은 답을 5분 늦게 보내서, 그동안 turn이 `running`에 머문다.
+돌고 있는 turn 하나만 멈춘다. worker는 남아 다음 메시지를 받는다. 아래 대본은 답을 5분 늦게 보내서, 그동안 turn이 `running`에 머문다. 이 지연은 개발용 서버의 fake 모델에서만 된다. 실제 모델에서는 오래 걸리는 일을 시킨 turn으로 해 본다.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

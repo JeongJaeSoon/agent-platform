@@ -3,7 +3,7 @@ title: "送信"
 description: セッションにメッセージを送って次のターンを作り、そのターンの結果を読む
 ---
 
-メッセージ 1 つがターン 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+メッセージ 1 つがターン 1 つである。同じセッションのメッセージは、同じ worker、同じ作業ツリー、同じ Claude Code の会話で順に実行される。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。例の `GATE-SPEC {…}` メッセージは、開発用サーバーの fake モデルが読むスクリプトである([開始](/sessions/start))。
 
 ## セッションを 1 つ用意する
 

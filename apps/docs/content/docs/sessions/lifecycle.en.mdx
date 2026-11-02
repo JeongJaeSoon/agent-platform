@@ -104,7 +104,7 @@ Reference: [`GET /v1/sessions/{id}/turns`](/reference/http-api/messages-and-turn
 
 ## interrupt
 
-This stops only the one running turn. The worker stays and accepts the next message. The script below delays its reply by 5 minutes, so the turn stays `running` in the meantime.
+This stops only the one running turn. The worker stays and accepts the next message. The script below delays its reply by 5 minutes, so the turn stays `running` in the meantime. The delay works only with the development server's fake model; with a real model, try it on a turn given long-running work.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

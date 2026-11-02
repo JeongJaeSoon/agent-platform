@@ -15,7 +15,7 @@ description: セッションが作った commit を、リポジトリの agent/<
 
 ## ファイルを変更するセッションを用意する
 
-SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可するとターンが終わる。
+SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可するとターンが終わる。セッションを作ったキーで許可するこの例は、開発用サーバーの運用者キーでだけ通る。Web コンソールで発行したキーなら、許可には別のキーで作ったクライアントを使う([承認用のキーを分けて使う](/getting-started/client#承認用のキーを分けて使う))。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
