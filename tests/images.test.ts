@@ -190,6 +190,13 @@ describe("app Dockerfiles", () => {
           `echo "[0-9a-f]{64} {2}${file.replace(".", "\\.")}" \\| sha256sum -c -`,
         ),
       );
+    // Unpinned packages would reach the build: every input there is ADDed by
+    // checksum instead.
+    const stage = source.slice(
+      source.indexOf(" AS git-lfs\n"),
+      source.indexOf(" AS runtime\n"),
+    );
+    expect(stage).not.toContain("apt-get");
     expect(source.match(/^COPY --from=git-lfs .*$/gm)).toEqual([
       "COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs",
       "COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md",

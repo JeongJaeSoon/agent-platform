@@ -63,10 +63,14 @@ ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e
 ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 \
   https://dl.google.com/go/go${GIT_LFS_GO}.linux-arm64.tar.gz \
   /tmp/go-arm64.tar.gz
-# The base has no CA bundle; Go needs one to reach the module proxy.
-RUN apt-get update --error-on=any \
-  && apt-get install -y --no-install-recommends ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# The base has no CA roots; Go needs them to reach the module proxy. Trixie's
+# package, pinned to its archive sha256 and unpacked only (no maintainer
+# scripts): Go reads every certificate under SSL_CERT_DIR.
+ADD --checksum=sha256:ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+  https://snapshot.debian.org/archive/debian/20250419T084132Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb \
+  /tmp/ca-certificates.deb
+RUN dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
+ENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla
 WORKDIR /tmp/git-lfs-src
 # GOTOOLCHAIN=local: the go directive x/net raises must not fetch another Go.
 # Modules come through proxy.golang.org, checked against sum.golang.org.
