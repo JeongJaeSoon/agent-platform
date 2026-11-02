@@ -215,6 +215,38 @@ describe("priceProviderUsage", () => {
     expect(at("claude-sonnet-4-6", 900_000).pricedBy).toBe("table");
     expect(at("claude-opus-4-6", 900_000).pricedBy).toBe("table");
   });
+
+  test("claude-sonnet-5-5 pays the Sonnet 5 rates", () => {
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-sonnet-5-5",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheReadInputTokens: 1_000_000,
+      }),
+    ).toEqual({ costUsd: 12.2, pricedBy: "table" });
+  });
+
+  test("claude-haiku-5-5 pays $0.10/$0.50 up to a 100K prompt, cache included, and $0.50/$2.50 past it", () => {
+    const at = (input: number) =>
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-haiku-5-5",
+        inputTokens: input - 60_000,
+        cacheCreationInputTokens: 40_000,
+        cacheReadInputTokens: 20_000,
+        outputTokens: 1_000_000,
+      });
+    const short = at(100_000);
+    expect(short.pricedBy).toBe("table");
+    // 40,000 × 0.1 + 40,000 × 0.1 × 1.25 + 20,000 × 0.01 + 1M × 0.5
+    expect(short.costUsd).toBeCloseTo(0.5092, 9);
+    const long = at(100_001);
+    expect(long.pricedBy).toBe("table");
+    // 40,001 × 0.5 + 40,000 × 0.5 × 1.25 + 20,000 × 0.05 + 1M × 2.5
+    expect(long.costUsd).toBeCloseTo(2.5460005, 9);
+  });
 });
 
 describe("priceJudgmentUsage", () => {
