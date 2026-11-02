@@ -248,5 +248,5 @@ function AppState({ item }: { readonly item: MadeApp }) {
 // the details link, and the app cell names the agent and the time.
 const COLUMNS = [
   "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px",
-  "minmax(0,1fr) 104px 64px",
+  "minmax(0,1fr) 120px 64px",
 ] as const;
