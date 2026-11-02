@@ -1,6 +1,11 @@
 import type { OperationKey } from "@werft-ai/client";
 import {
   acceptInviteResponseSchema,
+  achievementCategoryChangeResponseSchema,
+  achievementJudgeChangeResponseSchema,
+  achievementJudgeResponseSchema,
+  achievementRuleChangeResponseSchema,
+  achievementTypeChangeResponseSchema,
   activateAgentResponseSchema,
   agentAdminChangeResponseSchema,
   agentAdminsViewSchema,
@@ -13,6 +18,7 @@ import {
   authMeResponseSchema,
   bootstrapResponseSchema,
   commentPullRequestResponseSchema,
+  completeGitHubAppManifestResponseSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
   countSessionsResponseSchema,
@@ -45,6 +51,9 @@ import {
   issuePasswordResetResponseSchema,
   limitsResponseSchema,
   linkAgentIdentityResponseSchema,
+  listAchievementCategoriesResponseSchema,
+  listAchievementRulesResponseSchema,
+  listAchievementTypesResponseSchema,
   listAdministeredAgentsResponseSchema,
   listAdminSessionsResponseSchema,
   listAgentGitHubRepositoriesResponseSchema,
@@ -60,6 +69,7 @@ import {
   listPendingRequestsResponseSchema,
   listProfilesResponseSchema,
   listPushRequestsResponseSchema,
+  listSessionAchievementsResponseSchema,
   listSessionGitHubRefusalsResponseSchema,
   listSessionOutcomesResponseSchema,
   listSessionOutputsResponseSchema,
@@ -102,6 +112,7 @@ import {
   slackEventsResponseSchema,
   slackGuestResponseSchema,
   slackLinkCallbackResponseSchema,
+  startGitHubAppManifestResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -152,6 +163,10 @@ export const responseSchemas = {
   "PUT /v1/workspaces/{id}/github-apps/{role}": putGitHubAppResponseSchema,
   "DELETE /v1/workspaces/{id}/github-apps/{role}":
     deleteGitHubAppResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/author/manifest":
+    startGitHubAppManifestResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/author/manifest/complete":
+    completeGitHubAppManifestResponseSchema,
   "GET /v1/workspaces/{id}/github-repositories":
     listGitHubRepositoriesResponseSchema,
   "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}":
@@ -236,6 +251,7 @@ export const responseSchemas = {
   "GET /v1/sessions/{id}/github/refusals":
     listSessionGitHubRefusalsResponseSchema,
   "GET /v1/sessions/{id}/outcomes": listSessionOutcomesResponseSchema,
+  "GET /v1/sessions/{id}/achievements": listSessionAchievementsResponseSchema,
   "POST /v1/sessions/{id}/github/pull-requests/{number}/reviews":
     submitPullRequestReviewResponseSchema,
   "GET /v1/invites": listInvitesResponseSchema,
@@ -295,6 +311,28 @@ export const responseSchemas = {
   "POST /v1/workspace-profiles": workspaceProfileChangeResponseSchema,
   "POST /v1/workspace-profiles/{profile_id}/retire":
     workspaceProfileChangeResponseSchema,
+  "GET /v1/achievement-categories": listAchievementCategoriesResponseSchema,
+  "POST /v1/achievement-categories": achievementCategoryChangeResponseSchema,
+  "PATCH /v1/achievement-categories/{id}":
+    achievementCategoryChangeResponseSchema,
+  "POST /v1/achievement-categories/{id}/archive":
+    achievementCategoryChangeResponseSchema,
+  "GET /v1/achievement-types": listAchievementTypesResponseSchema,
+  "POST /v1/achievement-types": achievementTypeChangeResponseSchema,
+  "PATCH /v1/achievement-types/{id}": achievementTypeChangeResponseSchema,
+  "POST /v1/achievement-types/{id}/archive":
+    achievementTypeChangeResponseSchema,
+  "GET /v1/achievement-rules": listAchievementRulesResponseSchema,
+  "POST /v1/achievement-rules": achievementRuleChangeResponseSchema,
+  "POST /v1/achievement-rules/{family_id}/versions":
+    achievementRuleChangeResponseSchema,
+  "POST /v1/achievement-rules/{family_id}/disable":
+    achievementRuleChangeResponseSchema,
+  "POST /v1/achievement-rules/{family_id}/enable":
+    achievementRuleChangeResponseSchema,
+  "GET /v1/workspaces/{id}/achievement-judge": achievementJudgeResponseSchema,
+  "PUT /v1/workspaces/{id}/achievement-judge":
+    achievementJudgeChangeResponseSchema,
   "GET /v1/installation-profiles/options":
     installationProfileOptionsResponseSchema,
   "POST /v1/installation-profiles": installationProfileChangeResponseSchema,

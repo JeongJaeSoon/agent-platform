@@ -108,6 +108,7 @@ integration("postgres pull requests", () => {
   const save = (
     source: { sessionId: string; pushRequestId: string },
     number = 7,
+    title: string | null = "Retry failed payments",
   ) =>
     store.savePullRequest({
       ownerId: OWNER,
@@ -117,6 +118,7 @@ integration("postgres pull requests", () => {
       repositoryId: "app",
       number,
       url: `https://github.com/acme/app/pull/${number}`,
+      title,
       head: `agent/${source.sessionId}`,
       base: "main",
       created: true,
@@ -190,6 +192,7 @@ integration("postgres pull requests", () => {
       repositoryId: "app",
       number: 11,
       url: "https://github.com/acme/app/pull/11",
+      title: null,
       head: `agent/${first.sessionId}`,
       base: "main",
       created: false,
@@ -288,6 +291,7 @@ integration("postgres pull requests", () => {
         receiptId: saved.receiptId,
         createdAt: row?.createdAt,
         metadata: {
+          title: "Retry failed payments",
           head: `agent/${source.sessionId}`,
           base: "main",
           adopted: false,
@@ -299,6 +303,14 @@ integration("postgres pull requests", () => {
         },
       }),
     ]);
+  });
+
+  test("the outcome keeps the first 200 characters of the title", async () => {
+    const source = await pushed();
+    await save(source, 44, `${"a".repeat(200)}b`);
+    expect((await outcomesOf(source.sessionId))[0]?.metadata).toMatchObject({
+      title: "a".repeat(200),
+    });
   });
 
   test("a second open of the same URL writes no second outcome", async () => {
@@ -313,6 +325,7 @@ integration("postgres pull requests", () => {
       repositoryId: "app",
       number: 42,
       url: "https://github.com/acme/app/pull/42",
+      title: null,
       head: `agent/${first.sessionId}`,
       base: "main",
       created: false,
@@ -333,6 +346,7 @@ integration("postgres pull requests", () => {
       repositoryId: "app",
       number: 43,
       url: "https://github.com/acme/app/pull/43",
+      title: null,
       head: `agent/${source.sessionId}`,
       base: "main",
       created: false,

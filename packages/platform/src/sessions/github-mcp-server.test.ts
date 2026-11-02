@@ -109,6 +109,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       dispatches.push(input);
       return "receipt-dispatch";
     },
+    recordReview: async () => "receipt-review",
     pullRequestOpener: async () => null,
   };
   const services = (authorization: AuthorizationPolicy): GitHubMcpServices => {

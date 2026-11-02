@@ -285,10 +285,8 @@ describe("the session's GitHub pull requests", () => {
     ...detail,
     repository: { id: "demo", full_name: "acme/demo", branch: "main" },
   };
-  const pull = (
-    number: number,
-    fields: Partial<SessionOutcome>,
-  ): SessionOutcome => ({
+  type PullOutcome = Extract<SessionOutcome, { type: "github_pull_request" }>;
+  const pull = (number: number, fields: Partial<PullOutcome>): PullOutcome => ({
     id: `019a0000-0000-7000-8000-00000000000${number}`,
     type: "github_pull_request",
     url: `https://github.com/acme/demo/pull/${number}`,
@@ -301,6 +299,7 @@ describe("the session's GitHub pull requests", () => {
     state_checked_at: AT,
     check_error: null,
     metadata: {
+      title: "Retry failed payments",
       head: `agent/${SESSION_ID}`,
       base: "main",
       adopted: false,
@@ -315,7 +314,22 @@ describe("the session's GitHub pull requests", () => {
   });
   const pulls = [
     pull(1, {}),
-    pull(2, { state: "merged", merged_at: AT, closed_at: AT }),
+    pull(2, {
+      state: "merged",
+      merged_at: AT,
+      closed_at: AT,
+      metadata: {
+        title: "Retry failed payments",
+        head: `agent/${SESSION_ID}`,
+        base: "main",
+        adopted: false,
+        merge_commit_sha: "d".repeat(40),
+        additions: 84,
+        deletions: 12,
+        changed_files: 3,
+        commits: 2,
+      },
+    }),
     pull(3, { state: "closed", closed_at: AT, check_error: "not_found" }),
   ];
   const usage: SessionUsageResponse = {
@@ -364,7 +378,7 @@ describe("the session's GitHub pull requests", () => {
       ),
     );
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "GitHub PR" });
+    const area = await screen.findByRole("region", { name: "근거" });
     const rows = within(area).getAllByRole("listitem");
     expect(rows.map((row) => row.querySelector("a")?.textContent)).toEqual([
       "acme/demo#1",
@@ -377,9 +391,11 @@ describe("the session's GitHub pull requests", () => {
     );
     expect(link.getAttribute("target")).toBe("_blank");
     expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/^acme\/demo#1열림상태 확인 /),
-      expect.stringMatching(/^acme\/demo#2머지됨머지 .+ · 상태 확인 /),
-      expect.stringMatching(/^acme\/demo#3닫힘닫음 .+ · 상태 확인 /),
+      expect.stringMatching(/^acme\/demo#1 PR열림상태 확인 /),
+      expect.stringMatching(
+        /^acme\/demo#2 PR머지됨머지 .+ · \+84 −12 · 상태 확인 /,
+      ),
+      expect.stringMatching(/^acme\/demo#3 PR닫힘닫음 .+ · 상태 확인 /),
     ]);
     expect(rows[0]?.textContent).not.toContain("마지막 확인");
     expect(rows[2]?.textContent).toContain(
@@ -395,12 +411,75 @@ describe("the session's GitHub pull requests", () => {
     expect(screen.queryAllByText("아직 결과물이 없습니다.")).toHaveLength(0);
   });
 
+  test("a review the session submitted shows its pull request, its event and who opened that pull request", async () => {
+    const review = (
+      id: string,
+      number: number,
+      event: "APPROVE" | "COMMENT",
+      openedBy: string | null,
+    ): SessionOutcome => ({
+      id,
+      type: "github_review",
+      url: `https://github.com/acme/shop/pull/${number}#pullrequestreview-${id.slice(-2)}`,
+      repository_id: "shop",
+      external_id: id.slice(-2),
+      state: "submitted",
+      state_changed_at: AT,
+      merged_at: null,
+      closed_at: null,
+      state_checked_at: null,
+      check_error: null,
+      metadata: {
+        number,
+        event,
+        commit_id: "e".repeat(40),
+        opened_by_session_id: openedBy,
+      },
+      created_at: AT,
+    });
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      pulled(
+        [
+          review(
+            "019a0000-0000-7000-8000-000000000071",
+            398,
+            "APPROVE",
+            "33333333-3333-4333-8333-333333333333",
+          ),
+          review(
+            "019a0000-0000-7000-8000-000000000072",
+            399,
+            "COMMENT",
+            SESSION_ID,
+          ),
+        ],
+        noFiles,
+      ),
+    );
+    await openOutputs();
+    const area = await screen.findByRole("region", { name: "근거" });
+    const rows = within(area).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringMatching(
+        /^acme\/shop#398 리뷰승인제출 .+ · 다른 세션이 연 PR$/,
+      ),
+      expect.stringMatching(/^acme\/shop#399 리뷰코멘트제출 /),
+    ]);
+    expect(rows[1]?.textContent).not.toContain("다른 세션");
+    expect(
+      within(area)
+        .getByRole("link", { name: "acme/shop#398" })
+        .getAttribute("href"),
+    ).toBe("https://github.com/acme/shop/pull/398#pullrequestreview-71");
+  });
+
   // GitHub merges a pull request after the session stopped and no session
   // event says so: an open tab reads both lists again each refresher minute.
   test("an open tab reads its pull requests and refusals again every minute", async () => {
     const { services } = renderAt(`/sessions/${SESSION_ID}`, pulled(pulls));
     await openOutputs();
-    await screen.findByRole("region", { name: "GitHub PR" });
+    await screen.findByRole("region", { name: "근거" });
     const intervals = (path: string) =>
       services.queryClient
         .getQueryCache()
@@ -420,7 +499,7 @@ describe("the session's GitHub pull requests", () => {
       pulled([pull(4, { state_checked_at: null })]),
     );
     await openOutputs();
-    const area = await screen.findByRole("region", { name: "GitHub PR" });
+    const area = await screen.findByRole("region", { name: "근거" });
     expect(area.textContent).toContain("아직 상태를 확인하지 않음");
   });
 
@@ -435,9 +514,7 @@ describe("the session's GitHub pull requests", () => {
       ),
     );
     await openOutputs();
-    expect(
-      await screen.findByRole("region", { name: "GitHub PR" }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "근거" })).toBeTruthy();
     expect(screen.queryAllByRole("region", { name: "out/ 파일" })).toHaveLength(
       0,
     );
@@ -453,9 +530,7 @@ describe("the session's GitHub pull requests", () => {
     );
     await openOutputs();
     expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
-    expect(screen.queryAllByRole("region", { name: "GitHub PR" })).toHaveLength(
-      0,
-    );
+    expect(screen.queryAllByRole("region", { name: "근거" })).toHaveLength(0);
   });
 
   test("pull requests that cannot be read are not taken for none", async () => {

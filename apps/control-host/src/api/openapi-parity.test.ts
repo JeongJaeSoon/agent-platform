@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type {
+  AchievementRuleService,
   AgentAdminService,
   AgentGitHubService,
   AgentIdentityService,
@@ -20,6 +21,7 @@ import type {
   PendingRequestService,
   PullRequestService,
   PushRequestService,
+  SessionAchievementService,
   SessionAttributionService,
   SessionOutcomeService,
   SessionOutputService,
@@ -40,6 +42,10 @@ import type { BootstrapGate } from "./auth.ts";
 import { buildOpenApiDocument, DOCUMENTED_ROUTE_SCOPES } from "./openapi.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { ROUTE_ERROR_TESTS } from "./route-error-coverage.ts";
+import {
+  registerAchievementRoutes,
+  registerSessionAchievementRoutes,
+} from "./routes/achievements.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentIdentityRoutes } from "./routes/agent-identities.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -159,6 +165,8 @@ function apiApp() {
         {} as InstallationProfileService,
       );
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
+      registerAchievementRoutes(router, {} as AchievementRuleService);
+      registerSessionAchievementRoutes(router, {} as SessionAchievementService);
       registerSlackSecretRoutes(router, {} as SlackSecretService);
       registerGitHubAppRoutes(router, {} as GitHubAppService);
       registerGitHubRepositoryRoutes(router, {} as GitHubRepositoryService);

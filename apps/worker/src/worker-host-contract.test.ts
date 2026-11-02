@@ -257,6 +257,78 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     }
   });
 
+  test("hands the engine routes to the claim's repositories and their Go modules before the run starts; a failed or empty route write is only logged and names no Go module", async () => {
+    const access = { kind: "egress_token" as const, token: "wek_routes" };
+    const workspace = {
+      repository: {
+        id: "app",
+        url: "https://github.com/o/app.git",
+        branch: "main",
+        access,
+      },
+      additional_repositories: [
+        {
+          id: "docs",
+          url: "https://github.com/o/docs",
+          branch: "main",
+          access,
+        },
+      ],
+    };
+    for (const outcome of ["written", "none", "fails"] as const) {
+      const run = new ScriptedRun();
+      run.onSend = (sent) => finish(run, sent);
+      const gateway = new FakeWorkerGateway();
+      const claim = gateway.bootstrapClaim.bind(gateway);
+      gateway.bootstrapClaim = async (request) => ({
+        ...(await claim(request)),
+        workspace,
+      });
+      const handed: unknown[] = [];
+      const warnings: string[] = [];
+      const worker = new WorkerHost({
+        checkpoints: unwiredCheckpoints,
+        execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+        gateway,
+        packageManagers: async (_token, _github, modules) => {
+          handed.push(modules);
+        },
+        repositoryRoutes: async (given) => {
+          handed.push(given);
+          if (outcome === "fails") throw new Error("read-only home");
+          return outcome === "written";
+        },
+        logger: {
+          info: () => {},
+          warn: (event) => warnings.push(event),
+          error: () => {},
+        },
+        runtimes: {
+          launcherFor: () => ({
+            start: () => {
+              handed.push("started");
+              return run;
+            },
+          }),
+        },
+        timeouts,
+        workspace: noWorkspace,
+      });
+      gateway.enqueue("hello");
+      const summary = await worker.runLoop();
+      // Without the routes, GOPRIVATE would send Go straight to github.com.
+      expect(handed).toEqual([
+        workspace,
+        outcome === "written" ? ["github.com/o/app", "github.com/o/docs"] : [],
+        "started",
+      ]);
+      expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+      expect(warnings.includes("worker.repository_routes.not_written")).toBe(
+        outcome === "fails",
+      );
+    }
+  });
+
   test("finalizes without taking a checkpoint lease when the run takes no checkpoints", async () => {
     const run = new ScriptedRun();
     run.onSend = (sent) => finish(run, sent);

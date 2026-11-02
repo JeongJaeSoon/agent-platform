@@ -24,6 +24,7 @@ import { HttpWorkerGatewayClient } from "./gateway-client.ts";
 import { writeGitTrailers } from "./git-trailers.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
+import { writeRepositoryRoutes } from "./repository-routes.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
 import {
@@ -107,12 +108,19 @@ export function createWorkerHost(
     },
     gateway,
     gitTrailers: (git) => writeGitTrailers(config.runtime.home, git),
-    packageManagers: (token, github) =>
+    packageManagers: (token, github, privateModules) =>
       writePackageManagerConfig(
         config.runtime.home,
         config.egressCredentialUrl,
         token,
         github,
+        privateModules,
+      ),
+    repositoryRoutes: (workspace) =>
+      writeRepositoryRoutes(
+        config.runtime.home,
+        config.egressCredentialUrl,
+        workspace,
       ),
     imageRuntime: parseImageRuntime(runtime.imageFingerprint()),
     logger,

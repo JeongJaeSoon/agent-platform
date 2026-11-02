@@ -1,3 +1,4 @@
+// biome-ignore-all assist/source/organizeImports: Bun 1.3.14's bundler fails to resolve the sessions/*.ts exports that follow a sessions/ subdirectory export, so the achievements exports stay last.
 export * from "./agents/agent-github-service.ts";
 export * from "./agents/agent-service.ts";
 export * from "./agents/release-ids.ts";
@@ -90,6 +91,7 @@ export * from "./ports/worker-unit-of-work.ts";
 export * from "./ports/workspace-bundle-verifier.ts";
 export * from "./ports/workspace-profile-store.ts";
 export * from "./ports/workspace-settings.ts";
+export { messageOf } from "./scheduler/pass-context.ts";
 export * from "./scheduler/session-scheduler.ts";
 export * from "./scheduler/upgrade-check.ts";
 export * from "./scheduler/worker-images.ts";
@@ -123,3 +125,9 @@ export * from "./workers/github-packages.ts";
 export * from "./workers/github-packages-egress.ts";
 export * from "./workers/package-registries.ts";
 export * from "./workers/worker-gateway.ts";
+
+export * from "./sessions/achievements/achievement-judge.ts";
+export * from "./sessions/achievements/achievement-judgment-store.ts";
+export * from "./sessions/achievements/achievement-rules.ts";
+export * from "./sessions/achievements/achievement-store.ts";
+export * from "./sessions/achievements/session-achievement-service.ts";

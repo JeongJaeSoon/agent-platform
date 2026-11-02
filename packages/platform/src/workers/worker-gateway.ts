@@ -1923,6 +1923,7 @@ export function createWorkerGateway(deps: {
       let checkpointVersionsHeld = false;
       let checkpointTranscriptBytes: number | undefined;
       let checkpointOutputs: readonly CheckpointOutputObject[] | undefined;
+      let checkpointOutputsDigest: string | null | undefined;
       let checkpointRuntime: RuntimeFingerprint | undefined;
       if (request.checkpoint) {
         const checkpoint = request.checkpoint;
@@ -1955,6 +1956,7 @@ export function createWorkerGateway(deps: {
         checkpointVersionsHeld = verdict.versionsHeld === true;
         checkpointTranscriptBytes = verdict.transcriptBytes;
         checkpointOutputs = verdict.outputs;
+        checkpointOutputsDigest = verdict.outputsDigest;
         checkpointRuntime = verdict.runtime;
       }
       // Verification is a network call that can outlast the lease, so the
@@ -1967,6 +1969,9 @@ export function createWorkerGateway(deps: {
           ? {}
           : { checkpointTranscriptBytes }),
         ...(checkpointOutputs === undefined ? {} : { checkpointOutputs }),
+        ...(checkpointOutputsDigest === undefined
+          ? {}
+          : { checkpointOutputsDigest }),
         ...(checkpointRuntime === undefined ? {} : { checkpointRuntime }),
         now: now(),
       });

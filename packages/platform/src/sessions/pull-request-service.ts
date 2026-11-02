@@ -281,6 +281,10 @@ export function createPullRequestService(deps: {
         base: string;
         created: boolean;
       };
+      const title = cleanTitle(
+        body.title ?? `Agent session ${source.sessionId}`,
+        redact,
+      );
       try {
         const found = await forge.findPullRequestForBranch(head);
         // An open one found, or GitHub answering a racing one with 422, is
@@ -291,10 +295,7 @@ export function createPullRequestService(deps: {
             : await forge.createPullRequest({
                 head,
                 base,
-                title: cleanTitle(
-                  body.title ?? `Agent session ${source.sessionId}`,
-                  redact,
-                ),
+                title,
                 body: withPullRequestTail(
                   cleanBody(
                     body.body ?? "",
@@ -334,6 +335,7 @@ export function createPullRequestService(deps: {
         repositoryId: source.repositoryId,
         number: opened.number,
         url: opened.url,
+        title: created ? title : null,
         head,
         base: opened.base,
         created,

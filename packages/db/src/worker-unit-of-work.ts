@@ -78,6 +78,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import {
   type RuntimeFingerprint,
   runtimeColumns,
@@ -144,6 +145,7 @@ import {
   resumeLaunchesSpent,
 } from "./resume-control.ts";
 import {
+  achievementJudgments,
   approvalCheckpoints,
   attempts,
   catalogAuthority,
@@ -467,6 +469,49 @@ function parentRevisionOf(session: SessionRow, attemptId: string) {
 
 const OUTPUT_ROWS_PER_INSERT = 5_000;
 
+/**
+ * Whether this checkpoint's out/ list is new evidence (achievement-rules.md
+ * §4): it differs from the parent revision's, path by path, or the session's
+ * latest judgment could not read out/ and gave up.
+ */
+async function outputsAreEvidence(
+  tx: Database,
+  sessionId: string,
+  parentRevision: number | null,
+  digest: string | null,
+): Promise<boolean> {
+  const [parent] =
+    parentRevision === null
+      ? []
+      : await tx
+          .select({
+            digest: checkpoints.outputsDigest,
+            recorded: checkpoints.outputsRecorded,
+          })
+          .from(checkpoints)
+          .where(
+            and(
+              eq(checkpoints.sessionId, sessionId),
+              eq(checkpoints.revision, parentRevision),
+            ),
+          );
+  // A parent that recorded no list is read as differing.
+  if (parent !== undefined && !parent.recorded) return true;
+  if ((parent?.digest ?? null) !== digest) return true;
+  const [latest] = await tx
+    .select({
+      status: achievementJudgments.status,
+      errorCode: achievementJudgments.errorCode,
+    })
+    .from(achievementJudgments)
+    .where(eq(achievementJudgments.sessionId, sessionId))
+    .orderBy(desc(achievementJudgments.createdAt))
+    .limit(1);
+  return (
+    latest?.status === "failed" && latest.errorCode === "outputs_unavailable"
+  );
+}
+
 export async function advanceCheckpointPointer(
   tx: Database,
   input: {
@@ -481,6 +526,8 @@ export async function advanceCheckpointPointer(
     // Absent when the verifier did not read the manifest's outputs; the row
     // then stays outputs_recorded = false and usage reports itself partial.
     outputs?: readonly { key: string; bytes: number }[];
+    /** checkpointOutputsDigest of the same list. */
+    outputsDigest?: string | null;
   },
 ): Promise<
   | { outcome: "committed"; revision: number }
@@ -493,6 +540,8 @@ export async function advanceCheckpointPointer(
       currentRevision: input.session.checkpointRevision,
     };
   }
+  // The attempt committing ran on what its restore handed it.
+  const parentRevision = parentRevisionOf(input.session, input.fence.attemptId);
   await tx.insert(checkpoints).values({
     sessionId: input.fence.sessionId,
     revision: input.checkpoint.revision,
@@ -500,8 +549,7 @@ export async function advanceCheckpointPointer(
     manifestSha256: input.checkpoint.manifest_sha256,
     manifestVersion: input.checkpoint.manifest_version ?? null,
     versionsHeld: input.versionsHeld,
-    // The attempt committing ran on what its restore handed it.
-    parentRevision: parentRevisionOf(input.session, input.fence.attemptId),
+    parentRevision,
     turnId: input.turnRowId,
     committedAt: input.now,
     // The runtime fingerprint in the manifest was computed from the profile
@@ -515,6 +563,8 @@ export async function advanceCheckpointPointer(
     // launch's scheme is the one the manifest's digest was computed under.
     runtimeProfileScheme: sql`(SELECT ${workerLaunches.runtimeProfileScheme} FROM ${workerLaunches} WHERE ${workerLaunches.claimedAttemptId} = ${input.fence.attemptId})`,
     outputsRecorded: input.outputs !== undefined,
+    outputsDigest:
+      input.outputs === undefined ? null : (input.outputsDigest ?? null),
   });
   // A manifest may name up to DEFAULT_MAX_MANIFEST_OBJECTS objects; one
   // statement for all of them would pass PostgreSQL's 65,535 bind parameters.
@@ -530,6 +580,17 @@ export async function advanceCheckpointPointer(
           bytes,
         })),
     );
+  }
+  if (
+    input.outputs !== undefined &&
+    (await outputsAreEvidence(
+      tx,
+      input.fence.sessionId,
+      parentRevision,
+      input.outputsDigest ?? null,
+    ))
+  ) {
+    await queueAchievementJudgment(tx, input.fence.sessionId);
   }
   if (input.transcriptBytes !== undefined) {
     await warnNearTranscriptLimit(tx, input, input.transcriptBytes);
@@ -715,6 +776,9 @@ async function parkOnApprovalCheckpoint(
     ...(promotedRuntime === null ? {} : { runtime: promotedRuntime }),
   });
   if (advanced.outcome !== "committed") return false;
+  // No out/ list is kept for an approval checkpoint, so whether it changed is
+  // unknown; the judge reads the pointer's own and counts nothing twice.
+  await queueAchievementJudgment(tx, session.id);
   await tx
     .update(approvalCheckpoints)
     .set({ promotedAt: now })
@@ -2599,6 +2663,9 @@ export function createPostgresWorkerUnitOfWork(
             ...(input.checkpointOutputs === undefined
               ? {}
               : { outputs: input.checkpointOutputs }),
+            ...(input.checkpointOutputsDigest === undefined
+              ? {}
+              : { outputsDigest: input.checkpointOutputsDigest }),
             ...(input.checkpointRuntime === undefined
               ? {}
               : { runtime: input.checkpointRuntime }),

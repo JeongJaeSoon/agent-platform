@@ -356,6 +356,7 @@ export type FinalizeInput = {
   checkpointVersionsHeld?: boolean;
   checkpointTranscriptBytes?: number;
   checkpointOutputs?: readonly CheckpointOutputObject[];
+  checkpointOutputsDigest?: string | null;
   checkpointRuntime?: RuntimeFingerprint;
 };
 export type FinalizeOutcome = {
