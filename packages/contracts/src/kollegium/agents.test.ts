@@ -340,6 +340,7 @@ describe("agent, version and release", () => {
       workspace_id: WORKSPACE_ID,
       slug: "finance-analyst",
       name: "재무 분석가",
+      description: null,
       status: "active",
       active_release_id: null,
       activation_revision: -1,
@@ -629,6 +630,70 @@ describe("agent, version and release", () => {
       false,
     );
   });
+
+  test("a description is the row's: up to 2000 characters, null clears it on update", () => {
+    const create = (description: unknown) =>
+      createAgentRequestSchema.safeParse({
+        slug: "finance-analyst",
+        name: "재무 분석가",
+        description,
+        card,
+      }).success;
+    expect(create("x".repeat(2000))).toBe(true);
+    expect(create("")).toBe(true);
+    expect(create("x".repeat(2001))).toBe(false);
+    expect(create("a\u0000b")).toBe(false);
+    expect(create(null)).toBe(false);
+    expect(
+      updateAgentRequestSchema.safeParse({ description: null }).success,
+    ).toBe(true);
+    expect(
+      updateAgentRequestSchema.safeParse({ description: "x".repeat(2001) })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("card read and request shapes", () => {
+  const { role: _role, instructions: _instructions, ...bare } = card;
+
+  test("a stored card reads without role and instructions, and with agent instructions", () => {
+    expect(storedAgentCardSchema.parse(bare)).toMatchObject({
+      model: card.model,
+    });
+    expect(
+      storedAgentCardSchema.parse({ ...bare, agent_instructions: "" })
+        .agent_instructions,
+    ).toBe("");
+    expect(
+      agentCardSchema.safeParse({
+        ...bare,
+        agent_instructions: "x".repeat(20_001),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("a request still writes only the shape older images read", () => {
+    const body = (requestCard: unknown) => ({
+      slug: "finance-analyst",
+      name: "재무 분석가",
+      card: requestCard,
+    });
+    expect(createAgentRequestSchema.safeParse(body(bare)).success).toBe(false);
+    expect(
+      createAgentRequestSchema.safeParse(
+        body({ ...card, agent_instructions: "Answer in Korean." }),
+      ).success,
+    ).toBe(false);
+    expect(
+      updateAgentRequestSchema.safeParse({ card: { ...card, secret: "x" } })
+        .success,
+    ).toBe(false);
+    expect(
+      updateAgentRequestSchema.safeParse({ card: { ...bare, role: "r" } })
+        .success,
+    ).toBe(false);
+  });
 });
 
 describe("agent list summary", () => {
@@ -637,6 +702,7 @@ describe("agent list summary", () => {
     workspace_id: WORKSPACE_ID,
     slug: "finance-analyst",
     name: "재무 분석가",
+    description: "분기 보고서를 읽는다",
     status: "active",
     active_release_id: null,
     activation_revision: -1,

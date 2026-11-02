@@ -2237,8 +2237,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename an agent or add a card version
-         * @description A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
+         * Rename or describe an agent, or add a card version
+         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3495,6 +3495,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/usage/achievements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the sessions created in a period cost and the achievements they earned
+         * @description The sessions `GET /v1/usage/summary` would count for the same `scope`, `since`, `until` and `agent_id`, read by the same callers (403 and 404 alike), with the achievements the workspace's achievement rules counted for them (`GET /v1/sessions/{id}/achievements`). With `scope=installation` or `me`, `agent_id` narrows the sessions to that agent's. `session_count` and `cost_usd` are the summary's; each session's cost adds once however many achievements it has.
+         *
+         *     `achievement_count` counts the achievements in force whose review state is `auto` or `confirmed`; `needs_review_count` and `rejected_count` count the others. `cost_per_achievement_usd` is every session's cost, those without an achievement included, over `achievement_count` (null with none). `judge_cost_usd`, `judge_calls` and `judgment_count` are the judge's spend on the same sessions, apart from the sessions' cost; `judgment_count` counts the judgments that called the judge.
+         *
+         *     `type_id` and `category_id` narrow the achievements, never the sessions, their cost or the judge's cost. `by_category`, `by_type` and `by_rule` list the rows with an achievement counted or waiting for review, a category or type under its current name and a rule family once, under its latest version's category, title and `version` and with every version's achievements; `by_agent` lists every agent with a session in the period; `recent` the latest 20 achievements in force, rejected ones included. For a session the caller may not read (one in another owner, or private and not shared with the caller) `session_id`, `session_title`, `title` and `link` are null, since a conversation's achievement carries its session's title and link; the rule, evidence kind, judge and review state still show. The period cuts on when each session was created. It changes nothing.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["getUsageAchievements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage/series": {
         parameters: {
             query?: never;
@@ -3753,6 +3779,18 @@ export interface components {
             agent_id?: string;
             /** @enum {string} */
             group_by?: "agent";
+        };
+        UsageAchievementsQuery: {
+            /** @enum {string} */
+            scope: "installation" | "me" | "agent";
+            since: string;
+            until?: string;
+            /** Format: uuid */
+            agent_id?: string;
+            /** Format: uuid */
+            type_id?: string;
+            /** Format: uuid */
+            category_id?: string;
         };
         UsageSeriesQuery: {
             /** @enum {string} */
@@ -4197,6 +4235,7 @@ export interface components {
         CreateAgentRequest: {
             slug: string;
             name: string;
+            description?: string;
             card: {
                 role: string;
                 instructions: string;
@@ -4237,6 +4276,7 @@ export interface components {
         };
         UpdateAgentRequest: {
             name?: string;
+            description?: string | null;
             card?: {
                 role: string;
                 instructions: string;
@@ -7108,6 +7148,87 @@ export interface components {
                 name: string | null;
             }[];
         };
+        UsageAchievementsResponse: {
+            /** @enum {string} */
+            scope: "installation" | "me" | "agent";
+            period: {
+                /** Format: date-time */
+                since: string;
+                /** Format: date-time */
+                until: string;
+            };
+            /** Format: date-time */
+            refreshed_at: string;
+            session_count: number;
+            sessions_with_achievement_count: number;
+            cost_usd: string;
+            cost_complete: boolean;
+            achievement_count: number;
+            needs_review_count: number;
+            rejected_count: number;
+            judgment_count: number;
+            judge_calls: number;
+            judge_cost_usd: string;
+            cost_per_achievement_usd: string | null;
+            by_category: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                achievement_count: number;
+                needs_review_count: number;
+            }[];
+            by_type: {
+                /** Format: uuid */
+                id: string;
+                key: string;
+                name: string;
+                achievement_count: number;
+                needs_review_count: number;
+            }[];
+            by_rule: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                family_id: string;
+                version: number;
+                title: string;
+                /** Format: uuid */
+                category_id: string;
+                category_name: string;
+                /** Format: uuid */
+                type_id: string;
+                type_key: string;
+                achievement_count: number;
+                needs_review_count: number;
+            }[];
+            by_agent: {
+                id: string | null;
+                name: string | null;
+                session_count: number;
+                cost_usd: string;
+                achievement_count: number;
+                cost_per_achievement_usd: string | null;
+            }[];
+            recent: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                created_at: string;
+                session_id: string | null;
+                session_title: string | null;
+                /** Format: uuid */
+                rule_id: string;
+                rule_title: string;
+                title: string | null;
+                link: string | null;
+                /** @enum {string} */
+                evidence_kind: "github_pull_request" | "github_review" | "out_file" | "conversation";
+                /** @enum {string} */
+                judge: "always" | "luna";
+                /** @enum {string} */
+                review_state: "auto" | "needs_review" | "confirmed" | "rejected";
+            }[];
+        };
         UsageSeriesResponse: {
             period: {
                 /** Format: date-time */
@@ -7229,6 +7350,7 @@ export interface components {
                 workspace_id: string;
                 slug: string;
                 name: string;
+                description: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -7241,8 +7363,8 @@ export interface components {
                 summary?: {
                     version: {
                         version_no: number;
-                        role: string;
-                        instructions: string;
+                        role: string | null;
+                        instructions: string | null;
                         mcp_servers: string[];
                         credential_refs: string[];
                     };
@@ -7589,6 +7711,7 @@ export interface components {
                 workspace_id: string;
                 slug: string;
                 name: string;
+                description: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -7606,8 +7729,9 @@ export interface components {
                 agent_id: string;
                 version_no: number;
                 card: {
-                    role: string;
-                    instructions: string;
+                    role?: string;
+                    instructions?: string;
+                    agent_instructions?: string;
                     /**
                      * @default ko
                      * @enum {string}
@@ -8019,6 +8143,7 @@ export interface components {
                 workspace_id: string;
                 slug: string;
                 name: string;
+                description: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -23220,6 +23345,7 @@ export interface operations {
                      *           "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
                      *           "slug": "finance",
                      *           "name": "Finance analyst",
+                     *           "description": "Reads the quarterly reports and flags outliers.",
                      *           "status": "active",
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
@@ -32676,6 +32802,188 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["UsageOutcomesResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getUsageAchievements: {
+        parameters: {
+            query: {
+                scope: "installation" | "me" | "agent";
+                since: string;
+                until?: string;
+                agent_id?: string;
+                type_id?: string;
+                category_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The figures as of `refreshed_at`. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "scope": "installation",
+                     *       "period": {
+                     *         "since": "2026-10-01T00:00:00.000Z",
+                     *         "until": "2026-10-31T00:00:00.000Z"
+                     *       },
+                     *       "refreshed_at": "2026-10-31T00:00:02.000Z",
+                     *       "session_count": 9,
+                     *       "sessions_with_achievement_count": 2,
+                     *       "cost_usd": "4.120000",
+                     *       "cost_complete": true,
+                     *       "achievement_count": 2,
+                     *       "needs_review_count": 0,
+                     *       "rejected_count": 0,
+                     *       "judgment_count": 1,
+                     *       "judge_calls": 2,
+                     *       "judge_cost_usd": "0.000310",
+                     *       "cost_per_achievement_usd": "2.060000",
+                     *       "by_category": [
+                     *         {
+                     *           "id": "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+                     *           "name": "Development",
+                     *           "achievement_count": 2,
+                     *           "needs_review_count": 0
+                     *         }
+                     *       ],
+                     *       "by_type": [
+                     *         {
+                     *           "id": "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d",
+                     *           "key": "pull_request",
+                     *           "name": "GitHub PR",
+                     *           "achievement_count": 2,
+                     *           "needs_review_count": 0
+                     *         }
+                     *       ],
+                     *       "by_rule": [
+                     *         {
+                     *           "id": "2f3e4d5c-6b7a-4980-8b1c-2d3e4f5a6b7c",
+                     *           "family_id": "2f3e4d5c-6b7a-4980-8b1c-2d3e4f5a6b7c",
+                     *           "version": 1,
+                     *           "title": "Merged pull request",
+                     *           "category_id": "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+                     *           "category_name": "Development",
+                     *           "type_id": "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d",
+                     *           "type_key": "pull_request",
+                     *           "achievement_count": 2,
+                     *           "needs_review_count": 0
+                     *         }
+                     *       ],
+                     *       "by_agent": [
+                     *         {
+                     *           "id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a",
+                     *           "name": "backend-fixer",
+                     *           "session_count": 9,
+                     *           "cost_usd": "4.120000",
+                     *           "achievement_count": 2,
+                     *           "cost_per_achievement_usd": "2.060000"
+                     *         }
+                     *       ],
+                     *       "recent": [
+                     *         {
+                     *           "id": "0b1c2d3e-4f5a-4b6c-8d7e-8f9a0b1c2d3e",
+                     *           "created_at": "2026-10-30T11:03:00.000Z",
+                     *           "session_id": "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d",
+                     *           "session_title": "Orders are charged twice when payment fails",
+                     *           "rule_id": "2f3e4d5c-6b7a-4980-8b1c-2d3e4f5a6b7c",
+                     *           "rule_title": "Merged pull request",
+                     *           "title": "acme/shop#412",
+                     *           "link": "https://github.com/acme/shop/pull/412",
+                     *           "evidence_kind": "github_pull_request",
+                     *           "judge": "luna",
+                     *           "review_state": "auto"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["UsageAchievementsResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */

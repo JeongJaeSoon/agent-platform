@@ -3,11 +3,29 @@ title: "Approve"
 description: Check the commit the push request pinned and approve it. The platform pushes within a few seconds
 ---
 
-Approving needs `sessions:approve`. Both personal and agent keys can hold it, but the key that started a session cannot approve that session's push requests; another key or a person does. A worker running a session cannot call `/v1` with its credentials (401), so an agent cannot approve on its own. Use `SID`, `PUSH_ID`, and `PUSH_COMMIT` from the [Request](/approvals/request).
+Approving needs `sessions:approve`. Both personal and agent keys can hold it, but the key that started a session cannot approve that session's push requests; another key or a person does. A worker running a session cannot call `/v1` with its credentials (401), so an agent cannot approve on its own. Use the `sessionId` and `push` from [Request](/approvals/request) (`SID`, `PUSH_ID`, and `PUSH_COMMIT` in the HTTP API). To use a separate approver key in the SDK, make a second client with `werft.withOptions({ apiKey })`.
 
 ## Approve
 
 `git_commit` in the decision body must equal the commit the request pinned. It shows that the person approving has checked what they are approving.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const decided = await werft.sessions.pushRequests.decide(sessionId, push.id, {
+  decision: "approve",
+  git_commit: push.git_commit,
+});
+console.log(decided.state);
+```
+
+```text
+approved
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
@@ -25,9 +43,39 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 }
 ```
 
+Reference: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+
+</Tab>
+</Tabs>
+
 ## See the push result
 
 The platform picks up one approved request every 3 seconds and pushes it. Wait until the request goes through `pushing` and becomes `pushed` or `failed`.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForPushRequest } from "@werft-ai/sdk";
+
+const done = await waitForPushRequest(werft, sessionId, push.id);
+console.log(done.state);
+if (done.push_receipt_id) {
+  const receipt = await werft.receipts.get(done.push_receipt_id);
+  const result = receipt.result as { refusal?: string | null } | null;
+  console.log(receipt.operation, receipt.status, result?.refusal);
+}
+```
+
+```text
+failed
+push failed no_push_credential
+```
+
+`waitForPushRequest` waits until the request becomes `pushed`, `failed`, or `rejected`.
+
+</Tab>
+<Tab>
 
 ```bash
 until curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY" \
@@ -51,6 +99,11 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 }
 ```
 
+Reference: [`GET …/push-requests/{push_request_id}`](/reference/http-api/push-requests/getPushRequest)
+
+</Tab>
+</Tabs>
+
 The `sample-app` repository in the local stack has no push credential, so it ends with `no_push_credential`. When an operator sets up a GitHub App or PAT for the repository ([GitHub](/integrations/github)), it becomes `pushed`, and the receipt's `result` records `remote_ref` (`refs/heads/agent/<session-id>`) and `previous_commit`.
 
 The platform sends only that one commit to that branch. It does not force push. It does not send to the default branch.
@@ -72,7 +125,7 @@ The platform sends only that one commit to that branch. It does not force push. 
 | 403 `FORBIDDEN` | The key lacks `sessions:approve`, or the caller only sees the session and is not one who approves (its creator, its agent's admins, owners and admins) |
 | 403 `FORBIDDEN` (`details.refusal: self_approval`) | The key that started the session tried to approve. A failed `decide_push` receipt is left; another key or a person approves |
 
-A refused attempt also leaves a receipt. Read it with `error.details.receipt_id` in the error body.
+A refused attempt also leaves a receipt. Read it with `error.details.receipt_id` in the error body (`details.receipt_id` of the `APIError` in the SDK).
 
 ## Next steps
 

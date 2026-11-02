@@ -20,6 +20,7 @@ import {
   Moon,
   SlidersHorizontal,
   Sun,
+  Trophy,
   Users,
 } from "lucide-react";
 import {
@@ -48,6 +49,7 @@ type NavPath =
   | "/agents"
   | "/profiles"
   | "/operations"
+  | "/achievements"
   | "/members"
   | "/settings/workspace"
   | "/settings/workspace/slack"
@@ -157,6 +159,12 @@ export function useNavGroups(): readonly NavGroup[] {
       hue: "teal",
     },
     { to: "/operations", label: "nav.operations", icon: Gauge, hue: "pink" },
+    {
+      to: "/achievements",
+      label: "nav.achievements",
+      icon: Trophy,
+      hue: "sky",
+    },
   ];
   if (memberManage) workspace.push(MEMBERS_ITEM);
   if (workspaceManage || retentionManage) workspace.push(SETTINGS_ITEM);

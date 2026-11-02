@@ -129,6 +129,7 @@ export const RELEASED: DetailFixture = {
     workspace_id: "3a9d5e7f-1b2c-4d3e-9f40-5a6b7c8d9e0f",
     slug: "billing",
     name: "결제 담당",
+    description: null,
     status: "active",
     active_release_id: RELEASE.id,
     activation_revision: 1,

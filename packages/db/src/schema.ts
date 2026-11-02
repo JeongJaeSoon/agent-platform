@@ -7,6 +7,7 @@ import {
   ACHIEVEMENT_REVIEW_STATE_VALUES,
   ACHIEVEMENT_RULE_JUDGE_VALUES,
   ADMISSION_STATE_VALUES,
+  AGENT_DESCRIPTION_MAX_LENGTH,
   AGENT_IDENTITY_PROVIDER_VALUES,
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
@@ -3014,6 +3015,8 @@ export const agents = pgTable(
       .references(() => workspaces.id),
     slug: text().notNull(),
     name: text().notNull(),
+    /** On the row like `name`, so editing it mints no version. */
+    description: text(),
     status: text().notNull().default("active"),
     activeReleaseId: text("active_release_id"),
     activationRevision: integer("activation_revision").notNull().default(-1),
@@ -3049,6 +3052,10 @@ export const agents = pgTable(
     check(
       "agents_activation_check",
       sql`${table.activationRevision} >= -1 AND (${table.activeReleaseId} IS NULL) = (${table.activationRevision} = -1)`,
+    ),
+    check(
+      "agents_description_check",
+      sql`${table.description} IS NULL OR length(${table.description}) <= ${sql.raw(String(AGENT_DESCRIPTION_MAX_LENGTH))}`,
     ),
   ],
 );
