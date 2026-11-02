@@ -981,13 +981,9 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                       search={{ tab: "release" }}
                     />
                   </GridTableRowOpener>
-                  <Text
-                    as="span"
-                    weight="medium"
-                    className="[overflow-wrap:anywhere]"
-                  >
+                  <span className="font-medium text-foreground [overflow-wrap:anywhere]">
                     {agent.name}
-                  </Text>
+                  </span>
                 </GridTableCell>
                 <GridTableCell>
                   {/* As the release tab names it. */}
