@@ -73,6 +73,11 @@ check() {
       esac
     done < <(imports "$file")
   done
+  # Vite also lists a dynamic import's chunks and CSS as "./<file>" strings
+  # for preloading; a missing one stops the story loading.
+  while read -r ref; do
+    [ -e "$dir/assets/${ref#./}" ] || missing "a chunk preloads $ref, which is not in $dir/assets"
+  done < <(grep -ohE '"\./[^"/]+\.(js|css)"' "$dir"/assets/*.js | tr -d '"' | sort -u)
 
   [ "$failed" = 0 ] || exit 1
   echo "$dir: index.json, the pages and every import are in place"
@@ -82,14 +87,21 @@ keep() {
   local dir=$1 live=${2%/}
   local window=${STORYBOOK_KEEP_SECONDS:-3600} budget=${STORYBOOK_KEEP_BUDGET:-120}
   local now deadline prev next epoch file kept=0 missed=0
-  local fetch=(curl -fsS --connect-timeout 5 --max-time 20 --retry 2)
   now=$(date +%s)
   deadline=$((SECONDS + budget))
+  # One request, retries included, within what is left of the budget (the
+  # attempt under way when it runs out may overshoot by up to 20 s).
+  fetch() {
+    local left=$((deadline - SECONDS))
+    ((left > 0)) || return 1
+    curl -fsS --connect-timeout 5 --max-time $((left < 20 ? left : 20)) \
+      --retry 2 --retry-max-time "$left" "$1" -o "$2"
+  }
   prev=$(mktemp)
   next=$(mktemp)
   find "$dir/assets" -maxdepth 1 -type f -exec basename {} \; | sort | sed 's/^/0 /' >"$next"
 
-  if ! "${fetch[@]}" "$live/assets-kept.txt" -o "$prev"; then
+  if ! fetch "$live/assets-kept.txt" "$prev"; then
     echo "::warning::no $live/assets-kept.txt; nothing kept from the live site"
     : >"$prev"
   fi
@@ -99,11 +111,7 @@ keep() {
     [ "$epoch" = 0 ] && epoch=$now
     ((epoch <= now && now - epoch < window)) || continue
     [ -e "$dir/assets/$file" ] && continue
-    if ((SECONDS >= deadline)); then
-      missed=$((missed + 1))
-      continue
-    fi
-    if "${fetch[@]}" "$live/assets/$file" -o "$dir/assets/$file"; then
+    if fetch "$live/assets/$file" "$dir/assets/$file"; then
       echo "$epoch $file" >>"$next"
       kept=$((kept + 1))
     else
