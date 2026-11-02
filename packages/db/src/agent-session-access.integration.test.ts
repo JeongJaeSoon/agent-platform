@@ -222,7 +222,7 @@ integration("agent access settings on PostgreSQL", () => {
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .for("update");
-      if (!row) throw new Error("no session");
+      if (row?.workspaceId !== workspaceId) throw new Error("no session");
       const requester: Requester = {
         userId: who.userId,
         apiKeyId: who.apiKeyId,

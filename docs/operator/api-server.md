@@ -623,13 +623,38 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 | `private` | 만든 사람만 |
 | `people` | 만든 사람과 지정한 멤버 |
 | `team` | 만든 사람과 지정한 팀의 지금 구성원 |
-| `workspace` | workspace 멤버 모두(기본값) |
+| `workspace` | workspace 멤버 모두(기본값). 단 담당 팀이 있는 에이전트이고 축 B가 `managing_team`이면 안쪽만 |
 
+- "안쪽"은 그 에이전트의 owner·admin, 에이전트 관리자(개인 관리자, 관리자 팀 구성원, 담당 팀 `lead`), 담당 팀 구성원이다. 나머지 멤버가 바깥쪽이다. 담당 팀이 없는 에이전트(담당 팀 전의 에이전트)는 안쪽이 owner·admin과 관리자뿐이고, 축 B가 적용되지 않는다.
 - 판정 순서는 workspace 일치 → 공유 범위 → key scope → agent_id → (`session.approve`·`session.rename`만) 답할 사람인가다. 범위 밖이면 owner·admin도 목록·검색(`?status=`)·상세·turn·SSE·usage·pending·receipt·메시지·응답·이름 바꾸기·interrupt·종료 어디서나 `404`다. 있는지조차 알리지 않는다.
 - 팀 범위는 판정 때마다 지금 구성원을 읽는다. 팀에서 빠지거나 팀이 지워지면 다음 요청부터 `404`다.
-- 에이전트 key는 멤버가 아니다. 그 에이전트의 세션 가운데 `workspace` 범위인 것과 자기가 만든 것만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다.
+- 에이전트 key는 멤버가 아니다. 그 에이전트의 세션 가운데 `workspace` 범위인 것과 자기가 만든 것만 본다. key가 만든 세션에서는 그 key가 만든 사람 자리에 선다. 축 B에서는 자기 에이전트의 안쪽이다.
 - 범위를 좁히면 그 세션의 열린 SSE가 바로 깨어나 다시 판정되고, 더는 볼 수 없는 연결은 끊긴다(로그 `SSE stream closed`, `reason: not_visible`). 다시 연결하면 `404`다.
 - 아직 한 번도 바꾸지 않은 세션은 `session_shares` 행 없이 `workspace`로 읽힌다(`revision` 0).
+
+### 에이전트 접근 설정(축 A·B)
+
+워크스페이스 설정 두 키가 담당 팀 밖 멤버(바깥쪽)가 에이전트와 그 세션에 닿는 범위를 정한다. owner·admin이 `PATCH /v1/workspaces/{id}/agent-access`로 바꾸고, 지금 값은 `GET /v1/auth/me`의 `workspace.settings`에 있다. 키가 저장되지 않았으면 기본값이다.
+
+| 축 | 키 | 값 | 기본값 |
+|---|---|---|---|
+| A. 바깥쪽의 에이전트 접근 | `agent_outsider_access` | `use`: 정보를 보고 세션을 시작한다 / `view`: 정보만 본다(시작은 `403`, `reason_code: role`) / `none`: 목록에서 빠지고 읽기는 `404`, 시작은 `403` | `use` |
+| B. `workspace` 범위 세션이 바깥쪽에 보이는가 | `agent_outsider_session_visibility` | `managing_team`: 안쪽에만 / `workspace`: 멤버 모두 | `managing_team` |
+
+- 축 A는 모든 에이전트에 적용한다. 웹·API·Slack 세션 시작이 같은 판정을 거치고, 세션을 만드는 쓰기도 같은 트랜잭션에서 워크스페이스 행과 에이전트·팀·구성원 행을 잠근 채 다시 본다. 이미 있는 세션에 메시지를 보내는 것은 축 A를 보지 않는다.
+- 축 B는 담당 팀이 있는 에이전트의 세션에만 적용한다. 목록·개수·상세·SSE·메시지·승인 쓰기의 재확인·사용량 최근 성과·도구 호출 목록이 같은 판정을 쓴다. 자기 세션(지금 그 세션을 가진 사람)과 `people`·`team` 공유는 그대로 닿는다. 사용량 최근 성과는 볼 수 없는 세션의 행을 통째로 빼고, 합계 수치는 그대로 센다.
+- 판정 시점의 상한이라 공유 행을 쓰지 않는다. 담당 팀을 정하거나 바꾸는 순간, 설정을 바꾸는 순간, 팀 구성원이 빠지는 순간 기존 세션에도 다음 요청부터 적용된다. 열린 SSE는 다음 페이지를 읽을 때 다시 판정해 끊는다.
+- `GET /v1/sessions/{id}/share`의 `audience_limited`는 이 세션을 `workspace`로 두면 안쪽에만 닿는지(담당 팀이 있고 축 B가 `managing_team`)를 지금 범위와 상관없이 알려 준다.
+- 바꾼 키가 있을 때만 `set_agent_access_settings` receipt(`result.from`·`result.to`, 바뀐 키만)를 남기고, 없으면 `receipt_id`가 `null`이다.
+- 사람이 없는 key(에이전트에 묶이지 않은 key)는 어느 에이전트의 안쪽도 아니다.
+- 이 설정이 들어간 이미지는 롤백 하한이다. 그 아래로 롤백하면 축 B로 숨긴 세션이 바깥쪽에 다시 보이고 축 A가 사라진다. 이 설정을 한 번이라도 저장한 워크스페이스는 하한 아래 이미지의 `GET /v1/auth/me`가 응답 검증에서 실패한다.
+- Slack 채널 세션의 답은 축 B와 상관없이 채널 스레드에 올라간다. 에이전트를 채널에 연결하는 것을 그 채널에 답을 보이겠다는 결정으로 본다.
+
+```bash
+curl -s -b jar -X PATCH "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/agent-access" \
+  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -d '{"agent_outsider_access":"view"}'
+```
 
 보는 것과 대신 답하는 것은 다르다. 권한 요청·질문에 답하고 push·PR을 결정하는 것(`session.approve`)은 세션을 볼 수 있는 사람 가운데 만든 사람, 그 에이전트의 관리자, owner·admin, 그리고 `sessions:approve`를 가진 그 에이전트의 key만 한다. 어떤 key도 그 key가 시작한 세션은 승인하지 못한다(`403`, `reason_code: self_approval`, 실패 receipt). 같은 사람이 웹이나 다른 key로 승인하는 것은 막지 않는다. 공유로 보기만 하는 사람(member)은 `403`(`reason_code: role`, "holds sessions:approve but may not use it on this session")이고 요청은 열린 채 세션은 `needs_input`에 머문다. 볼 수 없는 사람은 지금처럼 `404`다. 개인 key는 만든 사람으로, 그 사람의 지금 역할로 판정한다. workspace가 없는 호출자(legacy key, `AUTH_MODE=none`)는 곁에 대신 답할 멤버가 없으므로 지금처럼 답한다. `GET /v1/sessions/{id}/pending-requests`의 `answerable`이 같은 판정을 미리 알려 준다. 이 미리보기는 판정 행을 남기지 않는다.
 

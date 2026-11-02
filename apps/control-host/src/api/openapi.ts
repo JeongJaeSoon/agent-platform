@@ -1390,7 +1390,17 @@ export const API_ROUTE_DECLARATIONS = [
       "Inside an agent are owners, admins, the agent's admins (its admin rows, its admin teams' members and its managing team's leads) and its managing team's other members; every other member is outside it. `agent_outsider_access` (default `use`): `use` lets those outside read the agent's information and start its sessions, `view` only read its information (a start is 403 FORBIDDEN, `details.reason_code` `role`), `none` hides the agent from them (absent from GET /v1/agents, 404 on reads of it, and a start is 403). It applies to every agent, one with no managing team included. `agent_outsider_session_visibility` (default `managing_team`): `managing_team` keeps the `workspace`-scoped sessions of an agent with a managing team from those outside it, in every list, count, read, stream and usage list; `workspace` lets every member see them. A session the member holds, and a `people` or `team` share naming them, still reach them; an agent with no managing team is not limited. Both apply from the next request to sessions already made, and an open event stream ends at its next page. A key left out keeps its value; name at least one. Writes a `set_agent_access_settings` receipt with what changed unless nothing did (`receipt_id` null). The current values are `workspace.settings` in GET /v1/auth/me.",
     auth: "session",
     body: "AgentAccessRequest",
-    success: { status: 200, schema: "AgentAccessResponse" },
+    requestExample: { agent_outsider_access: "view" },
+    success: {
+      status: 200,
+      schema: "AgentAccessResponse",
+      description: "Both settings as they now stand.",
+      example: {
+        agent_outsider_access: "view",
+        agent_outsider_session_visibility: "managing_team",
+        receipt_id: "b3c4d5e6-f7a8-4b9c-8d0e-1f2a3b4c5d6e",
+      },
+    },
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
@@ -2803,7 +2813,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Who sees the session",
     description:
-      "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0.",
+      "Readable by whoever sees the session. A session never re-shared reads `workspace` at revision 0. `audience_limited` is true when `workspace` does not reach every member: the session is an agent's with a managing team and the workspace's `agent_outsider_session_visibility` is `managing_team`, so only those inside the agent see it (PATCH /v1/workspaces/{id}/agent-access).",
     scope: "read",
     success: { status: 200, schema: "SessionShare" },
     errors: [401, 404, 503],
@@ -2815,7 +2825,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Change who sees the session",
     description:
-      "`private` is the creator alone; `people` and `team` add the people or the current members of the teams named; `workspace` is every member. A person's session is changed only by its creator; a session an API key made, by owners, admins and the admins of its agent. Anyone else the session is visible to gets 403; anyone it is not visible to, 404. Open event streams that may no longer see the session end. Writes a `share_session` receipt unless the share was already as asked (`receipt_id` null).",
+      "`private` is the creator alone; `people` and `team` add the people or the current members of the teams named; `workspace` is every member, or only those inside the agent while `audience_limited` holds (GET /v1/sessions/{id}/share). A person's session is changed only by its creator; a session an API key made, by owners, admins and the admins of its agent. Anyone else the session is visible to gets 403; anyone it is not visible to, 404. Open event streams that may no longer see the session end. Writes a `share_session` receipt unless the share was already as asked (`receipt_id` null).",
     auth: "session",
     body: "SetSessionShareRequest",
     success: { status: 200, schema: "SetSessionShareResponse" },
@@ -4552,7 +4562,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "An agent with its versions, releases and active release",
     description:
-      "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead; an id of no agent in the workspace is 404. It changes nothing.",
+      "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 403 and reads the agent's row from `GET /v1/agents` (`ids`) instead, or 404 while the workspace's `agent_outsider_access` is `none`, since the agent is then hidden from them; an id of no agent in the workspace is 404. It changes nothing.",
     auth: "session",
     success: { status: 200, schema: "AgentDetail" },
     errors: [401, 403, 404, 503],

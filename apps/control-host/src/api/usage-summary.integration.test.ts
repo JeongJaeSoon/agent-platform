@@ -968,9 +968,8 @@ integration("usage summary on PostgreSQL", () => {
     expect(
       await refusal(achievements(user("admin", "admin"), installation)),
     ).toBe("FORBIDDEN");
-    expect(await read(user("admin", "admin"), agentScope)).toMatchObject({
-      achievement_count: 3,
-    });
+    const shown = await read(user("admin", "admin"), agentScope);
+    expect(shown).toMatchObject({ achievement_count: 3 });
     // Alice's private session: its conversation achievement carries the
     // session's title and link, so an admin who cannot open the session does
     // not get its rows at all; the counts still include them.
@@ -996,7 +995,11 @@ integration("usage summary on PostgreSQL", () => {
     expect(JSON.stringify(hidden)).not.toContain(s2);
     expect(JSON.stringify(hidden)).not.toContain(secret);
     expect(hidden.recent.filter((row) => row.session_id === null)).toEqual([]);
-    expect(hidden.recent).toHaveLength(4);
+    // Alice's rejected and confirmed rows drop out; the rest stay in order.
+    expect(shown.recent.filter((row) => row.session_id === s2)).toHaveLength(2);
+    expect(hidden.recent).toEqual(
+      shown.recent.filter((row) => row.session_id !== s2),
+    );
     expect(
       (await read(alice, { scope: "me", ...period })).recent,
     ).toContainEqual(

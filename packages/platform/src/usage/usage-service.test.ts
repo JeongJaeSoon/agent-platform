@@ -498,7 +498,7 @@ describe("usage service", () => {
         sort: "recent",
         limit: 20,
         ownerId: WORKSPACE,
-        viewer: { userId: USER, apiKeyId: null },
+        viewer: { userId: USER, apiKeyId: null, keyAgentId: null },
       },
     ]);
   });
