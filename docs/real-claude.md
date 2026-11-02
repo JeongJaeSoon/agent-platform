@@ -98,7 +98,7 @@ echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
 
-`claude-coding-real`은 `permission_mode: auto`라, 사람에게 물었을 도구 호출(Bash 등)마다 모델 분류기가 허용·거부를 정한다. 그래서 보통은 권한 요청 없이 끝나고, 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 분류기가 판정하지 못하거나 모델이 `AskUserQuestion`으로 물으면 요청이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 답한다. 이 profile이 `default`이던 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
+`claude-coding-real`은 `permission_mode: auto`라, 사람에게 물었을 도구 호출(Bash 등)마다 모델 분류기가 허용·거부를 정한다. 그래서 보통은 권한 요청 없이 끝나고, 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 분류기를 쓸 수 없으면 그 호출은 거부된다(fail closed). 모델이 `AskUserQuestion`으로 물으면 요청이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 답한다. 이 profile이 `default`이던 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
 
 아래 `allow_until_done`은 turn이 끝날(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`) 때까지 3초마다 보고, 세션이 `needs_input`이면 첫 권한 요청을 출력한 뒤 허용한다. 동시에 여러 요청이 대기하면 한 회차에 첫 요청 하나를 답하고, 남은 요청으로 세션이 `needs_input`인 동안 다음 회차를 계속한다. turn 제한과 같은 10분(200번)이 지나면 멈춘다. 허용하기 전에 보려면 이 루프 대신 quickstart ③·④의 명령을 한 번씩 되풀이한다.
 
