@@ -13,7 +13,6 @@
  * when capture or repin refuses, 5 when a plan check fails.
  */
 
-import { MAX_RESTORE_PROFILES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresCheckpointStore,
@@ -47,13 +46,12 @@ import {
   captureArchiveObjects,
   captureCheckpointObjects,
   describeMismatches,
-  earlierProfileClaims,
   type ImageRuntime,
-  otherToolsClaims,
   parseImageRuntime,
   planArchiveRepin,
   planRepin,
   planRuntime,
+  restoreClaims,
   sessionClaim,
   sha256Hex,
 } from "./checkpoint-pins.ts";
@@ -349,7 +347,6 @@ async function plans(
       env: process.env,
     });
     const claims: Record<string, unknown> = {};
-    const ownOtherKeys = new Map<string, string[]>();
     for (const pointer of pointers) {
       const session = {
         id: pointer.id,
@@ -365,41 +362,25 @@ async function plans(
       };
       try {
         claims[pointer.id] = sessionClaim(session, catalog);
-        const other = otherToolsClaims(session, catalog);
-        for (const [key, claim] of other) claims[key] = claim;
-        ownOtherKeys.set(
+        const made = restoreClaims(
+          session,
+          earlier
+            .filter((row) => row.session_id === pointer.id)
+            .map((row) => ({
+              profileId: row.profile_id,
+              profileFingerprint: row.profile_fingerprint,
+              model: row.model,
+            })),
+          catalog,
+        );
+        for (const [key, claim] of made) claims[key] = claim;
+        earlierKeys.set(
           pointer.id,
-          other.map(([key]) => key),
+          made.map(([key]) => key),
         );
       } catch (error) {
         claimErrors.set(pointer.id, (error as Error).message);
       }
-    }
-    for (const pointer of pointers) {
-      const made = earlierProfileClaims(
-        {
-          id: pointer.id,
-          ownerId: pointer.owner_id,
-          releaseTools: releaseToolsOf(pointer),
-          repositoryMode: pointer.repository_mode,
-        },
-        earlier
-          .filter((row) => row.session_id === pointer.id)
-          .map((row) => ({
-            profileId: row.profile_id,
-            profileFingerprint: row.profile_fingerprint,
-            model: row.model,
-          })),
-        catalog,
-      );
-      for (const [key, claim] of made) claims[key] = claim;
-      earlierKeys.set(
-        pointer.id,
-        [
-          ...(ownOtherKeys.get(pointer.id) ?? []),
-          ...made.map(([key]) => key),
-        ].slice(0, MAX_RESTORE_PROFILES),
-      );
     }
     imageRuntime = await readImageRuntime(image.name, claims);
   }

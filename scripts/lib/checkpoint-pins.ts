@@ -36,6 +36,7 @@ import {
   runtimeConfigOf,
   type SessionCatalog,
   sessionProfile,
+  type ToolList,
 } from "@werft-ai/platform";
 import type {
   CheckpointCodec,
@@ -169,39 +170,78 @@ export function sessionClaim(
   catalog: SessionCatalog,
 ): SessionClaim {
   const profile = runnableProfile(session, catalog);
+  const lists = claimToolLists(profile, session.releaseTools);
   return claimOf(
     session.ownerId,
     profile,
     session.repositoryMode === "repository",
-    claimToolLists(profile, session.releaseTools).run,
+    (lists.runs === "release" ? lists.release : null) ?? lists.profile,
   );
 }
 
 /**
- * The claim for the session's own profile with the tool list a claim offers
- * besides the one it runs (worker-gateway.ts `restoreRuntimesOf`), keyed by
- * otherToolsKey; none when the two lists are the same. Refused as
- * sessionClaim refuses.
+ * The claims a target image is asked for besides sessionClaim, keyed for
+ * alternateDigests, in the order and under the cap the gateway's
+ * `restoreRuntimesOf` offers restore configs: the session's own profile
+ * with the tool list it does not run (keyed by ownToolsKey), and every
+ * earlier profile (earlierProfileClaims). Refused as sessionClaim refuses.
  */
-export function otherToolsClaims(
+export function restoreClaims(
   session: ClaimedSession & { readonly id: string },
+  earlier: readonly EarlierProfile[],
   catalog: SessionCatalog,
 ): [key: string, claim: SessionClaim][] {
-  const profile = runnableProfile(session, catalog);
-  const { other } = claimToolLists(profile, session.releaseTools);
-  return other === null
-    ? []
-    : [
-        [
-          otherToolsKey(session.id),
-          claimOf(
-            session.ownerId,
-            profile,
-            session.repositoryMode === "repository",
-            other,
-          ),
-        ],
-      ];
+  return listClaims(session, [
+    {
+      profile: runnableProfile(session, catalog),
+      key: (list) => ownToolsKey(session.id, list),
+      own: true,
+    },
+    ...earlierProfilesOf(session.id, earlier, catalog),
+  ]);
+}
+
+type EarlierProfile = {
+  readonly profileId: string;
+  readonly profileFingerprint: string;
+  readonly model: string | null;
+};
+
+type ListedProfile = {
+  profile: CatalogProfile;
+  key: (list: ToolList) => string;
+  own: boolean;
+};
+
+// Every profile list before any release list, as the gateway orders them.
+function listClaims(
+  session: {
+    readonly ownerId: string;
+    readonly releaseTools: readonly string[] | null;
+    readonly repositoryMode: "repository" | "none";
+  },
+  profiles: readonly ListedProfile[],
+): [key: string, claim: SessionClaim][] {
+  return (["profile", "release"] as const)
+    .flatMap((list) =>
+      profiles.flatMap(({ profile, key, own }) => {
+        const lists = claimToolLists(profile, session.releaseTools);
+        const tools = lists[list];
+        if (tools === null || (own && lists.runs === list)) return [];
+        return [
+          [
+            key(list),
+            claimOf(
+              session.ownerId,
+              profile,
+              session.repositoryMode === "repository",
+              tools,
+            ),
+          ] as [string, SessionClaim],
+        ];
+      }),
+    )
+    .slice(0, MAX_RESTORE_PROFILES);
 }
 
 export type ClaimedSession = {
@@ -288,19 +328,22 @@ export function earlierProfileKey(sessionId: string, profileId: string) {
   return `${sessionId}#${profileId}`;
 }
 
-/** The claim key for a session's, or an earlier profile's, other tool list. */
-export function otherToolsKey(key: string) {
-  return `${key}#other-tools`;
+/**
+ * The image claim key for a tool list of the session's own profile; an
+ * earlier profile's release list is keyed `${earlierProfileKey}@release`.
+ */
+export function ownToolsKey(sessionId: string, list: ToolList) {
+  return `${sessionId}@${list}`;
 }
 
 /**
  * The claims for the profiles a session's restorable checkpoints were made
  * under other than the one it runs now (`earlier`, newest first), keyed by
- * earlierProfileKey, each followed by its other tool list's under
- * otherToolsKey, and chosen as the gateway's claim chooses them: the
- * catalog must still hold the profile with the same fingerprint, the
- * repository need not allow it any longer, and no more than
- * MAX_RESTORE_PROFILES are offered.
+ * earlierProfileKey for the profile's tools and `@release` after it for the
+ * release's, and chosen as the gateway's claim chooses them: the catalog
+ * must still hold the profile with the same fingerprint, the repository
+ * need not allow it any longer, every profile list comes before any release
+ * list, and no more than MAX_RESTORE_PROFILES are offered.
  */
 export function earlierProfileClaims(
   session: {
@@ -309,43 +352,38 @@ export function earlierProfileClaims(
     readonly releaseTools: readonly string[] | null;
     readonly repositoryMode: "repository" | "none";
   },
-  earlier: readonly {
-    readonly profileId: string;
-    readonly profileFingerprint: string;
-    readonly model: string | null;
-  }[],
+  earlier: readonly EarlierProfile[],
   catalog: SessionCatalog,
 ): [key: string, claim: SessionClaim][] {
-  return earlier
-    .flatMap(({ profileId, profileFingerprint: made, model }) => {
-      const listed = Object.hasOwn(catalog.profiles, profileId)
-        ? catalog.profiles[profileId]
-        : undefined;
-      const profile = listed
-        ? sessionProfile(
-            listed,
-            { fingerprint: made, model },
-            acceptedRuntimeVersions(catalog),
-          )
-        : null;
-      if (!profile) return [];
-      const key = earlierProfileKey(session.id, profileId);
-      const { run, other } = claimToolLists(profile, session.releaseTools);
-      const claimWith = (tools: readonly string[]) =>
-        claimOf(
-          session.ownerId,
-          profile,
-          session.repositoryMode === "repository",
-          tools,
-        );
-      return [
-        [key, claimWith(run)] as [string, SessionClaim],
-        ...(other === null
-          ? []
-          : [[otherToolsKey(key), claimWith(other)] as [string, SessionClaim]]),
-      ];
-    })
-    .slice(0, MAX_RESTORE_PROFILES);
+  return listClaims(session, earlierProfilesOf(session.id, earlier, catalog));
+}
+
+function earlierProfilesOf(
+  sessionId: string,
+  earlier: readonly EarlierProfile[],
+  catalog: SessionCatalog,
+): ListedProfile[] {
+  return earlier.flatMap(({ profileId, profileFingerprint: made, model }) => {
+    const listed = Object.hasOwn(catalog.profiles, profileId)
+      ? catalog.profiles[profileId]
+      : undefined;
+    const profile = listed
+      ? sessionProfile(
+          listed,
+          { fingerprint: made, model },
+          acceptedRuntimeVersions(catalog),
+        )
+      : null;
+    if (!profile) return [];
+    const key = earlierProfileKey(sessionId, profileId);
+    return [
+      {
+        profile,
+        key: (list: ToolList) => (list === "profile" ? key : `${key}@release`),
+        own: false,
+      },
+    ];
+  });
 }
 
 /**

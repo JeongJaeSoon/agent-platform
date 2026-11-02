@@ -128,6 +128,7 @@ import {
   type SessionGitHubMcp,
   type SessionMcp,
   sessionProfile,
+  type ToolList,
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
@@ -211,6 +212,12 @@ export type CheckpointProtocol = {
     sessionId: string;
     pointer: CheckpointPointer | null;
   }): Promise<RestorePlanResult>;
+};
+
+type ToolConfigs = {
+  profile: RuntimeConfig;
+  release: RuntimeConfig | null;
+  runs: ToolList;
 };
 
 export type WorkerGatewayOptions = {
@@ -545,22 +552,26 @@ export function createWorkerGateway(deps: {
   const runReleaseTools =
     deps.options.runReleaseTools ?? CLAIM_RUNS_RELEASE_TOOLS;
 
-  // The session's configs under one profile: the one the engine runs, then
-  // the one a checkpoint may have been made with instead, when it differs.
+  // The session's configs under one profile, one per tool list
+  // (claimToolLists), and the list the engine runs.
   function toolConfigsOf(
     profile: CatalogProfile,
     releaseTools: readonly string[] | null | undefined,
     providerToken: string,
     hasRepository: boolean,
-  ): [RuntimeConfig, ...RuntimeConfig[]] {
-    const { run, other } = claimToolLists(
+  ): ToolConfigs {
+    const lists = claimToolLists(
       profile,
       releaseTools ?? null,
       runReleaseTools,
     );
     const configOf = (tools: readonly string[]) =>
       runtimeConfigOf(profile, providerToken, hasRepository, tools);
-    return [configOf(run), ...(other === null ? [] : [configOf(other)])];
+    return {
+      profile: configOf(lists.profile),
+      release: lists.release === null ? null : configOf(lists.release),
+      runs: lists.runs,
+    };
   }
 
   // Only a repository on the console's App: that App pushes and opens the
@@ -905,7 +916,7 @@ export function createWorkerGateway(deps: {
     runtime: SessionRuntime;
     profile_fingerprint: string;
     runtime_config: RuntimeConfig;
-    other_tools_config: RuntimeConfig | null;
+    tool_configs: ToolConfigs;
   } {
     const listed = profileId ? catalogProfile(catalog, profileId) : undefined;
     const profile = listed
@@ -919,12 +930,16 @@ export function createWorkerGateway(deps: {
         true,
       );
     }
-    const [runtime_config, other_tools_config = null] = toolConfigsOf(
+    const tool_configs = toolConfigsOf(
       profile,
       releaseTools,
       providerToken,
       hasRepository,
     );
+    const runtime_config =
+      tool_configs.runs === "release" && tool_configs.release !== null
+        ? tool_configs.release
+        : tool_configs.profile;
     return {
       runtime: {
         kind: profile.runtime_kind,
@@ -933,7 +948,7 @@ export function createWorkerGateway(deps: {
       },
       profile_fingerprint: profileFingerprint(profile),
       runtime_config,
-      other_tools_config,
+      tool_configs,
     };
   }
 
@@ -952,8 +967,7 @@ export function createWorkerGateway(deps: {
       | "repository"
       | "releaseTools"
     >,
-    current: RuntimeConfig,
-    currentOtherTools: RuntimeConfig | null,
+    current: ToolConfigs,
     providerToken: string,
     mcp: readonly ClaimedMcpServer[],
     mcpToken: string,
@@ -975,29 +989,33 @@ export function createWorkerGateway(deps: {
           )
         : null;
       return profile
-        ? toolConfigsOf(
-            profile,
-            binding.releaseTools,
-            providerToken,
-            binding.repository !== null,
-          )
+        ? [
+            toolConfigsOf(
+              profile,
+              binding.releaseTools,
+              providerToken,
+              binding.repository !== null,
+            ),
+          ]
         : [];
     });
     // Checkpoints made before the built-in `github` server was attached
     // name only the catalog server; they resume into a run that has both.
-    // Newest first, as the profiles come, so the cap drops the oldest.
+    // Every profile list before any release list (claimToolLists), each
+    // newest first as the profiles come, so the cap drops the oldest.
     const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
     const attached = legacy.length !== mcp.length;
-    const configs = [
-      ...(attached ? [withMcp(current, legacy, mcpToken)] : []),
-      ...(currentOtherTools === null
-        ? alternates
-        : [currentOtherTools, ...alternates]
-      ).flatMap((config) => [
-        withMcp(config, mcp, mcpToken),
-        ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
-      ]),
-    ];
+    const configs = (["profile", "release"] as const).flatMap((list) =>
+      [current, ...alternates].flatMap((configs, index) => {
+        const config = configs[list];
+        if (config === null) return [];
+        const running = index === 0 && current.runs === list;
+        return [
+          ...(running ? [] : [withMcp(config, mcp, mcpToken)]),
+          ...(attached ? [withMcp(config, legacy, mcpToken)] : []),
+        ];
+      }),
+    );
     return configs.length === 0
       ? {}
       : { restore_runtime_configs: configs.slice(0, MAX_RESTORE_PROFILES) };
@@ -1402,7 +1420,7 @@ export function createWorkerGateway(deps: {
         default: {
           const binding = result.binding;
           const mcp = claimedMcp(binding);
-          const { other_tools_config: otherTools, ...resolvedProfile } =
+          const { tool_configs: toolConfigs, ...resolvedProfile } =
             resolveProfile(
               binding.profileId,
               { fingerprint: binding.profileFingerprint, model: binding.model },
@@ -1463,8 +1481,7 @@ export function createWorkerGateway(deps: {
             ...resolved,
             ...restoreRuntimesOf(
               binding,
-              profile.runtime_config,
-              otherTools,
+              toolConfigs,
               providerToken,
               mcp,
               mcpToken,

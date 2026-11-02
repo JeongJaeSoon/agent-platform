@@ -1505,6 +1505,7 @@ describe("WorkerGateway", () => {
       },
     };
     const earlier = { ...current, tools: ["Read", "Bash"] };
+    const wide = { ...current, model: "claude-opus-5-5" };
     const binding: WorkerBinding = {
       sessionId: scope.session_id,
       attemptId: "att_1",
@@ -1539,7 +1540,7 @@ describe("WorkerGateway", () => {
           claimAtomic: async () => ({ outcome: "claimed", binding: bound }),
         }),
         catalog: withSeededInstallation({
-          profiles: { current, earlier },
+          profiles: { current, earlier, wide },
           repositories: {},
         }),
         checkpoints: acceptAllCheckpoints,
@@ -1625,6 +1626,31 @@ describe("WorkerGateway", () => {
     // `[]` is a release that allows no built-in tool, not one missing.
     const none = await claimWith({ ...binding, releaseTools: [] }, true);
     expect(none.runtime_config.tools).toEqual([github]);
+
+    // At the cap, the profile lists go first: every profile list a claim
+    // offered before release lists existed is still offered, either way.
+    const many: WorkerBinding = {
+      ...binding,
+      githubMcp: null,
+      restoreProfiles: Array.from({ length: 8 }, () => ({
+        profileId: "wide",
+        profileFingerprint: profileFingerprint(wide),
+        model: "claude-opus-5-5",
+      })),
+    };
+    const full = ["Read", "Edit", "Bash"];
+    const narrow = ["Read", "Bash"];
+    const crowded = (await claimWith(many)).restore_runtime_configs;
+    expect(crowded?.map((config) => config.tools)).toEqual([
+      ...Array.from({ length: 8 }, () => full),
+      ...Array.from({ length: 8 }, () => narrow),
+    ]);
+    expect(crowded?.[8]?.model).toBe("claude-sonnet-5");
+    const crowdedOn = (await claimWith(many, true)).restore_runtime_configs;
+    expect(crowdedOn?.map((config) => config.tools)).toEqual([
+      ...Array.from({ length: 9 }, () => full),
+      ...Array.from({ length: 7 }, () => narrow),
+    ]);
   });
 
   test("bootstrapClaim answers a launch whose session was failed for a catalog mismatch with a final 409", async () => {

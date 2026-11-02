@@ -56,13 +56,13 @@ import {
   describeMismatches,
   earlierProfileClaims,
   earlierProfileKey,
-  otherToolsClaims,
-  otherToolsKey,
+  ownToolsKey,
   parseImageRuntime,
   planArchiveRepin,
   planRepin,
   planRuntime,
   refsOf,
+  restoreClaims,
   sessionClaim,
   sha256Hex,
 } from "../scripts/lib/checkpoint-pins.ts";
@@ -1040,10 +1040,10 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
         ...seeded.row,
         manifestVersion: seeded.row.manifestVersion as string,
       });
-      const other = otherToolsClaims({ ...session, id: sessionId }, resolved);
+      const other = restoreClaims({ ...session, id: sessionId }, [], resolved);
       expect(
         other.map(([key, claim]) => [key, claim.runtime_config.tools]),
-      ).toEqual([[otherToolsKey(sessionId), releaseTools]]);
+      ).toEqual([[ownToolsKey(sessionId, "release"), releaseTools]]);
       const image = imageOf({
         [sessionId]: runClaim,
         ...Object.fromEntries(other),
@@ -1072,33 +1072,60 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     // release that allows none is a list of its own.
     const withId = { ...session, id: "s1" };
     expect(
-      otherToolsClaims({ ...withId, releaseTools: null }, resolved),
+      restoreClaims({ ...withId, releaseTools: null }, [], resolved),
     ).toEqual([]);
     expect(
-      otherToolsClaims({ ...withId, releaseTools: profile.tools }, resolved),
+      restoreClaims({ ...withId, releaseTools: profile.tools }, [], resolved),
     ).toEqual([]);
     expect(
-      otherToolsClaims({ ...withId, releaseTools: [] }, resolved).map(
+      restoreClaims({ ...withId, releaseTools: [] }, [], resolved).map(
         ([, claim]) => claim.runtime_config.tools,
       ),
     ).toEqual([[]]);
-    // An earlier profile is offered with both lists, the run one first.
+
+    // Earlier profiles: every profile list before any release list, so the
+    // cap never drops one a checkpoint from before release lists needs.
+    const earlierIds = Array.from({ length: 9 }, (_, n) => `e${n}`);
+    const withEarlier = withSeededInstallation({
+      ...resolved,
+      profiles: {
+        ...resolved.profiles,
+        ...Object.fromEntries(
+          earlierIds.map((id) => [id, { ...profile, model: `model-${id}` }]),
+        ),
+      },
+    });
+    const earlier = earlierIds.map((id) => {
+      const made = withEarlier.profiles[id] as CatalogProfile;
+      return {
+        profileId: id,
+        profileFingerprint: profileFingerprint(made),
+        model: made.model,
+      };
+    });
+    const offered = restoreClaims(
+      { ...withId, releaseTools: ["Grep", "Read", "NotInProfile"] },
+      earlier,
+      withEarlier,
+    );
+    expect(offered.map(([key]) => key)).toEqual([
+      ...earlierIds.map((id) => earlierProfileKey("s1", id)),
+      ownToolsKey("s1", "release"),
+      ...earlierIds
+        .slice(0, MAX_RESTORE_PROFILES - earlierIds.length - 1)
+        .map((id) => `${earlierProfileKey("s1", id)}@release`),
+    ]);
+    expect(offered.map(([, claim]) => claim.runtime_config.tools)).toEqual([
+      ...earlierIds.map(() => profile.tools),
+      ...Array.from({ length: 7 }, () => ["Read", "Grep"]),
+    ]);
     expect(
       earlierProfileClaims(
-        { ...withId, releaseTools: ["Grep", "Read", "NotInProfile"] },
-        [
-          {
-            profileId: PROFILE_ID,
-            profileFingerprint: profileFingerprint(profile),
-            model: profile.model,
-          },
-        ],
-        resolved,
-      ).map(([key, claim]) => [key, claim.runtime_config.tools]),
-    ).toEqual([
-      [earlierProfileKey("s1", PROFILE_ID), profile.tools],
-      [otherToolsKey(earlierProfileKey("s1", PROFILE_ID)), ["Read", "Grep"]],
-    ]);
+        { ...withId, releaseTools: null },
+        earlier,
+        withEarlier,
+      ).map(([key]) => key),
+    ).toEqual(earlierIds.map((id) => earlierProfileKey("s1", id)));
   });
 
   test("earlier profiles are offered as the gateway's claim offers them", async () => {

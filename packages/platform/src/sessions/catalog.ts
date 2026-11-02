@@ -732,27 +732,39 @@ export function runtimeProviderOf(
  */
 export const CLAIM_RUNS_RELEASE_TOOLS = false;
 
+export type ToolList = "profile" | "release";
+
 /**
- * The built-in tools a claim hands over under `profile`: `run` for the
- * engine, `other` for the list a checkpoint of the session may have been
- * made with instead, null when it is the same list or the session has no
- * release (`releaseTools` null). The release's are taken within the profile,
- * so neither list ever holds a tool the profile does not.
+ * The built-in tool lists a session's checkpoints may be made with under
+ * `profile`, and the one its engine runs. `release` is null when the
+ * session has no release (`releaseTools` null) or it keeps every profile
+ * tool; it is taken within the profile, so no list ever holds a tool the
+ * profile does not.
+ *
+ * A claim offers the profile lists of every restore profile before any
+ * release list: the protocol caps restore configs, and the profile lists
+ * are what every checkpoint from before release lists ran with.
  */
 export function claimToolLists(
   profile: CatalogProfile,
   releaseTools: readonly string[] | null,
   runRelease: boolean = CLAIM_RUNS_RELEASE_TOOLS,
-): { run: readonly string[]; other: readonly string[] | null } {
-  if (releaseTools === null) return { run: profile.tools, other: null };
-  const chosen = new Set(releaseTools);
-  const release = profile.tools.filter((tool) => chosen.has(tool));
-  if (release.length === profile.tools.length) {
-    return { run: profile.tools, other: null };
-  }
-  return runRelease
-    ? { run: release, other: profile.tools }
-    : { run: profile.tools, other: release };
+): {
+  profile: readonly string[];
+  release: readonly string[] | null;
+  runs: ToolList;
+} {
+  const chosen = releaseTools === null ? null : new Set(releaseTools);
+  const release = chosen && profile.tools.filter((tool) => chosen.has(tool));
+  const narrower =
+    release !== null && release.length !== profile.tools.length
+      ? release
+      : null;
+  return {
+    profile: profile.tools,
+    release: narrower,
+    runs: runRelease && narrower !== null ? "release" : "profile",
+  };
 }
 
 /**
