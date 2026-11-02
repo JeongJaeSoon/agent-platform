@@ -318,6 +318,7 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
 | `get_workflow_run` | `features.actions` | `GitHubWorkService.getRun` | `run_id` |
 | `rerun_workflow` | `features.actions` | `GitHubWorkService.rerun` | `run_id`, `failed_only?` |
 | `submit_review` | `features.review` | `GitHubWorkService.review` | `number`, `event`, `commit_id`, `body?` |
+| `attach_repository` | 늘 | `RepositoryAttachmentService.attach`(입구 1 없음, [session-repository-attachment.md](session-repository-attachment.md) 결정 3) | `repository_id` |
 
 - **`policy_pins.tools`와의 관계.** 원격 MCP 서버의 도구는 `policy_pins.tools.per_tool`의 `mcp__<server>__<tool>: allow`로 핀한다. `github`의 도구는 그 표에 두지 않는다. `policy_pins.github`가 같은 릴리스 해시에 이미 들어 있고, 위 표가 그것에서 도구를 정하기 때문이다. 두 곳에 같은 정보를 두면 서로 어긋날 수 있다. claim은 노출하는 도구의 `mcp__github__<tool>` 이름을 runtime config의 `tools`에 더한다. worker의 relay는 원격 서버와 같이 그 이름만 엔진에 보인다. 서버의 `tools/list`, 허가의 `tools/call` 검사, relay의 목록, 세 곳이 같은 함수(contracts의 `githubMcpTools`)로 정한다.
 - **MCP 호출의 actor(2절 "선행 수정"의 GA-7 몫).** 부르는 쪽은 세션 안의 에이전트이고 key가 없다. receipt actor는 지금의 원격 MCP 거절 receipt(`call_mcp`)와 같이 정한다. principal은 세션을 만든 credential(`created_by_api_key_id`가 있으면 그 `api_key`, 없으면 `created_by_user_id`의 `user`)이고, `actor_user_id`는 세션을 만든 사람, `agent_id`는 세션 릴리스의 에이전트다. 둘 다 없는 세션에는 도구를 열지 않는다(허가의 (3) 다음에 거절한다). push 요청의 `requested_by`는 null일 수 없고, 누가 시작했는지 모르는 세션에 GitHub 쓰기를 열지 않으려는 것이다. 2절의 "`actor.agent_id`는 호출자 key에서만 채운다"와 어긋나지 않는다. 이 호출의 호출자는 바로 그 세션의 에이전트이기 때문이다. receipt를 다른 입구와 나눠 보려면 actor의 principal이 아니라 이 `agent_id`가 세션 릴리스와 같다는 점을 본다.

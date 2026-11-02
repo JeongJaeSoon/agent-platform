@@ -91,6 +91,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   review_pull_request: "PR 리뷰",
   dispatch_workflow: "워크플로 실행",
   rerun_workflow: "워크플로 재실행",
+  attach_repository: "저장소 붙이기",
   set_github_packages_token: "GitHub Packages 토큰 등록",
   delete_github_packages_token: "GitHub Packages 토큰 삭제",
   set_github_packages_allowlist: "GitHub Packages 허용 목록 변경",
