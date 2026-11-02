@@ -169,8 +169,7 @@ import { waitForPushRequest } from "@werft-ai/sdk";
 
 const push = await werft.sessions.pushRequests.create(sessionId);
 // push.git_commit을 검토한 뒤, 승인 key로:
-await approver.sessions.pushRequests.decide(sessionId, push.id, {
-  decision: "approve",
+await approver.sessions.pushRequests.approve(sessionId, push.id, {
   git_commit: push.git_commit,
 });
 const done = await waitForPushRequest(werft, sessionId, push.id, { signal });

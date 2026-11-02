@@ -201,6 +201,7 @@ import {
   requestBodyInvalidDetailsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
+  resolvePushRequestRequestSchema,
   resumeSessionRequestSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
@@ -334,6 +335,7 @@ const requestComponents = {
   RecoveryDecisionRequest: recoveryDecisionRequestSchema,
   CreatePushRequestRequest: createPushRequestRequestSchema,
   DecidePushRequestRequest: decidePushRequestRequestSchema,
+  ResolvePushRequestRequest: resolvePushRequestRequestSchema,
   OpenPullRequestRequest: openPullRequestRequestSchema,
   CommentPullRequestRequest: commentPullRequestRequestSchema,
   DispatchWorkflowRequest: dispatchWorkflowRequestSchema,
@@ -710,6 +712,8 @@ export type RouteDeclaration = {
   scopeCheckedBy?: "service";
   // Most POSTs are commands and take Idempotency-Key; auth endpoints do not.
   idempotent?: false;
+  // Kept for old callers until they move; `successor` names the replacement.
+  deprecated?: { successor: string };
 };
 
 const CONFLICTS = [400, 401, 404, 409];
@@ -3224,7 +3228,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Ask for the session's latest checkpoint to be pushed",
     description:
-      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/decision`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
+      "Pins the session's latest committed checkpoint: its `checkpoint_revision`, the `git_commit` its verified manifest names, the repository and the target branch. The commit cannot be chosen. `repository_id` (default: the session's own) may name another catalog repository the session's release lists in `github.repositories` and its profile allows; the session's workspace has it as a git remote of that name. `branch` (default: none) makes the target `agent/<session-id>-<branch>` instead of `agent/<session-id>`, so one session can push to several branches, each its own pull request. The request starts `requested` and nothing is pushed until a holder of `sessions:approve` approves it (`POST .../push-requests/{push_request_id}/approve`); the push itself is the platform's, never the worker's.\n\nA session has at most one open request (`requested`, `approved` or `pushing`) per repository and branch; there is no limit on how many it makes. Every attempt, refused ones included, leaves a `request_push` receipt naming the repository and branch; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request it created.",
     scope: "write",
     body: "CreatePushRequestRequest",
     requestExample: { repository_id: "docs", branch: "fix-typo" },
@@ -3292,23 +3296,22 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
-    path: "/v1/sessions/{id}/push-requests/{push_request_id}/decision",
-    operationId: "decidePushRequest",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}/approve",
+    operationId: "approvePushRequest",
     tag: "Push requests",
-    summary: "Approve or reject a push request",
+    summary: "Approve a push request",
     description:
-      "Decides a `requested` push request once: `approve` lets the platform push the pinned commit to the request's branch, `reject` closes it. `git_commit` must be the commit the decider reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` decides: an API key or a signed-in user. A workspace key (personal or agent) that started the session never decides its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A replayed Idempotency-Key answers the request this decision made, as it is now: once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this decision.",
+      "Approves a `requested` push request: the platform pushes the pinned commit to the request's branch. `git_commit` must be the commit the approver reviewed; an approval naming any other is refused. An approval is also refused when the session has checkpointed since the request was made, so what is approved is what the session last committed; reject the request and ask again.\n\nOnly a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/reject` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.",
     scope: "approve",
     scopeCheckedBy: "service",
-    body: "DecidePushRequestRequest",
+    body: "ResolvePushRequestRequest",
     requestExample: {
-      decision: "approve",
       git_commit: EXAMPLE_GIT_COMMIT,
     },
     success: {
       status: 200,
       schema: "PushRequest",
-      description: "The decided request.",
+      description: "The request as answered.",
       example: {
         ...EXAMPLE_PUSH_REQUEST,
         state: "approved",
@@ -3327,6 +3330,87 @@ export const API_ROUTE_DECLARATIONS = [
         "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
       CHECKPOINT_MOVED:
         "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}/reject",
+    operationId: "rejectPushRequest",
+    tag: "Push requests",
+    summary: "Reject a push request",
+    description:
+      "Rejects a `requested` push request; nothing is pushed. `git_commit` is required as for an approval but not compared: a rejection is not refused when the session has moved on.\n\nOnly a verified credential that holds `sessions:approve` approves or rejects: an API key or a signed-in user. A workspace key (personal or agent) that started the session never approves or rejects its requests (403, `refusal: self_approval`); another key or a person does. Worker credentials are not accepted on `/v1` at all (401). Every attempt, refused ones included, leaves a `decide_push` receipt carrying the actor, the verdict and the refusal reason; a refusal's `error.details.receipt_id` names it. A request is approved or rejected once: a second answer, by either path, is 409 `PUSH_REQUEST_DECIDED`. An Idempotency-Key is shared with `/approve` and the deprecated `/decision`: replayed on any of them with the same answer and body, it answers the request as it is now (once the platform has taken it to push, `state` reads `pushing`, `pushed` or `failed`, while `decided_by`, `decided_at` and `decision_receipt_id` still name this answer); with another answer or body it is 409 `IDEMPOTENCY_CONFLICT`.",
+    scope: "approve",
+    scopeCheckedBy: "service",
+    body: "ResolvePushRequestRequest",
+    requestExample: {
+      git_commit: EXAMPLE_GIT_COMMIT,
+    },
+    success: {
+      status: 200,
+      schema: "PushRequest",
+      description: "The request as answered.",
+      example: {
+        ...EXAMPLE_PUSH_REQUEST,
+        state: "rejected",
+        decided_by: EXAMPLE_ACTOR,
+        decided_at: "2026-10-11T08:35:00Z",
+        decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
+      },
+    },
+    errors: [...CONFLICTS, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_DECIDED", "CHECKPOINT_MOVED"],
+    },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+      CHECKPOINT_MOVED:
+        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+    },
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/push-requests/{push_request_id}/decision",
+    operationId: "decidePushRequest",
+    tag: "Push requests",
+    summary: "Approve or reject a push request (deprecated)",
+    description:
+      "Deprecated: use `POST .../approve` or `POST .../reject`, which take the same body without `decision`. This path answers with a `Deprecation: true` header and will be removed once its callers move. `decision: approve` behaves as `/approve` and `decision: reject` as `/reject`; the three paths share one Idempotency-Key scope.",
+    scope: "approve",
+    scopeCheckedBy: "service",
+    body: "DecidePushRequestRequest",
+    requestExample: {
+      decision: "approve",
+      git_commit: EXAMPLE_GIT_COMMIT,
+    },
+    success: {
+      status: 200,
+      schema: "PushRequest",
+      description: "The request as answered.",
+      example: {
+        ...EXAMPLE_PUSH_REQUEST,
+        state: "approved",
+        decided_by: EXAMPLE_ACTOR,
+        decided_at: "2026-10-11T08:35:00Z",
+        decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
+      },
+    },
+    errors: [...CONFLICTS, 413, 503],
+    errorCodes: {
+      403: ["FORBIDDEN"],
+      409: ["IDEMPOTENCY_CONFLICT", "PUSH_REQUEST_DECIDED", "CHECKPOINT_MOVED"],
+    },
+    errorNotes: {
+      FORBIDDEN:
+        "Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+      CHECKPOINT_MOVED:
+        "Here: an approval whose `git_commit` is not the pinned one, or a session that checkpointed after the request; the request stays `requested`.",
+    },
+    deprecated: {
+      successor:
+        "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve or /reject",
     },
   },
   {
@@ -6518,6 +6602,24 @@ export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
     : [];
 });
 
+/** Hono paths of the routes kept only for old callers. */
+export const DEPRECATED_ROUTES: ReadonlyArray<{
+  method: Uppercase<RouteDeclaration["method"]>;
+  path: string;
+}> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
+  const route: RouteDeclaration = declaration;
+  return route.deprecated
+    ? [
+        {
+          method: route.method.toUpperCase() as Uppercase<
+            RouteDeclaration["method"]
+          >,
+          path: route.path.replace(/\{(\w+)\}/g, ":$1"),
+        },
+      ]
+    : [];
+});
+
 export const API_ROUTE_SCOPES = DOCUMENTED_ROUTE_SCOPES.filter(
   (route) => route.checkedBy === "api",
 ).map(({ method, path, scope }) => ({ method, path, scope }));
@@ -6881,6 +6983,7 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       .filter(Boolean)
       .join("\n\n"),
     ...(route.scope ? { "x-scope": scopeOf(route) } : {}),
+    ...(route.deprecated ? { deprecated: true } : {}),
     security: securityFor(route),
     parameters,
     ...(route.body

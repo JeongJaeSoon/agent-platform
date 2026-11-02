@@ -66,7 +66,9 @@ export type TerminateParams = Schemas["TerminateSessionRequest"];
 export type ChangeProfileParams = Schemas["ChangeSessionProfileRequest"];
 export type RecoveryDecisionParams = Schemas["RecoveryDecisionRequest"];
 export type AnswerBody = Schemas["PostSessionAnswerRequest"];
+/** @deprecated Use `ResolvePushParams` with `pushRequests.approve()` or `reject()`. */
 export type DecidePushParams = Schemas["DecidePushRequestRequest"];
+export type ResolvePushParams = Schemas["ResolvePushRequestRequest"];
 export type OpenPullRequestParams = Schemas["OpenPullRequestRequest"];
 export type CommentPullRequestParams = Schemas["CommentPullRequestRequest"];
 

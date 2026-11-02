@@ -59,6 +59,8 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/push-requests",
     "GET /v1/sessions/{id}/push-requests",
     "GET /v1/sessions/{id}/push-requests/{push_request_id}",
+    "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve",
+    "POST /v1/sessions/{id}/push-requests/{push_request_id}/reject",
     "POST /v1/sessions/{id}/push-requests/{push_request_id}/decision",
   ],
   "routes/pull-requests.test.ts": [
