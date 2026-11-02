@@ -102,9 +102,9 @@ interface MembersProps {
 }
 
 /*
- * The members screen's shape: column heads with scope="col", and a row
- * button whose accessible name carries the row — the caller's job, since the
- * table cannot know what a button does.
+ * A people list (the members screen itself is a GridTable): column heads
+ * with scope="col", and a row button whose accessible name carries the row —
+ * the caller's job, since the table cannot know what a button does.
  */
 function Members({
   locale,

@@ -1,20 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { StatusLabel } from "@werft-ai/react/components";
-import {
-  Alert,
-  AlertActions,
-  Badge,
-  Button,
-  formatTimestamp,
-} from "@werft-ai/ui";
+import { Alert, AlertActions, Button, formatTimestamp } from "@werft-ai/ui";
 
 /*
  * S-A3: the banner at the head of a session's detail while its requests
  * wait parked, after they all expire, while it resumes, and after a person
- * paused it with answers saved.
+ * paused it with answers saved: GET /v1/sessions/{id} `input_wait.state`
+ * and `pause_reason`.
  */
-
-const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 type BannerState = "parked" | "expired" | "resuming" | "humanPause";
 
@@ -59,7 +52,6 @@ function SessionParkedBannerScreen(
 ) {
   return (
     <div className="story-stack">
-      {API_CHANGE}
       <SessionParkedBannerBody {...props} />
     </div>
   );

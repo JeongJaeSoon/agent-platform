@@ -2926,9 +2926,14 @@ describe("egress and claim through the real GitHub gate", () => {
     repository: { id: "app", url: onGitHub("app").url, branch: "main" },
   };
 
-  // `repositoryless`: started without a repository, attaching docs alone, on
-  // the optional profile unless `profileId` names another.
-  function wired({ repositoryless = false, profileId = "p" } = {}) {
+  // `repositoryless`: started without a repository, attaching docs alone
+  // unless `attached` says otherwise, on the optional profile unless
+  // `profileId` names another.
+  function wired({
+    repositoryless = false,
+    profileId = "p",
+    attached = ["docs"] as string[] | null,
+  } = {}) {
     const own = repositoryless
       ? { repository: null, profileId }
       : { repository: binding.repository, profileId };
@@ -2957,7 +2962,7 @@ describe("egress and claim through the real GitHub gate", () => {
           sessionId,
           repositoryId: repositoryless ? null : "app",
           profileId,
-          attachedRepositoryIds: ["docs"],
+          attachedRepositoryIds: attached,
           repository: repositoryless
             ? null
             : { url: onGitHub("app").url, branch: "main" },
@@ -3102,6 +3107,26 @@ describe("egress and claim through the real GitHub gate", () => {
     expect(
       claimed.workspace.additional_repositories?.map(({ id }) => id),
     ).toEqual(["docs"]);
+  });
+
+  test("a session created with none attached is claimed with none; a null list from before is claimed with the release's whole list", async () => {
+    // The release lists app, docs and tools; app is the session's own unless
+    // it started without a repository.
+    for (const [repositoryless, attached, expected] of [
+      [false, [], undefined],
+      [true, [], undefined],
+      [false, null, ["docs", "tools"]],
+      [true, null, ["app", "docs", "tools"]],
+    ] as const) {
+      const { claim } = wired({
+        repositoryless,
+        attached: attached === null ? null : [...attached],
+      });
+      const claimed = await claim();
+      expect(
+        claimed.workspace.additional_repositories?.map(({ id }) => id),
+      ).toEqual(expected === undefined ? undefined : [...expected]);
+    }
   });
 
   test("a session without a repository is claimed with the one it attached", async () => {

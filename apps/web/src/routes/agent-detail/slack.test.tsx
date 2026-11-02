@@ -1189,13 +1189,13 @@ describe("Slack management", () => {
     });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     const reason = screen.getByText(
-      "워크스페이스에 Slack 앱 생성 설정(App Configuration Token)이 없어 앱을 만들 수 없습니다.",
+      "워크스페이스에 App Configuration Token이 등록되지 않아 앱을 만들 수 없습니다.",
     );
     expect(create.getAttribute("aria-describedby")).toContain(
       reason.closest("[id]")?.id ?? "missing",
     );
     const link = screen.getByRole("link", {
-      name: "워크스페이스 Slack 설정으로",
+      name: "Slack 연결 설정에서 토큰 등록",
     });
     expect(link.getAttribute("href")).toBe("/settings/workspace/slack");
     expect(api.calls.some((call) => call.path.includes("config-token"))).toBe(
@@ -1215,14 +1215,14 @@ describe("Slack management", () => {
     });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     const reason = screen.getByText(
-      "Slack이 워크스페이스의 App Configuration Token을 더 이상 받지 않아 앱을 만들 수 없습니다.",
+      "Slack이 워크스페이스의 App Configuration Token을 더 받지 않아 앱을 만들 수 없습니다.",
     ).parentElement;
     expect(reason?.textContent).toContain(
-      "소유자나 관리자에게 설정을 요청하세요.",
+      "소유자나 관리자에게 토큰 등록을 요청하세요.",
     );
     expect(create.getAttribute("aria-describedby")).toBe(reason?.id ?? "");
     expect(
-      screen.queryByRole("link", { name: "워크스페이스 Slack 설정으로" }),
+      screen.queryByRole("link", { name: "Slack 연결 설정에서 토큰 등록" }),
     ).toBeNull();
   });
 

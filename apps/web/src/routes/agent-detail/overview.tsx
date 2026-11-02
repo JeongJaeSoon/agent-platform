@@ -15,10 +15,10 @@ import {
 } from "@werft-ai/react/components";
 import {
   Badge,
-  Button,
   Card,
   Code,
   CodeBlock,
+  CopyButton,
   cn,
   GridTable,
   GridTableCell,
@@ -34,10 +34,9 @@ import {
   StatCard,
   Text,
 } from "@werft-ai/ui";
-import { Check, Copy } from "lucide-react";
+import { Check } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { useHasPermission } from "../../auth/guard.tsx";
-import { copyText } from "../../components/copy.ts";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { OutcomeLine } from "../../components/outcome.tsx";
 import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
@@ -511,7 +510,7 @@ export function CardSummary({
   const { t } = useI18n();
   const titleId = useId();
   const rawId = useId();
-  const [copied, setCopied] = useState<boolean | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
   const version = shownVersion(detail);
   const card = version?.card;
   const live = version !== undefined && version.id === active(detail)?.id;
@@ -643,25 +642,19 @@ export function CardSummary({
                 {live ? t("agent.card.rawSubActive") : t("agent.card.rawSub")}
               </Text>
             </div>
-            <Button
-              type="button"
+            <CopyButton
+              value={raw}
               variant="outline"
               size="sm"
-              onClick={() => {
-                void copyText(raw, { current: null }).then(setCopied);
-              }}
-            >
-              {copied ? (
-                <Check aria-hidden="true" className="size-3.5" />
-              ) : (
-                <Copy aria-hidden="true" className="size-3.5" />
-              )}
-              {copied ? t("agent.card.copied") : t("agent.card.copy")}
-            </Button>
+              label={t("agent.card.copy")}
+              copiedLabel={t("agent.card.copied")}
+              iconClassName="size-3.5"
+              onResult={(ok) => setCopyFailed(!ok)}
+            />
           </div>
           <OutcomeLine
             outcome={
-              copied === false
+              copyFailed
                 ? { kind: "error", text: t("agent.card.copyFailed") }
                 : null
             }

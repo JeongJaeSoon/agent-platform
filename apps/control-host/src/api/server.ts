@@ -71,6 +71,7 @@ import {
   createApiKeyService,
   createAuthorizationPolicy,
   createCredentialBindingService,
+  createDecisionsClient,
   createGitHubAppService,
   createGitHubGate,
   createGitHubMcpServer,
@@ -122,6 +123,7 @@ import {
   GITHUB_API_BASE,
   InstallationConfigError,
   installationLimitsFromEnv,
+  NO_JUDGE_CONNECTIONS,
   profileCatalog,
   resolveAgentRelease,
   SessionServiceError,
@@ -918,10 +920,24 @@ const outcomeRefresher = createOutcomeRefresher({
 // Each replica judges the sessions whose evidence changed; only it writes
 // achievements (achievement-rules.md §4).
 const achievementJudgments = createPostgresAchievementJudgments(db);
+const judgmentEgress = createPostgresJudgmentEgress(db);
+// The judge calls Luna through the egress proxy's credential listener, the
+// one generated titles use. No connection resolves until connections are
+// stored, so `luna` rules stay `judge_unavailable` meanwhile.
+const judgeEgressUrl = sessionTitleEgressUrlFromEnv(process.env);
 const achievementJudge = createAchievementJudge({
   store: achievementJudgments,
   outputs: checkpoints.outputs,
   logger,
+  ...(judgeEgressUrl === null
+    ? {}
+    : {
+        luna: {
+          connections: NO_JUDGE_CONNECTIONS,
+          tokens: judgmentEgress,
+          decisions: createDecisionsClient({ egressUrl: judgeEgressUrl }),
+        },
+      }),
 }).start();
 const interrupts = createInterruptService({
   authorization,
@@ -974,9 +990,10 @@ const workers = createWorkerGateway({
     store: githubPackagesStore,
     upstreams: githubPackagesConfig.upstreams,
   },
-  // No judge upstream yet: the judgment route answers 503 until the
-  // `openai_decisions` connection can name one.
-  judgments: { store: createPostgresJudgmentEgress(db) },
+  judgments: {
+    store: judgmentEgress,
+    upstream: NO_JUDGE_CONNECTIONS.upstream,
+  },
   ...(titleEgressUrl === null
     ? {}
     : {

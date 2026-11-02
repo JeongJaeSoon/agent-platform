@@ -3,7 +3,7 @@
  * provider's list price per million tokens, by the model the answer names.
  * The platform owns this table and updates it with its releases, when a
  * model is added or a price changes; checked against Anthropic's pricing
- * on 2026-09-26.
+ * on 2026-11-02.
  *
  * Fast mode has its own rates, and each web search adds its
  * per-search fee. US-only inference costs 1.1x on every token rate.
@@ -37,6 +37,7 @@ const OPUS_4 = price(15, 75, 1.5);
 const SONNET_5 = price(2, 10, 0.2);
 const SONNET_4 = price(3, 15, 0.3);
 const HAIKU_4_5 = price(1, 5, 0.1);
+const HAIKU_5_5 = price(0.1, 0.5, 0.01);
 
 /** Exact model ids as an answer names them, aliases and dated ids both. */
 export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
@@ -53,14 +54,26 @@ export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "claude-opus-4-5-20251101": OPUS_5,
   "claude-opus-4-0": OPUS_4,
   "claude-opus-4-20250514": OPUS_4,
+  "claude-sonnet-5-5": SONNET_5,
   "claude-sonnet-5": SONNET_5,
   "claude-sonnet-4-6": SONNET_4,
   "claude-sonnet-4-5": SONNET_4,
   "claude-sonnet-4-5-20250929": SONNET_4,
   "claude-sonnet-4-0": SONNET_4,
   "claude-sonnet-4-20250514": SONNET_4,
+  "claude-haiku-5-5": HAIKU_5_5,
   "claude-haiku-4-5": HAIKU_4_5,
   "claude-haiku-4-5-20251001": HAIKU_4_5,
+};
+
+/**
+ * Models with a second rate card for a long prompt: past `aboveTokens` of
+ * input, cache included, every part of the call pays `price`.
+ */
+const LONG_PROMPT_PRICES: Readonly<
+  Record<string, { aboveTokens: number; price: ModelPrice }>
+> = {
+  "claude-haiku-5-5": { aboveTokens: 100_000, price: price(0.5, 2.5, 0.05) },
 };
 
 /**
@@ -167,15 +180,20 @@ export function priceProviderUsage(usage: ProviderUsage): {
     : Object.hasOwn(GEO_PERCENT, usage.inferenceGeo)
       ? GEO_PERCENT[usage.inferenceGeo]
       : undefined;
-  const longContext =
-    older &&
+  const promptTokens =
     usage.inputTokens +
-      usage.cacheCreationInputTokens +
-      usage.cacheReadInputTokens >
-      BEFORE_4_6_CONTEXT_TOKENS;
+    usage.cacheCreationInputTokens +
+    usage.cacheReadInputTokens;
+  const longContext = older && promptTokens > BEFORE_4_6_CONTEXT_TOKENS;
+  const longPrompt =
+    usage.speed === "standard" && Object.hasOwn(LONG_PROMPT_PRICES, usage.model)
+      ? LONG_PROMPT_PRICES[usage.model]
+      : undefined;
   const known =
     geo !== undefined && !longContext && Object.hasOwn(table, usage.model)
-      ? table[usage.model]
+      ? longPrompt !== undefined && promptTokens > longPrompt.aboveTokens
+        ? longPrompt.price
+        : table[usage.model]
       : undefined;
   const rates = known ?? FALLBACK_PRICE;
   const oneHour = Math.min(
