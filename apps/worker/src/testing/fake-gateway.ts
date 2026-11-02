@@ -29,6 +29,8 @@ import {
   type RegisterPendingResponse,
   type ReleaseRequest,
   type ReleaseResponse,
+  type RepositoryAttachOrder,
+  type RepositoryAttachResult,
   type RestorePlanRequest,
   type RestorePlanResponse,
   type RuntimeConfig,
@@ -137,6 +139,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   finalizeFailure: WorkerGatewayRequestError | undefined;
   /** Handed out by every pendingControl poll while set. */
   control: ControlIntent | null = null;
+  /** Attachments handed out by every poll until a report names them. */
+  attachOrders: RepositoryAttachOrder[] = [];
+  /** Every attachment report the worker sent, resent ones included. */
+  readonly attachReports: RepositoryAttachResult[] = [];
   /** Thrown by a release that answers a pause while set, as a refusal would be. */
   pauseRefusal: WorkerGatewayRequestError | undefined;
   /** Set to refuse `stop_kind` the way a strict gateway older than it does. */
@@ -456,7 +462,14 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         this.settled.push(item);
       }
     }
+    for (const item of request.attached ?? []) {
+      this.attachReports.push(item);
+      this.attachOrders = this.attachOrders.filter(
+        (order) => order.id !== item.repository_id,
+      );
+    }
     return {
+      attachments: [...this.attachOrders],
       control:
         this.controls.find(
           (control) =>

@@ -329,6 +329,70 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     }
   });
 
+  test("fetches a repository attached mid-turn with the claim's repository token, routes it for git and Go, and reports the commit", async () => {
+    const access = { kind: "egress_token" as const, token: "repo-token" };
+    const commit = "f".repeat(40);
+    const gateway = new FakeWorkerGateway();
+    const claim = gateway.bootstrapClaim.bind(gateway);
+    gateway.bootstrapClaim = async (request) => ({
+      ...(await claim(request)),
+      workspace: { repository: null },
+      repository_access: access,
+    });
+    const order = {
+      id: "docs",
+      url: "https://github.com/acme/docs.git",
+      branch: "main",
+    };
+    const run = new ScriptedRun();
+    run.onSend = (sent) => {
+      // The agent's call lands mid-turn; the turn ends once it is reported.
+      gateway.attachOrders = [order];
+      void (async () => {
+        while (gateway.attachReports.length === 0) await Bun.sleep(1);
+        finish(run, sent);
+      })();
+    };
+    const fetched: unknown[] = [];
+    const routed: unknown[] = [];
+    const modules: unknown[] = [];
+    const worker = new WorkerHost({
+      checkpoints: unwiredCheckpoints,
+      execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+      gateway,
+      packageManagers: async (_token, _github, given) => {
+        modules.push(given);
+      },
+      repositoryRoutes: async (given) => {
+        routed.push(structuredClone(given));
+        return true;
+      },
+      runtimes: { launcherFor: () => ({ start: () => run }) },
+      timeouts,
+      workspace: {
+        ...noWorkspace,
+        attachRepository: async (repository) => {
+          fetched.push(repository);
+          return commit;
+        },
+      },
+    });
+    gateway.enqueue("hello");
+    const summary = await worker.runLoop();
+
+    expect(summary.turns.map((turn) => turn.status)).toEqual(["completed"]);
+    expect(fetched).toEqual([{ ...order, access }]);
+    expect(gateway.attachReports).toEqual([
+      { repository_id: "docs", status: "attached", commit },
+    ]);
+    // Written again with the attached repository, once at the claim before.
+    expect(routed).toEqual([
+      { repository: null },
+      { repository: null, additional_repositories: [{ ...order, access }] },
+    ]);
+    expect(modules).toEqual([[], ["github.com/acme/docs"]]);
+  });
+
   test("finalizes without taking a checkpoint lease when the run takes no checkpoints", async () => {
     const run = new ScriptedRun();
     run.onSend = (sent) => finish(run, sent);

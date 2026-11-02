@@ -62,6 +62,50 @@ export interface WorkspacePreparer {
     descriptor: WorkspaceDescriptor;
     signal: AbortSignal;
   }): Promise<{ attached: string[]; failed: string[] }>;
+  /**
+   * One repository the agent attached mid-session, as `attachRepositories`
+   * adds each; the commit its branch was fetched at. Throws
+   * `AttachLimitError` past the fetch's time or size limit.
+   */
+  attachRepository?(
+    repository: AdditionalWorkspaceRepository,
+    signal: AbortSignal,
+  ): Promise<string>;
+}
+
+/**
+ * How long, and how large, one attachment's fetch may get. The size is the
+ * scratch mirror's on disk; the checkout then takes its objects from that
+ * mirror, so it gains no more than the mirror holds.
+ */
+export type AttachLimits = { timeoutMs: number; maxBytes: number };
+export const DEFAULT_ATTACH_LIMITS: AttachLimits = {
+  timeoutMs: 300_000,
+  maxBytes: 2 * 1024 ** 3,
+};
+const ATTACH_SIZE_CHECK_MS = 1_000;
+
+export class AttachLimitError extends Error {
+  constructor(readonly failure: "fetch_timeout" | "fetch_too_large") {
+    super(
+      failure === "fetch_timeout"
+        ? "The repository's fetch ran past its time limit"
+        : "The repository's fetch grew past its size limit",
+    );
+  }
+}
+
+async function bytesUnder(path: string): Promise<number> {
+  let total = 0;
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) total += await bytesUnder(child);
+    else if (entry.isFile()) {
+      total += (await lstat(child).catch(() => null))?.size ?? 0;
+    }
+  }
+  return total;
 }
 
 /** For hosts whose engine never touches a repository, like the fake. */
@@ -154,6 +198,7 @@ export class GitWorkspace implements WorkspacePreparer {
      * repository a token is fetched through them and nowhere else.
      */
     private readonly egressTransport: string | null = null,
+    private readonly attachLimits: AttachLimits = DEFAULT_ATTACH_LIMITS,
   ) {}
 
   committedInstructions(): string | null {
@@ -283,12 +328,19 @@ export class GitWorkspace implements WorkspacePreparer {
     return { attached, failed };
   }
 
-  private async attachRepository(
+  async attachRepository(
     repository: AdditionalWorkspaceRepository,
-    signal: AbortSignal,
-  ): Promise<void> {
+    outer: AbortSignal,
+  ): Promise<string> {
     const { id, access, url, branch } = repository;
     const remote = routed(splitSecret(url), access, this.egressTransport, id);
+    const limited = new AbortController();
+    let exceeded: AttachLimitError | undefined;
+    const stop = (error: AttachLimitError) => {
+      exceeded ??= error;
+      limited.abort(error);
+    };
+    const signal = AbortSignal.any([outer, limited.signal]);
     const git: Git = (args, options = {}) =>
       runGit(args, {
         cwd: options.cwd ?? this.root,
@@ -305,8 +357,26 @@ export class GitWorkspace implements WorkspacePreparer {
     if (scratch === undefined) {
       throw new Error(`Workspace ${this.root} has no .git directory`);
     }
+    const mirror = join(scratch, "remote.git");
+    const timer = setTimeout(
+      () => stop(new AttachLimitError("fetch_timeout")),
+      this.attachLimits.timeoutMs,
+    );
+    let measuring = false;
+    const sizer = setInterval(() => {
+      if (measuring) return;
+      measuring = true;
+      void bytesUnder(mirror)
+        .then((bytes) => {
+          if (bytes > this.attachLimits.maxBytes) {
+            stop(new AttachLimitError("fetch_too_large"));
+          }
+        })
+        .finally(() => {
+          measuring = false;
+        });
+    }, ATTACH_SIZE_CHECK_MS);
     try {
-      const mirror = join(scratch, "remote.git");
       await check(
         git(
           [
@@ -324,6 +394,10 @@ export class GitWorkspace implements WorkspacePreparer {
         ),
         "fetch",
       );
+      // A clone quicker than the sampler is measured once more here.
+      if ((await bytesUnder(mirror)) > this.attachLimits.maxBytes) {
+        throw new AttachLimitError("fetch_too_large");
+      }
       await check(
         git([
           "fetch",
@@ -334,7 +408,12 @@ export class GitWorkspace implements WorkspacePreparer {
         ]),
         "fetch",
       );
+    } catch (error) {
+      if (exceeded !== undefined && !outer.aborted) throw exceeded;
+      throw error;
     } finally {
+      clearTimeout(timer);
+      clearInterval(sizer);
       await rm(scratch, { force: true, recursive: true });
     }
     // The real URL, without a credential, as for origin: the engine sees
@@ -343,6 +422,13 @@ export class GitWorkspace implements WorkspacePreparer {
     if (added.code !== 0) {
       await check(git(["remote", "set-url", id, remote.url]), "remote set-url");
     }
+    const head = await git([
+      "rev-parse",
+      "--verify",
+      `refs/remotes/${id}/${branch}^{commit}`,
+    ]);
+    await check(Promise.resolve(head), "rev-parse");
+    return head.stdout.trim();
   }
 
   private restored(): "restore" {

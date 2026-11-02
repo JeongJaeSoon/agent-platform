@@ -1253,3 +1253,48 @@ describe("PendingRequestRegistry", () => {
     harness.registry.stop();
   });
 });
+
+describe("attachments", () => {
+  test("hands each order to the host, and reports its outcome until a poll lands", async () => {
+    const orders: string[][] = [];
+    let failNext = true;
+    const fake = new FakeWorkerGateway();
+    const harness = registry({
+      onAttachments: (batch) => orders.push(batch.map((order) => order.id)),
+      gateway: {
+        registerPending: (request) => fake.registerPending(request),
+        pendingControl: async (request) => {
+          if (request.attached !== undefined && failNext) {
+            failNext = false;
+            throw new WorkerGatewayRequestError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "x",
+              true,
+            );
+          }
+          return fake.pendingControl(request);
+        },
+      },
+    });
+    fake.attachOrders = [
+      { id: "docs", url: "https://github.com/acme/docs.git", branch: "main" },
+    ];
+    harness.registry.poll(true);
+    await waitFor(() => orders.length > 0, "the order");
+    expect(orders[0]).toEqual(["docs"]);
+
+    const report = {
+      repository_id: "docs",
+      status: "attached" as const,
+      commit: "e".repeat(40),
+    };
+    harness.registry.reportAttached(report);
+    await waitFor(() => fake.attachReports.length > 0, "the report");
+    expect(fake.attachReports).toEqual([report]);
+    expect(fake.attachOrders).toEqual([]);
+    // Held while its report was unsent, so not handed to the host again.
+    expect(orders).toHaveLength(1);
+    harness.registry.stop();
+  });
+});
