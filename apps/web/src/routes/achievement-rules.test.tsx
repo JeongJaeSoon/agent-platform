@@ -222,6 +222,87 @@ async function opened(overrides?: Parameters<typeof routes>[0], who = me()) {
   return rendered;
 }
 
+// A rules list whose GET reflects the writes, as the server would.
+function liveRules() {
+  let items = RULES.map((r) => ({ ...r }));
+  const replace = (family: string, next: (typeof items)[number]) => {
+    items = items.map((r) => (r.family_id === family ? next : r));
+  };
+  const current = (family: string) => {
+    const found = items.find((r) => r.family_id === family);
+    if (!found) throw new Error(family);
+    return found;
+  };
+  const toggled = (family: string, on: boolean) => () => {
+    const next = {
+      ...current(family),
+      disabled_at: on ? null : AT,
+      disabled_by: on ? null : USER_ID,
+    };
+    replace(family, next);
+    return json(200, { rule: next, receipt_id: RECEIPT_ID });
+  };
+  return {
+    "GET /v1/achievement-rules": () => json(200, { items }),
+    "POST /v1/achievement-rules": async (request: Request) => {
+      const body = (await request.json()) as {
+        category_id: string;
+        title: string;
+        type_id: string;
+        definition: string;
+        judge: "always" | "luna";
+      };
+      const created = {
+        ...rule(
+          "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c",
+          body.category_id,
+          body.title,
+          body.type_id,
+          body.judge,
+          1,
+        ),
+        definition: body.definition,
+      };
+      const after = items
+        .map((r) => r.category_id)
+        .lastIndexOf(body.category_id);
+      items = [
+        ...items.slice(0, after + 1),
+        created,
+        ...items.slice(after + 1),
+      ];
+      return json(201, { rule: created, receipt_id: RECEIPT_ID });
+    },
+    [`POST /v1/achievement-rules/${BUGFIX}/versions`]: async (
+      request: Request,
+    ) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      const previous = current(BUGFIX);
+      const next = {
+        ...previous,
+        ...body,
+        id: "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+        version: previous.version + 1,
+      };
+      replace(BUGFIX, next);
+      return json(201, { rule: next, receipt_id: RECEIPT_ID });
+    },
+    [`POST /v1/achievement-rules/${MERGED}/disable`]: toggled(MERGED, false),
+    [`POST /v1/achievement-rules/${MERGED}/enable`]: toggled(MERGED, true),
+  };
+}
+
+const ruleRows = () =>
+  within(within(section("규칙") as HTMLElement).getByRole("table"))
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) =>
+      within(row)
+        .getAllByRole("cell")
+        .slice(0, 4)
+        .map((cell) => cell.textContent),
+    );
+
 describe("성과 규칙", () => {
   afterEach(() => {
     setSystemTime();
@@ -890,6 +971,94 @@ describe("성과 규칙", () => {
         `/v1/achievement-rules/${MERGED}/disable`,
       ]),
     );
+  });
+
+  test("새 버전을 저장하면 표가 새 제목과 버전을 보인다", async () => {
+    await opened(liveRules());
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "버그 수정 PR" }));
+    const editor = (
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "규칙 편집 — 버그 수정 PR",
+      })
+    ).closest("section") as HTMLElement;
+    const title = within(editor).getByRole("textbox", { name: "제목" });
+    await user.clear(title);
+    await user.type(title, "고객 버그 수정 PR");
+    await user.click(
+      within(editor).getByRole("button", { name: "새 버전 저장" }),
+    );
+    await screen.findByText("고객 버그 수정 PR v2을 저장했습니다.");
+    await waitFor(() =>
+      expect(ruleRows()[2]).toEqual([
+        "고객 버그 수정 PR",
+        "bugfix_pr",
+        "Luna 판정 ",
+        "v2",
+      ]),
+    );
+  });
+
+  test("규칙을 추가하면 그 구분 아래에 v1로 보인다", async () => {
+    await opened(liveRules());
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "규칙 추가" }));
+    const editor = (
+      await screen.findByRole("heading", { level: 2, name: "규칙 추가" })
+    ).closest("section") as HTMLElement;
+    await user.selectOptions(
+      within(editor).getByRole("combobox", { name: "구분" }),
+      REVIEW,
+    );
+    await user.type(
+      within(editor).getByRole("textbox", { name: "제목" }),
+      "대화로 해결",
+    );
+    await user.selectOptions(
+      within(editor).getByRole("combobox", { name: "성과 type" }),
+      TALK_TYPE,
+    );
+    await user.type(
+      within(editor).getByRole("textbox", { name: "성과 정의" }),
+      "대화로 문제를 풀었다",
+    );
+    await user.click(within(editor).getByRole("button", { name: "저장" }));
+    await screen.findByText("대화로 해결 v1을 저장했습니다.");
+    await waitFor(() =>
+      expect(ruleRows().slice(3, 6)).toEqual([
+        ["리뷰"],
+        ["코드 리뷰 제출", "code_review", "바로 인정 ", "v1"],
+        ["대화로 해결", "solved_talk", "바로 인정 사람 확인", "v1"],
+      ]),
+    );
+    expect(
+      screen
+        .getByRole("switch", { name: "대화로 해결 사용" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  test("멈춘 규칙은 스위치가 꺼지고, 다시 누르면 enable을 보내 켜진다", async () => {
+    const { api } = await opened(liveRules());
+    const user = await setupUser();
+    const name = { name: "머지된 PR 사용" };
+    await user.click(screen.getByRole("switch", name));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", name).getAttribute("aria-checked"),
+      ).toBe("false"),
+    );
+    await user.click(screen.getByRole("switch", name));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", name).getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    expect(writes(api.calls).map((call) => call.path)).toEqual([
+      `/v1/achievement-rules/${MERGED}/disable`,
+      `/v1/achievement-rules/${MERGED}/enable`,
+    ]);
   });
 
   test("한도에 걸리면 어떤 한도인지와 할 일을 말한다", async () => {
