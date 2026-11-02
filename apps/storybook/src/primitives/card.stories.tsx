@@ -84,7 +84,7 @@ const FORM_COPY = {
 } as const;
 
 /**
- * A settings card (mockup v4 `.card.flush` + `.form-foot`): the body pads
+ * A settings card with a form footer: the body pads
  * itself and the sunken strip runs edge to edge.
  */
 export const FlushForm: Story = {

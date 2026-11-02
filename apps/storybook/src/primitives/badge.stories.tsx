@@ -29,7 +29,7 @@ export const Default: Story = {
   ),
 };
 
-/** Console v35's five badge tones. */
+/** The console's five badge tones. */
 export const Tones: Story = {
   render: () => (
     <div className="story-row">
@@ -48,7 +48,7 @@ export const TonesDark: Story = {
   globals: { theme: "dark" },
 };
 
-/** Identifiers such as model names, as a chip list (mockup v4). */
+/** Identifiers such as model names, as a chip list. */
 export const Mono: Story = {
   render: () => (
     <ul className="m-0 flex list-none flex-wrap gap-1 p-0">

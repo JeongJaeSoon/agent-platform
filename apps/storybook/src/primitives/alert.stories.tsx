@@ -102,7 +102,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * A standing note (mockup v4's key note). No `role`: a note that is there
+ * A standing note, such as an API key's. No `role`: a note that is there
  * every time the page opens is not announced. The title carries the meaning;
  * colour never does it alone.
  */
