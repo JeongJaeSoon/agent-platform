@@ -12,7 +12,8 @@ const TOKEN = /\uE000(\d+)\uE001/g;
 const ZWSP = "\u200B";
 const WORD = /[\p{L}\p{N}]/u;
 
-const BULLETS = ["•", "◦", "▪"];
+// Slack turns ▪, ▫ and ☑ into emoji; these stay text.
+const BULLETS = ["•", "◦", "▸"];
 const INDENT = "    ";
 
 type Kept = {
@@ -75,12 +76,19 @@ function keepTildeFences(text: string, kept: Kept): string {
       }
       if (close === -1) unclosed = open.length;
     }
-    const body = close === -1 ? "" : lines.slice(index + 1, close).join("\n");
-    if (close === -1 || kept.restore(body).includes("```")) {
+    if (close === -1) {
       output.push(line);
       continue;
     }
-    output.push(kept.keep(`\`\`\`\n${body}\n\`\`\``));
+    const body = lines.slice(index + 1, close).join("\n");
+    // A body holding ``` cannot become a ``` fence, so it stays as written.
+    output.push(
+      kept.keep(
+        kept.restore(body).includes("```")
+          ? lines.slice(index, close + 1).join("\n")
+          : `\`\`\`\n${body}\n\`\`\``,
+      ),
+    );
     index = close;
   }
   return output.join("\n");
@@ -159,6 +167,7 @@ function width(text: string): number {
   let columns = 0;
   for (const char of text) {
     const code = char.codePointAt(0) ?? 0;
+    if (char === ZWSP) continue;
     columns +=
       (code >= 0x1100 && code <= 0x115f) ||
       (code >= 0x2e80 && code <= 0xa4cf) ||
@@ -208,19 +217,26 @@ function cellText(cell: string, kept: Kept): string {
       ? kept.restore(code).replace(/^(`+) ?([\s\S]*?) ?\1$/, "$2")
       : token;
   });
-  return kept.restore(text).trim();
+  // ``` would close the table's own fence.
+  return kept.restore(text).trim().replace(/```/g, `\`\`${ZWSP}\``);
 }
+
+// A long cell is not padded past this, so one cell cannot widen every row.
+const COLUMN_MAX = 40;
 
 function renderTable(rows: string[][]): string {
   const columns = Math.max(...rows.map((row) => row.length));
   const widths = Array.from({ length: columns }, (_, column) =>
-    Math.max(...rows.map((row) => width(row[column] ?? ""))),
+    Math.min(
+      COLUMN_MAX,
+      Math.max(...rows.map((row) => width(row[column] ?? ""))),
+    ),
   );
   const line = (row: readonly string[]) =>
     widths
       .map((columnWidth, column) => {
         const cell = row[column] ?? "";
-        return cell + " ".repeat(columnWidth - width(cell));
+        return cell + " ".repeat(Math.max(0, columnWidth - width(cell)));
       })
       .join(" | ")
       .trimEnd();
@@ -291,7 +307,7 @@ function convertLines(text: string, kept: Kept): string {
         : (BULLETS[level % BULLETS.length] ?? "•");
       const task = /^\[([ xX])\]\s+/.exec(rest);
       if (task !== null && !/\d/.test(marker)) {
-        bullet += task[1] === " " ? " ☐" : " ☑";
+        bullet += task[1] === " " ? " ☐" : " ☒";
         rest = rest.slice(task[0].length);
       }
       output.push(

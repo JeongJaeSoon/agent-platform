@@ -62,13 +62,13 @@ describe("markdownToSlackMrkdwn", () => {
       [
         "• one",
         "    ◦ nested",
-        "        ▪ deeper",
+        "        ▸ deeper",
         "    ◦ back",
         "• two",
         "1. first",
         "    ◦ under first",
         "• ☐ todo",
-        "• ☑ done",
+        "• ☒ done",
       ].join("\n"),
     );
   });
@@ -216,6 +216,21 @@ describe("markdownToSlackMrkdwn", () => {
     );
   });
 
+  test("a tilde fence holding a backtick fence stays as written", () => {
+    const tilde = "~~~md\n**literal**\n```\nx\n```\n~~~\n**after**";
+    expect(markdownToSlackMrkdwn(tilde)).toBe(
+      "~~~md\n**literal**\n```\nx\n```\n~~~\n*after*",
+    );
+  });
+
+  test("a table cannot close its own fence or pad without bound", () => {
+    expect(
+      markdownToSlackMrkdwn("| h |\n| --- |\n| ``a```b`` |\n**after**"),
+    ).toBe(`\`\`\`\nh\n-----\na\`\`${ZW}\`b\n\`\`\`\n*after*`);
+    const wide = `| h | b |\n|---|---|\n| ${"x".repeat(10_000)} | b |\n${"| a | b |\n".repeat(8_000)}`;
+    expect(markdownToSlackMrkdwn(wide).length).toBeLessThan(1_000_000);
+  });
+
   test("a table keeps backticks inside its code and ends before a quote", () => {
     expect(markdownToSlackMrkdwn("| x |\n| --- |\n| ``a`b`` |\n> q | z")).toBe(
       "```\nx\n---\na`b\n```\n> q | z",
@@ -242,6 +257,7 @@ describe("markdownToSlackMrkdwn", () => {
         `${spaces}|x`,
         "``x```".repeat(10_000),
         "~~~x\n".repeat(10_000),
+        `${"~~~x\n".repeat(10_000)}\`\`\`\nx\n\`\`\`\n~~~`,
       ].join("\n"),
     );
     expect(performance.now() - started).toBeLessThan(1_000);
