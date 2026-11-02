@@ -393,6 +393,24 @@ export function createPostgresAchievementJudgments(
       };
     },
 
+    async renew(judgment, leaseMs) {
+      const renewed = await db
+        .update(achievementJudgments)
+        .set({
+          leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+        })
+        .where(
+          and(
+            eq(achievementJudgments.id, judgment.id),
+            eq(achievementJudgments.leaseToken, judgment.leaseToken),
+            eq(achievementJudgments.status, "running"),
+            sql`${achievementJudgments.leaseExpiresAt} > now()`,
+          ),
+        )
+        .returning({ id: achievementJudgments.id });
+      return renewed.length > 0;
+    },
+
     async transcript(sessionId, limit) {
       // The person's message and the engine's final answer; tool calls and
       // their results live in events and are never read here.

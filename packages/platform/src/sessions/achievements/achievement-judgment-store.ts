@@ -152,6 +152,11 @@ export interface AchievementJudgmentStore {
    * and the workspace's judge with its spend since UTC midnight.
    */
   context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
+  /**
+   * Extends the lease by `leaseMs` from now while it still holds; false
+   * once it ran out or was taken over.
+   */
+  renew(judgment: ClaimedJudgment, leaseMs: number): Promise<boolean>;
   /** The session's last `turns` ended turns, oldest first. */
   transcript(sessionId: string, turns: number): Promise<TranscriptTurn[]>;
   /**

@@ -129,7 +129,8 @@ function evidenceOf(
       // The console addresses the session, not its outputs tab or a file.
       link: `/sessions/${sessionId}`,
       payload: { path: file.path, size: file.bytes },
-      facts: [`path: ${file.path}`, `size: ${file.bytes}`],
+      // An agent names its files.
+      facts: [`path: ${untrusted(file.path)}`, `size: ${file.bytes}`],
     });
   }
   // A session has a conversation once its first message gave it a title.
@@ -155,6 +156,18 @@ function reviewStateOf(kind: Evidence["kind"]): AchievementReviewState {
 
 class OutputsUnavailable extends Error {}
 
+function failureCodeOf(error: unknown): AchievementJudgmentError | null {
+  if (!(error instanceof DecisionsCallError)) return null;
+  switch (error.reason) {
+    case "timeout":
+      return "judge_timeout";
+    case "bad_response":
+      return "judge_bad_response";
+    default:
+      return "judge_http_error";
+  }
+}
+
 /**
  * Judges each claimed judgment's session against the workspace's rules in
  * use (design achievement-rules.md §4). Each API replica runs one; a claim
@@ -166,12 +179,14 @@ class OutputsUnavailable extends Error {}
  * reach (`judge_unavailable`). Otherwise each pair is one choice question
  * to Luna through the egress proxy, unless the same rule versions and
  * inputs were judged last time. A try that fails is tried again 1, 5 and
- * 30 minutes later, then ends `failed`.
+ * 30 minutes later, then ends `failed`. The lease is renewed as each
+ * judgment starts and before each call; once lost, the judgment is left
+ * to whoever holds it.
  */
 export function createAchievementJudge(deps: {
   store: Pick<
     AchievementJudgmentStore,
-    "claim" | "context" | "finish" | "transcript"
+    "claim" | "context" | "finish" | "transcript" | "renew"
   >;
   outputs: Pick<SessionOutputSource, "readOutputs" | "openOutput">;
   logger: Logger;
@@ -282,7 +297,10 @@ export function createAchievementJudge(deps: {
     ]);
   }
 
-  async function judge(claimed: ClaimedJudgment): Promise<JudgmentResult> {
+  /** Null once the lease is lost: whoever holds it now judges. */
+  async function judge(
+    claimed: ClaimedJudgment,
+  ): Promise<JudgmentResult | null> {
     const context = await store.context(claimed);
     let files: { path: string; bytes: number }[] = [];
     let outputsUnavailable = false;
@@ -370,6 +388,7 @@ export function createAchievementJudge(deps: {
     }
     const inputDigest = inputDigestOf(
       asked.map(({ rule, request }) => ({ ruleId: rule.id, request })),
+      judge.threshold,
     );
     const unchanged = {
       connectionId: judge.connectionId,
@@ -389,8 +408,11 @@ export function createAchievementJudge(deps: {
     if (token === null) return { ...again(claimed, null), ...paired };
 
     const declined: { ruleFamilyId: string; evidenceId: string | null }[] = [];
+    // Kept only if every pair is answered: a failed try writes none of them.
+    const judged: NewAchievement[] = [];
     let refused = false;
     for (const { rule, item, request } of asked) {
+      if (!(await store.renew(claimed, leaseMs))) return null;
       let answer: ReturnType<typeof pairAnswerOf>;
       try {
         answer = pairAnswerOf(
@@ -406,7 +428,7 @@ export function createAchievementJudge(deps: {
             error instanceof DecisionsCallError ? error.reason : "unexpected",
           status: error instanceof DecisionsCallError ? error.status : null,
         });
-        return { ...again(claimed, null), ...paired };
+        return { ...again(claimed, failureCodeOf(error)), ...paired };
       }
       if (answer.achieved) {
         const achievement = achievementOf(
@@ -416,9 +438,11 @@ export function createAchievementJudge(deps: {
           item,
           answer.probability,
         );
-        if (achievement !== null) achievements.push(achievement);
+        if (achievement !== null) judged.push(achievement);
+      } else if (answer.refused) {
+        // No judgment, not a "no": an earlier yes for the pair stays.
+        refused = true;
       } else {
-        if (answer.refused) refused = true;
         declined.push({ ruleFamilyId: rule.familyId, evidenceId: item.id });
       }
     }
@@ -426,6 +450,7 @@ export function createAchievementJudge(deps: {
       status: "succeeded",
       errorCode: refused ? "judge_refused" : null,
       ...paired,
+      achievements: [...achievements, ...judged],
       luna: { ...unchanged, declined },
     };
   }
@@ -436,8 +461,12 @@ export function createAchievementJudge(deps: {
     let finished = 0;
     for (const judgment of claimed) {
       const nothing = { rules: [], evidenceIds: [], achievements: [] };
-      let result: JudgmentResult;
-      if (judgment.attempts > ACHIEVEMENT_JUDGMENT_RETRY_MS.length + 1) {
+      let result: JudgmentResult | null;
+      // One lease covers the whole batch; the judgments before this one
+      // may have spent it.
+      if (!(await store.renew(judgment, leaseMs))) {
+        result = null;
+      } else if (judgment.attempts > ACHIEVEMENT_JUDGMENT_RETRY_MS.length + 1) {
         // Replicas kept dying on it, so no try ever finished.
         result = { status: "failed", errorCode: null, ...nothing };
       } else {
@@ -450,6 +479,12 @@ export function createAchievementJudge(deps: {
           });
           result = { ...again(judgment, null), ...nothing };
         }
+      }
+      if (result === null) {
+        logger.info("Achievement judgment was taken over", {
+          judgment_id: judgment.id,
+        });
+        continue;
       }
       try {
         const kept = await store.finish(judgment, result);

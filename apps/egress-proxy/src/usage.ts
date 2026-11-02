@@ -196,14 +196,14 @@ export type UsageMeter = {
 };
 
 /**
- * `answerNamesModel: false` is for the Decisions API, whose answer carries
- * `usage` but no `model`: the request's model is the one charged.
+ * `requestModel` is for the Decisions API, whose answer carries `usage` but
+ * no `model`: the request's model is the one charged, whatever the answer
+ * says, so a dated name never falls to the fallback rate.
  */
 export function usageMeter(
   contentType: string | null,
-  options: { answerNamesModel?: boolean } = {},
+  options: { requestModel?: boolean } = {},
 ): UsageMeter {
-  const answerNamesModel = options.answerNamesModel ?? true;
   const decoder = new TextDecoder();
   if ((contentType ?? "").toLowerCase().startsWith("text/event-stream")) {
     let model: string | undefined;
@@ -320,12 +320,11 @@ export function usageMeter(
       if (total <= MAX_JSON_BYTES) {
         try {
           const body = JSON.parse(decoder.decode(Buffer.concat(chunks)));
-          const model =
-            typeof body?.model === "string"
+          const model = options.requestModel
+            ? requested(request).model
+            : typeof body?.model === "string"
               ? body.model
-              : answerNamesModel
-                ? undefined
-                : requested(request).model;
+              : undefined;
           if (
             model !== undefined &&
             typeof body.usage === "object" &&

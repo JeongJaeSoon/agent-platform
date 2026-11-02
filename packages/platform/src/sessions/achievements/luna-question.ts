@@ -64,13 +64,20 @@ export function questionOf(
   };
 }
 
-/** Of each rule version with the request its pair sends, in pair order. */
+/**
+ * Of the threshold and each rule version with the request its pair sends,
+ * in pair order: a new threshold asks again.
+ */
 export function inputDigestOf(
   sent: readonly { ruleId: string; request: DecisionsRequest }[],
+  threshold: number,
 ): string {
   return createHash("sha256")
     .update(
-      JSON.stringify(sent.map(({ ruleId, request }) => [ruleId, request])),
+      JSON.stringify([
+        threshold,
+        sent.map(({ ruleId, request }) => [ruleId, request]),
+      ]),
     )
     .digest("hex");
 }

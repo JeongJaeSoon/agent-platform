@@ -2174,6 +2174,29 @@ describe("startCredentialProxy", () => {
       }
     });
 
+    test("a judgment is charged at the request's model even when the answer names a dated one", async () => {
+      const up = upstream(() =>
+        Response.json({
+          model: "gpt-6-luna-2026-11-01",
+          answers: [{ type: "refusal", name: "achievement" }],
+          usage: { input_tokens: 598 },
+        }),
+      );
+      const auth = authorizer(() =>
+        judgmentGrant(`http://upstream.test:${up.port}`),
+      );
+      const server = proxy(auth.url, up.port);
+      const response = await decide(server.port, JUDGMENT_TOKEN);
+      expect(response.status).toBe(200);
+      await response.json();
+      await until(() => auth.reported.length === 1);
+      expect(auth.reported[0]?.usage).toMatchObject({
+        model: "gpt-6-luna",
+        input_tokens: 598,
+        estimated: false,
+      });
+    });
+
     test("a documented Decisions answer, which names no model, is charged at the request's model as read", async () => {
       const up = upstream(() =>
         Response.json({

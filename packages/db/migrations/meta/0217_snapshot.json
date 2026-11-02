@@ -1,5 +1,5 @@
 {
-  "id": "073ad189-2746-497f-87d8-60c0c80ac7e6",
+  "id": "4339e705-6aca-4840-be14-40c019d2eb0f",
   "prevId": "46c1ddd4-6c29-462e-a06c-3d95f904eb58",
   "version": "7",
   "dialect": "postgresql",
@@ -461,7 +461,7 @@
         },
         "achievement_judgments_error_code_check": {
           "name": "achievement_judgments_error_code_check",
-          "value": "\"achievement_judgments\".\"error_code\" IS NULL OR \"achievement_judgments\".\"error_code\" IN ('judge_unavailable','outputs_unavailable','session_limit','judge_refused')"
+          "value": "\"achievement_judgments\".\"error_code\" IS NULL OR \"achievement_judgments\".\"error_code\" IN ('judge_unavailable','outputs_unavailable','session_limit','judge_refused','judge_timeout','judge_http_error','judge_bad_response')"
         },
         "achievement_judgments_cost_check": {
           "name": "achievement_judgments_cost_check",

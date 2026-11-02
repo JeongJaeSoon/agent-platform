@@ -7,6 +7,7 @@ import {
 } from "./decisions-api.fixture.ts";
 import {
   createDecisionsClient,
+  DECISIONS_CALL_TIMEOUT_MS,
   DecisionsCallError,
   type DecisionsRequest,
 } from "./decisions-client.ts";
@@ -41,6 +42,10 @@ async function failure(promise: Promise<unknown>): Promise<DecisionsCallError> {
 }
 
 describe("decisions client", () => {
+  test("a call is given ten seconds", () => {
+    expect(DECISIONS_CALL_TIMEOUT_MS).toBe(10_000);
+  });
+
   test("posts the request to the proxy's judgment route with the judgment token, and parses the documented answer", async () => {
     const { decisions, seen } = client(() =>
       Response.json(DECISIONS_CHOICE_RESPONSE_FIXTURE),
