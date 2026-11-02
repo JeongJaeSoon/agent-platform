@@ -195,9 +195,9 @@ import {
   recoveryDecisionRequestSchema,
   rejudgeSessionResponseSchema,
   requestBodyInvalidDetailsSchema,
-  resolvePushRequestRequestSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
+  resolvePushRequestRequestSchema,
   resumeSessionRequestSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
@@ -6529,6 +6529,24 @@ export const DOCUMENTED_ROUTE_SCOPES: ReadonlyArray<{
           path: route.path,
           scope,
           checkedBy: route.scopeCheckedBy ?? "api",
+        },
+      ]
+    : [];
+});
+
+/** Hono paths of the routes kept only for old callers. */
+export const DEPRECATED_ROUTES: ReadonlyArray<{
+  method: Uppercase<RouteDeclaration["method"]>;
+  path: string;
+}> = API_ROUTE_DECLARATIONS.flatMap((declaration) => {
+  const route: RouteDeclaration = declaration;
+  return route.deprecated
+    ? [
+        {
+          method: route.method.toUpperCase() as Uppercase<
+            RouteDeclaration["method"]
+          >,
+          path: route.path.replace(/\{(\w+)\}/g, ":$1"),
         },
       ]
     : [];

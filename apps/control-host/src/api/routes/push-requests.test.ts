@@ -698,6 +698,24 @@ describe("push request routes", () => {
     expect(approved?.decision).toBe("approve");
     expect(rejected?.decision).toBe("reject");
     expect(approved?.payloadHash).not.toBe(rejected?.payloadHash);
+    // Refused before the route runs, the old path still says it is old.
+    const body = { decision: "approve", git_commit: COMMIT };
+    const unauthenticated = await resolve(target, "decision", body, "");
+    const oversized = await resolve(target, "decision", {
+      ...body,
+      reason: "x".repeat(65 * 1024),
+    });
+    expect([unauthenticated.status, oversized.status]).toEqual([401, 413]);
+    expect(unauthenticated.headers.get("Deprecation")).toBe("true");
+    expect(oversized.headers.get("Deprecation")).toBe("true");
+    const current = await resolve(
+      target,
+      "approve",
+      { git_commit: COMMIT },
+      "",
+    );
+    expect(current.status).toBe(401);
+    expect(current.headers.get("Deprecation")).toBeNull();
     for (const body of [
       { git_commit: COMMIT },
       { decision: "merge", git_commit: COMMIT },

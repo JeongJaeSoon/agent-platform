@@ -90,10 +90,6 @@ export function registerPushRequestRoutes(
   apiRoute(
     router,
     "decidePushRequest",
-    async (context, next) => {
-      context.header("Deprecation", "true");
-      await next();
-    },
     resolve((context) =>
       parseJsonBody(context, decidePushRequestRequestSchema),
     ),
