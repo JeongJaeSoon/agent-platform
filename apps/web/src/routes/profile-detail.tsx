@@ -803,7 +803,7 @@ function History({
                       </span>
                     ) : null}
                   </span>
-                  <Code className="text-muted-foreground leading-4 wrap-anywhere">
+                  <Code className="text-muted-foreground wrap-anywhere">
                     {item.id}
                   </Code>
                 </div>
@@ -892,7 +892,7 @@ function Narrowings({
                         version: versionOf(item),
                       })}
                     </Text>
-                    <Code className="text-muted-foreground leading-4 wrap-anywhere">
+                    <Code className="text-muted-foreground wrap-anywhere">
                       {item.id}
                     </Code>
                   </div>

@@ -37,7 +37,6 @@ import {
   RowListItem,
   SearchInput,
   SettingsSection,
-  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
@@ -577,9 +576,7 @@ function TeamMembers({
                         tone={avatarTone(member.user_id)}
                       />
                       <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                        <Text as="span" weight="medium" truncate>
-                          {name}
-                        </Text>
+                        <span className="truncate font-medium">{name}</span>
                         {member.display_name !== null && (
                           <span
                             className="truncate text-muted-foreground text-xs"
