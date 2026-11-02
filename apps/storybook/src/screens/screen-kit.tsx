@@ -158,18 +158,31 @@ function UserBar({ role }: { readonly role: Role }) {
     <div className="flex shrink-0 items-center justify-between gap-2 border-t pt-2">
       <Popover>
         <PopoverTrigger asChild>
+          {/* No aria-label: the name begins with the visible text (WCAG 2.5.3). */}
           <button
             type="button"
-            aria-label="사용자 메뉴"
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-control p-1 text-left hover:bg-sidebar-hover"
+            className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full px-2 py-1 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
           >
-            <Avatar initials="김" />
-            <Text as="span" truncate weight="medium">
-              김민지
+            <Avatar
+              initials="김"
+              className="bg-sidebar-accent text-foreground"
+            />
+            <Text as="span" className="flex min-w-0 flex-col">
+              <Text as="span" weight="medium" truncate>
+                김민지
+              </Text>{" "}
+              <Text as="span" variant="meta" truncate>
+                minji@acme.example
+              </Text>
             </Text>
-            <Text as="span" variant="meta">
+            <Text as="span" className="sr-only">
+              {" "}
               · {ROLE_LABEL[role]}
             </Text>
+            <ChevronDown
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-muted-foreground"
+            />
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-56 p-1">
