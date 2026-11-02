@@ -10,7 +10,8 @@
  */
 
 import { cpSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { Glob } from "bun";
 import { build } from "tsdown";
 
 const PACKAGE_ROOT = join(import.meta.dir, "..");
@@ -74,6 +75,17 @@ for (const deps of [source, ...bundled].map((pkg) => pkg.dependencies)) {
 
 rmSync(OUT, { recursive: true, force: true });
 
+// One d.ts program over every file the bundle reaches. A file outside this
+// include gets a program of its own; the plugin below fails the build then.
+const include = [
+  "src/**/*.ts",
+  ...BUNDLED_DIRS.map((dir) => `../${dir}/src/**/*.ts`),
+];
+const exclude = ["**/*.test.ts"];
+const included = (file: string) =>
+  include.some((glob) => new Glob(glob).match(file)) &&
+  !exclude.some((glob) => new Glob(glob).match(file));
+
 await build({
   config: false,
   cwd: PACKAGE_ROOT,
@@ -82,17 +94,24 @@ await build({
   platform: "neutral",
   // Without eager, tsc emits no declarations for the workspace packages
   // bundled in from outside this package's directory.
-  dts: {
-    eager: true,
-    // One program over every file the bundle reaches. A file outside this
-    // include gets a program of its own.
-    tsconfigRaw: {
-      include: [
-        "src/**/*.ts",
-        ...BUNDLED_DIRS.map((dir) => `../${dir}/src/**/*.ts`),
-      ],
+  dts: { eager: true, tsconfigRaw: { include, exclude } },
+  plugins: [
+    {
+      name: "dts-program-roots",
+      buildEnd() {
+        const missed = [...this.getModuleIds()]
+          .filter((id) => /\.[cm]?tsx?$/.test(id) && !/\.d\.[cm]?ts$/.test(id))
+          .filter((id) => !id.includes("/node_modules/"))
+          .map((id) => relative(PACKAGE_ROOT, id))
+          .filter((file) => !included(file));
+        if (missed.length > 0) {
+          throw new Error(
+            `outside the d.ts include, each costs a program: ${missed.join(", ")}`,
+          );
+        }
+      },
     },
-  },
+  ],
   sourcemap: false,
   deps: {
     alwaysBundle: [WORKSPACE],
