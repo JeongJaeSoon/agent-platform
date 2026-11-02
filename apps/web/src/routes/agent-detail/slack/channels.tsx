@@ -4,6 +4,7 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
   Button,
+  CopyButton,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -20,9 +21,8 @@ import {
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
-import { Copy, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
-import { copyText } from "../../../components/copy.ts";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
@@ -69,22 +69,21 @@ function InviteCopy({
   }, [manual]);
   return (
     <>
-      <Button
-        type="button"
+      <CopyButton
+        value={command}
         variant="ghost"
         size="sm"
         className="h-5 min-w-5 px-1"
         aria-label={t("slack.copyInvite")}
         title={command}
-        onClick={() => {
-          void copyText(command, field).then((ok) => {
-            setManual(!ok);
-            notify(t(ok ? "slack.copied" : "slack.copyFailed"));
-          });
+        icon="copy"
+        iconClassName="size-3.5 shrink-0"
+        fallbackField={field}
+        onResult={(ok) => {
+          setManual(!ok);
+          notify(t(ok ? "slack.copied" : "slack.copyFailed"));
         }}
-      >
-        <Copy aria-hidden="true" className="size-3.5 shrink-0" />
-      </Button>
+      />
       {manual ? (
         <Input
           ref={field}

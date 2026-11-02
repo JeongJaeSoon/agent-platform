@@ -306,10 +306,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
       foot={
         <ReasonButton
           type="submit"
-          className={buttonVariants({
-            size: "sm",
-            className: "aria-disabled:opacity-45",
-          })}
+          className={buttonVariants({ size: "sm" })}
           reason={reason}
           // aria-disabled, not disabled: a disabled button drops its focus.
           aria-disabled={save.isPending || undefined}

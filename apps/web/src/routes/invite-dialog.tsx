@@ -14,6 +14,7 @@ import {
   Button,
   buttonVariants,
   ConfirmDialog,
+  CopyButton,
   Dialog,
   DialogClose,
   DialogContent,
@@ -38,7 +39,6 @@ import { queryKeysOf } from "../api/queries.ts";
 import { roleLabel, useRole, WORKSPACE_ROLE_VALUES } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
-import { copyText } from "../components/copy.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { useDialogFunnel } from "../funnel/tanstack-funnel.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -270,26 +270,25 @@ function InviteFlow({
                 >
                   {t("members.invite.again")}
                 </Button>
-                <Button
-                  type="button"
+                <CopyButton
+                  value={url}
                   variant="outline"
-                  onClick={() => {
-                    void copyText(url, linkRef).then((worked) => {
-                      if (worked)
-                        setCopiedUrls((copied) => new Set(copied).add(url));
-                      setOutcome(
-                        worked
-                          ? { kind: "notice", text: t("members.invite.copied") }
-                          : {
-                              kind: "error",
-                              text: t("members.invite.copyFailed"),
-                            },
-                      );
-                    });
+                  label={t("members.invite.copy")}
+                  icon="none"
+                  fallbackField={linkRef}
+                  onResult={(worked, copiedUrl) => {
+                    if (worked)
+                      setCopiedUrls((copied) => new Set(copied).add(copiedUrl));
+                    setOutcome(
+                      worked
+                        ? { kind: "notice", text: t("members.invite.copied") }
+                        : {
+                            kind: "error",
+                            text: t("members.invite.copyFailed"),
+                          },
+                    );
                   }}
-                >
-                  {t("members.invite.copy")}
-                </Button>
+                />
                 <DialogClose asChild>
                   <Button type="button">{t("members.invite.close")}</Button>
                 </DialogClose>

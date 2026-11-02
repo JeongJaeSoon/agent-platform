@@ -465,7 +465,6 @@ export function ProfileEditor({
           <Button
             type="button"
             variant="outline"
-            className="aria-disabled:opacity-50"
             aria-disabled={save.isPending || undefined}
             onClick={() => {
               if (!save.isPending) onCancel();
@@ -474,11 +473,7 @@ export function ProfileEditor({
             {t("common.cancel")}
           </Button>
           {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
-          <Button
-            type="submit"
-            className="aria-disabled:opacity-50"
-            aria-disabled={save.isPending || undefined}
-          >
+          <Button type="submit" aria-disabled={save.isPending || undefined}>
             {save.isPending
               ? t("profiles.editor.saving")
               : start.mode === "new"

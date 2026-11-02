@@ -28,6 +28,7 @@ import {
   Checkbox,
   Combobox,
   ConfirmDialog,
+  CopyButton,
   cn,
   EmptyState,
   Field,
@@ -46,22 +47,8 @@ import {
   PageBreadcrumbLink,
   Link as TextLink,
 } from "@werft-ai/ui";
-import {
-  Check,
-  CircleAlert,
-  Clock,
-  Copy,
-  InfinityIcon,
-  Plus,
-} from "lucide-react";
-import {
-  type FormEvent,
-  type RefObject,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { CircleAlert, Clock, InfinityIcon, Plus } from "lucide-react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import {
   administeredAgentsQuery,
   agentPagesQuery,
@@ -80,7 +67,6 @@ import {
 import { API_KEY_NAME_MAX } from "../auth/limits.ts";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { FormError, Notice } from "../components/auth-page.tsx";
-import { copyText } from "../components/copy.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import type { Outcome } from "../components/outcome.tsx";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "../components/search-term.ts";
@@ -462,56 +448,6 @@ export function OrgKeysScreen() {
   );
 }
 
-function KeyIdCopyButton({
-  value,
-  label,
-  field,
-  onResult,
-}: {
-  readonly value: string;
-  readonly label: string;
-  /** A field to select by hand when the clipboard refuses. */
-  readonly field?: RefObject<HTMLInputElement | null>;
-  readonly onResult: (copied: boolean) => void;
-}) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className={KEY_COPY}
-        aria-label={label}
-        onClick={() => {
-          void copyText(value, field ?? { current: null }).then((ok) => {
-            setCopied(ok);
-            onResult(ok);
-          });
-        }}
-      >
-        {copied ? (
-          <Check aria-hidden="true" className={ICON} />
-        ) : (
-          <Copy aria-hidden="true" className={ICON} />
-        )}
-        {copied ? <span>{t("apiKeys.copied")}</span> : null}
-      </Button>
-      <CopiedStatus copied={copied} />
-    </>
-  );
-}
-
-// A button's changed name is not announced reliably, and a fixed aria-label
-// hides it entirely.
-function CopiedStatus({ copied }: { readonly copied: boolean }) {
-  const { t } = useI18n();
-  return (
-    <output className="sr-only">{copied ? t("apiKeys.copied") : ""}</output>
-  );
-}
-
 function KeyIdMeta({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState(false);
@@ -521,9 +457,15 @@ function KeyIdMeta({ id }: { readonly id: string }) {
       <code className="min-w-0 font-mono text-foreground [overflow-wrap:anywhere]">
         {id}
       </code>
-      <KeyIdCopyButton
+      <CopyButton
         value={id}
-        label={t("apiKeys.copyIdFor", { id })}
+        variant="ghost"
+        size="sm"
+        className={KEY_COPY}
+        aria-label={t("apiKeys.copyIdFor", { id })}
+        copiedLabel={t("apiKeys.copied")}
+        copiedMessage={t("apiKeys.copied")}
+        iconClassName={ICON}
         onResult={(ok) => setFailed(!ok)}
       />
       {failed ? (
@@ -953,9 +895,14 @@ function IssuedSecret({
             value={issued.secret}
             onFocus={(event) => event.target.select()}
           />
-          <SecretCopyButton
-            secret={issued.secret}
-            field={secretRef}
+          <CopyButton
+            value={issued.secret}
+            className="shrink-0"
+            label={t("apiKeys.copy")}
+            copiedLabel={t("apiKeys.copied")}
+            copiedMessage={t("apiKeys.copied")}
+            iconClassName="size-4"
+            fallbackField={secretRef}
             onResult={(ok) => setFailed(!ok)}
           />
         </div>
@@ -974,41 +921,6 @@ function IssuedSecret({
         </Link>
       </div>
     </section>
-  );
-}
-
-function SecretCopyButton({
-  secret,
-  field,
-  onResult,
-}: {
-  readonly secret: string;
-  readonly field: RefObject<HTMLInputElement | null>;
-  readonly onResult: (copied: boolean) => void;
-}) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  return (
-    <>
-      <Button
-        type="button"
-        className="shrink-0"
-        onClick={() => {
-          void copyText(secret, field).then((ok) => {
-            setCopied(ok);
-            onResult(ok);
-          });
-        }}
-      >
-        {copied ? (
-          <Check aria-hidden="true" className="size-4" />
-        ) : (
-          <Copy aria-hidden="true" className="size-4" />
-        )}
-        {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
-      </Button>
-      <CopiedStatus copied={copied} />
-    </>
   );
 }
 

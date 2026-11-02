@@ -799,11 +799,7 @@ export function CeilingForm({
             </Link>
           )}
           {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
-          <Button
-            type="submit"
-            className="aria-disabled:opacity-50"
-            aria-disabled={pending || undefined}
-          >
+          <Button type="submit" aria-disabled={pending || undefined}>
             {pending ? t("profiles.editor.saving") : t("profiles.ceiling.save")}
           </Button>
         </div>
