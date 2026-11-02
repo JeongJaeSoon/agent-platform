@@ -1,5 +1,5 @@
 {
-  "id": "cd064470-6c85-4468-a5e9-2d1beefe81ed",
+  "id": "efbcf170-4071-437f-8586-cdd7550b38eb",
   "prevId": "a8da4eb5-7b94-4248-8218-4ae230d55eab",
   "version": "7",
   "dialect": "postgresql",
@@ -4066,6 +4066,222 @@
       },
       "isRLSEnabled": false
     },
+    "public.github_installation_links": {
+      "name": "github_installation_links",
+      "schema": "",
+      "columns": {
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "installation_id": {
+          "name": "installation_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connected_by": {
+          "name": "connected_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connected_at": {
+          "name": "connected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "github_installation_links_connection_id_github_apps_id_fk": {
+          "name": "github_installation_links_connection_id_github_apps_id_fk",
+          "tableFrom": "github_installation_links",
+          "tableTo": "github_apps",
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "github_installation_links_workspace_id_workspaces_id_fk": {
+          "name": "github_installation_links_workspace_id_workspaces_id_fk",
+          "tableFrom": "github_installation_links",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "github_installation_links_connection_id_installation_id_pk": {
+          "name": "github_installation_links_connection_id_installation_id_pk",
+          "columns": ["connection_id", "installation_id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "github_installation_links_installation_id_check": {
+          "name": "github_installation_links_installation_id_check",
+          "value": "\"github_installation_links\".\"installation_id\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.github_installation_snapshots": {
+      "name": "github_installation_snapshots",
+      "schema": "",
+      "columns": {
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "installations": {
+          "name": "installations",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "github_installation_snapshots_connection_id_github_apps_id_fk": {
+          "name": "github_installation_snapshots_connection_id_github_apps_id_fk",
+          "tableFrom": "github_installation_snapshots",
+          "tableTo": "github_apps",
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.github_installation_states": {
+      "name": "github_installation_states",
+      "schema": "",
+      "columns": {
+        "state_hash": {
+          "name": "state_hash",
+          "type": "bytea",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "github_installation_states_expires_idx": {
+          "name": "github_installation_states_expires_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "github_installation_states_workspace_id_workspaces_id_fk": {
+          "name": "github_installation_states_workspace_id_workspaces_id_fk",
+          "tableFrom": "github_installation_states",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "github_installation_states_connection_id_github_apps_id_fk": {
+          "name": "github_installation_states_connection_id_github_apps_id_fk",
+          "tableFrom": "github_installation_states",
+          "tableTo": "github_apps",
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.github_packages_settings": {
       "name": "github_packages_settings",
       "schema": "",
@@ -6611,56 +6827,6 @@
         }
       },
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.push_continuations": {
-      "name": "push_continuations",
-      "schema": "",
-      "columns": {
-        "turn_id": {
-          "name": "turn_id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "continuation_turn_id": {
-          "name": "continuation_turn_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "push_continuations_turn_id_turns_id_fk": {
-          "name": "push_continuations_turn_id_turns_id_fk",
-          "tableFrom": "push_continuations",
-          "tableTo": "turns",
-          "columnsFrom": ["turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "push_continuations_continuation_turn_id_turns_id_fk": {
-          "name": "push_continuations_continuation_turn_id_turns_id_fk",
-          "tableFrom": "push_continuations",
-          "tableTo": "turns",
-          "columnsFrom": ["continuation_turn_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "push_continuations_continuation_turn_id_unique": {
-          "name": "push_continuations_continuation_turn_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["continuation_turn_id"]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

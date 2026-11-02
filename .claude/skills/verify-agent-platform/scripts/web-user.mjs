@@ -17,9 +17,10 @@
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
 //   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request
-//   web-user.mjs <run> github-app <who> <workspace> <app id>  register the App; key read from its file
+//   web-user.mjs <run> github-app <who> <workspace> <app id> [connection id]  register the App, or a new key for that connection; key read from its file
+//   web-user.mjs <run> github-app-stranger-key <who> <workspace> <app id> <connection id>  a fresh RSA key GitHub does not know (400)
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -399,9 +400,11 @@ switch (cmd) {
   case "github-app": {
     // The owner's App key goes from its file to the API here and nowhere
     // else: never an argument, never printed. The response carries no key.
-    const [workspace, appId] = rest;
+    const [workspace, appId, connection] = rest;
     if (!workspace || !/^[0-9]+$/.test(appId ?? ""))
-      throw new Error("usage: github-app <who> <workspace id> <app id>");
+      throw new Error(
+        "usage: github-app <who> <workspace id> <app id> [connection id]",
+      );
     const keyFile =
       process.env.VERIFY_GITHUB_APP_KEY_FILE ??
       join(homedir(), ".config", "werft", "github-app.pem");
@@ -412,8 +415,29 @@ switch (cmd) {
     report(
       await call(
         "PUT",
-        `/v1/workspaces/${workspace}/github-app`,
+        connection
+          ? `/v1/workspaces/${workspace}/github-apps/${connection}`
+          : `/v1/workspaces/${workspace}/github-app`,
         { app_id: Number(appId), private_key: readFileSync(keyFile, "utf8") },
+        { cookie: cookieOf(who) },
+      ),
+    );
+    break;
+  }
+  case "github-app-stranger-key": {
+    const [workspace, appId, connection] = rest;
+    if (!workspace || !/^[0-9]+$/.test(appId ?? "") || !connection)
+      throw new Error(
+        "usage: github-app-stranger-key <who> <workspace id> <app id> <connection id>",
+      );
+    const stranger = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs1", format: "pem" })
+      .toString();
+    report(
+      await call(
+        "PUT",
+        `/v1/workspaces/${workspace}/github-apps/${connection}`,
+        { app_id: Number(appId), private_key: stranger },
         { cookie: cookieOf(who) },
       ),
     );

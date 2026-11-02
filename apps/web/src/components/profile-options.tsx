@@ -13,9 +13,11 @@ export const pickable = (profile: ProfileSummary) =>
 export function ProfileOptions({
   profiles,
   label,
+  usable = pickable,
 }: {
   readonly profiles: readonly ProfileSummary[];
   readonly label: (profile: ProfileSummary) => string;
+  readonly usable?: (profile: ProfileSummary) => boolean;
 }) {
   const { t } = useI18n();
   const operators = profiles.filter((item) => item.source === "operator");
@@ -26,7 +28,7 @@ export function ProfileOptions({
       <NativeSelectOption
         key={profile.id}
         value={profile.id}
-        disabled={!pickable(profile)}
+        disabled={!usable(profile)}
       >
         {pickable(profile) || state === undefined
           ? label(profile)

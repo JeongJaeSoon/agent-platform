@@ -78,12 +78,29 @@ const catalog: SessionCatalog = withSeededInstallation({
         },
       },
     },
+    "claude-optional-v1": {
+      runtime_kind: "claude_agent_sdk",
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read", "Edit", "Bash"],
+      permission_mode: "default",
+      repository: "optional",
+      provider: {
+        kind: "litellm",
+        endpoint: "https://litellm.invalid",
+        auth: {
+          kind: "api_key",
+          value: "catalog-provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    },
   },
   repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
-      profiles: ["claude-coding-v1"],
+      profiles: ["claude-coding-v1", "claude-optional-v1"],
       auth: { kind: "github_app", registered: true },
     },
     "pat-app": {
@@ -635,5 +652,83 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     const foreign = await minted(await session(otherReleaseId, adminId), 5000);
     const items = await activity(cookies.admin);
     expect(items.map((item) => item.id)).not.toContain(foreign);
+  });
+
+  // agent-wizard-rework.md item 1: the new-agent flow releases without a
+  // repository, and such an agent sets GitHub up from the tab first.
+  test("a release without a repository on an optional profile saves its first settings", async () => {
+    const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
+      slug: "no-repo",
+      name: "no-repo",
+      card,
+    });
+    expect(created.status).toBe(201);
+    const made = (await created.json()) as {
+      agent: { id: string };
+      versions: { id: string }[];
+    };
+    const id = made.agent.id;
+    const releaseOf = async (body: object) => {
+      const response = await send(
+        "POST",
+        `/v1/agents/${id}/releases`,
+        asCookie(cookies.admin),
+        {
+          version_id: made.versions[0]?.id,
+          runtime_profile_id: "claude-optional-v1",
+          ...body,
+        },
+      );
+      expect(response.status).toBe(200);
+      return createAgentReleaseResponseSchema.parse(await response.json())
+        .release;
+    };
+    const activateOf = async (releaseId: string) => {
+      const detail = (await (
+        await send("GET", `/v1/agents/${id}`, asCookie(cookies.admin))
+      ).json()) as { agent: { activation_revision: number } };
+      const response = await send(
+        "POST",
+        `/v1/agents/${id}/activate`,
+        asCookie(cookies.admin),
+        {
+          release_id: releaseId,
+          expected_revision: detail.agent.activation_revision,
+        },
+      );
+      expect(response.status).toBe(200);
+    };
+    const read = async () => {
+      const response = await send(
+        "GET",
+        `/v1/agents/${id}/github`,
+        asCookie(cookies.admin),
+      );
+      expect(response.status).toBe(200);
+      return agentGitHubResponseSchema.parse(await response.json());
+    };
+
+    const first = await releaseOf({});
+    expect(first.repository_id).toBeNull();
+    await activateOf(first.id);
+    const before = await read();
+    expect(before).toMatchObject({
+      active_release_id: first.id,
+      release_repository_id: null,
+      github: null,
+      legacy_defaults: null,
+      unsavable: null,
+    });
+    expect(
+      before.options.repositories.find((r) => r.id === "sample-app"),
+    ).toMatchObject({ available: true, reason: null });
+
+    const saved = await releaseOf({ github: GITHUB });
+    expect(saved.repository_id).toBeNull();
+    expect(saved.policy_pins.github).toEqual(GITHUB);
+    await activateOf(saved.id);
+    const after = await read();
+    expect(after.github).toEqual(GITHUB);
+    expect(after.unsavable).toBeNull();
   });
 });
