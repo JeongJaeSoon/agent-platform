@@ -10,7 +10,7 @@ const permissionActionSchema = z.enum(PERMISSION_ANSWER_ACTIONS);
 
 /**
  * A permission answer as stored and handed to the worker. The stored key
- * stays `decision`; the API takes `action` (`permissionAnswerInputSchema`).
+ * stays `decision`; the API takes `action` (`postSessionAnswerInputSchema`).
  */
 export const permissionAnswerSchema = z
   .object({
@@ -22,27 +22,22 @@ export const permissionAnswerSchema = z
   })
   .strict();
 
-/** `decision` is the old name of `action`, taken until callers move. */
+const permissionAnswerFields = {
+  request_id: requestIdSchema,
+  kind: z.literal("permission"),
+  reason: z.string().min(1).optional(),
+};
+
+/** A permission answer from the API: `action`, never with `decision`. */
 export const permissionAnswerInputSchema = z
-  .object({
-    request_id: requestIdSchema,
-    kind: z.literal("permission"),
-    action: permissionActionSchema.optional(),
-    decision: permissionActionSchema
-      .optional()
-      .meta({ deprecated: true, description: "Use `action`." }),
-    reason: z.string().min(1).optional(),
-  })
+  .object({ ...permissionAnswerFields, action: permissionActionSchema })
+  .strict();
+
+/** @deprecated The old name of `action`, taken until callers move. */
+export const deprecatedPermissionAnswerInputSchema = z
+  .object({ ...permissionAnswerFields, decision: permissionActionSchema })
   .strict()
-  .superRefine((answer, context) => {
-    if ((answer.action === undefined) === (answer.decision === undefined)) {
-      context.addIssue({
-        code: "custom",
-        message: "Give action, or the deprecated decision, but not both",
-        path: ["action"],
-      });
-    }
-  });
+  .meta({ deprecated: true, description: "Use `action`." });
 
 export const questionAnswerSchema = z
   .object({
@@ -129,8 +124,10 @@ export const postSessionAnswerRequestSchema = z.discriminatedUnion("kind", [
   questionsAnswerSchema,
 ]);
 /** The body of `POST /v1/sessions/{id}/answers`. */
-export const postSessionAnswerInputSchema = z.discriminatedUnion("kind", [
+// Strict members: a body with both names, or neither, matches none of them.
+export const postSessionAnswerInputSchema = z.union([
   permissionAnswerInputSchema,
+  deprecatedPermissionAnswerInputSchema,
   questionsAnswerSchema,
 ]);
 
@@ -138,11 +135,9 @@ export const postSessionAnswerInputSchema = z.discriminatedUnion("kind", [
 export function storedAnswer(
   input: PostSessionAnswerInput,
 ): PostSessionAnswerRequest {
-  if (input.kind !== "permission") return input;
-  const { action, decision, ...rest } = input;
-  const chosen = action ?? decision;
-  if (chosen === undefined) throw new Error("permission answer without action");
-  return { ...rest, decision: chosen };
+  if (!("action" in input)) return input;
+  const { action, ...rest } = input;
+  return { ...rest, decision: action };
 }
 /**
  * Who answered, from where, and the `session.approve` decision that let them.
