@@ -57,10 +57,7 @@ export function ReasonButton({
             "aria-expanded": undefined,
             "aria-controls": undefined,
           })}
-          className={cn(
-            className,
-            "aria-disabled:cursor-not-allowed aria-disabled:opacity-45",
-          )}
+          className={cn(className, "aria-disabled:cursor-not-allowed")}
           disabled={withheld ? undefined : disabled}
           onClick={(event) => {
             if (!withheld) return onClick?.(event);

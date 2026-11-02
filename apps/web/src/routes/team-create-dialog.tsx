@@ -156,18 +156,13 @@ function TeamCreateForm({
           <Button
             type="button"
             variant="outline"
-            className="aria-disabled:opacity-50"
             aria-disabled={pending || undefined}
           >
             {t("common.cancel")}
           </Button>
         </DialogClose>
         {/* aria-disabled, not disabled: Enter on it keeps the focus there. */}
-        <Button
-          type="submit"
-          className="aria-disabled:opacity-50"
-          aria-disabled={pending || undefined}
-        >
+        <Button type="submit" aria-disabled={pending || undefined}>
           {pending ? t("teams.creating") : t("teams.create")}
         </Button>
       </DialogFooter>

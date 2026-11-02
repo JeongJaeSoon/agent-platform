@@ -843,6 +843,46 @@ describe("에이전트 상세 탭", () => {
     expect(JSON.parse(raw?.textContent ?? "").role).toBe("결제 문의 담당");
   });
 
+  test("카드 원문을 복사하면 버튼이 복사했다고 바뀌고, 실패하면 직접 복사하라고 한다", async () => {
+    renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
+    const section = await screen.findByRole("region", { name: "카드 원문" });
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const written: string[] = [];
+    let refuse = true;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          if (refuse) throw new Error("denied");
+          written.push(text);
+        },
+      },
+    });
+    try {
+      const button = within(section).getByRole("button", { name: "복사" });
+      button.click();
+      await within(section).findByText(
+        "복사하지 못했습니다. 원문을 직접 선택해 복사하세요.",
+      );
+      expect(button.textContent).toBe("복사");
+
+      refuse = false;
+      button.click();
+      await waitFor(() => expect(button.textContent).toBe("복사했습니다"));
+      expect(written).toEqual([
+        section.querySelector("pre")?.textContent ?? "",
+      ]);
+      expect(
+        within(section).queryByText(
+          "복사하지 못했습니다. 원문을 직접 선택해 복사하세요.",
+        ),
+      ).toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   test("관리하지 않는 구성원에게 관리자 탭은 이유만 보이고 편집 행동이 없다", async () => {
     renderAt(`${DETAIL}?tab=admins`, {
       ...agentServer().routes,

@@ -470,7 +470,6 @@ function GitHubService({
                 variant="danger"
                 size="sm"
                 aria-disabled={unlinking === account.id || undefined}
-                className="aria-disabled:opacity-50"
                 onClick={() => {
                   if (unlinking !== account.id) onUnlink(account);
                 }}
@@ -553,7 +552,6 @@ function SlackAccounts({
             // Not `disabled` while it runs: Chrome takes focus off a disabled
             // button, and a refused unlink would leave the keyboard lost.
             aria-disabled={unlinking === account.id || undefined}
-            className="aria-disabled:opacity-50"
             onClick={() => {
               if (unlinking !== account.id) onUnlink(account);
             }}

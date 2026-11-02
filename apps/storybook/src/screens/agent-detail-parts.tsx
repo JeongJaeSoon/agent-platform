@@ -7,6 +7,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CopyButton,
   cn,
   Link,
   PageHeader,
@@ -14,7 +15,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { ArrowLeft, Check, Copy } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { LockedButton, PartRequest } from "./screen-kit.tsx";
@@ -418,10 +419,14 @@ export function AgentCardTab({ agent }: { readonly agent: AgentView }) {
               API가 돌려주는 카드 JSON
             </CardDescription>
             <CardAction>
-              <Button variant="outline" size="sm">
-                <Copy aria-hidden="true" className="size-3.5" />
-                복사
-              </Button>
+              <CopyButton
+                value={JSON.stringify(card, null, 2)}
+                variant="outline"
+                size="sm"
+                label="복사"
+                copiedLabel="복사했습니다"
+                iconClassName="size-3.5"
+              />
             </CardAction>
           </CardHeader>
           <CardContent className="flex-1">
