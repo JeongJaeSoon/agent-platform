@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
-import { Link, type LinkProps } from "../primitives/link.tsx";
+import { Link, type LinkProps, withTrailing } from "../primitives/link.tsx";
 
 type MoreLinkShape =
   | {
@@ -23,7 +23,7 @@ type MoreLinkShape =
       readonly arrow?: boolean | undefined;
     };
 
-export type MoreLinkProps = Omit<LinkProps, "variant"> & MoreLinkShape;
+export type MoreLinkProps = LinkProps & MoreLinkShape;
 
 /**
  * A section's "view all" link to the page or tab that says more. A router
@@ -40,23 +40,16 @@ export function MoreLink({
   const icon = arrow ? (
     <ArrowRight className="size-3.5" aria-hidden="true" />
   ) : null;
-  const content = !icon ? (
-    children
-  ) : asChild && isValidElement<{ children?: ReactNode }>(children) ? (
-    cloneElement(
-      children as ReactElement<{ children?: ReactNode }>,
-      undefined,
-      <>
-        {children.props.children}
-        {icon}
-      </>,
-    )
-  ) : (
-    <>
-      {children}
-      {icon}
-    </>
-  );
+  // A router link's children may be a function of its state.
+  const content = !icon
+    ? children
+    : asChild && isValidElement<{ children?: unknown }>(children)
+      ? cloneElement(
+          children as ReactElement<{ children?: unknown }>,
+          undefined,
+          withTrailing(children.props.children, icon) as ReactNode,
+        )
+      : (withTrailing(children, icon) as ReactNode);
   return (
     <Link
       {...props}

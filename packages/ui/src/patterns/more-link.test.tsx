@@ -1,11 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { Bot } from "lucide-react";
+import { ArrowRight, Bot } from "lucide-react";
+import type { ComponentProps, ReactNode } from "react";
 
 import { setupDom } from "../test-support/dom.ts";
 
 const { render } = await setupDom();
 const { MoreLink } = await import("./more-link.tsx");
 const { IconTile } = await import("./icon-tile.tsx");
+const { Link } = await import("../primitives/link.tsx");
+
+// The router's links take a function of their state as children.
+function StateLink({
+  children,
+  ...props
+}: Omit<ComponentProps<"a">, "children"> & {
+  readonly children: ReactNode | ((state: { isActive: boolean }) => ReactNode);
+}) {
+  return (
+    <a {...props}>
+      {typeof children === "function" ? children({ isActive: true }) : children}
+    </a>
+  );
+}
 
 const classes = (element: Element) => [...element.classList].sort();
 
@@ -69,6 +85,69 @@ describe("MoreLink", () => {
       </MoreLink>,
     );
     const link = getByRole("link", { name: "에이전트" });
+    expect(link.lastElementChild?.tagName.toLowerCase()).toBe("svg");
+  });
+});
+
+describe("MoreLink는 화면의 이전 손 조립과 같은 DOM을 낸다", () => {
+  const html = (node: ReactNode) => render(node).container.innerHTML;
+
+  test("홈의 화살표 링크", () => {
+    const before = html(
+      <Link
+        asChild
+        className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
+      >
+        <a href="/sessions">
+          모두 보기
+          <ArrowRight className="size-3.5" aria-hidden="true" />
+        </a>
+      </Link>,
+    );
+    const after = html(
+      <MoreLink asChild size="control" arrow>
+        <a href="/sessions">모두 보기</a>
+      </MoreLink>,
+    );
+    expect(after).toBe(before);
+  });
+
+  test("에이전트 개요의 링크", () => {
+    const before = html(
+      <Link asChild className="text-control">
+        <a href="/sessions">모두 보기</a>
+      </Link>,
+    );
+    const after = html(
+      <MoreLink asChild size="control">
+        <a href="/sessions">모두 보기</a>
+      </MoreLink>,
+    );
+    expect(after).toBe(before);
+  });
+
+  test("운영 탭의 링크", () => {
+    const before = html(
+      <Link
+        href="/operations/tools"
+        className="whitespace-nowrap font-normal text-caption leading-4"
+      >
+        도구 활동
+      </Link>,
+    );
+    const after = html(<MoreLink href="/operations/tools">도구 활동</MoreLink>);
+    expect(after).toBe(before);
+  });
+
+  test("router 링크의 함수 children을 부르고 그 뒤에 화살표를 둔다", () => {
+    const { getByRole } = render(
+      <MoreLink asChild size="control" arrow>
+        <StateLink href="/sessions">
+          {({ isActive }) => (isActive ? "지금 보는 중" : "모두 보기")}
+        </StateLink>
+      </MoreLink>,
+    );
+    const link = getByRole("link", { name: "지금 보는 중" });
     expect(link.lastElementChild?.tagName.toLowerCase()).toBe("svg");
   });
 });
