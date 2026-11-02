@@ -500,7 +500,9 @@ function AgentView({
       </TabsContent>
       <TabsContent {...tabPanel("slack")}>
         {tab === "slack" || slackOpened ? (
-          <Suspense fallback={<Skeleton shape="block" className="min-h-96" />}>
+          <Suspense
+            fallback={<Skeleton shape="block" height="24rem" decorative />}
+          >
             <SlackTab
               agentId={agent.id}
               slug={agent.slug}
@@ -512,7 +514,9 @@ function AgentView({
       <TabsContent {...tabPanel("github")}>
         {/* Kept mounted once opened, so leaving the tab keeps a draft. */}
         {tab === "github" || githubOpened ? (
-          <Suspense fallback={<Skeleton shape="block" className="min-h-96" />}>
+          <Suspense
+            fallback={<Skeleton shape="block" height="24rem" decorative />}
+          >
             <GitHubTab detail={detail} />
           </Suspense>
         ) : null}
