@@ -49,7 +49,6 @@ export const SLACK_WARNING_KEY = {
 >;
 export const SECTION_BOX =
   "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
-export const HEADING = "m-0 font-semibold text-body leading-5";
 export const RECHECK_ID = "slack-events-recheck";
 export const UNVERIFIED_POLL_MS = 10_000;
 export const EVENTS_BADGE = {

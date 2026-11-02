@@ -11,6 +11,7 @@ import {
   formatTimestamp,
   RadioGroup,
   RadioGroupItem,
+  Text,
   Textarea,
   type TimestampLocale,
 } from "@werft-ai/ui";
@@ -154,18 +155,19 @@ export function QuestionCard({
           aria-hidden="true"
         />
         {/* Not a heading: the level depends on the screen around the card. */}
-        <p id={titleId} className="font-semibold text-body">
+        <Text id={titleId} className="font-semibold text-body">
           {messages.title}
-        </p>
-        <p
+        </Text>
+        <Text
           ref={noticeRef}
+          variant="meta"
           tabIndex={expired ? -1 : undefined}
-          className="ml-auto text-right text-muted-foreground text-caption"
+          className="ml-auto text-right"
         >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
-        </p>
+        </Text>
       </div>
       <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
         {request.questions.map((question) => (

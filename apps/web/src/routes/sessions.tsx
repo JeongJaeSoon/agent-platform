@@ -39,6 +39,7 @@ import {
   Page,
   SegmentedControl,
   SegmentedControlItem,
+  Text,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -381,9 +382,9 @@ function SessionsView({
           loading: t("sessions.loadingMore"),
         }}
       />
-      <p className="m-0 text-caption text-subtle-foreground">
+      <Text variant="meta">
         {t("sessionList.shown", { count: items.length })}
-      </p>
+      </Text>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Button, cn, Skeleton } from "@werft-ai/ui";
+import { Button, cn, Heading, Skeleton } from "@werft-ai/ui";
 import { type MessageKey, useI18n } from "../i18n/i18n.tsx";
 
 export type StatusKind =
@@ -86,7 +86,7 @@ export function StatusScreen(props: StatusScreenProps) {
       data-status={kind}
       role={alert ? "alert" : undefined}
     >
-      <h2 className={TITLE}>{copy.title}</h2>
+      <Heading className="flex items-center gap-2">{copy.title}</Heading>
       <p className="m-0">{copy.body}</p>
       {kind === "login-required" && action ? (
         <Button asChild>

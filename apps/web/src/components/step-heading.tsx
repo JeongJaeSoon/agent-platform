@@ -1,3 +1,4 @@
+import { Heading } from "@werft-ai/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 /**
@@ -26,13 +27,8 @@ export function StepHeading({
     if (focus) heading.current?.focus();
   }, [focus]);
   return (
-    <h2
-      ref={heading}
-      id={id}
-      tabIndex={-1}
-      className="m-0 font-semibold text-body outline-none"
-    >
+    <Heading ref={heading} id={id} tabIndex={-1} className="outline-none">
       {children}
-    </h2>
+    </Heading>
   );
 }

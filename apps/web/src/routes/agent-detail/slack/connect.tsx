@@ -8,11 +8,13 @@ import {
   AlertTitle,
   Badge,
   Button,
+  Code,
   ConfirmDialog,
   CopyButton,
   DangerZone,
   DangerZoneRow,
   FieldError,
+  Heading,
   Link,
   RowList,
   SettingRow,
@@ -26,7 +28,6 @@ import type { Notify } from "../toast.tsx";
 import { useSlackState } from "./queries.ts";
 import {
   EVENTS_BADGE,
-  HEADING,
   RECHECK_ID,
   SECTION,
   SECTION_BOX,
@@ -189,7 +190,7 @@ export function SlackConnect({
         aria-labelledby={`${SECTION.advanced}-title`}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id={`${SECTION.advanced}-title`} className={HEADING}>
+          <Heading id={`${SECTION.advanced}-title`}>
             {t(
               inPage || (record && identity)
                 ? manage
@@ -197,7 +198,7 @@ export function SlackConnect({
                   : "slack.connection"
                 : "slack.app",
             )}
-          </h2>
+          </Heading>
           {inPage ? null : (
             <Badge
               variant={
@@ -227,11 +228,7 @@ export function SlackConnect({
             {record.app_id ? (
               <SettingRow
                 title={t("slack.appId")}
-                meta={
-                  <span className="font-mono text-caption">
-                    {record.app_id}
-                  </span>
-                }
+                meta={<Code>{record.app_id}</Code>}
                 actions={
                   notify ? (
                     <>
@@ -267,11 +264,7 @@ export function SlackConnect({
             {!inPage && record.app_id && identity ? (
               <SettingRow
                 title={t("slack.botId")}
-                meta={
-                  <span className="font-mono text-caption">
-                    {identity.bot_user_id}
-                  </span>
-                }
+                meta={<Code>{identity.bot_user_id}</Code>}
               />
             ) : null}
             {manage ? (

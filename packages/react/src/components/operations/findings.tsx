@@ -1,4 +1,12 @@
-import { cn, EmptyState, RowList, RowListItem, Skeleton } from "@werft-ai/ui";
+import {
+  Code,
+  cn,
+  EmptyState,
+  RowList,
+  RowListItem,
+  Skeleton,
+  Text,
+} from "@werft-ai/ui";
 import type { LucideIcon } from "lucide-react";
 import type { JSX } from "react";
 
@@ -43,9 +51,9 @@ export function Findings({
               <p className="m-0">
                 <Skeleton inline decorative width="60%" height="1lh" />
               </p>
-              <p className="m-0 text-caption leading-4">
+              <Text variant="meta" className="leading-4">
                 <Skeleton inline decorative width="40%" height="1lh" />
-              </p>
+              </Text>
             </div>
           </RowListItem>
         ))}
@@ -98,13 +106,11 @@ export function Findings({
               <p className="m-0">
                 {messages[finding.kind]}
                 {/* leading-none: the mono font's metrics would stretch the line once it loads. */}
-                <code className="font-mono text-control leading-none">
-                  {tool.name}
-                </code>
+                <Code className="text-control leading-none">{tool.name}</Code>
               </p>
-              <p className="m-0 text-caption text-subtle-foreground leading-4">
+              <Text variant="meta" className="leading-4">
                 {detail[finding.kind](tool)}
-              </p>
+              </Text>
             </div>
           </RowListItem>
         );

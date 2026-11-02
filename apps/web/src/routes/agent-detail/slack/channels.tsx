@@ -14,12 +14,14 @@ import {
   Field,
   FieldError,
   FieldLabel,
+  Heading,
   Input,
   RowList,
   RowListItem,
   SettingRow,
   Skeleton,
   Switch,
+  Text,
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
@@ -29,7 +31,6 @@ import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
 import {
   type Binding,
   type BindingChange,
-  HEADING,
   RECHECK_ID,
   SECTION,
   SECTION_BOX,
@@ -249,9 +250,9 @@ export function SlackChannels({
           className={`col-start-1 row-start-1 flex flex-col gap-[var(--ap-space-block)]${locked ? " invisible" : ""}`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id={`${SECTION.channels}-title`} className={HEADING}>
+            <Heading id={`${SECTION.channels}-title`}>
               {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
-            </h2>
+            </Heading>
             {/* Until the bindings load, it is not known which step this is. */}
             {bindings.isPending ? null : (
               <div className="flex flex-wrap justify-end gap-2">
@@ -286,9 +287,7 @@ export function SlackChannels({
             )}
           </div>
           {homeStep ? (
-            <p className="m-0 text-control text-muted-foreground">
-              {t("slack.homeStepHint")}
-            </p>
+            <Text variant="sub">{t("slack.homeStepHint")}</Text>
           ) : null}
           <output
             aria-live="polite"
@@ -348,9 +347,9 @@ export function SlackChannels({
                     }
                     actions={
                       <span className="flex items-center gap-2">
-                        <span aria-hidden="true" className="text-control">
+                        <Text as="span" aria-hidden="true">
                           {t("slack.inUse")}
-                        </span>
+                        </Text>
                         <Switch
                           aria-label={t("slack.inUseOf", { channel: name })}
                           checked={row.mode !== "off"}
@@ -509,12 +508,12 @@ function ChannelsLock({
       aria-labelledby={titleId}
       className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--ap-tone-caution-border) bg-background p-4 text-center"
     >
-      <p id={titleId} className="m-0 font-semibold text-control">
+      <Text id={titleId} className="font-semibold">
         {t("slack.channelsLocked.title")}
-      </p>
-      <p className="m-0 max-w-prose text-control text-muted-foreground">
+      </Text>
+      <Text variant="sub" className="max-w-prose">
         {t("slack.channelsLocked.body")}
-      </p>
+      </Text>
       <Button
         ref={action}
         type="button"

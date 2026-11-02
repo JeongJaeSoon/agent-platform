@@ -11,6 +11,7 @@ import {
   Alert,
   Badge,
   Button,
+  Code,
   Dialog,
   DialogClose,
   DialogContent,
@@ -24,6 +25,7 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  Heading,
   NativeSelect,
   NativeSelectOption,
   Table,
@@ -53,7 +55,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
+import { MUTED, SECTION } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // To the second, as the release label is: activations a few seconds apart
@@ -212,9 +214,7 @@ export function Releases({
   return (
     <section className={SECTION} aria-labelledby={titleId}>
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-3">
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("agent.releases.title")}
-        </h2>
+        <Heading id={titleId}>{t("agent.releases.title")}</Heading>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button
@@ -414,9 +414,7 @@ export function Releases({
                       })}
                     </TableCell>
                     <TableCell variant="nowrap" className={SPREAD}>
-                      <span className="font-mono text-caption">
-                        {item.runtime_profile_id}
-                      </span>
+                      <Code>{item.runtime_profile_id}</Code>
                       {profiles.isSuccess &&
                       !items.some(
                         (listed) => listed.id === item.runtime_profile_id,

@@ -8,6 +8,7 @@ import {
   Button,
   Field,
   FieldLabel,
+  Heading,
   Input,
 } from "@werft-ai/ui";
 import {
@@ -34,7 +35,7 @@ import {
 import type { Outcome } from "../../components/outcome.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { MUTED, SECTION, SECTION_TITLE } from "./classes.ts";
+import { MUTED, SECTION } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 export function CardEditor({
@@ -143,14 +144,9 @@ export function CardEditor({
 
   return (
     <section className={SECTION} aria-labelledby={titleId}>
-      <h2
-        id={titleId}
-        ref={title}
-        tabIndex={-1}
-        className={`${SECTION_TITLE} outline-none`}
-      >
+      <Heading id={titleId} ref={title} tabIndex={-1} className="outline-none">
         {t("agent.card.title")}
-      </h2>
+      </Heading>
       <p className={MUTED}>{t("agent.card.intro")}</p>
       {stale && latest ? (
         <Alert variant="amber">
