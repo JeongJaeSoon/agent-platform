@@ -158,15 +158,16 @@ export function QuestionCard({
         <Text id={titleId} className="font-semibold text-body">
           {messages.title}
         </Text>
-        <p
+        <Text
           ref={noticeRef}
+          variant="meta"
           tabIndex={expired ? -1 : undefined}
-          className="ml-auto text-right text-muted-foreground text-caption"
+          className="ml-auto text-right"
         >
           {expired
             ? messages.expired
             : messages.expires(formatTimestamp(request.expires_at, locale))}
-        </p>
+        </Text>
       </div>
       <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
         {request.questions.map((question) => (
