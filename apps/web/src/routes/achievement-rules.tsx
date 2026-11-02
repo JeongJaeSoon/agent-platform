@@ -1345,7 +1345,7 @@ function RulesCard({
                         <Button
                           type="button"
                           variant="link"
-                          className="h-auto p-0 font-normal"
+                          className="h-auto min-w-0 shrink whitespace-normal p-0 text-left font-normal [overflow-wrap:anywhere] max-md:text-right"
                           aria-controls={EDITOR_ID}
                           onClick={() => onEdit(rule.family_id)}
                         >

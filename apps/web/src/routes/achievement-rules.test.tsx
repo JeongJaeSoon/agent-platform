@@ -656,6 +656,17 @@ describe("성과 규칙", () => {
     ).toBe("true");
   });
 
+  // jsdom has no layout; the 390px demo measurement is the real check.
+  test("긴 규칙 제목은 칸 안에서 줄을 바꾼다", async () => {
+    await opened();
+    const title = await screen.findByRole("button", { name: "버그 수정 PR" });
+    const classes = title.className.split(/\s+/);
+    expect(classes.includes("whitespace-nowrap")).toBe(false);
+    expect(classes.includes("shrink-0")).toBe(false);
+    expect(classes.includes("whitespace-normal")).toBe(true);
+    expect(classes.includes("min-w-0")).toBe(true);
+  });
+
   test("규칙 편집: 다른 사용 중 규칙이 쓰지 않는 type만 고르고, 저장하면 새 버전을 보낸다", async () => {
     const { api } = await opened({
       [`POST /v1/achievement-rules/${BUGFIX}/versions`]: async (request) => {
