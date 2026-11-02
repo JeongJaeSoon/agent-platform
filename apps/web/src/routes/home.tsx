@@ -30,7 +30,6 @@ import {
   buttonVariants,
   Card,
   cn,
-  EmptyState,
   formatExactTime,
   formatTimestamp,
   GridTable,
@@ -1081,13 +1080,15 @@ function HomeSkeleton() {
 function NoRequests() {
   const { t } = useI18n();
   return (
-    <EmptyState
-      size="sm"
-      className="rounded-card border bg-card"
-      icon={<Inbox className="size-4" strokeWidth={1.5} />}
-      title={t("home.requests.empty")}
-      description={t("home.requests.emptyHint")}
-    />
+    <div className="flex flex-col items-center gap-2 rounded-card border bg-card px-4 py-6 text-center text-control text-muted-foreground">
+      <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--ap-color-surface-sunken) text-subtle-foreground">
+        <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
+      </span>
+      <p className="m-0 font-semibold text-body text-foreground">
+        {t("home.requests.empty")}
+      </p>
+      <p className="m-0">{t("home.requests.emptyHint")}</p>
+    </div>
   );
 }
 
