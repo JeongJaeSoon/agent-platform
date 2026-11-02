@@ -74,7 +74,7 @@ export function RevisionDiff({
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-2">
       <figcaption>
-        <Text as="span" variant="sub">
+        <Text as="div" variant="sub">
           {t("diff.caption", { before: beforeLabel, after: afterLabel })}
         </Text>
       </figcaption>
