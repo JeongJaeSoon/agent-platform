@@ -257,10 +257,14 @@ function Activity({
       {activity.error ? (
         <LoadFailure
           error={activity.error}
+          kept={activity.data !== undefined}
           onRetry={() => void activity.refetch()}
         />
-      ) : activity.isPending ? (
-        <Skeleton className="h-32 w-full" />
+      ) : null}
+      {activity.data === undefined ? (
+        activity.error ? null : (
+          <Skeleton className="h-32 w-full" />
+        )
       ) : activity.data.items.length === 0 ? (
         <Text as="span" variant="sub">
           {t("agentGitHub.activityEmpty")}
@@ -1122,7 +1126,7 @@ export default function GitHubTab({
       </div>
     );
   }
-  if (github.error) {
+  if (github.data === undefined) {
     return (
       <LoadFailure error={github.error} onRetry={() => void github.refetch()} />
     );
@@ -1175,6 +1179,13 @@ export default function GitHubTab({
         }
       >
         <div ref={watchPage} className="flex flex-col gap-8">
+          {github.error ? (
+            <LoadFailure
+              error={github.error}
+              kept
+              onRetry={() => void github.refetch()}
+            />
+          ) : null}
           <GitHubSettings
             agentId={agentId}
             detail={detail}

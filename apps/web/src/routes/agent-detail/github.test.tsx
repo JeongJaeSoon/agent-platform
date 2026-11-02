@@ -130,6 +130,31 @@ const switchNamed = (name: string) =>
   screen.getByRole("switch", { name }) as HTMLButtonElement;
 
 describe("에이전트 GitHub 탭", () => {
+  test("받은 설정이 있는 중 다시 읽기가 실패하면 설정을 남기고 위에 알린다", async () => {
+    const { server } = await activeAgent();
+    const base: Record<
+      string,
+      (request: Request) => Response | Promise<Response>
+    > = routesFor(server, TAB);
+    const key = `GET ${PATH}/github`;
+    let down = false;
+    renderAt(DETAIL, {
+      ...base,
+      [key]: (request: Request) =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : (base[key] as NonNullable<(typeof base)[string]>)(request),
+    });
+    await screen.findByRole("switch", { name: "werft-sandbox" });
+    down = true;
+    window.dispatchEvent(new Event("visibilitychange"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.getAttribute("data-variant")).toBe("red");
+    expect(screen.getByRole("switch", { name: "werft-sandbox" }) !== null).toBe(
+      true,
+    );
+  });
+
   for (const read of ["github", "github/activity"]) {
     test(`${read} 읽기가 실패하면 그 query만 다시 읽고 저장하지 않는다`, async () => {
       const { server } = await activeAgent();

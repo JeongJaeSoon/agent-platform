@@ -33,9 +33,9 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
     .flatMap((page) => page.items)
     .find((channel) => channel.id === home?.external_surface_id)?.name;
   const error = app.error ?? identities.error ?? bindings.error;
+  const failed = [app, identities, bindings].filter((read) => read.isError);
   const retry = () => {
-    for (const read of [app, identities, bindings])
-      if (read.isError) void read.refetch();
+    for (const read of failed) void read.refetch();
   };
   const state = slackState(error, identity, app.data?.slack_app);
   const placeholder = <Skeleton className="h-5 w-24" />;
@@ -50,6 +50,7 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
         <LoadFailure
           error={error}
           guidance={slackReason(error, t)}
+          kept={failed.every((read) => read.data !== undefined)}
           onRetry={retry}
         />
       ) : null}

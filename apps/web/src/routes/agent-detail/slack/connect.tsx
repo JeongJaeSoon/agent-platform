@@ -350,6 +350,9 @@ export function SlackConnect({
           <LoadFailure
             error={readError}
             guidance={slackReason(readError, t)}
+            kept={[app, identities].every(
+              (read) => !read.isError || read.data !== undefined,
+            )}
             onRetry={() => {
               for (const read of [app, identities])
                 if (read.isError) void read.refetch();

@@ -212,8 +212,7 @@ export function SlackChannels({
       ),
     }));
   }, [channels.data]);
-  const readError = bindings.error ?? channels.error;
-  const error = readError ?? update.error;
+  const error = bindings.error ?? channels.error ?? update.error;
   const connectChannel = (channelId: string) => {
     if (locked) return;
     const row = rows.find((item) => item.external_surface_id === channelId);
@@ -298,14 +297,13 @@ export function SlackChannels({
           >
             {notice}
           </output>
-          {readError ? (
+          {/* The status section above reports a failed bindings read. */}
+          {channels.error ? (
             <LoadFailure
-              error={readError}
-              guidance={slackReason(readError, t)}
-              onRetry={() => {
-                for (const read of [bindings, channels])
-                  if (read.isError) void read.refetch();
-              }}
+              error={channels.error}
+              guidance={slackReason(channels.error, t)}
+              kept={channels.data !== undefined}
+              onRetry={() => void channels.refetch()}
             />
           ) : null}
           {update.error ? (
