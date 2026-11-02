@@ -144,7 +144,7 @@ curl -sS "$API/v1" -H "Authorization: Bearer $KEY" | jq -c '{status}'
 
 SDK はキーを `Authorization` ヘッダーでのみ送り、ブラウザーと loopback 以外の `http://` アドレスではクライアントを作らない。オプションは[クライアントのオプション](/getting-started/client#クライアントのオプション)にある。
 
-どのキーも、自分が開始したセッションのリクエストは承認できない。セッションを作るキーと承認するキーを分ける方法は[承認用のキーを分けて使う](/getting-started/client#承認用のキーを分けて使う)にある。エージェントキーには `sessions:read`、`sessions:write`、`sessions:control`、承認者のキーには `sessions:read`、`sessions:approve` が必要で、セッションの共有範囲に承認者が含まれている必要がある。
+Web コンソールで発行した個人キー・エージェントキーは、自分が開始したセッションのリクエストを承認できない(403 `self_approval`)。開発用サーバーの運用者キー(`scripts/local.sh key`)だけが例外である。セッションを作るキーと承認するキーを分ける方法は[承認用のキーを分けて使う](/getting-started/client#承認用のキーを分けて使う)にある。エージェントキーには `sessions:read`、`sessions:write`、`sessions:control`、承認者のキーには `sessions:read`、`sessions:approve` が必要で、セッションの共有範囲に承認者が含まれている必要がある。
 
 ## 次のステップ
 

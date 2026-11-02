@@ -144,7 +144,7 @@ Reference: [`GET /v1/auth/me`](/reference/http-api/auth/getAuthMe), [`GET /v1`](
 
 The SDK sends the key only in the `Authorization` header, and it refuses to create a client for an `http://` address that is not a browser or loopback address. The options are in [Client options](/getting-started/client#client-options).
 
-No key approves requests of a session it started. How to split the key that creates sessions from the key that approves is in [A separate key for approvals](/getting-started/client#a-separate-key-for-approvals). The agent key needs `sessions:read`, `sessions:write`, and `sessions:control`, and the approver key needs `sessions:read` and `sessions:approve`; the approver must also be in the session's share scope.
+A personal or agent key issued in the web console cannot approve requests of a session it started (403 `self_approval`). Only the development server's operator key (`scripts/local.sh key`) is an exception. How to split the key that creates sessions from the key that approves is in [A separate key for approvals](/getting-started/client#a-separate-key-for-approvals). The agent key needs `sessions:read`, `sessions:write`, and `sessions:control`, and the approver key needs `sessions:read` and `sessions:approve`; the approver must also be in the session's share scope.
 
 ## Next steps
 
