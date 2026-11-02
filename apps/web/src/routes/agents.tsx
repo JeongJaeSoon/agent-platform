@@ -14,17 +14,16 @@ import {
   Code,
   cn,
   EmptyState,
-  formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Page,
+  RelativeTime,
   RowLines,
   SegmentedControl,
   SegmentedControlItem,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
 } from "@werft-ai/ui";
 import { LayoutGrid, List } from "lucide-react";
@@ -59,6 +58,7 @@ import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SlackActionLink } from "../components/slack-action-link.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
+import { withNodes } from "../components/with-nodes.tsx";
 import { errorKey, type Translate, useI18n } from "../i18n/i18n.tsx";
 
 // The release check's model refusal (release-ids.ts), as "<field>: <message>".
@@ -338,79 +338,87 @@ function AgentsIn({
 function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   const { t, locale } = useI18n();
   return (
-    <div className="@container overflow-hidden rounded-card border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col">{t("agents.column.agent")}</TableHead>
-            <TableHead scope="col" className={cn(FIT, LAST_WHEN_NARROW)}>
-              {t("agents.column.state")}
-            </TableHead>
-            <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
-              {t("agents.column.updated")}
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {agents.map((agent) => (
-            <TableRow
-              key={agent.id}
-              inactive={agentState(agent) === "archived"}
-              className={OPENS_ROW}
+    <GridTable
+      aria-label={t("agents.title")}
+      columns={COLUMNS[0]}
+      narrowAt={480}
+      narrowColumns={COLUMNS[1]}
+      framed={true}
+    >
+      <GridTableHeader>
+        <GridTableColumnHeader>
+          {t("agents.column.agent")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader>
+          {t("agents.column.state")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader align="end" hideNarrow>
+          {t("agents.column.updated")}
+        </GridTableColumnHeader>
+      </GridTableHeader>
+      {agents.map((agent) => {
+        const updated = (
+          <RelativeTime
+            value={agent.updated_at}
+            locale={locale}
+            className="relative z-1"
+          />
+        );
+        return (
+          <GridTableRow
+            key={agent.id}
+            inactive={agentState(agent) === "archived"}
+            className={OPENS_ROW}
+          >
+            <GridTableCell>
+              <RowLines>
+                <Link
+                  to="/agents/$id"
+                  params={{ id: agent.id }}
+                  className={cn(
+                    "font-medium text-link underline-offset-2 hover:underline [overflow-wrap:anywhere]",
+                    TABLE_ROW_LINK,
+                  )}
+                >
+                  {agent.name}
+                </Link>
+                <Code className="text-muted-foreground [overflow-wrap:anywhere]">
+                  <span className="sr-only">{t("agents.slug")} </span>
+                  {agent.slug}
+                </Code>
+                {/* GridTable's narrowAt={480}, where the time column drops. */}
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="hidden [@container(width<480px)]:block"
+                >
+                  {withNodes((vars) => t("agents.updated", vars), {
+                    at: updated,
+                  })}
+                </Text>
+                <SlackActionLink agent={agent} />
+              </RowLines>
+            </GridTableCell>
+            <GridTableCell>
+              <AgentStateBadge agent={agent} />
+            </GridTableCell>
+            <GridTableCell
+              align="end"
+              hideNarrow
+              className="text-caption text-muted-foreground"
             >
-              <TableCell>
-                <RowLines>
-                  <Link
-                    to="/agents/$id"
-                    params={{ id: agent.id }}
-                    className={cn(
-                      "font-medium text-link underline-offset-2 hover:underline [overflow-wrap:anywhere]",
-                      TABLE_ROW_LINK,
-                    )}
-                  >
-                    {agent.name}
-                  </Link>
-                  <Code className="text-muted-foreground [overflow-wrap:anywhere]">
-                    <span className="sr-only">{t("agents.slug")} </span>
-                    {agent.slug}
-                  </Code>
-                  <Text as="span" variant="meta" className="@[480px]:hidden">
-                    {t("agents.updated", {
-                      at: formatTimestamp(agent.updated_at, locale),
-                    })}
-                  </Text>
-                  <SlackActionLink agent={agent} />
-                </RowLines>
-              </TableCell>
-              <TableCell className={cn(FIT, LAST_WHEN_NARROW)}>
-                <AgentStateBadge agent={agent} />
-              </TableCell>
-              <TableCell
-                className={cn(
-                  FIT,
-                  WIDE,
-                  "text-right text-caption text-muted-foreground",
-                )}
-              >
-                <time dateTime={agent.updated_at}>
-                  {formatTimestamp(agent.updated_at, locale)}
-                </time>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+              {updated}
+            </GridTableCell>
+          </GridTableRow>
+        );
+      })}
+    </GridTable>
   );
 }
 
-// Shrinks the column to its content so the name column takes the rest.
-const FIT = "w-px whitespace-nowrap";
-const WIDE = "hidden @[480px]:table-cell";
-// The hidden time column is still the DOM's last cell, so below 480px the
-// state cell takes the outer inset itself.
-const LAST_WHEN_NARROW =
-  "pr-[var(--ap-row-padding-x)] @[480px]:pr-[calc(var(--ap-row-padding-x)/2)]";
+// Agent, state, updated; a phone keeps the agent and the state, and the
+// agent cell says when it changed.
+const COLUMNS = ["minmax(0,1fr) 104px 120px", "minmax(0,1fr) 104px"] as const;
 
 export { agentState } from "../components/agent-state.tsx";
 
