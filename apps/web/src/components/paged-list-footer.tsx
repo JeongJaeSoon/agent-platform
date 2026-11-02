@@ -19,8 +19,11 @@ import { errorKey, useI18n } from "../i18n/i18n.tsx";
  */
 export function PagedListFooter({
   list,
+  stale = false,
 }: {
   readonly list: UseInfiniteQueryResult<InfiniteData<unknown>>;
+  /** The rows shown belong to an earlier query: their next page would too. */
+  readonly stale?: boolean | undefined;
 }) {
   const { t } = useI18n();
   return (
@@ -28,10 +31,11 @@ export function PagedListFooter({
       {list.error ? (
         <MoreFailure
           error={list.error}
+          busy={list.isFetching}
           onRetry={() =>
             void (list.isFetchNextPageError
-              ? list.fetchNextPage()
-              : list.refetch())
+              ? list.fetchNextPage({ cancelRefetch: false })
+              : list.refetch({ cancelRefetch: false }))
           }
         />
       ) : null}
@@ -39,7 +43,11 @@ export function PagedListFooter({
           rows on top of it would keep the stale ones. A failed next
           page keeps the button, and the keyboard on it. */}
       <LoadMoreButton
-        hasMore={list.hasNextPage && (!list.error || list.isFetchNextPageError)}
+        hasMore={
+          !stale &&
+          list.hasNextPage &&
+          (!list.error || list.isFetchNextPageError)
+        }
         loading={list.isFetchingNextPage}
         // A refresh after a change rereads every page; asking for the
         // next one now would cancel it and keep the stale rows.
@@ -57,9 +65,12 @@ export function PagedListFooter({
 /** A later page that failed: the rows already shown stay above it. */
 function MoreFailure({
   error,
+  busy,
   onRetry,
 }: {
   readonly error: unknown;
+  /** A read is on its way; pressing again must not ask a second time. */
+  readonly busy: boolean;
   readonly onRetry: () => void;
 }) {
   const { t } = useI18n();
@@ -70,7 +81,16 @@ function MoreFailure({
         {t(error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN")}
       </AlertDescription>
       <AlertActions>
-        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+        {/* aria-disabled, not disabled, so the keyboard stays on it. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-disabled={busy || undefined}
+          onClick={() => {
+            if (!busy) onRetry();
+          }}
+        >
           {t("common.retry")}
         </Button>
       </AlertActions>
