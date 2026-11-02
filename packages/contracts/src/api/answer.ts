@@ -5,15 +5,39 @@ import { requestIdSchema } from "../shared/index.ts";
 import type { PendingQuestion } from "./pending.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";
 
+export const PERMISSION_ANSWER_ACTIONS = ["allow", "deny"] as const;
+const permissionActionSchema = z.enum(PERMISSION_ANSWER_ACTIONS);
+
+/**
+ * A permission answer as stored and handed to the worker. The stored key
+ * stays `decision`; the API takes `action` (`postSessionAnswerInputSchema`).
+ */
 export const permissionAnswerSchema = z
   .object({
     request_id: requestIdSchema,
     kind: z.literal("permission"),
-    decision: z.enum(["allow", "deny"]),
+    decision: permissionActionSchema,
     /** Optional even on a denial; the worker tells the model it was denied. */
     reason: z.string().min(1).optional(),
   })
   .strict();
+
+const permissionAnswerFields = {
+  request_id: requestIdSchema,
+  kind: z.literal("permission"),
+  reason: z.string().min(1).optional(),
+};
+
+/** A permission answer from the API: `action`, never with `decision`. */
+export const permissionAnswerInputSchema = z
+  .object({ ...permissionAnswerFields, action: permissionActionSchema })
+  .strict();
+
+/** @deprecated The old name of `action`, taken until callers move. */
+export const deprecatedPermissionAnswerInputSchema = z
+  .object({ ...permissionAnswerFields, decision: permissionActionSchema })
+  .strict()
+  .meta({ deprecated: true, description: "Use `action`." });
 
 export const questionAnswerSchema = z
   .object({
@@ -99,6 +123,22 @@ export const postSessionAnswerRequestSchema = z.discriminatedUnion("kind", [
   permissionAnswerSchema,
   questionsAnswerSchema,
 ]);
+/** The body of `POST /v1/sessions/{id}/answers`. */
+// Strict members: a body with both names, or neither, matches none of them.
+export const postSessionAnswerInputSchema = z.union([
+  permissionAnswerInputSchema,
+  deprecatedPermissionAnswerInputSchema,
+  questionsAnswerSchema,
+]);
+
+/** The stored form of an API answer, so either name hashes the same. */
+export function storedAnswer(
+  input: PostSessionAnswerInput,
+): PostSessionAnswerRequest {
+  if (!("action" in input)) return input;
+  const { action, ...rest } = input;
+  return { ...rest, decision: action };
+}
 /**
  * Who answered, from where, and the `session.approve` decision that let them.
  * `answered_by` is null for a principal with no recorded actor.
@@ -134,6 +174,9 @@ export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 export type QuestionsAnswer = z.infer<typeof questionsAnswerSchema>;
 export type PostSessionAnswerRequest = z.infer<
   typeof postSessionAnswerRequestSchema
+>;
+export type PostSessionAnswerInput = z.infer<
+  typeof postSessionAnswerInputSchema
 >;
 export type PostSessionAnswerResponse = z.infer<
   typeof postSessionAnswerResponseSchema

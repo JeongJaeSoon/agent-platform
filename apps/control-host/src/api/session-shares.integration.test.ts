@@ -398,7 +398,7 @@ integration("session share scopes over HTTP on PostgreSQL", () => {
           "POST",
           `/v1/sessions/${sessionId}/answers`,
           { ...asCookie(cookies[who]), "Idempotency-Key": crypto.randomUUID() },
-          { kind: "permission", request_id: "req_none", decision: "allow" },
+          { kind: "permission", request_id: "req_none", action: "allow" },
         ),
     ],
     [

@@ -109,6 +109,10 @@ export type TerminalTurnStatus = Extract<
 >;
 
 /** A denial needs a reason the model can act on. */
+export type PermissionAnswer =
+  | { action: "allow"; reason?: string }
+  | { action: "deny"; reason: string };
+/** @deprecated Use `PermissionAnswer`, which names the choice `action`. */
 export type PermissionDecision =
   | { decision: "allow"; reason?: string }
   | { decision: "deny"; reason: string };

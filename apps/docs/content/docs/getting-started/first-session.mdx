@@ -49,8 +49,8 @@ const approvals: PendingRequestHandlers = {
     console.log("asked:", request.tool, request.input);
     const command = (request.input as { command?: unknown } | null)?.command;
     if (request.tool === "Bash" && command === COMMAND)
-      return { decision: "allow" };
-    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+      return { action: "allow" };
+    return { action: "deny", reason: `This script only allows: ${COMMAND}` };
   },
 };
 
@@ -69,7 +69,7 @@ turn 1: completed
 ```
 
 - handler가 `undefined`를 돌려주거나 그 종류의 handler가 없으면 요청을 열어 두고 사람에게 맡긴다.
-- 거절은 `{ decision: "deny", reason }`이다. 답하지 않은 요청은 30분 뒤 거절로 끝난다. 자세한 내용은 [승인 대기와 재개](/sessions/waiting-and-resume)에 있다.
+- 거절은 `{ action: "deny", reason }`이다. 답하지 않은 요청은 30분 뒤 거절로 끝난다. 자세한 내용은 [승인 대기와 재개](/sessions/waiting-and-resume)에 있다.
 - workspace의 key(개인·에이전트)는 자기가 시작한 세션의 요청을 승인하지 못한다. 승인용 key를 따로 쓰는 방법은 [클라이언트 설정과 오류](/getting-started/client#승인용-key-따로-쓰기)에 있다.
 
 ## 이어서 보내기

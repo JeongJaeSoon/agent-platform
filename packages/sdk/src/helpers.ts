@@ -10,6 +10,7 @@ import type {
   AnswerAccepted,
   AnswerBody,
   PendingRequest,
+  PermissionAnswer,
   PermissionDecision,
   PermissionRequest,
   PushRequest,
@@ -35,7 +36,7 @@ export interface PendingRequestHandlers {
   permission?(
     request: PermissionRequest,
     context: { signal: AbortSignal },
-  ): Maybe<PermissionDecision>;
+  ): Maybe<PermissionAnswer | PermissionDecision>;
   question?(
     request: QuestionRequest,
     context: { signal: AbortSignal },
@@ -90,17 +91,18 @@ async function decide(
   signal: AbortSignal,
 ): Promise<AnswerBody | undefined> {
   if (request.kind === "permission" && handlers.permission) {
-    const decision = await handlers.permission(request as PermissionRequest, {
+    const answer = await handlers.permission(request as PermissionRequest, {
       signal,
     });
-    if (!decision) return undefined;
-    if (decision.decision === "deny" && !decision.reason?.trim())
+    if (!answer) return undefined;
+    const action = "action" in answer ? answer.action : answer.decision;
+    if (action === "deny" && !answer.reason?.trim())
       throw new TypeError("a denial needs a reason the model can act on");
     return {
       request_id: request.request_id,
       kind: "permission",
-      decision: decision.decision,
-      ...(decision.reason ? { reason: decision.reason } : {}),
+      action,
+      ...(answer.reason ? { reason: answer.reason } : {}),
     };
   }
   if (request.kind === "question" && handlers.question) {

@@ -43,7 +43,7 @@ function answer(
   body: unknown = {
     request_id: "req_1",
     kind: "permission",
-    decision: "allow",
+    action: "allow",
   },
   headers: Record<string, string> = { "Idempotency-Key": "key-1" },
 ) {
@@ -173,7 +173,7 @@ describe("pending-request routes", () => {
     const unexplained = answer(accepted, {
       request_id: "req_1",
       kind: "permission",
-      decision: "deny",
+      action: "deny",
     });
     expect(await errorOf(unexplained.response)).toEqual({
       status: 404,
@@ -187,7 +187,7 @@ describe("pending-request routes", () => {
     const oversized = answer(accepted, {
       request_id: "req_1",
       kind: "permission",
-      decision: "deny",
+      action: "deny",
       reason: "x".repeat(65 * 1024),
     });
     expect(await errorOf(oversized.response)).toEqual({
@@ -195,5 +195,36 @@ describe("pending-request routes", () => {
       code: "PAYLOAD_TOO_LARGE",
     });
     expect(oversized.seen).toHaveLength(0);
+  });
+
+  test("POST takes the deprecated decision in place of action and stores both alike; both or neither is 400", async () => {
+    const accepted: AnswerRequestResult = { outcome: "not_found" };
+    const base = {
+      request_id: "req_1",
+      kind: "permission" as const,
+      reason: "no",
+    };
+    const current = answer(accepted, { ...base, action: "deny" });
+    const old = answer(accepted, { ...base, decision: "deny" });
+    await Promise.all([current.response, old.response]);
+    const stored = ({ answer, payloadHash }: AnswerRequestInput) => ({
+      answer,
+      payloadHash,
+    });
+    expect(current.seen).toHaveLength(1);
+    expect(old.seen.map(stored)).toEqual(current.seen.map(stored));
+    expect(current.seen[0]?.answer).toEqual({ ...base, decision: "deny" });
+    for (const body of [
+      { ...base, action: "deny", decision: "deny" },
+      { ...base, action: "allow", decision: "deny" },
+      base,
+    ]) {
+      const refused = answer(accepted, body);
+      expect(await errorOf(refused.response)).toEqual({
+        status: 400,
+        code: "BAD_REQUEST",
+      });
+      expect(refused.seen).toHaveLength(0);
+    }
   });
 });

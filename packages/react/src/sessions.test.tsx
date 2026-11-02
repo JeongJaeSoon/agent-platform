@@ -184,7 +184,7 @@ describe("useAnswer", () => {
     const answer = {
       request_id: "req_1",
       kind: "permission",
-      decision: "deny",
+      action: "deny",
       reason: "not on main",
     } as const;
     await act(() => result.current.mutateAsync(answer));
@@ -336,7 +336,7 @@ describe("a refused command", () => {
             result.current.mutateAsync({
               request_id: "req_1",
               kind: "permission",
-              decision: "allow",
+              action: "allow",
             }),
           );
         },
