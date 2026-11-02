@@ -63,6 +63,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   resolve_push: "push 승인·거부",
   push: "push",
   open_pull_request: "PR 열기",
+  update_pull_request: "PR 수정",
   comment_pull_request: "PR 코멘트",
   call_mcp: "원격 MCP 호출",
   create_workspace_profile: "실행 프로필 새 버전 저장",

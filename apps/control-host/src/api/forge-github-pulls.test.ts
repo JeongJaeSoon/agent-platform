@@ -117,6 +117,19 @@ describe("GitHub pull requests", () => {
     expect(github.pullRequests("acme", "app")[0]?.body).toBe(
       "What the session did.\n\ntail",
     );
+    await forge.updatePullRequestBody(
+      opened.number,
+      (current) => current,
+      "Retitled",
+    );
+    expect(github.pullRequests("acme", "app")[0]).toMatchObject({
+      title: "Retitled",
+      body: "What the session did.\n\ntail",
+    });
+    expect(
+      github.apiRequests.filter((request) => request.method === "PATCH").at(-1)
+        ?.body,
+    ).toEqual({ title: "Retitled" });
     await expect(
       forge.updatePullRequestBody(999, (current) => current),
     ).rejects.toThrow();

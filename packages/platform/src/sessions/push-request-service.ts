@@ -204,7 +204,10 @@ export function createPushRequestService(deps: {
           targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
-          approvedByRelease: session.approvalOffRelease,
+          approvedByRelease:
+            repositoryId === session.repositoryId
+              ? session.approvalOffRelease
+              : null,
         }),
       );
     },

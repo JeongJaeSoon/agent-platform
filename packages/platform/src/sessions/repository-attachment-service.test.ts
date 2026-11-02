@@ -51,7 +51,12 @@ function service(
   });
   const attach = (repositoryId: string, attemptId = "att_1") =>
     attachments.attach({ sessionId: SESSION, attemptId, actor, repositoryId });
-  return { store, attach, reads: () => reads };
+  return {
+    store,
+    attach,
+    list: () => attachments.list(SESSION),
+    reads: () => reads,
+  };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -65,6 +70,80 @@ async function refusal(promise: Promise<unknown>) {
   }
   throw new Error("expected a refusal");
 }
+
+describe("list", () => {
+  test("names the session's own and every other one the release allows, unattached ones included", async () => {
+    const s = service();
+    expect(await s.list()).toEqual({
+      repositories: [
+        { id: "app", name: "acme/app", branch: "main", status: "primary" },
+        { id: "docs", name: "acme/docs", branch: "trunk", status: "available" },
+        {
+          id: "tools",
+          name: "acme/tools",
+          branch: "main",
+          status: "available",
+        },
+      ],
+    });
+  });
+
+  test("an attach in flight is pending; a start list or a null list counts as attached", async () => {
+    const pending = service();
+    await pending.attach("docs");
+    expect(
+      (await pending.list()).repositories.map((entry) => entry.status),
+    ).toEqual(["primary", "pending", "available"]);
+
+    expect(
+      (
+        await service({ context: { attachedRepositoryIds: ["tools"] } }).list()
+      ).repositories.map((entry) => entry.status),
+    ).toEqual(["primary", "available", "attached"]);
+    expect(
+      (
+        await service({ context: { attachedRepositoryIds: null } }).list()
+      ).repositories.map((entry) => entry.status),
+    ).toEqual(["primary", "attached", "attached"]);
+  });
+
+  test("the agent's GitHub off, or no release list, leaves only the session's own", async () => {
+    for (const context of [
+      {
+        agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: false },
+      },
+      { release: { id: "release-1", github: null } },
+    ]) {
+      expect((await service({ context }).list()).repositories).toEqual([
+        { id: "app", name: "acme/app", branch: "main", status: "primary" },
+      ]);
+    }
+  });
+
+  test("never carries a credential an old session URL held", async () => {
+    const listed = await service({
+      context: {
+        repository: {
+          url: "https://x-access-token:hunter2@github.com/acme/app.git",
+          branch: "main",
+        },
+      },
+    }).list();
+    expect(listed.repositories[0]?.name).toBe("acme/app");
+    expect(JSON.stringify(listed)).not.toContain("hunter2");
+    expect(JSON.stringify(listed)).not.toContain("https://");
+  });
+
+  test("a session without a repository lists none of its own", async () => {
+    expect(
+      (
+        await service({
+          context: { repositoryId: null, repository: null },
+        }).list()
+      ).repositories.map((entry) => entry.id),
+    ).toEqual(["app", "docs", "tools"]);
+  });
+});
 
 describe("attach", () => {
   test("the session's own repository is attached already: no row, no receipt", async () => {
