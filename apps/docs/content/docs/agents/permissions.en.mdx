@@ -69,6 +69,19 @@ The person who creates an agent becomes that agent's administrator. An administr
 
 An agent can have one responsible team. The responsible team's leads (`lead`) administer the agent; its members (`member`) do not. Unless you are an owner or admin, you can choose only a team you belong to. A team that is responsible for an agent cannot be deleted until that agent is archived or moved to another team.
 
+Who sees what of an agent:
+
+| Who | Information (name, slug, description, responsible team, status, active release) | Reading settings (card, releases, administrators, credential connections, GitHub, Slack) | Changing settings |
+| --- | --- | --- | --- |
+| Owners and admins | Read | Read | Change |
+| Agent administrators (the responsible team's `lead` included) | Read | Read | Change |
+| The responsible team's `member` | Read | Read | No (`403`) |
+| Any other member | Read | No (`403`) | No (`403`) |
+
+<Callout>
+Before, a member could not list agents they did not administer, and the responsible team's `member` could not read the settings either. Now every member finds the workspace's agents with `GET /v1/agents` and `GET /v1/agents/counts`, and the responsible team's `member` reads the settings. The `include=summary` summary (administrators, credential connections) comes only on the agents whose settings the caller reads. A receipt that changed an agent's settings is likewise read only by those who read the settings.
+</Callout>
+
 This continues with `AID` and `WEB` from [Create](/agents/create).
 
 ```bash
