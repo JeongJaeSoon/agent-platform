@@ -87,7 +87,7 @@ export function createPostgresSlackGuestSetting(
 export function outsiderAccessOf(settings: unknown): AgentOutsiderAccess {
   const value = (settings as Record<string, unknown> | null)
     ?.agent_outsider_access;
-  if (value === undefined || value === null) return "use";
+  if (value === undefined) return "use";
   return (AGENT_OUTSIDER_ACCESS_VALUES as readonly unknown[]).includes(value)
     ? (value as AgentOutsiderAccess)
     : "none";

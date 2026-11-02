@@ -672,6 +672,16 @@ integration("agent access settings on PostgreSQL", () => {
         .set({ settings: { agent_outsider_access: "everyone" } })
         .where(eq(workspaces.id, ws));
       expect(await settings().access(ws)).toBe("none");
+      await db
+        .update(workspaces)
+        .set({ settings: { agent_outsider_access: null } })
+        .where(eq(workspaces.id, ws));
+      expect(await settings().access(ws)).toBe("none");
+      await db
+        .update(workspaces)
+        .set({ settings: {} })
+        .where(eq(workspaces.id, ws));
+      expect(await settings().access(ws)).toBe("use");
     });
   });
 
