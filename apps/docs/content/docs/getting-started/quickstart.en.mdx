@@ -1,27 +1,13 @@
 ---
 title: "Quickstart"
-description: Get an API key and create your first session with curl
+description: Create your first session with curl
 ---
 
-On the local stack you brought up as described in [Install](/getting-started/install), get an API key, create a session, and watch the first turn finish. Run the steps in order in the same terminal.
+This assumes you already have a server. If you do not, bring one up and get an API key in [Run a server](/run-server/dev-server). You create a session and watch the first turn finish. The repository, profile, and `GATE-SPEC` scripts in the examples below assume a development server started with `--fake-model`. Run the steps in order in the same terminal.
 
-## Get an API key
+## Connect to the server
 
-```bash
-API=http://127.0.0.1:3000
-KEY=$(scripts/local.sh key quickstart \
-  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
-echo "${KEY:0:4}…"
-```
-
-```text
-key_id …
-csp_…
-```
-
-`key_id` is the id of the key, printed to stderr. The key itself is printed to stdout only once. You cannot see it again, so keep it only in a variable. `quickstart` is the key's owner name, and sessions created with this key belong to that owner. Scopes are described in [API key](/api-keys).
-
-Check that the key works.
+Use `API` (the server address) and `KEY` (the API key) from [Before you start](/getting-started/install). Check that the key works.
 
 ```bash
 curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"

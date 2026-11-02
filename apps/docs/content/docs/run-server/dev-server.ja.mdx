@@ -1,0 +1,111 @@
+---
+title: "開発用サーバーの実行"
+description: ローカルマシンに Werft サーバーを立ち上げ、API キーを取得する
+---
+
+Werft サーバーは API サーバー、scheduler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (SeaweedFS)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
+
+立ち上がると、サーバーのアドレスは `http://127.0.0.1:3000` になる。SDK と curl の例は、このアドレスとここで取得する API キーでサーバーに接続する。
+
+## 必要なもの
+
+| 項目 | バージョン |
+| --- | --- |
+| Docker Engine | 28 以上 |
+| Docker Compose | 2.24.6 以上 |
+| curl, jq, uuidgen, git | 任意のバージョン |
+
+スタックは `127.0.0.1` にのみポートを開く。3000 (API・Web コンソール)、5432 (PostgreSQL)、4566 (S3)・4567 (LocalStack Secrets Manager)、3001 (Gitea) が空いている必要がある。
+
+```sh
+docker version --format 'Docker Engine {{.Server.Version}}'
+docker compose version
+for p in 3000 5432 4566 4567 3001; do
+  lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 && echo "사용 중: $p"
+done
+```
+
+ポートが使用中であることを示す `사용 중:` の行が出なければ、次に進める。
+
+## 取得する
+
+```sh
+git clone https://github.com/JeongJaeSoon/agent-platform.git
+cd agent-platform
+```
+
+## 立ち上げる
+
+```bash
+scripts/local.sh up --fake-model
+```
+
+初回はイメージをこの checkout からビルドするため、数分から 10 分ほどかかる。準備が終わると、最後の行に次が出力される。
+
+```text
+{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
+```
+
+`--fake-model` を付けると、モデル呼び出しは compose 内の fake Messages API が受ける。worker の中では本物の Claude Code が動き、fake はメッセージに書かれたスクリプトどおりに答える ([Quickstart](/getting-started/quickstart))。オプションなしで `scripts/local.sh up` を実行すると、シェルの `ANTHROPIC_API_KEY` で実際の Claude を呼び出し、費用がかかる。
+
+## 状態を確認する
+
+```bash
+scripts/local.sh status
+```
+
+`api`・`scheduler`・`reconciler` が running で、末尾に `/readyz` の応答があればよい。worker コンテナは常駐しない。scheduler がセッションごとに起動して削除する。
+
+## API キーを取得する
+
+```bash
+API=http://127.0.0.1:3000
+KEY=$(scripts/local.sh key quickstart \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+echo "${KEY:0:4}…"
+```
+
+```text
+key_id …
+csp_…
+```
+
+`key_id` は stderr に出力されるキーの id である。キー本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` はキーの owner 名で、このキーで作成したセッションはこの owner のものになる。scope は [API キー](/api-keys) にある。
+
+キーが正しいか確認する。
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+```text
+{"status":"ok","owner_id":"quickstart"}
+```
+
+`API` と `KEY` は、[はじめに](/getting-started/quickstart)の例が同じターミナルで引き続き使う。
+
+## 停止する
+
+```sh
+scripts/local.sh down
+```
+
+`scripts/local.sh down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー、Gitea リポジトリ) を削除する。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
+
+データを残し worker コンテナとネットワークも片付けるには `scripts/local.sh down --keep-volumes` を実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・Gitea・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
+
+以前の LocalStack から移行するときは、pull 前に古い checkout でバックアップし、pull 後に未使用の新しい project へ復元する。失われたオブジェクトはバックアップなしでは復元できないため、参照を放棄するか明示的に判断する。[移行・バックアップ手順](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)を参照する。
+
+## うまくいかないとき
+
+| 症状 | 対処 |
+| --- | --- |
+| `Docker Engine … is too old` | Docker Engine を 28 以上に上げる |
+| `127.0.0.1 port(s) … already in use` | 上の `lsof` ループで、そのポートを使っているプロセスを探す |
+| `up needs ANTHROPIC_API_KEY exported or in .env` | オプションなしの `up` は実際の Claude を使う。キーなしで動かすには `--fake-model` を付ける |
+| Docker を再起動した後に API が起動しない | S3 volume・暗号化キー・ログを確認する。以前の LocalStack のデータ消失なら移行・バックアップ手順に従う |
+
+## 次のステップ
+
+- [Quickstart](/getting-started/quickstart): このサーバーで最初のセッションを作成する
+- [セルフホスティング](/run-server/self-hosting): 複数の人が使うサーバーを運用する
