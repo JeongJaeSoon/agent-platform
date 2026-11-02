@@ -264,8 +264,10 @@ describe("session achievements", () => {
       decision: "confirm",
     });
     expect(
-      within(card).queryByRole("button", { name: "설계 문서 작성 성과 확인" }),
-    ).toBeNull();
+      within(card).queryByRole("button", {
+        name: "설계 문서 작성 성과 확인",
+      }) === null,
+    ).toBe(true);
   });
 
   test("a confirmed achievement shows as decided before the card is read again", async () => {
@@ -309,8 +311,8 @@ describe("session achievements", () => {
       expect(
         within(card).queryByRole("button", {
           name: "설계 문서 작성 성과 확인",
-        }),
-      ).toBeNull(),
+        }) === null,
+      ).toBe(true),
     );
     expect(within(card).getAllByText("확인됨")).toHaveLength(1);
     release();
@@ -330,7 +332,9 @@ describe("session achievements", () => {
     );
     const [merged] = within(card).getAllByRole("listitem");
     await waitFor(() =>
-      expect(merged?.querySelector('[data-slot="field-error"]')).not.toBeNull(),
+      expect(merged?.querySelector('[data-slot="field-error"]') != null).toBe(
+        true,
+      ),
     );
   });
 
@@ -433,7 +437,7 @@ describe("session achievements", () => {
       routes(() => json(200, listed), member),
     );
     const card = await openCard();
-    expect(within(card).queryAllByRole("button")).toEqual([]);
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
   });
 
   test("an agent's admin reviews that agent's achievements", async () => {
@@ -561,6 +565,22 @@ describe("session achievements", () => {
       expect(api.calls.some((call) => call.path === ACHIEVEMENTS)).toBe(true),
     );
     expect(await screen.findByText("아직 결과물이 없습니다.")).toBeTruthy();
-    expect(screen.queryByRole("region", { name: /^성과/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: /^성과/ }) === null).toBe(true);
+  });
+
+  test("achievements without evidence or files do not call the tab empty", async () => {
+    renderAt(
+      `/sessions/${SESSION_ID}`,
+      routes(() => json(200, { ...listed, items: [REVIEW] })),
+    );
+    expect(await openCard()).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /^결과물/ }).textContent).toBe(
+        "결과물1",
+      ),
+    );
+    // The empty state needs no further read here; give it a render to appear.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByText("아직 결과물이 없습니다.") === null).toBe(true);
   });
 });

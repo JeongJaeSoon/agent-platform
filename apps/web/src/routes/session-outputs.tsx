@@ -367,6 +367,9 @@ export function SessionOutputsTab({
   const { t } = useI18n();
   const outputs = useSessionOutputs(session);
   const outcomes = useSessionOutcomes(session);
+  // The tab counts achievements, so with any it is not empty.
+  const achieved =
+    (useSessionAchievements(session).data?.items.length ?? 0) > 0;
   const files = outputs.data?.items ?? [];
   const pulls = outcomes.data?.items ?? [];
   const filesRead =
@@ -387,7 +390,7 @@ export function SessionOutputsTab({
       {filesRead && pullsRead && files.length === 0 && pulls.length === 0 ? (
         outputs.error && !isApiError(outputs.error, "NOT_FOUND") ? (
           <SessionOutputs session={session} />
-        ) : (
+        ) : achieved ? null : (
           <EmptyState
             title={t("session.outputs.empty")}
             description={t("session.outputs.emptyHint")}
