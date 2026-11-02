@@ -115,6 +115,62 @@ function routes(app: typeof APP | null = null, installed = false) {
 }
 
 describe("Slack management", () => {
+  test("a failed read asks again for that query only and saves nothing", async () => {
+    let down = true;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : json(200, { items: [BINDING] }),
+    });
+    const user = await setupUser();
+    const state = await screen.findByRole("region", { name: "상태" });
+    const alert = await within(state).findByRole("alert");
+    expect(alert.textContent).toContain("불러오지 못했습니다");
+    const reads = (path: string) =>
+      api.calls.filter((c) => c.method === "GET" && c.path === path).length;
+    const before = {
+      app: reads(`${PATH}/slack/app`),
+      identities: reads(`${PATH}/identities`),
+      bindings: reads(`${PATH}/slack-bindings`),
+    };
+    down = false;
+    await user.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await waitFor(() =>
+      expect(within(state).queryByRole("alert") === null).toBe(true),
+    );
+    await screen.findByRole("switch", { name: "DM 받기" });
+    expect(reads(`${PATH}/slack-bindings`)).toBeGreaterThan(before.bindings);
+    expect(reads(`${PATH}/slack/app`)).toBe(before.app);
+    expect(reads(`${PATH}/identities`)).toBe(before.identities);
+    expect(api.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  test("a setting row whose read failed offers to read it again, apart from save errors", async () => {
+    let down = true;
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/app/settings`]: () =>
+        down
+          ? apiError(500, "INTERNAL_ERROR", "down")
+          : json(200, { mention_only: true }),
+    });
+    const user = await setupUser();
+    const basic = await screen.findByRole("region", { name: "기본" });
+    const again = await within(basic).findByRole("button", {
+      name: "다시 시도",
+    });
+    expect(within(basic).getAllByRole("alert")).toHaveLength(1);
+    down = false;
+    await user.click(again);
+    expect(
+      await within(basic).findByRole("switch", { name: "멘션했을 때만 반응" }),
+    ).toBeTruthy();
+    expect(within(basic).queryByRole("alert") === null).toBe(true);
+    expect(api.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
   test("does not claim there are no channels when bindings or search failed", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),

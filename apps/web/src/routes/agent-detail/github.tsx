@@ -38,6 +38,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
+import { LoadFailure } from "../../components/load-failure.tsx";
 import {
   errorKey,
   type MessageKey,
@@ -236,6 +237,7 @@ function Activity({
           params: { path: { id: agentId } },
         }),
       ),
+    retry: false,
   });
   return (
     <section
@@ -253,7 +255,10 @@ function Activity({
         </Text>
       </div>
       {activity.error ? (
-        <FieldError>{failure(activity.error, t)}</FieldError>
+        <LoadFailure
+          error={activity.error}
+          onRetry={() => void activity.refetch()}
+        />
       ) : activity.isPending ? (
         <Skeleton className="h-32 w-full" />
       ) : activity.data.items.length === 0 ? (
@@ -1098,6 +1103,7 @@ export default function GitHubTab({
           params: { path: { id: agentId } },
         }),
       ),
+    retry: false,
   });
   const [keys, setKeys] = useState<readonly SectionKey[]>(["use", "activity"]);
   const [current, setCurrent] = useCurrentSection(keys.map((k) => SECTION[k]));
@@ -1117,7 +1123,9 @@ export default function GitHubTab({
     );
   }
   if (github.error) {
-    return <FieldError>{failure(github.error, t)}</FieldError>;
+    return (
+      <LoadFailure error={github.error} onRetry={() => void github.refetch()} />
+    );
   }
   const link = (key: SectionKey) => (
     <SideNavLink

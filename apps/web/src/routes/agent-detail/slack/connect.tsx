@@ -22,6 +22,7 @@ import {
 } from "@werft-ai/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useHasPermission, useMe } from "../../../auth/guard.tsx";
+import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import { useAppServices } from "../../../services.tsx";
 import type { Notify } from "../toast.tsx";
@@ -33,6 +34,7 @@ import {
   SECTION_BOX,
   SLACK_WARNING_KEY,
   slackFailure,
+  slackReason,
   slackState,
 } from "./shared.ts";
 
@@ -158,14 +160,10 @@ export function SlackConnect({
       await refresh();
     },
   });
-  const error =
-    app.error ??
-    identities.error ??
-    connect.error ??
-    remove.error ??
-    revoke.error ??
-    recheck.error;
-  const errorText = error ? slackFailure(error, t) : "";
+  const readError = app.error ?? identities.error;
+  const saveError =
+    connect.error ?? remove.error ?? revoke.error ?? recheck.error;
+  const errorText = saveError ? slackFailure(saveError, t) : "";
   if (app.isPending || identities.isPending) return <SlackSkeleton />;
   const busy =
     connect.isPending ||
@@ -174,7 +172,7 @@ export function SlackConnect({
     recheck.isPending;
   const events = app.data?.events;
   const pending = record?.state === "creating" || record?.state === "deleting";
-  const status = slackState(error, identity, record);
+  const status = slackState(readError ?? saveError, identity, record);
   // An older API sends no state; leave the create error to say why.
   const configToken = app.data?.config_token;
   const tokenBlock =
@@ -347,6 +345,17 @@ export function SlackConnect({
         >
           {notice}
         </output>
+        {/* In the page, the status section above reports a failed read. */}
+        {readError && !inPage ? (
+          <LoadFailure
+            error={readError}
+            guidance={slackReason(readError, t)}
+            onRetry={() => {
+              for (const read of [app, identities])
+                if (read.isError) void read.refetch();
+            }}
+          />
+        ) : null}
         {errorText ? (
           <div>
             <FieldError>{errorText}</FieldError>

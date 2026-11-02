@@ -25,6 +25,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackChannels } from "./queries.ts";
@@ -35,6 +36,7 @@ import {
   SECTION,
   SECTION_BOX,
   slackFailure,
+  slackReason,
 } from "./shared.ts";
 
 /**
@@ -210,7 +212,8 @@ export function SlackChannels({
       ),
     }));
   }, [channels.data]);
-  const error = bindings.error ?? channels.error ?? update.error;
+  const readError = bindings.error ?? channels.error;
+  const error = readError ?? update.error;
   const connectChannel = (channelId: string) => {
     if (locked) return;
     const row = rows.find((item) => item.external_surface_id === channelId);
@@ -295,9 +298,19 @@ export function SlackChannels({
           >
             {notice}
           </output>
-          {error ? (
+          {readError ? (
+            <LoadFailure
+              error={readError}
+              guidance={slackReason(readError, t)}
+              onRetry={() => {
+                for (const read of [bindings, channels])
+                  if (read.isError) void read.refetch();
+              }}
+            />
+          ) : null}
+          {update.error ? (
             <div>
-              <FieldError>{slackFailure(error, t)}</FieldError>
+              <FieldError>{slackFailure(update.error, t)}</FieldError>
             </div>
           ) : null}
           {homeStep ? null : bindings.isPending ? (
