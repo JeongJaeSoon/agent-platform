@@ -65,7 +65,7 @@ import { latestVersion, VersionSelect } from "./versions.tsx";
 // a narrow table keeps the version and the action, and the version cell
 // shows the status and lists the rest.
 const COLUMNS = [
-  "minmax(0,1fr) 96px minmax(0,1.2fr) 72px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) 120px",
+  "minmax(10rem,1.4fr) 96px minmax(0,1.2fr) 72px minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 120px",
   "minmax(0,1fr) 120px",
 ] as const;
 
@@ -408,7 +408,9 @@ export function Releases({
             const wholeNote = item.note ? (
               <span className="wrap-anywhere">{item.note}</span>
             ) : (
-              note
+              <span className="text-muted-foreground">
+                {t("agent.releases.noteNone")}
+              </span>
             );
             const status = (
               <Badge variant={active ? "green" : "gray"}>
