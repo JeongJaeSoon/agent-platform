@@ -73,7 +73,8 @@ function safeRel(newTab: boolean, ...rels: (string | undefined)[]) {
   return tokens.size > 0 ? [...tokens].join(" ") : undefined;
 }
 
-function withTrailing(children: unknown, trailing: ReactNode): unknown {
+/** `children` with `trailing` after it, also when `children` is a render function. */
+export function withTrailing(children: unknown, trailing: ReactNode): unknown {
   if (typeof children !== "function") {
     return (
       <>

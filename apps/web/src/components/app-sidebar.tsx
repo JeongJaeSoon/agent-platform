@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
-import { cn } from "@werft-ai/ui";
+import { cn, IconTile, type TileHue } from "@werft-ai/ui";
 import {
   Bell,
   Bot,
@@ -39,7 +39,6 @@ import {
   type MessageKey,
   useI18n,
 } from "../i18n/i18n.tsx";
-import { IconTile, type TileHue } from "./icon-tile.tsx";
 import { MAIN_CONTENT_ID } from "./main.tsx";
 import { chooseTheme, THEMES, type Theme, useTheme } from "./theme.ts";
 
