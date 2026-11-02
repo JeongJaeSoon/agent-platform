@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { runtimeConfigSchema } from "@werft-ai/contracts";
+import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
 import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 
 import {
@@ -252,6 +254,70 @@ describe("claimFingerprint", () => {
       expect(digest).not.toBe(onMain[id as keyof typeof shipped]);
     }
     expect(OUT_DIRECTORY_PROMPT).toContain("`out/`");
+  });
+
+  test("agent instructions follow the platform's words and change the digest; blank ones change nothing", () => {
+    const repository = {
+      id: "sample-app",
+      url: "https://example.invalid/team/app.git",
+      branch: "main",
+    };
+    const instructed = {
+      ...shipped["claude-coding-real"],
+      agent_instructions: "Answer in haiku.",
+    };
+    const agentPart = { scope: "agent" as const, text: "Answer in haiku." };
+    for (const [workspace, instructions] of [
+      [{ repository }, [agentPart]],
+      [
+        { repository: null },
+        [{ scope: "platform", text: OUT_DIRECTORY_PROMPT }, agentPart],
+      ],
+    ] as const) {
+      const profile = runtimeProfile(
+        config,
+        claude,
+        { principal, runtimeConfig: instructed, workspace },
+        () => null,
+      );
+      expect(profile.bundle.instructions).toEqual(instructions);
+      expect(
+        fingerprint({ principal, runtime_config: instructed, workspace })
+          .profileSha256,
+      ).toBe(claude.fingerprint(profile).profileSha256);
+    }
+    expect(
+      fingerprint({ principal, runtime_config: instructed }).profileSha256,
+    ).not.toBe(onMain["claude-coding-real"]);
+    expect(
+      fingerprint({
+        principal,
+        runtime_config: {
+          ...shipped["claude-coding-real"],
+          agent_instructions: " \n",
+        },
+      }).profileSha256,
+    ).toBe(onMain["claude-coding-real"]);
+  });
+
+  test("the claim carries agent instructions only as runtime_config.agent_instructions; no name, description or role", () => {
+    const base = shipped["claude-coding-real"];
+    expect(
+      runtimeConfigSchema.safeParse({ ...base, agent_instructions: "x" })
+        .success,
+    ).toBe(true);
+    for (const extra of [
+      { agent_instructions: "" },
+      { agent_instructions: "x".repeat(AGENT_INSTRUCTIONS_MAX_LENGTH + 1) },
+      { name: "Reviewer" },
+      { description: "Reviews pull requests" },
+      { role: "reviewer" },
+      { instructions: "card instructions" },
+    ]) {
+      expect(runtimeConfigSchema.safeParse({ ...base, ...extra }).success).toBe(
+        false,
+      );
+    }
   });
 
   test("the built-in github server reaches the engine as a proxy route with the egress token, and no GitHub token", () => {

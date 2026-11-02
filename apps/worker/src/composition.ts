@@ -6,6 +6,7 @@ import type {
 import {
   type CheckpointObjectStore,
   RuntimeRegistry as InstalledRuntimes,
+  type InstructionPart,
   type PlatformMcpServer,
   parseImageRuntime,
   type RuntimeBindings,
@@ -256,10 +257,12 @@ export function runtimeProfile(
     },
     bindings: { principal: owner, provider },
     bundle: {
-      instructions:
-        launch.workspace?.repository === null
-          ? [{ scope: "platform", text: OUT_DIRECTORY_PROMPT }]
-          : [],
+      instructions: [
+        ...(launch.workspace?.repository === null
+          ? [{ scope: "platform" as const, text: OUT_DIRECTORY_PROMPT }]
+          : []),
+        ...agentInstructionsOf(runtimeConfig),
+      ],
       repoInstructions:
         runtimeConfig.project_settings?.claude_md === true &&
         instructionsFile !== undefined
@@ -268,6 +271,14 @@ export function runtimeProfile(
       mcpServers: mcpServersOf(runtimeConfig, config.egressCredentialUrl),
     },
   };
+}
+
+// Blank adds nothing, so its prompt and fingerprint are a claim without it.
+function agentInstructionsOf(runtimeConfig: RuntimeConfig): InstructionPart[] {
+  const text = runtimeConfig.agent_instructions;
+  return text === undefined || text.trim() === ""
+    ? []
+    : [{ scope: "agent", text }];
 }
 
 function mcpServersOf(

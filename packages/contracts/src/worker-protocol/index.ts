@@ -11,6 +11,7 @@ import {
   terminalTurnStatusSchema,
 } from "../api/session.ts";
 import { mcpServerIdSchema } from "../kollegium/agents.ts";
+import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "../shared/agent-card.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -229,6 +230,19 @@ export const runtimeConfigSchema = z
           new Set(servers.map((s) => s.name)).size === servers.length,
         { message: "must not repeat a server" },
       )
+      .optional(),
+    // The release card's `agent_instructions`, appended to the engine's
+    // system prompt and so part of the checkpoint fingerprint. It rides in
+    // this strict object, never at the claim's top level where an older
+    // worker would drop it and run without it: such a worker refuses the
+    // claim instead. Absent when the card has none, so those claims and
+    // their fingerprints stay what they were; every restore config of the
+    // claim carries the same value, since a session's release never
+    // changes.
+    agent_instructions: z
+      .string()
+      .min(1)
+      .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
       .optional(),
   })
   .strict();
