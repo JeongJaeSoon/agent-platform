@@ -3,7 +3,7 @@ title: "개발용 서버 실행"
 description: 로컬 머신에 Werft 서버를 띄우고 API key를 받는다
 ---
 
-Werft 서버는 API 서버, scheduler, 세션마다 뜨는 worker 컨테이너, PostgreSQL, S3(SeaweedFS), Git 서버(Gitea), egress proxy로 이뤄진다. 이 페이지는 이 전부를 Docker Compose로 한 머신에 띄운다. 모델은 key 없이 도는 fake 모델을 쓰므로 Anthropic 계정이 없어도 된다.
+Werft 서버는 API 서버, scheduler, reconciler, 세션마다 뜨는 worker 컨테이너, PostgreSQL, S3(SeaweedFS), Git 서버(Gitea), egress proxy로 이뤄진다. 이 페이지는 이 전부를 Docker Compose로 한 머신에 띄운다. 모델은 key 없이 도는 fake 모델을 쓰므로 Anthropic 계정이 없어도 된다.
 
 다 띄우면 서버 주소는 `http://127.0.0.1:3000`이다. SDK와 curl 예제는 이 주소와 여기서 받는 API key로 서버에 붙는다.
 
@@ -72,17 +72,7 @@ csp_…
 
 `key_id`는 stderr로 나오는 key의 id다. key 자체는 stdout에 한 번만 나온다. 다시 볼 수 없으니 변수에만 둔다. `quickstart`는 key의 owner 이름이고, 이 key로 만든 세션은 이 owner의 것이다. scope는 [API key](/api-keys)에 있다.
 
-key가 맞는지 본다.
-
-```bash
-curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
-```
-
-```text
-{"status":"ok","owner_id":"quickstart"}
-```
-
-`API`와 `KEY`는 [시작하기](/getting-started/quickstart)의 예제가 같은 터미널에서 이어 쓴다.
+`API`와 `KEY`는 [Quickstart](/getting-started/quickstart)의 예제가 같은 터미널에서 이어 쓴다. key가 맞는지도 거기서 처음 확인한다.
 
 ## 내리기
 

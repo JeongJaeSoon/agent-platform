@@ -3,7 +3,7 @@ title: "開発用サーバーの実行"
 description: ローカルマシンに Werft サーバーを立ち上げ、API キーを取得する
 ---
 
-Werft サーバーは API サーバー、scheduler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (SeaweedFS)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
+Werft サーバーは API サーバー、scheduler、reconciler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (SeaweedFS)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
 
 立ち上がると、サーバーのアドレスは `http://127.0.0.1:3000` になる。SDK と curl の例は、このアドレスとここで取得する API キーでサーバーに接続する。
 
@@ -72,17 +72,7 @@ csp_…
 
 `key_id` は stderr に出力されるキーの id である。キー本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` はキーの owner 名で、このキーで作成したセッションはこの owner のものになる。scope は [API キー](/api-keys) にある。
 
-キーが正しいか確認する。
-
-```bash
-curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
-```
-
-```text
-{"status":"ok","owner_id":"quickstart"}
-```
-
-`API` と `KEY` は、[はじめに](/getting-started/quickstart)の例が同じターミナルで引き続き使う。
+`API` と `KEY` は、[Quickstart](/getting-started/quickstart) の例が同じターミナルで引き続き使う。キーが正しいかもそこで最初に確認する。
 
 ## 停止する
 

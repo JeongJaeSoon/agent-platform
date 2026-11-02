@@ -3,7 +3,7 @@ title: "Run a development server"
 description: Bring up a Werft server on your local machine and get an API key
 ---
 
-A Werft server consists of an API server, a scheduler, a worker container started for each session, PostgreSQL, S3 (SeaweedFS), a Git server (Gitea), and an egress proxy. This page brings all of them up on one machine with Docker Compose. It uses a fake model that runs without a key, so you do not need an Anthropic account.
+A Werft server consists of an API server, a scheduler, a reconciler, a worker container started for each session, PostgreSQL, S3 (SeaweedFS), a Git server (Gitea), and an egress proxy. This page brings all of them up on one machine with Docker Compose. It uses a fake model that runs without a key, so you do not need an Anthropic account.
 
 Once it is up, the server address is `http://127.0.0.1:3000`. The SDK and curl examples connect to the server with this address and the API key you get here.
 
@@ -72,17 +72,7 @@ csp_…
 
 `key_id` is the id of the key, printed to stderr. The key itself is printed to stdout only once. You cannot see it again, so keep it only in a variable. `quickstart` is the key's owner name, and sessions created with this key belong to that owner. Scopes are described in [API key](/api-keys).
 
-Check that the key works.
-
-```bash
-curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
-```
-
-```text
-{"status":"ok","owner_id":"quickstart"}
-```
-
-The examples in [Getting started](/getting-started/quickstart) keep using `API` and `KEY` in the same terminal.
+The examples in the [Quickstart](/getting-started/quickstart) keep using `API` and `KEY` in the same terminal, and check the key there first.
 
 ## Stop the stack
 
