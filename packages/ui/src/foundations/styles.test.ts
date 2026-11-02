@@ -292,10 +292,7 @@ describe("tokens.css", () => {
       expect(palette.size).toBeGreaterThan(0);
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
-        [
-          ["--ap-color-foreground", "--ap-color-muted-foreground"],
-          ["--ap-color-sidebar-hover", "--ap-color-sidebar-accent"],
-        ],
+        [TEXT, ["--ap-color-sidebar-hover", "--ap-color-sidebar-accent"]],
         // A status label draws its own tone on its own background — the pair
         // the whole StatusLabel vocabulary rests on.
         ...TONES.map(

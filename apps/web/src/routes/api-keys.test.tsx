@@ -381,10 +381,12 @@ describe("API key", () => {
       const button = screen.getByRole("button", { name: `ID ${KEY_ID} 복사` });
       await act(async () => button.click());
       expect(written).toEqual([KEY_ID]);
-      expect(button.textContent).toBe("복사했습니다");
-      expect(
-        within(rows()[0] as HTMLElement).getByRole("status").textContent,
-      ).toBe("복사했습니다");
+      // The fixed name keeps the copied text out of the button (WCAG
+      // 2.5.3); it shows beside it, in the one live status.
+      expect(button.textContent).toBe("");
+      const status = within(rows()[0] as HTMLElement).getByRole("status");
+      expect(status.textContent).toBe("복사했습니다");
+      expect(status.className.split(" ")).not.toContain("sr-only");
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");

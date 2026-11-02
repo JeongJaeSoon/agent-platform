@@ -3,6 +3,7 @@ import {
   type JSX,
   type ReactNode,
   type RefObject,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -17,17 +18,30 @@ export type CopyButtonProps = Omit<
 > & {
   /** What goes to the clipboard. */
   readonly value: string;
-  /** Visible text. Leave out for an icon-only button named by `aria-label`. */
+  /**
+   * Visible text and the button's name ("Copy"). Leave out for an icon-only
+   * button named by `aria-label`.
+   */
   readonly label?: ReactNode;
   /**
-   * Visible text once the clipboard took the value; `label` by default. Not
-   * beside a fixed `aria-label` that lacks it: that fails label-in-name.
+   * What is copied, e.g. "Key ID ak_…": the button's description, so its
+   * name stays the visible `label`.
+   */
+  readonly description?: string;
+  /**
+   * Visible text once the clipboard took the value; `label` by default. With
+   * a fixed `aria-label` or `aria-labelledby` it shows beside the button, in
+   * the live status,
+   * since a name that differs from the text inside fails label-in-name.
    */
   readonly copiedLabel?: ReactNode;
   /**
    * Announced politely after each copy. A button's changed name is not
    * announced reliably, and a fixed `aria-label` hides it entirely. A copy
    * that settles after `value` changed is not announced; see `onResult`.
+   * `copiedLabel` by default when it is not `label`; a `copiedLabel`
+   * shown beside the button is announced in its place. Compared by
+   * reference, so pass strings.
    */
   readonly copiedMessage?: string;
   /**
@@ -52,12 +66,14 @@ export type CopyButtonProps = Omit<
 
 /**
  * A button that copies `value`, showing `copiedLabel` (and a Check, with
- * `icon="swap"`) while the copy holds. What the screen says about it is left
- * to `onResult`.
+ * `icon="swap"`) while the copy holds. Its name is what it shows (WCAG
+ * 2.5.3): name the target with `description`, not with `aria-label`. What
+ * the screen says about a failure is left to `onResult`.
  */
 export function CopyButton({
   value,
   label,
+  description,
   copiedLabel = label,
   copiedMessage,
   icon = "swap",
@@ -101,7 +117,28 @@ export function CopyButton({
   };
 
   const Icon = copied && icon === "swap" ? Check : Copy;
-  const text = copied ? copiedLabel : label;
+  // Under a fixed name the copied text moves out to the status beside it.
+  const fixedName =
+    props["aria-label"] !== undefined || props["aria-labelledby"] !== undefined;
+  const besideText =
+    fixedName &&
+    copiedLabel !== label &&
+    copiedLabel !== undefined &&
+    copiedLabel !== null
+      ? copiedLabel
+      : null;
+  const text = copied && besideText === null ? copiedLabel : label;
+  // A swapped label is a changed name, which is not announced reliably.
+  const announced =
+    copiedMessage ?? (copiedLabel !== label ? copiedLabel : undefined);
+  const descriptionId = useId();
+  const describedBy =
+    [
+      props["aria-describedby"],
+      description === undefined ? null : descriptionId,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
   return (
     <>
       <Button
@@ -109,6 +146,7 @@ export function CopyButton({
         type={type}
         onClick={() => void copy()}
         {...props}
+        aria-describedby={describedBy}
         data-copied={copied ? "" : undefined}
       >
         {icon === "none" ? null : (
@@ -116,9 +154,20 @@ export function CopyButton({
         )}
         {text === undefined || text === null ? null : <span>{text}</span>}
       </Button>
-      {copiedMessage === undefined ? null : (
+      {description === undefined ? null : (
+        <span id={descriptionId} hidden={true}>
+          {description}
+        </span>
+      )}
+      {besideText !== null ? (
+        // Out of the flow while empty, so a gap beside it shows only with
+        // the text.
+        <output data-slot="copy-button-status" className="empty:absolute">
+          {copied ? <span key={copies}>{besideText}</span> : null}
+        </output>
+      ) : announced === undefined || announced === null ? null : (
         <output className="sr-only">
-          {copied ? <span key={copies}>{copiedMessage}</span> : null}
+          {copied ? <span key={copies}>{announced}</span> : null}
         </output>
       )}
     </>

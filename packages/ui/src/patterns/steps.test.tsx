@@ -59,3 +59,71 @@ describe("Steps", () => {
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Steps 세 상태", () => {
+  test("state가 done·todo·unknown을 받고 done boolean보다 앞선다", () => {
+    const { getAllByRole } = render(
+      <Steps
+        completedLabel="완료"
+        todoLabel="할 일"
+        unknownLabel="확인할 수 없음"
+        items={[
+          { id: "a", title: "자격 증명", state: "done" },
+          { id: "b", title: "릴리스", state: "todo", done: true },
+          {
+            id: "c",
+            title: "활성화",
+            description: "연결 상태를 불러오지 못했습니다.",
+            state: "unknown",
+          },
+          { id: "d", title: "알림", state: "unknown" },
+        ]}
+      />,
+    );
+    const [done, todo, unknown, bare] = getAllByRole("listitem");
+    expect(done?.dataset.state).toBe("done");
+    expect(todo?.dataset.state).toBe("todo");
+    expect(unknown?.dataset.state).toBe("unknown");
+    expect(done?.querySelector(".sr-only")?.textContent).toBe(", 완료");
+    expect(todo?.querySelector(".sr-only")?.textContent).toBe(", 할 일");
+    // The circle is not read; the state is, once, after the title.
+    expect(unknown?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
+      "?",
+    );
+    expect(
+      unknown?.querySelector('[aria-hidden="true"]')?.getAttribute("title"),
+    ).toBe("확인할 수 없음");
+    expect(unknown?.querySelector(".sr-only")?.textContent).toBe(
+      ", 확인할 수 없음",
+    );
+    // On screen it follows the description, hidden from the reader.
+    expect(unknown?.textContent).toContain(
+      "연결 상태를 불러오지 못했습니다. · 확인할 수 없음",
+    );
+    const visible = [
+      ...(unknown?.querySelectorAll('[aria-hidden="true"]') ?? []),
+    ];
+    expect(visible.at(-1)?.textContent).toBe(" · 확인할 수 없음");
+    // With no description the label stands alone on the line.
+    expect(
+      [...(bare?.querySelectorAll('[aria-hidden="true"]') ?? [])].at(-1)
+        ?.textContent,
+    ).toBe("확인할 수 없음");
+  });
+
+  test("기본 문구는 한국어이고 todo는 이름이 없으면 읽지 않는다", () => {
+    const { getAllByRole } = render(
+      <Steps
+        items={[
+          { id: "a", title: "A", state: "unknown" },
+          { id: "b", title: "B" },
+        ]}
+      />,
+    );
+    const [unknown, todo] = getAllByRole("listitem");
+    expect(unknown?.querySelector(".sr-only")?.textContent).toBe(
+      ", 확인할 수 없음",
+    );
+    expect(todo?.querySelector(".sr-only")).toBeNull();
+  });
+});
