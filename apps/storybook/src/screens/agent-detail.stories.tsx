@@ -148,7 +148,7 @@ export const AgentDetail: Story = {
     const tabs = canvas.getAllByRole("tab");
     await expect(tabs.map((tab) => tab.textContent)).toEqual([
       "개요",
-      "카드",
+      "상세 설정",
       "릴리스",
       "관리자",
       "Slack",

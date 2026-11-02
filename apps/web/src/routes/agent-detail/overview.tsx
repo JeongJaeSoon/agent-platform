@@ -548,20 +548,40 @@ export function CardSummary({
                 </Code>
               ),
             },
+            {
+              label: t("agents.description"),
+              value: detail.agent.description ? (
+                <span className={`${VALUE} line-clamp-3`}>
+                  {detail.agent.description}
+                </span>
+              ) : (
+                none
+              ),
+            },
             ...(card
               ? [
                   {
-                    label: t("agentCard.role"),
-                    value: <span className={VALUE}>{card.role}</span>,
-                  },
-                  {
-                    label: t("agentCard.instructions"),
-                    value: (
+                    label: t("agentCard.agentInstructions"),
+                    value: card.agent_instructions ? (
                       <span className={`${VALUE} line-clamp-3`}>
-                        {card.instructions}
+                        {card.agent_instructions}
                       </span>
+                    ) : (
+                      none
                     ),
                   },
+                  ...(card.instructions
+                    ? [
+                        {
+                          label: t("agentCard.earlierInstructions"),
+                          value: (
+                            <span className={`${VALUE} line-clamp-3`}>
+                              {card.instructions}
+                            </span>
+                          ),
+                        },
+                      ]
+                    : []),
                   {
                     label: t("agents.cards.credentials"),
                     value: names(card.capabilities.credential_refs ?? []),

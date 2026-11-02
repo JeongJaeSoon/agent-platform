@@ -47,12 +47,31 @@ describe("카드 폼 변환", () => {
 
   test("카드를 폼으로 옮겼다가 되돌리면 같은 카드다", () => {
     expect<unknown>(cardFromDraft(draftFromCard(CARD), CARD)).toEqual(CARD);
+    const withInstructions = { ...CARD, agent_instructions: "짧게 답한다." };
+    expect<unknown>(
+      cardFromDraft(draftFromCard(withInstructions), withInstructions),
+    ).toEqual(withInstructions);
+  });
+
+  test("에이전트 지시문은 쓴 그대로 싣고, 비우면 빼며, 이전 지시 사항은 옮기지 않는다", () => {
+    const typed = "  한국어로 답한다.\n";
+    const card = cardFromDraft(
+      { ...draftFromCard(CARD), agentInstructions: typed },
+      CARD,
+    );
+    expect(card.agent_instructions).toBe(typed);
+    expect(card.instructions).toBe(CARD.instructions);
+    const cleared = cardFromDraft(
+      { ...draftFromCard(card as AgentCard), agentInstructions: "  " },
+      card as AgentCard,
+    );
+    expect("agent_instructions" in cleared).toBe(false);
+    expect(draftFromCard(CARD).agentInstructions).toBe("");
   });
 
   test("스위치를 켜면 tools: null, 끄면 체크한 도구가 tools다", () => {
     const card = cardFromDraft({
       ...EMPTY_DRAFT,
-      role: " 역할 ",
       model: " m ",
       toolsMode: "list",
       tools: ["Read", "Grep", "Write"],
@@ -62,7 +81,7 @@ describe("카드 폼 변환", () => {
       mcp: null,
       forbidden: [],
     });
-    expect(card.role).toBe("역할");
+    expect(card.model).toBe("m");
     expect(
       cardFromDraft({ ...EMPTY_DRAFT, toolsMode: "all", tools: ["Read"] })
         .capabilities.tools,
@@ -166,10 +185,10 @@ describe("카드 폼 변환", () => {
       },
       rules: [{ id: "r1", text: "환불은 사람에게 넘긴다.", source: "user" }],
     };
-    const draft = { ...draftFromCard(base), role: "환불 문의 담당" };
+    const draft = { ...draftFromCard(base), language: "en" as const };
     expect<unknown>(cardFromDraft(draft, base)).toEqual({
       ...base,
-      role: "환불 문의 담당",
+      language: "en",
     });
   });
 
@@ -191,8 +210,7 @@ describe("카드 폼 변환", () => {
     };
     const card = cardFromDraft(
       {
-        role: "새 역할",
-        instructions: "새 지시",
+        agentInstructions: "새 지시",
         language: "en",
         model: "claude-haiku-5",
         toolsMode: "list",
@@ -202,8 +220,9 @@ describe("카드 폼 변환", () => {
       base,
     );
     expect<unknown>(card).toEqual({
-      role: "새 역할",
-      instructions: "새 지시",
+      role: CARD.role,
+      instructions: CARD.instructions,
+      agent_instructions: "새 지시",
       language: "en",
       model: "claude-haiku-5",
       capabilities: {
@@ -232,17 +251,18 @@ describe("카드 폼 변환", () => {
       forbidden: ["Bash"],
     });
     expect(cardDraftOf(EMPTY_DRAFT)).toEqual(EMPTY_DRAFT);
+    // Input kept before the role and instructions fields left the form.
+    expect(
+      cardDraftOf({ ...EMPTY_DRAFT, role: "역할", instructions: "지시" }),
+    ).toEqual(EMPTY_DRAFT);
+    expect(cardDraftOf({ ...EMPTY_DRAFT, agentInstructions: 1 })).toBeNull();
     expect(cardDraftOf({ ...EMPTY_DRAFT, toolsMode: "some" })).toBeNull();
     expect(cardDraftOf({ ...EMPTY_DRAFT, tools: [1] })).toBeNull();
     expect(cardDraftOf("x")).toBeNull();
   });
 
-  test("새 카드(base 없음)는 편집기 칸과 기본값만 싣는다", () => {
-    expect<unknown>(
-      cardFromDraft({ ...EMPTY_DRAFT, role: "역할", model: "m" }),
-    ).toEqual({
-      role: "역할",
-      instructions: "",
+  test("새 카드(base 없음)는 편집기 칸과 기본값만 싣고 역할·지시 사항은 없다", () => {
+    expect<unknown>(cardFromDraft({ ...EMPTY_DRAFT, model: "m" })).toEqual({
       language: "ko",
       model: "m",
       capabilities: { tools: null, mcp: null, forbidden: [] },

@@ -6,9 +6,12 @@ import type {
   ProfileSummary,
 } from "@werft-ai/contracts";
 import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
-import { draftCapabilities } from "@werft-ai/core/forms";
+import { draftCapabilities, withAgentInstructions } from "@werft-ai/core/forms";
 import {
   Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   Checkbox,
@@ -19,7 +22,6 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  Input,
   NativeSelect,
   NativeSelectOption,
   Skeleton,
@@ -40,8 +42,11 @@ export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
 
 /** The card as the form holds it. */
 export interface CardDraft {
-  readonly role: string;
-  readonly instructions: string;
+  /**
+   * The card's `agent_instructions`, "" for none. Absent from the new-agent
+   * flow, which has no field for it, so a save there keeps the card's.
+   */
+  readonly agentInstructions?: string | undefined;
   readonly language: AgentCard["language"];
   readonly model: string;
   /** `all` = whatever the runtime profile allows (`tools: null`). */
@@ -53,8 +58,6 @@ export interface CardDraft {
 }
 
 export const EMPTY_DRAFT: CardDraft = {
-  role: "",
-  instructions: "",
   language: "ko",
   model: "",
   toolsMode: "all",
@@ -66,8 +69,7 @@ export type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
 
 export function draftFromCard(card: AgentCard): CardDraft {
   return {
-    role: card.role ?? "",
-    instructions: card.instructions ?? "",
+    agentInstructions: card.agent_instructions ?? "",
     language: card.language,
     model: card.model,
     toolsMode: card.capabilities.tools === null ? "all" : "list",
@@ -99,32 +101,46 @@ export function cardDraftOf(value: unknown): CardDraft | null {
   const kept = value as Record<keyof CardDraft, unknown>;
   const tools = listOf(kept.tools);
   const forbidden = listOf(kept.forbidden);
-  const text = ["role", "instructions", "model"] as const;
   if (
     tools === null ||
     forbidden === null ||
-    !text.every((key) => typeof kept[key] === "string") ||
+    typeof kept.model !== "string" ||
+    !(
+      kept.agentInstructions === undefined ||
+      typeof kept.agentInstructions === "string"
+    ) ||
     !AGENT_CARD_LANGUAGE_VALUES.includes(kept.language as never) ||
     (kept.toolsMode !== "all" && kept.toolsMode !== "list")
   )
     return null;
-  return { ...(kept as unknown as CardDraft), tools, forbidden };
+  // Input kept before the role and instructions fields left the form drops them.
+  return {
+    ...(kept.agentInstructions === undefined
+      ? {}
+      : { agentInstructions: kept.agentInstructions as string }),
+    language: kept.language as CardDraft["language"],
+    model: kept.model,
+    toolsMode: kept.toolsMode,
+    tools,
+    forbidden,
+  };
 }
 
 /**
  * The card to send. An edit starts from `base` and overwrites only what the
- * form has a field for, so fields without an editor (rules,
- * tool_policy, credential_refs) survive the save.
+ * form has a field for, so fields without an editor (rules, tool_policy,
+ * credential_refs, an earlier role and instructions) survive the save.
  */
 export function cardFromDraft(draft: CardDraft, base?: AgentCard): ApiCard {
-  const card = {
-    ...(base ?? { rules: [] }),
-    role: draft.role.trim(),
-    instructions: draft.instructions,
-    language: draft.language,
-    model: draft.model.trim(),
-    capabilities: draftCapabilities(draft, base?.capabilities),
-  };
+  const card = withAgentInstructions(
+    {
+      ...(base ?? { rules: [] }),
+      language: draft.language,
+      model: draft.model.trim(),
+      capabilities: draftCapabilities(draft, base?.capabilities),
+    },
+    draft.agentInstructions,
+  );
   return card as unknown as ApiCard;
 }
 
@@ -218,8 +234,6 @@ export const AGENT_FORM =
  * forbidden list cannot be wrong.
  */
 export const CARD_ERROR_FIELDS = [
-  "role",
-  "instructions",
   "model",
   "tools",
 ] as const satisfies readonly (keyof CardDraft)[];
@@ -256,43 +270,6 @@ export function AgentCardFields({
     onChange({ ...draft, [key]: value });
   return (
     <>
-      <Field>
-        <FieldLabel>{t("agentCard.role")}</FieldLabel>
-        <Input
-          required
-          maxLength={200}
-          value={draft.role}
-          onChange={(event) => set("role", event.target.value)}
-        />
-        <FieldDescription>{t("agentCard.roleHint")}</FieldDescription>
-        <FieldError>{errors.role}</FieldError>
-      </Field>
-      <Field>
-        <FieldLabel>{t("agentCard.instructions")}</FieldLabel>
-        <Textarea
-          required
-          maxLength={AGENT_INSTRUCTIONS_MAX_LENGTH}
-          rows={8}
-          value={draft.instructions}
-          onChange={(event) => set("instructions", event.target.value)}
-        />
-        <FieldError>{errors.instructions}</FieldError>
-      </Field>
-      <Field>
-        <FieldLabel>{t("agentCard.language")}</FieldLabel>
-        <NativeSelect
-          value={draft.language}
-          onChange={(event) =>
-            set("language", event.target.value as CardDraft["language"])
-          }
-        >
-          {AGENT_CARD_LANGUAGE_VALUES.map((value) => (
-            <NativeSelectOption key={value} value={value}>
-              {LOCALE_NAMES[value]}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-      </Field>
       {catalog.isPending ? (
         <Skeleton label={t("agentCard.modelsLoading")} />
       ) : catalog.error ? (
@@ -320,6 +297,74 @@ export function AgentCardFields({
           />
         </>
       )}
+      <Field>
+        <FieldLabel>{t("agentCard.language")}</FieldLabel>
+        <NativeSelect
+          value={draft.language}
+          onChange={(event) =>
+            set("language", event.target.value as CardDraft["language"])
+          }
+        >
+          {AGENT_CARD_LANGUAGE_VALUES.map((value) => (
+            <NativeSelectOption key={value} value={value}>
+              {LOCALE_NAMES[value]}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </Field>
+    </>
+  );
+}
+
+/**
+ * The card's agent instructions, appended to the system prompt of sessions
+ * a release of it starts. A card's earlier `instructions` never ran; they
+ * are shown to be copied in, never moved by themselves (agent-wizard-rework.md
+ * item 2).
+ */
+export function AgentInstructionsField({
+  value,
+  earlier,
+  onChange,
+}: {
+  readonly value: string;
+  readonly earlier: string | undefined;
+  readonly onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <Field>
+        <FieldLabel>{t("agentCard.agentInstructions")}</FieldLabel>
+        <Textarea
+          maxLength={AGENT_INSTRUCTIONS_MAX_LENGTH}
+          rows={10}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <FieldDescription>
+          {t("agentCard.agentInstructionsHint")}
+        </FieldDescription>
+      </Field>
+      {earlier ? (
+        <Alert variant="amber">
+          <AlertTitle>{t("agentCard.earlierInstructions")}</AlertTitle>
+          <AlertDescription className="line-clamp-4 whitespace-pre-wrap [overflow-wrap:anywhere]">
+            {earlier}
+          </AlertDescription>
+          <AlertActions>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={value === earlier}
+              onClick={() => onChange(earlier)}
+            >
+              {t("agentCard.importEarlier")}
+            </Button>
+          </AlertActions>
+        </Alert>
+      ) : null}
     </>
   );
 }

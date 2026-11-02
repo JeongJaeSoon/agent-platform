@@ -77,7 +77,8 @@ export type DetailFixture = Pick<AgentDetail, "agent" | "versions"> & {
   readonly active_release: ReleaseFixture | null;
 };
 
-const CARD: AgentDetail["versions"][number]["card"] = {
+/** An earlier card: role and instructions, never applied. */
+const LEGACY_CARD: AgentDetail["versions"][number]["card"] = {
   role: "결제 문의 담당",
   instructions:
     "결제 실패·환불 문의를 받아 원인을 찾고, 필요한 경우 담당자에게 넘긴다.",
@@ -92,6 +93,13 @@ const CARD: AgentDetail["versions"][number]["card"] = {
   rules: [],
 };
 
+/** Edited in 상세 설정: the earlier fields ride along on the base. */
+const CARD: AgentDetail["versions"][number]["card"] = {
+  ...LEGACY_CARD,
+  agent_instructions:
+    "결제 실패와 환불 문의에 답한다. 원인을 모르면 추측하지 말고 결제팀 담당자에게 넘긴다.",
+};
+
 const AGENT_ID = "9b1c2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e";
 
 const VERSIONS: AgentDetail["versions"] = [
@@ -99,7 +107,10 @@ const VERSIONS: AgentDetail["versions"] = [
     id: "7c1e2d3f-4a5b-4c6d-8e9f-0a1b2c3d4e51",
     agent_id: AGENT_ID,
     version_no: 1,
-    card: { ...CARD, capabilities: { ...CARD.capabilities, mcp: null } },
+    card: {
+      ...LEGACY_CARD,
+      capabilities: { ...LEGACY_CARD.capabilities, mcp: null },
+    },
     content_sha256: "1".repeat(64),
     created_by: VIEWER.id,
     created_at: "2026-10-20T05:00:00Z",
@@ -129,7 +140,8 @@ export const RELEASED: DetailFixture = {
     workspace_id: "3a9d5e7f-1b2c-4d3e-9f40-5a6b7c8d9e0f",
     slug: "billing",
     name: "결제 담당",
-    description: null,
+    // Copied from the earlier card's role when descriptions came in.
+    description: "결제 문의 담당",
     managing_team_id: null,
     status: "active",
     active_release_id: RELEASE.id,
@@ -168,7 +180,7 @@ const activeVersion = (detail: DetailFixture) =>
 
 export const AGENT_TABS = [
   ["overview", "개요"],
-  ["card", "카드"],
+  ["card", "상세 설정"],
   ["release", "릴리스"],
   ["admins", "관리자"],
   ["slack", "Slack"],
@@ -241,7 +253,7 @@ export function AgentPage({
   readonly children: ReactNode;
 }) {
   const { agent } = detail;
-  const cardRole = latestVersion(detail)?.card.role;
+  const description = agent.description ?? latestVersion(detail)?.card.role;
   return (
     <Page
       stackBelow="lg"
@@ -266,9 +278,9 @@ export function AgentPage({
       }
       titleAside={<AgentStateBadge agent={agent} />}
       description={
-        cardRole ? (
+        description ? (
           <Text as="span" className={cn(INHERIT, "[overflow-wrap:anywhere]")}>
-            {cardRole}
+            {description}
           </Text>
         ) : undefined
       }
@@ -829,7 +841,7 @@ export function CardSummary({ detail }: { readonly detail: DetailFixture }) {
               </Badge>
             ) : null}
             <Button type="button" variant="outline" size="sm">
-              카드 편집
+              상세 설정 편집
             </Button>
           </div>
         </div>
@@ -843,11 +855,30 @@ export function CardSummary({ detail }: { readonly detail: DetailFixture }) {
                 label: "식별자",
                 value: <Value mono={true}>{detail.agent.slug}</Value>,
               },
-              { label: "역할", value: <Value>{card.role}</Value> },
               {
-                label: "지시 사항",
-                value: <Value clamp={true}>{card.instructions}</Value>,
+                label: "설명",
+                value: detail.agent.description ? (
+                  <Value clamp={true}>{detail.agent.description}</Value>
+                ) : (
+                  "없음"
+                ),
               },
+              {
+                label: "에이전트 지시문",
+                value: card.agent_instructions ? (
+                  <Value clamp={true}>{card.agent_instructions}</Value>
+                ) : (
+                  "없음"
+                ),
+              },
+              ...(card.instructions
+                ? [
+                    {
+                      label: "이전 지시 사항 (적용된 적 없음)",
+                      value: <Value clamp={true}>{card.instructions}</Value>,
+                    },
+                  ]
+                : []),
               {
                 label: "자격 증명",
                 value: (
