@@ -212,20 +212,28 @@ function useCatalog() {
   return { categories, types, rules };
 }
 
+/**
+ * The workspace's figures for a period, or `readable: false` for a caller
+ * who cannot read the whole installation: a caller's own sessions would pass
+ * for the workspace's spend.
+ */
 function useUsage(period: "1" | "30" | "month") {
   const { client } = useAgentPlatform();
-  const scope = useHasPermission("usage.installation_read")
-    ? "installation"
-    : "me";
-  const query = { scope, ...achievementPeriod(period) } as const;
-  return useQuery({
+  const allowed = useHasPermission("usage.installation_read");
+  const query = {
+    scope: "installation",
+    ...achievementPeriod(period),
+  } as const;
+  const figures = useQuery({
     queryKey: scopedKey(client, "usage-achievements", query),
     queryFn: () =>
       unwrap(
         client.GET("/v1/usage/achievements", { params: { query } }),
       ) as Promise<UsageAchievementsResponse>,
+    enabled: allowed,
     retry: false,
   });
+  return { data: figures.data, readable: allowed && !figures.isError };
 }
 
 function useInvalidate() {
@@ -542,18 +550,20 @@ function JudgeCard({
       onSubmit={submit}
       foot={
         <>
-          <Text as="span" variant="meta">
-            <Marked
-              template={(slot) =>
-                t("achievementRules.judge.cost", {
-                  today: slot,
-                  budget: format.usd(settings.daily_budget_usd),
-                  month: usd(month),
-                })
-              }
-              mark={usd(today)}
-            />
-          </Text>
+          {today.readable && month.readable ? (
+            <Text as="span" variant="meta">
+              <Marked
+                template={(slot) =>
+                  t("achievementRules.judge.cost", {
+                    today: slot,
+                    budget: format.usd(settings.daily_budget_usd),
+                    month: usd(month),
+                  })
+                }
+                mark={usd(today)}
+              />
+            </Text>
+          ) : null}
           <ReasonButton
             type="submit"
             className={buttonVariants({ size: "sm" })}
@@ -1308,9 +1318,11 @@ function RulesCard({
               </TableHead>
               <TableHead scope="col">{k.judge}</TableHead>
               <TableHead scope="col">{k.version}</TableHead>
-              <TableHead scope="col" className={NUM}>
-                {k.recent}
-              </TableHead>
+              {usage.readable ? (
+                <TableHead scope="col" className={NUM}>
+                  {k.recent}
+                </TableHead>
+              ) : null}
               <TableHead scope="col">{k.use}</TableHead>
             </TableRow>
           </TableHeader>
@@ -1318,6 +1330,7 @@ function RulesCard({
             {groups.map((group) => (
               <RuleGroup
                 key={group.id}
+                columns={usage.readable ? 6 : 5}
                 name={
                   categories.find((category) => category.id === group.id)
                     ?.name ?? ""
@@ -1361,22 +1374,24 @@ function RulesCard({
                       <TableCell data-k={k.version} className={STACK_CELL}>
                         {t("achievements.version", { version: rule.version })}
                       </TableCell>
-                      <TableCell
-                        data-k={k.recent}
-                        className={`${STACK_CELL} ${NUM}`}
-                      >
-                        {usage.data ? (count?.achievement_count ?? 0) : "—"}
-                        {count && count.needs_review_count > 0 ? (
-                          <>
-                            {" "}
-                            <Text as="span" variant="meta">
-                              {t("achievementRules.rules.waiting", {
-                                count: count.needs_review_count,
-                              })}
-                            </Text>
-                          </>
-                        ) : null}
-                      </TableCell>
+                      {usage.readable ? (
+                        <TableCell
+                          data-k={k.recent}
+                          className={`${STACK_CELL} ${NUM}`}
+                        >
+                          {usage.data ? (count?.achievement_count ?? 0) : "—"}
+                          {count && count.needs_review_count > 0 ? (
+                            <>
+                              {" "}
+                              <Text as="span" variant="meta">
+                                {t("achievementRules.rules.waiting", {
+                                  count: count.needs_review_count,
+                                })}
+                              </Text>
+                            </>
+                          ) : null}
+                        </TableCell>
+                      ) : null}
                       <TableCell data-k={k.use} className={STACK_CELL}>
                         <Switch
                           aria-label={t("achievementRules.rules.useOf", {
@@ -1406,16 +1421,18 @@ function RulesCard({
 
 function RuleGroup({
   name,
+  columns,
   children,
 }: {
   readonly name: string;
+  readonly columns: number;
   readonly children: ReactNode;
 }) {
   return (
     <>
       <TableRow className="bg-surface-sunken">
         <TableCell
-          colSpan={6}
+          colSpan={columns}
           className="font-semibold max-md:block max-md:px-0 max-md:py-0 max-md:first:pl-0"
         >
           {name}

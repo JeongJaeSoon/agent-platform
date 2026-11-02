@@ -258,6 +258,69 @@ describe("성과 규칙", () => {
     );
   });
 
+  test("판정 비용과 지난 30일 수는 설치 전체(scope=installation)로만 묻는다", async () => {
+    const { api } = await opened();
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.path === "/v1/usage/achievements"),
+      ).toHaveLength(3),
+    );
+    for (const call of api.calls.filter(
+      (call) => call.path === "/v1/usage/achievements",
+    )) {
+      expect(call.search).toStartWith("?scope=installation&");
+    }
+  });
+
+  for (const [who, setup] of [
+    [
+      "설치 전체를 읽지 못하는 admin",
+      () => ({ who: me(undefined, "admin"), overrides: {} }),
+    ],
+    [
+      "403을 받은 owner",
+      () => ({
+        who: me(),
+        overrides: {
+          "GET /v1/usage/achievements": () =>
+            json(403, {
+              error: {
+                code: "FORBIDDEN",
+                message: "no",
+                retryable: false,
+                request_id: "req-1",
+                details: null,
+              },
+            }),
+        },
+      }),
+    ],
+  ] as const) {
+    test(`${who}에게는 판정 비용 줄과 지난 30일 칸을 숨긴다`, async () => {
+      const { who: principal, overrides } = setup();
+      const { api } = await opened(overrides, principal);
+      const table = within(section("규칙") as HTMLElement).getByRole("table");
+      await waitFor(() =>
+        expect(
+          within(table).getAllByRole("row")[2]?.querySelectorAll("td").length,
+        ).toBe(5),
+      );
+      expect(
+        within(table)
+          .getAllByRole("columnheader")
+          .map((cell) => cell.textContent),
+      ).toEqual(["제목", "성과 type", "판정", "버전", "사용"]);
+      expect(section("판정 설정")?.textContent).not.toContain("오늘 판정 비용");
+      expect(
+        api.calls.some(
+          (call) =>
+            call.path === "/v1/usage/achievements" &&
+            !call.search.startsWith("?scope=installation&"),
+        ),
+      ).toBe(false);
+    });
+  }
+
   test("판정 설정: 저장된 연결은 그 하나만 고를 수 있다", async () => {
     await opened({
       [`GET ${JUDGE}`]: () =>
