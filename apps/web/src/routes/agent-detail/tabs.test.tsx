@@ -1059,7 +1059,7 @@ describe("에이전트 상세 탭", () => {
     // A narrow table keeps the version and action columns; the version
     // cell shows the status and lists every column it drops, the
     // activation as a time.
-    expect(table.dataset.narrowAt).toBe("760");
+    expect(table.dataset.narrowAt).toBe("860");
     expect(
       within(table)
         .getAllByRole("columnheader")
@@ -1074,17 +1074,17 @@ describe("에이전트 상세 탭", () => {
         .getAllByRole("cell")
         .filter(
           (cell) =>
-            !cell.className.includes("[@container(max-width:760px)]:hidden"),
+            !cell.className.includes("[@container(max-width:860px)]:hidden"),
         ),
     ).toHaveLength(2);
     const narrowStatus = row.querySelector(
-      "span[class*='[@container(max-width:760px)]:flex']",
+      "span[class*='[@container(max-width:860px)]:flex']",
     );
     expect(narrowStatus?.className).toContain("hidden");
     expect(narrowStatus?.textContent).toBe("활성");
     const narrow = row.querySelector("dl");
     expect(narrow?.className).toContain("hidden");
-    expect(narrow?.className).toContain("[@container(max-width:760px)]:flex");
+    expect(narrow?.className).toContain("[@container(max-width:860px)]:flex");
     expect(
       [...(narrow?.querySelectorAll("dt") ?? [])].map((term) => [
         term.textContent,

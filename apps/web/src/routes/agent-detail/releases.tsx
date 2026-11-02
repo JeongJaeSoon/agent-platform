@@ -312,7 +312,7 @@ export function Releases({
         <GridTable
           aria-label={t("agent.releases.title")}
           columns={COLUMNS[0]}
-          narrowAt={760}
+          narrowAt={860}
           narrowColumns={COLUMNS[1]}
           framed={true}
         >
@@ -373,6 +373,15 @@ export function Releases({
                   to: at(item.deactivated_at),
                 })
               );
+            // The narrow list is caption sized; Text sub would make its line taller.
+            const listedActivated =
+              item.activated_at == null ? (
+                <span className="text-muted-foreground">
+                  {t("agent.releases.noteNone")}
+                </span>
+              ) : (
+                activated
+              );
             const card = t("agent.versionShort", {
               version: versionNo(item.version_id) ?? "?",
             });
@@ -432,14 +441,14 @@ export function Releases({
                     >
                       {name}
                     </Text>
-                    {/* GridTable's narrowAt={760}, where the other columns drop. */}
-                    <span className="hidden [@container(max-width:760px)]:flex">
+                    {/* GridTable's narrowAt={860}, where the other columns drop. */}
+                    <span className="hidden [@container(max-width:860px)]:flex">
                       {status}
                     </span>
-                    <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:760px)]:flex">
+                    <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
                       {(
                         [
-                          ["colActivated", activated],
+                          ["colActivated", listedActivated],
                           ["colCard", card],
                           ["profile", profile],
                           ["repository", repository],
