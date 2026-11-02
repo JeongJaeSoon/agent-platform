@@ -78,6 +78,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   disable_achievement_rule: "성과 규칙 사용 중지",
   enable_achievement_rule: "성과 규칙 다시 사용",
   set_achievement_judge: "성과 판정 설정 변경",
+  rejudge_session: "성과 다시 판정",
   set_github_app: "GitHub App 등록",
   delete_github_app: "GitHub App 삭제",
   mint_github_token: "GitHub 토큰 발급",

@@ -3811,6 +3811,8 @@ export const achievementJudgments = pgTable(
     }).notNull(),
     leaseToken: uuid("lease_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    /** sha256 of the judgment's egress token; good while the lease holds. */
+    tokenHash: bytea("token_hash"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3822,12 +3824,19 @@ export const achievementJudgments = pgTable(
       columns: [table.sessionId, table.ownerId, table.workspaceId],
       foreignColumns: [sessions.id, sessions.ownerId, sessions.workspaceId],
     }),
-    uniqueIndex("achievement_judgments_queued_uniq")
+    uniqueIndex("achievement_judgments_pending_uniq")
       .on(table.sessionId)
-      .where(sql`${table.status} = 'queued'`),
-    index("achievement_judgments_due_idx")
+      .where(sql`${table.status} IN ('queued', 'deferred')`),
+    index("achievement_judgments_pending_due_idx")
       .on(table.nextAttemptAt)
-      .where(sql`${table.status} IN ('queued', 'running')`),
+      .where(sql`${table.status} IN ('queued', 'running', 'deferred')`),
+    index("achievement_judgments_workspace_idx").on(
+      table.workspaceId,
+      table.finishedAt,
+    ),
+    uniqueIndex("achievement_judgments_token_uniq")
+      .on(table.tokenHash)
+      .where(sql`${table.tokenHash} IS NOT NULL`),
     index("achievement_judgments_session_idx").on(
       table.sessionId,
       table.createdAt,

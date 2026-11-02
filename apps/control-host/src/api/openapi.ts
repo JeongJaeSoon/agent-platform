@@ -184,6 +184,7 @@ import {
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
   recoveryDecisionRequestSchema,
+  rejudgeSessionResponseSchema,
   requestBodyInvalidDetailsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
@@ -421,6 +422,7 @@ const responseComponents = {
   ListSessionGitHubRefusalsResponse: listSessionGitHubRefusalsResponseSchema,
   ListSessionOutcomesResponse: listSessionOutcomesResponseSchema,
   ListSessionAchievementsResponse: listSessionAchievementsResponseSchema,
+  RejudgeSessionResponse: rejudgeSessionResponseSchema,
   AgentGitHubResponse: agentGitHubResponseSchema,
   PutAgentGitHubEnabledResponse: putAgentGitHubEnabledResponseSchema,
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
@@ -3304,7 +3306,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "What the workspace's achievement rules counted in the session",
     description:
-      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them.\n\n`judgment` is null before the session's first. Its `status` is `queued`, `running`, `succeeded`, `failed` or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and no judge answers it yet). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`; `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
+      "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`. Its `status` is `queued`, `running`, `succeeded`, `failed`, `deferred` (the workspace's judgments spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and no judge answers it yet; `session_limit`: the session's judgments reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`; `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -3354,6 +3356,26 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 404, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/sessions/{id}/achievement-judgments",
+    operationId: "rejudgeSession",
+    tag: "Sessions",
+    summary: "Judge the session again against the achievement rules",
+    description: `${ACHIEVEMENT_MANAGERS} The caller must also be able to read the session. Queues a \`manual\` judgment of the session, or, when one is already pending (queued, or \`deferred\` to the next UTC day's budget), merges into it and answers its id; the judge takes it once two minutes have passed since the session's last trigger. Rules changed since are applied as they are now; nothing else is rejudged. Writes a \`rejudge_session\` receipt naming the judgment. Another owner's session is 404.`,
+    auth: "session",
+    success: {
+      status: 202,
+      schema: "RejudgeSessionResponse",
+      description: "The pending judgment, and the receipt.",
+      example: {
+        judgment_id: "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
   },
   {
     method: "post",

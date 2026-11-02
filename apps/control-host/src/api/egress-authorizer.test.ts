@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import * as schema from "@werft-ai/db";
 import {
+  createPostgresJudgmentEgress,
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
 } from "@werft-ai/db";
@@ -10,6 +11,7 @@ import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
+  hashJudgmentToken,
   WorkerGatewayError,
   withSeededInstallation,
 } from "@werft-ai/platform";
@@ -443,6 +445,143 @@ describe("usage reports", () => {
   });
 });
 
+describe("the judgment route", () => {
+  const LUNA = {
+    url: "https://decisions.example.invalid",
+    headers: [["authorization", "Bearer judge-key"]] as Array<[string, string]>,
+  };
+  const TOKEN = "wej_judgment-token";
+
+  /** A running judgment of a claimed session, holding TOKEN. */
+  async function judging(settings: Record<string, unknown>) {
+    const claim = await claimed();
+    const workspaceId = crypto.randomUUID();
+    await db.insert(schema.workspaces).values({
+      id: workspaceId,
+      slug: `judge-${workspaceId.slice(0, 8)}`,
+      name: "judge",
+      settings: { achievement_judge: settings },
+    });
+    await db
+      .update(schema.sessions)
+      .set({ workspaceId })
+      .where(eq(schema.sessions.id, claim.session_id));
+    const judgmentId = crypto.randomUUID();
+    await db.insert(schema.achievementJudgments).values({
+      id: judgmentId,
+      workspaceId,
+      ownerId: "owner-a",
+      sessionId: claim.session_id,
+      trigger: "evidence",
+      status: "running",
+      nextAttemptAt: new Date(),
+      leaseToken: crypto.randomUUID(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      tokenHash: hashJudgmentToken(TOKEN),
+    });
+    const judged = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: withSeededInstallation({ profiles: {}, repositories: {} }),
+      checkpoints: acceptAllCheckpoints,
+      judgments: {
+        store: createPostgresJudgmentEgress(db),
+        upstream: () => LUNA,
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 60_000,
+      },
+    });
+    authorize = createEgressAuthorizer({
+      gateway: judged,
+      logger: createLogger({ sinks: [] }),
+      token: AUTHORIZER_TOKEN,
+    });
+    return { claim, judgmentId };
+  }
+
+  test("a judgment token is granted under its judgment; its use lands on the judgment and the session's spend stays", async () => {
+    const { claim, judgmentId } = await judging({
+      connection_id: "luna-main",
+    });
+    const granted = await ask({ token: TOKEN, purpose: "judgment" });
+    expect(granted.status).toBe(200);
+    expect(await granted.json()).toEqual({
+      judgment_id: judgmentId,
+      upstream: LUNA,
+    });
+
+    const reported = await ask(
+      {
+        exchange_id: crypto.randomUUID(),
+        judgment_id: judgmentId,
+        usage: {
+          model: "gpt-6-luna",
+          input_tokens: 600,
+          output_tokens: 3,
+          cache_creation_input_tokens: 0,
+          cache_creation_1h_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          estimated: false,
+        },
+      },
+      { path: EGRESS_USAGE_PATH },
+    );
+    expect(reported.status).toBe(200);
+    expect(await reported.json()).toEqual({
+      cost_usd: 0.00006,
+      priced_by: "table",
+    });
+    const [ledger] = await db
+      .select({
+        calls: schema.achievementJudgments.calls,
+        inputTokens: schema.achievementJudgments.inputTokens,
+        costUsd: schema.achievementJudgments.costUsd,
+      })
+      .from(schema.achievementJudgments)
+      .where(eq(schema.achievementJudgments.id, judgmentId));
+    expect(ledger).toEqual({ calls: 1, inputTokens: 600, costUsd: 0.00006 });
+    const [session] = await db
+      .select({
+        costUsd: schema.sessions.costUsd,
+        providerTokens: schema.sessions.providerTokens,
+      })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, claim.session_id));
+    expect(session).toEqual({ costUsd: 0, providerTokens: 0 });
+    expect(await db.select().from(schema.providerUsage)).toEqual([]);
+  });
+
+  test("a judgment token is refused on every session route, and a session token on the judgment route", async () => {
+    await judging({ connection_id: "luna-main" });
+    for (const purpose of ["provider", "repository"]) {
+      expect((await ask({ token: TOKEN, purpose })).status).toBe(401);
+    }
+    expect(
+      (await ask({ token: TOKEN, purpose: "packages", registry: "npm" }))
+        .status,
+    ).toBe(401);
+    expect(
+      (await ask({ token: "wep_engine-token", purpose: "judgment" })).status,
+    ).toBe(401);
+  });
+
+  test("a workspace past the day's judgment budget is refused", async () => {
+    const { judgmentId } = await judging({
+      connection_id: "luna-main",
+      daily_budget_usd: 0.5,
+    });
+    await db
+      .update(schema.achievementJudgments)
+      .set({ costUsd: 0.5 })
+      .where(eq(schema.achievementJudgments.id, judgmentId));
+    const refused = await ask({ token: TOKEN, purpose: "judgment" });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });
+  });
+});
+
 describe("egressAuthorizerConfigFromEnv", () => {
   test("is off without both variables and refuses half a pair or a weak token", () => {
     expect(egressAuthorizerConfigFromEnv({})).toBeNull();
@@ -643,6 +782,8 @@ describe("egress authorizer: remote MCP", () => {
         authorizeObjectAccess: refuse,
         authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
+        authorizeJudgmentEgress: refuse,
+        recordJudgmentUsage: refuse,
         authorizeMcpEgress: answer as never,
       },
       logger: createLogger({ sinks: [] }),
@@ -723,6 +864,8 @@ describe("egress authorizer: remote MCP", () => {
         authorizeObjectAccess: refuse,
         authorizePackagesEgress: refuse,
         recordProviderUsage: refuse,
+        authorizeJudgmentEgress: refuse,
+        recordJudgmentUsage: refuse,
         authorizeMcpEgress: refuse,
       },
       logger: createLogger({ sinks: [] }),

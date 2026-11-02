@@ -117,6 +117,10 @@ const authorizeRequestSchema = z.union([
         .optional(),
     })
     .strict(),
+  // The judge's own calls: a judgment token, never a session's.
+  z
+    .object({ token: tokenSchema, purpose: z.literal("judgment") })
+    .strict(),
   z
     .object({
       token: tokenSchema,
@@ -161,32 +165,44 @@ const authorizeRequestSchema = z.union([
 
 const tokenCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
-const usageReportSchema = z
+const usageSchema = z
   .object({
-    exchange_id: z.string().uuid(),
-    session_id: z.string().uuid(),
-    attempt_id: z.string().min(1).max(256),
-    usage: z
-      .object({
-        model: z.string().min(1).max(256),
-        input_tokens: tokenCount,
-        output_tokens: tokenCount,
-        cache_creation_input_tokens: tokenCount,
-        cache_creation_1h_input_tokens: tokenCount,
-        cache_read_input_tokens: tokenCount,
-        // Optional so a proxy from before still reports; its calls
-        // may have been fast, so a missing speed is priced high.
-        speed: z.string().min(1).max(64).default("unknown"),
-        // Before as well; the call may have run in the US.
-        inference_geo: z.string().min(1).max(64).default("unknown"),
-        web_search_requests: tokenCount.default(0),
-        web_fetch_requests: tokenCount.default(0),
-        code_execution_requests: tokenCount.default(0),
-        estimated: z.boolean(),
-      })
-      .strict(),
+    model: z.string().min(1).max(256),
+    input_tokens: tokenCount,
+    output_tokens: tokenCount,
+    cache_creation_input_tokens: tokenCount,
+    cache_creation_1h_input_tokens: tokenCount,
+    cache_read_input_tokens: tokenCount,
+    // Optional so a proxy from before still reports; its calls
+    // may have been fast, so a missing speed is priced high.
+    speed: z.string().min(1).max(64).default("unknown"),
+    // Before as well; the call may have run in the US.
+    inference_geo: z.string().min(1).max(64).default("unknown"),
+    web_search_requests: tokenCount.default(0),
+    web_fetch_requests: tokenCount.default(0),
+    code_execution_requests: tokenCount.default(0),
+    estimated: z.boolean(),
   })
   .strict();
+
+// A session's call, or one achievement judgment's, which no session pays.
+const usageReportSchema = z.union([
+  z
+    .object({
+      exchange_id: z.string().uuid(),
+      session_id: z.string().uuid(),
+      attempt_id: z.string().min(1).max(256),
+      usage: usageSchema,
+    })
+    .strict(),
+  z
+    .object({
+      exchange_id: z.string().uuid(),
+      judgment_id: z.string().uuid(),
+      usage: usageSchema,
+    })
+    .strict(),
+]);
 
 /**
  * The egress proxy's credential listener, where the API sends a session's
@@ -243,6 +259,8 @@ export function createEgressAuthorizer(deps: {
     | "authorizeObjectAccess"
     | "authorizePackagesEgress"
     | "recordProviderUsage"
+    | "authorizeJudgmentEgress"
+    | "recordJudgmentUsage"
   >;
   logger: StructuredLogger;
   /** Absent when the API runs without an object store: the route refuses. */
@@ -335,7 +353,7 @@ export function createEgressAuthorizer(deps: {
         return problem(
           400,
           "BAD_REQUEST",
-          "Expected {exchange_id, session_id, attempt_id, usage}",
+          "Expected {exchange_id, session_id, attempt_id, usage} or {exchange_id, judgment_id, usage}",
         );
       }
       return answerWithin(() => recordUsage(report), { purpose: "usage" });
@@ -359,6 +377,8 @@ export function createEgressAuthorizer(deps: {
             return deps.gateway.authorizeMcpEgress(body);
           case "packages":
             return deps.gateway.authorizePackagesEgress(body);
+          case "judgment":
+            return deps.gateway.authorizeJudgmentEgress(body);
           default:
             return deps.gateway.authorizeEgress(body);
         }
@@ -439,24 +459,40 @@ export function createEgressAuthorizer(deps: {
 
   async function recordUsage(report: z.infer<typeof usageReportSchema>) {
     const { usage } = report;
+    const counted = {
+      model: usage.model,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      cacheCreationInputTokens: usage.cache_creation_input_tokens,
+      cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
+      cacheReadInputTokens: usage.cache_read_input_tokens,
+      speed: usage.speed,
+      inferenceGeo: usage.inference_geo,
+      webSearchRequests: usage.web_search_requests,
+      webFetchRequests: usage.web_fetch_requests,
+      codeExecutionRequests: usage.code_execution_requests,
+      estimated: usage.estimated,
+    };
+    if ("judgment_id" in report) {
+      const priced = await deps.gateway.recordJudgmentUsage({
+        exchangeId: report.exchange_id,
+        judgmentId: report.judgment_id,
+        usage: counted,
+      });
+      if (priced.pricedBy === "fallback") {
+        deps.logger.warn("Judgment usage priced at the fallback rate", {
+          judgment_id: report.judgment_id,
+          model: usage.model,
+          cost_usd: priced.costUsd,
+        });
+      }
+      return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
+    }
     const priced = await deps.gateway.recordProviderUsage({
       exchangeId: report.exchange_id,
       sessionId: report.session_id,
       attemptId: report.attempt_id,
-      usage: {
-        model: usage.model,
-        inputTokens: usage.input_tokens,
-        outputTokens: usage.output_tokens,
-        cacheCreationInputTokens: usage.cache_creation_input_tokens,
-        cacheCreation1hInputTokens: usage.cache_creation_1h_input_tokens,
-        cacheReadInputTokens: usage.cache_read_input_tokens,
-        speed: usage.speed,
-        inferenceGeo: usage.inference_geo,
-        webSearchRequests: usage.web_search_requests,
-        webFetchRequests: usage.web_fetch_requests,
-        codeExecutionRequests: usage.code_execution_requests,
-        estimated: usage.estimated,
-      },
+      usage: counted,
     });
     if (priced.pricedBy === "fallback") {
       deps.logger.warn("Provider usage priced at the fallback rate", {

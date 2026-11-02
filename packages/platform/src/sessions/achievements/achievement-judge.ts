@@ -13,6 +13,7 @@ import {
   type JudgmentResult,
   type NewAchievement,
 } from "./achievement-judgment-store.ts";
+import { nextUtcDay, utcDayStart } from "./judgment-token.ts";
 
 export const ACHIEVEMENT_JUDGE_INTERVAL_MS = 30_000;
 /** A judgment a dead replica held is claimed again after this. */
@@ -112,18 +113,23 @@ function evidenceOf(
  * use (design achievement-rules.md §4). Each API replica runs one; a claim
  * leases its judgments, and the achievements and the result are written in
  * one transaction under that lease. An `always` rule counts each of its
- * evidence at no cost. No judge backend exists yet, so a `luna` rule's
- * pairs leave the judgment `skipped` (`judge_unavailable`). A try that fails
- * is tried again 1, 5 and 30 minutes later, then ends `failed`.
+ * evidence at no cost. A `luna` rule's pairs wait for the next UTC day once
+ * the workspace's judgments have spent the day's budget, and are skipped
+ * for a session at its cap (`session_limit`); no judge backend exists yet,
+ * so otherwise they leave the judgment `skipped` (`judge_unavailable`). A
+ * try that fails is tried again 1, 5 and 30 minutes later, then ends
+ * `failed`.
  */
 export function createAchievementJudge(deps: {
-  store: AchievementJudgmentStore;
+  store: Pick<AchievementJudgmentStore, "claim" | "context" | "finish">;
   outputs: Pick<SessionOutputSource, "readOutputs">;
   logger: Logger;
   claimMax?: number;
   leaseMs?: number;
+  now?: () => Date;
 }) {
   const { store, outputs, logger } = deps;
+  const now = deps.now ?? (() => new Date());
   const claimMax = deps.claimMax ?? ACHIEVEMENT_JUDGMENT_CLAIM_MAX;
   const leaseMs = deps.leaseMs ?? ACHIEVEMENT_JUDGMENT_LEASE_MS;
 
@@ -159,7 +165,8 @@ export function createAchievementJudge(deps: {
   }
 
   async function judge(claimed: ClaimedJudgment): Promise<JudgmentResult> {
-    const context = await store.context(claimed);
+    const at = now();
+    const context = await store.context(claimed, utcDayStart(at));
     let files: { path: string; bytes: number }[] = [];
     let outputsUnavailable = false;
     if (context.rules.some((rule) => rule.evidenceKind === "out_file")) {
@@ -228,11 +235,23 @@ export function createAchievementJudge(deps: {
     if (outputsUnavailable) {
       return { ...again(claimed, "outputs_unavailable"), ...paired };
     }
-    return {
-      status: unjudged ? "skipped" : "succeeded",
-      errorCode: unjudged ? "judge_unavailable" : null,
-      ...paired,
-    };
+    if (!unjudged) return { status: "succeeded", errorCode: null, ...paired };
+    const { judge } = context;
+    if (judge.connectionId !== null && judge.spentUsd >= judge.dailyBudgetUsd) {
+      return {
+        status: "deferred",
+        until: nextUtcDay(at),
+        errorCode: null,
+        ...paired,
+      };
+    }
+    if (
+      judge.connectionId !== null &&
+      judge.sessionJudgments >= judge.maxPerSession
+    ) {
+      return { status: "skipped", errorCode: "session_limit", ...paired };
+    }
+    return { status: "skipped", errorCode: "judge_unavailable", ...paired };
   }
 
   /** One pass. Returns how many judgments it finished. */

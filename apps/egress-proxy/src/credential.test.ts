@@ -70,6 +70,24 @@ describe("routeOf", () => {
     }
   });
 
+  test("routes the judge's one operation, nothing beside it", () => {
+    expect(routeOf("POST", "/decisions/v1/decisions", "")).toEqual({
+      purpose: "judgment",
+      path: "/v1/decisions",
+      search: "",
+    });
+    for (const [method, path, search] of [
+      ["GET", "/decisions/v1/decisions", ""],
+      ["POST", "/decisions/v1/decisions", "?x=1"],
+      ["POST", "/decisions/v1/decisions/", ""],
+      ["POST", "/decisions/v1/responses", ""],
+      ["POST", "/decisions/v1/messages", ""],
+      ["POST", "/provider/v1/decisions", ""],
+    ] as const) {
+      expect(routeOf(method, path, search)).toBeNull();
+    }
+  });
+
   test("routes another repository's read half by the one path segment naming it", () => {
     expect(
       routeOf("GET", "/repository/docs/info/refs", "?service=git-upload-pack"),
@@ -225,6 +243,7 @@ describe("parseGrant", () => {
     expect(parseGrant(good)).toEqual({
       sessionId: "s",
       attemptId: "a",
+      judgmentId: null,
       upstream: new URL("https://api.test"),
       headers: [["x-api-key", "k"]],
       target: null,
@@ -241,6 +260,25 @@ describe("parseGrant", () => {
       expect(
         parseGrant({ ...good, upstream: { ...good.upstream, target } }),
       ).toBeNull();
+    }
+  });
+
+  test("a judgment grant names its judgment and no session; one naming both is refused", () => {
+    const judgment = { judgment_id: "j", upstream: good.upstream };
+    expect(parseGrant(judgment)).toMatchObject({
+      sessionId: null,
+      attemptId: null,
+      judgmentId: "j",
+      headers: [["x-api-key", "k"]],
+    });
+    for (const bad of [
+      { ...judgment, session_id: "s" },
+      { ...judgment, attempt_id: "a" },
+      { ...good, judgment_id: "j" },
+      { ...judgment, judgment_id: 7 },
+      { session_id: "s", upstream: good.upstream },
+    ]) {
+      expect(parseGrant(bad)).toBeNull();
     }
   });
 
@@ -408,6 +446,7 @@ type UsageReport = {
   exchange_id: string;
   session_id: string;
   attempt_id: string;
+  judgment_id?: string;
   usage: Record<string, unknown>;
 };
 
@@ -2013,6 +2052,111 @@ describe("startCredentialProxy", () => {
     const response = await messages(server.port);
     expect(response.status).toBe(403);
     expect(up.seen).toEqual([]);
+  });
+
+  describe("the judgment route", () => {
+    const JUDGMENT_TOKEN = "wej_judgment-token";
+    const JUDGE_KEY = "sk-judge-key-kept-from-everyone";
+    const judgmentGrant = (url: string) =>
+      Response.json({
+        judgment_id: "judg-1",
+        upstream: { url, headers: [["authorization", `Bearer ${JUDGE_KEY}`]] },
+      });
+    const decide = (
+      port: number,
+      token: string,
+      path = "/decisions/v1/decisions",
+    ) =>
+      fetch(`http://127.0.0.1:${port}${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: '{"model":"gpt-6-luna"}',
+      });
+
+    test("sends the judge's key, and reports the answer's usage under the judgment, never a session", async () => {
+      const up = upstream(() =>
+        Response.json({
+          model: "gpt-6-luna",
+          choice: "yes",
+          usage: { input_tokens: 600, output_tokens: 0 },
+        }),
+      );
+      const auth = authorizer((body) =>
+        body.token === JUDGMENT_TOKEN && body.purpose === "judgment"
+          ? judgmentGrant(`http://upstream.test:${up.port}`)
+          : new Response("no", { status: 401 }),
+      );
+      const server = proxy(auth.url, up.port);
+      const response = await decide(server.port, JUDGMENT_TOKEN);
+      expect(response.status).toBe(200);
+      await response.json();
+      expect(auth.asked).toEqual([
+        { token: JUDGMENT_TOKEN, purpose: "judgment" },
+      ]);
+      const [seen] = up.seen;
+      expect(new URL(seen?.url ?? "").pathname).toBe("/v1/decisions");
+      expect(seen?.headers.authorization).toBe(`Bearer ${JUDGE_KEY}`);
+      expect(JSON.stringify(seen)).not.toContain(JUDGMENT_TOKEN);
+      await until(() => auth.reported.length === 1);
+      const [report] = auth.reported;
+      expect(report).toMatchObject({
+        judgment_id: "judg-1",
+        usage: { model: "gpt-6-luna", input_tokens: 600, output_tokens: 0 },
+      });
+      expect(Object.keys(report ?? {}).sort()).toEqual([
+        "exchange_id",
+        "judgment_id",
+        "usage",
+      ]);
+    });
+
+    // What every proxy before judgment grants does with one: its grant
+    // parser requires a session and an attempt.
+    test("a judgment grant on a session route is refused and reaches nothing", async () => {
+      const up = upstream(() => Response.json({ id: "msg_1" }));
+      const auth = authorizer(() =>
+        judgmentGrant(`http://upstream.test:${up.port}`),
+      );
+      const server = proxy(auth.url, up.port);
+      const response = await messages(server.port);
+      expect(response.status).toBe(503);
+      await response.text();
+      expect(up.seen).toEqual([]);
+      expect(auth.reported).toEqual([]);
+    });
+
+    test("a session grant on the judgment route is refused and reaches nothing", async () => {
+      const up = upstream(() => Response.json({ model: "gpt-6-luna" }));
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["authorization", `Bearer ${JUDGE_KEY}`],
+        ]),
+      );
+      const server = proxy(auth.url, up.port);
+      const response = await decide(server.port, WORKER_TOKEN);
+      expect(response.status).toBe(503);
+      await response.text();
+      expect(up.seen).toEqual([]);
+      expect(auth.reported).toEqual([]);
+    });
+
+    test("the judge's refusal is relayed and never logged", async () => {
+      const up = upstream(
+        () => new Response("Incorrect API key ...-key", { status: 401 }),
+      );
+      const auth = authorizer(() =>
+        judgmentGrant(`http://upstream.test:${up.port}`),
+      );
+      const lines: string[] = [];
+      const server = proxy(auth.url, up.port, {
+        logger: createProxyLogger("debug", (line) => lines.push(line)),
+      });
+      const response = await decide(server.port, JUDGMENT_TOKEN);
+      expect(response.status).toBe(401);
+      await response.text();
+      expect(lines.join("\n")).not.toContain("Incorrect API key");
+      expect(auth.reported).toEqual([]);
+    });
   });
 
   describe("the remote MCP route", () => {

@@ -96,7 +96,10 @@ export async function insertBuiltinAchievementTypes(
 
 // The actor's role is read again under a share lock, and the workspace row
 // is held so that limit and in-use checks see every other write settled.
-async function managing(tx: Database, actor: TeamActor): Promise<boolean> {
+export async function managing(
+  tx: Database,
+  actor: TeamActor,
+): Promise<boolean> {
   const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
   if (me?.live !== true || !RULE_MANAGERS.includes(me.role)) return false;
   const [workspace] = await tx

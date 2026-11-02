@@ -8,6 +8,7 @@ import type {
   GitHubReviewEvent,
   ListSessionAchievementsResponse,
 } from "@werft-ai/contracts";
+import type { TeamActor } from "../../ports/team-store.ts";
 
 /** Triggers within this of the last one merge into one judgment. */
 export const ACHIEVEMENT_JUDGMENT_QUIET_MS = 120_000;
@@ -56,6 +57,18 @@ export type OutcomeEvidence =
       commitId: string;
     };
 
+/** The workspace's judge, as it stands when a judgment runs. */
+export type JudgeInForce = {
+  /** The `openai_decisions` connection; null leaves `luna` rules unjudged. */
+  connectionId: string | null;
+  dailyBudgetUsd: number;
+  maxPerSession: number;
+  /** What the workspace's judgments have cost since the UTC day began. */
+  spentUsd: number;
+  /** The session's judgments that called the judge so far. */
+  sessionJudgments: number;
+};
+
 export type JudgmentContext = {
   session: {
     id: string;
@@ -65,6 +78,7 @@ export type JudgmentContext = {
   };
   rules: JudgedRule[];
   outcomes: OutcomeEvidence[];
+  judge: JudgeInForce;
 };
 
 export type NewAchievement = {
@@ -92,6 +106,8 @@ export type JudgmentResult = {
   | { status: "succeeded" | "skipped" | "failed" }
   /** Tried again after `retryInMs`. */
   | { status: "queued"; retryInMs: number }
+  /** Over the day's budget: picked again at `until`, the next UTC day. */
+  | { status: "deferred"; until: Date }
 );
 
 /** The judgments and achievements of sessions; the judge is the only writer. */
@@ -101,14 +117,17 @@ export interface AchievementJudgmentStore {
    * older than the quiet time, and running ones whose lease ran out.
    */
   claim(input: { max: number; leaseMs: number }): Promise<ClaimedJudgment[]>;
-  /** What the judgment pairs: the session, its rules in use, its outcomes. */
-  context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
+  /**
+   * What the judgment pairs: the session, its rules in use, its outcomes,
+   * and the workspace's judge with its spend since `today` (a UTC midnight).
+   */
+  context(judgment: ClaimedJudgment, today: Date): Promise<JudgmentContext>;
   /**
    * Writes the result and the achievements in one transaction under the
    * lease; one a rule family already has for the evidence is kept. A retry
-   * goes back to queued, or, when the session has another queued judgment
-   * already, moves that one's wait instead and ends as `failed`. False when
-   * the lease was taken over meanwhile.
+   * goes back to queued and a deferral to deferred, or, when the session
+   * has another pending judgment already, moves that one's wait instead and
+   * ends as `failed`. False when the lease was taken over meanwhile.
    */
   finish(judgment: ClaimedJudgment, result: JudgmentResult): Promise<boolean>;
   /** Null when the owner has no such session. */
@@ -116,4 +135,45 @@ export interface AchievementJudgmentStore {
     ownerId: string,
     sessionId: string,
   ): Promise<ListSessionAchievementsResponse | null>;
+  /**
+   * Queues a `manual` judgment of the session, or merges into its pending
+   * one, with a `rejudge_session` receipt in the same transaction.
+   */
+  rejudge(input: {
+    actor: TeamActor;
+    sessionId: string;
+    receiptId: string;
+  }): Promise<
+    | { outcome: "queued"; judgmentId: string }
+    | { outcome: "not_found" | "actor_inactive" }
+  >;
+}
+
+/** The judgment egress token's half of the store (achievement-rules.md §4). */
+export interface JudgmentEgressStore {
+  /** Stores the token's hash on a judgment the lease still holds. */
+  issueToken(
+    judgment: ClaimedJudgment,
+    tokenHash: Uint8Array,
+  ): Promise<boolean>;
+  /**
+   * The running judgment the token belongs to while its lease holds, with
+   * the workspace's judge and its spend since `today`.
+   */
+  authorizeToken(input: { tokenHash: Uint8Array; today: Date }): Promise<
+    | {
+        outcome: "ok";
+        judgmentId: string;
+        connectionId: string | null;
+        dailyBudgetUsd: number;
+        spentUsd: number;
+      }
+    | { outcome: "invalid_token" }
+  >;
+  /** Adds one call's use to the judgment's ledger; false for no such judgment. */
+  recordUsage(input: {
+    judgmentId: string;
+    inputTokens: number;
+    costUsd: number;
+  }): Promise<boolean>;
 }

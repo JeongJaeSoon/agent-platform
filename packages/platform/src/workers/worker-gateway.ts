@@ -57,6 +57,7 @@ import { budgetExceeded } from "../limits/installation-limits.ts";
 import {
   type PricedBy,
   type ProviderUsage,
+  priceJudgmentUsage,
   priceProviderUsage,
 } from "../limits/model-prices.ts";
 import type { CheckpointPointer } from "../ports/checkpoint-store.ts";
@@ -90,6 +91,12 @@ import type {
   WorkerFence,
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
+import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
+import {
+  hashJudgmentToken,
+  JUDGMENT_TOKEN_PREFIX,
+  utcDayStart,
+} from "../sessions/achievements/judgment-token.ts";
 import {
   acceptedRuntimeVersions,
   allowedPair,
@@ -274,6 +281,16 @@ function generateEgressToken(purpose: EgressPurpose): string {
 export type EgressGrant = {
   session_id: string;
   attempt_id: string;
+  upstream: EgressUpstream;
+};
+
+/**
+ * The judgment route's grant: no session or attempt, so a proxy from before
+ * judgment grants, which requires both, refuses it rather than charging a
+ * session.
+ */
+export type JudgmentEgressGrant = {
+  judgment_id: string;
   upstream: EgressUpstream;
 };
 
@@ -494,6 +511,13 @@ export function createWorkerGateway(deps: {
   };
   // Absent, a session keeps the title cut from its first message.
   titles?: { store: SessionTitleStore; titler: SessionTitler };
+  // Absent, the judgment route is refused. `upstream` reaches the judge a
+  // connection names; absent, or null for that connection, the route is
+  // unavailable.
+  judgments?: {
+    store: JudgmentEgressStore;
+    upstream?: (connectionId: string) => EgressUpstream | null;
+  };
   // Absent, events are stored without the engine-neutral fields beside them.
   neutralize?: NeutralizeEvent;
   // Absent, a claim carries no `git` and the worker adds no commit trailer.
@@ -1627,6 +1651,72 @@ export function createWorkerGateway(deps: {
         return grant(repositoryUpstreamOf(pair.repository));
       }
       return grant(repositoryUpstreamOf(pair.repository, issued.gitCredential));
+    },
+
+    // The judgment route's question: a judgment token stands for one
+    // running judgment while the judge holds its lease. Held to the
+    // workspace's judgment budget, never a session's.
+    async authorizeJudgmentEgress(request: {
+      token: string;
+    }): Promise<JudgmentEgressGrant> {
+      const invalid = () =>
+        new WorkerGatewayError(
+          401,
+          "UNAUTHORIZED",
+          "Judgment token is missing, expired or for another route",
+        );
+      if (
+        deps.judgments === undefined ||
+        !request.token.startsWith(JUDGMENT_TOKEN_PREFIX)
+      ) {
+        throw invalid();
+      }
+      const result = await deps.judgments.store.authorizeToken({
+        tokenHash: hashJudgmentToken(request.token),
+        today: utcDayStart(now()),
+      });
+      if (result.outcome !== "ok") throw invalid();
+      if (result.spentUsd >= result.dailyBudgetUsd) {
+        throw new WorkerGatewayError(
+          403,
+          "BUDGET_EXCEEDED",
+          "The workspace has spent its judgment budget for the day",
+        );
+      }
+      const upstream =
+        result.connectionId === null
+          ? null
+          : (deps.judgments.upstream?.(result.connectionId) ?? null);
+      if (upstream === null) {
+        throw new WorkerGatewayError(
+          503,
+          "BACKEND_UNAVAILABLE",
+          "No judge is reachable for this workspace",
+          true,
+        );
+      }
+      return { judgment_id: result.judgmentId, upstream };
+    },
+
+    // What one judgment call used, as the proxy read it off the answer: the
+    // judgment's ledger, apart from every session's spend.
+    async recordJudgmentUsage(report: {
+      exchangeId: string;
+      judgmentId: string;
+      usage: ProviderUsage;
+    }): Promise<{ costUsd: number; pricedBy: PricedBy }> {
+      const priced = priceJudgmentUsage(report.usage);
+      const recorded =
+        deps.judgments !== undefined &&
+        (await deps.judgments.store.recordUsage({
+          judgmentId: report.judgmentId,
+          inputTokens: report.usage.inputTokens,
+          costUsd: priced.costUsd,
+        }));
+      if (!recorded) {
+        throw new WorkerGatewayError(404, "NOT_FOUND", "No such judgment");
+      }
+      return priced;
     },
 
     // What one Messages call through the provider route used, as the proxy
