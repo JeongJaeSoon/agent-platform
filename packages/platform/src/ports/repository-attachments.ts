@@ -63,6 +63,8 @@ export interface RepositoryAttachmentStore {
     repositoryId: string,
   ): Promise<RepositoryAttachmentRow | null>;
   recordRefusal(input: RepositoryAttachmentRefusal): Promise<string>;
+  /** Every row of the session, oldest first. */
+  list(sessionId: string): Promise<RepositoryAttachmentRow[]>;
   /** The session's pending rows, oldest first. */
   pending(sessionId: string): Promise<RepositoryAttachmentRow[]>;
   /**

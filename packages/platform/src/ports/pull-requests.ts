@@ -52,7 +52,10 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
   },
 };
 
-export type PullRequestOperation = "open_pull_request" | "comment_pull_request";
+export type PullRequestOperation =
+  | "open_pull_request"
+  | "update_pull_request"
+  | "comment_pull_request";
 
 /** The push request a pull request is opened from, as stored. */
 export type PullRequestSource = {

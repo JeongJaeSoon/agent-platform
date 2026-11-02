@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { closeSync, fstatSync, openSync } from "node:fs";
+import { PLATFORM_AUTO_MODE } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { MEMORY_READ_GUIDANCE } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
@@ -581,6 +582,28 @@ describe("Claude SDK adapter options", () => {
       expect(
         buildSdkOptions({ ...config, permissionMode }, allow),
       ).not.toHaveProperty("allowDangerouslySkipPermissions");
+    }
+  });
+
+  test("auto alone hands the engine the platform's auto mode rules", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    const auto = buildSdkOptions({ ...config, permissionMode: "auto" }, allow);
+    expect(auto.settings).toEqual({ autoMode: PLATFORM_AUTO_MODE });
+    for (const section of Object.values(PLATFORM_AUTO_MODE)) {
+      expect(section[0]).toBe("$defaults");
+    }
+    for (const permissionMode of [
+      "default",
+      "acceptEdits",
+      "dontAsk",
+      "plan",
+      "bypassPermissions",
+    ] as const) {
+      expect(
+        buildSdkOptions({ ...config, permissionMode }, allow),
+      ).not.toHaveProperty("settings");
     }
   });
 

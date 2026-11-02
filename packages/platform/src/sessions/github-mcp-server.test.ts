@@ -156,6 +156,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
           });
           return { created: true } as never;
         },
+        update: unused,
         comment: unused,
       },
       githubWork: createGitHubWorkService({
@@ -268,7 +269,9 @@ describe("tools/list", () => {
     expect(toolNames(await list({}))).toEqual([
       "request_push",
       "open_pull_request",
+      "update_pull_request",
       "comment_pull_request",
+      "list_repositories",
       "attach_repository",
     ]);
   });
@@ -277,10 +280,12 @@ describe("tools/list", () => {
     expect(toolNames(await list({ actions: true }))).toEqual([
       "request_push",
       "open_pull_request",
+      "update_pull_request",
       "comment_pull_request",
       "dispatch_workflow",
       "get_workflow_run",
       "rerun_workflow",
+      "list_repositories",
       "attach_repository",
     ]);
     expect(toolNames(await list({ review: true }))).toContain("submit_review");
@@ -542,6 +547,45 @@ describe("attach_repository", () => {
       body: { code: "VALIDATION_ERROR" },
     });
     expect(h.attachmentStore.receipts).toEqual([]);
+  });
+});
+
+describe("list_repositories", () => {
+  test("answers the session's repositories, an attach in flight included, and writes nothing", async () => {
+    const h = harness();
+    await h.call("attach_repository", { repository_id: "docs" });
+    const receipts = h.attachmentStore.receipts.length;
+    expect(payload(await h.call("list_repositories", {}))).toEqual({
+      body: {
+        repositories: [
+          { id: "app", name: "acme/app", branch: "main", status: "primary" },
+          { id: "docs", name: "acme/docs", branch: "trunk", status: "pending" },
+          {
+            id: "tools",
+            name: "acme/tools",
+            branch: "main",
+            status: "available",
+          },
+        ],
+      },
+    });
+    expect(h.attachmentStore.receipts).toHaveLength(receipts);
+    expect(
+      payload(await h.call("list_repositories", { repository_id: "docs" })),
+    ).toMatchObject({ isError: true, body: { code: "VALIDATION_ERROR" } });
+  });
+});
+
+describe("update_pull_request", () => {
+  test("needs a title or a body", async () => {
+    const h = harness();
+    expect(
+      payload(
+        await h.call("update_pull_request", {
+          push_request_id: "55555555-5555-4555-8555-555555555555",
+        }),
+      ),
+    ).toMatchObject({ isError: true, body: { code: "VALIDATION_ERROR" } });
   });
 });
 

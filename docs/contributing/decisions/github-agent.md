@@ -111,6 +111,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 - 릴리스의 `github.push_approval`(boolean)이다. 새 에이전트(GitHub 탭을 처음 저장할 때)의 기본값은 false다(2026-11-02 오너 결정 d123 "기본 카탈로그 auto + push_approval 기본 끔", 처음에는 true였다). 켜고 싶은 에이전트는 탭에서 켠다. `policy_pins.github`가 없는 릴리스(이 기능 전의 모든 릴리스)는 지금도 true로 읽고, 명시적으로 true를 저장한 릴리스도 그대로다. 그래서 기존 에이전트는 데이터를 고치지 않고도 지금 동작 그대로다([5절](#5-기존-설치-이전)). 탭의 상태 줄도 설정 없는 릴리스는 "켜짐"으로 보인다.
 - **첫 checkpoint 전의 push 요청(2026-11-02).** push는 지난 턴 끝의 checkpoint만 고정하므로, 세션의 첫 턴에서 커밋하고 바로 부른 `request_push`는 `no_checkpoint`로 거절된다. 이때 내장 MCP는 그 턴을 `push_continuations`에 표시하고, 모델에게 "턴을 끝내면 이어 턴이 온다"고 답한다. 그 턴이 checkpoint와 함께 `completed`로 끝나면 finalize 트랜잭션이 플랫폼 턴 하나(actor·channel 없음, 고정 문구)를 큐에 넣고, 모델은 그 턴에서 같은 요청을 다시 부른다. 고정되는 것은 여전히 검증된 checkpoint의 commit뿐이다. 이어 턴은 표시하지 않으므로 이어지지 않고, active가 아닌 세션(pause·close·recovery), checkpoint 없이 끝난 턴, 뒤에 사람 턴이 이미 기다리는 턴에는 만들지 않는다. 마지막 경우는 그 턴이 남길 checkpoint가 원래 요청한 commit이 아닐 수 있어서다. 표시 대상은 요청이 시작될 때 돌던 턴이고, 표시는 finalize와 같은 세션 행 잠금 아래에서 그 턴이 아직 돌 때만 한다. 그래서 늦게 처리된 거절이 다음 턴을 표시하지 않는다. 턴 중간 checkpoint를 포인터로 올리거나 요청을 미뤄 두는 새 상태보다 범위가 작고, 이어 턴에서 PR 열기와 Slack 답까지 이어진다.
 - **true:** 지금과 같다. 요청은 `requested`로 남고, `sessions:approve`를 가진 사람이 결정한다.
+- **정책 승인은 세션의 주 저장소에만(2026-11-03).** false여도 부착한 다른 저장소로 가는 push 요청은 `requested`로 남아 사람이 결정한다. 정책 승인은 릴리스가 주 저장소의 자기 작업 브랜치(`agent/<session-id>…`)에 준 것이고, 부착 저장소는 사람 승인 없이 붙으므로([session-repository-attachment.md](session-repository-attachment.md) 결정 3) 쓰기까지 사람 없이 열면 붙이기와 쓰기가 한 번에 열린다. 주 저장소가 없는 `optional` 세션의 push도 모두 사람이 결정한다.
 - **false:** push 요청을 만드는 같은 트랜잭션에서 `approved`로 둔다. `decided_by`는 `{ kind: "policy", agent_release_id }`이고 `decide_push` receipt를 남긴다. 결정 0의 "기본값은 PR 작성·수정까지"를 사람 승인 없이 쓰는 경우다.
 - **PR 열기·코멘트(두 경우 공통).** push가 끝난(`pushed`) 요청에서는 `session.submit` 호출자(에이전트 key와 내장 MCP 포함)도 PR을 열고 코멘트를 달 수 있다. 사람이 승인했든 정책이 승인했든 같다. PR은 그 요청이 push한 브랜치와 commit으로만 열리므로, 사람 승인이 지키는 것(무엇이 push되나)은 PR을 누가 여느냐와 상관없이 그대로다. 지금은 `sessions:approve` scope와 `session.approve` 권한을 가진 호출자만 PR을 연다(`pull-request-service.ts:103-107`). GA-2가 이 규칙을 바꾼다. `sessions:approve` 호출자는 지금처럼 그대로 열 수 있다.
 - 대상 브랜치 고정과 force push 금지는 승인 여부와 상관없이 그대로다.
@@ -314,12 +315,16 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
 |---|---|---|---|
 | `request_push` | 늘 | `PushRequestService.create` | 없음 |
 | `open_pull_request` | 늘 | `PullRequestService.open` | `push_request_id`, `title?`, `body?` |
+| `update_pull_request` | 늘 | `PullRequestService.update`(입구 1 없음, 아래 "PR 제목·본문 수정") | `push_request_id`, `title?`, `body?`(하나 이상) |
 | `comment_pull_request` | 늘 | `PullRequestService.comment` | `push_request_id`, `body`, `marker?` |
 | `dispatch_workflow` | `features.actions` | `GitHubWorkService.dispatch` | `workflow`, `ref`, `inputs?` |
 | `get_workflow_run` | `features.actions` | `GitHubWorkService.getRun` | `run_id` |
 | `rerun_workflow` | `features.actions` | `GitHubWorkService.rerun` | `run_id`, `failed_only?` |
 | `submit_review` | `features.review` | `GitHubWorkService.review` | `number`, `event`, `commit_id`, `body?` |
+| `list_repositories` | 늘 | `RepositoryAttachmentService.list`(입구 1 없음, [session-repository-attachment.md](session-repository-attachment.md) 결정 3) | 없음 |
 | `attach_repository` | 늘 | `RepositoryAttachmentService.attach`(입구 1 없음, [session-repository-attachment.md](session-repository-attachment.md) 결정 3) | `repository_id` |
+
+- **PR 제목·본문 수정(2026-11-03).** 오너가 "pr 작성이나 commit, push 이런거 뻔한거"를 매번 승인 없이 하길 원했고, 연 PR을 고칠 도구가 없었다. `update_pull_request`는 코멘트와 같은 규칙으로 PR을 찾고(그 push 요청이 연 PR, 없으면 같은 저장소·브랜치에서 세션이 연 PR) 같은 권한(`pushed` 요청에서 `session.submit`)으로 고친다. 본문은 사람 글만 바꾸고 플랫폼 꼬리는 그 push 요청의 commit으로 다시 붙인다. 제목·본문은 PR 열기와 같이 정리한다. 매번 `update_pull_request` receipt(`created: false`)를 남긴다. 세션 API 경로는 두지 않았다(사람은 GitHub에서 고친다).
 
 - **`policy_pins.tools`와의 관계.** 원격 MCP 서버의 도구는 `policy_pins.tools.per_tool`의 `mcp__<server>__<tool>: allow`로 핀한다. `github`의 도구는 그 표에 두지 않는다. `policy_pins.github`가 같은 릴리스 해시에 이미 들어 있고, 위 표가 그것에서 도구를 정하기 때문이다. 두 곳에 같은 정보를 두면 서로 어긋날 수 있다. claim은 노출하는 도구의 `mcp__github__<tool>` 이름을 runtime config의 `tools`에 더한다. worker의 relay는 원격 서버와 같이 그 이름만 엔진에 보인다. 서버의 `tools/list`, 허가의 `tools/call` 검사, relay의 목록, 세 곳이 같은 함수(contracts의 `githubMcpTools`)로 정한다.
 - **MCP 호출의 actor(2절 "선행 수정"의 GA-7 몫).** 부르는 쪽은 세션 안의 에이전트이고 key가 없다. receipt actor는 지금의 원격 MCP 거절 receipt(`call_mcp`)와 같이 정한다. principal은 세션을 만든 credential(`created_by_api_key_id`가 있으면 그 `api_key`, 없으면 `created_by_user_id`의 `user`)이고, `actor_user_id`는 세션을 만든 사람, `agent_id`는 세션 릴리스의 에이전트다. 둘 다 없는 세션에는 도구를 열지 않는다(허가의 (3) 다음에 거절한다). push 요청의 `requested_by`는 null일 수 없고, 누가 시작했는지 모르는 세션에 GitHub 쓰기를 열지 않으려는 것이다. 2절의 "`actor.agent_id`는 호출자 key에서만 채운다"와 어긋나지 않는다. 이 호출의 호출자는 바로 그 세션의 에이전트이기 때문이다. receipt를 다른 입구와 나눠 보려면 actor의 principal이 아니라 이 `agent_id`가 세션 릴리스와 같다는 점을 본다.

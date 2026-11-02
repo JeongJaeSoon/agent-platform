@@ -88,7 +88,7 @@ The platform adds a tail to the end of the PR body: the session id and commit, t
 
 ## Attaching a repository mid-session
 
-While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval.
+While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval, and a person approves pushes to an attached repository even for an agent with push approval off. The agent sees which repositories it can attach with `list_repositories` (its own `primary`, attached ones `attached`, `pending` or `failed`, and attachable ones `available`).
 
 A session created without `attached_repository_ids` starts with no repository attached besides its own. Put the repositories it needs from the start in that list; the agent attaches the rest when it needs them.
 

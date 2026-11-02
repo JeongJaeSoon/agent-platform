@@ -7,7 +7,7 @@ const NAME_SEGMENT = /^[A-Za-z0-9._~-]+$/;
  * (`owner/repo`, or `group/sub/repo` on a forge with groups), or null when a
  * segment is not a plain name.
  */
-function pathNameOf(url: string): string | null {
+export function pathNameOf(url: string): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url);

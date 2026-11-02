@@ -188,6 +188,20 @@ export function createPostgresRepositoryAttachments(
       return id;
     },
 
+    async list(rawSessionId) {
+      const rows = await db
+        .select(columns)
+        .from(sessionRepositoryAttachments)
+        .where(
+          eq(
+            sessionRepositoryAttachments.sessionId,
+            rawSessionId.toLowerCase(),
+          ),
+        )
+        .orderBy(asc(sessionRepositoryAttachments.requestedAt));
+      return rows.map(rowOf);
+    },
+
     async pending(rawSessionId) {
       const rows = await db
         .select(columns)

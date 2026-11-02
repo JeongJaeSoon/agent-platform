@@ -125,6 +125,12 @@ integration("repository attachments on PostgreSQL", () => {
     expect(
       (await store.pending(s.sessionId)).map((row) => row.repositoryId),
     ).toEqual(["docs"]);
+    expect(
+      (await store.list(s.sessionId.toUpperCase())).map((row) => [
+        row.repositoryId,
+        row.status,
+      ]),
+    ).toEqual([["docs", "pending"]]);
   });
 
   test("asking again, or twice at once, leaves one row and one receipt", async () => {

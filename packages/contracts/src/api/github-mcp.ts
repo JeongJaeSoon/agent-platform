@@ -9,6 +9,7 @@ import {
 import {
   commentPullRequestRequestSchema,
   openPullRequestRequestSchema,
+  updatePullRequestRequestSchema,
 } from "./pull-request.ts";
 import {
   createPushRequestRequestSchema,
@@ -33,6 +34,9 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   open_pull_request: openPullRequestRequestSchema.extend({
     push_request_id: pushRequestIdSchema,
   }),
+  update_pull_request: updatePullRequestRequestSchema.safeExtend({
+    push_request_id: pushRequestIdSchema,
+  }),
   comment_pull_request: commentPullRequestRequestSchema.extend({
     push_request_id: pushRequestIdSchema,
   }),
@@ -42,6 +46,7 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   submit_review: submitPullRequestReviewRequestSchema.safeExtend({
     number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),
+  list_repositories: z.object({}).strict(),
   attach_repository: z
     .object({ repository_id: z.string().min(1).max(128) })
     .strict(),
@@ -56,13 +61,44 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
 > = {
   request_push: null,
   open_pull_request: null,
+  update_pull_request: null,
   comment_pull_request: null,
   dispatch_workflow: "actions",
   get_workflow_run: "actions",
   rerun_workflow: "actions",
   submit_review: "review",
+  list_repositories: null,
   attach_repository: null,
 };
+
+/**
+ * One repository `list_repositories` names: the session's own (`primary`),
+ * one on its attached list (`attached`, or the fetch's `pending`/`failed`),
+ * or one the release allows that `attach_repository` would add
+ * (`available`). `name` is the URL's path, never its credentials.
+ */
+export const LISTED_REPOSITORY_STATUS_VALUES = [
+  "primary",
+  "attached",
+  "pending",
+  "failed",
+  "available",
+] as const;
+
+export const listedRepositorySchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  branch: z.string().nullable(),
+  status: z.enum(LISTED_REPOSITORY_STATUS_VALUES),
+});
+export type ListedRepository = z.infer<typeof listedRepositorySchema>;
+
+export const listRepositoriesResponseSchema = z.object({
+  repositories: z.array(listedRepositorySchema),
+});
+export type ListRepositoriesResponse = z.infer<
+  typeof listRepositoriesResponseSchema
+>;
 
 export const REPOSITORY_ATTACHMENT_STATUS_VALUES = [
   "pending",

@@ -11,6 +11,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 
+import { PLATFORM_AUTO_MODE } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import { MEMORY_READ_GUIDANCE, readsOnlyMemory } from "./memory-read.ts";
@@ -241,6 +242,9 @@ export function buildSdkOptions(
           sessionStore: config.sessionStore,
           sessionStoreFlush: "eager" as const,
         }),
+    ...(config.permissionMode === "auto"
+      ? { settings: { autoMode: PLATFORM_AUTO_MODE } }
+      : {}),
     settingSources: config.settingSources ?? ["project"],
     strictMcpConfig: true,
     systemPrompt: {
