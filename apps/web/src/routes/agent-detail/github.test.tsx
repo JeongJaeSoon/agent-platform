@@ -402,6 +402,26 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("docs-site").getAttribute("aria-checked")).toBe("false");
   });
 
+  test("설정이 없는 릴리스는 첫 저장을 push 승인 꺼짐에서 시작해도 지금은 승인이 켜졌다고 보인다", async () => {
+    const { server, release } = await activeAgent();
+    release.policy_pins = {};
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        github: null,
+        legacy_defaults: { ...SETTINGS, push_approval: false },
+      }),
+    );
+    await screen.findByRole("heading", { name: "권한" });
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    const status = screen.getByText("push 전 승인").parentElement as HTMLElement;
+    expect(within(status).getByText("켜짐")).toBeTruthy();
+    expect(within(status).queryByText("꺼짐")).toBeNull();
+  });
+
   test("허용 목록은 agent/ 브랜치와 경로·중복을 받지 않는다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));

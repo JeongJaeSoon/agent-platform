@@ -108,7 +108,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 
 ### 결정 6. push 전 사람 승인
 
-- 릴리스의 `github.push_approval`(boolean)이다. 새 에이전트의 기본값은 true다. `policy_pins.github`가 없는 릴리스(이 기능 전의 모든 릴리스)는 true로 읽는다. 그래서 기존 에이전트는 데이터를 고치지 않고도 지금 동작 그대로다([5절](#5-기존-설치-이전)).
+- 릴리스의 `github.push_approval`(boolean)이다. 새 에이전트(GitHub 탭을 처음 저장할 때)의 기본값은 false다(2026-11-02 오너 결정 d123 "기본 카탈로그 auto + push_approval 기본 끔", 처음에는 true였다). 켜고 싶은 에이전트는 탭에서 켠다. `policy_pins.github`가 없는 릴리스(이 기능 전의 모든 릴리스)는 지금도 true로 읽고, 명시적으로 true를 저장한 릴리스도 그대로다. 그래서 기존 에이전트는 데이터를 고치지 않고도 지금 동작 그대로다([5절](#5-기존-설치-이전)). 탭의 상태 줄도 설정 없는 릴리스는 "켜짐"으로 보인다.
 - **true:** 지금과 같다. 요청은 `requested`로 남고, `sessions:approve`를 가진 사람이 결정한다.
 - **false:** push 요청을 만드는 같은 트랜잭션에서 `approved`로 둔다. `decided_by`는 `{ kind: "policy", agent_release_id }`이고 `decide_push` receipt를 남긴다. 결정 0의 "기본값은 PR 작성·수정까지"를 사람 승인 없이 쓰는 경우다.
 - **PR 열기·코멘트(두 경우 공통).** push가 끝난(`pushed`) 요청에서는 `session.submit` 호출자(에이전트 key와 내장 MCP 포함)도 PR을 열고 코멘트를 달 수 있다. 사람이 승인했든 정책이 승인했든 같다. PR은 그 요청이 push한 브랜치와 commit으로만 열리므로, 사람 승인이 지키는 것(무엇이 push되나)은 PR을 누가 여느냐와 상관없이 그대로다. 지금은 `sessions:approve` scope와 `session.approve` 권한을 가진 호출자만 PR을 연다(`pull-request-service.ts:103-107`). GA-2가 이 규칙을 바꾼다. `sessions:approve` 호출자는 지금처럼 그대로 열 수 있다.
@@ -446,7 +446,7 @@ export const agentGitHubSchema = z.object({
 | 칸 | 새 에이전트(GitHub 탭을 처음 저장할 때) | `github` 없는 릴리스(기존) |
 |---|---|---|
 | `repositories` | 릴리스 `repository_id` 하나(없으면 빈 목록이라 저장 전에 고르게 한다) | 프로필이 허용하는 모든 저장소 |
-| `push_approval` | true | true |
+| `push_approval` | false (2026-11-02 전에는 true) | true |
 | `features.*` | 모두 false | 모두 false |
 | `actions_allow` | `[]` | `[]` |
 

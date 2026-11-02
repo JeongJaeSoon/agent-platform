@@ -218,7 +218,10 @@ export function createAgentGitHubService(deps: {
         github === null && unsavable === null && releaseRepository !== null
           ? {
               repositories: [releaseRepository],
-              push_approval: true,
+              // What a first save starts from (owner decision d123,
+              // 2026-11-02). Until then the release still asks a person:
+              // only an explicit false turns approval off.
+              push_approval: false,
               features: { ...GITHUB_CEILING_NONE },
               actions_allow: [],
             }

@@ -304,11 +304,14 @@ describe("the agent GitHub tab's options", () => {
     expect(mixed.options.features.actions.available).toBe(true);
   });
 
-  test("legacy defaults: the release's repository alone, push approval on, nothing optional", async () => {
+  test("legacy defaults: the release's repository alone, push approval off, nothing optional", async () => {
     const read = await serviceWith({}).get(caller, AGENT);
     expect(read.github).toBeNull();
     expect(read.unsavable).toBeNull();
-    expect(read.legacy_defaults).toEqual(WITH_SETTINGS);
+    expect(read.legacy_defaults).toEqual({
+      ...WITH_SETTINGS,
+      push_approval: false,
+    });
     const saved = await serviceWith({ github: WITH_SETTINGS }).get(
       caller,
       AGENT,

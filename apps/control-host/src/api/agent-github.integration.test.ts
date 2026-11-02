@@ -415,7 +415,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       unsavable: null,
       legacy_defaults: {
         repositories: ["sample-app"],
-        push_approval: true,
+        push_approval: false,
         actions_allow: [],
       },
     });
