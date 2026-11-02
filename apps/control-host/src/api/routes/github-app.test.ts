@@ -1135,6 +1135,13 @@ describe("who connected an installation started in the console", () => {
     const connectionId = await registered(owner);
     github.setInstallationCreatedAt(new Date("2026-11-02T10:00:00Z"));
     try {
+      const sameSecond = await complete(owner, {
+        state: await start(owner, connectionId),
+        installation_id: 77,
+      });
+      expect(sameSecond.json).toMatchObject({ recorded: false });
+      expect(installs.links).toEqual([]);
+      github.setInstallationCreatedAt(new Date("2026-11-02T10:00:01Z"));
       const state = await start(owner, connectionId);
       const done = await complete(owner, { state, installation_id: 77 });
       expect(done.status).toBe(200);

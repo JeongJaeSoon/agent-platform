@@ -698,12 +698,12 @@ export function createGitHubAppService(deps: {
           { reason_code: "installation_not_found" },
         );
       }
-      // GitHub keeps whole seconds; an installation older than the state
-      // was there before this console flow and keeps whoever it has.
+      // GitHub keeps whole seconds, so an installation from the state's own
+      // second may predate it; only a later second proves it came after.
       const startedAt = Math.floor(state.createdAt.getTime() / 1000) * 1000;
       const made = installation.createdAt?.getTime() ?? null;
       const recorded =
-        made !== null && made >= startedAt
+        made !== null && made > startedAt
           ? await installs.store.recordLink({
               workspaceId,
               connectionId: record.id,

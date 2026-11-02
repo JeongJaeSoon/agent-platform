@@ -108,7 +108,9 @@ export function createGitHubSettingsService(deps: {
   ): Promise<GitHubSettingsConnection> {
     const [described, listed] = await Promise.allSettled([
       deps.directory.describe(credential),
-      deps.directory.installations(credential),
+      deps.directory
+        .installations(credential)
+        .then((installations) => ({ installations, readAt: now() })),
     ]);
     const checkedAt = now().toISOString();
     const profile = described.status === "fulfilled" ? described.value : null;
@@ -133,8 +135,8 @@ export function createGitHubSettingsService(deps: {
     const kept = deps.installations;
     let snapshot: GitHubInstallationSnapshot | null = null;
     if (listed.status === "fulfilled") {
-      snapshot = { installations: listed.value, readAt: new Date(checkedAt) };
-      if (manager && kept) {
+      snapshot = listed.value;
+      if (kept) {
         await kept
           .recordSnapshot(record.id, credential.appId, snapshot)
           .catch(() => undefined);

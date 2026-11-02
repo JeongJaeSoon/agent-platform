@@ -197,6 +197,7 @@ function harness(
     connections?: readonly FakeConnection[];
     installations?: GitHubInstallationStore;
     failPermissionsWrite?: boolean;
+    now?: () => Date;
   } = {},
 ) {
   const secrets: Array<{ workspaceId: string; secret: string }> = [];
@@ -256,7 +257,7 @@ function harness(
     directory: fake.directory,
     installations: options.installations ?? null,
     newId: () => "019a0000-0000-7000-8000-0000000000aa",
-    now: () => NOW,
+    now: options.now ?? (() => NOW),
   });
   return { service, puts, secrets, recorded: fake.recorded };
 }
@@ -462,7 +463,7 @@ describe("GitHub settings service", () => {
     expect(JSON.stringify(connections)).not.toContain("repository_count");
   });
 
-  test("a manager's read keeps each connection's list; a member's keeps none", async () => {
+  test("any successful read keeps each connection's list, timed when the list answered", async () => {
     const kept = fakeInstallations();
     const connections: FakeConnection[] = [
       {
@@ -472,10 +473,18 @@ describe("GitHub settings service", () => {
         installations: [installation(1, "acme")],
       },
     ];
-    const { service } = harness({ connections, installations: kept.store });
-    await service.get(user("member"), WORKSPACE);
-    expect(kept.snapshots).toEqual([]);
-    await service.get(user("admin"), WORKSPACE);
+    // Each reading of the clock is a second later, so a list stamped after
+    // the whole lookup would carry a later time than when it answered.
+    let ticks = 0;
+    const { service } = harness({
+      connections,
+      installations: kept.store,
+      now: () => new Date(NOW.getTime() + 1000 * ticks++),
+    });
+    const read = await service.get(user("member"), WORKSPACE);
+    const [connection] = read.connections;
+    expect(connection?.installations_read_at).toBe(NOW.toISOString());
+    expect(connection?.check.checked_at).not.toBe(NOW.toISOString());
     expect(kept.snapshots).toEqual([
       {
         connectionId: "conn-a",
