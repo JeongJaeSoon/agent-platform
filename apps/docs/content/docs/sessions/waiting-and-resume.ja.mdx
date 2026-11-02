@@ -3,9 +3,37 @@ title: "承認待ちと再開"
 description: 権限リクエストと質問に応答し、セッションを pause して resume する
 ---
 
-ターンがツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答するとターンが続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作った `SID` を引き続き使う。応答するにはキーに `sessions:approve` が、pause・resume には `sessions:control` が必要である。応答するのは、セッションを作った人、エージェントの管理者、owner・admin だけである([権限](/agents/permissions))。
+ターンがツールを実行する前に人の許可を待つ、または人に質問すると、セッションは `needs_input` になる。応答するとターンが続行する。セッションをしばらく休ませたいときは pause し、後で resume する。[開始](/sessions/start)で作ったセッション(SDK は `sessionId`、HTTP API は `SID`)を引き続き使う。応答するにはキーに `sessions:approve` が、pause・resume には `sessions:control` が必要である。応答するのは、セッションを作った人、エージェントの管理者、owner・admin だけである([権限](/agents/permissions))。
 
 ## 待機中のリクエスト
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"deny","steps":[{"tool":"Bash","input":{"command":"rm -rf build","description":"clean build"}}],"final":"cleaned"}',
+});
+let pending = await werft.sessions.requests.list(sessionId);
+while (pending.length === 0) {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  pending = await werft.sessions.requests.list(sessionId);
+}
+const [request] = pending;
+if (request.kind === "permission") console.log(request.tool, request.input);
+```
+
+```text
+Bash { command: 'rm -rf build', description: 'clean build' }
+```
+
+リクエストを自分で読まずに handler に任せることもできる。`waitForTurn` の `onRequest` はターンを待つ間に生じたリクエストを、`answerPending(werft, sessionId, handlers)` は現在開いているリクエストを古いものから 1 回ずつ handler に渡す([質問に答える](#質問に答える))。
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/messages" \
@@ -21,6 +49,11 @@ curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY
   | jq '.items[] | {request_id, kind, tool, input, expires_at}'
 ```
 
+リファレンス: [`GET /v1/sessions/{id}/pending-requests`](/reference/http-api/pending-requests/listPendingRequests)
+
+</Tab>
+</Tabs>
+
 リクエストは次のどちらかである。
 
 - `kind: "permission"`: ツール実行の許可。`tool` と `input` が、何を実行するかを示す。
@@ -29,6 +62,27 @@ curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY
 リクエストは 30 分以内に応答しないと、拒否として終了する。その後に応答すると 409 `REQUEST_EXPIRED` になる。
 
 ## 拒否する
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const answered = await werft.sessions.requests.answer(sessionId, {
+  request_id: request.request_id,
+  kind: "permission",
+  decision: "deny",
+  reason: "Do not delete build output.",
+});
+console.log(answered.receipt_status, answered.approval?.surface);
+await waitForTurn(werft, sessionId, sent.turn_id);
+```
+
+```text
+accepted api
+```
+
+</Tab>
+<Tab>
 
 ```bash
 REQ=$(curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY" | jq -r '.items[0].request_id')
@@ -47,9 +101,51 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 }
 ```
 
+リファレンス: [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
 許可は `"decision": "allow"` である。`reason` は拒否の場合だけ使い、省略できる。モデルはその理由をツールの結果として受け取り、ターンを続ける。レスポンスの `approval` には、誰が(`answered_by`)、どこから(`surface`: `api`・`web`・`slack`)応答したかが残る。
 
 ## 質問に答える
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const asked = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"ask","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}',
+});
+const answeredTurn = await waitForTurn(werft, sessionId, asked.turn_id, {
+  onRequest: {
+    question(request) {
+      const [question] = request.questions;
+      console.log(question.prompt, question.options.map((o) => o.label));
+      return {
+        answers: [
+          {
+            question_id: question.question_id,
+            selected_option_ids: [question.options[0].option_id],
+          },
+        ],
+      };
+    },
+  },
+  onAnswer: (outcome) => console.log(`answered: ${outcome.outcome}`),
+});
+console.log(`turn ${answeredTurn.turn_id}: ${answeredTurn.status}`);
+```
+
+```text
+Which environment? [ 'staging', 'production' ]
+answered: accepted
+turn 3: completed
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID/messages" \
@@ -82,11 +178,43 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 }
 ```
 
+リファレンス: [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
 選択する代わりに文章で答えるには、`selected_option_ids: []` と `free_text` を送る。
+
+handler は `permission` と `question` の 2 種類である。handler が `undefined` を返すか、その種類の handler がなければ、リクエストは開いたままにして人に任せる。`onAnswer` が受け取る `outcome` は、`accepted`(回答が受け付けられた)、`left_open`(handler が答えなかった)、`too_late`(すでに期限切れか、別の人が答えた。`code` は `REQUEST_EXPIRED` か `REQUEST_STALE`)、`conflict`(同じリクエストに別の回答が先に届いた)のいずれかである。セッションが `paused`・`stopped`・`recovery_required`・`closed` になるとターンが自然には終わらないので、`waitForTurn` は `TurnBlockedError` を投げる。
 
 ## pause と resume
 
 pause は、進行中の作業を終わらせて checkpoint(作業ツリーと会話履歴)を残し、worker を停止する。resume は、新しい worker がその checkpoint から同じ作業ツリーと同じ会話を復元する。どちらも現在の `revision` を `expected_revision` として送る。その間にセッションが変わっていると 409 `REVISION_CONFLICT` になる。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForReceipt } from "@werft-ai/sdk";
+
+let session = await werft.sessions.get(sessionId);
+const paused = await werft.sessions.pause(sessionId, {
+  expected_revision: session.revision,
+  reason: "lunch",
+});
+const receipt = await waitForReceipt(werft, paused.receipt_id);
+console.log(receipt.operation, receipt.status);
+session = await werft.sessions.get(sessionId);
+console.log(session.admission_state, session.checkpoint_revision);
+```
+
+```text
+pause succeeded
+paused 2
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -r .status)" = idle ]; do
@@ -110,11 +238,34 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admissio
 }
 {
   "admission_state": "paused",
-  "checkpoint_revision": 3
+  "checkpoint_revision": 2
 }
 ```
 
+リファレンス: [`POST /v1/sessions/{id}/pause`](/reference/http-api/session-control/pauseSession)
+
+</Tab>
+</Tabs>
+
 paused の間に送ったメッセージは 409 `SESSION_PAUSED` になる。60 秒以内に drain できないと、`attention` が `PAUSE_BLOCKED` になる。開いているリクエストがあれば、応答するか interrupt する。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const resumed = await werft.sessions.resume(sessionId, {
+  expected_revision: session.revision,
+});
+await waitForReceipt(werft, resumed.receipt_id);
+console.log((await werft.sessions.get(sessionId)).admission_state);
+```
+
+```text
+active
+```
+
+</Tab>
+<Tab>
 
 ```bash
 REV=$(curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .revision)
@@ -137,6 +288,11 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{admissio
   "admission_state": "active"
 }
 ```
+
+リファレンス: [`POST /v1/sessions/{id}/resume`](/reference/http-api/session-control/resumeSession)
+
+</Tab>
+</Tabs>
 
 ## 次のステップ
 

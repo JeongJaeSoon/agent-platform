@@ -3,11 +3,47 @@ title: "ストリーミングの受信"
 description: SSE でセッションのイベントを受信し、切断されたら Last-Event-ID で続きを受信する
 ---
 
-`GET /v1/sessions/{id}/events` は、セッションのイベントを Server-Sent Events で送る。すでに保存されているイベントを最初から再送し、その後は新しいイベントが生まれるたびに続けて送る。scope は `sessions:read` である。[送信](/messages/send)の `SID` を使う。
+`sessions.events.stream`(`GET /v1/sessions/{id}/events`)は、セッションのイベントを Server-Sent Events で受信する。すでに保存されているイベントを最初から再送し、その後は新しいイベントが生まれるたびに続けて送る。scope は `sessions:read` である。[送信](/messages/send)のセッション(SDK は `sessionId`、HTTP API は `SID`)を使う。
 
 ## 受信する
 
-ストリームは 15 秒ごとに keepalive を送るので、正常なときでも閉じない。下の例は `--max-time` で切断する。`curl: (28) Operation timed out` はそのために出る。
+ストリームは 15 秒ごとに keepalive を送るので、正常なときでも閉じない。下の例は 5 秒後に切断する。SDK は `signal` か `stream.close()` で、curl は `--max-time` で切断する。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { AbortedError, type SessionEvent } from "@werft-ai/sdk";
+
+const seen: SessionEvent[] = [];
+const stream = werft.sessions.events.stream(sessionId, {
+  signal: AbortSignal.timeout(5_000),
+});
+try {
+  for await (const event of stream) seen.push(event);
+} catch (error) {
+  if (!(error instanceof AbortedError)) throw error;
+}
+const counts = new Map<string, number>();
+for (const event of seen) counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+console.log(counts);
+```
+
+```text
+Map(6) {
+  'status' => 5,
+  'system' => 8,
+  'assistant' => 2,
+  'result' => 2,
+  'tool_use' => 1,
+  'tool_result' => 1
+}
+```
+
+SDK のイベントは、`id`、`turn_id`、`attempt_id`、`occurred_at`、`kind`(下の表の event)、`payload`(内側の `data`)を持つ。
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
@@ -16,14 +52,19 @@ grep '^event:' events.txt | sort | uniq -c
 ```
 
 ```text
-curl: (28) Operation timed out after 5005 milliseconds with 8000 bytes received
+curl: (28) Operation timed out after 5001 milliseconds with 9315 bytes received
    2 event: assistant
    2 event: result
-   4 event: status
+   5 event: status
    8 event: system
    1 event: tool_result
    1 event: tool_use
 ```
+
+リファレンス: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
 
 このセッションの 2 つのターン(準備メッセージと `ls`)のイベントがすべて届いた。frame 1 つは、`event:`、`data:`、`id:` の 3 行と空行である。
 
@@ -50,6 +91,30 @@ id: ev_3m
 
 ## テキストとツール結果を取り出す
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+for (const event of seen) {
+  if (event.kind === "assistant")
+    console.log((event.payload as { text?: string }).text);
+  if (event.kind === "tool_result") {
+    const result = (event.payload as { tool_result?: { is_error?: boolean } })
+      .tool_result;
+    console.log({ is_error: result?.is_error });
+  }
+}
+```
+
+```text
+ready
+{ is_error: false }
+listed
+```
+
+</Tab>
+<Tab>
+
 ```bash
 awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
   | jq -r '.data.text // empty'
@@ -63,11 +128,40 @@ listed
 {"is_error":false}
 ```
 
+リファレンス: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
+
 ターンが終わったかどうかは、イベントではなくターンの `status` で確認する([送信](/messages/send#結果を読む))。作業ができたかどうかは、`assistant` と `tool_result` の内容で判断する。
 
 ## 切断後に続きを受信する
 
-最後に受信した `id` を `Last-Event-ID` ヘッダーで送ると、その次のイベントから受信できる。受信済みのイベントは再送されない。
+最後に受信した `id` を渡すと、その次のイベントから受信できる。SDK は `stream.lastEventId` を `lastEventId` オプションで、HTTP API は `Last-Event-ID` ヘッダーで渡す。SDK は接続が切れると、自分でこの値を使って再接続する。受信済みのイベントは再送されない。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const more = werft.sessions.events.stream(sessionId, {
+  lastEventId: stream.lastEventId,
+  signal: AbortSignal.timeout(3_000),
+});
+let count = 0;
+try {
+  for await (const _event of more) count++;
+} catch (error) {
+  if (!(error instanceof AbortedError)) throw error;
+}
+console.log(count);
+```
+
+```text
+0
+```
+
+</Tab>
+<Tab>
 
 ```bash
 LAST=$(awk '/^id: / { id = $2 } END { sub(/\r$/, "", id); print id }' events.txt)
@@ -80,6 +174,11 @@ grep -c '^event:' more.txt || true
 curl: (28) Operation timed out after 3005 milliseconds with 0 bytes received
 0
 ```
+
+リファレンス: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)の `Last-Event-ID` ヘッダー
+
+</Tab>
+</Tabs>
 
 その後は新しいイベントがなく、何も届かなかった。その間に次のメッセージを送っていれば、そのターンのイベントが届く。
 

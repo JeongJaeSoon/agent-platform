@@ -20,28 +20,62 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 
 1. そのリポジトリの `repository_id` でセッションを作る([開始](/sessions/start))。
 2. 結果を[リクエスト](/approvals/request)し、[承認](/approvals/approve)する。リクエストが `pushed` になると、リポジトリに `agent/<session-id>` ブランチができる。
-3. PR を開く。`sessions:approve` が必要である。
+3. PR を開く。`sessions:approve` が必要である。下の例は[リクエスト](/approvals/request)と[承認](/approvals/approve)の `sessionId` と `push`(HTTP API は `SID`、`PUSH_ID`)を使う。
 
-```sh
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const opened = await werft.sessions.pushRequests.openPullRequest(sessionId, push.id, {
+  title: "Add release notes",
+  body: "Written by the agent, approved by me.",
+});
+console.log(opened.pull_request.number, opened.pull_request.url, opened.created);
+```
+
+</Tab>
+<Tab>
+
+```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"title": "Add release notes", "body": "Written by the agent, approved by me."}' \
   | jq '{number: .pull_request.number, url: .pull_request.url, created}'
 ```
 
-head は `agent/<session-id>`、base はカタログに書いたブランチである。リクエスト一つにつき PR は一つである。そのブランチの PR がすでに開いている場合は、新しく開かずにその PR を返す(`created: false`)。プラットフォームは PR を承認・マージせず、レビュアーやラベルも決めない。
+リファレンス: [`POST …/push-requests/{push_request_id}/pull-request`](/reference/http-api/push-requests/openPullRequest)
+
+</Tab>
+</Tabs>
+
+この呼び出しには `Idempotency-Key` がない。そのため SDK は、レスポンスを受け取れなかった場合に再送しない([リトライと Idempotency-Key](/getting-started/client#リトライと-idempotency-key))。head は `agent/<session-id>`、base はカタログに書いたブランチである。リクエスト一つにつき PR は一つである。そのブランチの PR がすでに開いている場合は、新しく開かずにその PR を返す(`created: false`)。プラットフォームは PR を承認・マージせず、レビュアーやラベルも決めない。
 
 4. コメントを付ける。同じ `marker`(デフォルトは `status`)のコメントがすでにある場合は、新しく付けずにそのコメントを書き換える。
 
-```sh
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+await werft.sessions.pushRequests.commentPullRequest(sessionId, push.id, {
+  body: "Tests pass on the agent branch.",
+});
+```
+
+</Tab>
+<Tab>
+
+```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"body": "Tests pass on the agent branch."}'
 ```
+
+リファレンス: [`POST …/pull-request/comments`](/reference/http-api/push-requests/commentPullRequest)
+
+</Tab>
+</Tabs>
 
 タイトル・本文・コメントは GitHub に送る前に整形される。秘密情報に見える行は伏せ、`@メンション` や `Closes #N` のような close キーワードは、通知や自動クローズが起きないように置き換える。
 
@@ -75,13 +109,39 @@ GitHub アカウント1つは1人にだけ連携される。他の人がすで�
 
 ローカルの `sample-app` は GitHub ではなくスタック内の Gitea リポジトリで、push 用の認証情報がない。そのため承認した push は `no_push_credential` で `failed` になり、PR のリクエストは push されていないリクエストなので 409 になる。[承認](/approvals/approve)で `failed` として終わったリクエストで確認する。
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+const requests = await werft.sessions.pushRequests.list(sessionId);
+const failed = requests.find((request) => request.state === "failed");
+if (failed) {
+  try {
+    await werft.sessions.pushRequests.openPullRequest(sessionId, failed.id, {
+      title: "Add release notes",
+    });
+  } catch (error) {
+    if (!isApiError(error)) throw error;
+    console.log(error.status, error.code);
+  }
+}
+```
+
+```text
+409 PUSH_NOT_PUSHED
+```
+
+</Tab>
+<Tab>
+
 ```bash
 FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
   | jq -r '[.items[] | select(.state == "failed")][0].id')
 curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"title": "Add release notes"}' | jq '{code: .error.code}'
 ```
 
@@ -90,6 +150,11 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
   "code": "PUSH_NOT_PUSHED"
 }
 ```
+
+リファレンス: [`GET /v1/sessions/{id}/push-requests`](/reference/http-api/push-requests/listPushRequests)
+
+</Tab>
+</Tabs>
 
 | レスポンス | 意味 |
 | --- | --- |

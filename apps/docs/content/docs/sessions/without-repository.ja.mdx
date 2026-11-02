@@ -1,23 +1,136 @@
 ---
 title: "リポジトリなしのセッション"
-description: リポジトリなしで動くセッションの現状
+description: リポジトリを clone せず、空の作業スペースで動くセッション
 ---
 
-<Callout type="warn">
-リポジトリなしで動くセッションは、まだ API で作成できない。`POST /v1/sessions` は `repository_id` が必須で、空の値は 400 になる。
-</Callout>
+リポジトリを使うかどうかは、実行プロファイルが決める。プロファイルの `repository_mode` が `required` ならセッションごとに `repository_id` を送り、`none` なら送らず、`optional` ならどちらでもよい。リポジトリなしで作ったセッションは、空の作業スペースから始まる。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
 
-実行プロファイルには、リポジトリを使うかどうかがすでに記載されている。`GET /v1/profiles` の `repository_mode` は、`required`(リポジトリ必須)、`optional`、`none`(リポジトリなし)のいずれかである。
+## プロファイルを確認する
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const { items } = await werft.profiles.list();
+for (const profile of items) console.log(profile.id, profile.repository_mode);
+```
+
+```text
+claude-coding-auto required
+claude-coding-local required
+general none
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, repository_mode}'
 ```
 
 ```text
+{"id":"claude-coding-auto","repository_mode":"required"}
 {"id":"claude-coding-local","repository_mode":"required"}
+{"id":"general","repository_mode":"none"}
 ```
 
-ローカルスタックのプロファイルはすべて `required` である。現時点では、セッションごとにリポジトリを 1 つ選ぶ([開始](/sessions/start))。
+リファレンス: [`GET /v1/profiles`](/reference/http-api/agents/listProfiles)
+
+</Tab>
+</Tabs>
+
+開発用サーバー([開発用サーバーを実行する](/run-server/dev-server))の `general` プロファイルが `none` である。
+
+## リポジトリなしで作る
+
+`repository_id` を省いて作る。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "general",
+  message: 'GATE-SPEC {"id":"no-repo","steps":[],"final":"no repository here"}',
+});
+console.log(created.status);
+const session = await werft.sessions.get(created.session_id);
+console.log(session.repository_id, session.repository);
+```
+
+```text
+queued
+null null
+```
+
+</Tab>
+<Tab>
+
+```bash
+NOREPO=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"no-repo","steps":[],"final":"no repository here"}' \
+    '{profile_id: "general", message: $m}')" | jq -r .session_id)
+curl -sS "$API/v1/sessions/$NOREPO" -H "Authorization: Bearer $KEY" | jq -c '{repository_id, repository}'
+```
+
+```text
+{"repository_id":null,"repository":null}
+```
+
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
+## プロファイルと合わないとき
+
+`none` のプロファイルに `repository_id` を送る、または `required` のプロファイルで省くと、422 `UNSUPPORTED_CAPABILITY` になる。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.create({
+    profile_id: "general",
+    repository_id: "sample-app",
+    message: "hello",
+  });
+} catch (error) {
+  if (!isApiError(error)) throw error;
+  console.log(error.status, error.code, error.message);
+}
+```
+
+```text
+422 UNSUPPORTED_CAPABILITY Profile general runs without a repository: omit repository_id
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"profile_id": "general", "repository_id": "sample-app", "message": "hello"}' \
+  | jq -c '.error | {code, message}'
+```
+
+```text
+{"code":"UNSUPPORTED_CAPABILITY","message":"Profile general runs without a repository: omit repository_id"}
+```
+
+</Tab>
+</Tabs>
+
+リポジトリがないので、push する先もない。このセッションの [push リクエスト](/approvals/request)は 409 `PUSH_SOURCE_MISSING` になる。進行中にプロファイルを変えるときは、リポジトリを使わないプロファイル(`optional`、`none`)にしか変えられない([プロファイルを変更する](/agents/run-profiles#進行中のセッションのプロファイルを変更する))。
 
 ## 次のステップ
 

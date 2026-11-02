@@ -15,7 +15,28 @@ description: セッションが作った commit を、リポジトリの agent/<
 
 ## ファイルを変更するセッションを用意する
 
-[Quickstart](/getting-started/quickstart) の `API` と `KEY` を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可するとターンが終わる。
+SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。このスクリプトはリポジトリの `README.md` に 1 行を追加し、権限リクエストを許可するとターンが終わる。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+const note = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message:
+    'GATE-SPEC {"id":"note","steps":[{"tool":"Bash","input":{"command":"echo tested >> README.md","description":"append to README.md"}}],"final":"updated README.md"}',
+});
+const sessionId = note.session_id;
+await waitForTurn(werft, sessionId, note.turn_id, {
+  onRequest: { permission: () => ({ decision: "allow" }) },
+});
+```
+
+</Tab>
+<Tab>
 
 ```bash
 SID=$(curl -sS "$API/v1/sessions" \
@@ -39,9 +60,39 @@ until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $K
 done
 ```
 
+リファレンス: [`POST /v1/sessions`](/reference/http-api/sessions/createSession), [`POST /v1/sessions/{id}/answers`](/reference/http-api/pending-requests/answerPendingRequest)
+
+</Tab>
+</Tabs>
+
 ## リクエストする
 
-リクエスト本文には空の JSON オブジェクト(`{}`)を送る。何をどこに送るかは、リクエストする人が選ぶのではない。プラットフォームが、その時点のセッションの最新の checkpoint とその commit、セッションのリポジトリ、ブランチ `agent/<session-id>` を固定する。
+SDK はセッション id だけを渡し、HTTP API はリクエスト本文として空の JSON オブジェクト(`{}`)を送る。何をどこに送るかは、リクエストする人が選ぶのではない。プラットフォームが、その時点のセッションの最新の checkpoint とその commit、セッションのリポジトリ、ブランチ `agent/<session-id>` を固定する。
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const push = await werft.sessions.pushRequests.create(sessionId);
+console.log({
+  state: push.state,
+  repository_id: push.repository_id,
+  checkpoint_revision: push.checkpoint_revision,
+  target_branch: push.target_branch,
+});
+```
+
+```text
+{
+  state: 'requested',
+  repository_id: 'sample-app',
+  checkpoint_revision: 0,
+  target_branch: 'agent/…'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
@@ -64,7 +115,12 @@ PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
 }
 ```
 
-レスポンスは 201 である。`GET /v1/sessions/{id}/push-requests` でセッションのリクエスト一覧を、`GET …/push-requests/{push_request_id}` でリクエスト 1 件を見る。
+リファレンス: [`POST /v1/sessions/{id}/push-requests`](/reference/http-api/push-requests/createPushRequest)
+
+</Tab>
+</Tabs>
+
+レスポンスは 201 である。セッションのリクエスト一覧は `pushRequests.list`(`GET /v1/sessions/{id}/push-requests`)で、リクエスト 1 件は `pushRequests.get`(`GET …/push-requests/{push_request_id}`)で見る。
 
 | レスポンス | 意味 |
 | --- | --- |

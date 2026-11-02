@@ -7,8 +7,30 @@ A run profile (profile) decides how a session runs: the runtime and its version,
 
 ## List profiles
 
+The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const profiles = await werft.profiles.list();
+for (const profile of profiles.items) {
+  console.log(profile.id, profile.model, profile.repository_mode);
+}
+```
+
+```text
+claude-coding-auto claude-sonnet-5 required
+claude-coding-local claude-sonnet-5 required
+general claude-sonnet-5 none
+```
+
+</Tab>
+<Tab>
+
 ```bash
-curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
+curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
+  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, runtime_kind, runtime_version, billing, repository_mode}'
 ```
 
 ```text
@@ -31,6 +53,11 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq '.items[]'
 }
 ```
 
+Reference: [`GET /v1/profiles`](/reference/http-api/agents/listProfiles)
+
+</Tab>
+</Tabs>
+
 | Field | Meaning |
 | --- | --- |
 | `model` | Default model |
@@ -43,6 +70,33 @@ The provider address and credentials do not appear in the list. Those values do 
 ## Choose in a session
 
 Choose with `profile_id` when you create a session. If the profile allows several models, choose one of them with `model`; if you leave it out, the session runs with the default model.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  model: "claude-sonnet-5",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"profile","steps":[],"final":"ok"}',
+});
+const sessionId = created.session_id;
+console.log((await werft.sessions.get(sessionId)).runtime);
+```
+
+```text
+{
+  kind: 'claude_agent_sdk',
+  version: '0.3.270',
+  profile_id: 'claude-coding-local',
+  model: 'claude-sonnet-5',
+  permission_mode: 'default'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -65,13 +119,40 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 }
 ```
 
+Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession), [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
+
 A profile that is not in the catalog, a profile that cannot run with that repository, and a model the profile does not allow all return 422.
 
 When you create an agent release, choose with `runtime_profile_id`. The card's `model` must be one of the models that profile can run, and all of the card's tools must be in the profile ([Create](/agents/create#create-a-release)).
 
 ## Change the profile of a running session
 
-Change it with `POST /v1/sessions/{id}/profile`. The running turn finishes with the profile it started with, and input from then on runs with the new profile. The conversation and working tree continue from the last checkpoint. Changing to the same profile changes nothing and only leaves a receipt.
+Change it with `sessions.changeProfile` (`POST /v1/sessions/{id}/profile`). The running turn finishes with the profile it started with, and input from then on runs with the new profile. The conversation and working tree continue from the last checkpoint. Changing to the same profile changes nothing and only leaves a receipt.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { revision } = await werft.sessions.get(sessionId);
+const changed = await werft.sessions.changeProfile(sessionId, {
+  expected_revision: revision,
+  profile_id: "claude-coding-local",
+});
+console.log(changed.receipt_status);
+```
+
+```text
+succeeded
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -88,6 +169,11 @@ curl -sS "$API/v1/sessions/$SID/profile" \
 ```text
 {"receipt_id":"…","receipt_status":"succeeded"}
 ```
+
+Reference: [`POST /v1/sessions/{id}/profile`](/reference/http-api/session-control/changeSessionProfile)
+
+</Tab>
+</Tabs>
 
 If the new profile differs in runtime kind, version, or billing mode, or does not pair with that repository, the response is 422 `UNSUPPORTED_CAPABILITY`. For a session created from an agent release, the release decides the profile, so the response is 409 `RELEASE_PROFILE_MISMATCH`. The scope is `sessions:control`.
 

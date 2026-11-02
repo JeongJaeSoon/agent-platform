@@ -3,7 +3,32 @@ title: "Status and lifecycle"
 description: A session's status and admission_state, turn states, interrupt, and attention
 ---
 
-The session detail (`GET /v1/sessions/{id}`) has two states. `status` is what the execution is doing now, and `admission_state` is whether the session accepts new input. A turn has its own state, and you judge whether it has finished by the turn state alone. Look at the `SID` created in [Start](/sessions/start).
+The session detail (`GET /v1/sessions/{id}`) has two states. `status` is what the execution is doing now, and `admission_state` is whether the session accepts new input. A turn has its own state, and you judge whether it has finished by the turn state alone. Look at the session created in [Start](/sessions/start) (`created` and `sessionId` in the SDK, `SID` in the HTTP API).
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { status, admission_state, current_turn_id, revision, attention } =
+  await werft.sessions.get(sessionId);
+console.log({ status, admission_state, current_turn_id, revision, attention });
+```
+
+```text
+{
+  status: 'idle',
+  admission_state: 'active',
+  current_turn_id: null,
+  revision: 0,
+  attention: null
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -22,6 +47,11 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
   "attention": null
 }
 ```
+
+Reference: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
 
 `revision` goes up when a control such as pause, resume, or close changes the session. It does not go up when a turn finishes. Send the current value as `expected_revision` in control requests.
 
@@ -49,15 +79,59 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 
 ## Turn states
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+for await (const turn of werft.sessions.turns.list(sessionId)) {
+  console.log(turn.turn_id, turn.status);
+}
+```
+
+</Tab>
+<Tab>
+
 ```bash
 curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
 ```
+
+Reference: [`GET /v1/sessions/{id}/turns`](/reference/http-api/messages-and-turns/listSessionTurns)
+
+</Tab>
+</Tabs>
 
 `queued`, `running`, and `needs_input` are in progress; `completed`, `failed`, `interrupted`, `cancelled`, and `outcome_unknown` are finished states. `completed` means the engine ended the turn normally, not that the requested work was done. Decide whether the work is done by reading the `assistant` and `tool_result` events. The `result` event is not a completion verdict either.
 
 ## interrupt
 
 This stops only the one running turn. The worker stays and accepts the next message. The script below delays its reply by 5 minutes, so the turn stays `running` in the meantime.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"slow","steps":[],"final":"too late","finalDelayMs":300000}',
+});
+while ((await werft.sessions.turns.get(sessionId, sent.turn_id)).status !== "running") {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+const accepted = await werft.sessions.interrupt(sessionId, {
+  target_turn_id: sent.turn_id,
+});
+console.log(accepted.receipt_status);
+const turn = await waitForTurn(werft, sessionId, sent.turn_id);
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+```
+
+```text
+accepted
+turn 2: interrupted
+```
+
+</Tab>
+<Tab>
 
 ```bash
 turn=$(curl -sS "$API/v1/sessions/$SID/messages" \
@@ -90,6 +164,11 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 }
 ```
 
+Reference: [`POST /v1/sessions/{id}/interrupt`](/reference/http-api/session-control/interruptSession)
+
+</Tab>
+</Tabs>
+
 A turn that has not started yet gets 409 `TURN_NOT_STARTED`, and a turn that has already finished gets a successful no-op (`no_op: true`). The scope is `sessions:control`.
 
 ## attention
@@ -108,6 +187,21 @@ When the session is waiting for a person, `attention` carries a `code` and a rea
 
 ## Usage
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const usage = await werft.sessions.usage(sessionId);
+console.log(usage.cost.amount_usd, usage.cost.complete, usage.budget_exceeded);
+```
+
+```text
+0.000063 true false
+```
+
+</Tab>
+<Tab>
+
 ```bash
 curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
   | jq '{cost: .cost.amount_usd, complete: .cost.complete, budget_exceeded}'
@@ -115,15 +209,20 @@ curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
 
 ```text
 {
-  "cost": "0.000042",
+  "cost": "0.000063",
   "complete": true,
   "budget_exceeded": false
 }
 ```
 
+Reference: [`GET /v1/sessions/{id}/usage`](/reference/http-api/sessions/getSessionUsage)
+
+</Tab>
+</Tabs>
+
 The cost is an estimate computed from a price list, not a billed amount. If `complete` is `false`, the total is not settled yet. Either there is an open turn (`open_turn_count`), or some finished turn has no reported cost (`unreported_turn_count`). In the latter case it stays `false` even after all turns finish.
 
-To add up every session you started in a period, use `GET /v1/usage/summary`. `since` is a date (that day's 00:00 UTC) or a timestamp with an offset; without `until` the period runs until now.
+To add up every session you started in a period, use `GET /v1/usage/summary`. The SDK has no method for this total or for `GET /v1/limits?scope=me`, so read them with the HTTP API. The SDK's `limits.get()` reads the installation-wide limits (`GET /v1/limits`), which only the signed-in workspace owner can read, so calling it with an API key gets 403. Reference: [`GET /v1/usage/summary`](/reference/http-api/limits-and-receipts/getUsageSummary), [`GET /v1/limits`](/reference/http-api/limits-and-receipts/getInstallationLimits) `since` is a date (that day's 00:00 UTC) or a timestamp with an offset; without `until` the period runs until now.
 
 ```bash
 curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Bearer $KEY" \
@@ -134,7 +233,7 @@ It counts the sessions created in the period, and `cost_usd` is the sum of their
 
 `usage.outputs` in `GET /v1/limits` is the bytes session outputs (files under `out/`) take up in the object store (`used_bytes`). An output a later checkpoint carries over from an earlier one counts once, a file too large to upload does not count, and the figure drops when checkpoint cleanup deletes an object. `updated_at` is when the figure last changed, null if it never has. It is separate from `usage.storage` (input messages) and is not part of `storage_limit_bytes` enforcement. While a checkpoint made before outputs were recorded is still kept, its outputs are left out and `complete` is `false`.
 
-To split it by agent or by user, add `group_by=agent` or `group_by=user`. The response then carries `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`, and the groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals above. Sessions without an agent, and sessions started by a key no person created, are the group whose `id` is null. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller has a null `name`. To split it by runtime profile, use `group_by=profile`. Sessions are grouped by their current profile (`sessions.profile_id`), so a session that changed profile counts whole under the one it has now. Profiles have no display name, so both `id` and `name` are the profile id, and sessions without a profile are the group whose `id` is null.
+To split it by agent or by user, add `group_by=agent` or `group_by=user`. The response then carries `groups[{id, name, session_count, run_seconds, cost_usd, cost_complete}]`, and the groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals above. Sessions without an agent, and sessions started by a key no person created, are the group whose `id` is null. `name` is the agent's name or the user's display name, never an email; under `scope=me` a user other than the caller has a null `name`. To split it by run profile, use `group_by=profile`. Sessions are grouped by their current profile (`sessions.profile_id`), so a session that changed profile counts whole under the one it has now. Profiles have no display name, so both `id` and `name` are the profile id, and sessions without a profile are the group whose `id` is null.
 
 `GET /v1/limits?scope=me` is readable by any signed-in member. It gives the four per-session limits alone (`queued_input_limit_per_session`, `max_turn_seconds`, `session_cost_limit_usd`, `session_token_limit`) with no `usage`. API keys get 403.
 
