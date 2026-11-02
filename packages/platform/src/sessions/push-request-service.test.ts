@@ -416,6 +416,7 @@ describe("a push to another repository", () => {
     attached: string[] | null,
     own: string | null = "sample-app",
     released = ["sample-app", "docs", "tools"],
+    approvalOffRelease: string | null = null,
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
@@ -434,7 +435,7 @@ describe("a push to another repository", () => {
             push_approval: true,
           },
           githubEnabled: true,
-          approvalOffRelease: null,
+          approvalOffRelease,
         }),
         recordRefusal: async (input: PushRefusalRecord) => {
           refusals.push(input);
@@ -490,6 +491,21 @@ describe("a push to another repository", () => {
     expect(refusals.at(-1)?.result).toMatchObject({ repository_id: "tools" });
     expect(await to("docs")).toBeNull();
     expect(created.map((input) => input.repositoryId)).toEqual(["docs"]);
+  });
+
+  test("a release with approval off approves the session's own repository alone", async () => {
+    const release = "019a0000-0000-7000-8000-0000000000d1";
+    const { to, created } = pushing(["docs"], "sample-app", undefined, release);
+    expect(await to()).toBeNull();
+    expect(await to("sample-app")).toBeNull();
+    expect(await to("docs")).toBeNull();
+    expect(
+      created.map((input) => [input.repositoryId, input.approvedByRelease]),
+    ).toEqual([
+      ["sample-app", release],
+      ["sample-app", release],
+      ["docs", null],
+    ]);
   });
 
   test("without an attached list, every repository the release lists", async () => {

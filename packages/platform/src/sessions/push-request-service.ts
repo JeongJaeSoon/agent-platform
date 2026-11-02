@@ -204,7 +204,12 @@ export function createPushRequestService(deps: {
           targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
-          approvedByRelease: session.approvalOffRelease,
+          // A release that turned approval off speaks for its session's own
+          // repository; a push to an attached one waits for a person.
+          approvedByRelease:
+            repositoryId === session.repositoryId
+              ? session.approvalOffRelease
+              : null,
         }),
       );
     },
