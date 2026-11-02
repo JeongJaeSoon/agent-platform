@@ -339,12 +339,9 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
             onChange={(event) => setDraft(event.target.value)}
           />
           {/* The label already says the unit; this is for sighted readers. */}
-          <span
-            aria-hidden="true"
-            className="text-control text-muted-foreground"
-          >
+          <Text as="span" variant="sub" aria-hidden="true">
             {t("workspace.retentionUnit")}
-          </span>
+          </Text>
         </div>
         <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
         <FieldDescription>{t("workspace.retentionFoot")}</FieldDescription>
@@ -409,14 +406,15 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           title={t("workspace.guestLabel")}
           meta={
             reason === undefined ? null : (
-              <div id={reasonId} className="text-caption text-muted-foreground">
+              <Text as="div" variant="meta" id={reasonId}>
                 {reason}
-              </div>
+              </Text>
             )
           }
           status={
             // aria-checked already says it; the words are for sighted users.
-            // min-w-6: wide enough for the longer of On/Off, so the label does not reflow on a flip.
+            // min-w-6: wide enough for the longer of On/Off, so the label
+            // does not reflow on a flip.
             <Text
               as="div"
               variant="meta"

@@ -145,11 +145,11 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
                       {item.slack_app.app_id ?? t("workspace.slackAppsNoId")}
                     </Code>
                     {/* Plain text: the row's details link already opens the agent. */}
-                    <span className="text-caption text-muted-foreground @[560px]:hidden">
+                    <Text as="span" variant="meta" className="@[560px]:hidden">
                       {item.agent?.name ?? t("workspace.slackAppsNoAgent")}
                       {" · "}
                       {formatTimestamp(item.slack_app.updated_at, locale)}
-                    </span>
+                    </Text>
                   </RowLines>
                 </TableCell>
                 <TableCell className={cn(WIDE, "text-muted-foreground")}>
@@ -223,9 +223,9 @@ function AppState({ item }: { readonly item: MadeApp }) {
         <Badge>{t("workspace.slackAppsNotInstalled")}</Badge>
       )}
       {connected ? (
-        <span className="text-caption text-muted-foreground">
+        <Text as="span" variant="meta">
           {link ? t("workspace.slackAppsSignIn") : `@${item.agent?.slug}`}
-        </span>
+        </Text>
       ) : null}
     </RowLines>
   );

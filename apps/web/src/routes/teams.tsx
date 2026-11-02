@@ -32,11 +32,13 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  Heading,
   Input,
   RowList,
   RowListItem,
   SearchInput,
   SettingsSection,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
@@ -56,12 +58,7 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import {
-  MUTED,
-  MyTeams,
-  SECTION,
-  SECTION_TITLE,
-} from "../components/my-teams.tsx";
+import { MUTED, MyTeams, SECTION } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
@@ -153,9 +150,7 @@ export function TeamsScreen() {
   return (
     <TeamsTab>
       <section className={SECTION} aria-labelledby={titleId}>
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("teams.listTitle")}
-        </h2>
+        <Heading id={titleId}>{t("teams.listTitle")}</Heading>
         {isApiError(teams.error, "FORBIDDEN") ? null : (
           <div className="flex">
             <SearchInput
@@ -258,9 +253,9 @@ function TeamPage({ id }: { readonly id: string }) {
   return (
     <div className="flex flex-col gap-[var(--ap-space-section)]">
       <div className="flex items-start justify-between gap-4">
-        <h2 className="m-0 min-w-0 font-semibold text-body [overflow-wrap:anywhere]">
+        <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.error ? t("teams.title") : team.data.name}
-        </h2>
+        </Heading>
         {back}
       </div>
       {team.error ? (
@@ -576,14 +571,18 @@ function TeamMembers({
                         tone={avatarTone(member.user_id)}
                       />
                       <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                        <span className="truncate font-medium">{name}</span>
+                        <Text as="span" weight="medium" truncate>
+                          {name}
+                        </Text>
                         {member.display_name !== null && (
-                          <span
-                            className="truncate text-muted-foreground text-xs"
+                          <Text
+                            as="span"
+                            variant="meta"
+                            truncate
                             title={member.email}
                           >
                             {member.email}
-                          </span>
+                          </Text>
                         )}
                       </span>
                     </GridTableCell>
@@ -841,9 +840,7 @@ function AddMembers({
           ))}
         </ul>
       )}
-      {nothingLeft && (
-        <p className={`${MUTED} m-0 text-caption`}>{t("teams.noCandidates")}</p>
-      )}
+      {nothingLeft && <Text variant="meta">{t("teams.noCandidates")}</Text>}
     </form>
   );
 }

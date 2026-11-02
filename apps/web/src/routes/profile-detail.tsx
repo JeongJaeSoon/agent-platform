@@ -20,7 +20,6 @@ import {
   Card,
   Code,
   ConfirmDialog,
-  cn,
   DangerZone,
   DangerZoneRow,
   EmptyState,
@@ -60,7 +59,6 @@ import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { profileName, STATE_BADGE, stateOf, versionOf } from "./profiles.tsx";
 
-const META = "text-caption text-muted-foreground";
 const HISTORY_COLUMNS = [
   "minmax(0,1fr) 152px 168px",
   "minmax(0,1fr) 128px",
@@ -351,9 +349,9 @@ export function ProfileDetailScreen() {
       }
       titleAside={
         <span className="flex items-center gap-2">
-          <span className={META}>
+          <Text as="span" variant="meta">
             {t("profiles.versionTag", { version: versionOf(profile) })}
-          </span>
+          </Text>
           <Badge variant={STATE_BADGE[state]}>
             {t(`profiles.state.${state}`)}
           </Badge>
@@ -392,10 +390,10 @@ export function ProfileDetailScreen() {
       )}
       <Section title={t("profiles.detail.settings")}>
         {changes ? null : (
-          <p className={cn("m-0 mb-3 flex items-center gap-1", META)}>
+          <Text variant="meta" className="mb-3 flex items-center gap-1">
             <Lock aria-hidden="true" className="size-3.5 shrink-0" />
             {t(ceiling ? "profiles.detail.ownerOnly" : "profiles.locked")}
-          </p>
+          </Text>
         )}
         <Settings profile={profile} />
       </Section>
@@ -797,10 +795,10 @@ function History({
                           })}
                     </Text>
                     {item.id === profile.id ? (
-                      <span className={META}>
+                      <Text as="span" variant="meta">
                         {" "}
                         {t("profiles.detail.history.current")}
-                      </span>
+                      </Text>
                     ) : null}
                   </span>
                   <Code className="text-muted-foreground wrap-anywhere">
@@ -814,9 +812,9 @@ function History({
                 </Badge>
               </GridTableCell>
               <GridTableCell hideNarrow>
-                <span className={META}>
+                <Text as="span" variant="meta">
                   {created ? formatTimestamp(created, locale) : "—"}
-                </span>
+                </Text>
               </GridTableCell>
             </GridTableRow>
           );
@@ -939,10 +937,10 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
       description={t("profiles.detail.agents.description")}
     >
       {!lists ? (
-        <p className={cn("m-0 flex items-center gap-1", META)}>
+        <Text variant="meta" className="flex items-center gap-1">
           <Lock aria-hidden="true" className="size-3.5 shrink-0" />
           {t("profiles.detail.agents.withheld")}
-        </p>
+        </Text>
       ) : agents.isPending ? (
         <Skeleton width="40%" />
       ) : agents.isError ? (
@@ -981,15 +979,19 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
                       search={{ tab: "release" }}
                     />
                   </GridTableRowOpener>
-                  <span className="font-medium text-foreground [overflow-wrap:anywhere]">
+                  <Text
+                    as="span"
+                    weight="medium"
+                    className="[overflow-wrap:anywhere]"
+                  >
                     {agent.name}
-                  </span>
+                  </Text>
                 </GridTableCell>
                 <GridTableCell>
                   {/* As the release tab names it. */}
-                  <span className={`${META} tabular-nums`}>
+                  <Text as="span" variant="meta" numeric>
                     {agent.summary?.release_label ?? "?"}
-                  </span>
+                  </Text>
                 </GridTableCell>
               </GridTableRow>
             ))}

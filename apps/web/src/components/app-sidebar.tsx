@@ -644,9 +644,9 @@ function UserMenu({
         >
           <Icon aria-hidden="true" className={MENU_ICON} />
           {label}
-          <span className="ml-auto text-caption text-muted-foreground">
+          <Text as="span" variant="meta" className="ml-auto">
             {value}
-          </span>
+          </Text>
           <ChevronRight aria-hidden="true" className="size-3.5 shrink-0" />
         </button>
         {expanded ? (
@@ -741,10 +741,12 @@ function UserMenu({
         >
           {me?.user ? (
             <div role="presentation" className="flex flex-col px-2 py-2">
-              <span className="truncate text-control">{me.user.email}</span>
-              <span className="truncate text-caption text-muted-foreground">
+              <Text as="span" truncate>
+                {me.user.email}
+              </Text>
+              <Text as="span" variant="meta" truncate>
                 {[roleLabel, me.workspace?.name].filter(Boolean).join(" · ")}
-              </span>
+              </Text>
             </div>
           ) : null}
           <hr className={MENU_RULE} />
@@ -821,16 +823,15 @@ function UserMenu({
           {initial(me?.user?.display_name ?? me?.workspace?.name ?? "")}
         </span>
         <span className="flex min-w-0 flex-col">
-          <span className="truncate font-medium text-control">{name}</span>
+          <Text as="span" weight="medium" truncate>
+            {name}
+          </Text>
           {/* Heard between the name and the address; the column hides it. */}{" "}
           {me?.user?.email ? (
             // A long address is cut; the whole one shows on hover.
-            <span
-              title={me.user.email}
-              className="truncate text-caption text-muted-foreground"
-            >
+            <Text as="span" variant="meta" truncate title={me.user.email}>
               {me.user.email}
-            </span>
+            </Text>
           ) : null}
         </span>
         {/* The role shows in the menu head, not on the pill; it is still

@@ -15,10 +15,12 @@ import {
   ConfirmDialog,
   cn,
   formatTimestamp,
+  Heading,
   Page,
   RowLines,
   RowList,
   RowListItem,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import {
@@ -49,7 +51,6 @@ import {
 // One row per service (console v35): 64px tall, its button as wide as a row action.
 const SERVICE_ROW =
   "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
-const SERVICE_NAME = "m-0 font-semibold text-body";
 const SERVICE_BUTTON = "ml-auto min-w-[var(--ap-row-action-min-width)]";
 // Lines under a service start where its name does: inset, mark, gap.
 const SERVICE_INDENT =
@@ -59,8 +60,6 @@ const SERVICE_DETAIL = cn(
   "border-t pr-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
 );
 const PRIMARY = "block break-words font-semibold";
-const SECONDARY =
-  "block text-muted-foreground text-xs [overflow-wrap:anywhere]";
 
 // Refusals whose server message is the product copy written for the person
 // linking (contracts LINK_MESSAGES); the page shows those words unchanged.
@@ -245,13 +244,13 @@ export function LinkedAccountsScreen() {
             </ServiceMark>
             <RowLines>
               <span className="flex flex-wrap items-center gap-2">
-                <h2
+                <Heading
                   ref={headingRef}
                   tabIndex={-1}
-                  className={`${SERVICE_NAME} outline-none`}
+                  className="outline-none"
                 >
                   {t("linked.slack")}
-                </h2>
+                </Heading>
                 {accounts.isSuccess ? (
                   <Badge variant={live.length > 0 ? "green" : "gray"}>
                     {t(
@@ -260,7 +259,13 @@ export function LinkedAccountsScreen() {
                   </Badge>
                 ) : null}
               </span>
-              <span className={SECONDARY}>{t("linked.use.slack")}</span>
+              <Text
+                as="span"
+                variant="meta"
+                className="block [overflow-wrap:anywhere]"
+              >
+                {t("linked.use.slack")}
+              </Text>
             </RowLines>
             {/* Linked rows offer only unlinking; linking again starts from
                 there. */}
@@ -409,18 +414,22 @@ function GitHubService({
         </ServiceMark>
         <RowLines>
           <span className="flex flex-wrap items-center gap-2">
-            <h2 className={SERVICE_NAME}>GitHub</h2>
+            <Heading>GitHub</Heading>
             {accounts !== undefined ? (
               <Badge variant={linked ? "green" : "gray"}>
                 {t(linked ? "linked.connected" : "linked.notLinked")}
               </Badge>
             ) : null}
           </span>
-          <span className={SECONDARY}>
+          <Text
+            as="span"
+            variant="meta"
+            className="block [overflow-wrap:anywhere]"
+          >
             {unset && !linked
               ? t("linked.github.unset")
               : t("linked.use.github")}
-          </span>
+          </Text>
         </RowLines>
         {accounts !== undefined && !linked ? (
           <Button
@@ -453,17 +462,25 @@ function GitHubService({
                   {account.external_user_name ?? account.external_user_id}
                 </span>
                 {account.external_user_name ? (
-                  <span className={SECONDARY}>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="block [overflow-wrap:anywhere]"
+                  >
                     {t("linked.github.coAuthor", {
                       line: `${account.external_user_name} <${noreplyOf(account)}>`,
                     })}
-                  </span>
+                  </Text>
                 ) : null}
-                <span className={SECONDARY}>
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="block [overflow-wrap:anywhere]"
+                >
                   {t("linked.verified", {
                     at: formatTimestamp(account.verified_at, locale),
                   })}
-                </span>
+                </Text>
               </RowLines>
               <Button
                 type="button"
@@ -503,10 +520,16 @@ function SoonService({
       <ServiceMark>{mark}</ServiceMark>
       <RowLines>
         <span className="flex flex-wrap items-center gap-2">
-          <h2 className={SERVICE_NAME}>{name}</h2>
+          <Heading>{name}</Heading>
           <Badge variant="gray">{t("linked.soon")}</Badge>
         </span>
-        <span className={SECONDARY}>{use}</span>
+        <Text
+          as="span"
+          variant="meta"
+          className="block [overflow-wrap:anywhere]"
+        >
+          {use}
+        </Text>
       </RowLines>
     </li>
   );
@@ -537,13 +560,17 @@ function SlackAccounts({
         >
           <RowLines>
             <SlackAccountName account={account} />
-            <span className={SECONDARY}>
+            <Text
+              as="span"
+              variant="meta"
+              className="block [overflow-wrap:anywhere]"
+            >
               {account.status === "stale"
                 ? t("linked.stale")
                 : t("linked.verified", {
                     at: formatTimestamp(account.verified_at, locale),
                   })}
-            </span>
+            </Text>
           </RowLines>
           <Button
             type="button"
@@ -588,7 +615,9 @@ function SlackAccountName({ account }: { readonly account: LinkedAccount }) {
           team: account.external_tenant_name ?? ids.team,
         })}
       </span>
-      <span className={SECONDARY}>{t("linked.slackIds", ids)}</span>
+      <Text as="span" variant="meta" className="block [overflow-wrap:anywhere]">
+        {t("linked.slackIds", ids)}
+      </Text>
     </>
   );
 }
