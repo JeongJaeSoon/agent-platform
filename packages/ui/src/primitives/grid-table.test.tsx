@@ -201,3 +201,52 @@ describe("GridTable", () => {
     expect(active?.hasAttribute("data-inactive")).toBe(false);
   });
 });
+
+describe("GridTable framed", () => {
+  test("framed는 표 자체에 카드 틀을 두고, 기본값은 틀이 없다", () => {
+    const { getAllByRole } = render(
+      <>
+        <GridTable aria-label="틀 있음" columns="1fr" framed>
+          <GridTableHeader>
+            <GridTableColumnHeader>이름</GridTableColumnHeader>
+          </GridTableHeader>
+        </GridTable>
+        <GridTable aria-label="틀 없음" columns="1fr">
+          <GridTableHeader>
+            <GridTableColumnHeader>이름</GridTableColumnHeader>
+          </GridTableHeader>
+        </GridTable>
+      </>,
+    );
+    const [framed, plain] = getAllByRole("table") as HTMLElement[];
+    expect(framed?.getAttribute("data-framed")).toBe("true");
+    for (const name of ["rounded-card", "border", "bg-card", "@container"])
+      expect(framed?.classList.contains(name)).toBe(true);
+    expect(plain?.hasAttribute("data-framed")).toBe(false);
+    expect(plain?.classList.contains("border")).toBe(false);
+  });
+
+  test("action 열 머리글은 끝에 붙고 버튼 최소 폭의 가운데에 글자를 둔다", () => {
+    const { getByRole } = render(
+      <GridTable aria-label="구성원" columns="1fr 120px">
+        <GridTableHeader>
+          <GridTableColumnHeader>이름</GridTableColumnHeader>
+          <GridTableColumnHeader action>관리</GridTableColumnHeader>
+        </GridTableHeader>
+      </GridTable>,
+    );
+    const header = getByRole("columnheader", { name: "관리" });
+    expect(header.getAttribute("data-action")).toBe("true");
+    expect(header.classList.contains("justify-end")).toBe(true);
+    const label = header.firstElementChild as HTMLElement;
+    expect(label.tagName).toBe("SPAN");
+    expect(label.textContent).toBe("관리");
+    expect(label.classList.contains("text-center")).toBe(true);
+    expect(
+      label.classList.contains("min-w-[var(--ap-row-action-min-width)]"),
+    ).toBe(true);
+    const name = getByRole("columnheader", { name: "이름" });
+    expect(name.hasAttribute("data-action")).toBe(false);
+    expect(name.firstElementChild).toBeNull();
+  });
+});

@@ -37,27 +37,53 @@ RUN bun install --frozen-lockfile --production \
   && bun run --filter @werft-ai/runtime-registry image:verify
 
 # Git LFS, for a session's LFS objects through the proxy's repository route.
-# Upstream's release rather than Debian's package: Debian builds it with a Go
-# whose standard library the image scan fails on. Pinned per arch to the
-# release's sha256sums.asc; bumped by hand, since the daily apt upgrade does
-# not reach it. THIRD_PARTY_NOTICES names the version (GIT_LFS_VERSION in
-# scripts/third-party-notices.ts; tests/images.test.ts keeps them equal).
-FROM ${BUN_IMAGE} AS git-lfs
+# Built here from upstream's release source rather than taken as its binary or
+# Debian's package: both link a golang.org/x/net the image scan fails on
+# (94S-1194), and the scan takes no exception for it. The build moves x/net to
+# GIT_LFS_X_NET; go.mod and go.sum must then hash to the pins below, which
+# fixes every module the binary links. Source, Go toolchain and module set are
+# pinned; bumped by hand, since the daily apt upgrade does not reach them.
+# The toolchain stays in this stage. THIRD_PARTY_NOTICES names the versions
+# (GIT_LFS_* in scripts/third-party-notices.ts; tests/images.test.ts keeps
+# them equal). On the build platform: Go cross-compiles, no emulation.
+FROM --platform=$BUILDPLATFORM ${BUN_IMAGE} AS git-lfs
 ARG GIT_LFS_VERSION=3.8.1
+# The commit v3.8.1 tags; `git lfs version` reports it.
+ARG GIT_LFS_COMMIT=a662a6dbfedf706cfa9fc7a5b7bcc7ba2e2c8a65
+ARG GIT_LFS_X_NET=0.62.0
+ARG GIT_LFS_GO=1.27.3
+ARG BUILDARCH
 ARG TARGETARCH
-ADD --checksum=sha256:e72cf723a4a660438862282e8aecf3885fc8123e88bfcad534cf6b941a354b75 \
-  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz \
-  /tmp/git-lfs-amd64.tar.gz
-ADD --checksum=sha256:67895dd77b63329796bc5efdd47b57f218e1f7b98717ebaf936a8238dbcaec0f \
-  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz \
-  /tmp/git-lfs-arm64.tar.gz
-# The tarball carries no license; this one also holds the Go license the
-# binary needs reproduced.
-ADD --checksum=sha256:4fae9062ab5cdd5fb15486b728534d8aded8b4ae9d84b6d66a956f5162c366b6 \
-  https://raw.githubusercontent.com/git-lfs/git-lfs/v${GIT_LFS_VERSION}/LICENSE.md \
-  /tmp/git-lfs-LICENSE.md
-RUN tar -xzf "/tmp/git-lfs-${TARGETARCH}.tar.gz" -C /tmp --strip-components=1 \
-    "git-lfs-${GIT_LFS_VERSION}/git-lfs"
+ADD --checksum=sha256:1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
+  https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-v${GIT_LFS_VERSION}.tar.gz \
+  /tmp/git-lfs-src.tar.gz
+ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 \
+  https://dl.google.com/go/go${GIT_LFS_GO}.linux-amd64.tar.gz \
+  /tmp/go-amd64.tar.gz
+ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 \
+  https://dl.google.com/go/go${GIT_LFS_GO}.linux-arm64.tar.gz \
+  /tmp/go-arm64.tar.gz
+# The base has no CA roots; Go needs them to reach the module proxy. Trixie's
+# package, pinned to its archive sha256 and unpacked only (no maintainer
+# scripts): Go reads every certificate under SSL_CERT_DIR.
+ADD --checksum=sha256:ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+  https://snapshot.debian.org/archive/debian/20250419T084132Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb \
+  /tmp/ca-certificates.deb
+RUN dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
+ENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla
+WORKDIR /tmp/git-lfs-src
+# GOTOOLCHAIN=local: the go directive x/net raises must not fetch another Go.
+# Modules come through proxy.golang.org, checked against sum.golang.org.
+RUN tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
+  && tar -xzf /tmp/git-lfs-src.tar.gz --strip-components=1 \
+  && export PATH="/usr/local/go/bin:${PATH}" GOTOOLCHAIN=local \
+  && go get "golang.org/x/net@v${GIT_LFS_X_NET}" \
+  && echo "dc2dee038bdb5fbe42a7b0028cea2d7f35b6983b6afc86571d4bd4e5604890a0  go.mod" | sha256sum -c - \
+  && echo "dd02990f50037188fabf10501b466c489c69677edf4130b81f1d9581aea677e6  go.sum" | sha256sum -c - \
+  && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -trimpath \
+    -ldflags="-s -w -X github.com/git-lfs/git-lfs/v3/config.GitCommit=${GIT_LFS_COMMIT}" \
+    -o /tmp/git-lfs . \
+  && cp LICENSE.md /tmp/git-lfs-LICENSE.md
 
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.

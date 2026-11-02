@@ -24,7 +24,7 @@ type Locale = keyof typeof COPY;
 const localeOf = (locale: unknown): Locale =>
   locale === "ja" || locale === "en" ? locale : "ko";
 
-// Each row: the mockup v4 class it draws, then the props.
+// Each row: the design's class name and size it stands for, then the props.
 const SCALE: [string, TextProps][] = [
   [".app (body) 13/20", { variant: "body" }],
   [".sub · .page-desc 13 text-2", { variant: "sub" }],
