@@ -9,6 +9,7 @@ import type {
   BootstrapClaimResponse,
   CheckpointRequest,
   CheckpointRequestResponse,
+  ClaimGitAuthor,
   FinalizeRequest,
   FinalizeResponse,
   GitHubPackagesRegistry,
@@ -123,7 +124,7 @@ import {
   type NeutralizeEvent,
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
-import { claimGitOf } from "../sessions/git-attribution.ts";
+import { appBotAuthor, claimGitOf } from "../sessions/git-attribution.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -142,6 +143,10 @@ import {
 } from "./package-registries.ts";
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
+
+// The repository binding of a session without a repository of its own:
+// its repository route reaches only attached ones, each through the gate.
+const ATTACHED_ONLY_BINDING = "attached-only";
 
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
@@ -495,10 +500,38 @@ export function createWorkerGateway(deps: {
   attribution?: {
     store: SessionAttributionStore;
     consoleOrigin: string | null;
+    // The numeric id of an App's bot user; null when GitHub does not say.
+    // Absent, a claim names no commit author and the image's default stays.
+    appBotUserId?: (app: {
+      slug: string;
+      apiBase: string;
+    }) => Promise<string | null>;
   };
   options: WorkerGatewayOptions;
 }) {
   const { work, catalog, checkpoints, pending, neutralize } = deps;
+
+  // Only a repository on the console's App: that App pushes and opens the
+  // pull request, so its bot is who wrote the commits. Undefined leaves the
+  // field off the claim; null tells the worker to drop an earlier author.
+  async function gitAuthorOf(
+    attribution: (typeof deps)["attribution"],
+    authorApp: { slug: string; apiBase: string } | null,
+    repositoryId: string | null,
+  ): Promise<ClaimGitAuthor | null | undefined> {
+    const lookUp = attribution?.appBotUserId;
+    if (lookUp === undefined) return undefined;
+    const auth =
+      repositoryId === null
+        ? undefined
+        : own(catalog.repositories, repositoryId)?.auth;
+    if (authorApp === null || auth === undefined || !("registered" in auth)) {
+      return null;
+    }
+    const botUserId = await lookUp(authorApp).catch(() => null);
+    return botUserId === null ? null : appBotAuthor(authorApp.slug, botUserId);
+  }
+
   const decideMcp =
     deps.mcp === undefined
       ? null
@@ -887,7 +920,15 @@ export function createWorkerGateway(deps: {
       packages: PACKAGES_BINDING,
     };
     if (session.repositoryMode === "none") {
-      return { provider, repository: null, object_store, ...mcpBinding };
+      // An `optional` session without a repository still reaches the ones
+      // it attached; the gate decides each fetch.
+      return {
+        provider,
+        repository:
+          repositoryModeOf(profile) === "none" ? null : ATTACHED_ONLY_BINDING,
+        object_store,
+        ...mcpBinding,
+      };
     }
     const repository = session.repositoryId
       ? own(catalog.repositories, session.repositoryId)
@@ -1271,21 +1312,27 @@ export function createWorkerGateway(deps: {
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);
           const attribution = deps.attribution;
-          const git =
+          const record =
             attribution === undefined
               ? undefined
+              : await attribution.store.attribution(binding.sessionId);
+          const git =
+            attribution === undefined || record === undefined
+              ? undefined
               : claimGitOf(
-                  await attribution.store.attribution(binding.sessionId),
+                  record,
                   attribution.consoleOrigin,
                   binding.sessionId,
                 );
-          const additional =
-            binding.repository === null
-              ? []
-              : await additionalWorkspaceRepositories(
-                  binding.sessionId,
-                  repositoryToken,
-                );
+          const gitAuthor = await gitAuthorOf(
+            attribution,
+            record?.authorApp ?? null,
+            binding.repository?.id ?? null,
+          );
+          const additional = await additionalWorkspaceRepositories(
+            binding.sessionId,
+            repositoryToken,
+          );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1334,6 +1381,7 @@ export function createWorkerGateway(deps: {
               ? {}
               : { grants: [...binding.grants] }),
             ...(git === undefined ? {} : { git }),
+            ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
           };
         }
       }
@@ -1527,9 +1575,18 @@ export function createWorkerGateway(deps: {
         }
         return grant(providerUpstreamOf(listed));
       }
-      if (result.repository === null) moved("session's repository");
-      const { id, url, branch } = result.repository;
       const other = request.repository_id;
+      // A session started without a repository reaches only the ones it
+      // attached (session-repository-attachment.md decision 4).
+      if (result.repository === null) {
+        if (other === undefined || result.binding !== ATTACHED_ONLY_BINDING) {
+          moved("session's repository");
+        }
+        return grant(
+          await additionalRepositoryUpstream(result.sessionId, other),
+        );
+      }
+      const { id, url, branch } = result.repository;
       if (other !== undefined && other !== id) {
         return grant(
           await additionalRepositoryUpstream(result.sessionId, other),

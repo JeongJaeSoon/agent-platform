@@ -5,6 +5,7 @@ import type { Database } from "./queries.ts";
 import {
   agentReleases,
   apiKeys,
+  githubApps,
   linkedAccounts,
   sessions,
   turns,
@@ -78,8 +79,23 @@ export function createPostgresSessionAttributionStore(
             ? null
             : { id: link.id, login: link.login };
       }
+      let authorApp: { slug: string; apiBase: string } | null = null;
+      if (row.workspaceId !== null) {
+        const [app] = await db
+          .select({ slug: githubApps.slug, apiBase: githubApps.apiBase })
+          .from(githubApps)
+          .where(
+            and(
+              eq(githubApps.workspaceId, row.workspaceId),
+              eq(githubApps.role, "author"),
+            ),
+          )
+          .limit(1);
+        authorApp = app ?? null;
+      }
       return {
         ownerId: row.ownerId,
+        authorApp,
         trigger: triggerOf(row),
         agentId: row.agentId,
         agentReleaseId: row.agentReleaseId,

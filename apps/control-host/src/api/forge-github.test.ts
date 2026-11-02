@@ -14,6 +14,7 @@ import {
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import {
   connectionsOf,
+  createAppBotUsers,
   createGitHubAppDirectory,
   createGitHubConnection,
   createRegisteredGitHubConnection,
@@ -622,5 +623,111 @@ describe("createGitHubAppDirectory", () => {
     await expect(
       directory.describe({ ...app(), apiBase: unreachable }),
     ).rejects.toMatchObject({ reason: "github_unreachable" });
+  });
+});
+
+describe("createAppBotUsers", () => {
+  const GITHUB_COM = "https://api.github.com";
+  const answer = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+
+  test("asks the users API once for <slug>[bot] and keeps its id", async () => {
+    const calls = spyOn(globalThis, "fetch").mockImplementation((async () =>
+      answer(200, {
+        id: 41898282,
+        login: "werft-dev[bot]",
+        type: "Bot",
+      })) as unknown as typeof fetch);
+    try {
+      const botUser = createAppBotUsers();
+      const app = { slug: "werft-dev", apiBase: `${GITHUB_COM}/` };
+      expect(await botUser(app)).toBe("41898282");
+      expect(await botUser(app)).toBe("41898282");
+      const urls = calls.mock.calls.map(([url]) => String(url));
+      expect(urls).toEqual([`${GITHUB_COM}/users/werft-dev%5Bbot%5D`]);
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
+  test("a failure is not asked again until the retry wait passes", async () => {
+    let at = 0;
+    let status = 404;
+    const calls = spyOn(globalThis, "fetch").mockImplementation((async () =>
+      status === 200
+        ? answer(200, { id: 7, login: "werft-dev[bot]" })
+        : answer(status, { message: "Not Found" })) as unknown as typeof fetch);
+    try {
+      const botUser = createAppBotUsers({ now: () => new Date(at) });
+      const app = { slug: "werft-dev", apiBase: GITHUB_COM };
+      expect(await botUser(app)).toBeNull();
+      expect(await botUser(app)).toBeNull();
+      expect(calls.mock.calls).toHaveLength(1);
+      at = 5 * 60_000;
+      status = 200;
+      expect(await botUser(app)).toBe("7");
+      expect(calls.mock.calls).toHaveLength(2);
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
+  test("claims at once share one request; a slow GitHub is cut short, not retried", async () => {
+    let answerNow: (() => void) | undefined;
+    const calls = spyOn(globalThis, "fetch").mockImplementation(
+      ((_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          answerNow = () => resolve(answer(200, { id: 5, login: "a[bot]" }));
+          init.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          );
+        })) as unknown as typeof fetch,
+    );
+    try {
+      const botUser = createAppBotUsers();
+      const app = { slug: "a", apiBase: GITHUB_COM };
+      const both = Promise.all([botUser(app), botUser(app)]);
+      answerNow?.();
+      expect(await both).toEqual(["5", "5"]);
+      expect(calls.mock.calls).toHaveLength(1);
+
+      const slow = createAppBotUsers({ timeoutMs: 20 });
+      const started = Date.now();
+      expect(await slow({ slug: "b", apiBase: GITHUB_COM })).toBeNull();
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(calls.mock.calls).toHaveLength(2);
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
+  test("a login other than the App's bot is no answer", async () => {
+    const calls = spyOn(globalThis, "fetch").mockImplementation((async () =>
+      answer(200, { id: 9, login: "someone" })) as unknown as typeof fetch);
+    try {
+      expect(
+        await createAppBotUsers()({ slug: "werft-dev", apiBase: GITHUB_COM }),
+      ).toBeNull();
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
+  test("names no bot off github.com, without asking", async () => {
+    const calls = spyOn(globalThis, "fetch");
+    try {
+      expect(
+        await createAppBotUsers()({
+          slug: "werft-dev",
+          apiBase: "https://ghe.example.com/api/v3",
+        }),
+      ).toBeNull();
+      expect(calls.mock.calls).toHaveLength(0);
+    } finally {
+      calls.mockRestore();
+    }
   });
 });

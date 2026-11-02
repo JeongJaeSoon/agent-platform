@@ -771,6 +771,36 @@ const ALL_SCOPES = [
   "sessions:control",
   "sessions:recover",
 ];
+const EXAMPLE_TEAM_ID = "019a0000-0000-7000-8000-00000000b0a1";
+const EXAMPLE_TEAM_MEMBER_ID = "5b9e2d7c-1a4f-4c3b-9e8d-7f6a5b4c3d21";
+const EXAMPLE_TEAM = {
+  id: EXAMPLE_TEAM_ID,
+  workspace_id: EXAMPLE_WORKSPACE.id,
+  name: "research admins",
+  member_count: 2,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-10-23T09:00:00Z",
+  revision: 3,
+};
+const EXAMPLE_AGENT_ADMINS = {
+  users: [
+    {
+      user_id: EXAMPLE_USER_ID,
+      email: "ada@example.com",
+      display_name: "Ada Owner",
+      created_by: EXAMPLE_USER_ID,
+      created_at: "2026-10-23T09:00:00Z",
+    },
+  ],
+  teams: [
+    {
+      team_id: EXAMPLE_TEAM_ID,
+      name: EXAMPLE_TEAM.name,
+      created_by: EXAMPLE_USER_ID,
+      created_at: "2026-10-24T09:00:00Z",
+    },
+  ],
+};
 const TEAM_PAGES =
   "By `name`, then `id`, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. A team renamed while the pages are read can show twice or not at all; every other team shows once.";
 
@@ -4778,7 +4808,17 @@ export const API_ROUTE_DECLARATIONS = [
       "Owners and admins (`team.manage`). A live team's name is unique in its workspace (409 ALREADY_EXISTS). Writes a `create_team` receipt.",
     auth: "session",
     body: "CreateTeamRequest",
-    success: { status: 201, schema: "TeamChangeResponse" },
+    requestExample: { name: EXAMPLE_TEAM.name },
+    success: {
+      status: 201,
+      schema: "TeamChangeResponse",
+      description:
+        "The team, created with no members; `receipt_id` names its `create_team` receipt.",
+      example: {
+        team: { ...EXAMPLE_TEAM, member_count: 0, revision: 1 },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
     errors: [400, 401, 403, 409, 413, 503],
     errorCodes: { 409: ["ALREADY_EXISTS"] },
     idempotent: false,
@@ -4792,7 +4832,12 @@ export const API_ROUTE_DECLARATIONS = [
     description: `Owners and admins. Archived teams are left out. \`q\` keeps the teams whose name contains it, ignoring case. ${TEAM_PAGES}`,
     auth: "session",
     query: "ListTeamsQuery",
-    success: { status: 200, schema: "ListTeamsResponse" },
+    success: {
+      status: 200,
+      schema: "ListTeamsResponse",
+      description: "A page of the workspace's live teams.",
+      example: { items: [EXAMPLE_TEAM], next_cursor: null },
+    },
     errors: [400, 401, 403, 503],
   },
   {
@@ -4811,8 +4856,8 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         items: [
           {
-            id: "019a0000-0000-7000-8000-00000000b0a1",
-            name: "research admins",
+            id: EXAMPLE_TEAM_ID,
+            name: EXAMPLE_TEAM.name,
           },
         ],
         next_cursor: null,
@@ -4829,7 +4874,30 @@ export const API_ROUTE_DECLARATIONS = [
     description:
       "An owner or an admin reads any team. Anyone else reads only a team they are in now, read only: changing it stays with owners and admins. Any other team is 403.",
     auth: "session",
-    success: { status: 200, schema: "TeamDetail" },
+    success: {
+      status: 200,
+      schema: "TeamDetail",
+      description: "The team and the people in it now.",
+      example: {
+        ...EXAMPLE_TEAM,
+        members: [
+          {
+            user_id: EXAMPLE_USER_ID,
+            email: "ada@example.com",
+            display_name: "Ada Owner",
+            added_by: EXAMPLE_USER_ID,
+            added_at: "2026-10-23T09:00:00Z",
+          },
+          {
+            user_id: EXAMPLE_TEAM_MEMBER_ID,
+            email: "grace@example.com",
+            display_name: null,
+            added_by: EXAMPLE_USER_ID,
+            added_at: "2026-10-24T09:00:00Z",
+          },
+        ],
+      },
+    },
     errors: [401, 403, 404, 503],
   },
   {
@@ -4842,7 +4910,16 @@ export const API_ROUTE_DECLARATIONS = [
       "Writes a `rename_team` receipt unless the name is unchanged (`receipt_id` null).",
     auth: "session",
     body: "UpdateTeamRequest",
-    success: { status: 200, schema: "TeamChangeResponse" },
+    requestExample: { name: "research leads" },
+    success: {
+      status: 200,
+      schema: "TeamChangeResponse",
+      description: "The team after the rename.",
+      example: {
+        team: { ...EXAMPLE_TEAM, name: "research leads", revision: 4 },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
     errors: [400, 401, 403, 404, 409, 413, 503],
     errorCodes: { 409: ["ALREADY_EXISTS"] },
     idempotent: false,
@@ -4856,7 +4933,13 @@ export const API_ROUTE_DECLARATIONS = [
     description:
       "Every agent the team administered loses it from the next request on; its members keep whatever they hold on their own. Writes a `delete_team` receipt.",
     auth: "session",
-    success: { status: 200, schema: "DeleteTeamResponse" },
+    success: {
+      status: 200,
+      schema: "DeleteTeamResponse",
+      description:
+        "The team is archived: from now on it answers 404 and lists leave it out. `receipt_id` names its `delete_team` receipt.",
+      example: { receipt_id: EXAMPLE_RECEIPT_ID },
+    },
     errors: [401, 403, 404, 503],
     idempotent: false,
   },
@@ -4870,7 +4953,13 @@ export const API_ROUTE_DECLARATIONS = [
       "No invite and no acceptance: the person is a member of the team at once. A disabled member is not found. Writes an `add_team_member` receipt naming the person, unless they already were in (`receipt_id` null).",
     auth: "session",
     body: "AddTeamMemberRequest",
-    success: { status: 200, schema: "TeamChangeResponse" },
+    requestExample: { user_id: EXAMPLE_TEAM_MEMBER_ID },
+    success: {
+      status: 200,
+      schema: "TeamChangeResponse",
+      description: "The team with the person in it.",
+      example: { team: EXAMPLE_TEAM, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
@@ -4883,7 +4972,20 @@ export const API_ROUTE_DECLARATIONS = [
     description:
       "What the person held through the team ends from their next request. Writes a `remove_team_member` receipt naming the person, unless they were not in (`receipt_id` null).",
     auth: "session",
-    success: { status: 200, schema: "TeamChangeResponse" },
+    success: {
+      status: 200,
+      schema: "TeamChangeResponse",
+      description: "The team without the person.",
+      example: {
+        team: {
+          ...EXAMPLE_TEAM,
+          name: "research leads",
+          member_count: 1,
+          revision: 5,
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
     errors: [401, 403, 404, 503],
     idempotent: false,
   },
@@ -4896,7 +4998,12 @@ export const API_ROUTE_DECLARATIONS = [
     description:
       "Owners, admins and the agent's own admins (`agent.admin.manage`).",
     auth: "session",
-    success: { status: 200, schema: "AgentAdmins" },
+    success: {
+      status: 200,
+      schema: "AgentAdmins",
+      description: "The people and the teams named the agent's admins.",
+      example: EXAMPLE_AGENT_ADMINS,
+    },
     errors: [401, 403, 404, 503],
   },
   {
@@ -4909,7 +5016,13 @@ export const API_ROUTE_DECLARATIONS = [
       "Owners, admins and the agent's own admins. A team's members administer the agent while they are in it. Writes an `add_agent_admin` receipt unless they already were one (`receipt_id` null).",
     auth: "session",
     body: "AddAgentAdminRequest",
-    success: { status: 200, schema: "AgentAdminChangeResponse" },
+    requestExample: { team_id: EXAMPLE_TEAM_ID },
+    success: {
+      status: 200,
+      schema: "AgentAdminChangeResponse",
+      description: "The agent's admins after the change.",
+      example: { admins: EXAMPLE_AGENT_ADMINS, receipt_id: EXAMPLE_RECEIPT_ID },
+    },
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
@@ -4922,7 +5035,15 @@ export const API_ROUTE_DECLARATIONS = [
     description:
       "`kind` is `users` or `teams`. Writes a `remove_agent_admin` receipt unless they were not one (`receipt_id` null).",
     auth: "session",
-    success: { status: 200, schema: "AgentAdminChangeResponse" },
+    success: {
+      status: 200,
+      schema: "AgentAdminChangeResponse",
+      description: "The agent's admins after the change.",
+      example: {
+        admins: { ...EXAMPLE_AGENT_ADMINS, teams: [] },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
     errors: [401, 403, 404, 503],
     idempotent: false,
   },

@@ -288,12 +288,12 @@ export function createPostgresSessionUnitOfWork(
                 repositoryId: input.repository.id,
                 repoUrl: input.repository.url,
                 branch: input.repository.branch,
-                attachedRepositoryIds: input.attachedRepositoryIds ?? null,
               };
         await tx.insert(sessions).values({
           id: sessionId,
           ownerId: scope.principal,
           ...repository,
+          attachedRepositoryIds: input.attachedRepositoryIds ?? null,
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,

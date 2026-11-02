@@ -190,6 +190,11 @@ case "$app" in
     echo "default commit identity: $ident"
     expected="Werft <noreply@werft.invalid>"
     [ "$ident" = "$expected|$expected" ] || { echo "expected $expected as author and committer" >&2; exit 1; }
+    # the App bot identity the worker writes (git-trailers.ts) wins over it
+    bot="smoke[bot] <1+smoke[bot]@users.noreply.github.com>"
+    ident="$(docker run --rm "$image" sh -c 'mkdir -p "$HOME/.werft" && printf "[user]\n\tname = \"smoke[bot]\"\n\temail = 1+smoke[bot]@users.noreply.github.com\n" >"$HOME/.werft/git-identity" && cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
+    echo "App bot commit identity: $ident"
+    [ "$ident" = "$bot|$bot" ] || { echo "expected $bot as author and committer" >&2; exit 1; }
     # Its own ENTRYPOINT, a command standing in for the worker's: the
     # scheduler overrides Cmd only when it launches a worker.
     assert_init_reaps "$image" "$(docker run -d --label "$smoke_label" \

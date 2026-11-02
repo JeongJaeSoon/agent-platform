@@ -157,8 +157,9 @@ export type EgressIssue = {
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
   packagesHash?: Uint8Array;
-  // `repository` is null for a session without one: no repository token is
-  // issued, and `repositoryHash` goes unused.
+  // `repository` is null for a session that may reach no repository (a
+  // `none` profile): no repository token is issued, and `repositoryHash`
+  // goes unused.
   bindingsOf(session: {
     id: string;
     profileId: string | null;

@@ -39,6 +39,22 @@ export function coAuthorOf(
   };
 }
 
+/**
+ * The App's bot user as a commit author: `<slug>[bot]` with the noreply
+ * address GitHub ties to that account (`<bot user id>+<slug>[bot]@users.
+ * noreply.github.com`, the users API's id and login; see actions/checkout's
+ * README). Null when either value falls outside GitHub's own rules.
+ */
+export function appBotAuthor(
+  slug: string,
+  botUserId: string,
+): { name: string; email: string } | null {
+  if (!/^[1-9][0-9]{0,19}$/.test(botUserId)) return null;
+  if (!/^[a-z0-9][a-z0-9-]{0,33}$/.test(slug)) return null;
+  const login = `${slug}[bot]`;
+  return { name: login, email: githubNoreplyEmail(botUserId, login) };
+}
+
 export function claimGitOf(
   record: SessionAttributionRecord | null,
   consoleOrigin: string | null,

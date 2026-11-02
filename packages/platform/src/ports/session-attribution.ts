@@ -16,6 +16,8 @@ export type SessionAttributionRecord = {
     /** Their active GitHub link, as GitHub named it at linking; else null. */
     github: { id: string; login: string } | null;
   } | null;
+  /** The workspace's author App registered in the console; null without one. */
+  authorApp: { slug: string; apiBase: string } | null;
 };
 
 export interface SessionAttributionStore {
