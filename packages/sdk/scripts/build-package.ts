@@ -77,11 +77,9 @@ rmSync(OUT, { recursive: true, force: true });
 
 // One d.ts program over every file the bundle reaches. A file outside this
 // include gets a program of its own; the plugin below fails the build then.
-const include = [
-  "src/**/*.ts",
-  ...BUNDLED_DIRS.map((dir) => `../${dir}/src/**/*.ts`),
-];
-const exclude = ["**/*.test.ts"];
+const sources = ["src", ...BUNDLED_DIRS.map((dir) => `../${dir}/src`)];
+const include = sources.map((src) => `${src}/**/*.ts`);
+const exclude = sources.map((src) => `${src}/**/*.test.ts`);
 const included = (file: string) =>
   include.some((glob) => new Glob(glob).match(file)) &&
   !exclude.some((glob) => new Glob(glob).match(file));
@@ -100,7 +98,9 @@ await build({
       name: "dts-program-roots",
       buildEnd() {
         const missed = [...this.getModuleIds()]
-          .filter((id) => /\.[cm]?tsx?$/.test(id) && !/\.d\.[cm]?ts$/.test(id))
+          // The d.ts plugin takes JSON modules as well as TS ones.
+          .filter((id) => /\.([cm]?tsx?|json)$/.test(id))
+          .filter((id) => !/\.d\.[cm]?ts$/.test(id))
           .filter((id) => !id.includes("/node_modules/"))
           .map((id) => relative(PACKAGE_ROOT, id))
           .filter((file) => !included(file));
