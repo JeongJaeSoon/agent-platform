@@ -352,6 +352,25 @@ describe("성과", () => {
       api.calls.find((call) => call.path === "/v1/usage/achievements")?.search,
     ).toStartWith("?scope=me&");
   });
+
+  test("비용이 덜 모였으면 세션 비용과 성과당 비용 카드에 사용량 화면의 안내를 붙인다", async () => {
+    setSystemTime(NOW);
+    renderAt("/achievements", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...routes,
+      "GET /v1/usage/achievements": () =>
+        json(200, { ...FIGURES, cost_complete: false }),
+    });
+    await screen.findByText("확인 대기 3 · 거절 2");
+    const notes = screen.getAllByText(
+      "진행 중이거나 비용을 보고하지 않은 턴이 있어 실제보다 적을 수 있음",
+    );
+    expect(notes).toHaveLength(2);
+    expect(notes[0]?.parentElement?.textContent).toStartWith("세션 214개");
+    expect(notes[1]?.parentElement?.textContent).toStartWith(
+      "판정 비용 포함해도",
+    );
+  });
 });
 
 test("이번 달은 UTC 1일부터, 지난 N일은 다음 UTC 자정까지 N일이다", () => {

@@ -128,6 +128,19 @@ export function AchievementsScreen() {
     );
   const usdOrDash = (amount: string | null) =>
     amount === null ? "—" : format.usd(amount);
+  // The usage screen's cost card warns the same way: a partial sum must not
+  // pass for the whole spend.
+  const costNote = (note: ReactNode) =>
+    data && !data.cost_complete ? (
+      <>
+        {note}
+        <span className="block">
+          {OPERATIONS_MESSAGES[locale].usageKpis.costIncomplete}
+        </span>
+      </>
+    ) : (
+      note
+    );
 
   return (
     <Page
@@ -209,10 +222,12 @@ export function AchievementsScreen() {
               value={value((d) => format.usd(d.cost_usd))}
               description={
                 data &&
-                t("achievements.sessionCostNote", {
-                  sessions: format.count(data.session_count),
-                  earned: format.count(data.sessions_with_achievement_count),
-                })
+                costNote(
+                  t("achievements.sessionCostNote", {
+                    sessions: format.count(data.session_count),
+                    earned: format.count(data.sessions_with_achievement_count),
+                  }),
+                )
               }
             />
             <StatCard
@@ -231,12 +246,15 @@ export function AchievementsScreen() {
               value={value((d) => usdOrDash(d.cost_per_achievement_usd))}
               description={
                 data && data.achievement_count > 0
-                  ? t("achievements.perAchievementNote", {
-                      usd: format.usd(
-                        (Number(data.cost_usd) + Number(data.judge_cost_usd)) /
-                          data.achievement_count,
-                      ),
-                    })
+                  ? costNote(
+                      t("achievements.perAchievementNote", {
+                        usd: format.usd(
+                          (Number(data.cost_usd) +
+                            Number(data.judge_cost_usd)) /
+                            data.achievement_count,
+                        ),
+                      }),
+                    )
                   : undefined
               }
             />
