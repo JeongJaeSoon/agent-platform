@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
-  authorNeed,
-  firstShortfall,
-  ownerOf,
-  permissionRows,
-  statusOf,
+  githubConnection,
+  githubInstallation,
+} from "../test-support/fake-api.ts";
+import {
+  appShortfalls,
+  featureMark,
+  neededFor,
+  permissionsUrl,
+  unapproved,
 } from "./github-permission-table.ts";
 
 const OFF = {
@@ -15,71 +19,91 @@ const OFF = {
   review: false,
 };
 
-describe("GitHub 권한 표 판정", () => {
-  test("상태는 필요와 App 수준을 비교해 정한다", () => {
-    expect(statusOf("write", null)).toBe("missing");
-    expect(statusOf("write", "read")).toBe("short");
-    expect(statusOf(null, "read")).toBe("wide");
-    expect(statusOf("read", "write")).toBe("wide");
-    expect(statusOf("write", "write")).toBe("ok");
-    expect(statusOf(null, null)).toBe("ok");
+describe("GitHub 기능별 권한 판정", () => {
+  test("같은 App에 모자란 기능 둘은 필요 권한 한 묶음이 된다", () => {
+    const short = appShortfalls(githubConnection(), {
+      ...OFF,
+      actions: true,
+      workflows: true,
+    });
+    expect(short.map((item) => item.feature)).toEqual(["actions", "workflows"]);
+    expect(neededFor(short)).toEqual({ actions: "write", workflows: "write" });
   });
 
-  test("필요는 켠 기능만 더하고, 꺼 둔 검사·이슈는 필요에 넣지 않는다", () => {
-    expect(authorNeed({ ...OFF, checks: true, issues: true })).toEqual({
-      contents: "write",
-      pull_requests: "write",
-      metadata: "read",
-    });
-    expect(authorNeed({ ...OFF, actions: true, workflows: true })).toEqual({
-      contents: "write",
-      pull_requests: "write",
-      metadata: "read",
-      actions: "write",
-      workflows: "write",
-    });
+  test("아직 읽지 못한 App은 모자라다고 하지 않는다", () => {
+    expect(
+      appShortfalls(githubConnection({ permissions: null }), {
+        ...OFF,
+        actions: true,
+      }),
+    ).toEqual([]);
   });
 
-  test("없음·부족·넓음·맞음 순으로, 같은 상태 안에서는 기본 권한 순으로 놓는다", () => {
-    const rows = permissionRows(
-      {
-        metadata: "read",
-        pull_requests: "write",
-        contents: "read",
-        issues: "write",
-        actions: "read",
-      },
-      { ...OFF, actions: true, workflows: true },
+  test("리뷰 기능은 리뷰 승인용 App에서만 본다", () => {
+    const ceiling = { ...OFF, review: true };
+    expect(appShortfalls(githubConnection(), ceiling)).toEqual([]);
+    expect(
+      appShortfalls(
+        githubConnection({
+          role: "reviewer",
+          permissions: { metadata: "read" },
+        }),
+        ceiling,
+      ),
+    ).toEqual([{ feature: "review", missing: ["contents", "pull_requests"] }]);
+  });
+
+  test("확인 못 한 설치는 승인 대기로 세지 않는다", () => {
+    const installation = githubInstallation({
+      status: "unknown",
+      detail: { permissions: { metadata: "read" } },
+    });
+    expect(unapproved(installation, { actions: "write" })).toEqual([]);
+  });
+
+  test("기능과 상관없는 권한의 승인 대기는 기능에 표시하지 않는다", () => {
+    const connection = githubConnection({
+      permissions: { actions: "write", issues: "write", metadata: "read" },
+      installations: [
+        githubInstallation({
+          status: "approval_pending",
+          detail: { permissions: { actions: "write", metadata: "read" } },
+        }),
+      ],
+    });
+    const ceiling = { ...OFF, actions: true };
+    expect(featureMark("actions", [connection], ceiling)).toBeNull();
+  });
+
+  test("기능이 쓰는 권한의 승인 대기는 그 기능에 표시한다", () => {
+    const connection = githubConnection({
+      permissions: { ...githubConnection().permissions, actions: "write" },
+      installations: [githubInstallation({ status: "approval_pending" })],
+    });
+    expect(
+      featureMark("actions", [connection], { ...OFF, actions: true }),
+    ).toBe("pending");
+    expect(featureMark("actions", [connection], OFF)).toBeNull();
+  });
+
+  test("App 권한이 모자라면 승인 대기보다 먼저 권한 필요를 표시한다", () => {
+    expect(
+      featureMark("workflows", [githubConnection()], {
+        ...OFF,
+        workflows: true,
+      }),
+    ).toBe("appShort");
+  });
+
+  test("권한 설정 주소는 App 소유 계정 아래에 있다", () => {
+    expect(permissionsUrl(githubConnection())).toBe(
+      "https://github.com/organizations/acme/settings/apps/werft-agent/permissions",
     );
-    expect(rows.map((row) => [row.name, row.status])).toEqual([
-      ["workflows", "missing"],
-      ["contents", "short"],
-      ["actions", "short"],
-      ["issues", "wide"],
-      ["pull_requests", "ok"],
-      ["metadata", "ok"],
-    ]);
-    expect(rows.find((row) => row.name === "issues")?.feature).toBeNull();
-    expect(rows.find((row) => row.name === "contents")?.feature).toBe("base");
-  });
-
-  test("기능에 모자란 첫 권한을 짚고, App 권한을 아직 못 읽었으면 판단하지 않는다", () => {
-    expect(firstShortfall({ actions: "write" }, { actions: "read" })).toEqual({
-      name: "actions",
-      held: "read",
-    });
-    expect(firstShortfall({ workflows: "write" }, {})).toEqual({
-      name: "workflows",
-      held: null,
-    });
-    expect(firstShortfall({ actions: "write" }, { actions: "admin" })).toBe(
-      null,
-    );
-    expect(firstShortfall({ actions: "write" }, null)).toBe(null);
-  });
-
-  test("clone URL에서 계정을 읽는다", () => {
-    expect(ownerOf("https://github.com/acme/api.git")).toBe("acme");
-    expect(ownerOf("not a url")).toBe(null);
+    expect(
+      permissionsUrl(
+        githubConnection({ owner: { login: "jae", type: "user" } }),
+      ),
+    ).toBe("https://github.com/settings/apps/werft-agent/permissions");
+    expect(permissionsUrl(githubConnection({ owner: null }))).toBeNull();
   });
 });

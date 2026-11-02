@@ -182,6 +182,10 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.repository_none": "저장소 없음",
   "agentGitHub.refusal.ambiguous_app": "App 선택 필요",
   "agentGitHub.refusal.pinned_app_removed": "고정된 App 삭제됨",
+  "agentGitHub.refusalNext.ambiguous_app":
+    "워크스페이스 설정 › GitHub 연결 설정 › 저장소 관리에서 이 저장소를 맡을 App을 고르세요",
+  "agentGitHub.refusalNext.pinned_app_removed":
+    "워크스페이스 설정 › GitHub 연결 설정 › 저장소 관리에서 이 저장소를 맡을 다른 App을 고르세요",
   "agentGitHub.saveRefused": "저장하지 못했습니다: {reason}",
   "agentGitHub.refused": "거절",
 };
@@ -369,6 +373,10 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.repository_none": "No repository",
   "agentGitHub.refusal.ambiguous_app": "App choice needed",
   "agentGitHub.refusal.pinned_app_removed": "Pinned App removed",
+  "agentGitHub.refusalNext.ambiguous_app":
+    "Choose the App that handles this repository under Workspace settings › GitHub connection › Manage repositories",
+  "agentGitHub.refusalNext.pinned_app_removed":
+    "Choose another App to handle this repository under Workspace settings › GitHub connection › Manage repositories",
   "agentGitHub.saveRefused": "Not saved: {reason}",
   "agentGitHub.refused": "Refused",
 };
@@ -556,7 +564,11 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "リポジトリなし",
   "agentGitHub.refusal.ambiguous_app": "App の選択が必要",
-  "agentGitHub.refusal.pinned_app_removed": "固定した App が削除済み",
+  "agentGitHub.refusal.pinned_app_removed": "固定した App は削除済み",
+  "agentGitHub.refusalNext.ambiguous_app":
+    "ワークスペース設定 › GitHub 連携設定 › リポジトリを管理 で、このリポジトリを担当する App を選んでください",
+  "agentGitHub.refusalNext.pinned_app_removed":
+    "ワークスペース設定 › GitHub 連携設定 › リポジトリを管理 で、このリポジトリを担当する別の App を選んでください",
   "agentGitHub.saveRefused": "保存できませんでした: {reason}",
   "agentGitHub.refused": "拒否",
 };

@@ -25,7 +25,6 @@ import {
   Page,
   RadioGroup,
   RadioGroupItem,
-  RowListItem,
 } from "@werft-ai/ui";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { refusalText, useMe, useRole } from "../auth/guard.tsx";
@@ -66,14 +65,11 @@ export const githubNavigation = {
 /** The manifest flow's first half: what to make, then off to GitHub. */
 export function NewAppForm({
   workspaceId,
-  replace,
   blocked,
   onCancel,
   onOutcome,
 }: {
   readonly workspaceId: string;
-  /** An author App is registered and the person confirmed replacing it. */
-  readonly replace: boolean;
   /** Why the server cannot make one; the form says so and does not submit. */
   readonly blocked: boolean;
   readonly onCancel: () => void;
@@ -89,7 +85,6 @@ export function NewAppForm({
   const loginRef = useRef<HTMLInputElement>(null);
   const handedOff = useRef(false);
   const ids = {
-    intro: useId(),
     owner: useId(),
     org: useId(),
     user: useId(),
@@ -126,7 +121,7 @@ export function NewAppForm({
                 : { kind: "organization", login },
             public: scope === "public",
             actions,
-            replace,
+            replace: false,
           },
         }),
       ),
@@ -145,11 +140,9 @@ export function NewAppForm({
       onOutcome({
         kind: "error",
         text:
-          reasonOf(error) === "author_app_exists"
-            ? t("github.newApp.exists")
-            : reasonOf(error) === "console_origin_unset"
-              ? t("github.newApp.blocked")
-              : refusalText(t, error, "workspace.manage", role),
+          reasonOf(error) === "console_origin_unset"
+            ? t("github.newApp.blocked")
+            : refusalText(t, error, "workspace.manage", role),
       }),
   });
 
@@ -167,141 +160,129 @@ export function NewAppForm({
   };
 
   return (
-    <RowListItem>
-      <form className="flex w-full flex-col gap-5" noValidate onSubmit={submit}>
-        <div id={ids.intro} className="text-description text-muted-foreground">
-          {t("github.newAppHint")}
-        </div>
-        <FieldSet>
-          <FieldLegend id={ids.owner} variant="label">
-            {t("github.newApp.owner")}
-          </FieldLegend>
-          <RadioGroup
-            value={owner}
-            onValueChange={(value) =>
-              setOwner(value === "user" ? "user" : "organization")
-            }
-            aria-labelledby={ids.owner}
-          >
-            <Field orientation="horizontal">
-              <RadioGroupItem id={ids.org} value="organization" />
-              <FieldContent>
-                <FieldLabel htmlFor={ids.org}>
-                  {t("github.newApp.org")}
-                </FieldLabel>
-                <FieldDescription>
-                  {t("github.newApp.orgHint")}
-                </FieldDescription>
-              </FieldContent>
-            </Field>
-            <Field orientation="horizontal">
-              <RadioGroupItem id={ids.user} value="user" />
-              <FieldContent>
-                <FieldLabel htmlFor={ids.user}>
-                  {t("github.newApp.user")}
-                </FieldLabel>
-                <FieldDescription>
-                  {t("github.newApp.userHint")}
-                </FieldDescription>
-              </FieldContent>
-            </Field>
-          </RadioGroup>
-        </FieldSet>
-        {owner === "organization" ? (
-          <Field>
-            <FieldLabel htmlFor={ids.login}>
-              {t("github.newApp.orgLogin")}
-            </FieldLabel>
-            <Input
-              ref={loginRef}
-              id={ids.login}
-              className="max-w-80"
-              name="login"
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={39}
-              placeholder="acme-corp"
-              aria-describedby={ids.intro}
-              aria-invalid={loginMissing || undefined}
-              onChange={() => {
-                if (loginMissing) setLoginMissing(false);
-              }}
-            />
-            {loginMissing ? (
-              <FieldError>{t("github.newApp.orgLoginMissing")}</FieldError>
-            ) : null}
+    <form className="flex w-full flex-col gap-5" noValidate onSubmit={submit}>
+      <FieldSet>
+        <FieldLegend id={ids.owner} variant="label">
+          {t("github.newApp.owner")}
+        </FieldLegend>
+        <RadioGroup
+          value={owner}
+          onValueChange={(value) =>
+            setOwner(value === "user" ? "user" : "organization")
+          }
+          aria-labelledby={ids.owner}
+        >
+          <Field orientation="horizontal">
+            <RadioGroupItem id={ids.org} value="organization" />
+            <FieldContent>
+              <FieldLabel htmlFor={ids.org}>
+                {t("github.newApp.org")}
+              </FieldLabel>
+              <FieldDescription>{t("github.newApp.orgHint")}</FieldDescription>
+            </FieldContent>
           </Field>
-        ) : null}
-        <FieldSet>
-          <FieldLegend id={ids.scope} variant="label">
-            {t("github.newApp.scope")}
-          </FieldLegend>
-          <RadioGroup
-            value={scope}
-            onValueChange={(value) =>
-              setScope(value === "public" ? "public" : "private")
-            }
-            aria-labelledby={ids.scope}
-          >
-            <Field orientation="horizontal">
-              <RadioGroupItem id={ids.private} value="private" />
-              <FieldContent>
-                <FieldLabel htmlFor={ids.private}>
-                  {t("github.newApp.private")}
-                </FieldLabel>
-                <FieldDescription>
-                  {t("github.newApp.privateHint")}
-                </FieldDescription>
-              </FieldContent>
-            </Field>
-            <Field orientation="horizontal">
-              <RadioGroupItem id={ids.public} value="public" />
-              <FieldContent>
-                <FieldLabel htmlFor={ids.public}>
-                  {t("github.newApp.public")}
-                </FieldLabel>
-                <FieldDescription>
-                  {t("github.newApp.publicHint")}
-                </FieldDescription>
-              </FieldContent>
-            </Field>
-          </RadioGroup>
-        </FieldSet>
-        <Field orientation="horizontal">
-          <Checkbox
-            id={ids.actions}
-            checked={actions}
-            onCheckedChange={(checked) => setActions(checked === true)}
+          <Field orientation="horizontal">
+            <RadioGroupItem id={ids.user} value="user" />
+            <FieldContent>
+              <FieldLabel htmlFor={ids.user}>
+                {t("github.newApp.user")}
+              </FieldLabel>
+              <FieldDescription>{t("github.newApp.userHint")}</FieldDescription>
+            </FieldContent>
+          </Field>
+        </RadioGroup>
+      </FieldSet>
+      {owner === "organization" ? (
+        <Field>
+          <FieldLabel htmlFor={ids.login}>
+            {t("github.newApp.orgLogin")}
+          </FieldLabel>
+          <Input
+            ref={loginRef}
+            id={ids.login}
+            className="max-w-80"
+            name="login"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={39}
+            placeholder="acme-corp"
+            aria-invalid={loginMissing || undefined}
+            onChange={() => {
+              if (loginMissing) setLoginMissing(false);
+            }}
           />
-          <FieldContent>
-            <FieldLabel htmlFor={ids.actions}>
-              {t("github.newApp.actions")}
-            </FieldLabel>
-            <FieldDescription>
-              {t("github.newApp.actionsHint")}
-            </FieldDescription>
-          </FieldContent>
+          {loginMissing ? (
+            <FieldError>{t("github.newApp.orgLoginMissing")}</FieldError>
+          ) : null}
         </Field>
-        {blocked ? (
-          <FieldError id={ids.blocked}>{t("github.newApp.blocked")}</FieldError>
-        ) : (
-          <FieldDescription>{t("github.newApp.next")}</FieldDescription>
-        )}
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onCancel}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="submit"
-            disabled={blocked}
-            aria-describedby={blocked ? ids.blocked : undefined}
-            aria-disabled={start.isPending || undefined}
-          >
-            {t("github.newApp.submit")}
-          </Button>
-        </div>
-      </form>
-    </RowListItem>
+      ) : null}
+      <FieldSet>
+        <FieldLegend id={ids.scope} variant="label">
+          {t("github.newApp.scope")}
+        </FieldLegend>
+        <RadioGroup
+          value={scope}
+          onValueChange={(value) =>
+            setScope(value === "public" ? "public" : "private")
+          }
+          aria-labelledby={ids.scope}
+        >
+          <Field orientation="horizontal">
+            <RadioGroupItem id={ids.private} value="private" />
+            <FieldContent>
+              <FieldLabel htmlFor={ids.private}>
+                {t("github.newApp.private")}
+              </FieldLabel>
+              <FieldDescription>
+                {t("github.newApp.privateHint")}
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+          <Field orientation="horizontal">
+            <RadioGroupItem id={ids.public} value="public" />
+            <FieldContent>
+              <FieldLabel htmlFor={ids.public}>
+                {t("github.newApp.public")}
+              </FieldLabel>
+              <FieldDescription>
+                {t("github.newApp.publicHint")}
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+        </RadioGroup>
+      </FieldSet>
+      <Field orientation="horizontal">
+        <Checkbox
+          id={ids.actions}
+          checked={actions}
+          onCheckedChange={(checked) => setActions(checked === true)}
+        />
+        <FieldContent>
+          <FieldLabel htmlFor={ids.actions}>
+            {t("github.newApp.actions")}
+          </FieldLabel>
+          <FieldDescription>{t("github.newApp.actionsHint")}</FieldDescription>
+        </FieldContent>
+      </Field>
+      {blocked ? (
+        <FieldError id={ids.blocked}>{t("github.newApp.blocked")}</FieldError>
+      ) : (
+        <FieldDescription>{t("github.newApp.next")}</FieldDescription>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button
+          type="submit"
+          disabled={blocked}
+          aria-describedby={blocked ? ids.blocked : undefined}
+          aria-disabled={start.isPending || undefined}
+        >
+          {t("github.newApp.submit")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -367,10 +348,22 @@ export function GitHubNewAppCallback() {
           },
         ),
       ),
-    onSuccess: (done) => {
-      if (done.install_url.startsWith(GITHUB_WEB)) {
-        githubNavigation.assign(done.install_url);
-      }
+    onSuccess: async (done) => {
+      // Installing through a started state records who connected it; the
+      // plain install URL still works when that start fails.
+      const connectionId = done.github_app.connection_id;
+      const started = connectionId
+        ? await unwrap(
+            client.POST(
+              "/v1/workspaces/{id}/github-apps/{connectionId}/installations/start",
+              {
+                params: { path: { id: workspaceId ?? "", connectionId } },
+              },
+            ),
+          ).catch(() => null)
+        : null;
+      const next = started?.install_url ?? done.install_url;
+      if (next.startsWith(GITHUB_WEB)) githubNavigation.assign(next);
     },
   });
   const missing = !sent.code || !sent.state;

@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
+  AUTHOR_CONNECTION,
   GITHUB_SETTINGS,
+  githubConnection,
+  githubInstallation,
   githubSettings,
   json,
   me,
+  REVIEWER_CONNECTION,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -15,305 +19,425 @@ const PATH = "/settings/workspace/github";
 const BASE = `/v1/workspaces/${WORKSPACE_ID}`;
 const LIST = `${BASE}/github-repositories`;
 const RECEIPT = "5f0c2c1e-8a4b-4c1d-9e2f-3a4b5c6d7e8f";
+const OTHER_AUTHOR = "1a2b3c4d-0000-4000-8000-00000000000c";
 
-const APP = {
-  github_app: {
-    app_id: 4242,
-    slug: "werft-test",
-    name: "werft test",
-    html_url: "https://github.com/apps/werft-test",
-    private_key: { updated_at: "2026-10-30T05:00:00.000Z", updated_by: null },
-    created_at: "2026-10-30T05:00:00.000Z",
-    updated_at: "2026-10-30T05:00:00.000Z",
-  },
-  check: { state: "ok" },
-  installations: [
-    {
-      id: 77,
-      account: "acme",
-      repository_selection: "selected",
-      html_url: "https://github.com/settings/installations/77",
-    },
+const SETTINGS = {
+  ...githubSettings(),
+  connections: [
+    githubConnection({
+      installations: [
+        githubInstallation({ id: 77, account: "acme" }),
+        githubInstallation({ id: 78, account: "beta" }),
+      ],
+    }),
   ],
-  repositories: [],
 };
 
-const row = (fields: Record<string, unknown>) => ({
+const catalogRow = (fields: Record<string, unknown>) => ({
+  id: "api",
   github_repository_id: 11,
   full_name: "acme/api",
   url: "https://github.com/acme/api.git",
   branch: "main",
   source: "selection",
   editable: true,
-  version: 1,
+  version: 3,
   installed: true,
   updated_at: "2026-11-01T00:00:00.000Z",
-  id: "api",
-  agent_count: 0,
+  agent_count: 1,
+  pins: { author: AUTHOR_CONNECTION, reviewer: null },
   ...fields,
 });
-const FILE_ROW = row({
-  id: "tool",
-  github_repository_id: null,
-  full_name: "acme/tool",
-  url: "https://github.com/acme/tool.git",
-  source: "file",
-  editable: false,
-  version: null,
-  installed: null,
-  updated_at: null,
-});
 
-const installed = (n: number) => ({
-  github_repository_id: 100 + n,
-  full_name: `acme/repo-${String(n).padStart(3, "0")}`,
+const installations = [
+  {
+    id: 77,
+    account: "acme",
+    connection_id: AUTHOR_CONNECTION,
+    role: "author",
+    permissions: {},
+    repository_count: 21,
+  },
+  {
+    id: 78,
+    account: "beta",
+    connection_id: AUTHOR_CONNECTION,
+    role: "author",
+    permissions: {},
+    repository_count: 1,
+  },
+];
+
+const repository = (id: number, name: string, catalogId: string | null) => ({
+  github_repository_id: id,
+  full_name: name,
   default_branch: "main",
-  private: n % 2 === 0,
-  catalog_id: n === 1 ? "api" : null,
-  agent_count: n === 1 ? 3 : 0,
+  private: id % 2 === 0,
+  catalog_id: catalogId,
+  agent_count: catalogId === null ? 0 : 1,
 });
 
-const installation = (
-  id: number,
-  account: string,
-  role: "author" | "reviewer",
+const page = (installation: number, number: number) => ({
+  installations,
+  installation_id: installation,
+  page: number,
+  per_page: 20,
+  total_count: installation === 77 ? 21 : 1,
+  repositories:
+    installation === 78
+      ? [repository(90, "beta/site", null)]
+      : number === 1
+        ? [
+            repository(11, "acme/api", "api"),
+            ...Array.from({ length: 19 }, (_, at) =>
+              repository(100 + at, `acme/r${at}`, null),
+            ),
+          ]
+        : [repository(200, "acme/last", null)],
+  unavailable: null,
+  catalog: [
+    catalogRow({}),
+    catalogRow({
+      id: "gone",
+      github_repository_id: 12,
+      full_name: "acme/gone",
+      url: "https://github.com/acme/gone.git",
+      installed: false,
+      agent_count: 2,
+    }),
+  ],
+});
+
+const routes = (
+  extra: Record<string, (request: Request) => Response> = {},
 ) => ({
-  id,
-  account,
-  connection_id: `app-${role}`,
-  role,
-  permissions: { contents: "write" },
-  repository_count: 65,
+  "GET /v1/auth/me": () => json(200, me()),
+  [`GET ${GITHUB_SETTINGS}`]: () => json(200, SETTINGS),
+  [`GET ${BASE}/github-apps`]: () => json(200, { github_apps: [] }),
+  [`GET ${LIST}`]: (request: Request) => {
+    const query = new URL(request.url).searchParams;
+    return json(
+      200,
+      page(
+        Number(query.get("installation_id") ?? 77),
+        Number(query.get("page") ?? 1),
+      ),
+    );
+  },
+  ...extra,
 });
 
-/** 65 repositories, 30 a page, as GitHub pages them. */
-function page(search: string, catalog: unknown[]) {
-  const query = new URLSearchParams(search);
-  const at = Number(query.get("page") ?? "1");
-  const perPage = Number(query.get("per_page") ?? "30");
-  const all = Array.from({ length: 65 }, (_, i) => installed(i + 1));
-  return {
-    installations: [
-      installation(77, "acme", "author"),
-      installation(78, "other", "reviewer"),
-    ],
-    installation_id: Number(query.get("installation_id") ?? "77"),
-    page: at,
-    per_page: perPage,
-    total_count: all.length,
-    repositories: all.slice((at - 1) * perPage, at * perPage),
-    unavailable: null,
-    catalog,
-  };
+async function openSheet() {
+  const user = await setupUser();
+  await user.click(await screen.findByRole("button", { name: "저장소 관리" }));
+  const sheet = await screen.findByRole("dialog", { name: "저장소" });
+  return { user, sheet };
 }
 
-function routes(state: { rows: unknown[] }, extra = {}) {
-  return {
-    "GET /v1/auth/me": () => json(200, me()),
-    [`GET ${GITHUB_SETTINGS}`]: () => json(200, githubSettings()),
-    [`GET ${BASE}/github-apps/author`]: () => json(200, APP),
-    [`GET ${BASE}/github-apps/reviewer`]: () =>
-      json(200, { ...APP, github_app: null, check: null, installations: [] }),
-    [`GET ${LIST}`]: (request: Request) =>
-      json(200, page(new URL(request.url).search, state.rows)),
-    ...extra,
-  };
-}
+describe("GitHub 연결 › 저장소 시트", () => {
+  test("설치의 저장소를 한 쪽씩 읽고, 설치를 바꾸면 첫 쪽부터 읽는다", async () => {
+    const { api } = renderAt(PATH, routes());
+    const { user, sheet } = await openSheet();
+    const table = await within(sheet).findByRole("table", {
+      name: "acme · werft-agent 설치의 저장소",
+    });
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(21);
+    for (const row of rows) {
+      expect(
+        Array.from(row.children).filter((cell) => cell.getAttribute("role")),
+      ).toHaveLength(4);
+    }
+    expect(within(sheet).getByText("21개 중 1–20")).toBeDefined();
+    await user.click(within(sheet).getByRole("button", { name: "다음" }));
+    expect(await within(sheet).findByText("acme/last")).toBeDefined();
 
-const card = async () => {
-  await screen.findByRole("region", { name: "에이전트가 쓰는 저장소" });
-  return within(screen.getByRole("region", { name: "에이전트가 쓰는 저장소" }));
-};
-
-describe("GitHub 연결 › 에이전트가 쓰는 저장소", () => {
-  test("설치된 저장소를 한 쪽씩 읽고, 설치를 바꾸면 첫 쪽부터 읽는다", async () => {
-    const state = { rows: [row({}), FILE_ROW] as unknown[] };
-    const { api } = renderAt(PATH, routes(state));
-    const user = await setupUser();
-    const repos = await card();
-    // A file entry is read-only; a picked row is edited here.
-    expect(await repos.findByText("설정 파일")).toBeDefined();
-    expect(repos.queryByRole("button", { name: "acme/tool 편집" })).toBeNull();
-    expect(
-      await repos.findByRole("button", { name: "acme/api 편집" }),
-    ).toBeDefined();
-
-    await user.click(repos.getByRole("button", { name: "설치된 저장소 보기" }));
-    const browse = within(
-      await screen.findByRole("region", { name: "App이 설치된 저장소" }),
+    await user.selectOptions(
+      within(sheet).getByLabelText("설치"),
+      "beta · werft-agent (1개)",
     );
-    expect(browse.getByText("acme/repo-001")).toBeDefined();
-    expect(browse.getByText("에이전트 3개가 사용")).toBeDefined();
-    expect(browse.getByText("65개 중 1–30")).toBeDefined();
-    expect(
-      browse.getByRole("button", { name: "이전" }).hasAttribute("disabled"),
-    ).toBe(true);
+    expect(await within(sheet).findByText("beta/site")).toBeDefined();
+    const lists = api.calls
+      .filter((call) => call.method === "GET" && call.path === LIST)
+      .map((call) => call.search);
+    expect(lists.at(-1)).toBe("?installation_id=78&page=1&per_page=20");
+  });
 
-    await user.click(browse.getByRole("button", { name: "다음" }));
-    expect(await browse.findByText("acme/repo-031")).toBeDefined();
-    await user.click(browse.getByRole("button", { name: "다음" }));
-    expect(await browse.findByText("65개 중 61–65")).toBeDefined();
-    expect(
-      browse.getByRole("button", { name: "다음" }).hasAttribute("disabled"),
-    ).toBe(true);
+  test("좁은 폭에서 접히는 기본 브랜치·상태는 이름 칸 안에 들어 있다", async () => {
+    renderAt(PATH, routes());
+    const { sheet } = await openSheet();
+    const table = await within(sheet).findByRole("table", {
+      name: "acme · werft-agent 설치의 저장소",
+    });
+    const outside = within(sheet).getByRole("table", {
+      name: "설치 밖 저장소",
+    });
+    for (const each of [table, outside]) {
+      expect(each.getAttribute("data-narrow-at")).toBe("480");
+      for (const row of within(each).getAllByRole("row")) {
+        // Name, agents, menu stay; the second column folds into the name.
+        expect(
+          Array.from(row.children).filter(
+            (cell) =>
+              cell.getAttribute("role") &&
+              !cell.hasAttribute("data-hide-narrow"),
+          ),
+        ).toHaveLength(3);
+      }
+    }
+    const moved = (each: HTMLElement) =>
+      Array.from(
+        within(each)
+          .getAllByRole("rowheader")[0]
+          ?.querySelectorAll("[class*='width>=480px']") ?? [],
+        (line) => line.textContent,
+      );
+    expect(moved(table)).toEqual(["main"]);
+    expect(moved(outside)).toEqual(["설치 밖"]);
+  });
 
-    expect(
-      browse.getByRole("option", { name: "other (리뷰용 App)" }),
-    ).toBeDefined();
-    await user.selectOptions(browse.getByLabelText("설치"), "78");
-    expect(await browse.findByText("65개 중 1–30")).toBeDefined();
-    const searches = api.calls
-      .filter((c) => c.method === "GET" && c.path === LIST)
-      .map((c) => new URLSearchParams(c.search));
-    expect(
-      searches.map((s) => [
-        s.get("installation_id"),
-        s.get("page"),
-        s.get("per_page"),
-      ]),
-    ).toEqual(
-      expect.arrayContaining([
-        [null, "1", "30"],
-        [null, "2", "30"],
-        [null, "3", "30"],
-        ["78", "1", "30"],
-      ]),
+  test("닫기 버튼으로 시트를 닫으면 저장소 관리로 포커스가 돌아온다", async () => {
+    renderAt(PATH, routes());
+    const { user, sheet } = await openSheet();
+    await user.click(within(sheet).getByRole("button", { name: "닫기" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "저장소" }) === null).toBe(
+        true,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement ===
+          screen.getByRole("button", { name: "저장소 관리" }),
+      ).toBe(true),
     );
   });
 
-  test.each([
-    ["사라지면", 404, "NOT_FOUND", "installation_not_found"],
-    ["정지되면", 409, "INSTALLATION_SUSPENDED", "installation_suspended"],
-  ])(
-    "고른 설치가 GitHub에서 %s 첫 설치로 돌아간다",
-    async (_, status, code, reason) => {
-      const state = { rows: [row({})] as unknown[] };
-      let gone = false;
-      const { api } = renderAt(
-        PATH,
-        routes(state, {
-          [`GET ${LIST}`]: (request: Request) => {
-            const search = new URL(request.url).search;
-            return gone && search.includes("installation_id=78")
-              ? json(status, {
-                  error: {
-                    code,
-                    message: "The installation cannot be read",
-                    retryable: false,
-                    request_id: "req-1",
-                    details: { reason_code: reason },
-                  },
-                })
-              : json(200, page(search, state.rows));
-          },
-        }),
-      );
-      const user = await setupUser();
-      const repos = await card();
-      await user.click(
-        repos.getByRole("button", { name: "설치된 저장소 보기" }),
-      );
-      const region = await screen.findByRole("region", {
-        name: "App이 설치된 저장소",
-      });
-      const browse = within(region);
-      expect(await browse.findByText("acme/repo-001")).toBeDefined();
-      gone = true;
-      await user.selectOptions(browse.getByLabelText("설치"), "78");
-      await waitFor(() => {
-        expect(
-          api.calls.some(
-            (c) =>
-              c.method === "GET" &&
-              c.path === LIST &&
-              c.search.includes("installation_id=78"),
-          ),
-        ).toBe(true);
-        // Read directly: happy-dom calls the select non-labellable mid re-render.
-        expect(region.querySelector("select")?.value).toBe("77");
-      });
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(screen.queryByText("불러오지 못했습니다")).toBeNull();
+  test("행 메뉴로 연 창을 닫으면 그 행의 메뉴 버튼으로 포커스가 돌아온다", async () => {
+    renderAt(PATH, routes());
+    const { user, sheet } = await openSheet();
+    const menu = await within(sheet).findByRole("button", {
+      name: "acme/api 메뉴",
+    });
+    await user.click(menu);
+    await user.click(
+      await screen.findByRole("menuitem", { name: "기본 브랜치 바꾸기" }),
+    );
+    await screen.findByRole("dialog", { name: "acme/api의 기본 브랜치" });
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
       expect(
-        repos.getByRole("button", { name: "acme/api 편집" }),
-      ).toBeDefined();
-    },
-  );
+        screen.queryByRole("dialog", { name: "acme/api의 기본 브랜치" }) ===
+          null,
+      ).toBe(true),
+    );
+    await waitFor(() => expect(document.activeElement === menu).toBe(true));
+  });
 
-  test("GitHub가 작성용 App에 답하지 않아도 카탈로그 행은 남고, 이유를 보이며 다른 설치를 고를 수 있다", async () => {
-    const state = { rows: [row({})] as unknown[] };
-    const { api } = renderAt(
-      PATH,
-      routes(state, {
-        [`GET ${LIST}`]: (request: Request) => {
-          const search = new URL(request.url).search;
-          return search.includes("installation_id=78")
-            ? json(200, page(search, state.rows))
-            : json(200, {
-                ...page(search, state.rows),
-                installations: [installation(78, "other", "reviewer")],
-                installation_id: null,
-                total_count: 0,
-                repositories: [],
-                unavailable: "github_unavailable",
-              });
-        },
+  test("같은 역할 App이 여럿이면 정지·확인 못 함이 아닌 첫 설치를 이름으로 읽는다", async () => {
+    const twoApps = {
+      ...SETTINGS,
+      connections: [
+        githubConnection({
+          installations: [
+            githubInstallation({ id: 76, account: "aaa", status: "suspended" }),
+            githubInstallation({ id: 75, account: "aab", status: "unknown" }),
+            githubInstallation({ id: 78, account: "beta" }),
+          ],
+        }),
+        githubConnection({
+          connection_id: OTHER_AUTHOR,
+          name: "werft-agent-2",
+          installations: [githubInstallation({ id: 77, account: "acme" })],
+        }),
+      ],
+    };
+    const { api } = renderAt(PATH, {
+      ...routes(),
+      [`GET ${GITHUB_SETTINGS}`]: () => json(200, twoApps),
+      [`GET ${LIST}`]: (request: Request) => {
+        const query = new URL(request.url).searchParams;
+        const id = query.get("installation_id");
+        return id === null
+          ? json(400, {
+              error: {
+                code: "BAD_REQUEST",
+                message: "name it",
+                retryable: false,
+                request_id: "req-1",
+                details: { reason_code: "installation_required" },
+              },
+            })
+          : json(200, page(Number(id), 1));
+      },
+    });
+    expect(
+      await screen.findByText("에이전트가 고른 저장소 2개 · 설치 밖 1개"),
+    ).toBeDefined();
+    const { sheet } = await openSheet();
+    expect(
+      await within(sheet).findByRole("table", {
+        name: "acme · werft-agent 설치의 저장소",
       }),
-    );
-    const user = await setupUser();
-    const repos = await card();
-    expect(
-      await repos.findByRole("button", { name: "acme/api 편집" }),
     ).toBeDefined();
-    await user.click(repos.getByRole("button", { name: "설치된 저장소 보기" }));
-    const browse = within(
-      await screen.findByRole("region", { name: "App이 설치된 저장소" }),
+    const searches = api.calls
+      .filter((call) => call.method === "GET" && call.path === LIST)
+      .map((call) => call.search);
+    expect(new Set(searches)).toEqual(
+      new Set(["?installation_id=77&page=1&per_page=20"]),
     );
+  });
+
+  test("작성용 App 설치가 모두 사라지면 리뷰 승인용 App 설치를 이름으로 읽는다", async () => {
+    const authorsGone = {
+      ...SETTINGS,
+      connections: [
+        githubConnection({ installations: [] }),
+        githubConnection({
+          connection_id: OTHER_AUTHOR,
+          name: "werft-agent-2",
+          installations: [],
+        }),
+        githubConnection({
+          connection_id: REVIEWER_CONNECTION,
+          role: "reviewer",
+          name: "werft-review",
+          app_id: 202,
+          installations: [githubInstallation({ id: 78, account: "beta" })],
+        }),
+      ],
+    };
+    const { api } = renderAt(PATH, {
+      ...routes(),
+      [`GET ${GITHUB_SETTINGS}`]: () => json(200, authorsGone),
+    });
     expect(
-      browse.getByText(/^GitHub에서 App의 설치나 저장소를 받지 못했습니다/),
+      await screen.findByText("에이전트가 고른 저장소 2개 · 설치 밖 1개"),
     ).toBeDefined();
-    await user.selectOptions(browse.getByLabelText("설치"), "78");
-    expect(await browse.findByText("acme/repo-001")).toBeDefined();
-    expect(api.calls.some((c) => c.search.includes("installation_id=78"))).toBe(
-      true,
+    const searches = api.calls
+      .filter((call) => call.method === "GET" && call.path === LIST)
+      .map((call) => call.search);
+    expect(new Set(searches)).toEqual(
+      new Set(["?installation_id=78&page=1&per_page=20"]),
     );
+  });
+
+  test("설치 밖 저장소는 따로 모여 남는다", async () => {
+    renderAt(PATH, routes());
+    expect(
+      await screen.findByText("에이전트가 고른 저장소 2개 · 설치 밖 1개"),
+    ).toBeDefined();
+    const { sheet } = await openSheet();
+    const outside = await within(sheet).findByRole("table", {
+      name: "설치 밖 저장소",
+    });
+    const rows = within(outside).getAllByRole("row");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[1] as HTMLElement).getByText("acme/gone")).toBeDefined();
+    expect(
+      within(rows[1] as HTMLElement).getAllByText("설치 밖").length,
+    ).toBeGreaterThan(0);
   });
 
   test("기본 브랜치를 바꾸면 읽은 version과 함께 보낸다", async () => {
-    const state = { rows: [row({})] as unknown[] };
     const { api } = renderAt(
       PATH,
-      routes(state, {
-        [`PATCH ${LIST}/api`]: () => {
-          state.rows = [row({ branch: "develop", version: 2 })];
-          const { agent_count: _, ...repository } = row({
-            branch: "develop",
-            version: 2,
-          });
-          return json(200, {
-            repository,
+      routes({
+        [`PATCH ${LIST}/api`]: () =>
+          json(200, {
+            repository: { ...catalogRow({ branch: "develop", version: 4 }) },
             receipt_id: RECEIPT,
-          });
-        },
+          }),
       }),
     );
-    const user = await setupUser();
-    const repos = await card();
+    const { user, sheet } = await openSheet();
     await user.click(
-      await repos.findByRole("button", { name: "acme/api 편집" }),
+      await within(sheet).findByRole("button", { name: "acme/api 메뉴" }),
     );
-    const branch = screen.getByLabelText("기본 브랜치");
-    expect(document.activeElement === branch).toBe(true);
-    await user.clear(branch);
-    await user.type(branch, "develop");
-    await user.click(repos.getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("status")).textContent).toBe(
-      "acme/api의 기본 브랜치를 develop(으)로 바꿨습니다.",
+    await user.click(
+      await screen.findByRole("menuitem", { name: "기본 브랜치 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "acme/api의 기본 브랜치",
+    });
+    const input = within(dialog).getByLabelText("기본 브랜치");
+    await user.clear(input);
+    await user.type(input, "develop");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter((call) => call.method === "PATCH").map((c) => c.body),
+      ).toEqual([{ branch: "develop", version: 3 }]),
+    );
+  });
+
+  test("맡을 App을 바꾸면 바뀐 역할만 보낸다", async () => {
+    const { api } = renderAt(
+      PATH,
+      routes({
+        [`GET ${LIST}/api/app-pins`]: () =>
+          json(200, {
+            catalog_id: "api",
+            pins: { author: AUTHOR_CONNECTION, reviewer: null },
+            candidates: [
+              {
+                connection_id: AUTHOR_CONNECTION,
+                role: "author",
+                name: "werft-agent",
+                app_id: 101,
+                installed: true,
+              },
+              {
+                connection_id: OTHER_AUTHOR,
+                role: "author",
+                name: "werft-agent-2",
+                app_id: 103,
+                installed: false,
+              },
+              {
+                connection_id: REVIEWER_CONNECTION,
+                role: "reviewer",
+                name: "werft-review",
+                app_id: 202,
+                installed: true,
+              },
+            ],
+          }),
+        [`PUT ${LIST}/api/app-pins/author`]: () =>
+          json(200, {
+            catalog_id: "api",
+            role: "author",
+            connection_id: OTHER_AUTHOR,
+            receipt_id: RECEIPT,
+          }),
+      }),
+    );
+    const { user, sheet } = await openSheet();
+    await user.click(
+      await within(sheet).findByRole("button", { name: "acme/api 메뉴" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "맡을 App 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "acme/api을(를) 맡을 App",
+    });
+    await user.selectOptions(
+      await within(dialog).findByLabelText("작성용"),
+      "werft-agent-2 (이 저장소에 설치 안 됨)",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.method === "PUT")
+          .map((call) => [call.path, call.body]),
+      ).toEqual([
+        [`${LIST}/api/app-pins/author`, { connection_id: OTHER_AUTHOR }],
+      ]),
     );
     expect(
-      api.calls.filter((c) => c.method === "PATCH").map((c) => c.body),
-    ).toEqual([{ branch: "develop", version: 1 }]);
-    // A row agents' releases may name is never removed.
-    expect(repos.queryByRole("button", { name: "acme/api 제거" })).toBeNull();
+      await screen.findByText("acme/api을(를) 맡을 App을 바꿨습니다."),
+    ).toBeDefined();
   });
 });

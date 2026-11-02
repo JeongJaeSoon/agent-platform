@@ -1,81 +1,105 @@
 export const githubUserLinkKo = {
-  "githubUserLink.title": "사용자 계정 연결",
-  "githubUserLink.intro":
-    "구성원이 자기 GitHub 계정을 연결하면, 그 사람이 시작한 세션의 commit에 공동 작성자로 이름이 들어갑니다. 작성용 App의 GitHub 설정에 아래 콜백 URL을 넣고, 그 App에서 만든 client secret을 여기에 입력하세요.",
-  "githubUserLink.clientId": "Client ID",
-  "githubUserLink.clientIdUnset":
-    "GitHub App을 등록하면 GitHub가 알려 주는 값이 여기에 보입니다.",
-  "githubUserLink.callback": "콜백 URL",
-  "githubUserLink.callbackUnset":
-    "콘솔 주소가 설정되지 않아 쓸 수 없습니다 — 운영자에게 CONSOLE_ORIGIN 설정을 요청하세요.",
-  "githubUserLink.copyCallback": "콜백 URL 복사",
-  "githubUserLink.copied": "복사됨",
-  "githubUserLink.copyFailed": "복사하지 못했습니다 — 직접 선택해 복사하세요.",
+  "githubUserLink.title": "구성원 GitHub 계정 연결",
+  "githubUserLink.via":
+    "{name}의 사용자 인증으로 연결합니다. 연결한 구성원은 commit에 공동 작성자로 들어갑니다.",
+  "githubUserLink.choose":
+    "구성원이 GitHub 계정을 연결할 때 쓸 작성용 App을 고르세요.",
+  "githubUserLink.noApp":
+    "작성용 App을 연결하면 구성원이 GitHub 계정을 연결할 수 있습니다.",
+  "githubUserLink.appLabel": "계정 연결에 쓸 App",
+  "githubUserLink.appChoose": "App을 고르세요",
+  "githubUserLink.appChosen": "계정 연결에 쓸 App을 바꿨습니다.",
+  "githubUserLink.on": "켜짐",
+  "githubUserLink.setupNeeded": "설정 필요",
+  "githubUserLink.menu": "구성원 GitHub 계정 연결 메뉴",
+  "githubUserLink.enter": "client secret 입력",
+  "githubUserLink.replace": "client secret 바꾸기",
+  "githubUserLink.callbackView": "callback URL 보기",
+  "githubUserLink.callback": "Callback URL",
+  "githubUserLink.callbackHint":
+    "GitHub App 설정의 Callback URL에 이 주소가 있어야 구성원이 계정을 연결할 수 있습니다.",
+  "githubUserLink.copy": "복사",
+  "githubUserLink.copied": "복사했습니다",
   "githubUserLink.secret": "Client secret",
-  "githubUserLink.secretSet": "입력됨",
-  "githubUserLink.secretUnset": "입력 안 됨",
   "githubUserLink.secretHint":
-    "암호화해 저장하고 다시 보여 주지 않습니다. 다른 App으로 바꾸거나 App을 삭제하면 지워집니다.",
-  "githubUserLink.secretInputHint":
-    "GitHub App 설정의 Client secrets에서 Generate a new client secret으로 만든 값입니다.",
+    "GitHub App 설정 › Client secrets에서 새로 만든 값을 넣습니다. 저장한 뒤에는 다시 보여 주지 않습니다.",
+  "githubUserLink.secretInputHint": "GitHub는 만들 때 한 번만 보여 줍니다.",
   "githubUserLink.secretMissing": "client secret을 넣어 주세요.",
-  "githubUserLink.enter": "입력",
-  "githubUserLink.replace": "교체",
   "githubUserLink.save": "저장",
   "githubUserLink.saved": "client secret을 저장했습니다.",
+  "githubUserLink.switchTitle": "계정 연결에 쓸 App을 바꿀까요?",
+  "githubUserLink.switchBody":
+    "저장된 client secret은 지금 App의 것이라 바꾼 App의 client secret을 다시 넣어야 합니다. 그 전까지 구성원은 새로 계정을 연결할 수 없습니다.",
+  "githubUserLink.switchConfirm": "바꾸기",
 };
 
 export const githubUserLinkEn: Record<keyof typeof githubUserLinkKo, string> = {
-  "githubUserLink.title": "User account linking",
-  "githubUserLink.intro":
-    "When members link their GitHub account, commits of the sessions they start name them as co-author. Put the callback URL below in the author App's settings on GitHub, and enter a client secret made in that App here.",
-  "githubUserLink.clientId": "Client ID",
-  "githubUserLink.clientIdUnset":
-    "Shown here once a GitHub App is registered and GitHub reports it.",
+  "githubUserLink.title": "Member GitHub accounts",
+  "githubUserLink.via":
+    "Links through {name}'s user authorization. A linked member is added to commits as a co-author.",
+  "githubUserLink.choose":
+    "Choose the author App members link their GitHub accounts with.",
+  "githubUserLink.noApp":
+    "Connect an author App and members can link their GitHub accounts.",
+  "githubUserLink.appLabel": "App for account linking",
+  "githubUserLink.appChoose": "Choose an App",
+  "githubUserLink.appChosen": "Changed the App for account linking.",
+  "githubUserLink.on": "On",
+  "githubUserLink.setupNeeded": "Needs setup",
+  "githubUserLink.menu": "Member GitHub accounts menu",
+  "githubUserLink.enter": "Enter client secret",
+  "githubUserLink.replace": "Replace client secret",
+  "githubUserLink.callbackView": "View callback URL",
   "githubUserLink.callback": "Callback URL",
-  "githubUserLink.callbackUnset":
-    "Not available: the console has no address — ask your operator to set CONSOLE_ORIGIN.",
-  "githubUserLink.copyCallback": "Copy callback URL",
+  "githubUserLink.callbackHint":
+    "Members can link accounts once the GitHub App's Callback URL lists this address.",
+  "githubUserLink.copy": "Copy",
   "githubUserLink.copied": "Copied",
-  "githubUserLink.copyFailed": "Could not copy — select it and copy by hand.",
   "githubUserLink.secret": "Client secret",
-  "githubUserLink.secretSet": "Entered",
-  "githubUserLink.secretUnset": "Not entered",
   "githubUserLink.secretHint":
-    "Stored encrypted and never shown again. Switching to another App or deleting the App removes it.",
+    "Enter one generated under the GitHub App's settings › Client secrets. It is never shown again once saved.",
   "githubUserLink.secretInputHint":
-    "Made with Generate a new client secret under Client secrets in the GitHub App's settings.",
+    "GitHub shows it only once, when generated.",
   "githubUserLink.secretMissing": "Enter the client secret.",
-  "githubUserLink.enter": "Enter",
-  "githubUserLink.replace": "Replace",
   "githubUserLink.save": "Save",
   "githubUserLink.saved": "Saved the client secret.",
+  "githubUserLink.switchTitle": "Change the App for account linking?",
+  "githubUserLink.switchBody":
+    "The saved client secret belongs to the current App, so the new App's client secret has to be entered. Until then members cannot link new accounts.",
+  "githubUserLink.switchConfirm": "Change",
 };
 
 export const githubUserLinkJa: Record<keyof typeof githubUserLinkKo, string> = {
-  "githubUserLink.title": "ユーザーアカウント連携",
-  "githubUserLink.intro":
-    "メンバーが自分の GitHub アカウントを連携すると、その人が開始したセッションのコミットに共同作成者として名前が入ります。作成用 App の GitHub 設定に下のコールバック URL を入れ、その App で作成した client secret をここに入力してください。",
-  "githubUserLink.clientId": "Client ID",
-  "githubUserLink.clientIdUnset":
-    "GitHub App を登録すると、GitHub が返す値がここに表示されます。",
-  "githubUserLink.callback": "コールバック URL",
-  "githubUserLink.callbackUnset":
-    "コンソールのアドレスが設定されていないため使えません。運用担当者に CONSOLE_ORIGIN の設定を依頼してください。",
-  "githubUserLink.copyCallback": "コールバック URL をコピー",
+  "githubUserLink.title": "メンバーの GitHub アカウント連携",
+  "githubUserLink.via":
+    "{name} のユーザー認可で連携します。連携したメンバーは commit に共同作成者として入ります。",
+  "githubUserLink.choose":
+    "メンバーが GitHub アカウントを連携するときに使う作成用 App を選んでください。",
+  "githubUserLink.noApp":
+    "作成用 App を接続すると、メンバーが GitHub アカウントを連携できます。",
+  "githubUserLink.appLabel": "アカウント連携に使う App",
+  "githubUserLink.appChoose": "App を選んでください",
+  "githubUserLink.appChosen": "アカウント連携に使う App を変更しました。",
+  "githubUserLink.on": "有効",
+  "githubUserLink.setupNeeded": "設定が必要",
+  "githubUserLink.menu": "メンバーの GitHub アカウント連携のメニュー",
+  "githubUserLink.enter": "client secret を入力",
+  "githubUserLink.replace": "client secret を置き換え",
+  "githubUserLink.callbackView": "callback URL を表示",
+  "githubUserLink.callback": "Callback URL",
+  "githubUserLink.callbackHint":
+    "GitHub App 設定の Callback URL にこのアドレスがあると、メンバーがアカウントを連携できます。",
+  "githubUserLink.copy": "コピー",
   "githubUserLink.copied": "コピーしました",
-  "githubUserLink.copyFailed":
-    "コピーできませんでした。選択して手動でコピーしてください。",
   "githubUserLink.secret": "Client secret",
-  "githubUserLink.secretSet": "入力済み",
-  "githubUserLink.secretUnset": "未入力",
   "githubUserLink.secretHint":
-    "暗号化して保存し、再表示しません。別の App に切り替えるか App を削除すると消えます。",
-  "githubUserLink.secretInputHint":
-    "GitHub App 設定の Client secrets で Generate a new client secret から作成した値です。",
+    "GitHub App 設定 › Client secrets で新しく作成した値を入力します。保存後は二度と表示しません。",
+  "githubUserLink.secretInputHint": "GitHub は作成時に一度だけ表示します。",
   "githubUserLink.secretMissing": "client secret を入力してください。",
-  "githubUserLink.enter": "入力",
-  "githubUserLink.replace": "差し替え",
   "githubUserLink.save": "保存",
   "githubUserLink.saved": "client secret を保存しました。",
+  "githubUserLink.switchTitle": "アカウント連携に使う App を変更しますか?",
+  "githubUserLink.switchBody":
+    "保存済みの client secret は現在の App のものなので、変更後の App の client secret を入力し直す必要があります。それまでメンバーは新しくアカウントを連携できません。",
+  "githubUserLink.switchConfirm": "変更する",
 };
