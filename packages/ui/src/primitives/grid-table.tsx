@@ -76,12 +76,15 @@ export type GridTableProps = Omit<
      * `minmax(0,…)` or a fixed width so no cell can push the table wider.
      */
     readonly columns: string;
+    /** Draws the card frame around the table. */
+    readonly framed?: boolean | undefined;
   };
 
 export function GridTable({
   columns,
   narrowAt,
   narrowColumns,
+  framed = false,
   className,
   style,
   ...props
@@ -92,7 +95,12 @@ export function GridTable({
         role="table"
         data-slot="grid-table"
         data-narrow-at={narrowAt}
-        className={cn("@container flex min-w-0 flex-col", className)}
+        data-framed={framed || undefined}
+        className={cn(
+          "@container flex min-w-0 flex-col",
+          framed && "rounded-card border bg-card",
+          className,
+        )}
         style={
           {
             "--grid-table-columns": columns,
@@ -190,12 +198,20 @@ function cellClasses(
 }
 
 export type GridTableColumnHeaderProps = Omit<ComponentProps<"div">, "role"> &
-  GridTableCellLayout;
+  GridTableCellLayout & {
+    /**
+     * The row buttons' column: the label sits at the end, centred over a
+     * button of the minimum row-action width.
+     */
+    readonly action?: boolean | undefined;
+  };
 
 export function GridTableColumnHeader({
   align,
   hideNarrow,
+  action = false,
   className,
+  children,
   ...props
 }: GridTableColumnHeaderProps): JSX.Element {
   const narrow = useNarrow();
@@ -204,9 +220,21 @@ export function GridTableColumnHeader({
       role="columnheader"
       data-slot="grid-table-column-header"
       data-hide-narrow={hideNarrow || undefined}
-      className={cn(cellClasses(narrow, { align, hideNarrow }), className)}
+      data-action={action || undefined}
+      className={cn(
+        cellClasses(narrow, { align: action ? "end" : align, hideNarrow }),
+        className,
+      )}
       {...props}
-    />
+    >
+      {action ? (
+        <span className="min-w-[var(--ap-row-action-min-width)] text-center">
+          {children}
+        </span>
+      ) : (
+        children
+      )}
+    </div>
   );
 }
 

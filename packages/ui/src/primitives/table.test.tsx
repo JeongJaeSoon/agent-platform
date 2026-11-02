@@ -243,6 +243,33 @@ describe("RowList", () => {
     expect(joined?.className).toContain("rounded-card");
   });
 
+  test("joined는 기본으로 틀을 두고, framed={false}면 행 사이 선만 남는다", () => {
+    const { getAllByRole } = render(
+      <>
+        <RowList variant="joined">
+          <RowListItem>틀</RowListItem>
+        </RowList>
+        <RowList variant="joined" framed={false}>
+          <RowListItem>선만</RowListItem>
+        </RowList>
+        <RowList framed={false}>
+          <RowListItem>따로</RowListItem>
+        </RowList>
+      </>,
+    );
+    const [framed, bare, separate] = getAllByRole("list") as HTMLElement[];
+    expect(framed?.getAttribute("data-framed")).toBe("true");
+    for (const name of ["rounded-card", "border", "bg-card", "overflow-hidden"])
+      expect(framed?.classList.contains(name)).toBe(true);
+    expect(bare?.hasAttribute("data-framed")).toBe(false);
+    for (const name of ["rounded-card", "border", "bg-card", "overflow-hidden"])
+      expect(bare?.classList.contains(name)).toBe(false);
+    expect(bare?.classList.contains("[&>li]:border-b")).toBe(true);
+    // A separate list draws its cards per row, framed or not.
+    expect(separate?.hasAttribute("data-framed")).toBe(false);
+    expect(separate?.className).toContain("[&>li]:rounded-card");
+  });
+
   test("행은 행 높이 하한을 지키고 좁으면 줄을 바꾼다", () => {
     const { getByRole } = render(
       <RowList>
