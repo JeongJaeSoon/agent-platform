@@ -140,12 +140,10 @@ export function SlackMentionOnly({
         settings.error || update.error ? (
           <>
             {settings.error ? (
-              // The row sits in a page that has loaded, so an alert, not a
-              // whole failure state.
               <LoadFailure
                 error={settings.error}
                 guidance={slackReason(settings.error, t)}
-                kept
+                kept={settings.data !== undefined}
                 onRetry={() => void settings.refetch()}
               />
             ) : null}

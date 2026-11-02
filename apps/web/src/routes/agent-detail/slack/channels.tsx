@@ -212,7 +212,7 @@ export function SlackChannels({
       ),
     }));
   }, [channels.data]);
-  const error = bindings.error ?? channels.error ?? update.error;
+  const readError = bindings.error ?? channels.error;
   const connectChannel = (channelId: string) => {
     if (locked) return;
     const row = rows.find((item) => item.external_surface_id === channelId);
@@ -392,7 +392,20 @@ export function SlackChannels({
             </DialogTitle>
             <DialogDescription>{t("slack.joinHintAuto")}</DialogDescription>
           </DialogHeader>
-          {error ? <FieldError>{slackFailure(error, t)}</FieldError> : null}
+          {readError ? (
+            <LoadFailure
+              error={readError}
+              guidance={slackReason(readError, t)}
+              kept
+              onRetry={() => {
+                for (const read of [bindings, channels])
+                  if (read.isError) void read.refetch();
+              }}
+            />
+          ) : null}
+          {update.error ? (
+            <FieldError>{slackFailure(update.error, t)}</FieldError>
+          ) : null}
           <Field>
             <FieldLabel>{t("slack.search")}</FieldLabel>
             <Input
@@ -486,15 +499,6 @@ export function SlackChannels({
                 onClick={() => void channels.fetchNextPage()}
               >
                 {t("slack.more")}
-              </Button>
-            ) : null}
-            {channels.error ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void channels.refetch()}
-              >
-                {t("slack.refresh")}
               </Button>
             ) : null}
           </div>
