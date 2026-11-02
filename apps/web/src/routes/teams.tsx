@@ -897,7 +897,7 @@ function AddMembersForm({
       {picked.length > 0 && (
         <ul
           aria-label={t("teams.picked")}
-          className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+          className="m-0 flex list-none flex-wrap gap-2 p-0"
         >
           {picked.map((member) => (
             <li
@@ -944,7 +944,7 @@ function AddMembersForm({
         >
           {picked.length > 1
             ? t("teams.addMembers", { count: picked.length })
-            : t("teams.addMember")}
+            : t("teams.addOpen")}
         </Button>
       </DialogFooter>
     </form>

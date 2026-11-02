@@ -641,7 +641,7 @@ describe("팀 화면", () => {
     expect(dialog.textContent).toContain(
       "추가하면 수락 없이 바로 구성원이 됩니다.",
     );
-    const submit = within(dialog).getByRole("button", { name: "추가" });
+    const submit = within(dialog).getByRole("button", { name: "구성원 추가" });
     expect(submit.getAttribute("aria-disabled")).toBe("true");
     await user.click(submit);
     expect(
@@ -773,7 +773,9 @@ describe("팀 화면", () => {
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual(["Owner"]);
-    expect(within(dialog).getByRole("button", { name: "추가" })).toBeDefined();
+    expect(
+      within(dialog).getByRole("button", { name: "구성원 추가" }),
+    ).toBeDefined();
     // Closed, the page says who joined.
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -819,7 +821,9 @@ describe("팀 화면", () => {
     const user = await setupUser();
     const { dialog, picker } = await openAdd(user);
     await pick(user, picker, "Mate");
-    await user.click(within(dialog).getByRole("button", { name: "추가" }));
+    await user.click(
+      within(dialog).getByRole("button", { name: "구성원 추가" }),
+    );
     await pick(user, picker, "Owner");
     // Open until the requests answer, whatever closes it meanwhile.
     await user.click(within(dialog).getByRole("button", { name: "취소" }));
@@ -846,7 +850,9 @@ describe("팀 화면", () => {
     const user = await setupUser();
     const add = await openAdd(user);
     await pick(user, add.picker, "Mate");
-    await user.click(within(add.dialog).getByRole("button", { name: "추가" }));
+    await user.click(
+      within(add.dialog).getByRole("button", { name: "구성원 추가" }),
+    );
     await waitFor(() =>
       expect(said()).toContain("Mate님을 팀에 추가했습니다."),
     );
@@ -867,9 +873,7 @@ describe("팀 화면", () => {
 
     await user.click(removeMate);
     const removeDialog = await screen.findByRole("dialog");
-    expect(removeDialog.textContent).toContain(
-      "Mate님을 결제팀에서 뺄까요?",
-    );
+    expect(removeDialog.textContent).toContain("Mate님을 결제팀에서 뺄까요?");
     await user.click(
       within(removeDialog).getByRole("button", { name: "빼기" }),
     );

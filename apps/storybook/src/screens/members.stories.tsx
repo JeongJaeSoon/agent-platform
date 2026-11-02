@@ -1351,7 +1351,7 @@ function AddMembers({
           {picked.length > 0 && (
             <ul
               aria-label="추가할 사람"
-              className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+              className="m-0 flex list-none flex-wrap gap-2 p-0"
             >
               {picked.map((member) => (
                 <li
@@ -1391,7 +1391,7 @@ function AddMembers({
               type="submit"
               aria-disabled={picked.length === 0 || undefined}
             >
-              {picked.length > 1 ? `${picked.length}명 추가` : "추가"}
+              {picked.length > 1 ? `${picked.length}명 추가` : "구성원 추가"}
             </Button>
           </DialogFooter>
         </form>
