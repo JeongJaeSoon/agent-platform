@@ -135,6 +135,9 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         create: async (actor, sessionId) => {
           pushes.push({ actor, sessionId });
           if (control.pushRefusal !== null) {
+            // The turn ends and the next one starts while the refusal is
+            // on its way back.
+            if (control.runningTurn !== null) control.runningTurn += 1;
             const { code, message } = PUSH_REFUSAL_ERRORS[control.pushRefusal];
             throw new SessionServiceError(code, message, undefined, {
               refusal: control.pushRefusal,
