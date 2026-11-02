@@ -32,6 +32,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   ne,
   type SQL,
   sql,
@@ -187,6 +188,7 @@ type AchievementRow = {
   ruleVersion: number;
   typeKey: string;
   threshold: number | null;
+  rejudgedAfterMerge: boolean;
 };
 
 /** Achievements with their rule version's title and number and type key. */
@@ -198,6 +200,18 @@ function achievementsWhere(db: Database, where: SQL | undefined) {
       ruleVersion: achievementRules.version,
       typeKey: achievementTypes.key,
       threshold: achievementJudgments.threshold,
+      // Counted by a judgment after the merge, with one before it.
+      rejudgedAfterMerge: sql<boolean>`EXISTS (
+        SELECT 1 FROM ${sessionOutcomes} o
+        WHERE ${sessionAchievements.evidenceKind} = 'github_pull_request'
+          AND o.id::text = ${sessionAchievements.evidenceId}
+          AND o.merged_at < ${achievementJudgments.createdAt}
+          AND EXISTS (
+            SELECT 1 FROM ${achievementJudgments} earlier
+            WHERE earlier.session_id = ${sessionAchievements.sessionId}
+              AND earlier.created_at < o.merged_at
+          )
+      )`,
     })
     .from(sessionAchievements)
     .innerJoin(
@@ -222,6 +236,7 @@ function achievementOf({
   ruleVersion,
   typeKey,
   threshold,
+  rejudgedAfterMerge,
 }: AchievementRow): SessionAchievement {
   return {
     id: row.id,
@@ -242,6 +257,7 @@ function achievementOf({
     type_key: typeKey,
     probability: row.probability,
     threshold,
+    rejudged_after_merge: rejudgedAfterMerge,
     judgment_id: row.judgmentId,
     review_state: row.reviewState as AchievementReviewState,
     reviewed_by: row.reviewedBy,
@@ -251,14 +267,55 @@ function achievementOf({
   };
 }
 
+/**
+ * `pr_merged` when the session's pull request merged after the judgment
+ * before this `evidence` one was made, and by the time this one was.
+ */
+async function evidenceChangeOf(
+  db: Database,
+  judgment: typeof achievementJudgments.$inferSelect,
+): Promise<AchievementJudgment["evidence_change"]> {
+  if (judgment.trigger !== "evidence") return null;
+  const [previous] = await db
+    .select({ createdAt: achievementJudgments.createdAt })
+    .from(achievementJudgments)
+    .where(
+      and(
+        eq(achievementJudgments.sessionId, judgment.sessionId),
+        sql`(${achievementJudgments.createdAt}, ${achievementJudgments.id}) < (${judgment.createdAt}, ${judgment.id})`,
+      ),
+    )
+    .orderBy(
+      desc(achievementJudgments.createdAt),
+      desc(achievementJudgments.id),
+    )
+    .limit(1);
+  if (!previous) return null;
+  const [merged] = await db
+    .select({ id: sessionOutcomes.id })
+    .from(sessionOutcomes)
+    .where(
+      and(
+        eq(sessionOutcomes.sessionId, judgment.sessionId),
+        eq(sessionOutcomes.type, "github_pull_request"),
+        gt(sessionOutcomes.mergedAt, previous.createdAt),
+        lte(sessionOutcomes.mergedAt, judgment.createdAt),
+      ),
+    )
+    .limit(1);
+  return merged ? "pr_merged" : null;
+}
+
 function judgmentOf(
   row: typeof achievementJudgments.$inferSelect,
+  evidenceChange: AchievementJudgment["evidence_change"],
 ): AchievementJudgment {
   return {
     id: row.id,
     trigger: row.trigger as AchievementJudgmentTrigger,
     status: row.status as AchievementJudgmentStatus,
     error_code: row.errorCode as AchievementJudgmentError | null,
+    evidence_change: evidenceChange,
     created_at: row.createdAt.toISOString(),
     finished_at: iso(row.finishedAt),
   };
@@ -705,7 +762,9 @@ export function createPostgresAchievementJudgments(
         .where(eq(achievementJudgments.sessionId, sessionId));
       return {
         items: items.map(achievementOf),
-        judgment: latest ? judgmentOf(latest) : null,
+        judgment: latest
+          ? judgmentOf(latest, await evidenceChangeOf(db, latest))
+          : null,
         judgment_count: spent?.finished ?? 0,
         judge_cost_usd: Number(spent?.usd ?? 0),
       };

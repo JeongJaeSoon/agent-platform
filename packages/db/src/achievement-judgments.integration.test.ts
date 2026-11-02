@@ -2077,6 +2077,65 @@ integration("achievement judgments on PostgreSQL", () => {
       ]);
     });
 
+    test("a judgment after a merge says the evidence changed by it, and an achievement first counted then says it was judged again after the merge", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      let yes = 0.5;
+      const replica = lunaReplica(() => yes);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      const before = await judgments.list(ws.workspaceId, sessionId);
+      expect(before?.items).toEqual([]);
+      expect(before?.judgment?.evidence_change).toBeNull();
+
+      yes = 0.95;
+      await db
+        .update(sessionOutcomes)
+        .set({ state: "merged", mergedAt: sql`now()` })
+        .where(eq(sessionOutcomes.id, pr.id));
+      await judgedOnce(sessionId, replica);
+      const after = await judgments.list(ws.workspaceId, sessionId);
+      expect(after?.judgment).toMatchObject({
+        trigger: "evidence",
+        evidence_change: "pr_merged",
+      });
+      expect(after?.items.map((item) => item.rejudged_after_merge)).toEqual([
+        true,
+      ]);
+
+      // A judgment with no merge since the one before it says nothing.
+      await judgedOnce(sessionId, replica);
+      expect(
+        (await judgments.list(ws.workspaceId, sessionId))?.judgment
+          ?.evidence_change,
+      ).toBeNull();
+    });
+
+    test("an achievement first counted after its pull request merged was not judged again", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      await db
+        .update(sessionOutcomes)
+        // Merged before the session's first judgment was queued.
+        .set({ state: "merged", mergedAt: sql`now() - interval '1 hour'` })
+        .where(eq(sessionOutcomes.id, pr.id));
+      const replica = lunaReplica(() => 0.95);
+      await quietPassed(sessionId);
+      await replica.judge.runOnce();
+      const listed = await judgments.list(ws.workspaceId, sessionId);
+      expect(listed?.items.map((item) => item.rejudged_after_merge)).toEqual([
+        false,
+      ]);
+      // The first judgment has no judgment before it to change from.
+      expect(listed?.judgment?.evidence_change).toBeNull();
+    });
+
     test("a person's rejection stands against a yes and a no alike", async () => {
       const ws = await workspace();
       await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });

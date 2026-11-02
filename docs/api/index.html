@@ -10632,6 +10632,9 @@
                     }
                   ]
                 },
+                "rejudged_after_merge": {
+                  "type": "boolean"
+                },
                 "judgment_id": {
                   "type": "string",
                   "format": "uuid",
@@ -10701,6 +10704,7 @@
                 "type_key",
                 "probability",
                 "threshold",
+                "rejudged_after_merge",
                 "judgment_id",
                 "review_state",
                 "reviewed_by",
@@ -10760,6 +10764,19 @@
                       }
                     ]
                   },
+                  "evidence_change": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "pr_merged"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "created_at": {
                     "type": "string",
                     "format": "date-time",
@@ -10783,6 +10800,7 @@
                   "trigger",
                   "status",
                   "error_code",
+                  "evidence_change",
                   "created_at",
                   "finished_at"
                 ],
@@ -11099,6 +11117,9 @@
                   }
                 ]
               },
+              "rejudged_after_merge": {
+                "type": "boolean"
+              },
               "judgment_id": {
                 "type": "string",
                 "format": "uuid",
@@ -11168,6 +11189,7 @@
               "type_key",
               "probability",
               "threshold",
+              "rejudged_after_merge",
               "judgment_id",
               "review_state",
               "reviewed_by",
@@ -43239,7 +43261,7 @@
           "Sessions"
         ],
         "summary": "What the workspace's achievement rules counted in the session",
-        "description": "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "The session's achievements in force, oldest first, and its latest judgment. Only the platform's judge writes achievements: when the session's evidence appears or changes (a pull request opened, merged or closed, a review submitted, a checkpoint whose `out/` files differ from its parent's) a judgment is queued in the same transaction, one queued per session, and the judge takes it once two minutes have passed since the last such change. It pairs each rule in use with the session's evidence of its type's `evidence_kind`. An `always` rule counts every pair at no cost; one rule family counts a piece of evidence of a session once (`evidence_id`: the outcome id, the `out/` path, or null for the conversation). `title` and `link` are the pull request or review as `owner/repo#number` and its URL, the file's path and the session's console path, or the session's title and console path. `payload` is set only for the built-in types (`pull_request`, `code_review`, `document`). `review_state` is `auto` for pull request and review evidence, counted at once, and `needs_review` for `out/` files and the conversation, counted once a person confirms them; `confirmed` and `rejected` are a person's decision (`POST /v1/achievements/{id}/review`), which a later judgment never changes. `rule_title`, `rule_version` and `type_key` name the rule version that counted it and its type. `threshold` is the workspace threshold its judgment held a `luna` rule's `probability` against, kept with that judgment; null when that judgment asked the judge nothing. `rejudged_after_merge` is true for pull request evidence counted by a judgment made after the pull request merged, in a session with a judgment made before the merge.\n\n`judgment_count` is the session's finished judgments and `judge_cost_usd` what their judge calls cost, apart from the session's own cost.\n\n`judgment` is null before the session's first. Its `trigger` is `evidence`, `turns` (every `every_n_turns` turns, with a rule of `conversation` evidence in use), `idle` (the session's run ended idle, paused or closed, with `on_idle` on) or `manual`; `evidence_change` is `pr_merged` for an `evidence` judgment when one of the session's pull requests merged after the judgment before it was made and by the time this one was, and null otherwise. Its `status` is `queued`, `running`, `succeeded` (with `error_code: judge_refused` when the judge refused a pair, which then is no achievement and is not asked again), `failed`, `deferred` (the workspace's judgment calls spent `daily_budget_usd` for the UTC day; taken again after the next UTC midnight, or two minutes after a new trigger, when `always` rules count the new evidence and `luna` pairs wait again) or `skipped` (`error_code: judge_unavailable`: a `luna` rule had evidence and the workspace's connection does not reach a judge; `session_limit`: the session's other judgments that called the judge reached `max_per_session`). A try that fails is queued again 1, 5 and 30 minutes later, then ends `failed`, with the `error_code` of its last failure: `judge_timeout` (no answer within 10 seconds), `judge_http_error` (an error status, or the judge was not reached), `judge_bad_response` (an answer of another shape); `error_code: outputs_unavailable` says the checkpoint's `out/` list could not be read, and the achievements that need no `out/` list are written all the same. Reading changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -43304,6 +43326,7 @@
                       "type_key": "pull_request",
                       "probability": null,
                       "threshold": null,
+                      "rejudged_after_merge": false,
                       "judgment_id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
                       "review_state": "auto",
                       "reviewed_by": null,
@@ -43317,6 +43340,7 @@
                     "trigger": "evidence",
                     "status": "succeeded",
                     "error_code": null,
+                    "evidence_change": null,
                     "created_at": "2026-10-30T09:40:03.000Z",
                     "finished_at": "2026-10-30T09:42:10.000Z"
                   },
@@ -43802,6 +43826,7 @@
                     "type_key": "document",
                     "probability": null,
                     "threshold": null,
+                    "rejudged_after_merge": false,
                     "judgment_id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
                     "review_state": "confirmed",
                     "reviewed_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",

@@ -372,6 +372,11 @@ export const sessionAchievementSchema = z
     probability: z.number().min(0).max(1).nullable(),
     /** The threshold its judgment asked against; null when it asked none. */
     threshold: z.number().min(0).max(1).nullable(),
+    /**
+     * Pull request evidence counted by a judgment after its merge, in a
+     * session judged before the merge too.
+     */
+    rejudged_after_merge: z.boolean(),
     judgment_id: z.uuid(),
     review_state: achievementReviewStateSchema,
     reviewed_by: userIdSchema.nullable(),
@@ -381,12 +386,19 @@ export const sessionAchievementSchema = z
   })
   .strict();
 
+export const ACHIEVEMENT_EVIDENCE_CHANGE_VALUES = ["pr_merged"] as const;
+
 export const achievementJudgmentSchema = z
   .object({
     id: z.uuid(),
     trigger: achievementJudgmentTriggerSchema,
     status: achievementJudgmentStatusSchema,
     error_code: achievementJudgmentErrorSchema.nullable(),
+    /**
+     * `pr_merged`: an `evidence` judgment whose session had a pull request
+     * merge since the judgment before it.
+     */
+    evidence_change: z.enum(ACHIEVEMENT_EVIDENCE_CHANGE_VALUES).nullable(),
     created_at: timestampSchema,
     finished_at: timestampSchema.nullable(),
   })

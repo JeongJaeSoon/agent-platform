@@ -280,6 +280,9 @@ function AchievementRow({
             })}
             {" · "}
             {t(`session.achievements.judge.${achievement.judge}`)}
+            {achievement.rejudged_after_merge
+              ? ` · ${t("session.achievements.rejudgedAfterMerge")}`
+              : null}
           </Text>
         </Text>
         {failure === null ? null : <FieldError>{failure}</FieldError>}
@@ -365,7 +368,9 @@ function JudgmentLine({
             </>
           )}
           {" · "}
-          {t(`session.achievements.trigger.${judgment.trigger}`)}
+          {t(
+            `session.achievements.trigger.${judgment.evidence_change ?? judgment.trigger}`,
+          )}
           {" · "}
           {t("session.achievements.count", { count })}
           {" · "}

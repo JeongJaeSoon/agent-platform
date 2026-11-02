@@ -74,6 +74,7 @@ function achievement(
     type_key: "pull_request",
     probability: 0.99,
     threshold: 0.9,
+    rejudged_after_merge: false,
     judgment_id: JUDGMENT_ID,
     review_state: "auto",
     reviewed_by: null,
@@ -84,7 +85,9 @@ function achievement(
   };
 }
 
-const MERGED = achievement("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d41", {});
+const MERGED = achievement("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d41", {
+  rejudged_after_merge: true,
+});
 const DOCUMENT = achievement("0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d42", {
   title: "out/payment-retry.md",
   link: `/sessions/${SESSION_ID}`,
@@ -119,6 +122,7 @@ const listed: ListSessionAchievementsResponse = {
     trigger: "evidence",
     status: "succeeded",
     error_code: null,
+    evidence_change: "pr_merged",
     created_at: AT,
     finished_at: AT,
   },
@@ -173,7 +177,9 @@ describe("session achievements", () => {
       within(card).getAllByRole("listitem");
     expect(merged?.textContent).toContain("집계됨머지된 PRpull_request");
     expect(merged?.textContent).toContain("정의에 맞을 확률 0.99 (문턱 0.9)");
-    expect(merged?.textContent).toContain("규칙 v2 · Luna 판정");
+    expect(merged?.textContent).toContain(
+      "규칙 v2 · Luna 판정 · 머지 뒤 다시 판정",
+    );
     const pr = within(merged as HTMLElement).getByRole("link", {
       name: "acme/shop#412",
     });
@@ -196,11 +202,13 @@ describe("session achievements", () => {
     // `always` has no probability.
     expect(review?.textContent).toContain("거절됨코드 리뷰 제출code_review");
     expect(review?.textContent).toContain("규칙 v1 · 바로 인정");
+    expect(review?.textContent).not.toContain("머지 뒤");
+    expect(document_?.textContent).not.toContain("머지 뒤");
     expect(review?.textContent).not.toContain("확률");
 
     expect(line?.textContent).toContain("마지막 판정");
     expect(line?.textContent).toContain(
-      " · 근거 바뀜 · 판정 2회 · 판정 비용 $0.0005 (세션 비용과 별도)",
+      " · 근거 바뀜(PR 머지) · 판정 2회 · 판정 비용 $0.0005 (세션 비용과 별도)",
     );
 
     // An owner rejects what is counted, confirms what needs review, and
@@ -338,6 +346,7 @@ describe("session achievements", () => {
               ? {
                   ...listed.judgment,
                   trigger: "manual",
+                  evidence_change: null,
                   status: "queued",
                   finished_at: null,
                 }
