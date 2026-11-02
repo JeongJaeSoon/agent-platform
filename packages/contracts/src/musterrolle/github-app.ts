@@ -67,6 +67,20 @@ const RANK: Record<GitHubAppPermissionLevel, number> = {
   admin: 3,
 };
 
+/** The permissions `asked` names that `granted` does not hold at that level. */
+export function githubPermissionsMissing(
+  granted: GitHubAppPermissions,
+  asked: GitHubAppPermissions,
+): string[] {
+  return Object.entries(asked)
+    .filter(([name, level]) => {
+      const held = granted[name];
+      return held === undefined || RANK[held] < RANK[level];
+    })
+    .map(([name]) => name)
+    .sort();
+}
+
 /**
  * The most each role's App is told to hold (design github-agent.md §1):
  * the author's defaults plus its optional features, the reviewer's three.
@@ -142,6 +156,19 @@ export const githubAppSchema = z
     permissions_checked_at: timestampSchema.nullable().optional(),
     /** Permissions wider than the role's guidance. */
     warnings: z.array(githubAppWarningSchema).optional(),
+    /**
+     * The account that owns the App, as GitHub gave it on this read; its
+     * permissions are set under that account. Null when GitHub did not
+     * answer; absent from a write's answer.
+     */
+    owner: z
+      .object({
+        login: z.string().min(1),
+        type: z.enum(["organization", "user"]),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 

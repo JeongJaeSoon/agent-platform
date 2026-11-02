@@ -47,6 +47,7 @@ import {
   DatabaseIdentityStore,
   LoginLockout,
 } from "./auth.ts";
+import { createGitHubAppDirectory } from "./forge-github.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { registerAgentGitHubRoutes } from "./routes/agent-github.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -190,6 +191,8 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
             oauth: createPostgresGitHubOAuthStore(db, null),
             callbackUrl: null,
             secretsOn: false,
+            apps: null,
+            directory: createGitHubAppDirectory(),
           }),
         );
         registerAgentGitHubRoutes(

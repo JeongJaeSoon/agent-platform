@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
   GITHUB_CEILING_NONE,
+  type GitHubAppCheckFailure,
+  type GitHubAppRole,
   type GitHubCeiling,
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
+import {
+  GitHubAppCheckError,
+  type GitHubAppDirectory,
+  type GitHubAppInstallationView,
+  type GitHubAppStore,
+} from "../ports/github-app-store.ts";
 import type {
   GitHubOAuthStore,
   GitHubSettingsStore,
@@ -51,8 +59,110 @@ function apiKey(): Caller {
 }
 
 const CALLBACK = "https://console.example.com/settings/linked-accounts/github";
+const NOW = new Date("2026-11-02T09:00:00.000Z");
 
-function harness(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
+type FakeConnection = {
+  id: string;
+  role: GitHubAppRole;
+  appId: number;
+  /** The App the key read finds on the row, when a replacement landed between. */
+  keyAppId?: number;
+  fails?: GitHubAppCheckFailure;
+  installations?: GitHubAppInstallationView[];
+};
+
+const ASKED = { contents: "write", pull_requests: "write" } as const;
+
+function installation(
+  id: number,
+  account: string,
+  overrides: Partial<GitHubAppInstallationView> = {},
+): GitHubAppInstallationView {
+  return {
+    id,
+    account,
+    accountType: "organization",
+    accountId: 9000 + id,
+    repositorySelection: "selected",
+    htmlUrl: `https://github.com/organizations/${account}/settings/installations/${id}`,
+    permissions: ASKED,
+    createdAt: new Date("2026-10-01T09:00:00.000Z"),
+    suspendedAt: null,
+    ...overrides,
+  };
+}
+
+function fakeApps(connections: readonly FakeConnection[]) {
+  const recorded: string[] = [];
+  const record = (held: FakeConnection) => ({
+    id: held.id,
+    role: held.role,
+    workspaceId: WORKSPACE,
+    appId: held.appId,
+    slug: `app-${held.appId}`,
+    name: `stored-${held.appId}`,
+    htmlUrl: `https://github.com/apps/app-${held.appId}`,
+    permissions: null,
+    permissionsCheckedAt: null,
+    clientId: null,
+    apiBase: "https://api.github.com",
+    createdAt: NOW,
+    updatedAt: NOW,
+    privateKey: { updatedAt: NOW, updatedBy: null },
+  });
+  const apps = {
+    list: async () => connections.map(record),
+    credentials: async (role: GitHubAppRole) =>
+      connections
+        .filter((held) => held.role === role)
+        .map((held) => ({
+          id: held.id,
+          workspaceId: WORKSPACE,
+          appId: held.keyAppId ?? held.appId,
+          apiBase: "https://api.github.com",
+          privateKey: "pem",
+          updatedAt: NOW,
+        })),
+    recordPermissions: async (id: string) => {
+      recorded.push(id);
+    },
+  } as unknown as GitHubAppStore;
+  const by = (appId: number) => {
+    const held = connections.find((each) => each.appId === appId);
+    if (held === undefined) throw new Error(`no fake App ${appId}`);
+    if (held.fails !== undefined) throw new GitHubAppCheckError(held.fails);
+    return held;
+  };
+  const directory = {
+    describe: async (app: { appId: number }) => {
+      by(app.appId);
+      return {
+        appId: app.appId,
+        slug: `app-${app.appId}`,
+        name: `App ${app.appId}`,
+        htmlUrl: `https://github.com/apps/app-${app.appId}`,
+        permissions: ASKED,
+        clientId: null,
+        owner: { login: "acme", type: "organization" },
+      };
+    },
+    installations: async (app: { appId: number }) =>
+      by(app.appId).installations ?? [],
+    installationRepositoriesPage: async () => ({
+      repositories: [],
+      totalCount: 3,
+    }),
+  } as unknown as GitHubAppDirectory;
+  return { apps, directory, recorded };
+}
+
+function harness(
+  options: {
+    authorApp?: boolean;
+    secretsOn?: boolean;
+    connections?: readonly FakeConnection[];
+  } = {},
+) {
   const secrets: Array<{ workspaceId: string; secret: string }> = [];
   const oauth: GitHubOAuthStore = {
     status: async () => ({
@@ -73,6 +183,7 @@ function harness(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
     revision: 0,
   };
   const puts: Array<{ updatedBy: string; ceiling: GitHubCeiling }> = [];
+  const fake = fakeApps(options.connections ?? []);
   const store: GitHubSettingsStore = {
     get: async () => settings,
     agentsUsing: async () => ({
@@ -101,9 +212,12 @@ function harness(options: { authorApp?: boolean; secretsOn?: boolean } = {}) {
     oauth,
     callbackUrl: CALLBACK,
     secretsOn: options.secretsOn ?? true,
+    apps: fake.apps,
+    directory: fake.directory,
     newId: () => "019a0000-0000-7000-8000-0000000000aa",
+    now: () => NOW,
   });
-  return { service, puts, secrets };
+  return { service, puts, secrets, recorded: fake.recorded };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -143,11 +257,177 @@ describe("GitHub settings service", () => {
         client_secret_set: false,
         callback_url: CALLBACK,
       },
+      connections: [],
       apps: {
         author: { permissions: { contents: "write", actions: "write" } },
         reviewer: null,
       },
     });
+  });
+
+  test("connections lists every App, two of one role included, with their installations", async () => {
+    const { service, recorded } = harness({
+      connections: [
+        {
+          id: "conn-a",
+          role: "author",
+          appId: 11,
+          installations: [
+            installation(2, "zeta"),
+            installation(1, "acme", {
+              permissions: { contents: "write" },
+            }),
+          ],
+        },
+        {
+          id: "conn-b",
+          role: "author",
+          appId: 12,
+          installations: [
+            installation(3, "acme-labs", {
+              accountType: "user",
+              suspendedAt: new Date("2026-11-01T00:00:00.000Z"),
+            }),
+          ],
+        },
+        { id: "conn-r", role: "reviewer", appId: 13 },
+      ],
+    });
+    const { connections } = await service.get(user("owner"), WORKSPACE);
+    expect(connections.map((each) => [each.connection_id, each.role])).toEqual([
+      ["conn-a", "author"],
+      ["conn-b", "author"],
+      ["conn-r", "reviewer"],
+    ]);
+    const [first, second] = connections;
+    expect(first).toMatchObject({
+      name: "App 11",
+      app_id: 11,
+      owner: { login: "acme", type: "organization" },
+      permissions: ASKED,
+      key_status: "ok",
+      installations_read_at: NOW.toISOString(),
+      check: { state: "ok", checked_at: NOW.toISOString() },
+    });
+    expect(first?.installations).toEqual([
+      {
+        id: 1,
+        account: "acme",
+        account_type: "organization",
+        status: "approval_pending",
+        detail: {
+          connection_id: "conn-a",
+          role: "author",
+          account_id: 9001,
+          permissions: { contents: "write" },
+          approval: "pending",
+          repository_count: 3,
+          repository_selection: "selected",
+          html_url:
+            "https://github.com/organizations/acme/settings/installations/1",
+          created_at: "2026-10-01T09:00:00.000Z",
+          suspended_at: null,
+        },
+      },
+      expect.objectContaining({ id: 2, account: "zeta", status: "active" }),
+    ]);
+    expect(second?.installations).toEqual([
+      expect.objectContaining({
+        account: "acme-labs",
+        account_type: "user",
+        status: "suspended",
+        detail: expect.objectContaining({
+          repository_count: null,
+          suspended_at: "2026-11-01T00:00:00.000Z",
+        }),
+      }),
+    ]);
+    expect(recorded.sort()).toEqual(["conn-a", "conn-b", "conn-r"]);
+  });
+
+  test("one App GitHub fails for keeps the others' installations", async () => {
+    const { service } = harness({
+      connections: [
+        {
+          id: "conn-a",
+          role: "author",
+          appId: 11,
+          fails: "github_unreachable",
+        },
+        {
+          id: "conn-r",
+          role: "reviewer",
+          appId: 13,
+          fails: "github_rejected",
+        },
+        {
+          id: "conn-b",
+          role: "author",
+          appId: 12,
+          installations: [installation(3, "acme")],
+        },
+      ],
+    });
+    const { connections } = await service.get(user("admin"), WORKSPACE);
+    const byId = new Map(connections.map((each) => [each.connection_id, each]));
+    expect(byId.get("conn-a")).toMatchObject({
+      name: "stored-11",
+      owner: null,
+      key_status: "unknown",
+      installations: [],
+      installations_read_at: null,
+      check: {
+        state: "failed",
+        reason_code: "github_unavailable",
+        checked_at: NOW.toISOString(),
+      },
+    });
+    expect(byId.get("conn-r")).toMatchObject({
+      key_status: "rejected",
+      check: { state: "failed", reason_code: "github_app_auth_failed" },
+    });
+    expect(byId.get("conn-b")).toMatchObject({
+      key_status: "ok",
+      check: { state: "ok" },
+      installations: [expect.objectContaining({ account: "acme" })],
+    });
+  });
+
+  test("a member reads each installation's account, type and status only", async () => {
+    const { service, recorded } = harness({
+      connections: [
+        {
+          id: "conn-a",
+          role: "author",
+          appId: 11,
+          installations: [installation(1, "acme")],
+        },
+      ],
+    });
+    const { connections } = await service.get(user("member"), WORKSPACE);
+    // A member's read writes nothing.
+    expect(recorded).toEqual([]);
+    expect(connections[0]?.installations).toEqual([
+      {
+        id: 1,
+        account: "acme",
+        account_type: "organization",
+        status: "active",
+        detail: null,
+      },
+    ]);
+    expect(JSON.stringify(connections)).not.toContain("repository_count");
+  });
+
+  test("an App replaced between the row read and the key read is left out, not mixed", async () => {
+    const { service } = harness({
+      connections: [
+        { id: "conn-a", role: "author", appId: 11, keyAppId: 14 },
+        { id: "conn-r", role: "reviewer", appId: 13 },
+      ],
+    });
+    const { connections } = await service.get(user("owner"), WORKSPACE);
+    expect(connections.map((each) => each.connection_id)).toEqual(["conn-r"]);
   });
 
   test("GET for another workspace is NOT_FOUND", async () => {

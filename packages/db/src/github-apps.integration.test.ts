@@ -278,6 +278,13 @@ integration("the GitHub App on PostgreSQL", () => {
     ).toEqual({ outcome: "same_app" });
     expect(author.app.id).not.toBe(reviewer.app.id);
     expect(
+      (await store.list(ws.toUpperCase())).map((app) => [app.role, app.id]),
+    ).toEqual([
+      ["author", author.app.id],
+      ["reviewer", reviewer.app.id],
+    ]);
+    expect(await store.list(await workspace())).toEqual([]);
+    expect(
       (await store.credentials("author"))
         .filter((app) => app.workspaceId === ws)
         .map((app) => app.appId),
@@ -360,6 +367,7 @@ integration("the GitHub App on PostgreSQL", () => {
       .delete(secretValues)
       .where(eq(secretValues.ownerRef, `github_app:${stored.app.id}`));
     expect(await store.find(ws, "author")).toBeNull();
+    expect(await store.list(ws)).toEqual([]);
   });
 
   test("user linking reads the author App's client id; a reviewer App or none gives no client", async () => {

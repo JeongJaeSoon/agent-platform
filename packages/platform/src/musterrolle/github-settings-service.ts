@@ -1,10 +1,22 @@
-import type {
-  GitHubOAuth,
-  GitHubSettingsResponse,
-  PutGitHubOAuthClientSecretRequest,
-  PutGitHubOAuthClientSecretResponse,
-  PutGitHubSettingsRequest,
+import {
+  GITHUB_APP_ROLE_VALUES,
+  type GitHubAppRole,
+  type GitHubOAuth,
+  type GitHubSettingsConnection,
+  type GitHubSettingsResponse,
+  githubPermissionsMissing,
+  type PutGitHubOAuthClientSecretRequest,
+  type PutGitHubOAuthClientSecretResponse,
+  type PutGitHubSettingsRequest,
 } from "@werft-ai/contracts";
+import {
+  type GitHubAppCredential,
+  type GitHubAppDirectory,
+  type GitHubAppInstallationView,
+  type GitHubAppRecord,
+  type GitHubAppStore,
+  githubUnavailableOf,
+} from "../ports/github-app-store.ts";
 import type {
   GitHubOAuthStore,
   GitHubSettingsStore,
@@ -13,6 +25,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../sessions/session-service.ts";
+import { INSTALLATION_COUNT_MAX } from "./github-repository-service.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -45,10 +58,15 @@ export function createGitHubSettingsService(deps: {
   callbackUrl: string | null;
   /** False when the API runs without a master key: no secret can be kept. */
   secretsOn: boolean;
+  /** Null when the API runs without a master key: no App is registered. */
+  apps: GitHubAppStore | null;
+  directory: GitHubAppDirectory;
   newId?: () => string;
+  now?: () => Date;
 }) {
   const { authorization, store } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
+  const now = deps.now ?? (() => new Date());
 
   async function oauthOf(workspaceId: string): Promise<GitHubOAuth> {
     const status = await deps.oauth.status(workspaceId);
@@ -59,14 +77,186 @@ export function createGitHubSettingsService(deps: {
     };
   }
 
-  async function read(workspaceId: string): Promise<GitHubSettingsResponse> {
-    const [settings, agentsUsing, apps, oauth] = await Promise.all([
-      store.get(workspaceId),
-      store.agentsUsing(workspaceId),
-      store.appPermissions(workspaceId),
-      oauthOf(workspaceId),
+  const repositoryCount = (
+    app: GitHubAppCredential,
+    installation: GitHubAppInstallationView,
+  ): Promise<number | null> =>
+    installation.suspendedAt !== null
+      ? Promise.resolve(null)
+      : deps.directory
+          .installationRepositoriesPage(app, installation.id, {
+            page: 1,
+            perPage: 1,
+          })
+          .then(
+            (page) => page.totalCount,
+            () => null,
+          );
+
+  async function connectionOf(
+    record: GitHubAppRecord & { role: GitHubAppRole },
+    credential: GitHubAppCredential,
+    manager: boolean,
+  ): Promise<GitHubSettingsConnection> {
+    const [described, listed] = await Promise.allSettled([
+      deps.directory.describe(credential),
+      deps.directory.installations(credential),
     ]);
-    return { ...settings, agents_using: agentsUsing, oauth, apps };
+    const checkedAt = now().toISOString();
+    const profile = described.status === "fulfilled" ? described.value : null;
+    if (manager && profile !== null && deps.apps !== null) {
+      // An owner widens the App on GitHub; a manager's read is how it shows here.
+      await deps.apps.recordPermissions(
+        record.id,
+        credential.appId,
+        profile.permissions,
+        profile.clientId,
+      );
+    }
+    const asked = profile?.permissions ?? record.permissions;
+    const rejected = [described, listed].some(
+      (settled) =>
+        settled.status === "rejected" &&
+        githubUnavailableOf(settled.reason) === "github_app_auth_failed",
+    );
+    const answered = profile !== null || listed.status === "fulfilled";
+    const installations =
+      listed.status === "fulfilled"
+        ? [...listed.value].sort(
+            (a, b) => a.account.localeCompare(b.account) || a.id - b.id,
+          )
+        : [];
+    const counts = manager
+      ? await Promise.all(
+          installations.map((installation, index) =>
+            index < INSTALLATION_COUNT_MAX
+              ? repositoryCount(credential, installation)
+              : Promise.resolve(null),
+          ),
+        )
+      : [];
+    return {
+      connection_id: record.id,
+      role: record.role,
+      name: profile?.name ?? record.name,
+      app_id: record.appId,
+      html_url: profile?.htmlUrl ?? record.htmlUrl,
+      owner: profile?.owner ?? null,
+      permissions: asked,
+      key_status: answered ? "ok" : rejected ? "rejected" : "unknown",
+      installations: installations.map((installation, index) => {
+        const approval =
+          asked === null
+            ? "unknown"
+            : githubPermissionsMissing(installation.permissions, asked)
+                  .length === 0
+              ? "approved"
+              : "pending";
+        return {
+          id: installation.id,
+          account: installation.account,
+          account_type: installation.accountType,
+          status:
+            installation.suspendedAt !== null
+              ? "suspended"
+              : approval === "pending"
+                ? "approval_pending"
+                : approval === "unknown"
+                  ? "unknown"
+                  : "active",
+          detail: manager
+            ? {
+                connection_id: record.id,
+                role: record.role,
+                account_id: installation.accountId,
+                permissions: installation.permissions,
+                approval,
+                repository_count: counts[index] ?? null,
+                repository_selection: installation.repositorySelection,
+                html_url: installation.htmlUrl,
+                created_at: installation.createdAt?.toISOString() ?? null,
+                suspended_at: installation.suspendedAt?.toISOString() ?? null,
+              }
+            : null,
+        };
+      }),
+      installations_read_at: listed.status === "fulfilled" ? checkedAt : null,
+      check:
+        listed.status === "fulfilled"
+          ? { state: "ok", checked_at: checkedAt }
+          : {
+              state: "failed",
+              reason_code: githubUnavailableOf(listed.reason),
+              checked_at: checkedAt,
+            },
+    };
+  }
+
+  async function connectionsOf(
+    workspaceId: string,
+    manager: boolean,
+  ): Promise<GitHubSettingsConnection[]> {
+    const apps = deps.apps;
+    if (apps === null) return [];
+    const [records, credentials] = await Promise.all([
+      apps.list(workspaceId),
+      Promise.all(
+        GITHUB_APP_ROLE_VALUES.map((role) =>
+          apps.credentials(role, workspaceId),
+        ),
+      ),
+    ]);
+    const keyOf = new Map(credentials.flat().map((held) => [held.id, held]));
+    return await Promise.all(
+      records.flatMap((record) => {
+        // Deleted or replaced (same row, another App) between the two reads.
+        const credential = keyOf.get(record.id);
+        return credential === undefined || credential.appId !== record.appId
+          ? []
+          : [connectionOf(record, credential, manager)];
+      }),
+    );
+  }
+
+  async function manages(caller: Caller, workspaceId: string) {
+    const decision = await authorization
+      .authorize(
+        {
+          subject: caller.subject,
+          action: "workspace.manage",
+          resource: {
+            kind: "workspace",
+            id: workspaceId,
+            owner_scope: caller.ownerId,
+          },
+          request_id: caller.requestId,
+        },
+        { record: false },
+      )
+      .catch(() => null);
+    return decision?.outcome === "allow";
+  }
+
+  async function read(
+    workspaceId: string,
+    manager: boolean,
+  ): Promise<GitHubSettingsResponse> {
+    const [settings, agentsUsing, apps, oauth, connections] = await Promise.all(
+      [
+        store.get(workspaceId),
+        store.agentsUsing(workspaceId),
+        store.appPermissions(workspaceId),
+        oauthOf(workspaceId),
+        connectionsOf(workspaceId, manager),
+      ],
+    );
+    return {
+      ...settings,
+      agents_using: agentsUsing,
+      oauth,
+      connections,
+      apps,
+    };
   }
 
   async function requireConsoleManager(
@@ -104,7 +294,7 @@ export function createGitHubSettingsService(deps: {
           "The GitHub settings are read by a workspace member",
         );
       }
-      return await read(workspaceId);
+      return await read(workspaceId, await manages(caller, workspaceId));
     },
 
     async put(
@@ -129,7 +319,7 @@ export function createGitHubSettingsService(deps: {
       });
       switch (result.outcome) {
         case "stored":
-          return await read(workspaceId);
+          return await read(workspaceId, true);
         case "revision_conflict":
           throw new SessionServiceError(
             "REVISION_CONFLICT",

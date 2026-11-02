@@ -442,8 +442,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A page of the author App's repositories, and the catalog's (owner or admin)
-         * @description The repositories one installation of the author App reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first in `installations`, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, `github_rejected` or `github_unreachable`. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only); `installed` says whether an installation of the App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id the App does not have is 400 `not_installed`. API keys are refused.
+         * A page of the GitHub Apps' repositories, and the catalog's (owner or admin)
+         * @description The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of the author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -487,7 +487,7 @@ export interface paths {
         };
         /**
          * The workspace's GitHub ceiling (members)
-         * @description What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `apps` has each registered App's permissions as last read from GitHub. Any member signed in to the console reads it; API keys are refused.
+         * @description What the workspace lets its agents turn on beyond writing a pull request: `workflows`, `actions`, `checks`, `issues`, `review`, all false until an owner or admin saves the ceiling (`revision` 0 until then). An agent's release may turn a feature on only under the ceiling, and every GitHub token is cut to the ceiling again when it is issued. `agents_using` counts, per feature, agents with GitHub on whose active release turns it on; sessions still running an earlier release are not counted. `connections` lists every registered App (author ones first; a role may have several) with its `name`, `app_id`, the `owner` account GitHub names, the `permissions` it asks for, `key_status`, and where it is installed: each installation's `account`, `account_type` and `status` (`suspended`, `approval_pending` when the account has not approved every permission the App asks for, `unknown` before the App's permissions were read, else `active`). Installations are read from GitHub with each App's own key on every request, so one App failing does not hide another's: its `check` is `failed` with `reason_code` (`github_unavailable` or `github_app_auth_failed`) and its `installations` is empty, and `installations_read_at` says when the list was read (null when it was not). An installation's `detail` (connection, account id, approved permissions, `approval`, `repository_count` for the first 20, `repository_selection`, its settings page, `created_at`, `suspended_at`) is given to owners and admins only; a member reads null. `apps` has each role's App permissions as last read from GitHub; it reads null for a role with several Apps, so read `connections`. Any member signed in to the console reads it; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2380,7 +2380,7 @@ export interface paths {
         };
         /**
          * A page of the author App's repositories, to pick for the agent
-         * @description The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them, with `catalog_id` set on those a pick resolved already. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.
+         * @description The repositories one installation of the author App reaches, a page at a time, as `GET /v1/workspaces/{id}/github-repositories` pages them (its failures too), with `catalog_id` set on those a pick resolved already; `installations` lists only the author App's. Only when the active release's installation profile ceiling runs on every App repository (`github_app_repositories: installed`); otherwise `unavailable` is `ceiling_listed` (pick among `options.repositories` of `GET /v1/agents/{id}/github`) or `no_active_release`, and the page is empty. Whoever manages the agent reads it.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2388,7 +2388,7 @@ export interface paths {
         put?: never;
         /**
          * Resolve an App repository to the catalog id a release names
-         * @description Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed`, `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). A signed-in manager of the agent; API keys are refused.
+         * @description Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4218,7 +4218,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -5450,6 +5450,64 @@ export interface components {
                 client_secret_set: boolean;
                 callback_url: string | null;
             };
+            connections: {
+                connection_id: string;
+                /** @enum {string} */
+                role: "author" | "reviewer";
+                name: string;
+                app_id: number;
+                /** Format: uri */
+                html_url: string;
+                owner: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "organization" | "user";
+                } | null;
+                permissions: {
+                    [key: string]: "read" | "write" | "admin";
+                } | null;
+                /** @enum {string} */
+                key_status: "ok" | "rejected" | "unknown";
+                installations: {
+                    id: number;
+                    account: string;
+                    /** @enum {string} */
+                    account_type: "organization" | "user";
+                    /** @enum {string} */
+                    status: "active" | "approval_pending" | "suspended" | "unknown";
+                    detail: {
+                        connection_id: string;
+                        /** @enum {string} */
+                        role: "author" | "reviewer";
+                        account_id: number | null;
+                        permissions: {
+                            [key: string]: "read" | "write" | "admin";
+                        };
+                        /** @enum {string} */
+                        approval: "approved" | "pending" | "unknown";
+                        repository_count: number | null;
+                        /** @enum {string} */
+                        repository_selection: "all" | "selected";
+                        html_url: string | null;
+                        created_at: string | null;
+                        suspended_at: string | null;
+                    } | null;
+                }[];
+                installations_read_at: string | null;
+                check: {
+                    /** @constant */
+                    state: "ok";
+                    /** Format: date-time */
+                    checked_at: string;
+                } | {
+                    /** @constant */
+                    state: "failed";
+                    /** @enum {string} */
+                    reason_code: "github_unavailable" | "github_app_auth_failed";
+                    /** Format: date-time */
+                    checked_at: string;
+                };
+            }[];
             apps: {
                 author: {
                     permissions: {
@@ -5834,7 +5892,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -6025,6 +6083,11 @@ export interface components {
                     level: "read" | "write" | "admin";
                     guided: ("read" | "write" | "admin") | null;
                 }[];
+                owner?: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "organization" | "user";
+                } | null;
             } | null;
             check: ({
                 /** @constant */
@@ -6092,6 +6155,11 @@ export interface components {
                     level: "read" | "write" | "admin";
                     guided: ("read" | "write" | "admin") | null;
                 }[];
+                owner?: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "organization" | "user";
+                } | null;
             };
             /** Format: uri */
             install_url: string;
@@ -6130,6 +6198,11 @@ export interface components {
                     level: "read" | "write" | "admin";
                     guided: ("read" | "write" | "admin") | null;
                 }[];
+                owner?: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "organization" | "user";
+                } | null;
             };
             /** Format: uuid */
             receipt_id: string;
@@ -6142,6 +6215,13 @@ export interface components {
             installations: {
                 id: number;
                 account: string;
+                connection_id: string;
+                /** @enum {string} */
+                role: "author" | "reviewer";
+                permissions: {
+                    [key: string]: "read" | "write" | "admin";
+                };
+                repository_count: number | null;
             }[];
             installation_id: number | null;
             page: number;
@@ -6155,7 +6235,7 @@ export interface components {
                 catalog_id: string | null;
                 agent_count: number;
             }[];
-            unavailable: ("no_author_app" | "no_installation" | "github_unreachable" | "github_rejected") | null;
+            unavailable: ("no_author_app" | "no_installation" | "installation_suspended" | "github_unavailable" | "github_app_auth_failed") | null;
             catalog: {
                 id: string;
                 github_repository_id: number | null;
@@ -6169,6 +6249,7 @@ export interface components {
                 version: number | null;
                 installed: boolean | null;
                 updated_at: string | null;
+                agent_count: number;
             }[];
         };
         GitHubRepositoryWriteResponse: {
@@ -6193,6 +6274,13 @@ export interface components {
             installations: {
                 id: number;
                 account: string;
+                connection_id: string;
+                /** @enum {string} */
+                role: "author" | "reviewer";
+                permissions: {
+                    [key: string]: "read" | "write" | "admin";
+                };
+                repository_count: number | null;
             }[];
             installation_id: number | null;
             page: number;
@@ -6205,7 +6293,7 @@ export interface components {
                 private: boolean;
                 catalog_id: string | null;
             }[];
-            unavailable: ("no_author_app" | "no_installation" | "github_unreachable" | "github_rejected" | "no_active_release" | "ceiling_listed") | null;
+            unavailable: ("no_author_app" | "no_installation" | "installation_suspended" | "github_unavailable" | "github_app_auth_failed" | "no_active_release" | "ceiling_listed") | null;
         };
         PickAgentGitHubRepositoryResponse: {
             catalog_id: string;
@@ -10709,7 +10797,15 @@ export interface operations {
                      *       "installations": [
                      *         {
                      *           "id": 4242,
-                     *           "account": "acme"
+                     *           "account": "acme",
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "role": "author",
+                     *           "permissions": {
+                     *             "contents": "write",
+                     *             "pull_requests": "write",
+                     *             "metadata": "read"
+                     *           },
+                     *           "repository_count": 1
                      *         }
                      *       ],
                      *       "installation_id": 4242,
@@ -10738,7 +10834,8 @@ export interface operations {
                      *           "editable": true,
                      *           "version": 1,
                      *           "installed": true,
-                     *           "updated_at": "2026-11-01T09:00:00Z"
+                     *           "updated_at": "2026-11-01T09:00:00Z",
+                     *           "agent_count": 2
                      *         }
                      *       ]
                      *     }
@@ -10806,7 +10903,37 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `INSTALLATION_SUSPENDED`: GitHub has suspended the App installation the request named; an owner of that account resumes it on GitHub. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "INSTALLATION_SUSPENDED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
         };
     };
     updateGitHubRepository: {
@@ -11009,6 +11136,55 @@ export interface operations {
                      *         "client_secret_set": true,
                      *         "callback_url": "https://console.example.com/settings/linked-accounts/github"
                      *       },
+                     *       "connections": [
+                     *         {
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "role": "author",
+                     *           "name": "werft-agent",
+                     *           "app_id": 123456,
+                     *           "html_url": "https://github.com/apps/werft-agent",
+                     *           "owner": {
+                     *             "login": "acme",
+                     *             "type": "organization"
+                     *           },
+                     *           "permissions": {
+                     *             "contents": "write",
+                     *             "pull_requests": "write",
+                     *             "actions": "write",
+                     *             "metadata": "read"
+                     *           },
+                     *           "key_status": "ok",
+                     *           "installations": [
+                     *             {
+                     *               "id": 4242,
+                     *               "account": "acme",
+                     *               "account_type": "organization",
+                     *               "status": "approval_pending",
+                     *               "detail": {
+                     *                 "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *                 "role": "author",
+                     *                 "account_id": 9919,
+                     *                 "permissions": {
+                     *                   "contents": "write",
+                     *                   "pull_requests": "write",
+                     *                   "metadata": "read"
+                     *                 },
+                     *                 "approval": "pending",
+                     *                 "repository_count": 37,
+                     *                 "repository_selection": "selected",
+                     *                 "html_url": "https://github.com/organizations/acme/settings/installations/4242",
+                     *                 "created_at": "2026-10-01T09:00:00.000Z",
+                     *                 "suspended_at": null
+                     *               }
+                     *             }
+                     *           ],
+                     *           "installations_read_at": "2026-11-02T09:00:00.000Z",
+                     *           "check": {
+                     *             "state": "ok",
+                     *             "checked_at": "2026-11-02T09:00:00.000Z"
+                     *           }
+                     *         }
+                     *       ],
                      *       "apps": {
                      *         "author": {
                      *           "permissions": {
@@ -11148,6 +11324,55 @@ export interface operations {
                      *         "client_secret_set": true,
                      *         "callback_url": "https://console.example.com/settings/linked-accounts/github"
                      *       },
+                     *       "connections": [
+                     *         {
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "role": "author",
+                     *           "name": "werft-agent",
+                     *           "app_id": 123456,
+                     *           "html_url": "https://github.com/apps/werft-agent",
+                     *           "owner": {
+                     *             "login": "acme",
+                     *             "type": "organization"
+                     *           },
+                     *           "permissions": {
+                     *             "contents": "write",
+                     *             "pull_requests": "write",
+                     *             "actions": "write",
+                     *             "metadata": "read"
+                     *           },
+                     *           "key_status": "ok",
+                     *           "installations": [
+                     *             {
+                     *               "id": 4242,
+                     *               "account": "acme",
+                     *               "account_type": "organization",
+                     *               "status": "approval_pending",
+                     *               "detail": {
+                     *                 "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *                 "role": "author",
+                     *                 "account_id": 9919,
+                     *                 "permissions": {
+                     *                   "contents": "write",
+                     *                   "pull_requests": "write",
+                     *                   "metadata": "read"
+                     *                 },
+                     *                 "approval": "pending",
+                     *                 "repository_count": 37,
+                     *                 "repository_selection": "selected",
+                     *                 "html_url": "https://github.com/organizations/acme/settings/installations/4242",
+                     *                 "created_at": "2026-10-01T09:00:00.000Z",
+                     *                 "suspended_at": null
+                     *               }
+                     *             }
+                     *           ],
+                     *           "installations_read_at": "2026-11-02T09:00:00.000Z",
+                     *           "check": {
+                     *             "state": "ok",
+                     *             "checked_at": "2026-11-02T09:00:00.000Z"
+                     *           }
+                     *         }
+                     *       ],
                      *       "apps": {
                      *         "author": {
                      *           "permissions": null
@@ -24000,7 +24225,15 @@ export interface operations {
                      *       "installations": [
                      *         {
                      *           "id": 4242,
-                     *           "account": "acme"
+                     *           "account": "acme",
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "role": "author",
+                     *           "permissions": {
+                     *             "contents": "write",
+                     *             "pull_requests": "write",
+                     *             "metadata": "read"
+                     *           },
+                     *           "repository_count": 1
                      *         }
                      *       ],
                      *       "installation_id": 4242,
@@ -24082,7 +24315,37 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `INSTALLATION_SUSPENDED`: GitHub has suspended the App installation the request named; an owner of that account resumes it on GitHub. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "INSTALLATION_SUSPENDED";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
         };
     };
     pickAgentGitHubRepository: {
@@ -24216,7 +24479,22 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. GitHub could not be reached to read the repository; nothing stored changed. */
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

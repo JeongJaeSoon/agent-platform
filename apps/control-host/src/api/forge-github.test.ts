@@ -577,6 +577,7 @@ describe("createGitHubAppDirectory", () => {
         metadata: "read",
         pull_requests: "write",
       },
+      owner: { login: "fake-owner", type: "organization" },
     });
     github.setPermissions({ actions: "write", contents: "read" });
     try {
@@ -591,10 +592,23 @@ describe("createGitHubAppDirectory", () => {
       {
         id: 1,
         account: "acme",
+        accountType: "organization",
+        accountId: 9001,
         repositorySelection: "selected",
         htmlUrl: `${github.origin}/organizations/acme/settings/installations/1`,
+        permissions: expect.any(Object),
+        createdAt: new Date("2026-10-01T09:00:00Z"),
+        suspendedAt: null,
       },
     ]);
+    github.suspendInstallations(true);
+    try {
+      expect((await directory.installations(app()))[0]?.suspendedAt).toEqual(
+        new Date("2026-11-01T00:00:00Z"),
+      );
+    } finally {
+      github.suspendInstallations(false);
+    }
     expect(await directory.installationFor(app(), repo)).toEqual({
       id: 1,
       permissions: {

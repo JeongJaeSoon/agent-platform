@@ -60,6 +60,7 @@ const settingsOf = (ceiling = CEILING, revision = 3) => ({
     client_secret_set: false,
     callback_url: null,
   },
+  connections: [],
   apps: { author: { permissions: PERMISSIONS }, reviewer: null },
 });
 const ownerRoutes = (settings = settingsOf()) => ({

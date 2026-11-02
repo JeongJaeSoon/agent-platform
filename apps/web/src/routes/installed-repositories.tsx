@@ -1,4 +1,4 @@
-import type { components } from "@werft-ai/client";
+import { type components, isApiError } from "@werft-ai/client";
 import {
   Badge,
   Button,
@@ -25,10 +25,25 @@ type Page<R> = Pick<
 /** The page size the console asks for; GitHub allows up to 100. */
 export const INSTALLED_PER_PAGE = 30;
 
-const UNAVAILABLE: Partial<Record<string, MessageKey>> = {
+const UNAVAILABLE: Record<string, MessageKey> = {
   no_author_app: "github.repo.pickNoApp",
   no_installation: "github.repo.pickNoInstallation",
+  github_unavailable: "error.GITHUB_UNAVAILABLE",
+  github_app_auth_failed: "error.GITHUB_UNAVAILABLE",
+  installation_suspended: "error.INSTALLATION_SUSPENDED",
 };
+
+/** A picked installation GitHub no longer has, or has suspended. */
+export const installationUnusable = (error: unknown) =>
+  isApiError(error) &&
+  (error.code === "INSTALLATION_SUSPENDED" ||
+    (error.code === "NOT_FOUND" &&
+      (error.details as { reason_code?: unknown } | null)?.reason_code ===
+        "installation_not_found"));
+
+/** react-query's default three retries, none for an unusable installation. */
+export const retryUnlessUnusable = (failures: number, error: unknown) =>
+  !installationUnusable(error) && failures < 3;
 
 /**
  * One page of the repositories an installation of the author App reaches,
@@ -50,39 +65,54 @@ export function InstalledRepositoryPage<R extends InstalledRepository>({
 }) {
   const { t } = useI18n();
   const selectId = useId();
+  // An empty default page may still list installations another can be read from.
+  const picker =
+    page.installations.length > (page.installation_id === null ? 0 : 1) ? (
+      <Field>
+        <FieldLabel htmlFor={selectId}>
+          {t("github.repo.installation")}
+        </FieldLabel>
+        <NativeSelect
+          id={selectId}
+          size="sm"
+          value={String(page.installation_id ?? "")}
+          onChange={(event) => onInstallation(Number(event.target.value))}
+        >
+          {page.installation_id === null ? (
+            <NativeSelectOption value="" disabled>
+              {t("github.repo.installationChoose")}
+            </NativeSelectOption>
+          ) : null}
+          {page.installations.map((installation) => (
+            <NativeSelectOption
+              key={installation.id}
+              value={String(installation.id)}
+            >
+              {installation.role === "reviewer"
+                ? t("github.repo.installationReviewer", {
+                    account: installation.account,
+                  })
+                : installation.account}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </Field>
+    ) : null;
   if (page.unavailable !== null) {
     return (
-      <p className="m-0 text-caption">
-        {t(UNAVAILABLE[page.unavailable] ?? "github.repo.pickUnreachable")}
-      </p>
+      <div className="flex flex-col gap-2">
+        <p className="m-0 text-caption">
+          {t(UNAVAILABLE[page.unavailable] ?? "github.repo.pickNoInstallation")}
+        </p>
+        {picker}
+      </div>
     );
   }
   const from = (page.page - 1) * page.per_page + 1;
   const to = from + page.repositories.length - 1;
   return (
     <div className="flex flex-col gap-2">
-      {page.installations.length > 1 ? (
-        <Field>
-          <FieldLabel htmlFor={selectId}>
-            {t("github.repo.installation")}
-          </FieldLabel>
-          <NativeSelect
-            id={selectId}
-            size="sm"
-            value={String(page.installation_id ?? "")}
-            onChange={(event) => onInstallation(Number(event.target.value))}
-          >
-            {page.installations.map((installation) => (
-              <NativeSelectOption
-                key={installation.id}
-                value={String(installation.id)}
-              >
-                {installation.account}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </Field>
-      ) : null}
+      {picker}
       {page.repositories.length === 0 ? (
         <p className="m-0 text-caption">{t("github.repo.pickEmpty")}</p>
       ) : (
