@@ -265,7 +265,9 @@ function renderTable(rows: string[][], limit: number): string | null {
     line(rows[0] ?? []),
     widths.map((columnWidth) => "-".repeat(columnWidth)).join("-+-"),
   ];
-  let length = output.join("\n").length;
+  // Counted with the closing "\n```" from the start.
+  let length = output.join("\n").length + 4;
+  if (length > limit) return null;
   for (const row of rows.slice(1)) {
     const text = line(row);
     length += text.length + 1;
