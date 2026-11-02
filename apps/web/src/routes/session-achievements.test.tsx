@@ -338,6 +338,30 @@ describe("session achievements", () => {
     expect(card.textContent).toContain("판정 비용 $0.00 (세션 비용과 별도)");
   });
 
+  for (const [status, code, text] of [
+    ["skipped", "session_limit", "판정 건너뜀: 세션 판정 횟수 상한에 닿음"],
+    ["failed", "outputs_unavailable", "판정 실패: out/ 파일 목록을 읽지 못함"],
+    ["failed", "judge_timeout", "판정 실패: 판정기가 10초 안에 답하지 않음"],
+    ["failed", "judge_http_error", "판정 실패: 판정기 요청이 실패함"],
+    ["failed", "judge_bad_response", "판정 실패: 판정기 답의 모양이 맞지 않음"],
+    // A refusal leaves the judgment succeeded.
+    ["succeeded", "judge_refused", "판정기가 답을 거부함"],
+  ] as const) {
+    test(`a ${status} judgment with ${code} says so`, async () => {
+      renderAt(
+        `/sessions/${SESSION_ID}`,
+        routes(() =>
+          json(200, {
+            ...listed,
+            judgment: { ...listed.judgment, status, error_code: code },
+          }),
+        ),
+      );
+      const card = await openCard();
+      expect(card.textContent).toContain(text);
+    });
+  }
+
   test("a member sees no buttons, unless they administer the agent, and never rejudges", async () => {
     const member = me(undefined, "member");
     renderAt(

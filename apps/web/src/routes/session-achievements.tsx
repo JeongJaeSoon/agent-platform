@@ -342,7 +342,12 @@ function JudgmentLine({
               ? null
               : `: ${t(`session.achievements.error.${judgment.error_code}`)}`}
           </Text>
-        ) : null}
+        ) : judgment.error_code === null ? null : (
+          // A refusal leaves the judgment succeeded.
+          <Text as="span" variant="meta">
+            {t(`session.achievements.error.${judgment.error_code}`)}
+          </Text>
+        )}
         {failure === null ? null : <FieldError>{failure}</FieldError>}
       </RowLines>
       {manager ? (

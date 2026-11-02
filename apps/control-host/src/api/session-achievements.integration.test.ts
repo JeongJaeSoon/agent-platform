@@ -67,7 +67,10 @@ integration("a session's achievement reviews on PostgreSQL", () => {
   const judge = () =>
     createAchievementJudge({
       store: createPostgresAchievementJudgments(db),
-      outputs: { readOutputs: async () => outputs },
+      outputs: {
+        readOutputs: async () => outputs,
+        openOutput: async () => ({ status: "missing" }),
+      },
       logger: { info() {}, warn() {} },
     });
   // As if the quiet time had passed since the session's last trigger.

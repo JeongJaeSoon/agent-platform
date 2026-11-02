@@ -41,6 +41,11 @@ export const outputsKo = {
   "session.achievements.error.outputs_unavailable":
     "out/ 파일 목록을 읽지 못함",
   "session.achievements.error.session_limit": "세션 판정 횟수 상한에 닿음",
+  "session.achievements.error.judge_refused": "판정기가 답을 거부함",
+  "session.achievements.error.judge_timeout": "판정기가 10초 안에 답하지 않음",
+  "session.achievements.error.judge_http_error": "판정기 요청이 실패함",
+  "session.achievements.error.judge_bad_response":
+    "판정기 답의 모양이 맞지 않음",
   "session.outcomes.title": "근거",
   "session.outcomes.description":
     "플랫폼이 직접 본 사실입니다. GitHub 상태는 주기적으로 다시 읽습니다.",
@@ -122,6 +127,13 @@ export const outputsJa: Record<keyof typeof outputsKo, string> = {
     "out/ ファイルの一覧を読めませんでした",
   "session.achievements.error.session_limit":
     "セッションの判定回数の上限に達しました",
+  "session.achievements.error.judge_refused": "判定器が回答を拒否しました",
+  "session.achievements.error.judge_timeout":
+    "判定器が 10 秒以内に応答しませんでした",
+  "session.achievements.error.judge_http_error":
+    "判定器へのリクエストが失敗しました",
+  "session.achievements.error.judge_bad_response":
+    "判定器の応答の形式が想定と違いました",
   "session.outcomes.title": "根拠",
   "session.outcomes.description":
     "プラットフォームが直接確認した事実です。GitHub の状態は定期的に読み直します。",
@@ -204,6 +216,13 @@ export const outputsEn: Record<keyof typeof outputsKo, string> = {
     "could not read the out/ file list",
   "session.achievements.error.session_limit":
     "the session reached its judgment limit",
+  "session.achievements.error.judge_refused": "the judge refused to answer",
+  "session.achievements.error.judge_timeout":
+    "the judge did not answer within 10 seconds",
+  "session.achievements.error.judge_http_error":
+    "the request to the judge failed",
+  "session.achievements.error.judge_bad_response":
+    "the judge's answer had an unexpected shape",
   "session.outcomes.title": "Evidence",
   "session.outcomes.description":
     "Facts the platform saw itself. GitHub states are read again periodically.",
