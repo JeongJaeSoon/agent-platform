@@ -176,6 +176,42 @@ describe("API authentication", () => {
     expect(calls).toEqual([BODY_IDLE_TIMEOUT_SECONDS, 0]);
   });
 
+  test("routes to /internal only when the undecoded path starts with /internal", async () => {
+    let handled = 0;
+    const app = createApiApp({
+      authMode: "none",
+      logger: loggerWithMemory().logger,
+      registerInternalRoutes: (router) => {
+        router.get("/worker/poll", (context) => {
+          handled += 1;
+          return context.json({ ok: true });
+        });
+      },
+    });
+
+    // The ALB's 404 rule matches /internal* before decoding, so each of these
+    // passes it; Hono would decode the first four into /internal/worker/poll.
+    for (const path of [
+      "/%69nternal/worker/poll",
+      "/i%6Eternal/worker/poll",
+      "/i%6eternal/worker/poll",
+      "/intern%61l/worker/poll",
+      "/%2Finternal/worker/poll",
+      "/%2finternal/worker/poll",
+    ]) {
+      const response = await app.request(path);
+      expect({ path, status: response.status }).toEqual({ path, status: 404 });
+      expect(
+        apiErrorResponseSchema.safeParse(await response.json()).success,
+      ).toBe(true);
+    }
+    expect(handled).toBe(0);
+
+    const plain = await app.request("/internal/worker/poll");
+    expect(plain.status).toBe(200);
+    expect(handled).toBe(1);
+  });
+
   test("holds the idle clock above the deadline for database work and re-arms it only while an authenticated body is read", async () => {
     let bodyRead = false;
     const app = createApiApp({
