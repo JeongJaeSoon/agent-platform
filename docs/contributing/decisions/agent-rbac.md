@@ -237,13 +237,13 @@
 
 - 앞선 단위와의 관계: R1은 U5a를, R4는 U5b를 대체한다. U5c(세션 공유 행 기본값)는 없애고 R3로 대체한다. R2와 R5는 새로 생긴 단위다.
 - 진행 중인 단위와 겹치는 경로
-  - **U4a(94S-1247, `agents.description`)**: `packages/contracts/src/kollegium/agents.ts`, `packages/db/src/schema.ts`, 마이그레이션 번호, `packages/db/src/agents.ts`, `packages/platform/src/agents/agent-service.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`이 R1·R2·R5와 겹친다. 그래서 R1은 U4a가 착지한 뒤 시작한다. U4a의 계약은 바꾸지 않는다. 바깥쪽이 받는 에이전트 행(R2)에 `description`이 들어가는 것은 U4a 계약을 그대로 읽는 것이다.
-  - **U2a(94S-1246, JeongJaeSoon/agent-platform#1072, 착지함)**: claim binding·`catalog.ts`·`worker-gateway.ts`는 이 설계와 겹치지 않는다.
+  - **U4a(`agents.description`, JeongJaeSoon/agent-platform#1074, 이 문서의 기준 커밋 뒤에 착지함)**: `packages/contracts/src/kollegium/agents.ts`, `packages/db/src/schema.ts`, 마이그레이션 번호, `packages/db/src/agents.ts`, `packages/platform/src/agents/agent-service.ts`, `packages/platform/src/ports/agent-store.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`이 R1·R2·R5와 겹친다. R1은 U4a가 착지한 main에서 시작하고, 위 파일들의 `파일:줄`은 그 main에서 다시 확인한다. U4a의 계약은 바꾸지 않는다. 바깥쪽이 받는 에이전트 행(R2)에 `description`이 들어가는 것은 U4a 계약을 그대로 읽는 것이다.
+  - **U2a(JeongJaeSoon/agent-platform#1072, 착지함)**: claim binding·`catalog.ts`·`worker-gateway.ts`는 이 설계와 겹치지 않는다.
   - **U4c·U1·U3**: `new-agent-flow.tsx`, `apps/web/src/i18n/agents.ts`가 R4와 겹친다. R4는 U4c 뒤에 착지한다(앞선 설계의 U5b와 같은 자리).
   - `policy.ts`·`openapi.ts`는 R2·R3가 같이 쓴다. R2 → R3 순서로 착지한다.
 - 줄 세우기: 계약·DB 경로는 U4a → R1 → R2 → R3, 화면 경로는 U1 → U3 → U4c → R4, 마지막이 R5다. R2와 R3는 R1이 착지한 뒤 함께 시작할 수 있지만 착지는 R2가 먼저다.
 - 배포 하한: R4의 '담당 팀' 보내기는 R1 이미지가 하한이 된 뒤 켠다. R5는 R4 화면이 운영에 나간 뒤 켠다. R1과 R3는 배포 뒤 롤백 하한으로 선언한다. 그 아래로 롤백하면 데이터는 그대로지만 숨긴 세션이 다시 보이고 담당 팀 보관 거절이 사라진다([(d) 되돌리기](#기존-에이전트-이행)).
-- 티켓은 R1+R2, R3, R4+R5 셋으로 묶기를 제안한다. 94S-1248(U5a·U5b·U5c)은 이 묶음으로 다시 쓴다(티켓은 리드가 고친다).
+- 티켓은 R1+R2, R3, R4+R5 셋으로 묶기를 제안한다. U5a·U5b·U5c를 맡은 기존 티켓은 이 묶음으로 다시 쓴다(티켓은 리드가 고친다).
 - 고칠 문서: `docs/operator/api-server.md:610-631`(공유 범위 기본값과 바깥쪽 상한, R3), `apps/docs/content/docs/sessions/start.mdx:71`·`start.en.mdx:71`(R3), 에이전트 만들기 사용자 문서(R4·R5). PRD는 이 리포에 없다(`git grep -n -i -w prd`의 결과는 앞선 설계 문서 한 줄뿐이다). PRD의 세션 공개 기본값 문장('워크스페이스')은 리드가 PRD가 있는 곳에서 축 B의 설명으로 바꾼다.
 
 ## (g) 오너 확인 필요
