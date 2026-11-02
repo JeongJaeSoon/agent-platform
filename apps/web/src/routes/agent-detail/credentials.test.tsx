@@ -235,7 +235,8 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
       within(alert).getByRole("button", { name: "자격 증명 연결로 가기" }),
     );
     const heading = screen.getByRole("heading", { name: "자격 증명 연결" });
-    expect(document.activeElement).toBe(heading);
+    expect(heading.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement === heading).toBe(true);
     const section = await step();
     expect(
       within(section).getAllByText("활성화에 필요 · 연결 안 됨").length,
@@ -340,5 +341,38 @@ describe("CREDENTIAL_UNBOUND 안내", () => {
     expect(
       within(alert).getByRole("button", { name: "자격 증명 연결로 가기" }),
     ).toBeDefined();
+  });
+});
+
+describe("켜기까지", () => {
+  test("자격 연결을 읽지 못하면 그 단계는 확인할 수 없다고 하고, 릴리스 단계가 릴리스 탭으로 잇는다", async () => {
+    const server = serverNaming("github/app");
+    renderAt(`/agents/${AGENT_ID}`, {
+      ...meOk,
+      ...server.routes,
+      [`GET ${BINDINGS}`]: () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold it"),
+    });
+    const section = (
+      await screen.findByRole("heading", { name: "켜기까지" })
+    ).closest("section") as HTMLElement;
+    const steps = () => within(section).getAllByRole("listitem");
+    await waitFor(() =>
+      expect(steps().map((item) => item.dataset.state)).toEqual([
+        "unknown",
+        "todo",
+        "todo",
+      ]),
+    );
+    const [credentials, release] = steps();
+    expect(credentials?.textContent).toContain(
+      "자격 증명 연결, 연결 상태를 불러오지 못했습니다.",
+    );
+    expect(
+      within(release as HTMLElement).getByRole("button", {
+        name: "릴리스 탭으로",
+      }),
+    ).toBeDefined();
+    expect(within(section).getByText("할 일 있음")).toBeDefined();
   });
 });

@@ -8,15 +8,13 @@ import {
   Button,
   Field,
   FieldLabel,
-  Heading,
   Input,
-  Text,
+  Section,
 } from "@werft-ai/ui";
 import {
   type FormEvent,
   type ReactNode,
   useEffect,
-  useId,
   useRef,
   useState,
 } from "react";
@@ -34,9 +32,9 @@ import {
   draftFromCard,
 } from "../../components/agent-card-form.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
+import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { SECTION } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 export function CardEditor({
@@ -77,7 +75,6 @@ export function CardEditor({
   const setDraft = (draft: CardDraft) => setEdit((e) => ({ ...e, draft }));
   const { name, draft } = edit;
   const catalog = useQuery(profilesQuery(client));
-  const titleId = useId();
   const latestEdit = useRef(edit);
   latestEdit.current = edit;
   const title = useRef<HTMLHeadingElement>(null);
@@ -144,66 +141,70 @@ export function CardEditor({
   };
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <Heading id={titleId} ref={title} tabIndex={-1} className="outline-none">
-        {t("agent.card.title")}
-      </Heading>
-      <Text variant="sub">{t("agent.card.intro")}</Text>
-      {stale && latest ? (
-        <Alert variant="amber">
-          <output>
-            {t("agent.card.stale", { version: latest.version_no })}
-          </output>
-          <AlertActions>
+    <Section
+      title={t("agent.card.title")}
+      titleProps={{ ref: title, tabIndex: -1, className: "outline-none" }}
+      description={t("agent.card.intro")}
+    >
+      <div className={SECTION_BODY}>
+        {stale && latest ? (
+          <Alert variant="amber">
+            <output>
+              {t("agent.card.stale", { version: latest.version_no })}
+            </output>
+            <AlertActions>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEdit(startEdit(detail))}
+              >
+                {t("agent.card.takeLatest")}
+              </Button>
+            </AlertActions>
+          </Alert>
+        ) : null}
+        <form className={AGENT_FORM} onSubmit={submit}>
+          <Field>
+            <FieldLabel>{t("agents.name")}</FieldLabel>
+            <Input
+              required
+              maxLength={120}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </Field>
+          {draft ? (
+            <AgentCardFields
+              draft={draft}
+              catalog={catalog}
+              onChange={setDraft}
+            />
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="submit"
+              disabled={
+                save.isPending || (draft !== null && !catalog.isSuccess)
+              }
+            >
+              {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
+            </Button>
             <Button
               type="button"
-              variant="outline"
-              onClick={() => setEdit(startEdit(detail))}
+              variant="ghost"
+              disabled={save.isPending}
+              onClick={() => {
+                onOutcome(null);
+                onClose(true);
+              }}
             >
-              {t("agent.card.takeLatest")}
+              {t("common.cancel")}
             </Button>
-          </AlertActions>
-        </Alert>
-      ) : null}
-      <form className={AGENT_FORM} onSubmit={submit}>
-        <Field>
-          <FieldLabel>{t("agents.name")}</FieldLabel>
-          <Input
-            required
-            maxLength={120}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </Field>
-        {draft ? (
-          <AgentCardFields
-            draft={draft}
-            catalog={catalog}
-            onChange={setDraft}
-          />
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="submit"
-            disabled={save.isPending || (draft !== null && !catalog.isSuccess)}
-          >
-            {save.isPending ? t("agent.card.saving") : t("agent.card.save")}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={save.isPending}
-            onClick={() => {
-              onOutcome(null);
-              onClose(true);
-            }}
-          >
-            {t("common.cancel")}
-          </Button>
-        </div>
-      </form>
-      {result}
-    </section>
+          </div>
+        </form>
+        {result}
+      </div>
+    </Section>
   );
 }
 

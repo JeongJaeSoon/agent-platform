@@ -49,8 +49,8 @@ const approvals: PendingRequestHandlers = {
     console.log("asked:", request.tool, request.input);
     const command = (request.input as { command?: unknown } | null)?.command;
     if (request.tool === "Bash" && command === COMMAND)
-      return { decision: "allow" };
-    return { decision: "deny", reason: `This script only allows: ${COMMAND}` };
+      return { action: "allow" };
+    return { action: "deny", reason: `This script only allows: ${COMMAND}` };
   },
 };
 
@@ -69,7 +69,7 @@ turn 1: completed
 ```
 
 - If a handler returns `undefined`, or there is no handler for that kind, the request stays open for a person.
-- A denial is `{ decision: "deny", reason }`. A request nobody answers ends as denied after 30 minutes. The details are in [Waiting for approval and resuming](/sessions/waiting-and-resume).
+- A denial is `{ action: "deny", reason }`. A request nobody answers ends as denied after 30 minutes. The details are in [Waiting for approval and resuming](/sessions/waiting-and-resume).
 - A workspace key (personal or agent) cannot approve requests from a session it started. How to use a separate key for approvals is in [Client settings and errors](/getting-started/client#a-separate-key-for-approvals).
 
 ## Send another message

@@ -346,7 +346,7 @@ describe("ApprovalInbox", () => {
     expect(posted).toEqual([
       {
         path: `/v1/sessions/${SESSION_ID}/answers`,
-        body: { request_id: "req_1", kind: "permission", decision: "allow" },
+        body: { request_id: "req_1", kind: "permission", action: "allow" },
       },
     ]);
     await waitFor(() =>
@@ -408,7 +408,7 @@ describe("ApprovalInbox", () => {
     expect(posted[0]?.body).toEqual({
       request_id: "req_1",
       kind: "permission",
-      decision: "deny",
+      action: "deny",
       reason: "not now",
     });
   });
@@ -464,7 +464,7 @@ describe("ApprovalInbox", () => {
     expect(posted[0]?.body).toEqual({
       request_id: "req_1",
       kind: "permission",
-      decision: "allow",
+      action: "allow",
     });
   });
 

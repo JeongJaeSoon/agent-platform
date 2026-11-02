@@ -70,7 +70,7 @@ curl -sS "$API/v1/sessions/$SID/pending-requests" -H "Authorization: Bearer $KEY
 const answered = await werft.sessions.requests.answer(sessionId, {
   request_id: request.request_id,
   kind: "permission",
-  decision: "deny",
+  action: "deny",
   reason: "Do not delete build output.",
 });
 console.log(answered.receipt_status, answered.approval?.surface);
@@ -90,7 +90,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "deny", reason: "Do not delete build output."}')" \
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", action: "deny", reason: "Do not delete build output."}')" \
   | jq '{receipt_status, surface: .approval.surface}'
 ```
 
@@ -106,7 +106,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
 </Tab>
 </Tabs>
 
-허락은 `"decision": "allow"`다. `reason`은 거절에서만 쓰고 선택이다. 모델은 그 이유를 도구 결과로 받고 turn을 이어 간다. 응답의 `approval`에는 누가(`answered_by`), 어디서(`surface`: `api`·`web`·`slack`) 답했는지가 남는다.
+허락은 `"action": "allow"`다. `reason`은 거절에서만 쓰고 선택이다. 모델은 그 이유를 도구 결과로 받고 turn을 이어 간다. 응답의 `approval`에는 누가(`answered_by`), 어디서(`surface`: `api`·`web`·`slack`) 답했는지가 남는다.
 
 ## 질문에 답하기
 

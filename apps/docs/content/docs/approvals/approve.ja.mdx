@@ -7,17 +7,16 @@ description: push リクエストが固定した commit を確認して承認す
 
 ## 承認する
 
-判断の本文の `git_commit` は、リクエストが固定した commit と同じでなければならない。承認する人が、何を承認するのかを確認したことを示す印である。
+承認の本文の `git_commit` は、リクエストが固定した commit と同じでなければならない。承認する人が、何を承認するのかを確認したことを示す印である。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 
 ```ts
-const decided = await werft.sessions.pushRequests.decide(sessionId, push.id, {
-  decision: "approve",
+const approved = await werft.sessions.pushRequests.approve(sessionId, push.id, {
   git_commit: push.git_commit,
 });
-console.log(decided.state);
+console.log(approved.state);
 ```
 
 ```text
@@ -28,22 +27,22 @@ approved
 <Tab>
 
 ```bash
-curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')" \
-  | jq '{state, decided_by: .decided_by.principal.kind}'
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c}')" \
+  | jq '{state, resolved_by: .resolved_by.principal.kind}'
 ```
 
 ```text
 {
   "state": "approved",
-  "decided_by": "api_key"
+  "resolved_by": "api_key"
 }
 ```
 
-リファレンス: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+リファレンス: [`POST …/push-requests/{push_request_id}/approve`](/reference/http-api/push-requests/approvePushRequest)
 
 </Tab>
 </Tabs>
@@ -121,7 +120,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | レスポンス | 意味 |
 | --- | --- |
 | 409 `CHECKPOINT_MOVED` | `git_commit` が固定された commit と異なる、またはリクエストの後にセッションが checkpoint を残し直した。このリクエストは[拒否](/approvals/reject)して、新しくリクエストする |
-| 409 `PUSH_REQUEST_DECIDED` | すでに判断済みのリクエストである |
+| 409 `PUSH_REQUEST_DECIDED` | すでに承認または拒否したリクエストである |
 | 403 `FORBIDDEN` | キーに `sessions:approve` がない、またはセッションを見ているだけで承認する人(作った人、エージェントの管理者、owner・admin)ではない |
 | 403 `FORBIDDEN`(`details.refusal: self_approval`) | セッションを開始したキーで承認した。失敗した `decide_push` receipt が残る。別のキーか人が承認する |
 
@@ -130,4 +129,4 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 ## 次のステップ
 
 - [拒否](/approvals/reject)
-- [receipt](/approvals/receipt): リクエスト・判断・push の記録を読む
+- [receipt](/approvals/receipt): リクエスト・承認・拒否・push の記録を読む

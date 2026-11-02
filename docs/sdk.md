@@ -113,8 +113,8 @@ import { type PendingRequestHandlers, waitForTurn } from "@werft-ai/sdk";
 const approvals: PendingRequestHandlers = {
   permission(request) {
     const command = (request.input as { command?: unknown } | null)?.command;
-    if (request.tool === "Bash" && command === "git status") return { decision: "allow" };
-    return { decision: "deny", reason: "This script only allows: git status" };
+    if (request.tool === "Bash" && command === "git status") return { action: "allow" };
+    return { action: "deny", reason: "This script only allows: git status" };
   },
 };
 
@@ -169,8 +169,7 @@ import { waitForPushRequest } from "@werft-ai/sdk";
 
 const push = await werft.sessions.pushRequests.create(sessionId);
 // push.git_commit을 검토한 뒤, 승인 key로:
-await approver.sessions.pushRequests.decide(sessionId, push.id, {
-  decision: "approve",
+await approver.sessions.pushRequests.approve(sessionId, push.id, {
   git_commit: push.git_commit,
 });
 const done = await waitForPushRequest(werft, sessionId, push.id, { signal });

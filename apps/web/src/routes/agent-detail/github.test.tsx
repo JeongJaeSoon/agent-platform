@@ -65,7 +65,13 @@ const TAB: Tab = {
 };
 
 /** An agent whose v1 is released under claude-coding-local and active. */
-async function activeAgent() {
+async function activeAgent({
+  repository = "werft-sandbox",
+  github = SETTINGS,
+}: {
+  repository?: string | null;
+  github?: Settings | null;
+} = {}) {
   const server = agentServer();
   const call = (key: string, body: unknown) =>
     (
@@ -83,11 +89,11 @@ async function activeAgent() {
   await call(`POST ${PATH}/releases`, {
     version_id: versionId,
     runtime_profile_id: "claude-coding-local",
-    repository_id: "werft-sandbox",
+    ...(repository === null ? {} : { repository_id: repository }),
   });
   const release = server.releases[0];
   if (!release) throw new Error("no release");
-  release.policy_pins = { github: SETTINGS };
+  release.policy_pins = github === null ? {} : { github };
   await call(`POST ${PATH}/activate`, {
     release_id: release.id,
     expected_revision: -1,
@@ -375,6 +381,32 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("리뷰 승인").disabled).toBe(false);
   });
 
+  test("구역 목차의 링크는 같은 id의 구역으로 포커스를 옮기고, 구역 이름은 제목이다", async () => {
+    const { server } = await activeAgent();
+    renderAt(DETAIL, routesFor(server, TAB));
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    Element.prototype.scrollIntoView ??= () => {};
+
+    const nav = screen.getAllByRole("navigation", { name: "GitHub 구역" })[0];
+    if (!nav) throw new Error("no section nav");
+    for (const [name, id] of [
+      ["사용", "github-use"],
+      ["저장소", "github-repositories"],
+      ["권한", "github-permissions"],
+      ["Actions 허용 목록", "github-allowlist"],
+      ["push 승인", "github-push"],
+      ["최근 기록", "github-activity"],
+    ] as const) {
+      await user.click(within(nav).getByRole("link", { name }));
+      const section = screen.getByRole("region", { name });
+      expect(section.id).toBe(id);
+      // The DOM shim focuses any element and reports tabIndex -1 by default; only the attribute shows the section is focusable.
+      expect(section.getAttribute("tabindex")).toBe("-1");
+      expect(document.activeElement === section).toBe(true);
+    }
+  });
+
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
@@ -400,6 +432,27 @@ describe("에이전트 GitHub 탭", () => {
     );
     expect(screen.queryByText("deploy.yml")).toBeNull();
     expect(switchNamed("docs-site").getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("설정이 없는 릴리스는 첫 저장을 push 승인 꺼짐에서 시작해도 지금은 승인이 켜졌다고 보인다", async () => {
+    const { server, release } = await activeAgent();
+    release.policy_pins = {};
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        github: null,
+        legacy_defaults: { ...SETTINGS, push_approval: false },
+      }),
+    );
+    await screen.findByRole("heading", { name: "권한" });
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    const status = screen.getByText("push 전 승인")
+      .parentElement as HTMLElement;
+    expect(within(status).getByText("켜짐")).toBeTruthy();
+    expect(within(status).queryByText("꺼짐")).toBeNull();
   });
 
   test("허용 목록은 agent/ 브랜치와 경로·중복을 받지 않는다", async () => {
@@ -484,6 +537,97 @@ describe("에이전트 GitHub 탭", () => {
     await waitFor(() =>
       expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull(),
     );
+  });
+
+  test("저장소 없는 릴리스는 저장소를 하나도 고르지 않은 채로 처음 설정을 시작하고, 하나 이상 골라야 저장한다", async () => {
+    const { server, release, versionId } = await activeAgent({
+      repository: null,
+      github: null,
+    });
+    const sent: unknown[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(
+        server,
+        {
+          ...TAB,
+          release_repository_id: null,
+          github: null,
+          legacy_defaults: null,
+          unsavable: null,
+        },
+        {
+          [`POST ${PATH}/releases`]: async (request) => {
+            const body = (await request.json()) as { github: Settings };
+            sent.push(body);
+            const made = {
+              ...release,
+              id: "rel-github-2",
+              label: "2026-10-30_10:00:00",
+              policy_pins: { github: body.github },
+            };
+            server.releases.push(made);
+            return json(200, { release: made, created: true });
+          },
+          [`POST ${PATH}/activate`]: () =>
+            json(200, {
+              active_release_id: "rel-github-2",
+              previous_release_id: release.id,
+              activation_revision: 1,
+              receipt_id: RECEIPT_ID,
+            }),
+        },
+      ),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    expect(
+      screen.queryByText("GitHub 설정을 저장할 수 없습니다") === null,
+    ).toBe(true);
+    expect(
+      screen.getByText(/이 릴리스에는 아직 GitHub 설정이 없어/),
+    ).toBeTruthy();
+    for (const id of ["werft-sandbox", "docs-site"]) {
+      expect(switchNamed(id).getAttribute("aria-checked")).toBe("false");
+      expect(switchNamed(id).disabled).toBe(false);
+    }
+
+    await user.click(switchNamed("push 전 사람 승인"));
+    await screen.findByText("릴리스에 넣지 않은 변경 1건");
+    await screen.findByText("저장소를 하나 이상 고르면 저장할 수 있습니다.");
+    const save = screen.getByRole("button", {
+      name: "새 릴리스로 저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    await user.click(switchNamed("werft-sandbox"));
+    await screen.findByText("릴리스에 넣지 않은 변경 2건");
+    expect(
+      screen.queryByText("저장소를 하나 이상 고르면 저장할 수 있습니다.") ===
+        null,
+    ).toBe(true);
+    await user.click(screen.getByRole("button", { name: "새 릴리스로 저장" }));
+    await screen.findByText(
+      "새 릴리스 2026-10-30_10:00:00를 만들고 활성화했습니다.",
+    );
+    expect(sent).toEqual([
+      {
+        version_id: versionId,
+        runtime_profile_id: "claude-coding-local",
+        github: {
+          repositories: ["werft-sandbox"],
+          push_approval: false,
+          features: {
+            workflows: false,
+            actions: false,
+            checks: false,
+            issues: false,
+            review: false,
+          },
+          actions_allow: [],
+        },
+      },
+    ]);
   });
 
   test("다른 사람이 먼저 활성화하면 저장한 릴리스를 덮어쓰지 않고 알린다", async () => {

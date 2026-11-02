@@ -29,6 +29,7 @@ import type {
   PushRequestId,
   ReceiptAccepted,
   RecoveryDecisionParams,
+  ResolvePushParams,
   ResumeParams,
   SendMessageParams,
   Session,
@@ -131,6 +132,19 @@ export interface Sessions {
       pushRequestId: PushRequestId,
       options?: RequestOptions,
     ): Promise<PushRequest>;
+    approve(
+      id: SessionId,
+      pushRequestId: PushRequestId,
+      params: ResolvePushParams,
+      options?: MutationOptions,
+    ): Promise<PushRequest>;
+    reject(
+      id: SessionId,
+      pushRequestId: PushRequestId,
+      params: ResolvePushParams,
+      options?: MutationOptions,
+    ): Promise<PushRequest>;
+    /** @deprecated Use `approve()` or `reject()`. */
     decide(
       id: SessionId,
       pushRequestId: PushRequestId,
@@ -158,6 +172,48 @@ export function sessions(context: Context): Sessions {
   const header = (idempotencyKey: string) => ({
     "Idempotency-Key": idempotencyKey,
   });
+  const approve: Sessions["pushRequests"]["approve"] = (
+    id,
+    pushRequestId,
+    params,
+    options,
+  ) =>
+    call(
+      policy,
+      "keyed",
+      ({ signal, headers, idempotencyKey }) =>
+        api.POST("/v1/sessions/{id}/push-requests/{push_request_id}/approve", {
+          params: {
+            path: { id, push_request_id: pushRequestId },
+            header: header(idempotencyKey),
+          },
+          body: params,
+          signal,
+          headers,
+        }),
+      options,
+    );
+  const reject: Sessions["pushRequests"]["reject"] = (
+    id,
+    pushRequestId,
+    params,
+    options,
+  ) =>
+    call(
+      policy,
+      "keyed",
+      ({ signal, headers, idempotencyKey }) =>
+        api.POST("/v1/sessions/{id}/push-requests/{push_request_id}/reject", {
+          params: {
+            path: { id, push_request_id: pushRequestId },
+            header: header(idempotencyKey),
+          },
+          body: params,
+          signal,
+          headers,
+        }),
+      options,
+    );
 
   return {
     create: (params, options) =>
@@ -427,23 +483,13 @@ export function sessions(context: Context): Sessions {
             }),
           options,
         ),
-      decide: (id, pushRequestId, params, options) =>
-        call(
-          policy,
-          "keyed",
-          ({ signal, headers, idempotencyKey }) =>
-            api.POST(
-              "/v1/sessions/{id}/push-requests/{push_request_id}/decision",
-              {
-                params: {
-                  path: { id, push_request_id: pushRequestId },
-                  header: header(idempotencyKey),
-                },
-                body: params,
-                signal,
-                headers,
-              },
-            ),
+      approve,
+      reject,
+      decide: (id, pushRequestId, { decision, ...params }, options) =>
+        (decision === "approve" ? approve : reject)(
+          id,
+          pushRequestId,
+          params,
           options,
         ),
       openPullRequest: (id, pushRequestId, params, options) =>

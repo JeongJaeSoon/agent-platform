@@ -19,6 +19,7 @@ import {
   bootstrapResponseSchema,
   commentPullRequestResponseSchema,
   completeGitHubAppManifestResponseSchema,
+  completeGitHubInstallationResponseSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
   countSessionsResponseSchema,
@@ -119,6 +120,7 @@ import {
   slackGuestResponseSchema,
   slackLinkCallbackResponseSchema,
   startGitHubAppManifestResponseSchema,
+  startGitHubInstallationResponseSchema,
   startGitHubLinkResponseSchema,
   startGoogleLoginResponseSchema,
   startSlackInstallResponseSchema,
@@ -182,6 +184,10 @@ export const responseSchemas = {
     startGitHubAppManifestResponseSchema,
   "POST /v1/workspaces/{id}/github-apps/author/manifest/complete":
     completeGitHubAppManifestResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/{connectionId}/installations/start":
+    startGitHubInstallationResponseSchema,
+  "POST /v1/workspaces/{id}/github-apps/installations/complete":
+    completeGitHubInstallationResponseSchema,
   "GET /v1/workspaces/{id}/github-repositories":
     listGitHubRepositoriesResponseSchema,
   "PATCH /v1/workspaces/{id}/github-repositories/{repositoryId}":
@@ -250,6 +256,10 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/push-requests": pushRequestSchema,
   "GET /v1/sessions/{id}/push-requests": listPushRequestsResponseSchema,
   "GET /v1/sessions/{id}/push-requests/{push_request_id}": pushRequestSchema,
+  "POST /v1/sessions/{id}/push-requests/{push_request_id}/approve":
+    pushRequestSchema,
+  "POST /v1/sessions/{id}/push-requests/{push_request_id}/reject":
+    pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/decision":
     pushRequestSchema,
   "POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request":

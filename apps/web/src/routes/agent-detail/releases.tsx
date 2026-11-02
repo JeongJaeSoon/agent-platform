@@ -30,11 +30,11 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
-  Heading,
   NativeSelect,
   NativeSelectOption,
   RelativeTime,
   RowAction,
+  Section,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
@@ -42,7 +42,6 @@ import { ChevronDown, ChevronUp, Plus } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -55,10 +54,10 @@ import {
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
+import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { SECTION } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // Version, status, activated, card, profile, repository, by, note, actions;
@@ -97,7 +96,6 @@ export function Releases({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const titleId = useId();
   const latest = latestVersion(detail);
   const versionId = picked ?? latest?.id ?? "";
   const profiles = useQuery(profilesQuery(client));
@@ -198,9 +196,9 @@ export function Releases({
   };
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <div className="flex min-h-7 flex-wrap items-center justify-between gap-3">
-        <Heading id={titleId}>{t("agent.releases.title")}</Heading>
+    <Section
+      title={t("agent.releases.title")}
+      actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button
@@ -301,210 +299,219 @@ export function Releases({
             </form>
           </DialogContent>
         </Dialog>
-      </div>
-      {result}
-      {ordered.length === 0 ? (
-        <EmptyState
-          title={t("agent.releases.empty")}
-          description={t("agent.releases.emptyBody")}
-        />
-      ) : (
-        <GridTable
-          aria-label={t("agent.releases.title")}
-          columns={COLUMNS[0]}
-          narrowAt={860}
-          narrowColumns={COLUMNS[1]}
-          framed={true}
-        >
-          <GridTableHeader>
-            <GridTableColumnHeader>
-              {t("agent.releases.colVersion")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.colStatus")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.colActivated")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.colCard")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.profile")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.repository")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.colBy")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("agent.releases.colNote")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader action>
-              <span className="sr-only">{t("agent.releases.colActions")}</span>
-            </GridTableColumnHeader>
-          </GridTableHeader>
-          {ordered.map((item) => {
-            const active = item.id === detail.agent.active_release_id;
-            const name =
-              item.label ??
-              t("agent.versionLabel", {
+      }
+    >
+      <div className={SECTION_BODY}>
+        {result}
+        {ordered.length === 0 ? (
+          <EmptyState
+            title={t("agent.releases.empty")}
+            description={t("agent.releases.emptyBody")}
+          />
+        ) : (
+          <GridTable
+            aria-label={t("agent.releases.title")}
+            columns={COLUMNS[0]}
+            narrowAt={860}
+            narrowColumns={COLUMNS[1]}
+            framed={true}
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>
+                {t("agent.releases.colVersion")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.colStatus")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.colActivated")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.colCard")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.profile")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.repository")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.colBy")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("agent.releases.colNote")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader action>
+                <span className="sr-only">
+                  {t("agent.releases.colActions")}
+                </span>
+              </GridTableColumnHeader>
+            </GridTableHeader>
+            {ordered.map((item) => {
+              const active = item.id === detail.agent.active_release_id;
+              const name =
+                item.label ??
+                t("agent.versionLabel", {
+                  version: versionNo(item.version_id) ?? "?",
+                });
+              const label = t("agent.releaseLabel", {
+                release: name,
+                profile: item.runtime_profile_id,
+              });
+              const at = (iso: string) => (
+                <RelativeTime value={iso} locale={locale} />
+              );
+              // `== null`: an API from before these fields omits them mid-rollout.
+              const activated =
+                item.activated_at == null ? (
+                  <Text as="span" variant="sub">
+                    {t("agent.releases.noteNone")}
+                  </Text>
+                ) : item.deactivated_at == null ? (
+                  at(item.activated_at)
+                ) : (
+                  withNodes((vars) => t("agent.releases.activePeriod", vars), {
+                    from: at(item.activated_at),
+                    to: at(item.deactivated_at),
+                  })
+                );
+              // The narrow list is caption sized; Text sub would make its line taller.
+              const listedActivated =
+                item.activated_at == null ? (
+                  <span className="text-muted-foreground">
+                    {t("agent.releases.noteNone")}
+                  </span>
+                ) : (
+                  activated
+                );
+              const card = t("agent.versionShort", {
                 version: versionNo(item.version_id) ?? "?",
               });
-            const label = t("agent.releaseLabel", {
-              release: name,
-              profile: item.runtime_profile_id,
-            });
-            const at = (iso: string) => (
-              <RelativeTime value={iso} locale={locale} />
-            );
-            // `== null`: an API from before these fields omits them mid-rollout.
-            const activated =
-              item.activated_at == null ? (
+              const profile = (
+                <>
+                  <Code className="wrap-anywhere">
+                    {item.runtime_profile_id}
+                  </Code>
+                  {profiles.isSuccess &&
+                  !items.some(
+                    (listed) => listed.id === item.runtime_profile_id,
+                  ) ? (
+                    <Badge variant="amber" className="ml-2">
+                      {t("agent.releases.profileGone")}
+                    </Badge>
+                  ) : null}
+                </>
+              );
+              const repository = (
+                <Code className="wrap-anywhere">
+                  {item.repository_id ?? t("agent.releases.repositoryNone")}
+                </Code>
+              );
+              const by =
+                (item.created_by ? names.get(item.created_by) : undefined) ??
+                t("agent.releases.byMember");
+              const note = item.note ? (
+                <ReleaseNote note={item.note} />
+              ) : (
                 <Text as="span" variant="sub">
                   {t("agent.releases.noteNone")}
                 </Text>
-              ) : item.deactivated_at == null ? (
-                at(item.activated_at)
-              ) : (
-                withNodes((vars) => t("agent.releases.activePeriod", vars), {
-                  from: at(item.activated_at),
-                  to: at(item.deactivated_at),
-                })
               );
-            // The narrow list is caption sized; Text sub would make its line taller.
-            const listedActivated =
-              item.activated_at == null ? (
+              // In full: the narrow list wraps, so the note needs no toggle.
+              const wholeNote = item.note ? (
+                <span className="wrap-anywhere">{item.note}</span>
+              ) : (
                 <span className="text-muted-foreground">
                   {t("agent.releases.noteNone")}
                 </span>
-              ) : (
-                activated
               );
-            const card = t("agent.versionShort", {
-              version: versionNo(item.version_id) ?? "?",
-            });
-            const profile = (
-              <>
-                <Code className="wrap-anywhere">{item.runtime_profile_id}</Code>
-                {profiles.isSuccess &&
-                !items.some(
-                  (listed) => listed.id === item.runtime_profile_id,
-                ) ? (
-                  <Badge variant="amber" className="ml-2">
-                    {t("agent.releases.profileGone")}
-                  </Badge>
-                ) : null}
-              </>
-            );
-            const repository = (
-              <Code className="wrap-anywhere">
-                {item.repository_id ?? t("agent.releases.repositoryNone")}
-              </Code>
-            );
-            const by =
-              (item.created_by ? names.get(item.created_by) : undefined) ??
-              t("agent.releases.byMember");
-            const note = item.note ? (
-              <ReleaseNote note={item.note} />
-            ) : (
-              <Text as="span" variant="sub">
-                {t("agent.releases.noteNone")}
-              </Text>
-            );
-            // In full: the narrow list wraps, so the note needs no toggle.
-            const wholeNote = item.note ? (
-              <span className="wrap-anywhere">{item.note}</span>
-            ) : (
-              <span className="text-muted-foreground">
-                {t("agent.releases.noteNone")}
-              </span>
-            );
-            const status = (
-              <Badge variant={active ? "green" : "gray"}>
-                {active
-                  ? t("agent.releases.active")
-                  : item.activated_at
-                    ? t("agent.releases.previous")
-                    : t("agent.releases.never")}
-              </Badge>
-            );
-            return (
-              <GridTableRow key={item.id} data-active={active}>
-                <GridTableCell>
-                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                    <Text
-                      as="span"
-                      weight="medium"
-                      className="tabular-nums wrap-anywhere"
-                    >
-                      {name}
-                    </Text>
-                    {/* GridTable's narrowAt={860}, where the other columns drop. */}
-                    <span className="hidden [@container(max-width:860px)]:flex">
-                      {status}
-                    </span>
-                    <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
-                      {(
-                        [
-                          ["colActivated", listedActivated],
-                          ["colCard", card],
-                          ["profile", profile],
-                          ["repository", repository],
-                          ["colBy", by],
-                          ["colNote", wholeNote],
-                        ] as const
-                      ).map(([key, value]) => (
-                        <div
-                          key={key}
-                          className="flex min-w-0 flex-wrap gap-x-2"
-                        >
-                          <dt className="text-muted-foreground">
-                            {t(`agent.releases.${key}`)}
-                          </dt>
-                          <dd className="m-0 min-w-0 tabular-nums">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                </GridTableCell>
-                <GridTableCell hideNarrow>{status}</GridTableCell>
-                <GridTableCell hideNarrow className="flex-wrap tabular-nums">
-                  {activated}
-                </GridTableCell>
-                <GridTableCell hideNarrow className="text-muted-foreground">
-                  {card}
-                </GridTableCell>
-                <GridTableCell hideNarrow className="flex-wrap gap-y-1">
-                  {profile}
-                </GridTableCell>
-                <GridTableCell hideNarrow>{repository}</GridTableCell>
-                <GridTableCell hideNarrow className="wrap-anywhere">
-                  {by}
-                </GridTableCell>
-                <GridTableCell hideNarrow>{note}</GridTableCell>
-                <GridTableCell align="end">
-                  {active ? null : (
-                    <RowAction
-                      disabled={activating !== undefined}
-                      aria-label={t("agent.releases.activateFor", {
-                        release: label,
-                      })}
-                      onClick={() => onActivate(item)}
-                    >
-                      {activating === item.id
-                        ? t("agent.releases.activating")
-                        : t("agent.releases.activate")}
-                    </RowAction>
-                  )}
-                </GridTableCell>
-              </GridTableRow>
-            );
-          })}
-        </GridTable>
-      )}
-    </section>
+              const status = (
+                <Badge variant={active ? "green" : "gray"}>
+                  {active
+                    ? t("agent.releases.active")
+                    : item.activated_at
+                      ? t("agent.releases.previous")
+                      : t("agent.releases.never")}
+                </Badge>
+              );
+              return (
+                <GridTableRow key={item.id} data-active={active}>
+                  <GridTableCell>
+                    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                      <Text
+                        as="span"
+                        weight="medium"
+                        className="tabular-nums wrap-anywhere"
+                      >
+                        {name}
+                      </Text>
+                      {/* GridTable's narrowAt={860}, where the other columns drop. */}
+                      <span className="hidden [@container(max-width:860px)]:flex">
+                        {status}
+                      </span>
+                      <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
+                        {(
+                          [
+                            ["colActivated", listedActivated],
+                            ["colCard", card],
+                            ["profile", profile],
+                            ["repository", repository],
+                            ["colBy", by],
+                            ["colNote", wholeNote],
+                          ] as const
+                        ).map(([key, value]) => (
+                          <div
+                            key={key}
+                            className="flex min-w-0 flex-wrap gap-x-2"
+                          >
+                            <dt className="text-muted-foreground">
+                              {t(`agent.releases.${key}`)}
+                            </dt>
+                            <dd className="m-0 min-w-0 tabular-nums">
+                              {value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  </GridTableCell>
+                  <GridTableCell hideNarrow>{status}</GridTableCell>
+                  <GridTableCell hideNarrow className="flex-wrap tabular-nums">
+                    {activated}
+                  </GridTableCell>
+                  <GridTableCell hideNarrow className="text-muted-foreground">
+                    {card}
+                  </GridTableCell>
+                  <GridTableCell hideNarrow className="flex-wrap gap-y-1">
+                    {profile}
+                  </GridTableCell>
+                  <GridTableCell hideNarrow>{repository}</GridTableCell>
+                  <GridTableCell hideNarrow className="wrap-anywhere">
+                    {by}
+                  </GridTableCell>
+                  <GridTableCell hideNarrow>{note}</GridTableCell>
+                  <GridTableCell align="end">
+                    {active ? null : (
+                      <RowAction
+                        disabled={activating !== undefined}
+                        aria-label={t("agent.releases.activateFor", {
+                          release: label,
+                        })}
+                        onClick={() => onActivate(item)}
+                      >
+                        {activating === item.id
+                          ? t("agent.releases.activating")
+                          : t("agent.releases.activate")}
+                      </RowAction>
+                    )}
+                  </GridTableCell>
+                </GridTableRow>
+              );
+            })}
+          </GridTable>
+        )}
+      </div>
+    </Section>
   );
 }
 

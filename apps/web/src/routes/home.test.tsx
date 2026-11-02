@@ -66,15 +66,11 @@ const oneSession = {
 async function states() {
   await screen.findByRole("heading", { name: "홈" });
   // Home has other lists; the checklist is the region named for it.
-  // Steps marks done or to do; an unreadable step says so in its text.
   return () =>
-    checklistSteps().map((step) =>
-      step.getAttribute("data-state") === "done"
-        ? "done"
-        : step.textContent?.includes("확인할 수 없음")
-          ? "unknown"
-          : "pending",
-    );
+    checklistSteps().map((step) => {
+      const state = step.getAttribute("data-state");
+      return state === "todo" ? "pending" : state;
+    });
 }
 
 function checklistSteps() {

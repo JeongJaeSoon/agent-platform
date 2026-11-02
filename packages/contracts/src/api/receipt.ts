@@ -90,6 +90,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // either), and the platform's push of an approved one.
   "request_push",
   "decide_push",
+  // The new name of `decide_push`. Readable here before any server writes
+  // it, so servers of both versions read each other's receipts mid-deploy.
+  "resolve_push",
   "push",
   "open_pull_request",
   "comment_pull_request",

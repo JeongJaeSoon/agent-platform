@@ -53,7 +53,7 @@ flugel에서 배운 것 가운데 여기 그대로 쓰는 것: 고르기 질문 
 코드의 decision은 셋이고, 모두 위 API와 상관없다.
 
 - 권한 판정 로그: `authorize`가 `allow`·`deny`를 내고 `authz_decisions`에 남긴다(`apps/control-host/src/api/server.ts:448`, `packages/db/migrations/0137_authz_decisions.sql:17-22`, `apps/control-host/src/api/routes/workspaces.ts:40-56`).
-- 사람의 결정: push 요청 승인·거절(`packages/contracts/src/api/push-request.ts:15`, `:111`), 질문·권한 답변의 `decision: allow|deny`(`packages/contracts/src/api/answer.ts:12`).
+- 사람의 결정: push 요청 승인·거절(`packages/contracts/src/api/push-request.ts:15`, `:111`), 권한 답변의 `allow`·`deny`(API 이름은 `action`, 저장 키는 `decision`, `packages/contracts/src/api/answer.ts`).
 - 복구 결정(`packages/contracts/src/api/control.ts:42-69`).
 
 플랫폼이 스스로 밖의 모델 API를 부르는 곳은 **세션 제목 짓기 하나**다. control-host가 짧게 사는 토큰(`wet_`)을 만들어 egress proxy의 provider 경로로 부르고, proxy가 자격 증명을 붙인다(`packages/platform/src/sessions/session-titler.ts:12-21`, `:44-66`, `packages/platform/src/workers/worker-gateway.ts:996-1031`). 판정기는 이 호출 경로(토큰 → proxy → 자격 증명은 proxy만)를 따른다. 부르는 API는 다르다.
@@ -337,7 +337,7 @@ input:    <definition>{규칙의 성과 정의}</definition>
 | `GET`·`PUT /v1/workspaces/{id}/achievement-judge` | `workspace.read`·`achievement_rule.manage` | 판정 설정 |
 | `GET /v1/sessions/{id}/achievements` | `session.read` | 성과·판정 상태·실패 이유 |
 | `POST /v1/sessions/{id}/achievement-judgments` | `achievement_rule.manage` + `session.read` | 수동 다시 판정 |
-| `POST /v1/achievements/{id}/review` | `achievement.review` + `session.read` | `{ decision: confirm|reject, note? }` |
+| `POST /v1/achievements/{id}/review` | `achievement.review` + `session.read` | `{ action: confirm|reject, note? }` |
 | `GET /v1/usage/achievements` | `GET /v1/usage/summary`와 같은 범위 규칙 | 구분·type·규칙·에이전트별 수, 세션 비용, 판정 비용, 성과당 비용 |
 
 - 새 action 둘을 `packages/platform/src/musterrolle/policy.ts`에 더한다: `achievement_rule.manage`(owner·admin, `workspace.manage`와 같은 역할 표 `:275`), `achievement.review`(owner·admin과 그 에이전트의 관리자). 관리 action이므로 API key는 거절한다(`docs/contributing/architecture.md:86`).

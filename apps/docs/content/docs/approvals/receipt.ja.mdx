@@ -21,7 +21,7 @@ description: コマンド 1 つがどのように終わったかを記録した 
 
 ```ts
 const pr = await werft.sessions.pushRequests.get(sessionId, second.id);
-for (const id of [pr.request_receipt_id, pr.decision_receipt_id]) {
+for (const id of [pr.request_receipt_id, pr.resolution_receipt_id]) {
   if (!id) continue;
   const receipt = await werft.receipts.get(id);
   const result = receipt.result as { decision?: string | null } | null;
@@ -39,7 +39,7 @@ decide_push succeeded reject
 
 ```bash
 pr=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" -H "Authorization: Bearer $KEY")
-for id in $(echo "$pr" | jq -r '.request_receipt_id, .decision_receipt_id'); do
+for id in $(echo "$pr" | jq -r '.request_receipt_id, .resolution_receipt_id'); do
   curl -sS "$API/v1/receipts/$id" -H "Authorization: Bearer $KEY" \
     | jq -c '{operation, status, actor: .actor.principal.kind, decision: .result.decision}'
 done

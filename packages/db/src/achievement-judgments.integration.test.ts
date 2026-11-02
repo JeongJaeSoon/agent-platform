@@ -2517,13 +2517,13 @@ integration("achievement judgments on PostgreSQL", () => {
   function reviewing(
     actor: TeamActor,
     achievementId: string,
-    decision: "confirm" | "reject",
+    action: "confirm" | "reject",
     note: string | null = null,
   ) {
     return judgments.review({
       actor,
       achievementId,
-      decision,
+      action,
       note,
       receiptId: randomUUID(),
     });
@@ -2572,7 +2572,7 @@ integration("achievement judgments on PostgreSQL", () => {
     const confirmed = await judgments.review({
       actor: ws.owner,
       achievementId: file.id,
-      decision: "confirm",
+      action: "confirm",
       note: "Read it",
       receiptId,
     });
@@ -2604,12 +2604,12 @@ integration("achievement judgments on PostgreSQL", () => {
       outcome: "reviewed",
       achievement: { review_state: "rejected" },
     });
-    for (const [id, decision] of [
+    for (const [id, action] of [
       [file.id, "reject"],
       [pull.id, "reject"],
       [pull.id, "confirm"],
     ] as const) {
-      expect((await reviewing(ws.owner, id, decision)).outcome).toBe(
+      expect((await reviewing(ws.owner, id, action)).outcome).toBe(
         "not_reviewable",
       );
     }

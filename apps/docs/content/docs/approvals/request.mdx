@@ -31,7 +31,7 @@ const note = await werft.sessions.create({
 });
 const sessionId = note.session_id;
 await waitForTurn(werft, sessionId, note.turn_id, {
-  onRequest: { permission: () => ({ decision: "allow" }) },
+  onRequest: { permission: () => ({ action: "allow" }) },
 });
 ```
 
@@ -54,7 +54,7 @@ curl -sS "$API/v1/sessions/$SID/answers" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", decision: "allow"}')" > /dev/null
+  -d "$(jq -nc --arg r "$REQ" '{request_id: $r, kind: "permission", action: "allow"}')" > /dev/null
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
   sleep 2
 done

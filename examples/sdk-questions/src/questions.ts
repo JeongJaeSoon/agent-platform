@@ -120,7 +120,7 @@ async function run(): Promise<void> {
           `permission ${request.request_id}: deny ${request.tool} ${filePath(request)}`,
         );
         return {
-          decision: "deny",
+          action: "deny",
           reason: "This run only reads; do not write files",
         };
       },
@@ -152,9 +152,9 @@ async function run(): Promise<void> {
           `permission ${request.request_id}: ${allow ? "allow" : "deny"} ${request.tool} ${filePath(request)}`,
         );
         return allow
-          ? { decision: "allow" }
+          ? { action: "allow" }
           : {
-              decision: "deny",
+              action: "deny",
               reason: `This script only allows writing ${ALLOWED_PATH}`,
             };
       },
@@ -178,7 +178,7 @@ async function run(): Promise<void> {
       {
         request_id: open.request_id,
         kind: "permission",
-        decision: "deny",
+        action: "deny",
         reason: "changed my mind",
       },
       { signal },

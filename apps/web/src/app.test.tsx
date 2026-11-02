@@ -113,10 +113,12 @@ describe("workspace shell", () => {
     const steps = within(
       await screen.findByRole("region", { name: "시작하기" }),
     ).getAllByRole("listitem");
+    // This server answers neither members nor agents: those two steps are
+    // unreadable, not open.
     expect(steps.map((step) => step.getAttribute("data-state"))).toEqual([
       "done",
-      "todo",
-      "todo",
+      "unknown",
+      "unknown",
       "todo",
     ]);
   });

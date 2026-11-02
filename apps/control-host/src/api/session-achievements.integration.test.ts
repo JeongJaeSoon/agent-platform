@@ -250,7 +250,7 @@ integration("a session's achievement reviews on PostgreSQL", () => {
     return listSessionAchievementsResponseSchema.parse(await response.json());
   }
 
-  test("a review through the API writes its receipt, and a rejudge leaves the decisions as they are", async () => {
+  test("a review through the API writes its receipt, and a rejudge leaves the reviews as they are", async () => {
     const before = await listed();
     const pull = before.items.find((item) => item.type_key === "pull_request");
     const file = before.items.find((item) => item.type_key === "document");
@@ -265,14 +265,14 @@ integration("a session's achievement reviews on PostgreSQL", () => {
         await call(
           "POST",
           `/v1/achievements/${file.id}/review`,
-          { decision: "confirm" },
+          { action: "confirm" },
           "member",
         )
       ).status,
     ).toBe(403);
 
     const confirmed = await call("POST", `/v1/achievements/${file.id}/review`, {
-      decision: "confirm",
+      action: "confirm",
       note: "Read the file",
     });
     expect(confirmed.status).toBe(200);
@@ -293,14 +293,14 @@ integration("a session's achievement reviews on PostgreSQL", () => {
     expect(
       (
         await call("POST", `/v1/achievements/${pull.id}/review`, {
-          decision: "reject",
+          action: "reject",
         })
       ).status,
     ).toBe(200);
     expect(
       (
         await call("POST", `/v1/achievements/${pull.id}/review`, {
-          decision: "reject",
+          action: "reject",
         })
       ).status,
     ).toBe(409);

@@ -419,7 +419,7 @@ describe("concurrency regressions", () => {
         {
           request_id: must(requests[1]).request_id,
           kind: "permission",
-          decision: "allow",
+          action: "allow",
         },
       );
       expect(crossed.status).toBeGreaterThanOrEqual(400);
@@ -466,7 +466,7 @@ describe("concurrency regressions", () => {
         {
           request_id: must(first).request_id,
           kind: "permission",
-          decision: "allow",
+          action: "allow",
         },
       );
       expect(again.status).toBe(409);

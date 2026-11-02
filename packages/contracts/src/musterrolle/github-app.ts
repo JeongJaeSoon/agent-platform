@@ -324,6 +324,41 @@ export const completeGitHubAppManifestResponseSchema = z
   })
   .strict();
 
+/** How long an installation started in the console can be finished. */
+export const GITHUB_INSTALLATION_STATE_TTL_SECONDS = 3600;
+
+export const githubConnectionParamsSchema = workspaceParamsSchema
+  .extend({ connectionId: z.uuid() })
+  .strict();
+
+export const startGitHubInstallationResponseSchema = z
+  .object({
+    /** The App's `/installations/new` with the single-use `state`. */
+    install_url: z.url(),
+    expires_at: timestampSchema,
+  })
+  .strict();
+
+/** What GitHub's setup URL redirect carried back. */
+export const completeGitHubInstallationRequestSchema = z
+  .object({
+    state: z.string().regex(/^[A-Za-z0-9_-]{1,512}$/),
+    installation_id: z.number().int().positive(),
+  })
+  .strict();
+
+export const completeGitHubInstallationResponseSchema = z
+  .object({
+    connection_id: z.uuid(),
+    installation_id: z.number().int().positive(),
+    /**
+     * False when the installation existed before the state, or someone was
+     * already recorded for it: nothing is written over.
+     */
+    recorded: z.boolean(),
+  })
+  .strict();
+
 export const putGitHubAppResponseSchema = z
   .object({
     github_app: githubAppSchema,
@@ -377,6 +412,15 @@ export type CompleteGitHubAppManifestRequest = z.infer<
 >;
 export type CompleteGitHubAppManifestResponse = z.infer<
   typeof completeGitHubAppManifestResponseSchema
+>;
+export type StartGitHubInstallationResponse = z.infer<
+  typeof startGitHubInstallationResponseSchema
+>;
+export type CompleteGitHubInstallationRequest = z.infer<
+  typeof completeGitHubInstallationRequestSchema
+>;
+export type CompleteGitHubInstallationResponse = z.infer<
+  typeof completeGitHubInstallationResponseSchema
 >;
 export type PutGitHubAppResponse = z.infer<typeof putGitHubAppResponseSchema>;
 export type DeleteGitHubAppResponse = z.infer<

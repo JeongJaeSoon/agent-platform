@@ -285,7 +285,7 @@ export class Api {
       202,
       "POST",
       `/v1/sessions/${sessionId}/answers`,
-      { request_id: requestId, kind: "permission", decision: "allow" },
+      { request_id: requestId, kind: "permission", action: "allow" },
     );
   }
 

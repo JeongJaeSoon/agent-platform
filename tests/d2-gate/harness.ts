@@ -278,7 +278,7 @@ export class PublicApi {
           await this.call("POST", `/v1/sessions/${sessionId}/answers`, {
             request_id: request.request_id,
             kind: "permission",
-            decision: "allow",
+            action: "allow",
           });
         }
         const turn = await this.turn(sessionId, turnId);

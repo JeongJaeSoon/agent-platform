@@ -13,6 +13,11 @@ import {
 import { AGENT_MAP_MESSAGES } from "../../../../packages/react/src/components/agent-map/messages.ts";
 import { OPERATIONS_MESSAGES } from "../../../../packages/react/src/components/operations/messages.ts";
 import {
+  achievementRulesEn,
+  achievementRulesJa,
+  achievementRulesKo,
+} from "./achievement-rules.ts";
+import {
   achievementsEn,
   achievementsJa,
   achievementsKo,
@@ -142,6 +147,7 @@ describe("i18n", () => {
         agentGitHubKo,
         usageKo,
         achievementsKo,
+        achievementRulesKo,
         preferencesKo,
         errorsKo,
         formsKo,
@@ -169,6 +175,7 @@ describe("i18n", () => {
         agentGitHubJa,
         usageJa,
         achievementsJa,
+        achievementRulesJa,
         preferencesJa,
         errorsJa,
         formsJa,
@@ -196,6 +203,7 @@ describe("i18n", () => {
         agentGitHubEn,
         usageEn,
         achievementsEn,
+        achievementRulesEn,
         preferencesEn,
         errorsEn,
         formsEn,

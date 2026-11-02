@@ -181,14 +181,14 @@ REQ=$(get "/v1/sessions/$SID/pending-requests" | jq -r '.items[0].request_id')
 ### ④ 응답
 
 ```bash
-answer=$(post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", decision:"allow"}')")
+answer=$(post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", action:"allow"}')")
 echo "$answer" | jq .
 wait_for "/v1/sessions/$SID/turns/1" .status completed
 get "/v1/sessions/$SID/turns/1" | jq -e '.status == "completed"'
 get "/v1/receipts/$(echo "$answer" | jq -r .receipt_id)" | jq '{operation, status}'
 ```
 
-거절은 `{"decision":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
+거절은 `{"action":"deny","reason":"…"}`(reason 필수)이다. `AskUserQuestion`에서 오는 `kind: "question"` 요청은 `answers: [{question_id, selected_option_ids}]`로 답한다.
 
 ### ⑤ 후속 메시지
 

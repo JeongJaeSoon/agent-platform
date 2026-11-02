@@ -98,7 +98,7 @@ echo "$created" | jq .
 SID=$(echo "$created" | jq -r .session_id)
 ```
 
-파일을 바꾸려 하면 권한 요청(`kind: "permission"`)이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 허용한다. 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
+`claude-coding-real`은 `permission_mode: auto`라, 사람에게 물었을 도구 호출(Bash 등)마다 모델 분류기가 허용·거부를 정한다. 그래서 보통은 권한 요청 없이 끝나고, 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다. 분류기를 쓸 수 없으면 그 호출은 거부된다(fail closed). 모델이 `AskUserQuestion`으로 물으면 요청이 오고 세션이 `needs_input`이 된다. quickstart ③·④와 같은 방법으로 답한다. 이 profile이 `default`이던 2026-09-29 실측에서는 `Write`(hello.py), `Edit`(README.md), `Bash`(`git add … && git commit …`) 권한 요청 세 개가 이 순서로 한 번에 하나씩 왔다. 모델이 생성하는 도구 요청에 따라 개수와 순서가 달라질 수 있고 여러 권한 요청이 동시에 대기할 수도 있다. 권한 요청 자체는 30분 뒤에 만료되지만 이 overlay는 turn을 600초로 제한하므로, turn이 시작된 뒤 10분 안에 모두 답해야 한다.
 
 아래 `allow_until_done`은 turn이 끝날(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`) 때까지 3초마다 보고, 세션이 `needs_input`이면 첫 권한 요청을 출력한 뒤 허용한다. 동시에 여러 요청이 대기하면 한 회차에 첫 요청 하나를 답하고, 남은 요청으로 세션이 `needs_input`인 동안 다음 회차를 계속한다. turn 제한과 같은 10분(200번)이 지나면 멈춘다. 허용하기 전에 보려면 이 루프 대신 quickstart ③·④의 명령을 한 번씩 되풀이한다.
 
@@ -115,7 +115,7 @@ allow_until_done() {
         jq -c 'first(.items[] | select(.kind == "permission")) | {request_id, tool, input}')
       if [ -n "$req" ]; then
         echo "$req"
-        post "/v1/sessions/$SID/answers" "$(echo "$req" | jq -c '{request_id, kind:"permission", decision:"allow"}')" | jq -c .
+        post "/v1/sessions/$SID/answers" "$(echo "$req" | jq -c '{request_id, kind:"permission", action:"allow"}')" | jq -c .
       fi
     fi
     sleep 3
@@ -159,7 +159,7 @@ scripts/local.sh down
 
 ## 자율 모드 세션
 
-승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 분류기가 판정하는 `auto`는 저장소의 `config/`에 `claude-coding-real-auto`로 있어 아래 헬퍼의 `profile_id`만 바꾸면 되고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다. 이 파일은 DB가 비어 있을 때만 시드로 읽으므로 새 스택(볼륨 없음)에서 한다. 이미 띄운 스택이면 같은 설정의 상한을 owner가 `POST /v1/installation-profiles`로 저장한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
+승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 분류기가 판정하는 `auto`는 기본 profile `claude-coding-real` 그대로이고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다. 이 파일은 DB가 비어 있을 때만 시드로 읽으므로 새 스택(볼륨 없음)에서 한다. 이미 띄운 스택이면 같은 설정의 상한을 owner가 `POST /v1/installation-profiles`로 저장한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
 
 ```yaml
   claude-coding-real-unattended:
@@ -178,7 +178,7 @@ scripts/local.sh down
       claude_md: true
 ```
 
-`config/repositories.yaml`의 `sample-app`도 `profiles: [claude-coding-real, claude-coding-real-auto, claude-coding-real-unattended]`로 바꾼다(이 배열도 시드할 때만 읽는다). 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API는 뜨지만 이 profile을 빼고 돈다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
+`config/repositories.yaml`의 `sample-app`도 `profiles: [claude-coding-real, claude-coding-real-unattended]`로 바꾼다(이 배열도 시드할 때만 읽는다). 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API는 뜨지만 이 profile을 빼고 돈다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
 
 ```sh
 body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-real-unattended", repository_id:"sample-app", message:$m}'; }
@@ -189,9 +189,9 @@ get "/v1/sessions/$SID" | jq -c '{status, runtime, pending_request_count}'
 get "/v1/sessions/$SID/usage" | jq -r .cost.amount_usd
 ```
 
-`allow_until_done` 없이 `wait_for`만으로 turn이 끝난다. 세션 상세의 `runtime.permission_mode`가 `bypassPermissions`이고 `pending_request_count`가 0이다. 2026-10-13 실측에서는 `Write`(hello.py), `Bash`(`python3 hello.py`), `Bash`(`git add … && git commit …`)가 한 번도 멈추지 않고 실행돼 커밋이 만들어졌고, 비용은 약 0.06달러였다. 같은 문장을 `claude-coding-real`로 보내면 첫 `Write`에서 권한 요청이 오고 세션이 `needs_input`이 된다.
+`allow_until_done` 없이 `wait_for`만으로 turn이 끝난다. 세션 상세의 `runtime.permission_mode`가 `bypassPermissions`이고 `pending_request_count`가 0이다. 2026-10-13 실측에서는 `Write`(hello.py), `Bash`(`python3 hello.py`), `Bash`(`git add … && git commit …`)가 한 번도 멈추지 않고 실행돼 커밋이 만들어졌고, 비용은 약 0.06달러였다. 같은 문장을 `permission_mode: default` profile로 보내면 첫 `Write`에서 권한 요청이 오고 세션이 `needs_input`이 된다.
 
-`permission_mode: auto` profile도 같은 문장으로 승인 없이 끝났다. 다만 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다.
+`permission_mode: auto` profile(지금의 `claude-coding-real`)도 같은 문장으로 승인 없이 끝났다. 다만 Bash 호출마다 분류기 요청(입력 약 4만3천 토큰)이 하나씩 더 나가서 비용은 약 0.15달러였다. 분류기 판정이 바뀔 수 있으므로 거부된 호출이 있었는지는 이벤트 스트림의 `tool_result`에서 본다.
 
 ## 비용
 

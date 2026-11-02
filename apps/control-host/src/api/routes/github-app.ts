@@ -1,15 +1,19 @@
 import {
   completeGitHubAppManifestRequestSchema,
   completeGitHubAppManifestResponseSchema,
+  completeGitHubInstallationRequestSchema,
+  completeGitHubInstallationResponseSchema,
   deleteGitHubAppResponseSchema,
   getGitHubAppResponseSchema,
   githubAppRoleParamsSchema,
+  githubConnectionParamsSchema,
   listGitHubAppsResponseSchema,
   postGitHubAppRequestSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   startGitHubAppManifestRequestSchema,
   startGitHubAppManifestResponseSchema,
+  startGitHubInstallationResponseSchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
@@ -94,6 +98,55 @@ export function registerGitHubAppRoutes(
     );
     return jsonWithSchema(context, putGitHubAppResponseSchema, added);
   });
+
+  apiRoute(router, "startGitHubInstallation", async (context) => {
+    const { id, connectionId } = requireParams(
+      context,
+      githubConnectionParamsSchema,
+    );
+    const started = await mapped(() =>
+      service.startInstallation(
+        context.get("caller"),
+        id.toLowerCase(),
+        connectionId.toLowerCase(),
+      ),
+    );
+    return jsonWithSchema(
+      context,
+      startGitHubInstallationResponseSchema,
+      started,
+    );
+  });
+
+  apiRoute(
+    router,
+    "completeGitHubInstallation",
+    // The setup page's URL held the state; nothing this answers may pass it on.
+    async (context, next) => {
+      await next();
+      context.res.headers.set("Referrer-Policy", "no-referrer");
+    },
+    async (context) => {
+      const { id } = requireParams(context, workspaceParamsSchema);
+      const completed = await mapped(() =>
+        service.completeInstallation(
+          context.get("caller"),
+          id.toLowerCase(),
+          () => parseJsonBody(context, completeGitHubInstallationRequestSchema),
+        ),
+      );
+      logger?.info("GitHub installation completed from the console", {
+        connection_id: completed.connection_id,
+        installation_id: completed.installation_id,
+        recorded: completed.recorded,
+      });
+      return jsonWithSchema(
+        context,
+        completeGitHubInstallationResponseSchema,
+        completed,
+      );
+    },
+  );
 
   apiRoute(router, "startGitHubAppManifest", async (context) => {
     const { id } = requireParams(context, workspaceParamsSchema);

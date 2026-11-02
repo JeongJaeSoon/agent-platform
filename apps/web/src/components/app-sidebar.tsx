@@ -52,6 +52,7 @@ type NavPath =
   | "/achievements"
   | "/members"
   | "/settings/workspace"
+  | "/settings/workspace/achievement-rules"
   | "/settings/workspace/slack"
   | "/settings/workspace/github"
   | "/settings/workspace/api-keys"
@@ -197,6 +198,12 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
       icon: SettingsIcon,
     });
   }
+  // Every member reads the rules; only owners and admins change them.
+  workspace.push({
+    to: "/settings/workspace/achievement-rules",
+    label: "achievementRules.nav",
+    icon: SettingsIcon,
+  });
   if (workspaceManage) {
     workspace.push({
       to: "/settings/workspace/slack",

@@ -95,6 +95,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PUSH_REQUEST_OPEN:
     "이미 열린 push 요청이 있습니다 — 그 요청을 먼저 결정하세요.",
   PUSH_REQUEST_DECIDED: "이미 결정된 push 요청입니다 — 목록을 새로 고치세요.",
+  PUSH_REQUEST_RESOLVED: "이미 결정된 push 요청입니다 — 목록을 새로 고치세요.",
   CHECKPOINT_MOVED:
     "요청 뒤에 세션이 다시 저장됐습니다 — 요청을 거부하고 새로 요청하세요.",
   PUSH_NOT_PUSHED:
@@ -223,6 +224,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   PUSH_REQUEST_OPEN:
     "A push request is already open — decide on that one first.",
   PUSH_REQUEST_DECIDED:
+    "This push request has already been decided — refresh the list.",
+  PUSH_REQUEST_RESOLVED:
     "This push request has already been decided — refresh the list.",
   CHECKPOINT_MOVED:
     "The session saved again after the request — reject it and request again.",
@@ -366,6 +369,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   PUSH_REQUEST_OPEN:
     "すでに開いている push リクエストがあります — 先にそのリクエストを判断してください。",
   PUSH_REQUEST_DECIDED:
+    "すでに判断済みの push リクエストです — 一覧を再読み込みしてください。",
+  PUSH_REQUEST_RESOLVED:
     "すでに判断済みの push リクエストです — 一覧を再読み込みしてください。",
   CHECKPOINT_MOVED:
     "リクエストの後にセッションがまた保存されました — リクエストを拒否して、新しくリクエストしてください。",

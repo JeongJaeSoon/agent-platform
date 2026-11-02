@@ -66,7 +66,9 @@ export type TerminateParams = Schemas["TerminateSessionRequest"];
 export type ChangeProfileParams = Schemas["ChangeSessionProfileRequest"];
 export type RecoveryDecisionParams = Schemas["RecoveryDecisionRequest"];
 export type AnswerBody = Schemas["PostSessionAnswerRequest"];
+/** @deprecated Use `ResolvePushParams` with `pushRequests.approve()` or `reject()`. */
 export type DecidePushParams = Schemas["DecidePushRequestRequest"];
+export type ResolvePushParams = Schemas["ResolvePushRequestRequest"];
 export type OpenPullRequestParams = Schemas["OpenPullRequestRequest"];
 export type CommentPullRequestParams = Schemas["CommentPullRequestRequest"];
 
@@ -107,6 +109,10 @@ export type TerminalTurnStatus = Extract<
 >;
 
 /** A denial needs a reason the model can act on. */
+export type PermissionAnswer =
+  | { action: "allow"; reason?: string }
+  | { action: "deny"; reason: string };
+/** @deprecated Use `PermissionAnswer`, which names the choice `action`. */
 export type PermissionDecision =
   | { decision: "allow"; reason?: string }
   | { decision: "deny"; reason: string };

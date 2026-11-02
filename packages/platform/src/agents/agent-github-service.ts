@@ -23,7 +23,9 @@ import type { GitHubConnections } from "../ports/github-gate.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
 import {
   allowedPair,
+  catalogProfile,
   GITHUB_API_BASE,
+  repositoryModeOf,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
 import {
@@ -206,11 +208,21 @@ export function createAgentGitHubService(deps: {
         )
       ).sort((a, b) => a.id.localeCompare(b.id));
 
+      // As the release itself is checked: one without a repository takes
+      // GitHub settings on an `optional` profile (session-repository-
+      // attachment.md decision 4). The tab starts that first save from no
+      // repository, which `legacy_defaults` cannot carry.
+      const profile =
+        release === null
+          ? undefined
+          : catalogProfile(catalog, release.runtime_profile_id);
       const unsavable =
         release === null
           ? ("no_active_release" as const)
           : releaseRepository === null
-            ? ("repository_none" as const)
+            ? profile !== undefined && repositoryModeOf(profile) === "optional"
+              ? null
+              : ("repository_none" as const)
             : entry(releaseRepository)?.auth?.kind !== "github_app"
               ? ("app_required" as const)
               : null;
@@ -218,7 +230,10 @@ export function createAgentGitHubService(deps: {
         github === null && unsavable === null && releaseRepository !== null
           ? {
               repositories: [releaseRepository],
-              push_approval: true,
+              // What a first save starts from (owner decision d123,
+              // 2026-11-02). Until then the release still asks a person:
+              // only an explicit false turns approval off.
+              push_approval: false,
               features: { ...GITHUB_CEILING_NONE },
               actions_allow: [],
             }

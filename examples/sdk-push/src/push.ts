@@ -34,10 +34,10 @@ const approvals: PendingRequestHandlers = {
     const command = (request.input as { command?: unknown } | null)?.command;
     if (request.tool === "Bash" && COMMANDS.includes(command as string)) {
       console.log(`permission ${request.request_id}: allow "${command}"`);
-      return { decision: "allow" };
+      return { action: "allow" };
     }
     return {
-      decision: "deny",
+      action: "deny",
       reason: "This script only writes and commits one file",
     };
   },
@@ -76,24 +76,20 @@ async function run(): Promise<void> {
     signal,
   });
   console.log(show(first));
-  const rejected = await approver.sessions.pushRequests.decide(
+  const rejected = await approver.sessions.pushRequests.reject(
     sessionId,
     first.id,
     {
-      decision: "reject",
       git_commit: first.git_commit,
       reason: "review the diff first",
     },
     { signal },
   );
-  console.log(`${show(rejected)}, reason "${rejected.decision_reason}"`);
+  console.log(
+    `${show(rejected)}, reason "${rejected.resolution_reason ?? rejected.decision_reason}"`,
+  );
   const late = await approver.sessions.pushRequests
-    .decide(
-      sessionId,
-      first.id,
-      { decision: "approve", git_commit: first.git_commit },
-      { signal },
-    )
+    .approve(sessionId, first.id, { git_commit: first.git_commit }, { signal })
     .catch((error: unknown) => error);
   if (!isApiError(late, "PUSH_REQUEST_DECIDED")) throw late;
   console.log(`approve after the reject: ${late.status} ${late.code}`);
@@ -102,10 +98,10 @@ async function run(): Promise<void> {
   const second = await client.sessions.pushRequests.create(sessionId, {
     signal,
   });
-  const approved = await approver.sessions.pushRequests.decide(
+  const approved = await approver.sessions.pushRequests.approve(
     sessionId,
     second.id,
-    { decision: "approve", git_commit: second.git_commit },
+    { git_commit: second.git_commit },
     { signal },
   );
   console.log(show(approved));

@@ -51,6 +51,7 @@ import {
   claudeProfileFingerprint,
 } from "./profile-fingerprint.ts";
 import { remoteMcpRelay } from "./remote-mcp.ts";
+import { instructionText } from "./repository-instructions.ts";
 import { ClaudeSdkRuntime } from "./runtime.ts";
 import { ClaudeSessionStore } from "./session-store.ts";
 import { TurnAccounting } from "./turn-accounting.ts";
@@ -95,7 +96,7 @@ export function claudeProfileConfig(
   profile: RuntimeProfileInput,
 ): ClaudeProfileConfig {
   const { bundle, config } = profile;
-  const append = bundle.instructions.map((part) => part.text);
+  const append = bundle.instructions.map(instructionText);
   return {
     ...(append.length === 0 ? {} : { appendSystemPrompt: append.join("\n\n") }),
     cwd: config.cwd,

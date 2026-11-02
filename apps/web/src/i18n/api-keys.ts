@@ -103,7 +103,6 @@ export const apiKeysKo = {
   "apiKeys.revokeTitle": "ID {id} 키를 폐기할까요?",
   "apiKeys.keyId": "ID {id}",
   "apiKeys.idLabel": "ID",
-  "apiKeys.copyIdFor": "ID {id} 복사",
   "apiKeys.copyIdFailed": "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
   "apiKeys.revokeConsequence":
     "이 키를 쓰는 곳은 바로 동작을 멈춥니다. 되돌릴 수 없습니다.",
@@ -217,7 +216,6 @@ export const apiKeysEn: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.revokeTitle": "Revoke key ID {id}?",
   "apiKeys.keyId": "ID {id}",
   "apiKeys.idLabel": "ID",
-  "apiKeys.copyIdFor": "Copy ID {id}",
   "apiKeys.copyIdFailed": "Couldn't copy. Select the ID and copy it yourself.",
   "apiKeys.revokeConsequence":
     "Anything that uses this key stops working right away. You cannot undo this.",
@@ -329,7 +327,6 @@ export const apiKeysJa: Record<keyof typeof apiKeysKo, string> = {
   "apiKeys.revokeTitle": "キー ID {id} を取り消しますか？",
   "apiKeys.keyId": "ID {id}",
   "apiKeys.idLabel": "ID",
-  "apiKeys.copyIdFor": "ID {id} をコピー",
   "apiKeys.copyIdFailed":
     "コピーできませんでした。ID を選択して手動でコピーしてください。",
   "apiKeys.revokeConsequence":
