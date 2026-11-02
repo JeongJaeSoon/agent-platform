@@ -262,3 +262,26 @@ describe("SecretField", () => {
     }
   });
 });
+
+describe("KeyValueList stack", () => {
+  test('stack="sm"이면 sm 아래에서 한 열로 쌓고 sm부터 두 열이다', () => {
+    const { container } = render(
+      <KeyValueList variant="grid" stack="sm" items={ITEMS} />,
+    );
+    const list = container.querySelector("dl");
+    const classes = list?.className.split(" ") ?? [];
+    expect(list?.getAttribute("data-stack")).toBe("sm");
+    expect(classes).toContain("grid-cols-1");
+    expect(classes).toContain("sm:grid-cols-[140px_minmax(0,1fr)]");
+    expect(classes).not.toContain("grid-cols-[140px_minmax(0,1fr)]");
+    expect(classes).toContain("gap-y-1");
+    expect(classes).toContain("sm:gap-y-2");
+  });
+
+  test("stack이 없으면 지금처럼 두 열 고정이다", () => {
+    const { container } = render(<KeyValueList variant="grid" items={ITEMS} />);
+    const classes = container.querySelector("dl")?.className.split(" ") ?? [];
+    expect(classes).toContain("grid-cols-[140px_minmax(0,1fr)]");
+    expect(classes).not.toContain("grid-cols-1");
+  });
+});

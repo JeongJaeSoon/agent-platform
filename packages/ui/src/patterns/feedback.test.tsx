@@ -175,3 +175,21 @@ describe("Skeleton", () => {
     }
   });
 });
+
+describe("ErrorState framed", () => {
+  test("framed는 카드 틀을 두고 상태 글자색은 그대로 둔다", () => {
+    const { getAllByRole } = render(
+      <>
+        <ErrorState title="불러오지 못했습니다" framed />
+        <ErrorState title="틀 없음" />
+      </>,
+    );
+    const [framed, plain] = getAllByRole("alert");
+    expect(framed?.getAttribute("data-framed")).toBe("true");
+    expect(framed?.classList.contains("rounded-card")).toBe(true);
+    expect(framed?.classList.contains("border")).toBe(true);
+    expect(framed?.classList.contains("bg-card")).toBe(true);
+    expect(framed?.classList.contains("text-card-foreground")).toBe(false);
+    expect(plain?.classList.contains("border")).toBe(false);
+  });
+});

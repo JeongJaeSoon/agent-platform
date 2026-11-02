@@ -1,4 +1,5 @@
-import type { ComponentProps, JSX } from "react";
+import { Slot } from "@radix-ui/react-slot";
+import type { ComponentProps, JSX, ReactElement } from "react";
 
 import { cn } from "../foundations/cn.ts";
 
@@ -61,17 +62,70 @@ export function RowList({
   );
 }
 
+export type RowListItemProps = ComponentProps<"li"> & {
+  /**
+   * The row opens as a whole through the RowLink inside it: it takes the
+   * hover fill and the pointer, and the link's box stretches over it. Use it
+   * only with a RowLink; in a `joined` list give the RowLink `inset`.
+   */
+  readonly opens?: boolean | undefined;
+};
+
 // A row that wraps on a narrow screen puts its action 8px under the text;
 // the 2px line gap is only for lines inside RowLines.
 export function RowListItem({
+  opens = false,
   className,
   ...props
-}: ComponentProps<"li">): JSX.Element {
+}: RowListItemProps): JSX.Element {
   return (
     <li
       data-slot="row-list-item"
+      data-opens={opens || undefined}
       className={cn(
         "flex min-h-[var(--ap-row-min-height)] flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+        opens && OPENS_ROW,
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Classes for any other box that opens as a whole through a RowLink. */
+export const OPENS_ROW = "relative cursor-pointer hover:bg-hover";
+
+export type RowLinkProps = {
+  /** The row's one name link; its own text stays the link's name. */
+  readonly children: ReactElement;
+  /**
+   * The keyboard ring sits inside the row, for a row in a frame that clips
+   * its edge (a table). Otherwise it sits 2px outside, rounded like a card.
+   */
+  readonly inset?: boolean | undefined;
+  readonly className?: string | undefined;
+};
+
+/**
+ * The name link of a row that opens as a whole (RowListItem `opens`, or a box
+ * with OPENS_ROW): its box stretches over the row, so the row keeps one link
+ * and one Tab stop. Anything else in the row that takes a click sits above it
+ * (`relative z-1`). `!` because styles.css rings every focused link outside
+ * any layer, which beats a plain utility.
+ */
+export function RowLink({
+  inset = false,
+  className,
+  ...props
+}: RowLinkProps): JSX.Element {
+  return (
+    <Slot
+      data-slot="row-link"
+      className={cn(
+        "after:absolute after:inset-0 focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-focus-ring",
+        inset
+          ? "focus-visible:after:-outline-offset-2"
+          : "after:rounded-card focus-visible:after:outline-offset-2",
         className,
       )}
       {...props}
