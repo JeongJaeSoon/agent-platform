@@ -242,6 +242,7 @@ export function createGitHubMcpServer(deps: {
     const actor = actorFor(state.ownerId, state.actor, requestId);
     const services = deps.services(sessionBoundAuthorization(grant.sessionId));
     const { sessionId } = grant;
+    let turnAtCall: number | null = null;
     try {
       if (tool === "attach_repository") {
         const { repository_id } = parsed.data as z.infer<
@@ -256,14 +257,21 @@ export function createGitHubMcpServer(deps: {
           }),
         );
       }
+      // Read before the request, so a refusal handled late cannot mark the
+      // turn that started after this one ended.
+      turnAtCall =
+        tool === "request_push" ? await deps.store.runningTurn(grant) : null;
       return text(await run(services, actor, sessionId, tool, parsed.data));
     } catch (error) {
       if (error instanceof SessionServiceError) {
         const continued =
-          tool === "request_push" &&
+          turnAtCall !== null &&
           isRecord(error.details) &&
           error.details.refusal === "no_checkpoint" &&
-          (await deps.store.markPushContinuation(grant));
+          (await deps.store.markPushContinuation({
+            sessionId,
+            turnId: turnAtCall,
+          }));
         return text(
           {
             code: error.code,

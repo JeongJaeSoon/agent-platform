@@ -6,14 +6,33 @@ import { pushContinuations, sessions, turns } from "./schema.ts";
 export const PUSH_CONTINUATION_MESSAGE =
   "Platform note: earlier in the previous turn you called request_push before this session had a checkpoint, so nothing was pushed. That turn has ended and its checkpoint, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. The push runs in the background: if open_pull_request answers not_pushed, wait a few seconds and call it again.";
 
+export async function runningTurnOf(
+  db: Database,
+  input: { sessionId: string; attemptId: string },
+): Promise<number | null> {
+  const [turn] = await db
+    .select({ id: turns.id })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, input.sessionId),
+        eq(turns.attemptId, input.attemptId),
+        eq(turns.status, "running"),
+      ),
+    )
+    .limit(1);
+  return turn?.id ?? null;
+}
+
 /**
- * Marks the attempt's running turn for a push continuation. False when the
- * attempt runs no turn, or that turn is itself a continuation: its session
- * already has a checkpoint, so a second one would only repeat the refusal.
+ * Marks the turn a refused push request started in, while it still runs.
+ * False when it has ended (a late refusal must not mark the next turn), or
+ * it is itself a continuation: its session already has a checkpoint, so a
+ * second one would only repeat the refusal.
  */
 export function markPushContinuation(
   db: Database,
-  input: { sessionId: string; attemptId: string },
+  input: { sessionId: string; turnId: number },
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
     // Finalize holds this lock while it ends the turn and reads the mark, so
@@ -28,8 +47,8 @@ export function markPushContinuation(
       .from(turns)
       .where(
         and(
+          eq(turns.id, input.turnId),
           eq(turns.sessionId, input.sessionId),
-          eq(turns.attemptId, input.attemptId),
           eq(turns.status, "running"),
         ),
       )

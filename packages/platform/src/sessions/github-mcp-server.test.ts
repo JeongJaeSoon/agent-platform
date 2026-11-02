@@ -76,9 +76,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
   const policies: AuthorizationPolicy[] = [];
   const control: {
     pushRefusal: "no_checkpoint" | "request_open" | null;
-    marks: Array<{ sessionId: string; attemptId: string }>;
+    runningTurn: number | null;
+    marks: Array<{ sessionId: string; turnId: number }>;
     marked: boolean;
-  } = { pushRefusal: null, marks: [], marked: true };
+  } = { pushRefusal: null, runningTurn: 7, marks: [], marked: true };
   const api: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: unused,
@@ -178,6 +179,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         actor: creator,
         ...state,
       }),
+      runningTurn: async () => control.runningTurn,
       markPushContinuation: async (input) => {
         control.marks.push(input);
         return control.marked;
@@ -423,11 +425,13 @@ describe("tools/call", () => {
 });
 
 describe("request_push before the session's first checkpoint", () => {
-  test("marks the grant's turn and tells the model a turn follows once this one ends", async () => {
+  test("marks the turn the request started in and tells the model a turn follows once this one ends", async () => {
     const h = harness();
     h.control.pushRefusal = "no_checkpoint";
     const answer = payload(await h.call("request_push", {}));
-    expect(h.control.marks).toEqual([grant]);
+    expect(h.control.marks).toEqual([
+      { sessionId: grant.sessionId, turnId: 7 },
+    ]);
     expect(answer).toMatchObject({
       isError: true,
       body: {
@@ -451,6 +455,15 @@ describe("request_push before the session's first checkpoint", () => {
     const open = payload(await h.call("request_push", {}));
     expect(open.body).not.toHaveProperty("continuation");
     expect(h.control.marks).toHaveLength(1);
+  });
+
+  test("a request that started in no running turn marks nothing", async () => {
+    const h = harness();
+    h.control.pushRefusal = "no_checkpoint";
+    h.control.runningTurn = null;
+    const answer = payload(await h.call("request_push", {}));
+    expect(answer.body).not.toHaveProperty("continuation");
+    expect(h.control.marks).toEqual([]);
   });
 });
 

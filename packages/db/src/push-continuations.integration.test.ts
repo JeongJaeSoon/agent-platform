@@ -192,11 +192,27 @@ integration("push continuations on PostgreSQL", () => {
     });
   }
 
-  const mark = (sessionId: string, worker: Worker) =>
-    createPostgresGitHubMcpStore(db).markPushContinuation({
+  const store = {
+    runningTurn: (input: { sessionId: string; attemptId: string }) =>
+      createPostgresGitHubMcpStore(db).runningTurn(input),
+    markPushContinuation: (input: { sessionId: string; turnId: number }) =>
+      createPostgresGitHubMcpStore(db).markPushContinuation(input),
+  };
+  const turnAtCall = async (sessionId: string, worker: Worker) => {
+    const turnId = await store.runningTurn({
       sessionId,
       attemptId: worker.scope.attempt_id,
     });
+    if (turnId === null) throw new Error("no running turn");
+    return turnId;
+  };
+  const mark = async (sessionId: string, worker: Worker) => {
+    const turnId = await store.runningTurn({
+      sessionId,
+      attemptId: worker.scope.attempt_id,
+    });
+    return turnId !== null && store.markPushContinuation({ sessionId, turnId });
+  };
 
   const turnsOf = (sessionId: string) =>
     db
@@ -303,6 +319,7 @@ integration("push continuations on PostgreSQL", () => {
 
   test("a mark that waits on a finalizing turn finds it ended", async () => {
     const { sessionId, worker } = await runningTurn();
+    const turnId = await turnAtCall(sessionId, worker);
     let marked: Promise<boolean> | undefined;
     await db.transaction(async (tx) => {
       await tx
@@ -310,7 +327,7 @@ integration("push continuations on PostgreSQL", () => {
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .for("update");
-      marked = mark(sessionId, worker);
+      marked = store.markPushContinuation({ sessionId, turnId });
       await Bun.sleep(300);
       await tx
         .update(turns)
@@ -318,15 +335,36 @@ integration("push continuations on PostgreSQL", () => {
         .where(eq(turns.sessionId, sessionId));
     });
     expect(await marked).toBe(false);
-    const [turn] = await db
-      .select({ id: turns.id })
-      .from(turns)
-      .where(eq(turns.sessionId, sessionId));
     expect(
       await db
         .select()
         .from(pushContinuations)
-        .where(eq(pushContinuations.turnId, turn?.id ?? -1)),
+        .where(eq(pushContinuations.turnId, turnId)),
     ).toEqual([]);
+  });
+
+  test("a refusal handled after its turn ended does not mark the next one", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const first = await turnAtCall(sessionId, worker);
+    await finalize(worker, turnId, 0);
+    const appended = await createPostgresSessionUnitOfWork(
+      db,
+    ).appendInputAtomic({
+      principal: { ownerId },
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "now something else",
+      limits,
+    });
+    expect(appended.outcome).toBe("accepted");
+    const next = await gateway.nextInput(worker.principal, worker.scope);
+    expect(next.input?.turn_id).toBe("2");
+
+    expect(await store.markPushContinuation({ sessionId, turnId: first })).toBe(
+      false,
+    );
+    await finalize(worker, "2", 1);
+    expect(await turnsOf(sessionId)).toHaveLength(2);
   });
 });
