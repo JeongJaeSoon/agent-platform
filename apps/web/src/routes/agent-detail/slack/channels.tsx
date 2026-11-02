@@ -393,6 +393,8 @@ export function SlackChannels({
             <DialogDescription>{t("slack.joinHintAuto")}</DialogDescription>
           </DialogHeader>
           {readError ? (
+            // An alert even before any result: a full failure state does not
+            // fit inside the dialog.
             <LoadFailure
               error={readError}
               guidance={slackReason(readError, t)}
