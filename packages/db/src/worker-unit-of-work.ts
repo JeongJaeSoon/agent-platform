@@ -131,6 +131,7 @@ import {
   publicStatus,
   recordLostInputWait,
 } from "./pending-requests.ts";
+import { queuePushContinuation } from "./push-continuations.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -2832,6 +2833,16 @@ export function createPostgresWorkerUnitOfWork(
             .returning({ id: sessions.id }),
           "session",
         );
+        if (
+          terminal !== undefined &&
+          input.terminal.status === "completed" &&
+          checkpointRevision !== null
+        ) {
+          await queuePushContinuation(tx, {
+            session: fenced.session,
+            turnRowId: terminal.id,
+          });
+        }
         // The Nth turn's end is when an every_n_turns judgment is due.
         await queueAchievementJudgment(tx, fence.sessionId, {
           trigger: "turns",

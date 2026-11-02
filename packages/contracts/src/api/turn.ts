@@ -56,7 +56,7 @@ export const turnSummarySchema = z.object({
   message: z.string(),
   channel: surfaceKindSchema.nullable().default(null).meta({
     description:
-      "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone.",
+      "Where the instruction came from: `slack` (a mention, DM or thread reply), `web` (the console) or `api` (an API key). Null for a turn from before it was recorded, or one the platform queued itself, such as an approval answered after its worker was gone, or the follow-up to a turn whose push request came before the session had a checkpoint.",
   }),
   created_by: z
     .object({ user_id: userIdSchema, display_name: z.string() })

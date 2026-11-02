@@ -1002,7 +1002,7 @@ describe("POST /v1/achievements/{id}/review", () => {
   const asked: Array<{
     userId: string;
     achievementId: string;
-    decision: string;
+    action: string;
     note: string | null;
     receiptId: string;
   }> = [];
@@ -1106,7 +1106,7 @@ describe("POST /v1/achievements/{id}/review", () => {
               asked.push({
                 userId: input.actor.userId,
                 achievementId: input.achievementId,
-                decision: input.decision,
+                action: input.action,
                 note: input.note,
                 receiptId: input.receiptId,
               });
@@ -1142,7 +1142,7 @@ describe("POST /v1/achievements/{id}/review", () => {
   test("an owner or an admin confirms or rejects, with a note, and gets the achievement and the receipt", async () => {
     for (const who of ["owner", "admin"] as const) {
       const response = await review(ACHIEVEMENT.toUpperCase(), who, {
-        decision: "confirm",
+        action: "confirm",
         note: "checked the file",
       });
       expect(response.status).toBe(200);
@@ -1151,20 +1151,20 @@ describe("POST /v1/achievements/{id}/review", () => {
       expect(asked.at(-1)).toEqual({
         userId: USER,
         achievementId: ACHIEVEMENT,
-        decision: "confirm",
+        action: "confirm",
         note: "checked the file",
         receiptId: body.receipt_id,
       });
     }
     expect(
-      (await review(ACHIEVEMENT, "owner", { decision: "reject" })).status,
+      (await review(ACHIEVEMENT, "owner", { action: "reject" })).status,
     ).toBe(200);
     expect(asked.at(-1)?.note).toBeNull();
   });
 
   test("asks for achievement.review on the achievement's agent", async () => {
     recorded.length = 0;
-    await review(ACHIEVEMENT, "admin", { decision: "reject" });
+    await review(ACHIEVEMENT, "admin", { action: "reject" });
     expect(recorded).toEqual([
       expect.objectContaining({
         action: "achievement.review",
@@ -1175,18 +1175,18 @@ describe("POST /v1/achievements/{id}/review", () => {
 
   test("a member reviews only as the agent's admin; an API key never; no login 401", async () => {
     expect(
-      (await review(ACHIEVEMENT, "member", { decision: "reject" })).status,
+      (await review(ACHIEVEMENT, "member", { action: "reject" })).status,
     ).toBe(403);
     expect(
-      (await review(ACHIEVEMENT, "key", { decision: "reject" })).status,
+      (await review(ACHIEVEMENT, "key", { action: "reject" })).status,
     ).toBe(403);
-    expect(
-      (await review(ACHIEVEMENT, null, { decision: "reject" })).status,
-    ).toBe(401);
+    expect((await review(ACHIEVEMENT, null, { action: "reject" })).status).toBe(
+      401,
+    );
     expect(asked).toEqual([]);
     agentAdmin = true;
     expect(
-      (await review(ACHIEVEMENT, "member", { decision: "reject" })).status,
+      (await review(ACHIEVEMENT, "member", { action: "reject" })).status,
     ).toBe(200);
     expect(asked).toHaveLength(1);
   });
@@ -1195,17 +1195,17 @@ describe("POST /v1/achievements/{id}/review", () => {
     expect(
       (
         await review("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "owner", {
-          decision: "confirm",
+          action: "confirm",
         })
       ).status,
     ).toBe(404);
     expect(
-      (await review("not-a-uuid", "owner", { decision: "confirm" })).status,
+      (await review("not-a-uuid", "owner", { action: "confirm" })).status,
     ).toBe(404);
     visible = false;
     agentAdmin = true;
     expect(
-      (await review(ACHIEVEMENT, "member", { decision: "confirm" })).status,
+      (await review(ACHIEVEMENT, "member", { action: "confirm" })).status,
     ).toBe(404);
     expect(asked).toEqual([]);
   });
@@ -1213,7 +1213,7 @@ describe("POST /v1/achievements/{id}/review", () => {
   test("a decided achievement is 409 not_reviewable; a lost role 403; a gone row 404; an outage 503", async () => {
     outcome = "not_reviewable";
     const conflict = await review(ACHIEVEMENT, "owner", {
-      decision: "confirm",
+      action: "confirm",
     });
     expect(conflict.status).toBe(409);
     const body = apiErrorResponseSchema.parse(await conflict.json());
@@ -1221,32 +1221,33 @@ describe("POST /v1/achievements/{id}/review", () => {
     expect(body.error.details).toEqual({ reason_code: "not_reviewable" });
     outcome = "actor_inactive";
     expect(
-      (await review(ACHIEVEMENT, "owner", { decision: "reject" })).status,
+      (await review(ACHIEVEMENT, "owner", { action: "reject" })).status,
     ).toBe(403);
     outcome = "not_found";
     expect(
-      (await review(ACHIEVEMENT, "owner", { decision: "reject" })).status,
+      (await review(ACHIEVEMENT, "owner", { action: "reject" })).status,
     ).toBe(404);
-    expect((await review(DOWN, "owner", { decision: "reject" })).status).toBe(
+    expect((await review(DOWN, "owner", { action: "reject" })).status).toBe(
       503,
     );
   });
 
-  test("a decision other than confirm or reject, an empty or long note, or another field is 400; an oversized body 413", async () => {
+  test("an action other than confirm or reject, an empty or long note, or another field is 400; an oversized body 413", async () => {
     expect(
       (
         await review(ACHIEVEMENT, "owner", {
-          decision: "confirm",
+          action: "confirm",
           note: "x".repeat(REQUEST_BODY_MAX_BYTES),
         })
       ).status,
     ).toBe(413);
     for (const body of [
       {},
-      { decision: "approve" },
-      { decision: "confirm", note: "" },
-      { decision: "confirm", note: "x".repeat(501) },
-      { decision: "confirm", review_state: "confirmed" },
+      { action: "approve" },
+      { decision: "confirm" },
+      { action: "confirm", note: "" },
+      { action: "confirm", note: "x".repeat(501) },
+      { action: "confirm", review_state: "confirmed" },
     ]) {
       expect((await review(ACHIEVEMENT, "owner", body)).status).toBe(400);
     }

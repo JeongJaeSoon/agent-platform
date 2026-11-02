@@ -337,7 +337,7 @@ input:    <definition>{규칙의 성과 정의}</definition>
 | `GET`·`PUT /v1/workspaces/{id}/achievement-judge` | `workspace.read`·`achievement_rule.manage` | 판정 설정 |
 | `GET /v1/sessions/{id}/achievements` | `session.read` | 성과·판정 상태·실패 이유 |
 | `POST /v1/sessions/{id}/achievement-judgments` | `achievement_rule.manage` + `session.read` | 수동 다시 판정 |
-| `POST /v1/achievements/{id}/review` | `achievement.review` + `session.read` | `{ decision: confirm|reject, note? }` |
+| `POST /v1/achievements/{id}/review` | `achievement.review` + `session.read` | `{ action: confirm|reject, note? }` |
 | `GET /v1/usage/achievements` | `GET /v1/usage/summary`와 같은 범위 규칙 | 구분·type·규칙·에이전트별 수, 세션 비용, 판정 비용, 성과당 비용 |
 
 - 새 action 둘을 `packages/platform/src/musterrolle/policy.ts`에 더한다: `achievement_rule.manage`(owner·admin, `workspace.manage`와 같은 역할 표 `:275`), `achievement.review`(owner·admin과 그 에이전트의 관리자). 관리 action이므로 API key는 거절한다(`docs/contributing/architecture.md:86`).

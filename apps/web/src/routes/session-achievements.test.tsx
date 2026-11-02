@@ -227,7 +227,7 @@ describe("session achievements", () => {
     ]);
   });
 
-  test("confirming posts the decision and reads the card again", async () => {
+  test("confirming posts the action and reads the card again", async () => {
     let reviewed = false;
     const { api } = renderAt(
       `/sessions/${SESSION_ID}`,
@@ -261,7 +261,7 @@ describe("session achievements", () => {
       expect(within(card).getAllByText("확인됨")).toHaveLength(1),
     );
     expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
-      decision: "confirm",
+      action: "confirm",
     });
     expect(
       within(card).queryByRole("button", {

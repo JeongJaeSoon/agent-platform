@@ -59,11 +59,12 @@ const quiet = { info: () => {} };
 
 // Computed on main at 304c2713 (catalog-config.test.ts): sessions and
 // releases pin these, so the database path must give the same.
-// claude-coding-real moved with AskUserQuestion, as catalog-config.test.ts says.
+// claude-coding-real moved with AskUserQuestion and again when it became auto,
+// as catalog-config.test.ts says.
 const ON_MAIN: Record<string, Record<string, string>> = {
   ".": {
     "claude-coding-real":
-      "sha256:5ee8ffe62e6e449f4c4266d3fd2578196cd39ba761530fbaaac85df3c54fda72",
+      "sha256:1fc3c2a8042b16a150b6c2f7ab2d93c801daf2faacc7c86eefdf087f94d10fc1",
   },
   "fake-model": {
     "claude-coding-local":

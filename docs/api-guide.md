@@ -415,11 +415,11 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 ## 10. 세션 결과의 push 요청과 승인·거부
 
-OpenAPI: [`createPushRequest`](api/index.html), [`listPushRequests`](api/index.html), [`getPushRequest`](api/index.html), [`decidePushRequest`](api/index.html), [`getReceipt`](api/index.html)
+OpenAPI: [`createPushRequest`](api/index.html), [`listPushRequests`](api/index.html), [`getPushRequest`](api/index.html), [`approvePushRequest`](api/index.html), [`rejectPushRequest`](api/index.html), [`getReceipt`](api/index.html)
 
 **목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청하고, `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
 
-**순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 결정할 사람은 고정된 `git_commit`을 확인하고, 결정 body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
+**순서.** 요청은 body 없이(`{}`) 보낸다. 플랫폼이 세션의 최신 checkpoint revision과 그 `git_commit`, 세션의 `repository_id`, 브랜치 `agent/<session-id>`를 고정한다. 승인하거나 거부할 사람은 고정된 `git_commit`을 확인하고, `/approve`나 `/reject` body에 같은 값을 넣는다. 다른 commit을 적은 승인은 거절된다. 한 세션에 열린 요청(`requested`·`approved`·`pushing`)은 하나뿐이므로, 거부한 뒤에 새로 요청한다.
 
 ```bash
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
@@ -429,16 +429,16 @@ echo "$push_request" | jq -e --arg branch "agent/$SID" \
 PUSH_ID=$(echo "$push_request" | jq -r .id)
 PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
 
-rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" "${AUTH[@]}" \
+rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{decision:"reject", git_commit:$commit, reason:"not yet"}')")
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
 echo "$rejected" | jq -e '.state == "rejected" and .decided_by != null'
 curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .decision_receipt_id)" "${AUTH[@]}" \
   | jq -e '.operation == "decide_push" and .result.verdict == "allow" and .result.decision == "reject"'
 
-again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" "${AUTH[@]}" \
+again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{decision:"approve", git_commit:$commit}')")
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')")
 test "$(echo "$again" | tail -n1)" = 409
 echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_DECIDED"'
 curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
@@ -447,9 +447,9 @@ curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.rec
 push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{}')
 PUSH_ID=$(echo "$push_request" | jq -r .id)
-approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" "${AUTH[@]}" \
+approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" \
-  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{decision:"approve", git_commit:$commit}')")
+  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
 echo "$approved" | jq -e '.state == "approved"'
 curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
 
