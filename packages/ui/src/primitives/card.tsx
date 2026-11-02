@@ -28,7 +28,7 @@ export function Card({
       className={cn(
         "flex flex-col gap-3 rounded-card border bg-card py-4 text-card-foreground",
         variant === "inset" && "gap-2 bg-muted/40 p-3",
-        flush && "gap-0 p-0",
+        flush && (variant === "inset" ? "gap-0 p-0" : "gap-0 py-0"),
         className,
       )}
       {...props}
