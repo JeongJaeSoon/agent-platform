@@ -94,7 +94,8 @@ const MEMBER_COLUMNS =
   "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
 const MEMBER_NARROW_COLUMNS =
   "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
-const MEMBER_TABLE_MIN = "min-w-[320px]";
+// 320px of columns plus the frame's 1px border on each side.
+const MEMBER_TABLE_MIN = "min-w-[322px]";
 
 type Outcome =
   | { readonly kind: "notice"; readonly text: string }

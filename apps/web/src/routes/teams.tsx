@@ -33,7 +33,6 @@ import {
   GridTableHeader,
   GridTableRow,
   Input,
-  RowLines,
   RowList,
   RowListItem,
   SearchInput,
@@ -576,7 +575,7 @@ function TeamMembers({
                         initials={avatarInitials(name)}
                         tone={avatarTone(member.user_id)}
                       />
-                      <RowLines>
+                      <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
                         <span className="truncate font-medium">{name}</span>
                         {member.display_name !== null && (
                           <span
@@ -586,7 +585,7 @@ function TeamMembers({
                             {member.email}
                           </span>
                         )}
-                      </RowLines>
+                      </span>
                     </GridTableCell>
                     {roles && (
                       <GridTableCell>
