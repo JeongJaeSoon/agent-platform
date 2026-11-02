@@ -665,8 +665,17 @@ export function createSessionService(deps: {
           "The agent's GitHub settings do not include this repository",
         );
       }
-      const attached = input.body.attached_repository_ids;
-      if (attached !== undefined) {
+      const sent = input.body.attached_repository_ids;
+      const profile = catalogProfile(catalog, profileId);
+      const attaches =
+        release !== null &&
+        profile !== undefined &&
+        repositoryModeOf(profile) !== "none";
+      // Omitted, a session that could attach starts with none attached and
+      // attaches what it needs (session-repository-attachment.md decision 2).
+      // A null list, kept by rows from before, reaches the release's whole list.
+      const attached = sent ?? (attaches ? [] : undefined);
+      if (sent !== undefined) {
         if (release === null) {
           throw notAllowed(
             "Only a session of an agent release attaches repositories",
@@ -674,15 +683,14 @@ export function createSessionService(deps: {
         }
         // Nothing on the session row tells `none` from `optional` without a
         // repository, so an empty list on `none` is refused here.
-        const profile = catalogProfile(catalog, profileId);
-        if (profile === undefined || repositoryModeOf(profile) === "none") {
+        if (!attaches) {
           throw notAllowed(
             `Profile ${profileId} runs without repositories and attaches none`,
           );
         }
         // The switch is read at every use, not here, as for the session's
         // own repository above.
-        const refused = attached.find(
+        const refused = sent.find(
           (id) =>
             additionalRepositoryAllowed(
               catalog,
