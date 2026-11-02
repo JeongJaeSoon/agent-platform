@@ -1,0 +1,1 @@
+export const AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000;

@@ -34,7 +34,7 @@ import { useHasPermission } from "../../auth/guard.tsx";
 import { copyText } from "../../components/copy.ts";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { OutcomeLine } from "../../components/outcome.tsx";
-import { type Locale, useI18n } from "../../i18n/i18n.tsx";
+import { LOCALE_NAMES, type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { latestVersion } from "./versions.tsx";
@@ -589,9 +589,7 @@ export function CardSummary({
               <dt className={TERM}>{t("agentCard.model")}</dt>
               <dd className={`${VALUE} font-mono`}>{card.model}</dd>
               <dt className={TERM}>{t("agentCard.language")}</dt>
-              <dd className={VALUE}>
-                {card.language === "ko" ? "한국어" : "English"}
-              </dd>
+              <dd className={VALUE}>{LOCALE_NAMES[card.language]}</dd>
               <dt className={TERM}>{t("agentCard.tools")}</dt>
               <dd className={VALUE}>
                 {card.capabilities.tools === null
