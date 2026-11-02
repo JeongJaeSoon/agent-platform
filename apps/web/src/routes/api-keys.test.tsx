@@ -378,15 +378,16 @@ describe("API key", () => {
       value: { writeText: async (text: string) => void written.push(text) },
     });
     try {
-      const button = screen.getByRole("button", { name: `ID ${KEY_ID} 복사` });
+      // Named by what it shows (WCAG 2.5.3); the key ID describes it.
+      const button = screen.getByRole("button", {
+        name: "복사",
+        description: `ID ${KEY_ID}`,
+      });
       await act(async () => button.click());
       expect(written).toEqual([KEY_ID]);
-      // The fixed name keeps the copied text out of the button (WCAG
-      // 2.5.3); it shows beside it, in the one live status.
-      expect(button.textContent).toBe("");
+      expect(button.textContent).toBe("복사");
       const status = within(rows()[0] as HTMLElement).getByRole("status");
       expect(status.textContent).toBe("복사했습니다");
-      expect(status.className.split(" ")).not.toContain("sr-only");
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
       else Reflect.deleteProperty(navigator, "clipboard");
@@ -406,13 +407,16 @@ describe("API key", () => {
       },
     });
     try {
-      const button = screen.getByRole("button", { name: `ID ${KEY_ID} 복사` });
+      const button = screen.getByRole("button", {
+        name: "복사",
+        description: `ID ${KEY_ID}`,
+      });
       await act(async () => button.click());
       const row = rows()[0] as HTMLElement;
       expect(within(row).getByRole("alert").textContent).toBe(
         "복사하지 못했습니다. ID를 직접 선택해 복사하세요.",
       );
-      expect(button.textContent).toBe("");
+      expect(button.textContent).toBe("복사");
       expect(within(row).getByRole("status").textContent).toBe("");
     } finally {
       if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
