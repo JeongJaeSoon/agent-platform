@@ -26,6 +26,7 @@ const CLAIMED: ClaimedJudgment = {
   id: "judgment-1",
   sessionId: SESSION,
   attempts: 1,
+  errorCode: null,
   leaseToken: "lease-1",
 };
 
@@ -94,6 +95,8 @@ function judgeOf(
     files?: Record<string, string | "missing" | "unavailable">;
     /** The lease holds for this many renewals; every one by default. */
     renewals?: number;
+    /** The last finished try's failure. */
+    errorCode?: ClaimedJudgment["errorCode"];
   } = {},
 ) {
   const finished: JudgmentResult[] = [];
@@ -104,7 +107,13 @@ function judgeOf(
     AchievementJudgmentStore,
     "claim" | "context" | "finish" | "transcript" | "renew"
   > = {
-    claim: async () => [{ ...CLAIMED, attempts: options.attempts ?? 1 }],
+    claim: async () => [
+      {
+        ...CLAIMED,
+        attempts: options.attempts ?? 1,
+        errorCode: options.errorCode ?? null,
+      },
+    ],
     renew: async () => {
       renewed += 1;
       return renewed <= (options.renewals ?? Number.POSITIVE_INFINITY);
@@ -510,13 +519,14 @@ describe("achievement judge", () => {
         outcomes: [PULL_REQUEST],
       },
       undefined,
-      { attempts: 5 },
+      { attempts: 5, errorCode: "judge_timeout" },
     );
     await spent.judge.runOnce();
+    // The last try that finished says why.
     expect(spent.finished).toEqual([
       {
         status: "failed",
-        errorCode: null,
+        errorCode: "judge_timeout",
         rules: [],
         evidenceIds: [],
         achievements: [],
@@ -811,20 +821,27 @@ describe("achievement judge with Luna", () => {
     }
   });
 
-  test("a token the lease no longer allows sends nothing", async () => {
+  test("a token the lease no longer allows sends nothing and writes nothing, not even the always pairs", async () => {
     const { luna, requests } = fakeLuna(() => yes(0.99), { issued: false });
     const { judge, finished } = judgeOf(
       {
-        rules: [lunaRule("pull_request", "github_pull_request")],
+        rules: [
+          lunaRule("pull_request", "github_pull_request"),
+          {
+            ...rule("pull_request", "github_pull_request"),
+            id: "rule-always",
+            familyId: "family-always",
+          },
+        ],
         outcomes: [PULL_REQUEST],
         judge: WITH_JUDGE,
       },
       undefined,
       { luna },
     );
-    await judge.runOnce();
+    expect(await judge.runOnce()).toBe(0);
     expect(requests).toHaveLength(0);
-    expect(finished[0]).toMatchObject({ status: "queued" });
+    expect(finished).toHaveLength(0);
   });
 
   test("the same rule version and input as the last judgment is not sent again; a merged pull request or a new rule version is", async () => {

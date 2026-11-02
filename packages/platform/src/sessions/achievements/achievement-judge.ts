@@ -404,8 +404,8 @@ export function createAchievementJudge(deps: {
       };
     }
     const token = await issueJudgmentToken(luna.tokens, claimed);
-    // The lease was taken over: whoever holds it now judges.
-    if (token === null) return { ...again(claimed, null), ...paired };
+    // The lease ran out or was taken over: whoever claims it next judges.
+    if (token === null) return null;
 
     const declined: { ruleFamilyId: string; evidenceId: string | null }[] = [];
     // Kept only if every pair is answered: a failed try writes none of them.
@@ -467,8 +467,13 @@ export function createAchievementJudge(deps: {
       if (!(await store.renew(judgment, leaseMs))) {
         result = null;
       } else if (judgment.attempts > ACHIEVEMENT_JUDGMENT_RETRY_MS.length + 1) {
-        // Replicas kept dying on it, so no try ever finished.
-        result = { status: "failed", errorCode: null, ...nothing };
+        // No try finished since: replicas died or lost the lease. The last
+        // failure that was written says why.
+        result = {
+          status: "failed",
+          errorCode: judgment.errorCode,
+          ...nothing,
+        };
       } else {
         try {
           result = await judge(judgment);

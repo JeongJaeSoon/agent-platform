@@ -23,6 +23,8 @@ export type ClaimedJudgment = {
   leaseToken: string;
   /** Tries so far, this one included. */
   attempts: number;
+  /** Why the last finished try failed. */
+  errorCode: AchievementJudgmentError | null;
 };
 
 /** A rule in use for the session, with its type. */
@@ -153,8 +155,8 @@ export interface AchievementJudgmentStore {
    */
   context(judgment: ClaimedJudgment): Promise<JudgmentContext>;
   /**
-   * Extends the lease by `leaseMs` from now while it still holds; false
-   * once it ran out or was taken over.
+   * Extends the lease by `leaseMs` from now while no one took it over, even
+   * once it ran out; false once it was taken over or finished.
    */
   renew(judgment: ClaimedJudgment, leaseMs: number): Promise<boolean>;
   /** The session's last `turns` ended turns, oldest first. */
@@ -164,7 +166,8 @@ export interface AchievementJudgmentStore {
    * lease; one a rule family already has for the evidence is kept. A retry
    * goes back to queued and a deferral to deferred, or, when the session
    * has another pending judgment already, moves that one's wait instead and
-   * ends as `failed`. False when the lease was taken over meanwhile.
+   * ends as `failed`. False when the lease was taken over or the
+   * judgment was finished meanwhile.
    */
   finish(judgment: ClaimedJudgment, result: JudgmentResult): Promise<boolean>;
   /** Null when the owner has no such session. */

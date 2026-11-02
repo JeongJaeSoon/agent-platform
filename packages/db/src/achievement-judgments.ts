@@ -282,8 +282,13 @@ export function createPostgresAchievementJudgments(
           id: achievementJudgments.id,
           sessionId: achievementJudgments.sessionId,
           attempts: achievementJudgments.attempts,
+          errorCode: achievementJudgments.errorCode,
         });
-      return claimed.map((row) => ({ ...row, leaseToken }));
+      return claimed.map((row) => ({
+        ...row,
+        errorCode: row.errorCode as AchievementJudgmentError | null,
+        leaseToken,
+      }));
     },
 
     async context(judgment) {
@@ -404,7 +409,6 @@ export function createPostgresAchievementJudgments(
             eq(achievementJudgments.id, judgment.id),
             eq(achievementJudgments.leaseToken, judgment.leaseToken),
             eq(achievementJudgments.status, "running"),
-            sql`${achievementJudgments.leaseExpiresAt} > now()`,
           ),
         )
         .returning({ id: achievementJudgments.id });
@@ -448,6 +452,7 @@ export function createPostgresAchievementJudgments(
             and(
               eq(achievementJudgments.id, judgment.id),
               eq(achievementJudgments.leaseToken, judgment.leaseToken),
+              eq(achievementJudgments.status, "running"),
             ),
           )
           .for("update");

@@ -1812,12 +1812,21 @@ integration("achievement judgments on PostgreSQL", () => {
   describe("Luna pairs", () => {
     function lunaReplica(
       probability: () => number | "refuse",
-      options: { leaseMs?: number; delayMs?: number } = {},
+      options: {
+        leaseMs?: number;
+        delayMs?: number;
+        claimMax?: number;
+        /** Before the token, as a slow secret store would be. */
+        upstreamDelayMs?: number;
+      } = {},
     ) {
       const sent: DecisionsRequest[] = [];
       const judge = createAchievementJudge({
         store: judgments,
         ...(options.leaseMs === undefined ? {} : { leaseMs: options.leaseMs }),
+        ...(options.claimMax === undefined
+          ? {}
+          : { claimMax: options.claimMax }),
         outputs: {
           readOutputs: async () => ({ status: "none" }),
           openOutput: async () => ({ status: "missing" }),
@@ -1825,10 +1834,12 @@ integration("achievement judgments on PostgreSQL", () => {
         logger: { info() {}, warn() {} },
         luna: {
           connections: {
-            upstream: async () => ({
-              url: "https://api.openai.com",
-              headers: [],
-            }),
+            upstream: async () => {
+              if (options.upstreamDelayMs !== undefined) {
+                await Bun.sleep(options.upstreamDelayMs);
+              }
+              return { url: "https://api.openai.com", headers: [] };
+            },
           },
           tokens: createPostgresJudgmentEgress(db),
           decisions: {
@@ -2069,14 +2080,18 @@ integration("achievement judgments on PostgreSQL", () => {
       for (let index = 0; index < 2; index++) {
         const sessionId = await session(ws.workspaceId);
         sessionIds.push(sessionId);
-        for (let pr = 0; pr < 2; pr++) {
-          numbers.push(
-            String((await pullRequest(sessionId, ws.workspaceId)).externalId),
-          );
-        }
+        numbers.push(
+          String((await pullRequest(sessionId, ws.workspaceId)).externalId),
+        );
         await quietPassed(sessionId);
       }
-      const slow = lunaReplica(() => 0.95, { leaseMs: 1_000, delayMs: 600 });
+      // 700ms a judgment against a 1s lease: the second one starts in time
+      // and asks for its token after the lease taken at the claim ran out.
+      const slow = lunaReplica(() => 0.95, {
+        leaseMs: 1_000,
+        upstreamDelayMs: 600,
+        delayMs: 100,
+      });
       const other = lunaReplica(() => 0.95, { leaseMs: 1_000 });
       let done = false;
       const running = slow.judge.runOnce().finally(() => {
@@ -2091,15 +2106,143 @@ integration("achievement judgments on PostgreSQL", () => {
         .map((request) => /number: (\d+)/.exec(request.input)?.[1])
         .filter((number) => number !== undefined && numbers.includes(number));
       expect(asked.sort()).toEqual([...numbers].sort());
+      expect(other.sent).toHaveLength(0);
       for (const sessionId of sessionIds) {
-        expect((await judgmentsOf(sessionId)).map((j) => j.status)).toEqual([
-          "succeeded",
-        ]);
-        expect(await achievementsOf(sessionId)).toHaveLength(2);
+        expect(
+          (await judgmentsOf(sessionId)).map((j) => [j.status, j.attempts]),
+        ).toEqual([["succeeded", 1]]);
+        expect(await achievementsOf(sessionId)).toHaveLength(1);
       }
     }, 20_000);
 
-    test("a lease that ran out or was taken over is neither renewed nor given a token", async () => {
+    test("one replica's batch of slow judgments finishes each on its first try", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      const sessionIds: string[] = [];
+      for (let index = 0; index < 6; index++) {
+        const sessionId = await session(ws.workspaceId);
+        sessionIds.push(sessionId);
+        await pullRequest(sessionId, ws.workspaceId);
+        await pullRequest(sessionId, ws.workspaceId);
+        await quietPassed(sessionId);
+      }
+      const replica = lunaReplica(() => 0.95, {
+        leaseMs: 1_000,
+        delayMs: 600,
+        claimMax: 6,
+      });
+      const pending = async () =>
+        (await Promise.all(sessionIds.map(judgmentsOf)))
+          .flat()
+          .filter(
+            (j) => !["succeeded", "skipped", "failed"].includes(j.status),
+          );
+      for (let pass = 0; pass < 10 && (await pending()).length > 0; pass++) {
+        await replica.judge.runOnce();
+      }
+      for (const sessionId of sessionIds) {
+        expect(
+          (await judgmentsOf(sessionId)).map((j) => [j.status, j.attempts]),
+        ).toEqual([["succeeded", 1]]);
+        expect(await achievementsOf(sessionId)).toHaveLength(2);
+      }
+    }, 60_000);
+
+    test("a lease that runs out while the input is read gets no token: nothing is sent or written, not even the always pairs, and the next claim judges it", async () => {
+      const ws = await workspace();
+      await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
+      await rule(ws, await typeId(ws.workspaceId, "code_review"));
+      const sessionId = await session(ws.workspaceId);
+      await pullRequest(sessionId, ws.workspaceId);
+      await review(sessionId, ws.workspaceId);
+      await quietPassed(sessionId);
+      const late = lunaReplica(() => 0.95, {
+        leaseMs: 300,
+        upstreamDelayMs: 600,
+      });
+      await late.judge.runOnce();
+      expect(late.sent).toHaveLength(0);
+      expect(
+        (await judgmentsOf(sessionId)).map((j) => [j.status, j.attempts]),
+      ).toEqual([["running", 1]]);
+      expect(await achievementsOf(sessionId)).toHaveLength(0);
+
+      const next = lunaReplica(() => 0.95);
+      await next.judge.runOnce();
+      expect(next.sent).toHaveLength(1);
+      expect(
+        (await judgmentsOf(sessionId)).map((j) => [j.status, j.attempts]),
+      ).toEqual([["succeeded", 2]]);
+      expect(await achievementsOf(sessionId)).toHaveLength(2);
+    }, 20_000);
+
+    test("a retry is claimed with the failure its last try wrote", async () => {
+      const ws = await workspace();
+      const sessionId = await session(ws.workspaceId);
+      await pullRequest(sessionId, ws.workspaceId);
+      await quietPassed(sessionId);
+      const first = await claimOne(sessionId);
+      if (!first) throw new Error("not claimed");
+      expect(first.errorCode).toBeNull();
+      expect(
+        await judgments.finish(first, {
+          status: "queued",
+          retryInMs: 60_000,
+          errorCode: "judge_timeout",
+          rules: [],
+          evidenceIds: [],
+          achievements: [],
+        }),
+      ).toBe(true);
+      await quietPassed(sessionId);
+      const retry = await claimOne(sessionId);
+      expect(retry).toMatchObject({ attempts: 2, errorCode: "judge_timeout" });
+    });
+
+    test("a finish under a lease taken over, or for a judgment no longer running, writes nothing", async () => {
+      const ws = await workspace();
+      await rule(ws, await typeId(ws.workspaceId, "pull_request"));
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      await quietPassed(sessionId);
+      const claimed = await claimOne(sessionId);
+      if (!claimed) throw new Error("not claimed");
+      const [ruleRow] = (await judgments.context(claimed)).rules;
+      if (!ruleRow) throw new Error("no rule");
+      const result = {
+        status: "succeeded" as const,
+        errorCode: null,
+        rules: [ruleRow.id],
+        evidenceIds: [pr.id],
+        achievements: [],
+      };
+      await db
+        .update(achievementJudgments)
+        .set({ status: "failed" })
+        .where(eq(achievementJudgments.id, claimed.id));
+      expect(await judgments.finish(claimed, result)).toBe(false);
+      expect(
+        (await judgmentsOf(sessionId)).map((j) => [j.status, j.finishedAt]),
+      ).toEqual([["failed", null]]);
+
+      await db
+        .update(achievementJudgments)
+        .set({
+          status: "running",
+          leaseExpiresAt: sql`now() - interval '1 second'`,
+        })
+        .where(eq(achievementJudgments.id, claimed.id));
+      const takeover = await claimOne(sessionId);
+      if (!takeover) throw new Error("not taken over");
+      expect(await judgments.finish(claimed, result)).toBe(false);
+      expect(
+        (await judgmentsOf(sessionId)).map((j) => [j.status, j.leaseToken]),
+      ).toEqual([["running", takeover.leaseToken]]);
+    });
+
+    test("a lease that ran out is renewed while no one took it over, but gets a token only once renewed; one taken over gets neither", async () => {
       const ws = await workspace();
       await judgeSettings(ws.workspaceId, { connection_id: "conn-1" });
       await rule(ws, await typeId(ws.workspaceId, "pull_request"), "luna");
@@ -2118,6 +2261,15 @@ integration("achievement judgments on PostgreSQL", () => {
         .update(achievementJudgments)
         .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
         .where(eq(achievementJudgments.id, claimed.id));
+      expect(await egress.issueToken(claimed, hash)).toBe(false);
+      expect(await judgments.renew(claimed, 60_000)).toBe(true);
+      expect(await egress.issueToken(claimed, hash)).toBe(true);
+      await db
+        .update(achievementJudgments)
+        .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+        .where(eq(achievementJudgments.id, claimed.id));
+      const takeover = await claimOne(sessionId);
+      if (!takeover) throw new Error("not taken over");
       expect(await judgments.renew(claimed, 60_000)).toBe(false);
       expect(await egress.issueToken(claimed, hash)).toBe(false);
     });
