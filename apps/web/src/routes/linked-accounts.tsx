@@ -560,17 +560,22 @@ function SlackAccounts({
         >
           <RowLines>
             <SlackAccountName account={account} />
-            <Text
-              as="span"
-              variant="meta"
-              className="block [overflow-wrap:anywhere]"
-            >
-              {account.status === "stale"
-                ? t("linked.stale")
-                : t("linked.verified", {
-                    at: formatTimestamp(account.verified_at, locale),
-                  })}
-            </Text>
+            {account.status === "stale" ? (
+              // A status line keeps its own colour (B-24).
+              <span className="block text-muted-foreground text-xs [overflow-wrap:anywhere]">
+                {t("linked.stale")}
+              </span>
+            ) : (
+              <Text
+                as="span"
+                variant="meta"
+                className="block [overflow-wrap:anywhere]"
+              >
+                {t("linked.verified", {
+                  at: formatTimestamp(account.verified_at, locale),
+                })}
+              </Text>
+            )}
           </RowLines>
           <Button
             type="button"

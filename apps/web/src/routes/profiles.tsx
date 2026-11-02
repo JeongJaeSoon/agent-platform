@@ -14,7 +14,6 @@ import {
   Badge,
   buttonVariants,
   Code,
-  cn,
   EmptyState,
   GridTable,
   GridTableCell,
@@ -382,7 +381,7 @@ function ProfileRow({
             </>
           }
           second={profileName(profile) === profile.id ? null : profile.id}
-          secondClassName="font-mono"
+          secondMono
           narrow={t("profiles.narrowKind", {
             kind: t(`profiles.kind.${kind}`),
             version: versionOf(profile),
@@ -424,13 +423,13 @@ function ProfileRow({
 function Stack({
   first,
   second,
-  secondClassName,
+  secondMono = false,
   narrow,
 }: {
   readonly first: ReactNode;
   /** Null when the first line already is the id. */
   readonly second: string | null;
-  readonly secondClassName?: string;
+  readonly secondMono?: boolean;
   /** A third line only a phone shows, for the columns it hides. */
   readonly narrow: string;
 }) {
@@ -441,7 +440,8 @@ function Stack({
         <Text
           as="span"
           variant="meta"
-          className={cn("wrap-anywhere", secondClassName)}
+          mono={secondMono}
+          className="wrap-anywhere"
         >
           {second}
         </Text>

@@ -616,13 +616,13 @@ function KeyList({
                     {t(approves ? "apiKeys.approveYes" : "apiKeys.approveNo")}
                   </Badge>
                 </div>
-                <Text as="span" variant="meta" className="leading-4">
+                <Text as="span" variant="meta">
                   {scopes}
                 </Text>
                 <Text
                   as="div"
                   variant="meta"
-                  className="flex flex-wrap items-center gap-x-2 gap-y-1 leading-4"
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1"
                 >
                   <KeyIdMeta id={key.id} />
                   <MetaDot />
