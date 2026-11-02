@@ -134,6 +134,16 @@ describe("slackOutboxText", () => {
     ).toBe("웹에서 승인 (https://evil.example/login)");
   });
 
+  test("writes Markdown as mrkdwn, still expanding links and escaping mentions", () => {
+    expect(
+      slackOutboxText({
+        text: "- **브랜치:** `<@U2>`\n[웹에서 승인](https://evil.example/login) [<@U2>](https://a.test)",
+      }),
+    ).toBe(
+      "• *브랜치:* `&lt;@U2&gt;`\n웹에서 승인 (https://evil.example/login) &lt;@U2&gt; (https://a.test)",
+    );
+  });
+
   test("lets through only the mentions the body names", () => {
     expect(
       slackOutboxText({
