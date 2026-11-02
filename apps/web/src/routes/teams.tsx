@@ -59,7 +59,7 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { MyTeams, SECTION } from "../components/my-teams.tsx";
+import { MyTeams, SECTION_BODY } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
@@ -149,7 +149,7 @@ export function TeamsScreen() {
   // Creating a team is the page head's button (TeamCreateDialog).
   return (
     <TeamsTab>
-      <section className={SECTION} aria-labelledby={titleId}>
+      <section className={SECTION_BODY} aria-labelledby={titleId}>
         <Heading id={titleId}>{t("teams.listTitle")}</Heading>
         {isApiError(teams.error, "FORBIDDEN") ? null : (
           <div className="flex">

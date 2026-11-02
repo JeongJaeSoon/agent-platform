@@ -46,7 +46,7 @@ import {
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
-import { SECTION } from "./my-teams.tsx";
+import { SECTION_BODY } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "./search-term.ts";
@@ -104,7 +104,7 @@ export function AgentAdmins({
   const titleId = useId();
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
+    <section className={SECTION_BODY} aria-labelledby={titleId}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <Heading id={titleId}>{t("agentAdmins.title")}</Heading>
         <Text variant="meta">{t("agentAdmins.intro")}</Text>
@@ -503,7 +503,7 @@ export function AdministeredAgents({
   if (!administered.error && items.length === 0 && !showEmpty) return null;
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
+    <section className={SECTION_BODY} aria-labelledby={titleId}>
       <h2 id={titleId} className="m-0 text-body">
         {t("agentAdmins.mine.title")}
       </h2>

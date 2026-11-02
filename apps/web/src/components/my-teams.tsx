@@ -16,7 +16,7 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 
-export const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+export const SECTION_BODY = "flex flex-col gap-[var(--ap-space-block)]";
 
 /**
  * The teams the viewer is in, each linking to its page: a team's members
@@ -43,7 +43,7 @@ export function MyTeams({
 
   const title = <Heading id={titleId}>{t("teams.mine.title")}</Heading>;
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
+    <section className={SECTION_BODY} aria-labelledby={titleId}>
       {action ? (
         <div className="flex min-h-7 items-center justify-between gap-3">
           {title}

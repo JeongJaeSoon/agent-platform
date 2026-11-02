@@ -25,9 +25,9 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
-  Heading,
   NativeSelect,
   NativeSelectOption,
+  Section,
   Skeleton,
   Table,
   TableBody,
@@ -41,7 +41,6 @@ import { ChevronDown, ChevronUp, Plus } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -52,11 +51,11 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
+import { SECTION_BODY } from "../../components/my-teams.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { SECTION } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // To the second, as the release label is: activations a few seconds apart
@@ -112,7 +111,6 @@ export function Releases({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const titleId = useId();
   const latest = latestVersion(detail);
   const versionId = picked ?? latest?.id ?? "";
   const profiles = useQuery(profilesQuery(client));
@@ -213,9 +211,9 @@ export function Releases({
   };
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <div className="flex min-h-7 flex-wrap items-center justify-between gap-3">
-        <Heading id={titleId}>{t("agent.releases.title")}</Heading>
+    <Section
+      title={t("agent.releases.title")}
+      actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button
@@ -316,161 +314,165 @@ export function Releases({
             </form>
           </DialogContent>
         </Dialog>
-      </div>
-      {result}
-      {ordered.length === 0 ? (
-        <EmptyState
-          title={t("agent.releases.empty")}
-          description={t("agent.releases.emptyBody")}
-        />
-      ) : (
-        <TableContainer label={t("agent.releases.title")}>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colVersion")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colStatus")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colActivated")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colCard")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.profile")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.repository")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colBy")}
-                </TableHead>
-                <TableHead className={SPREAD}>
-                  {t("agent.releases.colNote")}
-                </TableHead>
-                <TableHead variant="actions">
-                  <span className="sr-only">
-                    {t("agent.releases.colActions")}
-                  </span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ordered.map((item) => {
-                const active = item.id === detail.agent.active_release_id;
-                const name =
-                  item.label ??
-                  t("agent.versionLabel", {
-                    version: versionNo(item.version_id) ?? "?",
+      }
+    >
+      <div className={SECTION_BODY}>
+        {result}
+        {ordered.length === 0 ? (
+          <EmptyState
+            title={t("agent.releases.empty")}
+            description={t("agent.releases.emptyBody")}
+          />
+        ) : (
+          <TableContainer label={t("agent.releases.title")}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.colVersion")}
+                  </TableHead>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.colStatus")}
+                  </TableHead>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.colActivated")}
+                  </TableHead>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.colCard")}
+                  </TableHead>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.profile")}
+                  </TableHead>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.repository")}
+                  </TableHead>
+                  <TableHead variant="nowrap" className={SPREAD}>
+                    {t("agent.releases.colBy")}
+                  </TableHead>
+                  <TableHead className={SPREAD}>
+                    {t("agent.releases.colNote")}
+                  </TableHead>
+                  <TableHead variant="actions">
+                    <span className="sr-only">
+                      {t("agent.releases.colActions")}
+                    </span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ordered.map((item) => {
+                  const active = item.id === detail.agent.active_release_id;
+                  const name =
+                    item.label ??
+                    t("agent.versionLabel", {
+                      version: versionNo(item.version_id) ?? "?",
+                    });
+                  const label = t("agent.releaseLabel", {
+                    release: name,
+                    profile: item.runtime_profile_id,
                   });
-                const label = t("agent.releaseLabel", {
-                  release: name,
-                  profile: item.runtime_profile_id,
-                });
-                return (
-                  <TableRow key={item.id} data-active={active}>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} font-medium tabular-nums`}
-                    >
-                      {name}
-                    </TableCell>
-                    <TableCell variant="nowrap" className={SPREAD}>
-                      <Badge variant={active ? "green" : "gray"}>
-                        {active
-                          ? t("agent.releases.active")
-                          : item.activated_at
-                            ? t("agent.releases.previous")
-                            : t("agent.releases.never")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} tabular-nums`}
-                    >
-                      {/* `== null`: an API from before these fields omits them mid-rollout. */}
-                      {item.activated_at == null ? (
-                        <span className="text-muted-foreground">
-                          {t("agent.releases.noteNone")}
-                        </span>
-                      ) : item.deactivated_at == null ? (
-                        toSecond(item.activated_at)
-                      ) : (
-                        t("agent.releases.activePeriod", {
-                          from: toSecond(item.activated_at),
-                          to: toSecond(item.deactivated_at),
-                        })
-                      )}
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} text-muted-foreground`}
-                    >
-                      {t("agent.versionShort", {
-                        version: versionNo(item.version_id) ?? "?",
-                      })}
-                    </TableCell>
-                    <TableCell variant="nowrap" className={SPREAD}>
-                      <Code>{item.runtime_profile_id}</Code>
-                      {profiles.isSuccess &&
-                      !items.some(
-                        (listed) => listed.id === item.runtime_profile_id,
-                      ) ? (
-                        <Badge variant="amber" className="ml-2">
-                          {t("agent.releases.profileGone")}
+                  return (
+                    <TableRow key={item.id} data-active={active}>
+                      <TableCell
+                        variant="nowrap"
+                        className={`${SPREAD} font-medium tabular-nums`}
+                      >
+                        {name}
+                      </TableCell>
+                      <TableCell variant="nowrap" className={SPREAD}>
+                        <Badge variant={active ? "green" : "gray"}>
+                          {active
+                            ? t("agent.releases.active")
+                            : item.activated_at
+                              ? t("agent.releases.previous")
+                              : t("agent.releases.never")}
                         </Badge>
-                      ) : null}
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} font-mono text-caption`}
-                    >
-                      {item.repository_id ?? t("agent.releases.repositoryNone")}
-                    </TableCell>
-                    <TableCell variant="nowrap" className={SPREAD}>
-                      {(item.created_by
-                        ? names.get(item.created_by)
-                        : undefined) ?? t("agent.releases.byMember")}
-                    </TableCell>
-                    <TableCell className={SPREAD}>
-                      {item.note ? (
-                        <ReleaseNote note={item.note} />
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {t("agent.releases.noteNone")}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell variant="actions">
-                      {active ? null : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={activating !== undefined}
-                          aria-label={t("agent.releases.activateFor", {
-                            release: label,
-                          })}
-                          onClick={() => onActivate(item)}
-                        >
-                          {activating === item.id
-                            ? t("agent.releases.activating")
-                            : t("agent.releases.activate")}
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-    </section>
+                      </TableCell>
+                      <TableCell
+                        variant="nowrap"
+                        className={`${SPREAD} tabular-nums`}
+                      >
+                        {/* `== null`: an API from before these fields omits them mid-rollout. */}
+                        {item.activated_at == null ? (
+                          <span className="text-muted-foreground">
+                            {t("agent.releases.noteNone")}
+                          </span>
+                        ) : item.deactivated_at == null ? (
+                          toSecond(item.activated_at)
+                        ) : (
+                          t("agent.releases.activePeriod", {
+                            from: toSecond(item.activated_at),
+                            to: toSecond(item.deactivated_at),
+                          })
+                        )}
+                      </TableCell>
+                      <TableCell
+                        variant="nowrap"
+                        className={`${SPREAD} text-muted-foreground`}
+                      >
+                        {t("agent.versionShort", {
+                          version: versionNo(item.version_id) ?? "?",
+                        })}
+                      </TableCell>
+                      <TableCell variant="nowrap" className={SPREAD}>
+                        <Code>{item.runtime_profile_id}</Code>
+                        {profiles.isSuccess &&
+                        !items.some(
+                          (listed) => listed.id === item.runtime_profile_id,
+                        ) ? (
+                          <Badge variant="amber" className="ml-2">
+                            {t("agent.releases.profileGone")}
+                          </Badge>
+                        ) : null}
+                      </TableCell>
+                      <TableCell
+                        variant="nowrap"
+                        className={`${SPREAD} font-mono text-caption`}
+                      >
+                        {item.repository_id ??
+                          t("agent.releases.repositoryNone")}
+                      </TableCell>
+                      <TableCell variant="nowrap" className={SPREAD}>
+                        {(item.created_by
+                          ? names.get(item.created_by)
+                          : undefined) ?? t("agent.releases.byMember")}
+                      </TableCell>
+                      <TableCell className={SPREAD}>
+                        {item.note ? (
+                          <ReleaseNote note={item.note} />
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {t("agent.releases.noteNone")}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell variant="actions">
+                        {active ? null : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={activating !== undefined}
+                            aria-label={t("agent.releases.activateFor", {
+                              release: label,
+                            })}
+                            onClick={() => onActivate(item)}
+                          >
+                            {activating === item.id
+                              ? t("agent.releases.activating")
+                              : t("agent.releases.activate")}
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </div>
+    </Section>
   );
 }
 

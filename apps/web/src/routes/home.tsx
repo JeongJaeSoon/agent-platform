@@ -43,6 +43,7 @@ import {
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Skeleton,
   StatusDot,
   type StatusDotStatus,
@@ -61,7 +62,7 @@ import {
   Link as LinkIcon,
   List,
 } from "lucide-react";
-import { type ComponentProps, type ReactNode, useId, useState } from "react";
+import { type ComponentProps, type ReactNode, useState } from "react";
 import {
   administeredAgentsQuery,
   agentCountsQuery,
@@ -745,9 +746,10 @@ export function HomeScreen() {
             unavailable={unavailable}
             refusal={refusal}
           />
-          <HomeSection
+          <Section
+            className="@container min-w-0"
             title={t("home.overview.title")}
-            action={
+            actions={
               cards ? (
                 <Text variant="meta">{t("home.overview.basis")}</Text>
               ) : undefined
@@ -765,15 +767,16 @@ export function HomeScreen() {
             ) : (
               <StatusScreen kind="loading" />
             )}
-          </HomeSection>
-          <HomeSection
+          </Section>
+          <Section
+            className="@container min-w-0"
             title={t("home.recent.title")}
-            action={
+            actions={
               <ArrowLink to="/sessions">{t("home.recent.all")}</ArrowLink>
             }
           >
             <RecentSessionTable waitingSince={requests?.since} now={now} />
-          </HomeSection>
+          </Section>
           <AdministeredAgents showEmpty={false} />
           {/* Without member.manage there is no 구성원 item in the sidebar
               (console v4 navWs); this is the way to the teams list, so it
@@ -886,30 +889,6 @@ function count(items: number, more: boolean) {
   return more ? `${items}+` : String(items);
 }
 
-function HomeSection({
-  title,
-  action,
-  children,
-}: {
-  readonly title: string;
-  readonly action?: ReactNode;
-  readonly children: ReactNode;
-}) {
-  const titleId = useId();
-  return (
-    <section
-      className="@container flex min-w-0 flex-col gap-[var(--ap-space-block)]"
-      aria-labelledby={titleId}
-    >
-      <div className="flex min-h-7 items-center justify-between gap-3">
-        <Heading id={titleId}>{title}</Heading>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 function ArrowLink({
   to,
   search,
@@ -949,9 +928,10 @@ function SlackTodo({
   const { t } = useI18n();
   if (agents.length === 0) return null;
   return (
-    <HomeSection
+    <Section
+      className="@container min-w-0"
       title={t("home.todo.title")}
-      action={
+      actions={
         more || agents.length > TODO_LIMIT ? (
           <ArrowLink to="/agents">
             {t(more ? "home.todo.allMore" : "home.todo.all", {
@@ -997,7 +977,7 @@ function SlackTodo({
           );
         })}
       </RowList>
-    </HomeSection>
+    </Section>
   );
 }
 
@@ -1276,21 +1256,19 @@ function RecentSessionTable({
 
 function Checklist({ steps }: { readonly steps: readonly Step[] }) {
   const { t } = useI18n();
-  const titleId = useId();
   const done = steps.filter((step) => step.state === "done").length;
   const next = steps.find((step) => step.state !== "done");
   return (
-    <section
-      className="flex min-w-0 flex-col gap-[var(--ap-space-block)]"
-      aria-labelledby={titleId}
+    <Section
+      className="min-w-0"
       data-slot="home-checklist"
-    >
-      <div className="flex min-h-7 items-center justify-between gap-3">
-        <Heading id={titleId}>{t("home.checklist.title")}</Heading>
+      title={t("home.checklist.title")}
+      actions={
         <Text as="span" variant="meta">
           {t("home.checklist.progress", { done, total: steps.length })}
         </Text>
-      </div>
+      }
+    >
       <Card className="p-4">
         <Steps
           completedLabel={t("common.done")}
@@ -1320,6 +1298,6 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
           }))}
         />
       </Card>
-    </section>
+    </Section>
   );
 }

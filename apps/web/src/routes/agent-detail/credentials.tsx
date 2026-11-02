@@ -28,22 +28,22 @@ import {
   ConfirmDialog,
   cn,
   EmptyState,
-  Heading,
   RowAction,
   RowLines,
   RowList,
   RowListItem,
+  Section,
   Text,
 } from "@werft-ai/ui";
-import { type ReactNode, type RefObject, useId, useState } from "react";
+import { type ReactNode, type RefObject, useState } from "react";
 import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
+import { SECTION_BODY } from "../../components/my-teams.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { StatusScreen } from "../../components/status-screen.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
-import { SECTION } from "./classes.ts";
 import { latestVersion } from "./versions.tsx";
 
 /** Under the agent's key, so whatever refreshes the agent refreshes these. */
@@ -88,7 +88,6 @@ export function Credentials({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
-  const titleId = useId();
   const agentId = detail.agent.id;
   // The list's summaries say which names are bound.
   const invalidateBindings = () =>
@@ -168,129 +167,133 @@ export function Credentials({
   const busy = bind.isPending || revoke.isPending;
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <Heading id={titleId} ref={titleRef} tabIndex={-1}>
-        {t("agent.credentials.title")}
-      </Heading>
-      <Text variant="sub">{t("agent.credentials.intro")}</Text>
-      {bindings.isPending ? (
-        <StatusScreen kind="loading" />
-      ) : bindings.error ? (
-        isApiError(bindings.error, "FORBIDDEN") ? (
-          <Text variant="sub">{permissionReason(t, "agent.manage", role)}</Text>
-        ) : (
-          <LoadFailure
-            error={bindings.error}
-            onRetry={() => void bindings.refetch()}
-          />
-        )
-      ) : (
-        <>
-          {unbound.length > 0 ? (
-            <RowList aria-label={t("agent.credentials.unboundList")}>
-              {unbound.map((ref) => (
-                <RowListItem
-                  key={ref}
-                  className={cn(
-                    missing.includes(ref) &&
-                      "border-[var(--ap-tone-attention-border)]",
-                  )}
-                  data-missing={missing.includes(ref)}
-                >
-                  <RowLines>
-                    <Text
-                      as="span"
-                      weight="medium"
-                      className="block break-words"
-                    >
-                      <Code size="inherit">{ref}</Code>
-                    </Text>
-                    <Text
-                      as="span"
-                      variant="meta"
-                      className="block [overflow-wrap:anywhere]"
-                    >
-                      {missing.includes(ref)
-                        ? t("agent.credentials.neededToActivate")
-                        : t("agent.credentials.namedByCard")}
-                    </Text>
-                  </RowLines>
-                  <RowAction
-                    disabled={busy}
-                    aria-label={t("agent.credentials.bindFor", { name: ref })}
-                    onClick={() => bind.mutate(ref)}
-                  >
-                    {t("agent.credentials.bind")}
-                  </RowAction>
-                </RowListItem>
-              ))}
-            </RowList>
-          ) : null}
-          {active.length === 0 ? (
-            <EmptyState
-              title={t(
-                unbound.length === 0
-                  ? "agent.credentials.noneNamed"
-                  : "agent.credentials.empty",
-              )}
-            />
+    <Section
+      title={t("agent.credentials.title")}
+      titleProps={{ ref: titleRef, tabIndex: -1 }}
+      description={t("agent.credentials.intro")}
+    >
+      <div className={SECTION_BODY}>
+        {bindings.isPending ? (
+          <StatusScreen kind="loading" />
+        ) : bindings.error ? (
+          isApiError(bindings.error, "FORBIDDEN") ? (
+            <Text variant="sub">
+              {permissionReason(t, "agent.manage", role)}
+            </Text>
           ) : (
-            <RowList aria-label={t("agent.credentials.boundList")}>
-              {active.map((binding) => (
-                <RowListItem key={binding.id}>
-                  <RowLines>
-                    <Text
-                      as="span"
-                      weight="medium"
-                      className="block break-words"
-                    >
-                      <Code size="inherit">{binding.credential_ref}</Code>
-                    </Text>
-                    <Text
-                      as="span"
-                      variant="meta"
-                      className="block [overflow-wrap:anywhere]"
-                    >
-                      {t("agent.credentials.running", {
-                        count: binding.running_sessions,
-                      })}
-                    </Text>
-                  </RowLines>
-                  <RowAction
-                    variant="danger"
-                    disabled={busy}
-                    aria-label={t("agent.credentials.revokeFor", {
-                      name: binding.credential_ref,
-                    })}
-                    onClick={() => setRevoking(binding)}
+            <LoadFailure
+              error={bindings.error}
+              onRetry={() => void bindings.refetch()}
+            />
+          )
+        ) : (
+          <>
+            {unbound.length > 0 ? (
+              <RowList aria-label={t("agent.credentials.unboundList")}>
+                {unbound.map((ref) => (
+                  <RowListItem
+                    key={ref}
+                    className={cn(
+                      missing.includes(ref) &&
+                        "border-[var(--ap-tone-attention-border)]",
+                    )}
+                    data-missing={missing.includes(ref)}
                   >
-                    {t("agent.credentials.revoke")}
-                  </RowAction>
-                </RowListItem>
-              ))}
-            </RowList>
-          )}
-        </>
-      )}
-      {result}
-      <ConfirmDialog
-        open={revoking !== null}
-        onOpenChange={(open) => {
-          if (!open) setRevoking(null);
-        }}
-        title={t("agent.credentials.revokeTitle", {
-          name: revoking?.credential_ref ?? "",
-        })}
-        consequence={revokeConsequence(t, revoking)}
-        confirmLabel={t("agent.credentials.revoke")}
-        cancelLabel={t("common.cancel")}
-        tone="danger"
-        busy={revoke.isPending}
-        onConfirm={() => {
-          if (revoking) revoke.mutate(revoking);
-        }}
-      />
-    </section>
+                    <RowLines>
+                      <Text
+                        as="span"
+                        weight="medium"
+                        className="block break-words"
+                      >
+                        <Code size="inherit">{ref}</Code>
+                      </Text>
+                      <Text
+                        as="span"
+                        variant="meta"
+                        className="block [overflow-wrap:anywhere]"
+                      >
+                        {missing.includes(ref)
+                          ? t("agent.credentials.neededToActivate")
+                          : t("agent.credentials.namedByCard")}
+                      </Text>
+                    </RowLines>
+                    <RowAction
+                      disabled={busy}
+                      aria-label={t("agent.credentials.bindFor", { name: ref })}
+                      onClick={() => bind.mutate(ref)}
+                    >
+                      {t("agent.credentials.bind")}
+                    </RowAction>
+                  </RowListItem>
+                ))}
+              </RowList>
+            ) : null}
+            {active.length === 0 ? (
+              <EmptyState
+                title={t(
+                  unbound.length === 0
+                    ? "agent.credentials.noneNamed"
+                    : "agent.credentials.empty",
+                )}
+              />
+            ) : (
+              <RowList aria-label={t("agent.credentials.boundList")}>
+                {active.map((binding) => (
+                  <RowListItem key={binding.id}>
+                    <RowLines>
+                      <Text
+                        as="span"
+                        weight="medium"
+                        className="block break-words"
+                      >
+                        <Code size="inherit">{binding.credential_ref}</Code>
+                      </Text>
+                      <Text
+                        as="span"
+                        variant="meta"
+                        className="block [overflow-wrap:anywhere]"
+                      >
+                        {t("agent.credentials.running", {
+                          count: binding.running_sessions,
+                        })}
+                      </Text>
+                    </RowLines>
+                    <RowAction
+                      variant="danger"
+                      disabled={busy}
+                      aria-label={t("agent.credentials.revokeFor", {
+                        name: binding.credential_ref,
+                      })}
+                      onClick={() => setRevoking(binding)}
+                    >
+                      {t("agent.credentials.revoke")}
+                    </RowAction>
+                  </RowListItem>
+                ))}
+              </RowList>
+            )}
+          </>
+        )}
+        {result}
+        <ConfirmDialog
+          open={revoking !== null}
+          onOpenChange={(open) => {
+            if (!open) setRevoking(null);
+          }}
+          title={t("agent.credentials.revokeTitle", {
+            name: revoking?.credential_ref ?? "",
+          })}
+          consequence={revokeConsequence(t, revoking)}
+          confirmLabel={t("agent.credentials.revoke")}
+          cancelLabel={t("common.cancel")}
+          tone="danger"
+          busy={revoke.isPending}
+          onConfirm={() => {
+            if (revoking) revoke.mutate(revoking);
+          }}
+        />
+      </div>
+    </Section>
   );
 }
 
