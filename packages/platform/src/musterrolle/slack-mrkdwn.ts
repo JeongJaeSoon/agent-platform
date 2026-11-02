@@ -60,13 +60,21 @@ function keepDoubleBacktickSpans(text: string, kept: Kept): string {
 function keepTildeFences(text: string, kept: Kept): string {
   const lines = text.split("\n");
   const output: string[] = [];
-  // No closing fence this long remains below, so a longer opener need not look.
-  let unclosed = Number.POSITIVE_INFINITY;
+  // The longest closing fence at or below each line: an opener longer than
+  // what remains below has no close and need not look.
+  const longestBelow = new Array<number>(lines.length + 1).fill(0);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const fence = /^ {0,3}(~{3,})\s*$/.exec(lines[index] ?? "")?.[1];
+    longestBelow[index] = Math.max(
+      fence?.length ?? 0,
+      longestBelow[index + 1] ?? 0,
+    );
+  }
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
     const open = /^ {0,3}(~{3,})/.exec(line)?.[1];
     let close = -1;
-    if (open !== undefined && open.length < unclosed) {
+    if (open !== undefined && open.length <= (longestBelow[index + 1] ?? 0)) {
       for (let next = index + 1; next < lines.length; next += 1) {
         const fence = /^ {0,3}(~{3,})\s*$/.exec(lines[next] ?? "")?.[1];
         if (fence !== undefined && fence.length >= open.length) {
@@ -74,7 +82,6 @@ function keepTildeFences(text: string, kept: Kept): string {
           break;
         }
       }
-      if (close === -1) unclosed = open.length;
     }
     if (close === -1) {
       output.push(line);
@@ -213,19 +220,23 @@ function isTableRow(line: string): boolean {
 function cellText(cell: string, kept: Kept): string {
   const text = inline(cell, kept, CELL).replace(/\uE000\d+\uE001/g, (token) => {
     const code = kept.get(token) ?? token;
-    return /^`[^`]|^``/.test(code)
+    return /^`[^`]|^``(?!`)/.test(code)
       ? kept.restore(code).replace(/^(`+) ?([\s\S]*?) ?\1$/, "$2")
       : token;
   });
   // ``` would close the table's own fence.
-  return kept.restore(text).trim().replace(/```/g, `\`\`${ZWSP}\``);
+  return kept
+    .restore(text)
+    .trim()
+    .replace(/`(?=`)/g, `\`${ZWSP}`);
 }
 
 // A long cell is not padded past this, so one cell cannot widen every row.
 const COLUMN_MAX = 40;
 
 function renderTable(rows: string[][]): string {
-  const columns = Math.max(...rows.map((row) => row.length));
+  // Cells past the header's count are dropped, as GitHub does.
+  const columns = rows[0]?.length ?? 0;
   const widths = Array.from({ length: columns }, (_, column) =>
     Math.min(
       COLUMN_MAX,
@@ -240,7 +251,7 @@ function renderTable(rows: string[][]): string {
       })
       .join(" | ")
       .trimEnd();
-  const [header = [], ...body] = rows;
+  const [header = [], ...body] = rows.map((row) => row.slice(0, columns));
   const rule = widths.map((columnWidth) => "-".repeat(columnWidth)).join("-+-");
   return ["```", line(header), rule, ...body.map(line), "```"].join("\n");
 }

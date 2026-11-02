@@ -226,9 +226,16 @@ describe("markdownToSlackMrkdwn", () => {
   test("a table cannot close its own fence or pad without bound", () => {
     expect(
       markdownToSlackMrkdwn("| h |\n| --- |\n| ``a```b`` |\n**after**"),
-    ).toBe(`\`\`\`\nh\n-----\na\`\`${ZW}\`b\n\`\`\`\n*after*`);
+    ).toBe(`\`\`\`\nh\n-----\na\`${ZW}\`${ZW}\`b\n\`\`\`\n*after*`);
     const wide = `| h | b |\n|---|---|\n| ${"x".repeat(10_000)} | b |\n${"| a | b |\n".repeat(8_000)}`;
     expect(markdownToSlackMrkdwn(wide).length).toBeLessThan(1_000_000);
+    const ragged = `|h|\n|-|\n${"|".repeat(1_000)}\n${"|x|\n".repeat(24_000)}`;
+    expect(markdownToSlackMrkdwn(ragged).length).toBeLessThan(
+      ragged.length * 2,
+    );
+    expect(markdownToSlackMrkdwn("|h|\n|-|\n|a``````b|")).toBe(
+      `\`\`\`\nh\n--------\na\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`${ZW}\`b\n\`\`\``,
+    );
   });
 
   test("a table keeps backticks inside its code and ends before a quote", () => {
@@ -258,6 +265,10 @@ describe("markdownToSlackMrkdwn", () => {
         "``x```".repeat(10_000),
         "~~~x\n".repeat(10_000),
         `${"~~~x\n".repeat(10_000)}\`\`\`\nx\n\`\`\`\n~~~`,
+        Array.from({ length: 250 }, (_, i) => `${"~".repeat(252 - i)}x`).join(
+          "\n",
+        ),
+        "a\n".repeat(31_250),
       ].join("\n"),
     );
     expect(performance.now() - started).toBeLessThan(1_000);
