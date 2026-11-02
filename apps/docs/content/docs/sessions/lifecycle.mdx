@@ -3,7 +3,32 @@ title: "상태와 수명"
 description: 세션의 status와 admission_state, turn의 상태, interrupt, attention
 ---
 
-세션 상세(`GET /v1/sessions/{id}`)에는 상태가 둘 있다. `status`는 지금 실행이 어떤지, `admission_state`는 세션이 새 입력을 받는지다. turn은 따로 상태를 갖고, 끝났는지는 turn 상태로만 판단한다. [시작](/sessions/start)에서 만든 `SID`로 본다.
+세션 상세(`GET /v1/sessions/{id}`)에는 상태가 둘 있다. `status`는 지금 실행이 어떤지, `admission_state`는 세션이 새 입력을 받는지다. turn은 따로 상태를 갖고, 끝났는지는 turn 상태로만 판단한다. [시작](/sessions/start)에서 만든 세션(SDK는 `created`·`sessionId`, HTTP API는 `SID`)으로 본다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { waitForTurn } from "@werft-ai/sdk";
+
+await waitForTurn(werft, sessionId, created.turn_id);
+const { status, admission_state, current_turn_id, revision, attention } =
+  await werft.sessions.get(sessionId);
+console.log({ status, admission_state, current_turn_id, revision, attention });
+```
+
+```text
+{
+  status: 'idle',
+  admission_state: 'active',
+  current_turn_id: null,
+  revision: 0,
+  attention: null
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 until [ "$(curl -sS "$API/v1/sessions/$SID/turns/1" -H "Authorization: Bearer $KEY" | jq -r .status)" = completed ]; do
@@ -22,6 +47,11 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
   "attention": null
 }
 ```
+
+레퍼런스: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
 
 `revision`은 pause·resume·close 같은 제어로 세션이 바뀔 때 오른다. turn이 끝나는 것으로는 오르지 않는다. 제어 요청에는 지금 값을 `expected_revision`으로 보낸다.
 
@@ -49,15 +79,59 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 
 ## turn 상태
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+for await (const turn of werft.sessions.turns.list(sessionId)) {
+  console.log(turn.turn_id, turn.status);
+}
+```
+
+</Tab>
+<Tab>
+
 ```bash
 curl -sS "$API/v1/sessions/$SID/turns" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {turn_id, status}'
 ```
+
+레퍼런스: [`GET /v1/sessions/{id}/turns`](/reference/http-api/messages-and-turns/listSessionTurns)
+
+</Tab>
+</Tabs>
 
 `queued`·`running`·`needs_input`은 진행 중이고, `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`은 끝난 상태다. `completed`는 엔진이 turn을 정상 종료했다는 뜻이지, 요청한 일을 다 했다는 뜻은 아니다. 일이 끝났는지는 이벤트의 `assistant`·`tool_result`를 읽고 판단한다. 이벤트의 `result`도 완료 판정이 아니다.
 
 ## interrupt
 
 돌고 있는 turn 하나만 멈춘다. worker는 남아 다음 메시지를 받는다. 아래 대본은 답을 5분 늦게 보내서, 그동안 turn이 `running`에 머문다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const sent = await werft.sessions.messages.send(sessionId, {
+  message:
+    'GATE-SPEC {"id":"slow","steps":[],"final":"too late","finalDelayMs":300000}',
+});
+while ((await werft.sessions.turns.get(sessionId, sent.turn_id)).status !== "running") {
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+const accepted = await werft.sessions.interrupt(sessionId, {
+  target_turn_id: sent.turn_id,
+});
+console.log(accepted.receipt_status);
+const turn = await waitForTurn(werft, sessionId, sent.turn_id);
+console.log(`turn ${turn.turn_id}: ${turn.status}`);
+```
+
+```text
+accepted
+turn 2: interrupted
+```
+
+</Tab>
+<Tab>
 
 ```bash
 turn=$(curl -sS "$API/v1/sessions/$SID/messages" \
@@ -90,6 +164,11 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 }
 ```
 
+레퍼런스: [`POST /v1/sessions/{id}/interrupt`](/reference/http-api/session-control/interruptSession)
+
+</Tab>
+</Tabs>
+
 아직 시작하지 않은 turn은 409 `TURN_NOT_STARTED`, 이미 끝난 turn은 아무것도 하지 않는 성공(`no_op: true`)이다. scope는 `sessions:control`이다.
 
 ## attention
@@ -108,6 +187,21 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq '{status, 
 
 ## 사용량
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const usage = await werft.sessions.usage(sessionId);
+console.log(usage.cost.amount_usd, usage.cost.complete, usage.budget_exceeded);
+```
+
+```text
+0.000063 true false
+```
+
+</Tab>
+<Tab>
+
 ```bash
 curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
   | jq '{cost: .cost.amount_usd, complete: .cost.complete, budget_exceeded}'
@@ -115,15 +209,20 @@ curl -sS "$API/v1/sessions/$SID/usage" -H "Authorization: Bearer $KEY" \
 
 ```text
 {
-  "cost": "0.000042",
+  "cost": "0.000063",
   "complete": true,
   "budget_exceeded": false
 }
 ```
 
+레퍼런스: [`GET /v1/sessions/{id}/usage`](/reference/http-api/sessions/getSessionUsage)
+
+</Tab>
+</Tabs>
+
 비용은 청구액이 아니라 가격표로 계산한 추정치다. `complete`가 `false`면 합계가 아직 정해지지 않았다. 열린 turn이 있거나(`open_turn_count`), 끝난 turn 가운데 비용이 보고되지 않은 것이 있다(`unreported_turn_count`). 뒤의 경우는 모든 turn이 끝나도 `false`로 남는다.
 
-기간 동안 내가 시작한 세션을 모두 더하려면 `GET /v1/usage/summary`를 쓴다. `since`는 날짜(그 날 00:00 UTC)나 offset이 붙은 시각이고, `until`을 빼면 지금까지다.
+기간 동안 내가 시작한 세션을 모두 더하려면 `GET /v1/usage/summary`를 쓴다. 이 합계와 `GET /v1/limits?scope=me`는 SDK 메서드가 없어 HTTP API로 읽는다. SDK의 `limits.get()`은 설치 전체 한도(`GET /v1/limits`)를 읽는데, 이것은 로그인한 workspace owner만 읽으므로 API key로 부르면 403이다. 레퍼런스: [`GET /v1/usage/summary`](/reference/http-api/limits-and-receipts/getUsageSummary), [`GET /v1/limits`](/reference/http-api/limits-and-receipts/getInstallationLimits) `since`는 날짜(그 날 00:00 UTC)나 offset이 붙은 시각이고, `until`을 빼면 지금까지다.
 
 ```bash
 curl -sS "$API/v1/usage/summary?scope=me&since=2026-10-01" -H "Authorization: Bearer $KEY" \

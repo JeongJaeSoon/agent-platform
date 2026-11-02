@@ -1,23 +1,136 @@
 ---
 title: "저장소 없는 세션"
-description: 저장소 없이 도는 세션의 지금 상태
+description: 저장소를 clone하지 않고 빈 작업 공간에서 도는 세션
 ---
 
-<Callout type="warn">
-저장소 없이 도는 세션은 아직 API로 만들 수 없다. `POST /v1/sessions`는 `repository_id`가 필수이고, 빈 값은 400이다.
-</Callout>
+저장소를 쓰는지는 실행 프로필이 정한다. 프로필의 `repository_mode`가 `required`면 세션마다 `repository_id`를 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. 저장소 없이 만든 세션은 빈 작업 공간에서 시작한다. SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다.
 
-실행 프로필에는 저장소를 쓰는지가 이미 적혀 있다. `GET /v1/profiles`의 `repository_mode`가 `required`(저장소 필수), `optional`, `none`(저장소 없음) 중 하나다.
+## 프로필 확인
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const { items } = await werft.profiles.list();
+for (const profile of items) console.log(profile.id, profile.repository_mode);
+```
+
+```text
+claude-coding-auto required
+claude-coding-local required
+general none
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, repository_mode}'
 ```
 
 ```text
+{"id":"claude-coding-auto","repository_mode":"required"}
 {"id":"claude-coding-local","repository_mode":"required"}
+{"id":"general","repository_mode":"none"}
 ```
 
-로컬 스택의 프로필은 모두 `required`다. 지금은 세션마다 저장소를 하나 고른다([시작](/sessions/start)).
+레퍼런스: [`GET /v1/profiles`](/reference/http-api/agents/listProfiles)
+
+</Tab>
+</Tabs>
+
+개발용 서버([개발용 서버 실행](/run-server/dev-server))의 `general` 프로필이 `none`이다.
+
+## 저장소 없이 만들기
+
+`repository_id`를 빼고 만든다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "general",
+  message: 'GATE-SPEC {"id":"no-repo","steps":[],"final":"no repository here"}',
+});
+console.log(created.status);
+const session = await werft.sessions.get(created.session_id);
+console.log(session.repository_id, session.repository);
+```
+
+```text
+queued
+null null
+```
+
+</Tab>
+<Tab>
+
+```bash
+NOREPO=$(curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "$(jq -nc --arg m 'GATE-SPEC {"id":"no-repo","steps":[],"final":"no repository here"}' \
+    '{profile_id: "general", message: $m}')" | jq -r .session_id)
+curl -sS "$API/v1/sessions/$NOREPO" -H "Authorization: Bearer $KEY" | jq -c '{repository_id, repository}'
+```
+
+```text
+{"repository_id":null,"repository":null}
+```
+
+레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
+## 프로필과 맞지 않을 때
+
+`none` 프로필에 `repository_id`를 보내거나 `required` 프로필에서 빼면 422 `UNSUPPORTED_CAPABILITY`다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.create({
+    profile_id: "general",
+    repository_id: "sample-app",
+    message: "hello",
+  });
+} catch (error) {
+  if (!isApiError(error)) throw error;
+  console.log(error.status, error.code, error.message);
+}
+```
+
+```text
+422 UNSUPPORTED_CAPABILITY Profile general runs without a repository: omit repository_id
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/sessions" \
+  -H "Authorization: Bearer $KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"profile_id": "general", "repository_id": "sample-app", "message": "hello"}' \
+  | jq -c '.error | {code, message}'
+```
+
+```text
+{"code":"UNSUPPORTED_CAPABILITY","message":"Profile general runs without a repository: omit repository_id"}
+```
+
+</Tab>
+</Tabs>
+
+저장소가 없으니 push할 곳도 없다. 이 세션의 [push 요청](/approvals/request)은 409 `PUSH_SOURCE_MISSING`이다. 진행 중에 프로필을 바꿀 때는 저장소를 쓰지 않는 프로필(`optional`, `none`)로만 바꿀 수 있다([프로필 바꾸기](/agents/run-profiles#진행-중인-세션의-프로필-바꾸기)).
 
 ## 다음 단계
 

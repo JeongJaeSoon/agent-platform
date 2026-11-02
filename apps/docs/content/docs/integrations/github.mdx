@@ -20,28 +20,62 @@ GitHub와 하는 일은 셋이다. 세션이 시작할 때 저장소를 clone한
 
 1. 그 저장소의 `repository_id`로 세션을 만든다([시작](/sessions/start)).
 2. 결과를 [요청](/approvals/request)하고 [승인](/approvals/approve)한다. 요청이 `pushed`가 되면 저장소에 `agent/<session-id>` 브랜치가 생긴다.
-3. PR을 연다. `sessions:approve`가 필요하다.
+3. PR을 연다. `sessions:approve`가 필요하다. 아래 예제는 [요청](/approvals/request)과 [승인](/approvals/approve)의 `sessionId`와 `push`(HTTP API는 `SID`, `PUSH_ID`)를 쓴다.
 
-```sh
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const opened = await werft.sessions.pushRequests.openPullRequest(sessionId, push.id, {
+  title: "Add release notes",
+  body: "Written by the agent, approved by me.",
+});
+console.log(opened.pull_request.number, opened.pull_request.url, opened.created);
+```
+
+</Tab>
+<Tab>
+
+```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"title": "Add release notes", "body": "Written by the agent, approved by me."}' \
   | jq '{number: .pull_request.number, url: .pull_request.url, created}'
 ```
 
-head는 `agent/<session-id>`, base는 카탈로그에 적은 브랜치다. 요청 하나에 PR은 하나다. 그 브랜치의 PR이 이미 열려 있으면 새로 열지 않고 그 PR을 돌려준다(`created: false`). 플랫폼은 PR을 승인·머지하지 않고, 리뷰어나 라벨도 정하지 않는다.
+레퍼런스: [`POST …/push-requests/{push_request_id}/pull-request`](/reference/http-api/push-requests/openPullRequest)
+
+</Tab>
+</Tabs>
+
+이 호출에는 `Idempotency-Key`가 없다. 그래서 SDK는 응답을 받지 못한 경우 다시 보내지 않는다([재시도와 Idempotency-Key](/getting-started/client#재시도와-idempotency-key)). head는 `agent/<session-id>`, base는 카탈로그에 적은 브랜치다. 요청 하나에 PR은 하나다. 그 브랜치의 PR이 이미 열려 있으면 새로 열지 않고 그 PR을 돌려준다(`created: false`). 플랫폼은 PR을 승인·머지하지 않고, 리뷰어나 라벨도 정하지 않는다.
 
 4. 코멘트를 단다. 같은 `marker`(기본 `status`)의 코멘트가 이미 있으면 새로 달지 않고 그 코멘트를 고친다.
 
-```sh
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+await werft.sessions.pushRequests.commentPullRequest(sessionId, push.id, {
+  body: "Tests pass on the agent branch.",
+});
+```
+
+</Tab>
+<Tab>
+
+```bash
 curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"body": "Tests pass on the agent branch."}'
 ```
+
+레퍼런스: [`POST …/pull-request/comments`](/reference/http-api/push-requests/commentPullRequest)
+
+</Tab>
+</Tabs>
 
 제목·본문·코멘트는 GitHub에 보내기 전에 정리된다. 비밀처럼 보이는 줄은 가리고, `@멘션`과 `Closes #N` 같은 닫기 키워드는 알림이나 자동 닫기가 일어나지 않게 바꾼다.
 
@@ -75,13 +109,39 @@ GitHub 계정 하나는 한 사람에게만 연결된다. 다른 사람이 이�
 
 로컬 `sample-app`은 GitHub가 아니라 스택 안의 Gitea 저장소이고 push 자격 증명이 없다. 그래서 승인한 push는 `no_push_credential`로 `failed`가 되고, PR 요청은 push되지 않은 요청이라 409다. [승인](/approvals/approve)에서 `failed`로 끝난 요청으로 확인한다.
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+const requests = await werft.sessions.pushRequests.list(sessionId);
+const failed = requests.find((request) => request.state === "failed");
+if (failed) {
+  try {
+    await werft.sessions.pushRequests.openPullRequest(sessionId, failed.id, {
+      title: "Add release notes",
+    });
+  } catch (error) {
+    if (!isApiError(error)) throw error;
+    console.log(error.status, error.code);
+  }
+}
+```
+
+```text
+409 PUSH_NOT_PUSHED
+```
+
+</Tab>
+<Tab>
+
 ```bash
 FAILED=$(curl -sS "$API/v1/sessions/$SID/push-requests" -H "Authorization: Bearer $KEY" \
   | jq -r '[.items[] | select(.state == "failed")][0].id')
 curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"title": "Add release notes"}' | jq '{code: .error.code}'
 ```
 
@@ -90,6 +150,11 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
   "code": "PUSH_NOT_PUSHED"
 }
 ```
+
+레퍼런스: [`GET /v1/sessions/{id}/push-requests`](/reference/http-api/push-requests/listPushRequests)
+
+</Tab>
+</Tabs>
 
 | 응답 | 뜻 |
 | --- | --- |

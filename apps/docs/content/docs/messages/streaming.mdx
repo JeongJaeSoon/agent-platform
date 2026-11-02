@@ -3,11 +3,47 @@ title: "스트리밍 받기"
 description: SSE로 세션 이벤트를 받고, 끊기면 Last-Event-ID로 이어 받는다
 ---
 
-`GET /v1/sessions/{id}/events`는 세션의 이벤트를 Server-Sent Events로 보낸다. 이미 저장된 이벤트를 처음부터 다시 보내고, 그 뒤로 새 이벤트가 생기는 대로 이어 보낸다. scope는 `sessions:read`다. [보내기](/messages/send)의 `SID`를 쓴다.
+`sessions.events.stream`(`GET /v1/sessions/{id}/events`)은 세션의 이벤트를 Server-Sent Events로 받는다. 이미 저장된 이벤트를 처음부터 다시 보내고, 그 뒤로 새 이벤트가 생기는 대로 이어 보낸다. scope는 `sessions:read`다. [보내기](/messages/send)의 세션(SDK는 `sessionId`, HTTP API는 `SID`)을 쓴다.
 
 ## 받기
 
-스트림은 15초마다 keepalive를 보내므로 정상일 때도 닫히지 않는다. 아래 예제는 `--max-time`으로 끊는다. `curl: (28) Operation timed out`은 그래서 나온다.
+스트림은 15초마다 keepalive를 보내므로 정상일 때도 닫히지 않는다. 아래 예제는 5초 뒤 끊는다. SDK는 `signal`이나 `stream.close()`로, curl은 `--max-time`으로 끊는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { AbortedError, type SessionEvent } from "@werft-ai/sdk";
+
+const seen: SessionEvent[] = [];
+const stream = werft.sessions.events.stream(sessionId, {
+  signal: AbortSignal.timeout(5_000),
+});
+try {
+  for await (const event of stream) seen.push(event);
+} catch (error) {
+  if (!(error instanceof AbortedError)) throw error;
+}
+const counts = new Map<string, number>();
+for (const event of seen) counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+console.log(counts);
+```
+
+```text
+Map(6) {
+  'status' => 5,
+  'system' => 8,
+  'assistant' => 2,
+  'result' => 2,
+  'tool_use' => 1,
+  'tool_result' => 1
+}
+```
+
+SDK의 이벤트는 `id`, `turn_id`, `attempt_id`, `occurred_at`, `kind`(아래 표의 event), `payload`(안쪽 `data`)를 가진다.
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY" \
@@ -16,14 +52,19 @@ grep '^event:' events.txt | sort | uniq -c
 ```
 
 ```text
-curl: (28) Operation timed out after 5005 milliseconds with 8000 bytes received
+curl: (28) Operation timed out after 5001 milliseconds with 9315 bytes received
    2 event: assistant
    2 event: result
-   4 event: status
+   5 event: status
    8 event: system
    1 event: tool_result
    1 event: tool_use
 ```
+
+레퍼런스: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
 
 이 세션의 turn 두 개(준비 메시지와 `ls`)의 이벤트가 모두 왔다. frame 하나는 `event:`, `data:`, `id:` 세 줄과 빈 줄이다.
 
@@ -50,6 +91,30 @@ id: ev_3m
 
 ## 텍스트와 도구 결과 뽑기
 
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+for (const event of seen) {
+  if (event.kind === "assistant")
+    console.log((event.payload as { text?: string }).text);
+  if (event.kind === "tool_result") {
+    const result = (event.payload as { tool_result?: { is_error?: boolean } })
+      .tool_result;
+    console.log({ is_error: result?.is_error });
+  }
+}
+```
+
+```text
+ready
+{ is_error: false }
+listed
+```
+
+</Tab>
+<Tab>
+
 ```bash
 awk '/^event: assistant/ { getline; sub(/^data: /, ""); print }' events.txt \
   | jq -r '.data.text // empty'
@@ -63,11 +128,40 @@ listed
 {"is_error":false}
 ```
 
+레퍼런스: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)
+
+</Tab>
+</Tabs>
+
 turn이 끝났는지는 이벤트가 아니라 turn의 `status`로 본다([보내기](/messages/send#결과-읽기)). 일이 됐는지는 `assistant`와 `tool_result`의 내용으로 판단한다.
 
 ## 끊긴 뒤 이어 받기
 
-마지막으로 받은 `id`를 `Last-Event-ID` 헤더로 보내면 그다음 이벤트부터 받는다. 받은 이벤트는 다시 오지 않는다.
+마지막으로 받은 `id`를 넘기면 그다음 이벤트부터 받는다. SDK는 `stream.lastEventId`를 `lastEventId` 옵션으로, HTTP API는 `Last-Event-ID` 헤더로 넘긴다. SDK는 연결이 끊기면 스스로 이 값으로 다시 붙는다. 받은 이벤트는 다시 오지 않는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const more = werft.sessions.events.stream(sessionId, {
+  lastEventId: stream.lastEventId,
+  signal: AbortSignal.timeout(3_000),
+});
+let count = 0;
+try {
+  for await (const _event of more) count++;
+} catch (error) {
+  if (!(error instanceof AbortedError)) throw error;
+}
+console.log(count);
+```
+
+```text
+0
+```
+
+</Tab>
+<Tab>
 
 ```bash
 LAST=$(awk '/^id: / { id = $2 } END { sub(/\r$/, "", id); print id }' events.txt)
@@ -80,6 +174,11 @@ grep -c '^event:' more.txt || true
 curl: (28) Operation timed out after 3005 milliseconds with 0 bytes received
 0
 ```
+
+레퍼런스: [`GET /v1/sessions/{id}/events`](/reference/http-api/events/streamSessionEvents)의 `Last-Event-ID` 헤더
+
+</Tab>
+</Tabs>
 
 그 뒤로 새 이벤트가 없어서 아무것도 오지 않았다. 그사이 다음 메시지를 보냈다면 그 turn의 이벤트가 온다.
 
