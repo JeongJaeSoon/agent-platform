@@ -78,14 +78,12 @@ export const workspaceKo = {
   "workspace.slackStart": "Slack 연결하기",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만들 때 쓰는 토큰입니다.",
+    "이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만들 때 쓰는 토큰입니다. 마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다.",
   "workspace.tokenUnset": "등록 안 됨",
-  "workspace.tokenActive": "등록됨",
+  "workspace.tokenActive": "토큰 확인됨",
   "workspace.tokenNeedsReentry": "재등록 필요",
   "workspace.tokenNeedsReentryHint":
-    "Slack이 저장된 토큰을 더 받지 않습니다. 토큰을 다시 등록할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속 동작합니다.",
-  "workspace.tokenSavedBy": "{at} 등록 · 등록한 사람 {by}",
-  "workspace.tokenSavedAt": "{at} 등록",
+    "저장된 토큰을 사용할 수 없습니다. 새 토큰을 등록해 주세요. 등록할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속 동작합니다.",
   "workspace.tokenAdd": "토큰 등록",
   "workspace.tokenReplace": "토큰 교체",
   "workspace.tokenNew": "Refresh Token",
@@ -102,8 +100,13 @@ export const workspaceKo = {
   "workspace.tokenDeleteTitle": "App Configuration Token을 삭제할까요?",
   "workspace.delete": "삭제",
   "workspace.tokenIssuer": "발급자 {id}",
+  "workspace.tokenTeam": "팀 {id}",
+  "workspace.tokenCheckedAt": "마지막 토큰 확인 {at}",
+  "workspace.tokenRegisteredBy": "마지막 등록자 {by}",
+  "workspace.tokenVerified":
+    "Slack이 토큰을 확인했습니다. 팀 {team}, 발급자 {user}.",
   "workspace.tokenIssuerChanged":
-    "등록했습니다. 발급자가 바뀌어 앞으로 만드는 앱의 협업자도 바뀝니다.",
+    "발급자가 바뀌어 앞으로 만드는 앱의 협업자도 바뀝니다.",
   "workspace.tokenStoreUnavailable":
     "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
   "workspace.tokenDeleted": "App Configuration Token을 삭제했습니다.",
@@ -191,14 +194,12 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.slackStart": "Connect Slack",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "The token this console uses to make the account linking app and a Slack app for each agent.",
+    "The token this console uses to make the account linking app and a Slack app for each agent. Last token check is when Slack last accepted the token, on registering or an automatic refresh.",
   "workspace.tokenUnset": "Not registered",
-  "workspace.tokenActive": "Registered",
+  "workspace.tokenActive": "Token verified",
   "workspace.tokenNeedsReentry": "Re-register needed",
   "workspace.tokenNeedsReentryHint":
-    "Slack no longer accepts the stored token. No new Slack app can be made until a token is registered again. Apps already made keep working.",
-  "workspace.tokenSavedBy": "Registered {at} · by {by}",
-  "workspace.tokenSavedAt": "Registered {at}",
+    "The stored token can no longer be used. Register a new token. No new Slack app can be made until then. Apps already made keep working.",
   "workspace.tokenAdd": "Register token",
   "workspace.tokenReplace": "Replace token",
   "workspace.tokenNew": "Refresh Token",
@@ -215,8 +216,13 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenDeleteTitle": "Delete the App Configuration Token?",
   "workspace.delete": "Delete",
   "workspace.tokenIssuer": "Issuer {id}",
+  "workspace.tokenTeam": "Team {id}",
+  "workspace.tokenCheckedAt": "Last token check {at}",
+  "workspace.tokenRegisteredBy": "Last registered by {by}",
+  "workspace.tokenVerified":
+    "Slack verified the token. Team {team}, issuer {user}.",
   "workspace.tokenIssuerChanged":
-    "Registered. The issuer changed, so apps made from now on get a new collaborator.",
+    "The issuer changed, so apps made from now on get a new collaborator.",
   "workspace.tokenStoreUnavailable":
     "The secret store is unavailable. Ask an administrator to check its configuration.",
   "workspace.tokenDeleted": "Deleted the App Configuration Token.",
@@ -306,14 +312,12 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.slackStart": "Slack に接続",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成するときに使うトークンです。",
+    "このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成するときに使うトークンです。最終トークン確認は、登録または自動更新で Slack がトークンを受け付けた日時です。",
   "workspace.tokenUnset": "未登録",
-  "workspace.tokenActive": "登録済み",
+  "workspace.tokenActive": "トークン確認済み",
   "workspace.tokenNeedsReentry": "再登録が必要",
   "workspace.tokenNeedsReentryHint":
-    "Slack が保存済みのトークンを受け付けなくなりました。トークンを再登録するまで新しい Slack アプリは作成できません。作成済みのアプリはそのまま動作します。",
-  "workspace.tokenSavedBy": "{at} 登録 · 登録した人 {by}",
-  "workspace.tokenSavedAt": "{at} 登録",
+    "保存済みのトークンは使用できません。新しいトークンを登録してください。登録するまで新しい Slack アプリは作成できません。作成済みのアプリはそのまま動作します。",
   "workspace.tokenAdd": "トークンを登録",
   "workspace.tokenReplace": "トークンを置き換え",
   "workspace.tokenNew": "Refresh Token",
@@ -330,8 +334,13 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenDeleteTitle": "App Configuration Token を削除しますか?",
   "workspace.delete": "削除",
   "workspace.tokenIssuer": "発行者 {id}",
+  "workspace.tokenTeam": "チーム {id}",
+  "workspace.tokenCheckedAt": "最終トークン確認 {at}",
+  "workspace.tokenRegisteredBy": "最終登録者 {by}",
+  "workspace.tokenVerified":
+    "Slack がトークンを確認しました。チーム {team}、発行者 {user}。",
   "workspace.tokenIssuerChanged":
-    "登録しました。発行者が変わったため、今後作成するアプリのコラボレーターも変わります。",
+    "発行者が変わったため、今後作成するアプリのコラボレーターも変わります。",
   "workspace.tokenStoreUnavailable":
     "秘密情報ストアを利用できません。管理者に設定の確認を依頼してください。",
   "workspace.tokenDeleted": "App Configuration Token を削除しました。",
