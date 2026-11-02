@@ -10,6 +10,7 @@ import { isApiError } from "@werft-ai/client";
 import { meQuery, viewerQuery } from "./api/queries.ts";
 import { Main } from "./components/main.tsx";
 import { StatusScreen } from "./components/status-screen.tsx";
+import { AchievementRulesScreen } from "./routes/achievement-rules.tsx";
 import { AchievementsScreen } from "./routes/achievements.tsx";
 import { slackInstallSearch } from "./routes/agent-detail/slack-install-search.ts";
 import {
@@ -323,6 +324,12 @@ const workspaceSettings = createRoute({
   component: WorkspaceSettingsScreen,
 });
 
+const achievementRules = createRoute({
+  getParentRoute: () => authed,
+  path: "/settings/workspace/achievement-rules",
+  component: AchievementRulesScreen,
+});
+
 const workspaceSlack = createRoute({
   getParentRoute: () => authed,
   path: "/settings/workspace/slack",
@@ -480,6 +487,7 @@ const routeTree = root.addChildren([
     oldOrgKeys,
     preferences,
     workspaceSettings,
+    achievementRules,
     workspaceSlack,
     oldWorkspaceSlackApps,
     workspaceGitHub,
