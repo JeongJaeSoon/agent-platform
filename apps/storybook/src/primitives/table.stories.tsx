@@ -96,6 +96,8 @@ interface MembersProps {
   readonly actions?: boolean;
   /** An icon button beside the admin's row button. */
   readonly hint?: boolean;
+  /** Disabled people's rows in the inactive tone. */
+  readonly inactive?: boolean;
   readonly style?: CSSProperties;
 }
 
@@ -104,7 +106,14 @@ interface MembersProps {
  * button whose accessible name carries the row — the caller's job, since the
  * table cannot know what a button does.
  */
-function Members({ locale, twoLine, actions, hint, style }: MembersProps) {
+function Members({
+  locale,
+  twoLine,
+  actions,
+  hint,
+  inactive,
+  style,
+}: MembersProps) {
   const t = copyOf(locale);
   return (
     <TableContainer label={t.label} style={style}>
@@ -129,7 +138,10 @@ function Members({ locale, twoLine, actions, hint, style }: MembersProps) {
         </TableHeader>
         <TableBody>
           {PEOPLE.map((person) => (
-            <TableRow key={person.email}>
+            <TableRow
+              key={person.email}
+              inactive={(inactive ?? false) && person.disabled}
+            >
               <TableCell variant="text">
                 {twoLine ? (
                   <RowLines>
@@ -209,6 +221,22 @@ export const Actions: Story = {
   render: (_, { globals }) => (
     <Members locale={globals.locale} twoLine={true} actions={true} />
   ),
+};
+
+/**
+ * A disabled person's row in the inactive tone: faint text, a badge without
+ * hue, the button untouched. Its "enable again" button says why.
+ */
+export const InactiveRow: Story = {
+  render: (_, { globals }) => (
+    <Members locale={globals.locale} actions={true} inactive={true} />
+  ),
+};
+
+export const InactiveRowDark: Story = {
+  ...InactiveRow,
+  name: "Inactive row (dark)",
+  globals: { theme: "dark" },
 };
 
 // Every body row one height, and each email one line whose title is the
