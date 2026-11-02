@@ -1042,7 +1042,7 @@ describe("찾을 수 없는 에이전트", () => {
 
 describe("새 에이전트", () => {
   test("이름부터 채널 연결까지 만들고 Slack 연결은 나중에 할 수 있다", async () => {
-    const server = agentServer();
+    const server = agentServer({ repositoryMode: "optional" });
     const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
@@ -1097,17 +1097,15 @@ describe("새 에이전트", () => {
       "프로필",
     )) as HTMLSelectElement;
     expect(profile.value).toBe(PROFILE);
-    // The profile needs a repository: the first one that allows it is offered.
-    expect((screen.getByLabelText("저장소") as HTMLSelectElement).value).toBe(
-      "sample-app",
-    );
+    // The default repository is picked in the releases tab, not here.
+    expect(screen.queryByLabelText("저장소") === null).toBe(true);
+    expect(document.body.textContent).not.toContain("Slack 세션과 저장소");
     await user.click(screen.getByRole("button", { name: "릴리스 만들기" }));
 
     await atStep("켜기");
     expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
       version_id: server.versions[0]?.id,
       runtime_profile_id: PROFILE,
-      repository_id: "sample-app",
     });
     await user.click(screen.getByRole("button", { name: "에이전트 켜기" }));
     await atStep("채널 연결");
@@ -1125,7 +1123,7 @@ describe("새 에이전트", () => {
   });
 
   test("배포 판 단계에서 고른 워크스페이스 판이 그사이 은퇴하면 쓸 수 있는 프로필로 바꿔 보낸다", async () => {
-    const server = agentServer();
+    const server = agentServer({ repositoryMode: "optional" });
     const operator = (
       (await (
         server.routes["GET /v1/profiles"] as () => Response
@@ -1175,8 +1173,79 @@ describe("새 에이전트", () => {
     expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
       version_id: server.versions[0]?.id,
       runtime_profile_id: PROFILE,
-      repository_id: "sample-app",
     });
+  });
+
+  test("저장소가 꼭 필요한 프로필은 고를 수 없고, 릴리스 탭에서 릴리스한다고 알린다", async () => {
+    const server = agentServer({ repositoryMode: "optional" });
+    const needs: ProfileSummary = {
+      id: "claude-coding-repo",
+      source: "operator",
+      model: CARD.model,
+      models: [CARD.model],
+      tools: ["Read"],
+      permission_mode: "default",
+      runtime_kind: "claude_agent_sdk",
+      runtime_version: "0.3.270",
+      billing: "metered",
+      repository_mode: "required",
+      repository_ids: ["sample-app"],
+    };
+    const listed = (await (
+      (server.routes["GET /v1/profiles"] as () => Response)() as Response
+    ).json()) as { items: ProfileSummary[] };
+    const { api } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      // Listed first and on the card's model: still not the default.
+      "GET /v1/profiles": () => json(200, { items: [needs, ...listed.items] }),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("릴리스");
+    const profile = (await screen.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(profile.value).toBe(PROFILE);
+    const option = [...profile.options].find(
+      (o) => o.value === "claude-coding-repo",
+    );
+    expect(option?.disabled).toBe(true);
+    expect(option?.textContent).toBe(
+      "claude-coding-repo · claude-sonnet-5 · 저장소 필요",
+    );
+    expect(document.body.textContent).toContain(
+      "저장소가 꼭 필요한 프로필은 에이전트 상세의 릴리스 탭에서 기본 저장소와 함께 릴리스합니다.",
+    );
+    await user.click(screen.getByRole("button", { name: "릴리스 만들기" }));
+    await atStep("켜기");
+    expect(posted(api, `/v1/agents/${AGENT_ID}/releases`)).toEqual({
+      version_id: server.versions.at(-1)?.id,
+      runtime_profile_id: PROFILE,
+    });
+  });
+
+  test("모든 프로필에 저장소가 꼭 필요하면 릴리스 폼 대신 릴리스 탭으로 안내한다", async () => {
+    const server = agentServer();
+    const { api } = renderAt("/agents/new", { ...meOk, ...server.routes });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("릴리스");
+    expect(
+      await screen.findByText("저장소 없이 릴리스할 수 있는 프로필이 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByLabelText("프로필") === null).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "릴리스 만들기" }) === null,
+    ).toBe(true);
+    expect(
+      screen.getByRole("link", { name: "나중에 하기" }).getAttribute("href"),
+    ).toBe(DETAIL);
+    expect(
+      api.calls.some((c) => c.path === `/v1/agents/${AGENT_ID}/releases`),
+    ).toBe(false);
   });
 
   test("이 탭에서 다른 사람이 로그인하면 앞사람이 적던 흐름을 이어 보이지 않고 처음부터 연다", async () => {
@@ -1317,7 +1386,7 @@ describe("새 에이전트", () => {
   });
 
   test("초안을 저장한 뒤 뒤로 가서 고치면 새로 만들지 않고 그 초안을 고친다", async () => {
-    const server = agentServer();
+    const server = agentServer({ repositoryMode: "optional" });
     const { api, history } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
@@ -1367,7 +1436,7 @@ describe("새 에이전트", () => {
   });
 
   test("나갔다가 뒤로 돌아와도 그 초안을 이어서 고치고 새로 만들지 않는다", async () => {
-    const server = agentServer();
+    const server = agentServer({ repositoryMode: "optional" });
     const { api, history } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
