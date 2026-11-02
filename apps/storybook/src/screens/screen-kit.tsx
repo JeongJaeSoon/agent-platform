@@ -1,6 +1,7 @@
 import {
   Avatar,
   Button,
+  cn,
   DisabledReason,
   IconTile,
   PageFrame,
@@ -26,12 +27,12 @@ import {
   Link as LinkIcon,
   List,
   LogOut,
-  Moon,
+  Monitor,
   Settings,
   SlidersHorizontal,
   Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 /*
  * Stand-in for apps/web's authed shell (routes/layout.tsx,
@@ -76,6 +77,13 @@ const WORKSPACE_NAV: readonly NavEntry[] = [
   { key: "members", label: "구성원", icon: Users, hue: "green" },
   { key: "settings", label: "설정", icon: Settings, hue: "slate" },
 ];
+
+/** The signed-in person every screen story shares, as `/v1/auth/me` names them. */
+export const VIEWER = {
+  id: "0b5f8a52-6f0e-4b1a-9d0e-2c1e7c3f4a11",
+  name: "Verify Owner",
+  email: "owner@example.test",
+} as const;
 
 const ROLE_LABEL: Record<Role, string> = {
   owner: "소유자",
@@ -124,26 +132,35 @@ function NavGroup({
   readonly current: NavKey;
   readonly headingHidden?: boolean;
 }) {
+  const itemsId = useId();
+  const [open, setOpen] = useState(true);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a fieldset groups form controls, these are links
     <div role="group" aria-label={label} className="flex flex-col">
       {headingHidden ? null : (
-        <Text
-          as="span"
-          variant="meta"
-          className="mt-2 mb-0.5 flex h-6 items-center gap-1 px-2"
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={itemsId}
+          onClick={() => setOpen((value) => !value)}
+          className="mt-2 mb-0.5 flex h-6 w-fit items-center gap-1 rounded-control px-2 text-caption text-subtle-foreground hover:text-foreground"
         >
           {label}
-          <ChevronDown aria-hidden="true" className="size-3.5" />
-        </Text>
+          <ChevronDown
+            aria-hidden="true"
+            className={cn("size-3.5 shrink-0", !open && "-rotate-90")}
+          />
+        </button>
       )}
-      {entries.map((entry) => (
-        <NavLink
-          key={entry.key}
-          entry={entry}
-          current={current === entry.key}
-        />
-      ))}
+      <div id={itemsId} hidden={!open} className={open ? "flex flex-col" : ""}>
+        {entries.map((entry) => (
+          <NavLink
+            key={entry.key}
+            entry={entry}
+            current={current === entry.key}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -164,15 +181,15 @@ function UserBar({ role }: { readonly role: Role }) {
             className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full px-2 py-1 text-left hover:bg-sidebar-hover aria-expanded:bg-sidebar-accent"
           >
             <Avatar
-              initials="김"
+              initials={VIEWER.name.charAt(0)}
               className="bg-sidebar-accent text-foreground"
             />
             <Text as="span" className="flex min-w-0 flex-col">
               <Text as="span" weight="medium" truncate>
-                김민지
+                {VIEWER.name}
               </Text>{" "}
               <Text as="span" variant="meta" truncate>
-                minji@acme.example
+                {VIEWER.email}
               </Text>
             </Text>
             <Text as="span" className="sr-only">
@@ -198,7 +215,7 @@ function UserBar({ role }: { readonly role: Role }) {
             </Text>
           </button>
           <button type="button" className={MENU_ITEM}>
-            <Moon aria-hidden="true" className={MENU_ICON} />
+            <Monitor aria-hidden="true" className={MENU_ICON} />
             테마
             <Text as="span" variant="meta" className="ml-auto">
               시스템 설정
@@ -266,12 +283,8 @@ function SettingsLayout({
   readonly role: Role;
   readonly children: ReactNode;
 }) {
-  const groups: (readonly [string, readonly SettingsKey[]])[] = [
-    ["워크스페이스", role === "member" ? [] : WORKSPACE_SETTINGS],
-    ["내 설정", PERSONAL_SETTINGS],
-  ];
-  // A page the reader has no item for (a member on 일반) marks none.
-  const listed = groups.some(([, keys]) => keys.includes(current));
+  const groups = settingsGroups(role);
+  const listed = settingsListed(role, current);
   return (
     <SideNavLayout
       nav={
@@ -296,6 +309,21 @@ function SettingsLayout({
       {children}
     </SideNavLayout>
   );
+}
+
+function settingsGroups(
+  role: Role,
+): readonly (readonly [string, readonly SettingsKey[]])[] {
+  return [
+    ["워크스페이스", role === "member" ? [] : WORKSPACE_SETTINGS],
+    ["내 설정", PERSONAL_SETTINGS],
+  ];
+}
+
+// A page the reader has no settings item for (a member on 일반) marks none
+// in the settings nav, and the top bar falls back to the sidebar's 설정.
+function settingsListed(role: Role, key: SettingsKey) {
+  return settingsGroups(role).some(([, keys]) => keys.includes(key));
 }
 
 /**
@@ -355,23 +383,46 @@ export function ScreenShell({
   readonly settings?: SettingsKey | undefined;
   readonly children: ReactNode;
 }) {
+  const sidebarId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     // apps/web styles.css breaks Korean between words on the body.
     <div className="flex min-h-screen flex-col break-keep text-body wrap-break-word md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
       <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
-        <Button type="button" variant="outline" size="sm" className="md:hidden">
-          메뉴 열기
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="md:hidden"
+          aria-expanded={menuOpen}
+          aria-controls={sidebarId}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? "메뉴 닫기" : "메뉴 열기"}
         </Button>
-        <Trail crumb={crumb} />
+        <Trail
+          crumb={
+            settings !== undefined && !settingsListed(role, settings)
+              ? ["설정"]
+              : crumb
+          }
+        />
       </header>
-      <div className="hidden flex-col gap-2 border-r bg-sidebar px-2 py-3 pt-0 text-foreground md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:sticky md:top-0">
-        <div className="-mx-2 flex h-[var(--ap-topbar-h)] shrink-0 items-center gap-2 border-b px-4">
+      <div
+        id={sidebarId}
+        data-open={menuOpen}
+        className="hidden max-h-[calc(100dvh-var(--ap-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
+      >
+        <div className="-mx-2 hidden h-[var(--ap-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
           <Avatar
             initials="A"
             shape="square"
             className="bg-primary text-primary-foreground"
           />
           <Text truncate>
+            <Text as="span" className="sr-only">
+              워크스페이스:{" "}
+            </Text>
             <Text as="span" weight="medium" className="font-semibold">
               Acme
             </Text>
