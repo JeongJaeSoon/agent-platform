@@ -37,7 +37,7 @@ Each rule picks how it is judged.
 | Count at once (`always`) | Counts evidence of its kind without conditions the first time it appears | None |
 | Luna (`luna`) | Sends the definition and the evidence to Luna (OpenAI Decisions API, `gpt-6-luna`) and gets the probability of "yes". Counts it when the probability is at or above the threshold (0.9 by default) | Per judgment |
 
-Luna writes no text; it answers only `yes` or `no` with its probability. The probability stays on the achievement as "probability it fits the definition". When evidence changes (a PR is merged), only the rules paired with that evidence are asked again. The same input for the same rule version is not sent twice. A confirmed or rejected achievement does not change when judged again.
+Luna writes no text; it answers only `yes` or `no` with its probability. The probability stays on the achievement as "probability it fits the definition". When evidence changes (a PR is merged), every Luna pair of that session is asked again. Nothing is sent when the whole question (rule versions, evidence, threshold) is the same as the last judgment's. A confirmed or rejected achievement does not change when judged again.
 
 <Callout type="warn">
 Luna judging needs an `openai_decisions` connection added by the operator. Storing connections has not landed yet, so Luna rules are not judged for now and stay as "no judge". Count-at-once rules run without a connection.
