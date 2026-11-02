@@ -1,7 +1,7 @@
 import { and, eq, isNull, max, sql } from "drizzle-orm";
 import { enqueueWithin } from "./enqueue.ts";
 import type { Database } from "./queries.ts";
-import { pushContinuations, type sessions, turns } from "./schema.ts";
+import { pushContinuations, sessions, turns } from "./schema.ts";
 
 export const PUSH_CONTINUATION_MESSAGE =
   "Platform note: earlier in the previous turn you called request_push before this session had a checkpoint, so nothing was pushed. That turn has ended and its checkpoint, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. The push runs in the background: if open_pull_request answers not_pushed, wait a few seconds and call it again.";
@@ -11,33 +11,42 @@ export const PUSH_CONTINUATION_MESSAGE =
  * attempt runs no turn, or that turn is itself a continuation: its session
  * already has a checkpoint, so a second one would only repeat the refusal.
  */
-export async function markPushContinuation(
+export function markPushContinuation(
   db: Database,
   input: { sessionId: string; attemptId: string },
 ): Promise<boolean> {
-  const [turn] = await db
-    .select({ id: turns.id })
-    .from(turns)
-    .where(
-      and(
-        eq(turns.sessionId, input.sessionId),
-        eq(turns.attemptId, input.attemptId),
-        eq(turns.status, "running"),
-      ),
-    )
-    .limit(1);
-  if (turn === undefined) return false;
-  const [continued] = await db
-    .select({ turnId: pushContinuations.turnId })
-    .from(pushContinuations)
-    .where(eq(pushContinuations.continuationTurnId, turn.id))
-    .limit(1);
-  if (continued !== undefined) return false;
-  await db
-    .insert(pushContinuations)
-    .values({ turnId: turn.id })
-    .onConflictDoNothing();
-  return true;
+  return db.transaction(async (tx) => {
+    // Finalize holds this lock while it ends the turn and reads the mark, so
+    // a mark either lands before it or finds the turn no longer running.
+    await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.id, input.sessionId))
+      .for("update");
+    const [turn] = await tx
+      .select({ id: turns.id })
+      .from(turns)
+      .where(
+        and(
+          eq(turns.sessionId, input.sessionId),
+          eq(turns.attemptId, input.attemptId),
+          eq(turns.status, "running"),
+        ),
+      )
+      .limit(1);
+    if (turn === undefined) return false;
+    const [continued] = await tx
+      .select({ turnId: pushContinuations.turnId })
+      .from(pushContinuations)
+      .where(eq(pushContinuations.continuationTurnId, turn.id))
+      .limit(1);
+    if (continued !== undefined) return false;
+    await tx
+      .insert(pushContinuations)
+      .values({ turnId: turn.id })
+      .onConflictDoNothing();
+    return true;
+  });
 }
 
 /**
@@ -73,10 +82,19 @@ export async function queuePushContinuation(
     .limit(1)
     .for("update");
   if (mark === undefined) return false;
+  const [marked] = await tx
+    .select({ sequence: turns.sequence })
+    .from(turns)
+    .where(eq(turns.id, input.turnRowId));
   const [last] = await tx
     .select({ sequence: max(turns.sequence) })
     .from(turns)
     .where(eq(turns.sessionId, session.id));
+  // A person's later input runs first and may leave another checkpoint, so
+  // "the same arguments" could pin a commit that was never asked for.
+  if (marked === undefined || (last?.sequence ?? 0) > marked.sequence) {
+    return false;
+  }
   const [turn] = await tx
     .insert(turns)
     .values({

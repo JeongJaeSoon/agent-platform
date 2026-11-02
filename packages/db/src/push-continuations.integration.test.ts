@@ -98,17 +98,21 @@ integration("push continuations on PostgreSQL", () => {
 
   type Worker = { principal: WorkerPrincipal; scope: WorkerScope };
 
+  const limits = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
+
   async function runningTurn(): Promise<{
+    ownerId: string;
     sessionId: string;
     worker: Worker;
     turnId: string;
   }> {
     const partition = `push-continuation-${crypto.randomUUID()}`;
+    const ownerId = `owner-${crypto.randomUUID()}`;
     const accepted = await createPostgresSessionUnitOfWork(
       db,
     ).acceptInputAtomic({
-      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
-      principal: { ownerId: `owner-${crypto.randomUUID()}` },
+      limits,
+      principal: { ownerId },
       idempotencyKey: crypto.randomUUID(),
       payloadHash: crypto.randomUUID(),
       profileId: "claude-coding-v1",
@@ -157,13 +161,14 @@ integration("push continuations on PostgreSQL", () => {
     };
     const next = await gateway.nextInput(worker.principal, worker.scope);
     if (!next.input) throw new Error("no input delivered");
-    return { sessionId, worker, turnId: next.input.turn_id };
+    return { ownerId, sessionId, worker, turnId: next.input.turn_id };
   }
 
   function finalize(
     worker: Worker,
     turnId: string,
     checkpointRevision: number | null,
+    status: "completed" | "failed" = "completed",
   ) {
     return gateway.finalize(worker.principal, {
       ...worker.scope,
@@ -171,7 +176,7 @@ integration("push continuations on PostgreSQL", () => {
       finalize_key: `${worker.scope.attempt_id}:${turnId}`,
       final_source_sequence: 0,
       terminal: {
-        status: "completed",
+        status,
         reason: null,
         result: null,
         usage: null,
@@ -266,5 +271,62 @@ integration("push continuations on PostgreSQL", () => {
       .where(eq(sessions.id, sessionId));
     await finalize(worker, turnId, 0);
     expect(await turnsOf(sessionId)).toHaveLength(1);
+  });
+
+  test("a marked turn that fails with a checkpoint queues nothing", async () => {
+    const { sessionId, worker, turnId } = await runningTurn();
+    expect(await mark(sessionId, worker)).toBe(true);
+    await finalize(worker, turnId, 0, "failed");
+    expect(await turnsOf(sessionId)).toHaveLength(1);
+  });
+
+  test("a person's input already waiting behind the marked turn takes its place", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    expect(await mark(sessionId, worker)).toBe(true);
+    const appended = await createPostgresSessionUnitOfWork(
+      db,
+    ).appendInputAtomic({
+      principal: { ownerId },
+      sessionId,
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: crypto.randomUUID(),
+      message: "switch to another branch",
+      limits,
+    });
+    expect(appended.outcome).toBe("accepted");
+    await finalize(worker, turnId, 0);
+    expect((await turnsOf(sessionId)).map((turn) => turn.message)).toEqual([
+      "make a file and open a pull request",
+      "switch to another branch",
+    ]);
+  });
+
+  test("a mark that waits on a finalizing turn finds it ended", async () => {
+    const { sessionId, worker } = await runningTurn();
+    let marked: Promise<boolean> | undefined;
+    await db.transaction(async (tx) => {
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .for("update");
+      marked = mark(sessionId, worker);
+      await Bun.sleep(300);
+      await tx
+        .update(turns)
+        .set({ status: "completed" })
+        .where(eq(turns.sessionId, sessionId));
+    });
+    expect(await marked).toBe(false);
+    const [turn] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    expect(
+      await db
+        .select()
+        .from(pushContinuations)
+        .where(eq(pushContinuations.turnId, turn?.id ?? -1)),
+    ).toEqual([]);
   });
 });
