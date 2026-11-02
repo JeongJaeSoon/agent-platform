@@ -1066,6 +1066,17 @@ describe("에이전트 상세 탭", () => {
         .filter((head) => head.dataset.hideNarrow !== "true")
         .map((head) => head.textContent),
     ).toEqual(["버전", "동작"]);
+    expect(table.style.getPropertyValue("--grid-table-narrow-columns")).toBe(
+      "minmax(0,1fr) 120px",
+    );
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .filter(
+          (cell) =>
+            !cell.className.includes("[@container(max-width:760px)]:hidden"),
+        ),
+    ).toHaveLength(2);
     const narrowStatus = row.querySelector(
       "span[class*='[@container(max-width:760px)]:flex']",
     );
