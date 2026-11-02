@@ -1383,7 +1383,10 @@ interface RuleDraft {
   readonly judge: AchievementRuleJudge;
 }
 
-/** The types a rule may count: none another rule in use counts already. */
+/**
+ * The types a rule may count: none another rule in use counts already, its
+ * own included, as the server refuses a version that takes one.
+ */
 export function pickableTypes(
   types: readonly AchievementType[],
   rules: readonly AchievementRule[],
@@ -1396,10 +1399,8 @@ export function pickableTypes(
       )
       .map((rule) => rule.type_id),
   );
-  const own = rules.find((rule) => rule.family_id === familyId)?.type_id;
   return types.filter(
-    (type) =>
-      type.id === own || (type.archived_at === null && !taken.has(type.id)),
+    (type) => type.archived_at === null && !taken.has(type.id),
   );
 }
 
@@ -1435,7 +1436,11 @@ function RuleEditor({
       ? {
           category_id: rule.category_id,
           title: rule.title,
-          type_id: rule.type_id,
+          // A type taken since, or archived, would be refused; start from
+          // one the rule may count, as the select shows it.
+          type_id: pickable.some((type) => type.id === rule.type_id)
+            ? rule.type_id
+            : (pickable[0]?.id ?? ""),
           definition: rule.definition,
           judge: rule.judge,
         }

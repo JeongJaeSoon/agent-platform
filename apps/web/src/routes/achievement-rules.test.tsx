@@ -722,6 +722,36 @@ describe("성과 규칙", () => {
     ]);
   });
 
+  test("멈춘 규칙의 type을 다른 사용 중 규칙이 가져갔으면 그 type은 고를 수 없다", async () => {
+    const taker = rule(
+      "4b5c6d7e-8f9a-4b0c-8d1e-2f3a4b5c6d7e",
+      DOCS,
+      "회의록",
+      DOC_TYPE,
+      "always",
+      1,
+    );
+    await opened({
+      "GET /v1/achievement-rules": () =>
+        json(200, { items: [...RULES, taker] }),
+    });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "설계 문서 작성" }));
+    const editor = (
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "규칙 편집 — 설계 문서 작성",
+      })
+    ).closest("section") as HTMLElement;
+    const typeSelect = within(editor).getByRole("combobox", {
+      name: "성과 type",
+    }) as HTMLSelectElement;
+    expect([...typeSelect.options].map((option) => option.textContent)).toEqual(
+      ["solved_talk — 대화로 해결 (근거: 대화)", "새 type 만들기…"],
+    );
+    expect(typeSelect.value).toBe(TALK_TYPE);
+  });
+
   test("규칙 추가: 첫 버전을 만든다", async () => {
     const { api } = await opened({
       "POST /v1/achievement-rules": async (request) => {
