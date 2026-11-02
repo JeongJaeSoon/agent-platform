@@ -242,6 +242,8 @@ export interface ToolRailMessages {
   readonly recent: string;
   readonly callSort: string;
   readonly callSortBy: Readonly<Record<ToolCallSort, string>>;
+  /** Names the rail's heading while the tools are read. */
+  readonly loading: string;
 }
 
 export interface OperationsMessages {
@@ -429,6 +431,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         recent: "최근 호출",
         callSort: "호출 정렬",
         callSortBy: { recent: "최근", slowest: "느린 순" },
+        loading: "도구 목록을 읽는 중",
       },
       head: {
         title: "사용량·한도",
@@ -627,6 +630,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         recent: "最近の呼び出し",
         callSort: "呼び出しの並べ替え",
         callSortBy: { recent: "最近", slowest: "遅い順" },
+        loading: "ツール一覧を読み込み中",
       },
       head: {
         title: "使用量・上限",
@@ -826,6 +830,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         recent: "Recent calls",
         callSort: "Sort calls",
         callSortBy: { recent: "Recent", slowest: "Slowest" },
+        loading: "Loading tools",
       },
       head: {
         title: "Usage & limits",

@@ -208,6 +208,42 @@ describe("1분 미만 도구 시간", () => {
   });
 });
 
+describe("ToolRail loading", () => {
+  test("도구 목록을 읽는 동안 첫 섹션 제목이 비지 않고, 이름이 오면 그 이름만 남는다", () => {
+    const rail = (name: string | undefined) => (
+      <ToolRail
+        name={name}
+        tool={undefined}
+        perDay={undefined}
+        calls={undefined}
+        callSort="recent"
+        onCallSortChange={() => {}}
+      />
+    );
+    const { container, rerender } = withPlatform(rail(undefined), "en");
+    const heading = () => container.querySelector("aside h2");
+    // What assistive tech reads: the decorative skeleton is aria-hidden.
+    const spoken = () => {
+      const copy = heading()?.cloneNode(true) as Element | undefined;
+      for (const hidden of copy?.querySelectorAll("[aria-hidden=true]") ?? [])
+        hidden.remove();
+      return copy?.textContent;
+    };
+    expect(spoken()).toBe("Loading tools");
+    rerender(
+      <AgentPlatformProvider
+        client={{} as ApiClient}
+        locale="en"
+        renderLink={() => null}
+      >
+        {rail("Bash")}
+      </AgentPlatformProvider>,
+    );
+    expect(heading()?.textContent).toBe("Bash");
+    expect(spoken()).toBe("Bash");
+  });
+});
+
 describe("SessionCounts", () => {
   const link = (
     status: string,
