@@ -2193,8 +2193,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename an agent or add a card version
-         * @description A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
+         * Rename or describe an agent, or add a card version
+         * @description `name` and `description` change the agent itself: no version is made, and `description: null` clears it. Neither reaches a run. A `card` becomes a new version; existing versions never change. A card equal to one the agent already has adds nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4149,6 +4149,7 @@ export interface components {
         CreateAgentRequest: {
             slug: string;
             name: string;
+            description?: string;
             card: {
                 role: string;
                 instructions: string;
@@ -4189,6 +4190,7 @@ export interface components {
         };
         UpdateAgentRequest: {
             name?: string;
+            description?: string | null;
             card?: {
                 role: string;
                 instructions: string;
@@ -7160,6 +7162,7 @@ export interface components {
                 workspace_id: string;
                 slug: string;
                 name: string;
+                description: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -7172,8 +7175,8 @@ export interface components {
                 summary?: {
                     version: {
                         version_no: number;
-                        role: string;
-                        instructions: string;
+                        role: string | null;
+                        instructions: string | null;
                         mcp_servers: string[];
                         credential_refs: string[];
                     };
@@ -7520,6 +7523,7 @@ export interface components {
                 workspace_id: string;
                 slug: string;
                 name: string;
+                description: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -7537,8 +7541,9 @@ export interface components {
                 agent_id: string;
                 version_no: number;
                 card: {
-                    role: string;
-                    instructions: string;
+                    role?: string;
+                    instructions?: string;
+                    agent_instructions?: string;
                     /**
                      * @default ko
                      * @enum {string}
@@ -7950,6 +7955,7 @@ export interface components {
                 workspace_id: string;
                 slug: string;
                 name: string;
+                description: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -22891,6 +22897,7 @@ export interface operations {
                      *           "workspace_id": "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
                      *           "slug": "finance",
                      *           "name": "Finance analyst",
+                     *           "description": "Reads the quarterly reports and flags outliers.",
                      *           "status": "active",
                      *           "active_release_id": null,
                      *           "activation_revision": -1,

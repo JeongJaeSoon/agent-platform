@@ -91,6 +91,7 @@ export function agentOf(row: AgentRow): Agent {
     workspace_id: row.workspaceId,
     slug: row.slug,
     name: row.name,
+    description: row.description,
     status: row.status as Agent["status"],
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
@@ -404,6 +405,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             workspaceId: input.workspaceId,
             slug: input.slug,
             name: input.name,
+            description: input.description ?? null,
             createdBy: input.createdBy,
           })
           .onConflictDoNothing({
@@ -457,6 +459,19 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             )
             .returning({ id: agents.id });
           changed ||= renamed.length > 0;
+        }
+        if (input.description !== undefined) {
+          const described = await tx
+            .update(agents)
+            .set({ description: input.description, updatedAt: DB_NOW })
+            .where(
+              and(
+                eq(agents.id, agent.id),
+                sql`${agents.description} IS DISTINCT FROM ${input.description}`,
+              ),
+            )
+            .returning({ id: agents.id });
+          changed ||= described.length > 0;
         }
         if (input.card !== undefined) {
           const [latest] = await tx
