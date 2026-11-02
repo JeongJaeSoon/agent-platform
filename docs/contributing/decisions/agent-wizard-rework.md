@@ -103,6 +103,7 @@
 - 카드 스키마는 `.strict()`이고, 저장된 카드를 읽는 스키마도 옛 `tone`만 더 받는다(`agents.ts:136-146`, `:154-156`). 옛 이미지는 `role`·`instructions`가 없는 카드도, `agent_instructions`가 있는 카드도 거절한다. 그래서 순서는 ① 새 모양을 읽는 계약을 배포하고 ② 다음 배포에서 쓰는 쪽(마법사가 두 필드를 빼고 지시문을 쓰는 것)을 켠다. 새 모양의 카드가 하나라도 저장되면 ① 이미지가 롤백 하한이 된다. 옛 이미지에 맞추려고 저장된 카드를 고치지 않는다. 카드 해시와 릴리스 id가 저장된 내용에 달려 있다.
 - 두 필드를 선택으로 바꾸는 단위(U4a)는 읽는 쪽을 모두 함께 고친다. 화면을 지우는 것과 새 카드를 쓰는 것만 U4c에 남긴다.
   - 에이전트 목록 요약: 카드 JSON에서 `role`·`instructions`를 꺼내고(`packages/db/src/agent-summaries.ts:81-82`) `clip()`이 문자열이라고 가정한다(`agent-summaries.ts:30`, `:254`). 값이 없으면 SQL `NULL`이 와서 깨진다. 요약 계약도 두 값을 1자 이상 문자열로 요구한다(`packages/contracts/src/kollegium/agents.ts:450-455`). 요약은 `role` 대신 `description`(행 값)을 싣고, 두 필드는 nullable로 바꾼다.
+  - 목록 카드 어댑터: `factsOf`가 상세의 카드 `role`·`instructions`를 요약 모양(`AgentSummary["version"]`)으로 옮긴다(`apps/web/src/components/agent-cards.tsx:60`, `:128-136`). 요약 계약을 바꾸면 이 어댑터도 같은 단위에서 맞춘다. 보이는 모양을 바꾸는 것은 U4c다.
   - 폼: `CardDraft`가 두 값을 문자열로 받고(`agent-card-form.tsx:38-39`) `draftFromCard`가 카드 값을 그대로 넣는다(`agent-card-form.tsx:69-70`). 선택으로 바꾸면 타입 검사가 깨지므로 빈 문자열 대체를 같은 단위에 넣는다. `packages/core/src/forms/index.ts:68-70`의 초안 스키마도 같다.
   - 사용자 문서: `apps/docs/content/docs/agents/instructions-and-roles.mdx`(en·ja 포함)가 카드 필드를 설명한다. U4c와 U3에서 고친다.
 - 카드 내용 해시와 릴리스 id는 카드 JSON 전체로 계산한다(`release-ids.ts:47-49`). 필드를 선택으로 바꿔도 기존 카드의 해시는 바뀌지 않는다. 기존 카드에 키를 더하거나 빼는 이행은 하지 않는다.
@@ -244,9 +245,9 @@
 | U2a | 도구 실행 적용의 바탕: binding에 릴리스 도구 싣기, 두 지문 모두 대체로 넣기, 복구 검증 도구. 좁힘은 아직 끈다 | `packages/platform/src/ports/worker-unit-of-work.ts`, `packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/sessions/catalog.ts`, `packages/platform/src/workers/worker-gateway.ts`, `scripts/lib/checkpoint-pins.ts`, `scripts/lib/checkpoint-pins-cli.ts`, 시험 | 없음 | 없음 |
 | U2b | 도구 좁힘 켜기(3a). U2a 이미지가 롤백 하한이 된 뒤 | `packages/platform/src/sessions/catalog.ts` 또는 설정 플래그, 시험 | U2a 배포 | U2a |
 | U3 | 도구 체크 목록(3b) | `apps/web/src/components/agent-card-form.tsx`, `packages/core/src/forms/index.ts`, `apps/web/src/i18n/agents.ts`, `apps/web/src/routes/agent-detail/overview.tsx`, story, `apps/docs/content/docs/agents/instructions-and-roles*.mdx` | U2b | U2b, U1, U4a |
-| U4a | 이름·설명 계약과 이행: `agents.description`, 카드 `role`·`instructions` 선택, `agent_instructions` 계약(읽기만), 두 필드를 읽는 쪽의 대체값 | `packages/db/migrations/<다음 번호>`, `packages/db/src/schema.ts`, `packages/db/src/agents.ts`, `packages/db/src/agent-summaries.ts`, `packages/contracts/src/kollegium/agents.ts`, `packages/platform/src/agents/agent-service.ts`, `apps/web/src/components/agent-card-form.tsx`(대체값만), `packages/core/src/forms/index.ts`(대체값만), `apps/control-host/src/api/openapi.ts`, `packages/client/src/schema.gen.ts`, `docs/openapi.json` | 없음 | 없음 |
+| U4a | 이름·설명 계약과 이행: `agents.description`, 카드 `role`·`instructions` 선택, `agent_instructions` 계약(읽기만), 두 필드를 읽는 쪽의 대체값 | `packages/db/migrations/<다음 번호>`, `packages/db/src/schema.ts`, `packages/db/src/agents.ts`, `packages/db/src/agent-summaries.ts`, `packages/contracts/src/kollegium/agents.ts`, `packages/platform/src/agents/agent-service.ts`, `apps/web/src/components/agent-card-form.tsx`(대체값만), `apps/web/src/components/agent-cards.tsx`(어댑터만), `packages/core/src/forms/index.ts`(대체값만), `apps/control-host/src/api/openapi.ts`, `packages/client/src/schema.gen.ts`, `docs/openapi.json` | 없음 | 없음 |
 | U4b | worker가 에이전트 지시문을 받는 계약과 조립, 복구 검증 도구(아직 서버는 싣지 않는다) | `packages/contracts/src/worker-protocol/index.ts`, `packages/runtime-core/src/agent-runtime.ts`, `apps/worker/src/composition.ts`, `packages/adapters/runtimes/claude/src/repository-instructions.ts`, `scripts/lib/checkpoint-pins.ts`, `scripts/lib/checkpoint-pins-cli.ts` | U4a | U4a, U2a |
-| U4c | 이름·설명 화면, 지시문 쓰기 켜기, claim에 지시문 싣기, 사용자 문서. U4a·U4b 이미지가 하한이 된 뒤 | `apps/web/src/components/new-agent-flow.tsx`, `agent-card-form.tsx`, `agent-cards.tsx`, `packages/core/src/forms/index.ts`, `apps/web/src/routes/agent-detail*.tsx`, `apps/web/src/i18n/agents.ts`, `packages/platform/src/workers/worker-gateway.ts`, claim binding, `apps/docs/content/docs/agents/instructions-and-roles*.mdx` | U4b 배포 | U4b, U3 |
+| U4c | 이름·설명 화면, 지시문 쓰기 켜기, claim에 지시문 싣기, 사용자 문서. U4a·U4b 이미지가 하한이 된 뒤 | `apps/web/src/components/new-agent-flow.tsx`, `agent-card-form.tsx`, `agent-cards.tsx`, `packages/core/src/forms/index.ts`, `apps/web/src/routes/agent-detail*.tsx`(개요 `overview.tsx:580-587` 포함), `apps/storybook/src/screens/agent-detail-parts.tsx`, `apps/web/src/i18n/agents.ts`, `packages/platform/src/workers/worker-gateway.ts`, claim binding, `apps/docs/content/docs/agents/instructions-and-roles*.mdx` | U4b 배포 | U4b, U3 |
 | U5a | 팀 역할과 관리 팀 계약·권한 | `packages/db/migrations/<다음 번호>`, `schema.ts`, `packages/db/src/administers.ts`, `packages/db/src/agent-admins.ts`, `packages/db/src/api-keys.ts`(시험만일 수 있음), `packages/platform/src/musterrolle/agent-admin-service.ts`, `packages/platform/src/musterrolle/team-service.ts`, `packages/contracts/src/musterrolle/teams.ts`, `packages/contracts/src/kollegium/agents.ts`, `apps/control-host/src/api/routes/teams.ts`·`agents.ts`, `openapi.ts`, `schema.gen.ts`, `docs/openapi.json`, `docs/operator/api-server.md` | U4a | U4a |
 | U5b | 관리 팀 화면: 마법사 1단계, 관리자 탭, 팀 구성원 역할 | `new-agent-flow.tsx`, `apps/web/src/components/agent-admins.tsx`, `apps/web/src/routes/teams.tsx`, `apps/web/src/i18n/agents.ts`·`teams.ts` | U5a | U5a, U4c |
 | U5c | 세션 공개 범위 기본값(오너가 2 또는 3을 고를 때만) | `packages/platform/src/sessions/session-service.ts`, `packages/db/src/postgres-unit-of-work.ts`, `docs/operator/api-server.md` | U5a, 오너 결정 | U5a |
@@ -254,6 +255,8 @@
 - 같은 경로를 쓰는 단위:
   - `new-agent-flow.tsx`: U1, U4c, U5b
   - `agent-card-form.tsx`·`packages/core/src/forms/index.ts`: U4a(대체값), U3, U4c
+  - `apps/web/src/components/agent-cards.tsx`: U4a(어댑터), U4c
+  - `apps/web/src/routes/agent-detail/overview.tsx`: U3, U4c
   - `apps/docs/content/docs/agents/instructions-and-roles*.mdx`: U3, U4c
   - `apps/web/src/i18n/agents.ts`: U1, U3, U4c, U5b
   - `packages/contracts/src/kollegium/agents.ts`·`openapi.ts`·`schema.gen.ts`·`docs/openapi.json`·`packages/db/src/schema.ts`·마이그레이션 번호: U4a, U5a
@@ -310,3 +313,5 @@ PR head `0471cab9d`에서 Codex가 고친 판을 다시 리뷰했다. 1차 반�
 | R2-3 | 복구 검증 CLI가 릴리스 지시문을 넘기지 않는다(1차 8번의 나머지) | 반영. `checkpoint-pins-cli.ts`를 U4b에 넣음 |
 | R2-4 | 도구 좁힘은 "다음 세션"이 아니라 진행 중 세션을 포함한 다음 claim부터다 | 반영. 3a와 오너 확인 항목의 문구를 고침 |
 | R2-5 | `capabilities.forbidden` grep 결과 설명이 여전히 틀렸다(1차 15번의 나머지) | 반영. 화면 읽기와 릴리스 계산을 나눠 다시 적음 |
+
+3차(head `cd62c327c`, 위 다섯 고침만): R2-3·R2-4·R2-5는 해결, R2-1·R2-2에 읽는 쪽 하나(`agent-cards.tsx`의 `factsOf`)가 빠졌다는 반론 1건. 반영해 U4a 경로와 같은 경로 목록에 넣었다.
