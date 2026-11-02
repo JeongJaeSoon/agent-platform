@@ -4,6 +4,13 @@ import {
   SessionOverviewRow,
   SessionOverviewTable,
 } from "@werft-ai/react/components";
+import {
+  formatElapsed,
+  formatExactTime,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@werft-ai/ui";
 
 import { MOBILE } from "../../screens/screen-kit.tsx";
 import { SESSION } from "./session-fixtures.ts";
@@ -112,6 +119,34 @@ export const Waiting: Story = {
 
 // A fixed moment, so the recent column reads minutes, yesterday and a date.
 const NOW = Date.parse("2026-10-24T06:14:45.000Z");
+
+const WAITING_SINCE = "2026-10-24T04:02:11.000Z";
+
+/**
+ * The home page's wait: a node in the status slot, raised above the row's
+ * opener, so its exact time opens on its own hover and keyboard focus.
+ */
+export const WaitingWithTooltip: Story = {
+  args: {
+    session: { ...SESSION, title: "Tidy the README", status: "needs_input" },
+    now: NOW,
+    statusDetail: (
+      <Tooltip>
+        <TooltipTrigger asChild={true}>
+          <time
+            dateTime={WAITING_SINCE}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users reach the exact time only through focus
+            tabIndex={0}
+            className="rounded-sm focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+          >
+            {formatElapsed(WAITING_SINCE, "en", NOW)}
+          </time>
+        </TooltipTrigger>
+        <TooltipContent>{formatExactTime(WAITING_SINCE, "en")}</TooltipContent>
+      </Tooltip>
+    ),
+  },
+};
 
 const MIXED = [
   {

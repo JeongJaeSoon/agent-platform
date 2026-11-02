@@ -19,6 +19,7 @@ const {
   runRows,
   ToolChips,
 } = await import("./index.ts");
+const { nodeDot } = await import("./run-node.tsx");
 
 const NOW = Date.parse("2026-10-25T01:30:00Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -101,6 +102,32 @@ describe("laneOf", () => {
     expect(laneOf(session({ id: "a", status: "idle" }))).toBe("idle");
     expect(laneOf(session({ id: "a", status: "failed" }))).toBe("attention");
     expect(laneOf(session({ id: "a", status: "stopped" }))).toBe("done");
+  });
+});
+
+describe("nodeDot", () => {
+  test("a stopped linked session rests like everywhere else; a run keeps its own", () => {
+    const linked = {
+      kind: "session",
+      id: "s",
+      agent: "a",
+      title: "t",
+      edge: "request",
+      message: "m",
+      at: "2026-10-24T06:00:00Z",
+    } as const;
+    expect(nodeDot({ ...linked, status: "stopped" })).toBe("idle");
+    expect(nodeDot({ ...linked, status: "running" })).toBe("run");
+    expect(
+      nodeDot({
+        kind: "run",
+        id: "r",
+        label: null,
+        status: "done",
+        edge: "delegation",
+        tools: [],
+      }),
+    ).toBe("done");
   });
 });
 

@@ -8,12 +8,12 @@ import {
   GridTableRow,
   RelativeTime,
   StatusDot,
-  type StatusDotStatus,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
 import { createContext, type JSX, type ReactNode, useContext } from "react";
 import { GitBranch } from "../console-icons.ts";
+import { statusDot } from "../status/vocabulary.ts";
 import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
 import { useMinute } from "./use-minute.ts";
 
@@ -143,8 +143,12 @@ export interface SessionOverviewRowProps {
    */
   readonly renderLink: (link: SessionRowLink) => ReactNode;
   readonly messages: SessionOverviewRowMessages;
-  /** After the status, such as how long an answer has been awaited. */
-  readonly statusDetail?: string | undefined;
+  /**
+   * After the status, such as how long an answer has been awaited. Plain text
+   * lies under the row's opener; any other node is raised above it, so a
+   * tooltip trigger in it gets its own hover and focus.
+   */
+  readonly statusDetail?: ReactNode;
   /**
    * Draws the last activity; when omitted, "12분 전" with the exact time in
    * a tooltip.
@@ -155,15 +159,6 @@ export interface SessionOverviewRowProps {
   readonly now?: number | undefined;
   readonly className?: string | undefined;
 }
-
-const STATUS_DOT: Record<SessionStatus, StatusDotStatus> = {
-  queued: "idle",
-  running: "run",
-  needs_input: "wait",
-  idle: "idle",
-  failed: "failed",
-  stopped: "done",
-};
 
 export function SessionOverviewRow({
   session,
@@ -220,13 +215,21 @@ export function SessionOverviewRow({
         ) : null}
       </GridTableCell>
       <GridTableCell>
-        <StatusDot status={STATUS_DOT[session.status]} />
+        <StatusDot status={statusDot("session", session.status)} />
         <span className="sr-only">{messages.statusAxis}: </span>
         {/* A narrow column cuts the label, never the wait after it. */}
         <span className="flex min-w-0 whitespace-nowrap">
           <span className="min-w-0 truncate">{statusLabel}</span>
           {statusDetail ? (
-            <span className="flex-none whitespace-pre"> · {statusDetail}</span>
+            <span
+              className={cn(
+                "flex-none whitespace-pre",
+                typeof statusDetail === "string" ? null : "relative",
+              )}
+            >
+              {" · "}
+              {statusDetail}
+            </span>
           ) : null}
         </span>
       </GridTableCell>
