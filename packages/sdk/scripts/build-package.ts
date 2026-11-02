@@ -30,16 +30,35 @@ type Manifest = {
   keywords: string[];
   publishConfig: Record<string, unknown>;
   dependencies: Record<string, string>;
+  devDependencies?: Record<string, string>;
 };
+
+// The workspace packages bundled in, by directory under packages/.
+const BUNDLED_DIRS = ["client", "contracts"];
 
 const source: Manifest = await Bun.file(
   join(PACKAGE_ROOT, "package.json"),
 ).json();
 const bundled: Manifest[] = await Promise.all(
-  ["client", "contracts"].map((name) =>
-    Bun.file(join(PACKAGE_ROOT, "..", name, "package.json")).json(),
+  BUNDLED_DIRS.map((dir) =>
+    Bun.file(join(PACKAGE_ROOT, "..", dir, "package.json")).json(),
   ),
 );
+
+// A workspace package missing from BUNDLED_DIRS still gets bundled, but its
+// files fall outside the d.ts program's include below, and the d.ts plugin
+// then builds and type-checks a whole program per file: 16GB instead of 1GB.
+const bundledNames = new Set(bundled.map((pkg) => pkg.name));
+for (const pkg of [source, ...bundled]) {
+  for (const name of Object.keys({
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+  })) {
+    if (WORKSPACE.test(name) && !bundledNames.has(name)) {
+      throw new Error(`${pkg.name} depends on ${name}; add it to BUNDLED_DIRS`);
+    }
+  }
+}
 
 // What the bundle still imports: the non-workspace dependencies of the SDK
 // and of the workspace packages bundled into it. zod is one for the d.ts only:
@@ -63,7 +82,17 @@ await build({
   platform: "neutral",
   // Without eager, tsc emits no declarations for the workspace packages
   // bundled in from outside this package's directory.
-  dts: { eager: true },
+  dts: {
+    eager: true,
+    // One program over every file the bundle reaches. A file outside this
+    // include gets a program of its own.
+    tsconfigRaw: {
+      include: [
+        "src/**/*.ts",
+        ...BUNDLED_DIRS.map((dir) => `../${dir}/src/**/*.ts`),
+      ],
+    },
+  },
   sourcemap: false,
   deps: {
     alwaysBundle: [WORKSPACE],
