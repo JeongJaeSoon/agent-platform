@@ -177,6 +177,16 @@ export interface AgentAuthority {
     userId: string,
   ): Promise<boolean>;
   /**
+   * A live member who is a workspace manager, administers the agent, or is
+   * a live member of its live managing team (agent-rbac (b), "inside").
+   * Without it nobody is inside but managers and the agent's admins.
+   */
+  isInside?(
+    workspaceId: string,
+    agentId: string,
+    userId: string,
+  ): Promise<boolean>;
+  /**
    * The agent a release was made for; null for none. Without it a start on
    * a binding or a link that names a release is refused.
    */
@@ -194,6 +204,24 @@ export const noAgentAuthority: AgentAuthority = {
   },
   async isAdmin() {
     return false;
+  },
+};
+
+/**
+ * What a member outside an agent may do with it (agent-rbac (c), axis A):
+ * `none` hides it, `view` shows its information, `use` also runs it.
+ */
+export type OutsideAgentAccess = "use" | "view" | "none";
+
+/** The workspace's axis A, read for every decision that needs it. */
+export interface OutsideAgentAccessSetting {
+  access(workspaceId: string): Promise<OutsideAgentAccess>;
+}
+
+// Until the workspace setting exists, axis A is its default.
+export const outsideAgentsUse: OutsideAgentAccessSetting = {
+  async access() {
+    return "use";
   },
 };
 
@@ -316,6 +344,13 @@ export const AGENT_ADMIN_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
   "achievement.review",
 ]);
 
+// Reads of an agent, judged by who is inside it rather than by role, and
+// not recorded when allowed: they change nothing.
+export const AGENT_READ_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "agent.read",
+  "agent.settings_read",
+]);
+
 function within(
   scopes: readonly SessionScope[],
   role: WorkspaceRole,
@@ -400,11 +435,13 @@ export function createAuthorizationPolicy(
     credentials?: CredentialCheck;
     slackGuests?: SlackGuestSetting;
     sessions?: SessionAccess;
+    outsideAgents?: OutsideAgentAccessSetting;
     newDecisionId?: () => string;
     decisions?: DecisionLog;
   } = {},
 ): AuthorizationPolicy {
   const identity = deps.identity ?? authenticatedIdentity;
+  const outsideAccess = deps.outsideAgents ?? outsideAgentsUse;
   const agents = deps.agents ?? noAgentAuthority;
   const credentials = deps.credentials ?? noCredentialCheck;
   const slackGuests = deps.slackGuests ?? slackGuestsDisabled;
@@ -508,7 +545,8 @@ export function createAuthorizationPolicy(
       (scope === undefined &&
         roles === undefined &&
         action !== "session.share" &&
-        action !== "workspace.read") ||
+        action !== "workspace.read" &&
+        !AGENT_READ_ACTIONS.has(action)) ||
       !actionAppliesTo(action, resource.kind)
     ) {
       return ["error", []];
@@ -590,6 +628,32 @@ export function createAuthorizationPolicy(
         (reading.keyCreator === undefined || reading.keyAgentId !== undefined)
       ) {
         return ["role", scopes];
+      }
+    } else if (AGENT_READ_ACTIONS.has(action)) {
+      // A person, or a personal key as its creator (agent-rbac (b)); an
+      // agent key reads its own agent's row through session.submit instead.
+      const reader =
+        principal.kind === "user"
+          ? { userId: principal.id, role: principal.role }
+          : reading.keyAgentId === undefined
+            ? reading.keyCreator
+            : undefined;
+      if (reader === undefined) return ["role", scopes];
+      if (resource.kind === "agent") {
+        const agentId = await agentOfResource(resource);
+        if (agentId === null) return ["not_found", scopes];
+        if (
+          !WORKSPACE_MANAGERS.includes(reader.role) &&
+          !(await (agents.isInside
+            ? agents.isInside(resource.owner_scope, agentId, reader.userId)
+            : agents.isAdmin(resource.owner_scope, agentId, reader.userId)))
+        ) {
+          // Axis A `none` hides the agent itself, its settings included.
+          if ((await outsideAccess.access(resource.owner_scope)) === "none") {
+            return ["not_found", scopes];
+          }
+          if (action === "agent.settings_read") return ["role", scopes];
+        }
       }
     } else if (roles !== undefined) {
       if (principal.kind !== "user") return ["role", scopes];

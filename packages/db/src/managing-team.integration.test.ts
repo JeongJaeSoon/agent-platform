@@ -20,8 +20,12 @@ import {
   type Caller,
   type CatalogProfile,
   callerFor,
+  createAgentAdminService,
+  createAgentIdentityService,
   createAgentService,
   createAuthorizationPolicy,
+  createCredentialBindingService,
+  createSurfaceBindingService,
   type SessionCatalog,
   SessionServiceError,
   type TeamActor,
@@ -39,6 +43,7 @@ import { insideAgent } from "./administers.ts";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
+import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
@@ -48,6 +53,7 @@ import { migrate } from "./migrate.ts";
 import { lockSessionReach } from "./requester-locks.ts";
 import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
+import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -427,6 +433,211 @@ integration("the managing team on PostgreSQL", () => {
         .map((r) => r.operation)
         .filter((op) => op === "set_team_member_role").length,
     ).toBe(3);
+  });
+
+  test("W, L and T read the agent's settings and O only its row; T changes nothing (agent-rbac R2)", async () => {
+    const { owner, lead, member, outsider, agentId } = await cast();
+    const policy = createAuthorizationPolicy({
+      identity: createDatabaseIdentityReader(db),
+      agents: authority(),
+    });
+    const agentsService = service();
+    const credentials = createCredentialBindingService({
+      authorization: policy,
+      store: createPostgresCredentialBindingStore(db),
+    });
+    const adminService = createAgentAdminService({
+      authorization: policy,
+      store: admins(),
+    });
+    const slack = createSurfaceBindingService({
+      authorization: policy,
+      store: createPostgresSurfaceBindingStore(db),
+      channels: {
+        kindOf: async () => {
+          throw new Error("no Slack here");
+        },
+      },
+    });
+    const identities = createAgentIdentityService({
+      authorization: policy,
+      store: createPostgresAgentIdentityStore(db),
+    });
+    await credentials.bind(owner, agentId, { credential_ref: "github" });
+
+    const reads = {
+      list: async (who: Caller) =>
+        (
+          await agentsService.listAgents(who, {
+            limit: 50,
+            include: "summary",
+          })
+        ).items.map((agent) => ("summary" in agent ? "summary" : "row")),
+      count: async (who: Caller) =>
+        (await agentsService.countAgents(who)).counts,
+      detail: (who: Caller) => agentsService.getAgent(who, agentId),
+      credentials: (who: Caller) => credentials.list(who, agentId),
+      admins: (who: Caller) => adminService.listAgentAdmins(who, agentId),
+      slack: (who: Caller) => slack.listSlackBindings(who, agentId),
+      identities: (who: Caller) => identities.listAgentIdentities(who, agentId),
+    };
+    const settings = [
+      reads.detail,
+      reads.credentials,
+      reads.admins,
+      reads.slack,
+      reads.identities,
+    ];
+    for (const who of [owner, lead, member]) {
+      expect(await reads.list(who)).toEqual(["summary"]);
+      expect((await reads.count(who)).all).toBe(1);
+      for (const read of settings) expect(await codeOf(read(who))).toBe("ok");
+    }
+    // O finds the agent's row, without its summary, and nothing behind it.
+    expect(await reads.list(outsider)).toEqual(["row"]);
+    expect(await reads.count(outsider)).toEqual({
+      all: 1,
+      administered: 0,
+      active: 0,
+      draft: 1,
+    });
+    for (const read of settings) {
+      expect(await codeOf(read(outsider))).toBe("FORBIDDEN:role");
+    }
+
+    // Reading the settings opens none of the writes beside them to T.
+    expect(
+      await codeOf(agentsService.updateAgent(member, agentId, { name: "t" })),
+    ).toStartWith("FORBIDDEN");
+    expect(
+      await codeOf(
+        credentials.bind(member, agentId, { credential_ref: "slack" }),
+      ),
+    ).toStartWith("FORBIDDEN");
+    expect(
+      await codeOf(
+        adminService.addAgentAdmin(member, agentId, "users", idOf(member)),
+      ),
+    ).toStartWith("FORBIDDEN");
+    expect(
+      await codeOf(
+        slack.putSlackBinding(member, agentId, {
+          channel_id: null,
+          mode: "on",
+          home: false,
+        }),
+      ),
+    ).toStartWith("FORBIDDEN");
+  });
+
+  test("the list's rows and cards follow who is inside each agent now, under either axis A", async () => {
+    const { workspaceId, owner, member, outsider, teamId, agentId } =
+      await cast();
+    // A second agent with no managing team: only W and its creator inside.
+    const other = (
+      await service().createAgent(owner, {
+        slug: `other-${randomUUID().slice(0, 8)}`,
+        name: "other",
+        card: card("v1"),
+      })
+    ).agent.id;
+    const store = createPostgresAgentStore(db);
+    const reader = (who: Caller, outsideAccess: "use" | "none") => ({
+      userId: idOf(who),
+      outsideAccess,
+    });
+    // Read a page of one at a time, so the cursor crosses filtered rows.
+    const rows = async (who: Caller, outsideAccess: "use" | "none") => {
+      const ids: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await store.list(
+          workspaceId,
+          { limit: 1, ...(cursor === undefined ? {} : { cursor }) },
+          reader(who, outsideAccess),
+        );
+        ids.push(...page.items.map((a) => a.id));
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor !== undefined);
+      return ids;
+    };
+    const cards = async (who: Caller) =>
+      [
+        ...(
+          await store.summaries(workspaceId, [agentId, other], {
+            userId: idOf(who),
+            apiKeyId: null,
+          })
+        ).keys(),
+      ].sort();
+    const both = [agentId, other];
+
+    expect(await rows(outsider, "use")).toEqual(both);
+    expect(await rows(member, "use")).toEqual(both);
+    // Axis A none: each row only where the reader is inside, the count too.
+    expect(await rows(owner, "none")).toEqual(both);
+    expect(await rows(member, "none")).toEqual([agentId]);
+    expect(await rows(outsider, "none")).toEqual([]);
+    expect((await store.count(workspaceId, reader(member, "none"))).all).toBe(
+      1,
+    );
+    expect((await store.count(workspaceId, reader(outsider, "none"))).all).toBe(
+      0,
+    );
+
+    expect(await cards(owner)).toEqual([...both].sort());
+    expect(await cards(member)).toEqual([agentId]);
+    expect(await cards(outsider)).toEqual([]);
+
+    // A filter on a setting narrows to the agents whose settings are read.
+    const byProfile = async (who: Caller) =>
+      (
+        await store.list(
+          workspaceId,
+          { limit: 50, runtime_profile_id: "coding" },
+          reader(who, "use"),
+        )
+      ).items.length;
+    const released = await service().createRelease(owner, agentId, {
+      version_id: (await service().getAgent(owner, agentId)).versions[0]
+        ?.id as string,
+      runtime_profile_id: "coding",
+    });
+    await service().activateAgent(owner, agentId, {
+      release_id: released.release.id,
+      expected_revision: -1,
+    });
+    expect(await byProfile(member)).toBe(1);
+    expect(await byProfile(outsider)).toBe(0);
+
+    // Out of the team, the card goes with the next read.
+    await teams().removeMember({
+      actor: acting(owner),
+      receiptId: randomUUID(),
+      teamId,
+      userId: idOf(member),
+    });
+    expect(await cards(member)).toEqual([]);
+    expect(await byProfile(member)).toBe(0);
+    await join(owner, teamId, member);
+    expect(await cards(member)).toEqual([agentId]);
+    // So it does with an archived team, or a disabled member.
+    await pool.query(
+      "UPDATE member_teams SET archived_at = now() WHERE id = $1",
+      [teamId],
+    );
+    expect(await cards(member)).toEqual([]);
+    await pool.query(
+      "UPDATE member_teams SET archived_at = NULL WHERE id = $1",
+      [teamId],
+    );
+    expect(await cards(member)).toEqual([agentId]);
+    await db
+      .update(schema.memberships)
+      .set({ disabledAt: new Date() })
+      .where(eq(schema.memberships.userId, idOf(member)));
+    expect(await cards(member)).toEqual([]);
+    expect(await rows(member, "use")).toEqual([]);
   });
 
   test("my-teams says the role held in each team", async () => {

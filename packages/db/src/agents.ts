@@ -24,7 +24,12 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { administers, liveMember } from "./administers.ts";
+import {
+  administers,
+  agentReadable,
+  insideAgent,
+  liveMember,
+} from "./administers.ts";
 import { managingTeamAllowed } from "./agent-admins.ts";
 import { agentSummaries } from "./agent-summaries.ts";
 import { holdsRight, lockedRole } from "./api-keys.ts";
@@ -330,7 +335,7 @@ export async function lockAgentToChange(
 
 export function createPostgresAgentStore(db: Database): AgentStore {
   return {
-    async list(workspaceId, query): Promise<ListAgentsResponse> {
+    async list(workspaceId, query, reader): Promise<ListAgentsResponse> {
       const cursor = query.cursor ? decodeCreatedAtCursor(query.cursor) : null;
       const rows = await db
         .select({
@@ -341,6 +346,13 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
+            agentReadable(
+              db,
+              workspaceId,
+              reader.userId.toLowerCase(),
+              agents.id,
+              reader.outsideAccess,
+            ),
             query.q === undefined
               ? undefined
               : or(
@@ -353,9 +365,20 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   agents.id,
                   query.ids.map((id) => id.toLowerCase()),
                 ),
+            // The release's profile is a setting: filtering on it keeps only
+            // the agents whose settings the reader reads, so the rows never
+            // tell anyone else which profile an agent runs.
             query.runtime_profile_id === undefined
               ? undefined
-              : sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
+              : and(
+                  insideAgent(
+                    db,
+                    workspaceId,
+                    reader.userId.toLowerCase(),
+                    agents.id,
+                  ),
+                  sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
+                ),
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,
@@ -378,8 +401,8 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       };
     },
 
-    async count(workspaceId, userId) {
-      const person = userId.toLowerCase();
+    async count(workspaceId, reader) {
+      const person = reader.userId.toLowerCase();
       const [row] = await db
         .select({
           all: sql<number>`count(*)::int`,
@@ -391,7 +414,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
         })
         .from(agents)
-        .where(eq(agents.workspaceId, workspaceId));
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            agentReadable(
+              db,
+              workspaceId,
+              person,
+              agents.id,
+              reader.outsideAccess,
+            ),
+          ),
+        );
       return {
         all: row?.all ?? 0,
         administered: row?.administered ?? 0,

@@ -330,6 +330,12 @@ export const AUTHORIZATION_ACTION_VALUES = [
   "account.link",
   // Any member may create an agent and becomes its admin (D3).
   "agent.create",
+  // An agent's information (name, slug, description, managing team, status,
+  // active release id): its list row. On the workspace, listing at all.
+  "agent.read",
+  // An agent's settings (card, versions, releases, admins, credential
+  // bindings, GitHub, Slack) read without changing them (agent-rbac (b)).
+  "agent.settings_read",
   "agent.manage",
   // Bringing an archived agent back is the owner's alone.
   "agent.restore",
@@ -397,6 +403,8 @@ const ACTION_RESOURCE_KINDS: Record<
   "api_key.manage_own": new Set(["workspace"]),
   "account.link": new Set(["workspace"]),
   "agent.create": new Set(["workspace"]),
+  "agent.read": new Set(["workspace", "agent"]),
+  "agent.settings_read": new Set(["agent"]),
   "agent.manage": new Set(["workspace", "agent"]),
   "agent.restore": new Set(["agent"]),
   "agent.admin.manage": new Set(["agent"]),

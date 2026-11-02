@@ -459,9 +459,10 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       ]);
     }
 
-    // The channel search refuses whoever the binding list refuses, the same
-    // way; another workspace's agent, which the list answers with nothing, it
-    // does not find.
+    // The channel search refuses a member outside the agent the way the
+    // binding list does. An id of no agent is 404 to the list, a settings
+    // read, and 403 to the search, which is judged as binding like the PUT.
+    // To an owner, neither finds another workspace's agent.
     const elsewhere = crypto.randomUUID();
     await db
       .insert(workspaces)
@@ -470,9 +471,9 @@ integration("agent identities over HTTP on PostgreSQL", () => {
     await db
       .insert(agents)
       .values({ id: foreign, workspaceId: elsewhere, slug: "x", name: "x" });
-    for (const [cookie, agent] of [
-      [member, agentId],
-      [admin, crypto.randomUUID()],
+    for (const [cookie, agent, listStatus] of [
+      [member, agentId, 403],
+      [admin, crypto.randomUUID(), 404],
     ] as const) {
       const listed = await send(
         "GET",
@@ -484,21 +485,22 @@ integration("agent identities over HTTP on PostgreSQL", () => {
         `/v1/agents/${agent}/slack/channels?q=de`,
         cookie,
       );
+      expect(listed.status).toBe(listStatus);
       expect([searched.status, (await errorOf(searched)).code]).toEqual([
-        listed.status,
-        (await errorOf(listed)).code,
+        403,
+        "FORBIDDEN",
       ]);
-      expect(searched.status).toBe(403);
     }
-    const listedForeign = await send(
-      "GET",
-      `/v1/agents/${foreign}/slack-bindings`,
-      ownerCookie,
-    );
-    expect(
-      listSlackBindingsResponseSchema.parse(await listedForeign.json()).items,
-    ).toEqual([]);
     for (const agent of [foreign, crypto.randomUUID()]) {
+      const listed = await send(
+        "GET",
+        `/v1/agents/${agent}/slack-bindings`,
+        ownerCookie,
+      );
+      expect([listed.status, (await errorOf(listed)).code]).toEqual([
+        404,
+        "NOT_FOUND",
+      ]);
       const searched = await send(
         "GET",
         `/v1/agents/${agent}/slack/channels`,

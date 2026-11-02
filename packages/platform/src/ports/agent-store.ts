@@ -9,8 +9,14 @@ import type {
   ListAgentsResponse,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/policy.ts";
+import type { OutsideAgentAccess, Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
+
+/** Who lists agents, and what the workspace lets members outside one see. */
+export interface AgentReader {
+  userId: string;
+  outsideAccess: OutsideAgentAccess;
+}
 
 /** A release as the service builds it; the store stamps the times. */
 export type NewAgentRelease = Omit<
@@ -67,26 +73,29 @@ export type ActivateResult =
 
 export interface AgentStore {
   /**
-   * One page, oldest first, narrowed by `q` and `ids`; a malformed cursor
-   * throws InvalidCursorError. `include` is the service's.
+   * One page, oldest first, of the agents `reader` may read (agent.read),
+   * narrowed by `q` and `ids`; a malformed cursor throws
+   * InvalidCursorError. `include` is the service's.
    */
   list(
     workspaceId: string,
     query: ListAgentsQuery,
+    reader: AgentReader,
   ): Promise<ListAgentsResponse>;
   /**
-   * The list summary of each agent named, keyed by id, read for the whole
-   * page at once; an id not in the workspace is left out.
+   * The list summary of each agent named whose settings `viewer` may read
+   * (agent.settings_read), keyed by id, read for the whole page at once; any
+   * other id is left out.
    */
   summaries(
     workspaceId: string,
     agentIds: readonly string[],
     viewer: SessionViewer,
   ): Promise<Map<string, AgentSummary>>;
-  /** What `list` holds read to the end, and how many of it `userId` administers. */
+  /** What `list` holds for `reader` read to the end, and how many of it they administer. */
   count(
     workspaceId: string,
-    userId: string,
+    reader: AgentReader,
   ): Promise<CountAgentsResponse["counts"]>;
   get(workspaceId: string, agentId: string): Promise<AgentDetail | null>;
   findVersion(

@@ -56,6 +56,17 @@ export const Loading: Story = {
   args: { perDay: undefined, calls: undefined },
 };
 
+/** The tools are still read: no name yet, the heading still names itself. */
+export const LoadingTools: Story = {
+  args: {
+    name: undefined,
+    tool: undefined,
+    note: undefined,
+    perDay: undefined,
+    calls: undefined,
+  },
+};
+
 /** The calls could not be read: the error stands in for chart and list. */
 export const ReadFailed: Story = {
   args: { error: "호출 기록을 읽지 못했습니다." },

@@ -169,10 +169,15 @@ export function createAgentGitHubService(deps: {
       kind: "agent",
       id: agentId,
     });
+  const read = (caller: Caller, agentId: string) =>
+    requirePermitted(authorization, caller, "agent.settings_read", {
+      kind: "agent",
+      id: agentId,
+    });
 
   return {
     async get(caller: Caller, agentId: string): Promise<AgentGitHubResponse> {
-      await manage(caller, agentId);
+      await read(caller, agentId);
       const workspaceId = caller.ownerId;
       const [detail, enabled, settings, apps] = await Promise.all([
         deps.agents.get(workspaceId, agentId),
@@ -350,7 +355,7 @@ export function createAgentGitHubService(deps: {
       caller: Caller,
       agentId: string,
     ): Promise<AgentGitHubActivityResponse> {
-      await manage(caller, agentId);
+      await read(caller, agentId);
       if ((await store.enabled(caller.ownerId, agentId)) === null) {
         throw NOT_FOUND();
       }
