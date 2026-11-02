@@ -26,7 +26,8 @@ export type CopyButtonProps = Omit<
   readonly copiedLabel?: ReactNode;
   /**
    * Announced politely after each copy. A button's changed name is not
-   * announced reliably, and a fixed `aria-label` hides it entirely.
+   * announced reliably, and a fixed `aria-label` hides it entirely. A copy
+   * that settles after `value` changed is not announced; see `onResult`.
    */
   readonly copiedMessage?: string;
   /**
@@ -34,7 +35,10 @@ export type CopyButtonProps = Omit<
    * screen that reports the copy elsewhere. `none`: text only.
    */
   readonly icon?: "swap" | "copy" | "none";
-  /** Sizes the icon, e.g. `size-3.5`; the button's default is 16px. */
+  /**
+   * Sizes the icon with a `size-*` class, e.g. `size-3.5`; the button's 16px
+   * default skips only icons that carry one.
+   */
   readonly iconClassName?: string;
   /** Focused when the clipboard refuses, so it can select the value. */
   readonly fallbackField?: RefObject<HTMLElement | null>;
@@ -47,8 +51,9 @@ export type CopyButtonProps = Omit<
 };
 
 /**
- * A button that copies `value`. Its icon turns into a Check while the copy
- * holds; what the screen says about it is left to `onResult`.
+ * A button that copies `value`, showing `copiedLabel` (and a Check, with
+ * `icon="swap"`) while the copy holds. What the screen says about it is left
+ * to `onResult`.
  */
 export function CopyButton({
   value,
