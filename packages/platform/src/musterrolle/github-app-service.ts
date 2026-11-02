@@ -9,6 +9,8 @@ import {
   type GitHubAppRepository,
   type GitHubAppRole,
   githubAppWarnings,
+  type ListGitHubAppsResponse,
+  type PostGitHubAppRequest,
   type PutGitHubAppRequest,
   type PutGitHubAppResponse,
   type StartGitHubAppManifestRequest,
@@ -23,6 +25,7 @@ import {
   type GitHubAppManifestStore,
   type GitHubAppRecord,
   type GitHubAppStore,
+  type GitHubAppTarget,
   type PutGitHubAppResult,
 } from "../ports/github-app-store.ts";
 import type { SecretAudit } from "../ports/secret-store.ts";
@@ -57,6 +60,7 @@ export function githubAppOf(
   const { updatedBy } = record.privateKey;
   return {
     role,
+    connection_id: record.id,
     app_id: record.appId,
     slug: record.slug,
     name: record.name,
@@ -75,6 +79,20 @@ export function githubAppOf(
     warnings: githubAppWarnings(role, record.permissions),
   };
 }
+
+/** A path's `{role}`: a role, or else a connection id. */
+export type GitHubAppRef = GitHubAppRole | (string & {});
+
+const isRole = (ref: GitHubAppRef): ref is GitHubAppRole =>
+  ref === "author" || ref === "reviewer";
+
+const ambiguousRole = () =>
+  new SessionServiceError(
+    "GITHUB_APP_CONFLICT",
+    "This role has several GitHub App connections; name one by its connection_id",
+    undefined,
+    { reason_code: "ambiguous_role" },
+  );
 
 const hashState = (state: string) =>
   createHash("sha256").update(state, "utf8").digest();
@@ -134,8 +152,8 @@ function rsaPrivateKey(raw: string): string {
 }
 
 /**
- * The workspace's GitHub Apps, one per role (design github-agent.md §2
- * decision 1), set in the console by an owner or admin (`workspace.manage`)
+ * The workspace's GitHub App connections, any number per role (design
+ * github-agent.md decision 11), set in the console by an owner or admin (`workspace.manage`)
  * signed in to it. A key is checked against GitHub before it is kept, and
  * never leaves the server again.
  */
@@ -266,26 +284,29 @@ export function createGitHubAppService(deps: {
     async describe(
       caller: Caller,
       workspaceId: string,
-      role: GitHubAppRole,
+      ref: GitHubAppRef,
     ): Promise<GetGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
-      const record = await store.find(workspaceId, role);
+      const record = await recordOf(store, workspaceId, ref);
       const credential =
         record === null
           ? undefined
-          : (await store.credentials(role, workspaceId)).find(
+          : (await store.credentials(record.role, workspaceId)).find(
               (held) => held.id === record.id,
             );
       if (record === null || credential === undefined) {
+        if (!isRole(ref)) throw NOT_FOUND();
         return {
           github_app: null,
           check: null,
           installations: [],
           repositories: unchecked(),
           manifest_blocked: manifestBlocked(),
+          usage: null,
         };
       }
-      const [checked, profile] = await Promise.all([
+      const role = record.role;
+      const [checked, profile, usage] = await Promise.all([
         check(credential),
         // An owner widens the App on GitHub; this read is how it shows here.
         directory
@@ -294,6 +315,7 @@ export function createGitHubAppService(deps: {
             (profile) => profile,
             () => null,
           ),
+        store.usage(workspaceId, record.id),
       ]);
       if (profile !== null) {
         await store.recordPermissions(
@@ -320,7 +342,35 @@ export function createGitHubAppService(deps: {
         },
         ...checked,
         manifest_blocked: manifestBlocked(),
+        usage,
       };
+    },
+
+    async list(
+      caller: Caller,
+      workspaceId: string,
+    ): Promise<ListGitHubAppsResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const records = await store.list(workspaceId);
+      return {
+        github_apps: records.map((record) => githubAppOf(record, record.role)),
+      };
+    },
+
+    async add(
+      caller: Caller,
+      workspaceId: string,
+      readBody: () => Promise<PostGitHubAppRequest>,
+    ): Promise<PutGitHubAppResponse> {
+      const store = await managedStore(caller, workspaceId);
+      const body = await readBody();
+      return await write(
+        store,
+        caller,
+        workspaceId,
+        { kind: "add", role: body.role },
+        body,
+      );
     },
 
     /**
@@ -330,54 +380,20 @@ export function createGitHubAppService(deps: {
     async register(
       caller: Caller,
       workspaceId: string,
-      role: GitHubAppRole,
+      ref: GitHubAppRef,
       readBody: () => Promise<PutGitHubAppRequest>,
     ): Promise<PutGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
       const body = await readBody();
-      const privateKey = rsaPrivateKey(body.private_key);
-      let profile: Awaited<ReturnType<GitHubAppDirectory["describe"]>>;
-      try {
-        profile = await directory.describe({
-          appId: body.app_id,
-          apiBase: deps.apiBase,
-          privateKey,
-        });
-      } catch (error) {
-        if (
-          error instanceof GitHubAppCheckError &&
-          error.reason === "github_rejected"
-        ) {
-          throw refused(
-            "github_app_rejected",
-            "GitHub did not accept this private key for app_id",
-          );
-        }
-        throw new SessionServiceError(
-          "BACKEND_UNAVAILABLE",
-          "GitHub could not be reached to check the App",
-          undefined,
-          { reason_code: "github_unreachable" },
-        );
-      }
-      if (profile.appId !== body.app_id) {
-        throw refused(
-          "github_app_rejected",
-          "GitHub did not accept this private key for app_id",
-        );
-      }
-      const audit = auditOf(caller);
-      const result = await store.put(
+      return await write(
+        store,
+        caller,
         workspaceId,
-        role,
-        { ...profile, apiBase: deps.apiBase },
-        privateKey,
-        audit,
+        isRole(ref)
+          ? { kind: "role", role: ref }
+          : { kind: "connection", id: ref },
+        body,
       );
-      return {
-        github_app: await stored(result, role),
-        receipt_id: audit.receiptId,
-      };
     },
 
     /**
@@ -390,7 +406,7 @@ export function createGitHubAppService(deps: {
       workspaceId: string,
       readBody: () => Promise<StartGitHubAppManifestRequest>,
     ): Promise<StartGitHubAppManifestResponse> {
-      const store = await managedStore(caller, workspaceId);
+      await managedStore(caller, workspaceId);
       const manifests = deps.manifests;
       const origin = manifests?.consoleOrigin;
       if (!manifests || !origin || !manifests.callbackUrl) {
@@ -402,15 +418,6 @@ export function createGitHubAppService(deps: {
         );
       }
       const body = await readBody();
-      const current = await store.find(workspaceId, "author");
-      if (current !== null && !body.replace) {
-        throw new SessionServiceError(
-          "GITHUB_APP_CONFLICT",
-          "An author GitHub App is registered; send replace: true to replace it",
-          undefined,
-          { reason_code: "author_app_exists" },
-        );
-      }
       const at = manifests.now?.() ?? new Date();
       const expiresAt = new Date(
         at.getTime() + GITHUB_APP_MANIFEST_STATE_TTL_SECONDS * 1000,
@@ -426,7 +433,7 @@ export function createGitHubAppService(deps: {
           role: "author",
           ownerLogin: login,
           public: body.public,
-          replacesAppId: current?.appId ?? null,
+          replacesAppId: null,
           expiresAt,
         },
         at,
@@ -451,7 +458,6 @@ export function createGitHubAppService(deps: {
         expires_at: expiresAt.toISOString(),
       };
     },
-
     /**
      * Spends the state, exchanges the code once, and stores the App, its key
      * and its OAuth client secret in one transaction.
@@ -518,7 +524,7 @@ export function createGitHubAppService(deps: {
       try {
         result = await store.put(
           workspaceId,
-          "author",
+          { kind: "add", role: "author" },
           {
             appId: app.appId,
             slug: app.slug,
@@ -532,7 +538,6 @@ export function createGitHubAppService(deps: {
           audit,
           {
             clientSecret: app.clientSecret,
-            replaces: state.replacesAppId,
             owner: app.owner,
             public: state.public,
           },
@@ -550,21 +555,9 @@ export function createGitHubAppService(deps: {
           },
         );
       }
-      if (result.outcome === "author_app_changed") {
-        throw new SessionServiceError(
-          "GITHUB_APP_CONFLICT",
-          "The author GitHub App changed while this one was being made; nothing was stored",
-          undefined,
-          {
-            reason_code: "author_app_changed",
-            app_id: app.appId,
-            html_url: app.htmlUrl,
-          },
-        );
-      }
       let githubApp: GitHubApp;
       try {
-        githubApp = await stored(result, "author");
+        githubApp = (await stored(result)).github_app;
       } catch (error) {
         // Whatever refused the save, the App already exists on GitHub.
         if (!(error instanceof SessionServiceError)) throw error;
@@ -584,15 +577,30 @@ export function createGitHubAppService(deps: {
     async remove(
       caller: Caller,
       workspaceId: string,
-      role: GitHubAppRole,
+      ref: GitHubAppRef,
     ): Promise<DeleteGitHubAppResponse> {
       const store = await managedStore(caller, workspaceId);
       const audit = auditOf(caller);
-      const result = await store.delete(workspaceId, role, audit);
+      const result = await store.delete(
+        workspaceId,
+        isRole(ref)
+          ? { kind: "role", role: ref }
+          : { kind: "connection", id: ref },
+        audit,
+      );
       switch (result.outcome) {
         case "deleted":
           await reload();
           return { receipt_id: audit.receiptId };
+        case "ambiguous_role":
+          throw ambiguousRole();
+        case "in_use_for_user_link":
+          throw new SessionServiceError(
+            "GITHUB_APP_CONFLICT",
+            "People link their GitHub accounts with this App; choose another author App for that first",
+            undefined,
+            { reason_code: "in_use_for_user_link" },
+          );
         case "actor_inactive":
           throw ACTOR_INACTIVE();
         case "outranked":
@@ -603,14 +611,81 @@ export function createGitHubAppService(deps: {
     },
   };
 
+  async function recordOf(
+    store: GitHubAppStore,
+    workspaceId: string,
+    ref: GitHubAppRef,
+  ) {
+    if (!isRole(ref)) return await store.get(workspaceId, ref);
+    const held = await store.ofRole(workspaceId, ref);
+    if (held.length > 1) throw ambiguousRole();
+    return held[0] ?? null;
+  }
+
+  async function write(
+    store: GitHubAppStore,
+    caller: Caller,
+    workspaceId: string,
+    target: GitHubAppTarget,
+    body: PutGitHubAppRequest,
+  ): Promise<PutGitHubAppResponse> {
+    const privateKey = rsaPrivateKey(body.private_key);
+    let profile: Awaited<ReturnType<GitHubAppDirectory["describe"]>>;
+    try {
+      profile = await directory.describe({
+        appId: body.app_id,
+        apiBase: deps.apiBase,
+        privateKey,
+      });
+    } catch (error) {
+      if (
+        error instanceof GitHubAppCheckError &&
+        error.reason === "github_rejected"
+      ) {
+        throw refused(
+          "github_app_rejected",
+          "GitHub did not accept this private key for app_id",
+        );
+      }
+      throw new SessionServiceError(
+        "BACKEND_UNAVAILABLE",
+        "GitHub could not be reached to check the App",
+        undefined,
+        { reason_code: "github_unreachable" },
+      );
+    }
+    if (profile.appId !== body.app_id) {
+      throw refused(
+        "github_app_rejected",
+        "GitHub did not accept this private key for app_id",
+      );
+    }
+    const audit = auditOf(caller);
+    const result = await store.put(
+      workspaceId,
+      target,
+      { ...profile, apiBase: deps.apiBase },
+      privateKey,
+      audit,
+    );
+    return { ...(await stored(result)), receipt_id: audit.receiptId };
+  }
+
   async function stored(
     result: PutGitHubAppResult,
-    role: GitHubAppRole,
-  ): Promise<GitHubApp> {
+  ): Promise<Omit<PutGitHubAppResponse, "receipt_id">> {
     switch (result.outcome) {
       case "stored":
         await reload();
-        return githubAppOf(result.app, role);
+        return {
+          github_app: githubAppOf(result.app, result.app.role),
+          ...(result.pinsCleared > 0
+            ? { pins_cleared: result.pinsCleared }
+            : {}),
+          ...(result.pinsRestored > 0
+            ? { pins_restored: result.pinsRestored }
+            : {}),
+        };
       case "author_app_exists":
       case "author_app_changed":
         throw new SessionServiceError(
@@ -619,10 +694,24 @@ export function createGitHubAppService(deps: {
           undefined,
           { reason_code: result.outcome },
         );
+      case "ambiguous_role":
+        throw ambiguousRole();
+      case "in_use_for_user_link":
+        throw new SessionServiceError(
+          "GITHUB_APP_CONFLICT",
+          "People link their GitHub accounts with this App",
+          undefined,
+          { reason_code: "in_use_for_user_link" },
+        );
+      case "app_id_mismatch":
+        throw refused(
+          "app_id_mismatch",
+          "This connection is another App: add that App as a new connection instead",
+        );
       case "same_app":
         throw new SessionServiceError(
           "GITHUB_APP_CONFLICT",
-          "The workspace's other GitHub App is this App; GitHub refuses an approval from the App that opened the pull request",
+          "Another GitHub App connection of the workspace is this App; GitHub refuses an approval from the App that opened the pull request",
           undefined,
           { reason_code: "same_app" },
         );

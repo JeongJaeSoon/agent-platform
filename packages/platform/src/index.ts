@@ -101,6 +101,7 @@ export * from "./sessions/catalog.ts";
 export * from "./sessions/event-codecs.ts";
 export * from "./sessions/feature-gate.ts";
 export * from "./sessions/git-attribution.ts";
+export * from "./sessions/github-connection-resolver.ts";
 export * from "./sessions/github-gate.ts";
 export * from "./sessions/github-mcp-server.ts";
 export * from "./sessions/repository-attachment-service.ts";

@@ -124,6 +124,55 @@ export const GITHUB_REPOSITORIES_UNAVAILABLE_VALUES = [
   ...GITHUB_UNAVAILABLE_VALUES,
 ] as const;
 
+export const githubRepositoryPinsSchema = z
+  .object({
+    author: z.uuid().nullable(),
+    reviewer: z.uuid().nullable(),
+  })
+  .strict();
+
+export const githubRepositoryAppPinParamsSchema = workspaceParamsSchema
+  .extend({
+    repositoryId: z.string().min(1).max(200),
+    role: githubAppRoleSchema,
+  })
+  .strict();
+
+export const putGitHubRepositoryAppPinRequestSchema = z
+  .object({ connection_id: z.uuid() })
+  .strict();
+
+export const putGitHubRepositoryAppPinResponseSchema = z
+  .object({
+    catalog_id: z.string().min(1),
+    role: githubAppRoleSchema,
+    connection_id: z.uuid(),
+    /** Null when it was already pinned there: nothing changed. */
+    receipt_id: receiptIdSchema.nullable(),
+  })
+  .strict();
+
+/** What a repository's pins may be set to. */
+export const getGitHubRepositoryAppPinsResponseSchema = z
+  .object({
+    catalog_id: z.string().min(1),
+    pins: githubRepositoryPinsSchema,
+    /** Every connection, and whether its App reaches the repository now. */
+    candidates: z.array(
+      z
+        .object({
+          connection_id: z.uuid(),
+          role: githubAppRoleSchema,
+          name: z.string().min(1),
+          app_id: z.number().int().positive(),
+          /** Null when GitHub did not answer. */
+          installed: z.boolean().nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 const installationPageFields = {
   installations: z.array(githubAppInstallationSummarySchema),
   /** The installation this page is of; null with no installation. */
@@ -155,6 +204,12 @@ export const listGitHubRepositoriesResponseSchema = z
         .extend({
           /** Agents whose active release names it. */
           agent_count: z.number().int().min(0),
+          /**
+           * The connection pinned per role; null when none is, or when the
+           * pinned one was removed (the gate then refuses the role's work).
+           * Absent for a file entry, which uses its own App.
+           */
+          pins: githubRepositoryPinsSchema.optional(),
         })
         .strict(),
     ),
@@ -206,8 +261,24 @@ export const pickAgentGitHubRepositoryResponseSchema = z
     catalog_id: z.string().min(1),
     /** Null unless this pick added the row or moved it to a new name. */
     receipt_id: receiptIdSchema.nullable(),
+    /**
+     * The author connection the repository is pinned to: the picked
+     * installation's, or the one pinned before, which a pick leaves be.
+     */
+    connection_id: z.uuid().optional(),
   })
   .strict();
+
+export type GitHubRepositoryPins = z.infer<typeof githubRepositoryPinsSchema>;
+export type PutGitHubRepositoryAppPinRequest = z.infer<
+  typeof putGitHubRepositoryAppPinRequestSchema
+>;
+export type PutGitHubRepositoryAppPinResponse = z.infer<
+  typeof putGitHubRepositoryAppPinResponseSchema
+>;
+export type GetGitHubRepositoryAppPinsResponse = z.infer<
+  typeof getGitHubRepositoryAppPinsResponseSchema
+>;
 
 export type CatalogGitHubRepository = z.infer<
   typeof catalogGitHubRepositorySchema

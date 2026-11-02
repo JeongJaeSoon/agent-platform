@@ -88,6 +88,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   add_repository: "저장소 추가",
   resolve_repository: "저장소 고르기",
   set_repository_branch: "저장소 기본 브랜치 변경",
+  set_repository_github_app: "저장소 GitHub App 고정",
   remove_repository: "저장소 제거",
   import_repository: "저장소 가져오기",
   set_agent_github: "에이전트 GitHub 사용 변경",

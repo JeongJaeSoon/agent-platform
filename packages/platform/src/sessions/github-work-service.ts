@@ -108,7 +108,9 @@ export function createGitHubWorkService(deps: {
       if (error instanceof GitHubUnavailableError) {
         throw unavailable(error.receiptId);
       }
-      if (error instanceof ForgeCredentialError) throw unavailable(null);
+      if (error instanceof ForgeCredentialError) {
+        throw unavailable(error.receiptId);
+      }
       throw error;
     }
     if (grant === null) {
