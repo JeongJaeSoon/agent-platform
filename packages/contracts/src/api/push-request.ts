@@ -106,15 +106,30 @@ export const pushRequestSchema = z.object({
   state: pushRequestStateSchema,
   requested_by: receiptActorSchema,
   requested_at: timestampSchema,
-  decided_by: pushDeciderSchema.nullable(),
-  decided_at: timestampSchema.nullable(),
-  decision_reason: z.string().nullable(),
+  // Optional only while servers without them may still answer.
+  resolved_by: pushDeciderSchema.nullable().optional(),
+  resolved_at: timestampSchema.nullable().optional(),
+  resolution_reason: z.string().nullable().optional(),
   request_receipt_id: receiptIdSchema,
-  decision_receipt_id: receiptIdSchema.nullable(),
+  resolution_receipt_id: receiptIdSchema.nullable().optional(),
   // Set once the platform's push ended, pushed or failed; its receipt says
   // where the commit went or why it did not.
   finished_at: timestampSchema.nullable(),
   push_receipt_id: receiptIdSchema.nullable(),
+  // The old names of the four resolution fields, sent until callers move.
+  decided_by: pushDeciderSchema
+    .nullable()
+    .meta({ deprecated: true, description: "Use `resolved_by`." }),
+  decided_at: timestampSchema
+    .nullable()
+    .meta({ deprecated: true, description: "Use `resolved_at`." }),
+  decision_reason: z
+    .string()
+    .nullable()
+    .meta({ deprecated: true, description: "Use `resolution_reason`." }),
+  decision_receipt_id: receiptIdSchema
+    .nullable()
+    .meta({ deprecated: true, description: "Use `resolution_receipt_id`." }),
 });
 
 export const createPushRequestRequestSchema = z
@@ -128,13 +143,17 @@ export const createPushRequestRequestSchema = z
 
 export const PUSH_DECISION_VALUES = ["approve", "reject"] as const;
 export const pushDecisionSchema = z.enum(PUSH_DECISION_VALUES);
-export const decidePushRequestRequestSchema = z
+// The body of `/approve` and `/reject`; the path names the action.
+export const resolvePushRequestRequestSchema = z
   .object({
-    decision: pushDecisionSchema,
     // The commit the decider reviewed; an approval of any other is refused.
     git_commit: gitCommitShaSchema,
     reason: z.string().min(1).max(1000).optional(),
   })
+  .strict();
+/** @deprecated The body of the old `/decision` path; use `/approve` or `/reject`. */
+export const decidePushRequestRequestSchema = resolvePushRequestRequestSchema
+  .extend({ decision: pushDecisionSchema })
   .strict();
 
 export const listPushRequestsResponseSchema = z.object({
@@ -151,6 +170,8 @@ export const PUSH_REFUSAL_VALUES = [
   "checkpoint_unavailable",
   "request_open",
   "already_decided",
+  // The new name of `already_decided`, readable before it is written.
+  "already_resolved",
   "checkpoint_moved",
   "commit_mismatch",
   "catalog_changed",
@@ -188,7 +209,9 @@ export const pushReasonCodeSchema = z.union([
  */
 export const pushReceiptResultSchema = z.object({
   push_request_id: pushRequestIdSchema.nullable(),
-  decision: pushDecisionSchema.nullable(),
+  decision: pushDecisionSchema.nullable().optional(),
+  // The new name of `decision`, readable before it is written.
+  action: pushDecisionSchema.nullable().optional(),
   verdict: z.enum(["allow", "refuse"]),
   refusal: pushRefusalSchema.nullable(),
   repository_id: z.string().nullable(),
@@ -216,6 +239,9 @@ export type CreatePushRequestRequest = z.infer<
 >;
 export type DecidePushRequestRequest = z.infer<
   typeof decidePushRequestRequestSchema
+>;
+export type ResolvePushRequestRequest = z.infer<
+  typeof resolvePushRequestRequestSchema
 >;
 export type ListPushRequestsResponse = z.infer<
   typeof listPushRequestsResponseSchema

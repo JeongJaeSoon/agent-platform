@@ -7,17 +7,16 @@ Approving needs `sessions:approve`. Both personal and agent keys can hold it, bu
 
 ## Approve
 
-`git_commit` in the decision body must equal the commit the request pinned. It shows that the person approving has checked what they are approving.
+`git_commit` in the approval body must equal the commit the request pinned. It shows that the person approving has checked what they are approving.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
 
 ```ts
-const decided = await werft.sessions.pushRequests.decide(sessionId, push.id, {
-  decision: "approve",
+const approved = await werft.sessions.pushRequests.approve(sessionId, push.id, {
   git_commit: push.git_commit,
 });
-console.log(decided.state);
+console.log(approved.state);
 ```
 
 ```text
@@ -28,22 +27,22 @@ approved
 <Tab>
 
 ```bash
-curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')" \
-  | jq '{state, decided_by: .decided_by.principal.kind}'
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c}')" \
+  | jq '{state, resolved_by: .resolved_by.principal.kind}'
 ```
 
 ```text
 {
   "state": "approved",
-  "decided_by": "api_key"
+  "resolved_by": "api_key"
 }
 ```
 
-Reference: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+Reference: [`POST …/push-requests/{push_request_id}/approve`](/reference/http-api/push-requests/approvePushRequest)
 
 </Tab>
 </Tabs>
@@ -121,7 +120,7 @@ The platform sends only that one commit to that branch. It does not force push. 
 | Response | Meaning |
 | --- | --- |
 | 409 `CHECKPOINT_MOVED` | `git_commit` differs from the pinned commit, or the session saved a checkpoint again after the request. [Reject](/approvals/reject) this request and make a new one |
-| 409 `PUSH_REQUEST_DECIDED` | The request was already decided |
+| 409 `PUSH_REQUEST_DECIDED` | The request was already approved or rejected |
 | 403 `FORBIDDEN` | The key lacks `sessions:approve`, or the caller only sees the session and is not one who approves (its creator, its agent's admins, owners and admins) |
 | 403 `FORBIDDEN` (`details.refusal: self_approval`) | The key that started the session tried to approve. A failed `decide_push` receipt is left; another key or a person approves |
 
@@ -130,4 +129,4 @@ A refused attempt also leaves a receipt. Read it with `error.details.receipt_id`
 ## Next steps
 
 - [Reject](/approvals/reject)
-- [receipt](/approvals/receipt): read the record of the request, decision, and push
+- [receipt](/approvals/receipt): read the record of the request, the approval or rejection, and the push

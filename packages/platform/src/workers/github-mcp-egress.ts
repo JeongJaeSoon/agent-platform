@@ -25,7 +25,7 @@ function forbidden(message: string): McpEgressDecision {
  * No receipt: a call the gate refuses leaves the gate's own.
  */
 export function createGitHubMcpEgress(deps: {
-  store: GitHubMcpStore;
+  store: Pick<GitHubMcpStore, "sessionState">;
   /** The key the authorizer signs grants with. */
   grantKey: Uint8Array;
   now?: () => number;

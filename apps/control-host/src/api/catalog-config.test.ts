@@ -323,7 +323,7 @@ describe("installed runtimes", () => {
 
   test("the default catalogs carry an auto base and start without the installation's opt-in", async () => {
     const expected: Record<string, string[]> = {
-      ".": ["claude-coding-real-auto"],
+      ".": ["claude-coding-real"],
       "fake-model": ["claude-coding-auto"],
       "local-model": [],
     };
@@ -339,13 +339,14 @@ describe("installed runtimes", () => {
 
   test("a shipped profile keeps the fingerprint main gave it, and an auto base is the same profile in every example", async () => {
     // Computed on main at 304c2713: sessions and releases pin these.
-    // claude-coding-real moved when it gained AskUserQuestion: the file only
-    // seeds an empty installation_profiles table, whose rows keep the digest
-    // their sessions pinned.
+    // claude-coding-real moved when it gained AskUserQuestion and again when
+    // it became auto (94S-1243): the file only seeds an empty
+    // installation_profiles table, whose rows keep the digest their sessions
+    // pinned.
     const onMain: Record<string, Record<string, string>> = {
       ".": {
         "claude-coding-real":
-          "sha256:5ee8ffe62e6e449f4c4266d3fd2578196cd39ba761530fbaaac85df3c54fda72",
+          "sha256:1fc3c2a8042b16a150b6c2f7ab2d93c801daf2faacc7c86eefdf087f94d10fc1",
       },
       "fake-model": {
         "claude-coding-local":

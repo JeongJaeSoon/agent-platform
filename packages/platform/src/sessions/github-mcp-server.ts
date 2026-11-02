@@ -100,7 +100,7 @@ export type GitHubMcpServices = {
 
 const DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Ask to push this session's last checkpoint (the end of the previous turn, not commits made in this turn; check out the branch to push before ending that turn) to agent/<session-id>, or to agent/<session-id>-<branch> when `branch` is given; each branch gets its own pull request. `repository_id` picks another repository attached to this session (attach_repository makes it a git remote of that name in the workspace; start from `<repository_id>/<its default branch>`); omitted, the session's own. When the release requires approval the request waits for a person and this returns at once; call open_pull_request after it is pushed.",
+    "Ask to push this session's last checkpoint (the end of the previous turn, not commits made in this turn; check out the branch to push before ending that turn; before the session's first checkpoint this is refused and the platform starts a follow-up turn once this one ends) to agent/<session-id>, or to agent/<session-id>-<branch> when `branch` is given; each branch gets its own pull request. `repository_id` picks another repository attached to this session (attach_repository makes it a git remote of that name in the workspace; start from `<repository_id>/<its default branch>`); omitted, the session's own. When the release requires approval the request waits for a person and this returns at once; call open_pull_request after it is pushed.",
   open_pull_request:
     "Open (or answer the already open) pull request from a pushed push request's branch and commit.",
   comment_pull_request:
@@ -242,6 +242,7 @@ export function createGitHubMcpServer(deps: {
     const actor = actorFor(state.ownerId, state.actor, requestId);
     const services = deps.services(sessionBoundAuthorization(grant.sessionId));
     const { sessionId } = grant;
+    let turnAtCall: number | null = null;
     try {
       if (tool === "attach_repository") {
         const { repository_id } = parsed.data as z.infer<
@@ -256,14 +257,29 @@ export function createGitHubMcpServer(deps: {
           }),
         );
       }
+      // Read before the request, so a refusal handled late cannot mark the
+      // turn that started after this one ended.
+      turnAtCall =
+        tool === "request_push" ? await deps.store.runningTurn(grant) : null;
       return text(await run(services, actor, sessionId, tool, parsed.data));
     } catch (error) {
       if (error instanceof SessionServiceError) {
+        const continued =
+          turnAtCall !== null &&
+          isRecord(error.details) &&
+          error.details.refusal === "no_checkpoint" &&
+          (await deps.store.markPushContinuation({
+            sessionId,
+            turnId: turnAtCall,
+          }));
         return text(
           {
             code: error.code,
-            message: error.message,
+            message: continued
+              ? `${error.message} yet: commits made in this turn reach a checkpoint only when the turn ends. End this turn now; the platform then starts a follow-up turn in which request_push pins them.`
+              : error.message,
             ...(error.details === null ? {} : { details: error.details }),
+            ...(continued ? { continuation: "after_turn" } : {}),
           },
           true,
         );

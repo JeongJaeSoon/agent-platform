@@ -12,12 +12,11 @@ description: push 요청을 거부한다. 거부한 뒤에 새로 요청할 수 
 
 ```ts
 const second = await werft.sessions.pushRequests.create(sessionId);
-const rejected = await werft.sessions.pushRequests.decide(sessionId, second.id, {
-  decision: "reject",
+const rejected = await werft.sessions.pushRequests.reject(sessionId, second.id, {
   git_commit: second.git_commit,
   reason: "needs tests first",
 });
-console.log(rejected.state, rejected.decision_reason);
+console.log(rejected.state, rejected.resolution_reason);
 ```
 
 ```text
@@ -35,31 +34,31 @@ push=$(curl -sS "$API/v1/sessions/$SID/push-requests" \
   -d '{}')
 PUSH_ID=$(echo "$push" | jq -r .id)
 PUSH_COMMIT=$(echo "$push" | jq -r .git_commit)
-curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "reject", git_commit: $c, reason: "needs tests first"}')" \
-  | jq '{state, decision_reason}'
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c, reason: "needs tests first"}')" \
+  | jq '{state, resolution_reason}'
 ```
 
 ```text
 {
   "state": "rejected",
-  "decision_reason": "needs tests first"
+  "resolution_reason": "needs tests first"
 }
 ```
 
-레퍼런스: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest)
+레퍼런스: [`POST …/push-requests/{push_request_id}/reject`](/reference/http-api/push-requests/rejectPushRequest)
 
 </Tab>
 </Tabs>
 
 `reason`은 선택이다. 거부에는 commit이 바뀌었는지 검사하지 않는다.
 
-## 결정은 한 번
+## 승인·거부는 한 번
 
-이미 결정한 요청에 다시 결정하면 409 `PUSH_REQUEST_DECIDED`다. 그 시도도 receipt로 남는다.
+이미 승인하거나 거부한 요청을 다시 승인하거나 거부하면 409 `PUSH_REQUEST_DECIDED`다. 그 시도도 receipt로 남는다.
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>
@@ -68,8 +67,7 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
 import { isApiError } from "@werft-ai/sdk";
 
 try {
-  await werft.sessions.pushRequests.decide(sessionId, second.id, {
-    decision: "approve",
+  await werft.sessions.pushRequests.approve(sessionId, second.id, {
     git_commit: second.git_commit,
   });
 } catch (error) {
@@ -93,11 +91,11 @@ decide_push failed already_decided
 <Tab>
 
 ```bash
-again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/decision" \
+again=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" \
   -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{decision: "approve", git_commit: $c}')")
+  -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c}')")
 echo "$again" | jq '{code: .error.code}'
 curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -H "Authorization: Bearer $KEY" \
   | jq '{operation, status, refusal: .result.refusal}'
@@ -114,11 +112,11 @@ curl -sS "$API/v1/receipts/$(echo "$again" | jq -r .error.details.receipt_id)" -
 }
 ```
 
-레퍼런스: [`POST …/push-requests/{push_request_id}/decision`](/reference/http-api/push-requests/decidePushRequest), [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
+레퍼런스: [`POST …/push-requests/{push_request_id}/approve`](/reference/http-api/push-requests/approvePushRequest), [`GET /v1/receipts/{id}`](/reference/http-api/limits-and-receipts/getReceipt)
 
 </Tab>
 </Tabs>
 
 ## 다음 단계
 
-- [receipt](/approvals/receipt): 요청·결정·push의 기록 읽기
+- [receipt](/approvals/receipt): 요청·승인·거부·push의 기록 읽기

@@ -58,21 +58,13 @@ describe("default catalog", () => {
         throw new Error("the default catalog reads no secret");
       },
     });
-    expect(Object.keys(catalog.profiles)).toEqual([
-      "claude-coding-real",
-      "claude-coding-real-auto",
-    ]);
+    expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-real"]);
     expect(catalog.repositories["sample-app"]?.profiles).toEqual([
       "claude-coding-real",
-      "claude-coding-real-auto",
     ]);
-    // The auto base differs only in its mode, so this one profile speaks for both.
-    const { permission_mode, ...auto } =
-      catalog.profiles["claude-coding-real-auto"] ?? {};
-    expect(permission_mode).toBe("auto");
-    const { permission_mode: _, ...real } =
-      catalog.profiles["claude-coding-real"] ?? {};
-    expect(auto).toEqual(real);
+    expect(catalog.profiles["claude-coding-real"]?.permission_mode).toBe(
+      "auto",
+    );
     const profile = catalog.profiles["claude-coding-real"];
     if (profile === undefined) throw new Error("no profile");
     expect(providerUpstreamOf(profile)).toEqual({

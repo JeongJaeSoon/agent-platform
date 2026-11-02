@@ -61,8 +61,15 @@ describe("requests carry the generated shape", () => {
       reason: "r",
     });
     await client.sessions.pushRequests.create("s1");
+    await client.sessions.pushRequests.approve("s1", "pr1", {
+      git_commit: "abc",
+    });
+    await client.sessions.pushRequests.reject("s1", "pr1", {
+      git_commit: "abc",
+      reason: "no",
+    });
     await client.sessions.pushRequests.decide("s1", "pr1", {
-      decision: "approve",
+      decision: "reject",
       git_commit: "abc",
     });
     await client.sessions.pushRequests.openPullRequest("s1", "pr1");
@@ -79,11 +86,16 @@ describe("requests carry the generated shape", () => {
       ["/v1/sessions/s1/terminate", true],
       ["/v1/sessions/s1/recovery-decisions", true],
       ["/v1/sessions/s1/push-requests", true],
-      ["/v1/sessions/s1/push-requests/pr1/decision", true],
+      ["/v1/sessions/s1/push-requests/pr1/approve", true],
+      ["/v1/sessions/s1/push-requests/pr1/reject", true],
+      // The deprecated decide() goes to the path its decision names.
+      ["/v1/sessions/s1/push-requests/pr1/reject", true],
       ["/v1/sessions/s1/push-requests/pr1/pull-request", false],
     ]);
     expect(api.seen[3]?.body).toEqual({ expected_revision: 1 });
     expect(api.seen[7]?.body).toEqual({});
+    expect(api.seen[9]?.body).toEqual({ git_commit: "abc", reason: "no" });
+    expect(api.seen[10]?.body).toEqual({ git_commit: "abc" });
   });
 
   test("openPullRequest is not retried after a lost response", async () => {
