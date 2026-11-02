@@ -1,5 +1,6 @@
 export { cn } from "./cn.ts";
 export {
+  formatElapsed,
   formatExactTime,
   formatRelativeTime,
 } from "./format-relative-time.ts";
