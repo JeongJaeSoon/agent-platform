@@ -243,7 +243,7 @@ PR 행의 `metadata`에 `title`(200자)을 더한다. Luna가 "버그 수정 PR"
 | `created_at` | |
 
 - 판정기가 글을 만들지 않으므로 요약 칸은 없다. 사람이 확인할 때 `review_note`에 적을 수 있다.
-- 중복 막기: `UNIQUE (rule_family_id, evidence_id) WHERE evidence_id IS NOT NULL AND superseded_at IS NULL`, `conversation`은 `UNIQUE (rule_family_id, session_id) WHERE evidence_id IS NULL AND superseded_at IS NULL`.
+- 중복 막기: `UNIQUE (rule_family_id, session_id, evidence_id) WHERE evidence_id IS NOT NULL AND superseded_at IS NULL`, `conversation`은 `UNIQUE (rule_family_id, session_id) WHERE evidence_id IS NULL AND superseded_at IS NULL`.
 - **사람의 결정이 이긴다.** `confirmed`·`rejected` 행은 다시 판정해도 바뀌지 않는다.
 - **쓰는 것은 판정기뿐이다.** 성과를 직접 만드는 API는 없다. 사람은 확인·거절만 한다.
 

@@ -848,6 +848,13 @@
       "when": 1793570695686,
       "tag": "0211_achievement_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 212,
+      "version": "7",
+      "when": 1793574915675,
+      "tag": "0212_achievement_judgments",
+      "breakpoints": true
     }
   ]
 }

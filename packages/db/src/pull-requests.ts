@@ -12,6 +12,7 @@ import {
   type PullRequestStore,
 } from "@werft-ai/platform";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -102,7 +103,7 @@ export function outcomeTitle(title: string | null): string | null {
 /**
  * The `github_pull_request` outcome of a recorded pull request, its agent
  * copied from the session's release. Kept if the session already has one
- * for the URL.
+ * for the URL; a new one queues a judgment of the session.
  */
 export async function insertPullRequestOutcome(
   tx: Database,
@@ -121,7 +122,7 @@ export async function insertPullRequestOutcome(
   },
 ): Promise<void> {
   const release = await sessionRelease(tx, input.sessionId);
-  await tx
+  const inserted = await tx
     .insert(sessionOutcomes)
     .values({
       id: randomUUID(),
@@ -155,7 +156,9 @@ export async function insertPullRequestOutcome(
         sessionOutcomes.type,
         sessionOutcomes.url,
       ],
-    });
+    })
+    .returning({ id: sessionOutcomes.id });
+  if (inserted.length > 0) await queueAchievementJudgment(tx, input.sessionId);
 }
 
 // Every push request of a session shares its branch, and so its pull request.

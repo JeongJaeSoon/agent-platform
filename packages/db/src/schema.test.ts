@@ -59,6 +59,7 @@ describe("database schema", () => {
     );
     expect(result.rows.map(({ tablename }) => tablename)).toEqual([
       "achievement_categories",
+      "achievement_judgments",
       "achievement_rules",
       "achievement_types",
       "agent_activation_events",
@@ -111,6 +112,7 @@ describe("database schema", () => {
       "queue_messages",
       "receipts",
       "secret_values",
+      "session_achievements",
       "session_event_archives",
       "session_links",
       "session_model_usage",

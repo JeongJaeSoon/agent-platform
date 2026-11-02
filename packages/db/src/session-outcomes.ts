@@ -14,6 +14,7 @@ import {
 } from "@werft-ai/contracts";
 import type { ClaimedOutcome, SessionOutcomeStore } from "@werft-ai/platform";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import { insertPullRequestOutcome } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { outcomeRefreshQuotas, sessionOutcomes, sessions } from "./schema.ts";
@@ -159,20 +160,22 @@ export function createPostgresSessionOutcomes(
         }[];
       };
       for (const row of rows) {
-        await insertPullRequestOutcome(db, {
-          ownerId: row.owner_id,
-          sessionId: row.session_id,
-          url: row.url,
-          repositoryId: row.repository_id,
-          number: row.number,
-          title: null,
-          head: row.head,
-          base: row.base,
-          adopted: null,
-          receiptId: row.receipt_id,
-          createdAt:
-            row.created_at === null ? new Date() : new Date(row.created_at),
-        });
+        await db.transaction((tx) =>
+          insertPullRequestOutcome(tx, {
+            ownerId: row.owner_id,
+            sessionId: row.session_id,
+            url: row.url,
+            repositoryId: row.repository_id,
+            number: row.number,
+            title: null,
+            head: row.head,
+            base: row.base,
+            adopted: null,
+            receiptId: row.receipt_id,
+            createdAt:
+              row.created_at === null ? new Date() : new Date(row.created_at),
+          }),
+        );
       }
       return rows.length;
     },
@@ -299,21 +302,32 @@ export function createPostgresSessionOutcomes(
         return rows.length > 0;
       }
       const state: GitHubPullRequestOutcomeState = check.state;
-      const rows = await db
-        .update(sessionOutcomes)
-        .set({
-          ...released,
-          state,
-          stateChangedAt: sql`CASE WHEN ${sessionOutcomes.state} = ${state} THEN ${sessionOutcomes.stateChangedAt} ELSE now() END`,
-          mergedAt: check.mergedAt,
-          closedAt: check.closedAt,
-          checkError: null,
-          stateCheckedAt: sql`now()`,
-          metadata: sql`${sessionOutcomes.metadata} || ${JSON.stringify(check.metadata)}::jsonb`,
-        })
-        .where(held)
-        .returning({ id: sessionOutcomes.id });
-      return rows.length > 0;
+      return db.transaction(async (tx) => {
+        const [before] = await tx
+          .select({ state: sessionOutcomes.state })
+          .from(sessionOutcomes)
+          .where(held)
+          .for("update");
+        if (!before) return false;
+        await tx
+          .update(sessionOutcomes)
+          .set({
+            ...released,
+            state,
+            stateChangedAt: sql`CASE WHEN ${sessionOutcomes.state} = ${state} THEN ${sessionOutcomes.stateChangedAt} ELSE now() END`,
+            mergedAt: check.mergedAt,
+            closedAt: check.closedAt,
+            checkError: null,
+            stateCheckedAt: sql`now()`,
+            metadata: sql`${sessionOutcomes.metadata} || ${JSON.stringify(check.metadata)}::jsonb`,
+          })
+          .where(held);
+        // A pull request merged or closed is changed evidence.
+        if (before.state !== state) {
+          await queueAchievementJudgment(tx, outcome.sessionId);
+        }
+        return true;
+      });
     },
 
     async failDue(repositoryIds, checkError, limit) {
