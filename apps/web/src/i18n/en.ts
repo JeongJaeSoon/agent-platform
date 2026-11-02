@@ -83,8 +83,7 @@ export const slackEn = {
     "No App Configuration Token is registered for the workspace, so no app can be made.",
   "slack.configToken.needs_reentry":
     "Slack no longer accepts the workspace's App Configuration Token, so no app can be made.",
-  "slack.configToken.settings":
-    "Register the token in Slack connection settings",
+  "slack.configToken.settings": "Register the token in Slack connection",
   "slack.configToken.askAdmin": "Ask an owner or admin to register the token.",
   "slack.install": "Install Slack app",
   "slack.reinstall": "Reinstall",

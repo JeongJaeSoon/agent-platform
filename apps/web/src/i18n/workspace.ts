@@ -84,8 +84,8 @@ export const workspaceKo = {
   "workspace.tokenNeedsReentry": "재등록 필요",
   "workspace.tokenNeedsReentryHint":
     "Slack이 저장된 토큰을 더 받지 않습니다. 토큰을 다시 등록할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속 동작합니다.",
-  "workspace.tokenSavedBy": "{at} 저장 · 저장한 사람 {by}",
-  "workspace.tokenSavedAt": "{at} 저장",
+  "workspace.tokenSavedBy": "{at} 등록 · 등록한 사람 {by}",
+  "workspace.tokenSavedAt": "{at} 등록",
   "workspace.tokenAdd": "토큰 등록",
   "workspace.tokenReplace": "토큰 교체",
   "workspace.tokenNew": "Refresh Token",
@@ -197,8 +197,8 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenNeedsReentry": "Re-register needed",
   "workspace.tokenNeedsReentryHint":
     "Slack no longer accepts the stored token. No new Slack app can be made until a token is registered again. Apps already made keep working.",
-  "workspace.tokenSavedBy": "Saved {at} · by {by}",
-  "workspace.tokenSavedAt": "Saved {at}",
+  "workspace.tokenSavedBy": "Registered {at} · by {by}",
+  "workspace.tokenSavedAt": "Registered {at}",
   "workspace.tokenAdd": "Register token",
   "workspace.tokenReplace": "Replace token",
   "workspace.tokenNew": "Refresh Token",
@@ -312,8 +312,8 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenNeedsReentry": "再登録が必要",
   "workspace.tokenNeedsReentryHint":
     "Slack が保存済みのトークンを受け付けなくなりました。トークンを再登録するまで新しい Slack アプリは作成できません。作成済みのアプリはそのまま動作します。",
-  "workspace.tokenSavedBy": "{at} 保存 · 保存した人 {by}",
-  "workspace.tokenSavedAt": "{at} 保存",
+  "workspace.tokenSavedBy": "{at} 登録 · 登録した人 {by}",
+  "workspace.tokenSavedAt": "{at} 登録",
   "workspace.tokenAdd": "トークンを登録",
   "workspace.tokenReplace": "トークンを置き換え",
   "workspace.tokenNew": "Refresh Token",

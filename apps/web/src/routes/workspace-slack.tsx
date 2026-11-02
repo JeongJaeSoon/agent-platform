@@ -88,14 +88,17 @@ function useConfigToken() {
  */
 export function WorkspaceSlackScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const canManage = useHasPermission("workspace.manage");
   const token = useConfigToken();
   const apps = useWorkspaceSlackApps();
-  // Both reads must answer: a pending or failed one is not an empty workspace,
-  // and members can read neither.
+  // A token that does not work yet hides what depends on it until the app
+  // list says whether any app already runs. A failed read, even a refetch
+  // over old data, is not an empty workspace; members can read neither.
+  const unready = token.status === "success" && token.data.state !== "active";
+  const deciding = unready && apps.status === "pending";
   const tokenOnly =
-    token.data !== undefined &&
-    token.data.state !== "active" &&
-    apps.data?.items.length === 0;
+    unready && apps.status === "success" && apps.data.items.length === 0;
+  const guest = <SlackGuest onOutcome={setOutcome} />;
   return (
     <WorkspacePage page="slack">
       {outcome ? (
@@ -105,13 +108,16 @@ export function WorkspaceSlackScreen() {
           <Notice>{outcome.text}</Notice>
         )
       ) : null}
+      {/* Members can only read the guest setting; it leads for them. */}
+      {canManage ? null : guest}
       <ConfigToken
         start={tokenOnly && token.data?.state === "unset"}
+        deciding={deciding}
         onOutcome={setOutcome}
         after={
-          tokenOnly ? null : (
+          tokenOnly || deciding ? null : (
             <>
-              <SlackGuest onOutcome={setOutcome} />
+              {canManage ? guest : null}
               <SlackApps />
             </>
           )
@@ -127,11 +133,14 @@ export function WorkspaceSlackScreen() {
  */
 function ConfigToken({
   start,
+  deciding,
   onOutcome,
   after,
 }: {
   /** No token and no app yet: one card that starts the connection. */
   readonly start: boolean;
+  /** Whether `start` applies is not known yet. */
+  readonly deciding: boolean;
   readonly onOutcome: OnOutcome;
   /** Sections under the token card; its danger zone stays last on the page. */
   readonly after?: ReactNode;
@@ -165,7 +174,16 @@ function ConfigToken({
   useEffect(() => {
     if (summary?.state && focusOnState.current) {
       focusOnState.current = false;
-      actionRef.current?.focus();
+      // Only when the focus went with what was swapped out (or sits in the
+      // closing delete dialog), not when the user moved elsewhere.
+      const at = document.activeElement;
+      if (
+        !at ||
+        at === document.body ||
+        !at.isConnected ||
+        at.closest('[role="dialog"], [role="alertdialog"]')
+      )
+        actionRef.current?.focus();
     }
   }, [summary?.state]);
 
@@ -194,6 +212,12 @@ function ConfigToken({
     },
     onSuccess: async (stored) => {
       if (summary?.state !== "active") focusOnState.current = true;
+      // The answer is the new summary; show it before the re-read lands.
+      const { receipt_id: _receipt, warnings: _warnings, ...next } = stored;
+      queryClient.setQueryData<SlackConfigTokenSummary>(
+        tokenKey(client, workspaceId),
+        next,
+      );
       setEditing(false);
       onOutcome({
         kind: "notice",
@@ -232,6 +256,7 @@ function ConfigToken({
       if (isApiError(error, "NOT_FOUND")) {
         const again = await token.refetch();
         if (again.data?.state === "unset") {
+          focusOnState.current = true;
           onOutcome({ kind: "notice", text: t("workspace.tokenDeleted") });
           return;
         }
@@ -284,7 +309,7 @@ function ConfigToken({
       title={t("workspace.token")}
       description={permissionReason(t, "workspace.manage", role)}
     />
-  ) : token.isPending ? (
+  ) : token.isPending || deciding ? (
     <RowListItem>
       <Skeleton width="50%" />
     </RowListItem>
@@ -338,7 +363,7 @@ function ConfigToken({
         rows={rows}
       />
       {after}
-      {canManage && summary?.configured ? (
+      {canManage && summary?.configured && after ? (
         <DangerZone title={t("workspace.danger")}>
           <DangerZoneRow
             title={t("workspace.tokenDelete")}
@@ -397,6 +422,9 @@ function TokenForm({
       return;
     }
     setMissing(false);
+    // Slack spends the pasted token on the first try, so it is no use in
+    // the field afterwards; keep the secret out of the DOM either way.
+    if (input instanceof HTMLInputElement) input.value = "";
     onSubmit(value);
   };
   const shownError = missing ? t("workspace.tokenMissing") : error;
