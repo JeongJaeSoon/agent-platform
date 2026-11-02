@@ -1955,6 +1955,27 @@ async function until<T>(
   throw new Error(`timed out waiting for ${what}`);
 }
 
+// Each tool call raises its own permission request, so approve until idle.
+async function approveUntilIdle(client: Web, id: string, title: string) {
+  await until(`${title} idle`, async () => {
+    const row = await client.ok<any>(200, "GET", `/v1/sessions/${id}`);
+    if (row.status === "idle") return row;
+    const pending = await client.ok<any>(
+      200,
+      "GET",
+      `/v1/sessions/${id}/pending-requests`,
+    );
+    for (const request of pending.items) {
+      await client.ok(202, "POST", `/v1/sessions/${id}/answers`, {
+        request_id: request.request_id,
+        kind: "permission",
+        decision: "allow",
+      });
+    }
+    return null;
+  });
+}
+
 async function drive(client: Web, id: string, spec: SessionSpec) {
   const detail = () => client.ok<any>(200, "GET", `/v1/sessions/${id}`);
   const pending = async () =>
@@ -1976,18 +1997,7 @@ async function drive(client: Web, id: string, spec: SessionSpec) {
       await idle();
       return "idle";
     case "approve-then-idle":
-      await until(`${spec.title} idle`, async () => {
-        const row = await detail();
-        if (row.status === "idle") return row;
-        for (const request of await pending()) {
-          await client.ok(202, "POST", `/v1/sessions/${id}/answers`, {
-            request_id: request.request_id,
-            kind: "permission",
-            decision: "allow",
-          });
-        }
-        return null;
-      });
+      await approveUntilIdle(client, id, spec.title);
       return "idle";
     case "permission":
     case "question":
@@ -2043,20 +2053,9 @@ async function finish(client: Web, existing: any, spec: SessionSpec) {
   const id = existing.id;
   const row = await client.ok<any>(200, "GET", `/v1/sessions/${id}`);
   if (spec.outcome === "approve-then-idle") {
-    const pending = await client.ok<any>(
-      200,
-      "GET",
-      `/v1/sessions/${id}/pending-requests`,
-    );
-    for (const request of pending.items) {
-      await client.ok(202, "POST", `/v1/sessions/${id}/answers`, {
-        request_id: request.request_id,
-        kind: "permission",
-        decision: "allow",
-      });
-    }
-    if (pending.items.length > 0)
-      note(`finished session ${spec.title}: approved`);
+    if (row.status !== "needs_input" && row.status !== "running") return;
+    await approveUntilIdle(client, id, spec.title);
+    note(`finished session ${spec.title}: approved`);
     return;
   }
   const path = { close: "close", pause: "pause", stopped: "terminate" }[
