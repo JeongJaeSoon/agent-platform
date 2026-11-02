@@ -1969,7 +1969,7 @@ async function approveUntilIdle(client: Web, id: string, title: string) {
       await client.ok(202, "POST", `/v1/sessions/${id}/answers`, {
         request_id: request.request_id,
         kind: "permission",
-        decision: "allow",
+        action: "allow",
       });
     }
     return null;
