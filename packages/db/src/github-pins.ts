@@ -69,12 +69,40 @@ export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
 
     pinFirst(input) {
       return db.transaction(async (tx) => {
+        const connectionId = input.connectionId.toLowerCase();
+        const held = async () => {
+          const [row] = await tx
+            .select()
+            .from(catalogRepositoryGitHubApps)
+            .where(keyOf(input.repositoryId, input.role))
+            .limit(1);
+          return { pin: row ? pinOf(row) : null, created: false };
+        };
+        const [owner] = await tx
+          .select({ workspaceId: githubApps.workspaceId })
+          .from(githubApps)
+          .where(eq(githubApps.id, connectionId));
+        if (owner === undefined) return held();
+        // Under the writers' lock, so a replacement cannot land between
+        // this check and the insert.
+        await lockGitHubApps(tx, owner.workspaceId);
+        const [still] = await tx
+          .select({ id: githubApps.id })
+          .from(githubApps)
+          .where(
+            and(
+              eq(githubApps.id, connectionId),
+              eq(githubApps.role, input.role),
+              eq(githubApps.appId, input.appId),
+            ),
+          );
+        if (still === undefined) return held();
         const inserted = await tx
           .insert(catalogRepositoryGitHubApps)
           .values({
             repositoryId: input.repositoryId,
             role: input.role,
-            connectionId: input.connectionId,
+            connectionId,
             appId: input.appId,
             pinnedBy: input.pinnedBy,
             updatedBy: input.audit?.actor.actor_user_id ?? null,
@@ -93,19 +121,15 @@ export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
                 role: input.role,
                 pinnedBy: "selection",
                 before: null,
-                after: input.connectionId,
+                after: connectionId,
               }),
             );
           }
           return { pin: pinOf(created), created: true };
         }
-        const [held] = await tx
-          .select()
-          .from(catalogRepositoryGitHubApps)
-          .where(keyOf(input.repositoryId, input.role))
-          .limit(1);
-        if (held === undefined) throw new Error("GitHub pin vanished");
-        return { pin: pinOf(held), created: false };
+        const kept = await held();
+        if (kept.pin === null) throw new Error("GitHub pin vanished");
+        return kept;
       });
     },
 

@@ -498,9 +498,7 @@ export function createPostgresGitHubAppStore(
         await tx.insert(receipts).values(
           receiptRow(audit, workspaceId, "delete_github_app", {
             ...appResult(row, row.role),
-            pinned_repository_count: usage.pinned_repository_count,
-            agent_count: usage.agent_count,
-            active_session_count: usage.active_session_count,
+            ...usage,
           }),
         );
         return { outcome: "deleted", appId: row.appId, usage };

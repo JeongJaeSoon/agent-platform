@@ -239,6 +239,7 @@ integration("the GitHub App on PostgreSQL", () => {
           pinned_repository_count: 0,
           agent_count: 0,
           active_session_count: 0,
+          user_link: true,
         },
         status: "succeeded",
       },
@@ -692,6 +693,26 @@ integration("the GitHub App on PostgreSQL", () => {
       },
     });
     expect(held).toMatchObject({ created: false, pin: { connectionId: b.id } });
+    // Read as App 120 before a replacement made it 121: no pin is left.
+    expect(
+      await pins.pinFirst({
+        repositoryId: repo("stale"),
+        role: "author",
+        connectionId: a.id,
+        appId: 120,
+        pinnedBy: "first_mint",
+      }),
+    ).toEqual({ pin: null, created: false });
+    expect(
+      await pins.pinFirst({
+        repositoryId: repo("stale"),
+        role: "reviewer",
+        connectionId: a.id,
+        appId: 121,
+        pinnedBy: "first_mint",
+      }),
+    ).toEqual({ pin: null, created: false });
+    expect(await pins.get(repo("stale"), "author")).toBeNull();
 
     const agentId = randomUUID();
     await db.insert(agents).values({

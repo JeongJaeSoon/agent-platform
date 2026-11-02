@@ -785,7 +785,7 @@ export function createGitHubRepositoryService(deps: {
           receiptId: newId(),
         },
       });
-      const connectionId = pinned?.pin.connectionId;
+      const connectionId = pinned?.pin?.connectionId;
       return {
         catalog_id: result.repository.id,
         receipt_id: result.changed ? receiptId : null,

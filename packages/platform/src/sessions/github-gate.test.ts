@@ -7,7 +7,11 @@ import {
   type GitHubFeatures,
   type GitHubRefusal,
 } from "@werft-ai/contracts";
-import type { GitCredential, RepoRef } from "../ports/forge.ts";
+import {
+  ForgeCredentialError,
+  type GitCredential,
+  type RepoRef,
+} from "../ports/forge.ts";
 import type {
   GitHubPinStore,
   GitHubRepositoryPin,
@@ -23,7 +27,6 @@ import {
   GitHubPermissionError,
   type GitHubPermissions,
   type GitHubSessionContext,
-  GitHubUnavailableError,
   type GitHubWork,
   type RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
@@ -1210,14 +1213,12 @@ describe("registered connections", () => {
         () => null,
         (caught: unknown) => caught,
       );
-      expect(error).toBeInstanceOf(GitHubUnavailableError);
+      // As with one App not installed: forge_failed, not "no credential".
+      expect(error).toBeInstanceOf(ForgeCredentialError);
       expect(receipts.at(-1)).toMatchObject({
         status: "failed",
         result: { role: "author", connection_id: null, pin_state: pinState },
       });
-      expect((error as GitHubUnavailableError).receiptId).toBe(
-        `receipt-${receipts.length}`,
-      );
       expect(rows.size).toBe(0);
     }
   });
@@ -1238,10 +1239,54 @@ describe("registered connections", () => {
       pins,
     });
     await expect(grant({ purpose: "clone" })).rejects.toBeInstanceOf(
-      GitHubUnavailableError,
+      ForgeCredentialError,
     );
     expect(receipts.at(-1)?.result).toMatchObject({
       connection_id: CONNECTION_B,
+      pin_state: "pinned_unreachable",
+    });
+    expect(a.fake.issued).toEqual([]);
+  });
+
+  test("a pinned connection this replica still reads as another App issues nothing", async () => {
+    const { pins } = memoryPins([
+      {
+        repositoryId: "app",
+        role: "author",
+        connectionId: CONNECTION_A,
+        appId: 102,
+        pinnedBy: "admin",
+      },
+    ]);
+    const stale = registered(CONNECTION_A, 101);
+    const { grant, receipts } = harness({
+      registered: { author: [stale.entry] },
+      pins,
+    });
+    await expect(grant({ purpose: "clone" })).rejects.toBeInstanceOf(
+      ForgeCredentialError,
+    );
+    expect(receipts.at(-1)?.result).toMatchObject({
+      connection_id: CONNECTION_A,
+      pin_state: "pinned_unreachable",
+    });
+    expect(stale.fake.issued).toEqual([]);
+  });
+
+  test("a first pin the store refuses, its connection now another App, issues nothing", async () => {
+    const a = registered(CONNECTION_A, 101);
+    const { grant, receipts } = harness({
+      registered: { author: [a.entry] },
+      pins: {
+        get: async () => null,
+        pinFirst: async () => ({ pin: null, created: false }),
+      },
+    });
+    await expect(grant({ purpose: "clone" })).rejects.toBeInstanceOf(
+      ForgeCredentialError,
+    );
+    expect(receipts.at(-1)?.result).toMatchObject({
+      connection_id: CONNECTION_A,
       pin_state: "pinned_unreachable",
     });
     expect(a.fake.issued).toEqual([]);

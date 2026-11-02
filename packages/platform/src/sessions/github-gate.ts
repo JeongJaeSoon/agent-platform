@@ -291,12 +291,14 @@ export function createGitHubGate(deps: {
           null,
           operation,
         );
-        throw new GitHubUnavailableError(
+        const message =
           choice.pinState === "lookup_failed"
             ? "GitHub could not say which App reaches the repository"
-            : "No GitHub App connection reaches the repository",
-          receiptId,
-        );
+            : "No GitHub App connection reaches the repository";
+        // The author's work keeps the not-installed answer it had with one
+        // App (forge_failed, push_failed); a review has its own.
+        if (work.purpose !== "review") throw new ForgeCredentialError(message);
+        throw new GitHubUnavailableError(message, receiptId);
       }
       const { connection, connectionId } = choice;
       let gitCredential: GitCredential;
@@ -333,6 +335,7 @@ export function createGitHubGate(deps: {
             null,
             operation,
           );
+          if (work.purpose !== "review") throw error;
           throw new GitHubUnavailableError(error.message, receiptId);
         }
         throw error;

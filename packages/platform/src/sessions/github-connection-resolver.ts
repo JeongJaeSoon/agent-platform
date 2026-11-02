@@ -71,8 +71,9 @@ export function createGitHubConnectionResolver(deps: {
 
   const held = (
     candidates: readonly RegisteredGitHubConnection[],
-    connectionId: string | null,
+    pin: { connectionId: string | null; appId: number },
   ): GitHubConnectionChoice => {
+    const { connectionId } = pin;
     if (connectionId === null) {
       return {
         kind: "refused",
@@ -81,8 +82,9 @@ export function createGitHubConnectionResolver(deps: {
       };
     }
     const found = candidates.find((candidate) => candidate.id === connectionId);
-    // Registered on another replica and not read here yet.
-    if (found === undefined) {
+    // Registered, or given another App, on another replica and not read here
+    // yet: this replica's App is not the one the pin names.
+    if (found === undefined || found.appId !== pin.appId) {
       return {
         kind: "unreachable",
         pinState: "pinned_unreachable",
@@ -127,7 +129,7 @@ export function createGitHubConnectionResolver(deps: {
       }
       const { candidates } = source;
       const pin = pins === null ? null : await pins.get(repositoryId, role);
-      if (pin !== null) return held(candidates, pin.connectionId);
+      if (pin !== null) return held(candidates, pin);
       if (candidates.length === 0) return { kind: "none" };
       const reached = await reaching(candidates, repo);
       if (reached === "lookup_failed") {
@@ -167,7 +169,14 @@ export function createGitHubConnectionResolver(deps: {
         appId: only.appId,
         pinnedBy: "first_mint",
       });
-      if (!created) return held(candidates, kept.connectionId);
+      if (kept === null) {
+        return {
+          kind: "unreachable",
+          pinState: "pinned_unreachable",
+          connectionId: only.id,
+        };
+      }
+      if (!created) return held(candidates, kept);
       return {
         kind: "connection",
         connection: only.connection,
@@ -198,7 +207,7 @@ export function createGitHubConnectionResolver(deps: {
         const found = source.candidates.find(
           ({ id }) => id === pin.connectionId,
         );
-        return found === undefined
+        return found === undefined || found.appId !== pin.appId
           ? null
           : found.connection.installed(repo).catch(() => null);
       }

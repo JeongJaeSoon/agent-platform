@@ -134,7 +134,9 @@ export interface GitHubPinStore {
   /**
    * Pins `connectionId` unless the repository already has a pin for the
    * role, and answers the pin that holds. A `selection` pin writes its
-   * `set_repository_github_app` receipt with it.
+   * `set_repository_github_app` receipt with it. `pin` is null when nothing
+   * holds and the connection is no longer `appId` of `role`: nothing is
+   * written.
    */
   pinFirst(input: {
     repositoryId: string;
@@ -144,7 +146,7 @@ export interface GitHubPinStore {
     pinnedBy: "selection" | "first_mint";
     /** A selection's actor and receipt; absent for a first mint. */
     audit?: { ownerId: string; actor: ReceiptActor; receiptId: string };
-  }): Promise<{ pin: GitHubRepositoryPin; created: boolean }>;
+  }): Promise<{ pin: GitHubRepositoryPin | null; created: boolean }>;
   /** An admin's change; the connection must be of the workspace and role. */
   set(input: {
     workspaceId: string;
