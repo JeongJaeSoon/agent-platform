@@ -48,6 +48,20 @@ export const TonesDark: Story = {
   globals: { theme: "dark" },
 };
 
+/** `asChild`: the badge is its one child, here a link to what it reports. */
+export const AsLink: Story = {
+  render: () => (
+    <div className="story-row">
+      <Badge asChild variant="green">
+        <a href="#connected">연결됨</a>
+      </Badge>
+      <Badge asChild variant="red">
+        <a href="#failed">실패</a>
+      </Badge>
+    </div>
+  ),
+};
+
 /** Identifiers such as model names, as a chip list. */
 export const Mono: Story = {
   render: () => (
