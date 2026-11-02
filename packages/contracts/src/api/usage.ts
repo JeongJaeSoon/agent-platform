@@ -646,8 +646,9 @@ export const usageAchievementsResponseSchema = z
         })
         .strict(),
     ),
-    // `session_id` and `session_title` are null for a session the caller
-    // may not read.
+    // `session_id`, `session_title`, `title` and `link` are null for a
+    // session the caller may not read: an achievement's title and link can
+    // name its session.
     recent: z
       .array(
         z
@@ -658,8 +659,8 @@ export const usageAchievementsResponseSchema = z
             session_title: z.string().nullable(),
             rule_id: z.uuid(),
             rule_title: z.string(),
-            title: z.string(),
-            link: z.string(),
+            title: z.string().nullable(),
+            link: z.string().nullable(),
             evidence_kind: achievementEvidenceKindSchema,
             judge: achievementRuleJudgeSchema,
             review_state: achievementReviewStateSchema,

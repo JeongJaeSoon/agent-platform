@@ -426,7 +426,9 @@ function RecentRow({ row }: { readonly row: Recent }) {
       </TableCell>
       <TableCell>{row.rule_title}</TableCell>
       <TableCell>
-        {github ? (
+        {row.title === null || row.link === null ? (
+          OPERATIONS_MESSAGES[locale].toolCalls.hidden
+        ) : github ? (
           <Link
             href={row.link}
             target="_blank"

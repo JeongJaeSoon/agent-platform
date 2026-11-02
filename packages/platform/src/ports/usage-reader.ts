@@ -191,13 +191,16 @@ export type UsageAchievementsRecord = UsageAchievementCountsRecord & {
   recent: {
     id: string;
     createdAt: Date;
-    /** null, with the title, for a session the viewer may not read. */
+    /**
+     * null, with the session's title and the achievement's title and link,
+     * for a session the viewer may not read: those can name the session.
+     */
     sessionId: string | null;
     sessionTitle: string | null;
     ruleId: string;
     ruleTitle: string;
-    title: string;
-    link: string;
+    title: string | null;
+    link: string | null;
     evidenceKind:
       | "github_pull_request"
       | "github_review"
