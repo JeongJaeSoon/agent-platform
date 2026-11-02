@@ -413,6 +413,20 @@ export function createPullRequestService(deps: {
       const { forge } = await forgeFor(actor, source, (refusal, extra) =>
         refuse(refusal, { ...fields, ...extra }),
       );
+      // The recorded number may name one a person has closed since; only the
+      // branch's open pull request, and only the one recorded, is edited.
+      let open: Awaited<ReturnType<typeof forge.findPullRequestForBranch>>;
+      try {
+        open = await forge.findPullRequestForBranch(pullRequest.head);
+      } catch (error) {
+        if (error instanceof ForgeCredentialError) {
+          return await refuse("forge_failed", fields);
+        }
+        throw error;
+      }
+      if (open?.state !== "open" || open.number !== pullRequest.number) {
+        return await refuse("no_pull_request", fields);
+      }
       const tail = body.body === undefined ? null : await tailFor(source);
       const text =
         body.body === undefined

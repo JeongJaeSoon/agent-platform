@@ -822,6 +822,36 @@ describe("updating the pull request", () => {
     });
   });
 
+  test("the recorded pull request closed, or another open on the branch, is refused before an edit", async () => {
+    for (const open of [
+      { number: 7, state: "closed" as const },
+      { number: 8, state: "open" as const },
+    ]) {
+      const h = harness();
+      await h.service.open(actor, SESSION, PUSH, {
+        readBody: async () => ({ body: "Draft" }),
+      });
+      h.setOpen({
+        ...open,
+        url: `https://github.com/acme/app/pull/${open.number}`,
+        head: HEAD,
+        base: "develop",
+      });
+      const calls = h.calls.length;
+      expect(
+        (
+          await refusal(
+            h.service.update(actor, SESSION, PUSH, {
+              readBody: async () => ({ title: "Late" }),
+            }),
+          )
+        ).details,
+      ).toMatchObject({ refusal: "no_pull_request" });
+      expect(h.calls.slice(calls)).toEqual([`find ${HEAD}`]);
+      expect(h.titles.size).toBe(0);
+    }
+  });
+
   test("a title alone leaves the body as GitHub has it", async () => {
     const { service, bodies, titles } = harness();
     await service.open(actor, SESSION, PUSH, {
@@ -902,6 +932,7 @@ describe("a caller that may submit to the session", () => {
   test("an agent key updates the pull request of a pushed request only", async () => {
     const pushed = harness({ authorization: policy });
     pushed.saved.push(pulled);
+    pushed.setOpen({ ...pulled, state: "open" });
     await pushed.service.update(submitter, SESSION, PUSH, {
       readBody: async () => ({ title: "Ready" }),
     });
