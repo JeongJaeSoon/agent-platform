@@ -38,37 +38,6 @@ import { StepHeading, useStepMoved } from "../components/step-heading.tsx";
 import { FunnelResetNotice, useFunnel } from "../funnel/tanstack-funnel.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 
-const BOX =
-  "flex flex-col items-start gap-3 rounded-card border bg-card p-4 text-card-foreground";
-const BOX_TITLE = "m-0 font-semibold text-body";
-const BOX_BODY = "m-0 text-muted-foreground";
-
-function InviteStatus({
-  status,
-  title,
-  body,
-  alert = false,
-  children,
-}: {
-  readonly status: string;
-  readonly title: string;
-  readonly body: string;
-  readonly alert?: boolean;
-  readonly children?: ReactNode;
-}) {
-  return (
-    <section
-      className={BOX}
-      data-status={status}
-      role={alert ? "alert" : undefined}
-    >
-      <h2 className={BOX_TITLE}>{title}</h2>
-      <p className={BOX_BODY}>{body}</p>
-      {children ? <div className="flex flex-wrap gap-2">{children}</div> : null}
-    </section>
-  );
-}
-
 /**
  * Redeeming an invite link. Whoever opens it may or may not be signed in,
  * and there is no way to ask the server whether the address already has an
@@ -103,31 +72,35 @@ export function InviteScreen() {
   } else if (viewer.data) {
     // One workspace per installation: anyone signed in is already a member.
     body = (
-      <InviteStatus
+      <StatusScreen
+        kind="custom"
         status="invite-member"
         title={t("invite.member.title")}
         body={t("invite.member.body", {
           workspace: viewer.data.workspace?.name ?? "",
           email: viewer.data.user?.email ?? "",
         })}
-      >
-        <Link className={buttonVariants()} to="/">
-          {t("invite.member.home")}
-        </Link>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={logout.isPending}
-          onClick={() => logout.mutate()}
-        >
-          {t("invite.member.switch")}
-        </Button>
-        {logout.error ? (
-          <FormError>
-            {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
-          </FormError>
-        ) : null}
-      </InviteStatus>
+        actions={
+          <>
+            <Link className={buttonVariants()} to="/">
+              {t("invite.member.home")}
+            </Link>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={logout.isPending}
+              onClick={() => logout.mutate()}
+            >
+              {t("invite.member.switch")}
+            </Button>
+            {logout.error ? (
+              <FormError>
+                {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
+              </FormError>
+            ) : null}
+          </>
+        }
+      />
     );
   } else if (
     // A link cut short or made up has a token the server can only call an
@@ -136,7 +109,8 @@ export function InviteScreen() {
     token.length > INVITE_TOKEN_LENGTH.max
   ) {
     body = (
-      <InviteStatus
+      <StatusScreen
+        kind="custom"
         status="invite-invalid"
         alert
         title={t("invite.invalid.title")}
@@ -231,7 +205,8 @@ function AcceptFlow({ token }: { readonly token: string }) {
 
   if (ended === "INVITE_EXPIRED") {
     return (
-      <InviteStatus
+      <StatusScreen
+        kind="custom"
         status="invite-expired"
         alert
         title={t("invite.expired.title")}
@@ -241,16 +216,18 @@ function AcceptFlow({ token }: { readonly token: string }) {
   }
   if (ended === "INVITE_USED") {
     return (
-      <InviteStatus
+      <StatusScreen
+        kind="custom"
         status="invite-used"
         alert
         title={t("invite.used.title")}
         body={t("invite.used.body")}
-      >
-        <Link className={buttonVariants()} to="/login">
-          {t("invite.used.login")}
-        </Link>
-      </InviteStatus>
+        actions={
+          <Link className={buttonVariants()} to="/login">
+            {t("invite.used.login")}
+          </Link>
+        }
+      />
     );
   }
 
