@@ -1,20 +1,108 @@
 ---
-title: "準備"
-description: 始める前にサーバーのアドレスと API キーを用意する
+title: "SDK のインストール"
+description: "@werft-ai/sdk をインストールし、サーバーのアドレスと API キーでクライアントを作る"
 ---
 
-はじめには、Werft サーバーがすでにあることを前提にする。サーバーがなければ、先に[サーバーを動かす](/run-server/dev-server)で立ち上げる。
+Werft は TypeScript SDK `@werft-ai/sdk` で使う。SDK は、すでに動いている Werft サーバーに API キーで接続する。このページでは SDK をインストールし、サーバーのアドレスとキーでクライアントを作り、接続を確認する。
 
 ## 必要なもの
 
 | 項目 | 説明 |
 | --- | --- |
-| サーバーのアドレス | Werft API の URL。開発用サーバーなら `http://127.0.0.1:3000` である |
-| API キー | `sessions:read`、`sessions:write`、`sessions:approve`、`sessions:control` の scope を持つキー。開発用サーバーでは [API キーを取得する](/run-server/dev-server#api-キーを取得する)で作成する |
-| curl, jq, uuidgen | 例の HTTP 呼び出しと JSON の処理に使う |
+| サーバーのアドレス | Werft サーバーの URL。例: `https://werft.example.com`。開発用サーバーは `http://127.0.0.1:3000` である |
+| API キー | `csp_` で始まるキー。セッションを作るには `sessions:read`、`sessions:write` が、権限リクエストに答えてセッションを閉じるには `sessions:approve`、`sessions:control` も必要である |
+| Node 20.3 以上または Bun | SDK が動くランタイム |
 
-サーバーのアドレスは `API`、キーは `KEY` 変数に入れ、同じターミナルで次のページに進む。キーの scope と発行方法は [API キー](/api-keys) にある。
+<Callout type="info">
+サーバーがなければ、[サーバーを動かす](/run-server/dev-server)で開発用サーバーを立ち上げ、[API キーを取得する](/run-server/dev-server#api-キーを取得する)。運用中のサーバーなら、Web コンソールでキーを発行する([API キー](/api-keys))。
+</Callout>
+
+## インストール
+
+`@werft-ai/sdk` はまだ npm レジストリに公開されていない。今はリポジトリでパッケージをビルドし、tarball でインストールする。リポジトリが固定している Bun 1.3.14 と npm が必要である。
+
+```sh
+git clone https://github.com/JeongJaeSoon/agent-platform.git
+cd agent-platform
+bun install
+bun run --cwd packages/sdk build:package
+npm pack ./packages/sdk/dist
+```
+
+リポジトリのルートに `werft-ai-sdk-0.1.0.tgz` ができる。アプリのディレクトリでそのファイルをインストールする。
+
+```sh
+mkdir my-werft-app && cd my-werft-app
+npm init -y
+npm pkg set type=module
+npm install ../agent-platform/werft-ai-sdk-0.1.0.tgz
+```
+
+npm に公開されると、最後の行は `npm install @werft-ai/sdk` に変わる。SDK パッケージは Apache License 2.0 である。サーバーとリポジトリの残りは PolyForm Small Business License 1.0.0 に従う source-available のコードである。
+
+## クライアントを作る
+
+`Werft` を作るときに、サーバーのアドレス(`baseUrl`)と API キー(`apiKey`)を渡す。サーバーのアドレスに既定値はない。キーはコードに書かず、環境変数から読む。
+
+```ts title="werft.ts"
+import { Werft } from "@werft-ai/sdk";
+
+export const werft = new Werft({
+  baseUrl: "http://127.0.0.1:3000",
+  apiKey: process.env.WERFT_API_KEY,
+});
+```
+
+- `baseUrl` はサーバーのアドレスである。`/v1` は付けない。
+- オプションを省くと、環境変数 `WERFT_BASE_URL`、`WERFT_API_KEY` を読む。どちらかがなければ `new Werft()` が `TypeError` を投げる。
+- loopback 以外のアドレスに `http://` を使うとキーが平文で流れるため、拒否する。リモートのサーバーには `https://` で接続する。
+- ブラウザでは作れない。ページにキーを置くと漏れるからである。
+
+リトライ、timeout、エラーの種類などの残りのオプションは[クライアントの設定とエラー](/getting-started/client)にある。
+
+## 接続を確認する
+
+キーの持ち主と scope、サーバーに登録された実行プロファイルを読む。
+
+```ts title="check.ts"
+import { werft } from "./werft.ts";
+
+const me = await werft.auth.me();
+console.log(me.principal.kind, me.scopes);
+
+const { items } = await werft.profiles.list();
+for (const profile of items) console.log(profile.id, profile.repository_mode);
+```
+
+```bash
+WERFT_API_KEY=csp_… node check.ts
+```
+
+```text
+api_key [
+  'sessions:read',
+  'sessions:write',
+  'sessions:approve',
+  'sessions:control',
+  'sessions:recover'
+]
+claude-coding-auto required
+claude-coding-local required
+general none
+```
+
+Node 22.18 以上と Bun は `.ts` ファイルをそのまま実行する。それより古い Node では `npx tsx check.ts` で実行する。キーが間違っていれば `APIError`(401)が、サーバーに届かなければ `ConnectionError` が起きる。
+
+<Callout type="info" title="HTTP API で呼ぶとき">
+SDK を使わずに呼ぶときは、すべてのリクエストに `Authorization: Bearer <key>` ヘッダーを付ける。ドキュメントの curl の例は、サーバーのアドレスを `API`、キーを `KEY` というシェル変数に置く。
+
+```bash
+curl -sS -w '\n' "$API/v1" -H "Authorization: Bearer $KEY"
+```
+
+エンドポイントは [HTTP API リファレンス](/reference/http-api/auth/getApiRoot)にある。
+</Callout>
 
 ## 次のステップ
 
-- [Quickstart](/getting-started/quickstart): セッションを 1 つ作成し、最初のターンが終わるところまで確認する
+- [最初のセッションを作る](/getting-started/quickstart): SDK でセッションを作り、モデルの答えを読む
