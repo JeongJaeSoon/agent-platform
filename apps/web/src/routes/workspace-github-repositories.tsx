@@ -55,7 +55,7 @@ export const repositoriesKey = (client: ApiClient, workspaceId: string) =>
 const PER_PAGE = 20;
 const COLUMNS = "minmax(0,1fr) 112px 64px 32px";
 const NARROW_COLUMNS = "minmax(0,1fr) 48px 32px";
-const NARROW_ONLY = "[@container(min-width:481px)]:hidden";
+const NARROW_ONLY = "[@container(width>=480px)]:hidden";
 
 type CatalogRow = ListGitHubRepositoriesResponse["catalog"][number];
 

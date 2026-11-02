@@ -189,7 +189,7 @@ describe("GitHub 연결 › 저장소 시트", () => {
       Array.from(
         within(each)
           .getAllByRole("rowheader")[0]
-          ?.querySelectorAll("[class*='min-width:481px']") ?? [],
+          ?.querySelectorAll("[class*='width>=480px']") ?? [],
         (line) => line.textContent,
       );
     expect(moved(table)).toEqual(["main"]);
