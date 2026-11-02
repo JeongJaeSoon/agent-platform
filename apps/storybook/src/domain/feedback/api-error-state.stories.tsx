@@ -33,3 +33,16 @@ export const DefaultDark: Story = {
   name: "Default (dark)",
   globals: { theme: "dark" },
 };
+
+/** The guidance, title and buttons follow `locale`; no Korean in en or ja. */
+export const English: Story = {
+  ...Default,
+  args: { ...Default.args, locale: "en" },
+  globals: { locale: "en" },
+};
+
+export const Japanese: Story = {
+  ...Default,
+  args: { ...Default.args, locale: "ja" },
+  globals: { locale: "ja" },
+};

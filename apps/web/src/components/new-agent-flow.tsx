@@ -41,6 +41,7 @@ import {
   Input,
   NativeSelect,
   NativeSelectOption,
+  Skeleton,
   Stepper,
   Text,
 } from "@werft-ai/ui";
@@ -454,7 +455,7 @@ export function NewAgentFlow({
           <section className={AGENT_FORM}>
             <StepHeading focus={moved}>{t("agents.flow.channels")}</StepHeading>
             <Notice>{t("agents.flow.done", { name: context.name })}</Notice>
-            <Suspense fallback={<p aria-busy="true">{t("slack.working")}</p>}>
+            <Suspense fallback={<Skeleton label={t("slack.working")} />}>
               <SlackConnect agentId={context.agentId} />
             </Suspense>
             <LaterLink agentId={context.agentId} />
@@ -478,11 +479,7 @@ export function NewAgentFlow({
 }
 
 function Alerts({ lines }: { readonly lines: readonly string[] }) {
-  return lines.map((line) => (
-    <p key={line} role="alert" className="m-0 text-destructive text-sm">
-      {line}
-    </p>
-  ));
+  return lines.map((line) => <FieldError key={line}>{line}</FieldError>);
 }
 
 function NameStep({

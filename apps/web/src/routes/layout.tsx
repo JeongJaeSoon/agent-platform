@@ -38,6 +38,7 @@ import {
   useNavGroups,
   useSettingsNavGroups,
 } from "../components/app-sidebar.tsx";
+import { FormError } from "../components/auth-page.tsx";
 import { MAIN_CONTENT_ID, Main } from "../components/main.tsx";
 import { SettingsLayout } from "../components/settings-nav.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -248,9 +249,9 @@ function AuthedShell() {
       />
       <ShellMain>
         {logout.error ? (
-          <p className="m-0 text-destructive" role="alert">
+          <FormError>
             {t("common.logoutFailed")} {t(errorKey(logout.error.code))}
-          </p>
+          </FormError>
         ) : null}
         <Outlet />
       </ShellMain>

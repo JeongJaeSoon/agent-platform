@@ -1,24 +1,19 @@
 import type { CountSessionsResponse, SessionStatus } from "@werft-ai/contracts";
-import {
-  Card,
-  Meter,
-  Section,
-  Skeleton,
-  StatusDot,
-  type StatusDotStatus,
-} from "@werft-ai/ui";
+import { Card, Meter, Section, Skeleton, StatusDot } from "@werft-ai/ui";
 import type { JSX, ReactNode } from "react";
 
+import { statusDot } from "../status/vocabulary.ts";
 import type { SessionCountsMessages } from "./messages.ts";
 import { useOperationsMessages } from "./use-messages.ts";
 
-const STATUSES: readonly (readonly [SessionStatus, StatusDotStatus])[] = [
-  ["queued", "idle"],
-  ["running", "run"],
-  ["needs_input", "wait"],
-  ["idle", "idle"],
-  ["failed", "failed"],
-  ["stopped", "idle"],
+// The order the counts read in; each dot comes from the status vocabulary.
+const STATUSES: readonly SessionStatus[] = [
+  "queued",
+  "running",
+  "needs_input",
+  "idle",
+  "failed",
+  "stopped",
 ];
 
 // Three across below 640px with rules between, six across above it.
@@ -73,7 +68,7 @@ export function SessionCounts({
       {error ?? (
         <Card flush>
           <div className="grid grid-cols-3 sm:grid-cols-6">
-            {STATUSES.map(([status, dot]) => (
+            {STATUSES.map((status) => (
               <SessionCount
                 key={status}
                 count={counts?.[status]}
@@ -82,7 +77,7 @@ export function SessionCounts({
                   statusLink(status, { className: CELL, children })
                 }
               >
-                <StatusDot status={dot} />
+                <StatusDot status={statusDot("session", status)} />
                 {messages.status(status)}
               </SessionCount>
             ))}
