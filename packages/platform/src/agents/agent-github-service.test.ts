@@ -14,6 +14,8 @@ import { createAgentGitHubService } from "./agent-github-service.ts";
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const AGENT = "019a0000-0000-7000-8000-0000000000c1";
 const PROFILE = "claude-coding-v1";
+const OPTIONAL = "claude-optional-v1";
+const NONE = "claude-none-v1";
 
 const app = (extra: object = {}) => ({
   kind: "github_app" as const,
@@ -29,30 +31,34 @@ const enterprise = {
   ref: { value_env: "PEM" },
 };
 
+const profile = {
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "claude-sonnet-5",
+  tools: ["Read"],
+  permission_mode: "default",
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "provider-key",
+      ref: { value_env: "PROVIDER_KEY" },
+    },
+  },
+};
+
 const catalog = withSeededInstallation({
   profiles: {
-    [PROFILE]: {
-      runtime_kind: "claude_agent_sdk",
-      runtime_version: "0.3.270",
-      model: "claude-sonnet-5",
-      tools: ["Read"],
-      permission_mode: "default",
-      provider: {
-        kind: "litellm",
-        endpoint: "https://litellm.invalid",
-        auth: {
-          kind: "api_key",
-          value: "provider-key",
-          ref: { value_env: "PROVIDER_KEY" },
-        },
-      },
-    },
+    [PROFILE]: profile,
+    [OPTIONAL]: { ...profile, repository: "optional" },
+    [NONE]: { ...profile, repository: "none" },
   },
   repositories: {
     "sample-app": {
       url: "https://github.com/acme/sample-app",
       branch: "main",
-      profiles: [PROFILE],
+      profiles: [PROFILE, OPTIONAL],
       auth: app(),
     },
     "pat-app": {
@@ -101,6 +107,7 @@ function serviceWith(input: {
   author?: Record<string, "read" | "write" | "admin"> | null;
   reviewer?: Record<string, "read" | "write" | "admin"> | null | "none";
   noRelease?: boolean;
+  profile?: string;
   /** `<repository>:<role>` → GitHub's answer; absent: no connection. */
   installed?: Record<string, boolean | null | Error>;
 }) {
@@ -108,7 +115,7 @@ function serviceWith(input: {
     ? null
     : {
         id: "sha256:release",
-        runtime_profile_id: PROFILE,
+        runtime_profile_id: input.profile ?? PROFILE,
         repository_id:
           input.repository === undefined ? "sample-app" : input.repository,
         policy_pins: input.github === undefined ? {} : { github: input.github },
@@ -324,8 +331,30 @@ describe("the agent GitHub tab's options", () => {
     expect(
       (await serviceWith({ repository: null }).get(caller, AGENT)).unsavable,
     ).toBe("repository_none");
+    expect(
+      (
+        await serviceWith({ repository: null, profile: NONE }).get(
+          caller,
+          AGENT,
+        )
+      ).unsavable,
+    ).toBe("repository_none");
     const pat = await serviceWith({ repository: "pat-app" }).get(caller, AGENT);
     expect(pat.unsavable).toBe("app_required");
     expect(pat.legacy_defaults).toBeNull();
+  });
+
+  test("a release without a repository on an optional profile is savable, from no repository picked", async () => {
+    const read = await serviceWith({ repository: null, profile: OPTIONAL }).get(
+      caller,
+      AGENT,
+    );
+    expect(read.unsavable).toBeNull();
+    expect(read.release_repository_id).toBeNull();
+    expect(read.github).toBeNull();
+    // The contract's defaults need a repository; the tab starts from none.
+    expect(read.legacy_defaults).toBeNull();
+    const sample = read.options.repositories.find((r) => r.id === "sample-app");
+    expect(sample).toMatchObject({ available: true, reason: null });
   });
 });
