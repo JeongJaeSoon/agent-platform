@@ -171,9 +171,9 @@ describe("에이전트 상세 탭", () => {
   test("카드 탭은 읽기 두 칸으로 시작하고, 카드 편집은 제자리에서 열고 취소하면 버튼으로 돌아간다", async () => {
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
     const user = await setupUser();
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     expect(
       [...summary.querySelectorAll("dt")].map((term) => term.textContent),
     ).toEqual([
@@ -690,9 +690,9 @@ describe("에이전트 상세 탭", () => {
     );
     const user = await setupUser();
     await user.click(screen.getByRole("tab", { name: "카드" }));
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     expect(
       within(summary).getByText(/일시정지 상태라 새 세션은 쓰지 않습니다/),
     ).toBeDefined();
@@ -771,9 +771,9 @@ describe("에이전트 상세 탭", () => {
     );
     expect(server.detail().releases).toHaveLength(1);
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...server.routes });
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     expect(
       await within(summary).findByText(/릴리스는 만들었지만 아직 켜지 않은/),
     ).toBeDefined();
@@ -788,9 +788,9 @@ describe("에이전트 상세 탭", () => {
       ...server.routes,
       [`GET ${path}`]: () => json(200, { ...server.detail(), versions: [] }),
     });
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     await waitFor(() =>
       expect(
         within(summary).getByText("식별자", { selector: "dt" })
@@ -823,9 +823,9 @@ describe("에이전트 상세 탭", () => {
 
   test("카드 탭은 카드를 읽기 전용으로 보이고 원문 JSON을 함께 둔다", async () => {
     renderAt(`${DETAIL}?tab=card`, { ...meOk, ...agentServer().routes });
-    const summary = (
-      await screen.findByRole("heading", { name: "에이전트 카드" })
-    ).closest("section") as HTMLElement;
+    const summary = await screen.findByRole("region", {
+      name: "에이전트 카드",
+    });
     const value = (term: string) =>
       within(summary).getByText(term, { selector: "dt" }).nextElementSibling
         ?.textContent;
@@ -834,11 +834,9 @@ describe("에이전트 상세 탭", () => {
     expect(value("모델")).toBe("claude-sonnet-5");
     expect(value("쓸 수 있는 도구")).toBe("프로필이 허용하는 도구 전부");
     expect(within(summary).queryByRole("textbox")).toBeNull();
-    const raw = (
-      screen
-        .getByRole("heading", { name: "카드 원문" })
-        .closest("section") as HTMLElement
-    ).querySelector("pre");
+    const raw = screen
+      .getByRole("region", { name: "카드 원문" })
+      .querySelector("pre");
     expect(JSON.parse(raw?.textContent ?? "").role).toBe("결제 문의 담당");
   });
 
