@@ -1,91 +1,118 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Card, ErrorState, Skeleton, TabsContent } from "@werft-ai/ui";
+import { Badge, Button, Heading, Skeleton, Text } from "@werft-ai/ui";
+import { expect } from "storybook/test";
 
 import {
-  type AgentCard,
-  AgentCardTab,
-  AgentHead,
+  AgentNotFound,
   AgentOverview,
-  AgentTabs,
-  type AgentView,
+  AgentPage,
+  type AgentTab,
+  CardSummary,
+  DRAFT,
+  LoadFailure,
+  RELEASED,
+  SESSIONS,
+  type SessionFixture,
+  VersionHistory,
+  type Viewer,
 } from "./agent-detail-parts.tsx";
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
 /*
- * Console v4 agent detail (Console.dc.html L709-788): one column, the
- * overview's three figures, the steps before the agent runs, recent
- * sessions; the card tab as words beside the raw card. The parts live in
- * agent-detail-parts.tsx, which the Slack console's detail shares.
+ * apps/web routes/agent-detail.tsx: the overview and card tabs, the Slack
+ * tab before an app exists, and the page's loading, failure and not-found
+ * states. The GitHub tab is agent-github.stories.tsx.
  */
 
-type ScreenState = "owner" | "member-draft" | "loading" | "error";
-type Tab = "overview" | "card";
+type ScreenState = "released" | "draft" | "loading" | "error" | "not-found";
+const SLACK_SECTION = "slack-advanced";
+const SLACK_TITLE = `${SLACK_SECTION}-title`;
 
-const CARD: AgentCard = {
-  role: "결제 문의 담당",
-  instructions:
-    "결제 실패·환불 문의를 받아 원인을 찾고, 필요한 경우 담당자에게 넘긴다.",
-  language: "ko",
-  model: "claude-sonnet-5",
-  capabilities: {
-    tools: null,
-    forbidden: ["Bash"],
-    mcp: [{ server: "billing-db" }],
-    credential_refs: ["BILLING_DB"],
-  },
-  rules: [],
-};
+type ShownTab = Extract<AgentTab, "overview" | "card" | "slack">;
 
-const RELEASED: AgentView = {
-  name: "결제 담당",
-  slug: "billing",
-  released: true,
-  card: CARD,
-  version: "version 2",
-  profile: "claude-coding",
-  versionAt: "2026. 10. 22. 오후 2:00",
-  releases: 2,
-};
-const DRAFT: AgentView = { ...RELEASED, released: false };
+function SlackNotConnected({ active }: { readonly active: boolean }) {
+  return (
+    <div className="flex flex-col gap-8">
+      <section
+        id={SLACK_SECTION}
+        tabIndex={-1}
+        className="flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none"
+        aria-labelledby={SLACK_TITLE}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Heading id={SLACK_TITLE}>Slack 앱</Heading>
+          <Badge variant="gray">만들기 전</Badge>
+        </div>
+        <output tabIndex={-1} aria-live="polite" className="sr-only" />
+        {active ? null : (
+          <Text variant="sub">
+            에이전트를 먼저 켠 뒤 Slack 앱을 만들 수 있습니다.
+          </Text>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" disabled={!active}>
+            Slack 앱 만들고 설치
+          </Button>
+          <Button type="button" variant="outline">
+            새로고침
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function AgentDetailScreen({
   state,
   tab,
+  viewer,
+  bound,
+  sessions,
 }: {
   readonly state: ScreenState;
-  readonly tab: Tab;
+  readonly tab: ShownTab;
+  readonly viewer: Viewer;
+  readonly bound: readonly string[] | "unknown";
+  readonly sessions: readonly SessionFixture[] | "loading" | "error";
 }) {
-  const manager = state === "owner";
-  const agent = state === "member-draft" ? DRAFT : RELEASED;
+  const detail = state === "draft" ? DRAFT : RELEASED;
   return (
     <ScreenShell
       current="agents"
-      crumb={["에이전트", agent.name]}
-      role={manager ? "owner" : "member"}
+      // The layout's leaf title waits for the agent; no data, no leaf.
+      crumb={
+        state === "released" || state === "draft"
+          ? ["에이전트", detail.agent.name]
+          : ["에이전트"]
+      }
+      role={viewer}
     >
       {state === "loading" ? (
-        <Card className="p-4">
-          <Skeleton lines={4} label="불러오는 중입니다" />
-        </Card>
+        <Skeleton lines={3} label="불러오는 중입니다" />
       ) : state === "error" ? (
-        <ErrorState
-          title="에이전트를 불러오지 못했습니다."
-          guidance="잠시 후 다시 시도하세요."
-          code="INTERNAL"
-        />
+        <LoadFailure />
+      ) : state === "not-found" ? (
+        <AgentNotFound />
       ) : (
-        <>
-          <AgentHead agent={agent} />
-          <AgentTabs value={tab}>
-            <TabsContent value={tab}>
-              {tab === "overview" ? (
-                <AgentOverview agent={agent} />
-              ) : (
-                <AgentCardTab agent={agent} />
-              )}
-            </TabsContent>
-          </AgentTabs>
-        </>
+        <AgentPage detail={detail} tab={tab}>
+          {tab === "overview" ? (
+            <AgentOverview
+              detail={detail}
+              viewer={viewer}
+              bound={bound}
+              sessions={sessions}
+            />
+          ) : tab === "card" ? (
+            <>
+              <CardSummary detail={detail} />
+              <VersionHistory detail={detail} />
+            </>
+          ) : (
+            <SlackNotConnected
+              active={detail.agent.active_release_id !== null}
+            />
+          )}
+        </AgentPage>
       )}
     </ScreenShell>
   );
@@ -95,30 +122,108 @@ const meta = {
   title: "Screens/Agent detail (v4)",
   component: AgentDetailScreen,
   parameters: { layout: "fullscreen" },
-  args: { state: "owner", tab: "overview" },
+  args: {
+    state: "released",
+    tab: "overview",
+    viewer: "owner",
+    bound: ["BILLING_DB"],
+    sessions: SESSIONS,
+  },
   argTypes: {
     state: {
       control: "inline-radio",
-      options: ["owner", "member-draft", "loading", "error"],
+      options: ["released", "draft", "loading", "error", "not-found"],
     },
-    tab: { control: "inline-radio", options: ["overview", "card"] },
+    tab: { control: "inline-radio", options: ["overview", "card", "slack"] },
+    viewer: { control: "inline-radio", options: ["owner", "admin", "member"] },
   },
 } satisfies Meta<typeof AgentDetailScreen>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const AgentDetail: Story = { name: "Overview (owner, released)" };
+export const AgentDetail: Story = {
+  name: "Overview (owner, released)",
+  play: async ({ canvas }) => {
+    const tabs = canvas.getAllByRole("tab");
+    await expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "개요",
+      "카드",
+      "릴리스",
+      "관리자",
+      "Slack",
+      "GitHub",
+    ]);
+    const start = canvas.getByRole("button", { name: "이 에이전트로 새 세션" });
+    await expect(start).toHaveAttribute("aria-disabled", "true");
+  },
+};
 export const AgentDetailMemberDraft: Story = {
   name: "Overview (member, not released)",
-  args: { state: "member-draft" },
+  // A member lacks credential.bind, so the bindings read answers 403.
+  args: { state: "draft", viewer: "member", bound: "unknown", sessions: [] },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("연결 상태를 불러오지 못했습니다."),
+    ).toBeVisible();
+    const credentials = canvas
+      .getByText("자격 증명 연결")
+      .closest("li") as HTMLElement;
+    await expect(credentials).toHaveAttribute("data-state", "unknown");
+    const release = canvas
+      .getByText("릴리스 만들기")
+      .closest("li") as HTMLElement;
+    await expect(release).toContainElement(
+      canvas.getByRole("button", { name: "릴리스 탭으로" }),
+    );
+  },
+};
+export const AgentDetailAdminDraft: Story = {
+  name: "Overview (admin, not released)",
+  args: { state: "draft", viewer: "admin", bound: [], sessions: [] },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByText("연결이 필요합니다: BILLING_DB"),
+    ).toBeVisible();
+    const credentials = canvas
+      .getByText("자격 증명 연결")
+      .closest("li") as HTMLElement;
+    await expect(credentials).toContainElement(
+      canvas.getByRole("button", { name: "릴리스 탭으로" }),
+    );
+  },
+};
+export const AgentDetailAdmin: Story = {
+  name: "Overview (admin)",
+  args: { viewer: "admin" },
+};
+export const AgentDetailSessionsLoading: Story = {
+  name: "Overview (sessions loading)",
+  args: { sessions: "loading" },
+};
+export const AgentDetailSessionsError: Story = {
+  name: "Overview (sessions failed)",
+  args: { sessions: "error" },
 };
 export const AgentDetailCard: Story = {
   name: "Card tab",
   args: { tab: "card" },
 };
+export const AgentDetailCardDraft: Story = {
+  name: "Card tab (not released)",
+  args: { tab: "card", state: "draft" },
+};
+export const AgentDetailSlack: Story = {
+  name: "Slack tab (no app yet)",
+  args: { tab: "slack" },
+};
+export const AgentDetailSlackInactive: Story = {
+  name: "Slack tab (not released)",
+  args: { tab: "slack", state: "draft" },
+};
 export const AgentDetailLoading: Story = { args: { state: "loading" } };
 export const AgentDetailError: Story = { args: { state: "error" } };
+export const AgentDetailNotFound: Story = { args: { state: "not-found" } };
 export const AgentDetailDark: Story = {
   name: "Overview (dark)",
   globals: { theme: "dark" },
