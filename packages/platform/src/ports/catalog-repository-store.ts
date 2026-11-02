@@ -1,4 +1,4 @@
-import type { ReceiptActor } from "@werft-ai/contracts";
+import type { ReceiptActor, WorkspaceRole } from "@werft-ai/contracts";
 
 /**
  * A repository that uses the console's GitHub App, as the database holds it
@@ -61,6 +61,12 @@ export interface CatalogRepositoryStore {
    */
   resolve(
     input: RepositoryWrite & {
+      /**
+       * The agent it is picked for: the right to manage it is read again
+       * under locks, `managerRoles` holding it outright.
+       */
+      agentId: string;
+      managerRoles: readonly WorkspaceRole[];
       base: string;
       /** Ids the operator's file holds, which a row may not take. */
       reserved: ReadonlySet<string>;
@@ -80,7 +86,7 @@ export interface CatalogRepositoryStore {
         changed: boolean;
       }
     | { outcome: "name_held"; id: string }
-    | { outcome: "actor_inactive" }
+    | { outcome: "actor_inactive" | "outranked" }
   >;
   setBranch(
     input: RepositoryWrite & { id: string; branch: string; version: number },

@@ -48,6 +48,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   delete_team: "팀 삭제",
   add_team_member: "팀에 추가됨",
   remove_team_member: "팀에서 빠짐",
+  set_team_member_role: "팀 역할 변경",
+  set_agent_managing_team: "담당 팀 지정",
   add_agent_admin: "에이전트 관리자 지정",
   remove_agent_admin: "에이전트 관리자 해제",
   bind_credential: "자격 연결",

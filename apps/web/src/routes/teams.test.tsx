@@ -151,6 +151,7 @@ function teamServer({
                 user_id,
                 email: person.email,
                 display_name: person.display_name,
+                role: "member",
                 added_by: USER_ID,
                 added_at: AT,
               },
@@ -448,7 +449,7 @@ describe("팀 화면", () => {
       "GET /v1/teams": refused,
       "GET /v1/my-teams": () =>
         json(200, {
-          items: [{ id: TEAM_ID, name: "결제팀" }],
+          items: [{ id: TEAM_ID, name: "결제팀", role: "member" }],
           next_cursor: null,
         }),
     });
@@ -484,6 +485,7 @@ describe("팀 화면", () => {
           user_id: MATE_ID,
           email: mate.email,
           display_name: mate.display_name,
+          role: "member",
           added_by: USER_ID,
           added_at: AT,
         },
@@ -587,12 +589,12 @@ describe("팀 화면", () => {
         apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
       "GET /v1/my-teams?limit=100": () =>
         json(200, {
-          items: [{ id: TEAM_ID, name: "결제팀" }],
+          items: [{ id: TEAM_ID, name: "결제팀", role: "lead" }],
           next_cursor: "c2",
         }),
       "GET /v1/my-teams?cursor=c2&limit=100": () =>
         json(200, {
-          items: [{ id: SECOND_ID, name: "지원팀" }],
+          items: [{ id: SECOND_ID, name: "지원팀", role: "member" }],
           next_cursor: null,
         }),
     });

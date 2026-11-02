@@ -12,6 +12,7 @@ import { Pool } from "pg";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import * as schema from "./schema.ts";
 import {
+  agentAdmins,
   agentReleases,
   agents,
   agentVersions,
@@ -108,9 +109,15 @@ integration("catalog repositories on PostgreSQL", () => {
       slug: `ws-${workspaceId.slice(0, 8)}`,
       name: "Acme",
     });
-    const owner = await person(workspaceId, "owner");
-    const member = await person(workspaceId, "member");
-    const outsider = await person(workspaceId, null);
+    const agentId = randomUUID();
+    await db
+      .insert(agents)
+      .values({ id: agentId, workspaceId, slug: "picker", name: "Picker" });
+    // Picked for that agent: the right to manage it is read again.
+    const pick = { agentId, managerRoles: ["owner", "admin"] as const };
+    const owner = { ...(await person(workspaceId, "owner")), ...pick };
+    const member = { ...(await person(workspaceId, "member")), ...pick };
+    const outsider = { ...(await person(workspaceId, null)), ...pick };
 
     expect(
       await store.resolve({
@@ -122,7 +129,23 @@ integration("catalog repositories on PostgreSQL", () => {
       }),
     ).toEqual({ outcome: "actor_inactive" });
 
-    // Any member may resolve: who may pick was the policy's call.
+    // A member who does not administer the agent (any more) is refused.
+    expect(
+      await store.resolve({
+        ...member,
+        receiptId: randomUUID(),
+        base: "app1",
+        reserved: new Set(),
+        ...repo(1),
+      }),
+    ).toEqual({ outcome: "outranked" });
+    await db.insert(agentAdmins).values({
+      workspaceId,
+      agentId,
+      userId: member.userId,
+    });
+
+    // The agent's admin may resolve.
     const receiptId = randomUUID();
     const first = await store.resolve({
       ...member,

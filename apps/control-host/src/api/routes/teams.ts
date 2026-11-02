@@ -12,6 +12,9 @@ import {
   listMyTeamsResponseSchema,
   listTeamsQuerySchema,
   listTeamsResponseSchema,
+  setAgentManagingTeamRequestSchema,
+  setAgentManagingTeamResponseSchema,
+  setTeamMemberRoleRequestSchema,
   teamChangeResponseSchema,
   teamDetailSchema,
   teamIdParamsSchema,
@@ -100,6 +103,36 @@ export function registerTeamRoutes(
       ),
     );
     return jsonWithSchema(context, teamChangeResponseSchema, changed);
+  });
+
+  apiRoute(router, "setTeamMemberRole", async (context) => {
+    const params = requireParams(context, teamMemberParamsSchema);
+    const body = await parseJsonBody(context, setTeamMemberRoleRequestSchema);
+    const changed = await mapped(() =>
+      teams.setTeamMemberRole(
+        context.get("caller"),
+        params.team_id,
+        params.user_id,
+        body,
+      ),
+    );
+    return jsonWithSchema(context, teamChangeResponseSchema, changed);
+  });
+
+  apiRoute(router, "setAgentManagingTeam", async (context) => {
+    const params = requireParams(context, agentIdParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      setAgentManagingTeamRequestSchema,
+    );
+    const changed = await mapped(() =>
+      agentAdmins.setManagingTeam(
+        context.get("caller"),
+        params.id,
+        body.team_id,
+      ),
+    );
+    return jsonWithSchema(context, setAgentManagingTeamResponseSchema, changed);
   });
 
   apiRoute(router, "listAgentAdmins", async (context) => {

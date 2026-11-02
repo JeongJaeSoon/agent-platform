@@ -578,7 +578,12 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 - 팀을 만들고, 이름을 바꾸고, 지우고, 구성원을 넣고 빼는 것은 owner·admin만 한다(`team.manage`). 에이전트 관리자와 팀 구성원도 못 한다(`403`, `reason_code: role`). 팀 목록·상세도 같은 권한이다.
 - 구성원 추가는 초대가 아니다. 수락 없이 바로 구성원이 된다. 비활성 멤버는 넣을 수 없다(`404`). 추가·제거마다 그 사람을 대상(`target_ref.user_id`)으로 한 `add_team_member`·`remove_team_member` receipt가 남고 `result`에 팀 id와 이름이 있다. 지금은 이 receipt가 추가 알림의 기록이고, 화면·Slack 알림은 아직 없다.
 - 구성원은 판정 때마다 읽는다. 팀에서 빠지거나 팀이 지워지면 그 팀으로 얻은 관리 권한이 다음 요청부터 `403`이다. 비활성 멤버는 팀에 있어도 아무 권한이 없다. 다만 비활성화는 팀 구성원 자격과 에이전트 관리자 지정을 지우지 않으므로, 다시 초대해 활성화하면 그 권한이 그대로 돌아온다. 돌려주지 않으려면 비활성화할 때 팀에서도 빼고 관리자 지정도 해제한다. 팀을 지우면 그 팀의 에이전트 관리자 지정도 함께 지워진다.
-- 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다.
+- 에이전트 관리자 지정·해제는 owner·admin과 그 에이전트의 관리자가 한다(`agent.admin.manage`). 사람이나 팀 하나를 고른다. owner·admin이 아니면 새로 관리자 팀으로 넣을 수 있는 팀은 자기가 `lead`인 팀뿐이다(아니면 `403`, `reason_code: team_not_allowed`). 이미 들어가 있는 관리자 팀은 그대로 남는다.
+- 팀 구성원에는 역할(`lead`·`member`)이 있다. 처음 넣으면 `member`이고, owner·admin이 `PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`로 바꾼다. 바꿀 때마다 `set_team_member_role` receipt가 남는다. `GET /v1/my-teams`는 팀마다 내 `role`을 함께 준다.
+- 에이전트에는 담당 팀(`managing_team_id`)이 하나 있을 수 있다. 담당 팀의 `lead`는 그 에이전트의 관리자다. 담당 팀의 `member`는 관리 권한이 없다. 지금 있는 에이전트의 담당 팀은 비어 있다.
+- 담당 팀은 만들 때(`POST /v1/agents`의 `managing_team_id`) 넣거나 `PUT /v1/agents/{id}/managing-team` `{"team_id"}`로 바꾼다. 바꾸는 것은 owner·admin과 그 에이전트의 관리자다. owner·admin은 살아 있는 팀 아무것이나, 그 밖의 사람은 자기가 속한 팀만 고른다(아니면 `403`, `reason_code: team_not_allowed`). 담당 팀을 비우는 요청은 없다. 바꿀 때마다 `set_agent_managing_team` receipt가 남고 `result`에 바꾸기 전후 팀 id가 있다.
+- 보관되지 않은 에이전트의 담당 팀인 팀은 지울 수 없다(`409 TEAM_MANAGES_AGENTS`, `details.agent_ids`). 먼저 그 에이전트들의 담당 팀을 옮기거나 에이전트를 보관한다.
+- 담당 팀을 옮기거나 `lead`를 `member`로 내리면, 그 권한으로 진행 중이던 에이전트 설정 쓰기(수정·릴리스·켜기, GitHub 켜기, 저장소 고르기)도 저장 직전에 다시 판정되어 `403`(`reason_code: role`)으로 끝난다.
 - 에이전트 관리자는 `GET /v1/administered-agents`로 자기가 지금 관리하는 에이전트(직접 지정과 팀 경유)를 본다. 여기서 얻은 `agent_id`로 그 에이전트의 에이전트 key를 발급한다.
 
 | 요청 | 하는 일 |
@@ -586,15 +591,17 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 | `POST /v1/teams` `{"name"}` | 팀 만들기. 살아 있는 팀 이름이 겹치면 `409 ALREADY_EXISTS` |
 | `GET /v1/teams`, `GET /v1/teams/{team_id}` | 목록, 구성원을 포함한 상세 |
 | `PATCH /v1/teams/{team_id}` `{"name"}` | 이름 변경 |
-| `DELETE /v1/teams/{team_id}` | 팀 삭제 |
+| `DELETE /v1/teams/{team_id}` | 팀 삭제. 담당하는 에이전트가 있으면 `409 TEAM_MANAGES_AGENTS` |
 | `POST /v1/teams/{team_id}/members` `{"user_id"}` | 구성원 추가 |
+| `PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}` | 구성원 역할 변경(`lead`·`member`) |
 | `DELETE /v1/teams/{team_id}/members/{user_id}` | 구성원 제거 |
+| `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | 담당 팀 지정·변경 |
 | `GET /v1/agents/{id}/admins` | 에이전트의 관리자(사람·팀) |
 | `POST /v1/agents/{id}/admins` `{"user_id"}` 또는 `{"team_id"}` | 관리자 지정 |
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/admins/teams/{team_id}` | 관리자 해제 |
 | `GET /v1/administered-agents` | 내가 관리하는 에이전트 |
 
-바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage` 행으로 `authz_decisions`에 남는다.
+바꾼 것이 없으면(이미 구성원, 이미 관리자, 같은 이름, 같은 역할, 같은 담당 팀) `receipt_id`가 `null`이다. 판정은 `team.manage`·`agent.admin.manage` 행으로 `authz_decisions`에 남는다.
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/teams \

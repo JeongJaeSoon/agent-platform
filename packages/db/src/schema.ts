@@ -45,6 +45,7 @@ import {
   SURFACE_MEMBERSHIP_STATE_VALUES,
   type SurfaceKind,
   type SurfaceMembershipState,
+  TEAM_MEMBER_ROLE_VALUES,
   USER_LOCALE_VALUES,
   type UserLocale,
 } from "@werft-ai/contracts";
@@ -3030,6 +3031,11 @@ export const agents = pgTable(
     slackMentionOnly: boolean("slack_mention_only").notNull().default(true),
     /** Read at every GitHub token request, so turning it off is immediate. */
     githubEnabled: boolean("github_enabled").notNull().default(true),
+    /**
+     * Null only on agents from before managing teams; the API refuses to
+     * clear it. Its leads administer the agent.
+     */
+    managingTeamId: uuid("managing_team_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -3040,6 +3046,15 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    foreignKey({
+      name: "agents_managing_team_fk",
+      columns: [table.workspaceId, table.managingTeamId],
+      foreignColumns: [memberTeams.workspaceId, memberTeams.id],
+    }),
+    // A team's archive looks for the agents it manages.
+    index("agents_managing_team_idx")
+      .on(table.managingTeamId)
+      .where(sql`${table.managingTeamId} IS NOT NULL`),
     // What agent_admins and api_keys reference, so neither can name another
     // workspace's agent.
     unique("agents_workspace_id_key").on(table.workspaceId, table.id),
@@ -3139,8 +3154,13 @@ export const memberTeamMembers = pgTable(
       .notNull()
       .defaultNow(),
     removedAt: timestamp("removed_at", { withTimezone: true }),
+    role: text().notNull().default("member"),
   },
   (table) => [
+    check(
+      "member_team_members_role_check",
+      sql`${table.role} IN (${sql.raw(sqlList(TEAM_MEMBER_ROLE_VALUES))})`,
+    ),
     foreignKey({
       name: "member_team_members_team_fk",
       columns: [table.workspaceId, table.teamId],

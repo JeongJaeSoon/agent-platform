@@ -45,6 +45,7 @@ function agent(id: string, name: string): Agent {
     slug: name.toLowerCase(),
     name,
     description: null,
+    managing_team_id: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,

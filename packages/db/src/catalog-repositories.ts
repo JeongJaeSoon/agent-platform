@@ -5,7 +5,7 @@ import type {
   CatalogRepositoryStore,
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { lockedRole } from "./api-keys.ts";
+import { holdsRight, lockedRole } from "./api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -165,9 +165,18 @@ export function createPostgresCatalogRepositoryStore(
       // and two repositories never take the same id.
       return db.transaction(async (tx) => {
         await lockWrites(tx);
-        // Any member who still is one: who may pick was decided by policy.
-        if ((await lockedRole(tx, input.workspaceId, input.userId)) === null) {
-          return { outcome: "actor_inactive" as const };
+        // A demotion or a managing-team change committed after the policy's
+        // decision on the agent wins.
+        const role = await lockedRole(tx, input.workspaceId, input.userId);
+        if (role === null) return { outcome: "actor_inactive" as const };
+        if (
+          !(await holdsRight(tx, input.workspaceId, input.userId, {
+            role,
+            roles: input.managerRoles,
+            agentId: input.agentId.toLowerCase(),
+          }))
+        ) {
+          return { outcome: "outranked" as const };
         }
         const active = isNull(catalogRepositories.removedAt);
         const sameName = sql`lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})`;

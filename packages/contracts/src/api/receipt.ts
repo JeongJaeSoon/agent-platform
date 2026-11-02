@@ -74,6 +74,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "delete_team",
   "add_team_member",
   "remove_team_member",
+  "set_team_member_role",
+  "set_agent_managing_team",
   "add_agent_admin",
   "remove_agent_admin",
   // Binding a credential name to an agent and taking it off (94S-581).

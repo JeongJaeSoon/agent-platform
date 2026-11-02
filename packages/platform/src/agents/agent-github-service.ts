@@ -10,8 +10,16 @@ import {
   type GitHubFeatures,
   type PutAgentGitHubEnabledResponse,
 } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND } from "../musterrolle/service-errors.ts";
+import {
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+} from "../musterrolle/policy.ts";
+import {
+  ACTOR_INACTIVE,
+  NOT_FOUND,
+  OUTRANKED,
+} from "../musterrolle/service-errors.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import { repoRefOf } from "../ports/forge.ts";
@@ -324,12 +332,15 @@ export function createAgentGitHubService(deps: {
         agentId,
         enabled,
         principal: caller,
+        managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
       });
       switch (result.outcome) {
         case "saved":
           return { enabled, receipt_id: result.receiptId };
         case "actor_inactive":
           throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
         default:
           throw NOT_FOUND();
       }

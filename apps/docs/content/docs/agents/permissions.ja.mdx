@@ -65,7 +65,11 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 ## エージェント管理者
 
-エージェントを作成した人が、そのエージェントの管理者になる。管理者は member であっても、そのエージェントのカード修正、リリース、有効化、認証情報の紐付け、管理者の指定、エージェントキーの発行を行える。人やチームを管理者として追加でき、チームの場合はそのチームのメンバー全員が管理者になる。[作成](/agents/create)の `AID` と `WEB` を引き続き使う。
+エージェントを作成した人が、そのエージェントの管理者になる。管理者は member であっても、そのエージェントのカード修正、リリース、有効化、認証情報の紐付け、管理者の指定、エージェントキーの発行を行える。人やチームを管理者として追加でき、チームの場合はそのチームのメンバー全員が管理者になる。owner・admin でなければ、新しく追加できるのは自分がチーム管理者(`lead`)のチームだけである。
+
+エージェントには担当チームを一つ決められる。担当チームのチーム管理者(`lead`)はそのエージェントの管理者で、メンバー(`member`)は管理しない。owner・admin でなければ、自分が所属するチームだけを担当チームに選べる。担当チームに決まったチームは、そのエージェントをアーカイブするか担当チームを移すまで削除できない。
+
+[作成](/agents/create)の `AID` と `WEB` を引き続き使う。
 
 ```bash
 curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email], teams}'
@@ -84,6 +88,7 @@ curl -sS "$API/v1/agents/$AID/admins" "${WEB[@]}" | jq '{users: [.users[].email]
 | --- | --- |
 | `POST /v1/agents/{id}/admins` `{"user_id"}` または `{"team_id"}` | 管理者の指定 |
 | `DELETE /v1/agents/{id}/admins/users/{user_id}`, `…/teams/{team_id}` | 解除 |
+| `PUT /v1/agents/{id}/managing-team` `{"team_id"}` | 担当チームの指定・変更 |
 | `GET /v1/administered-agents` | 自分が管理しているエージェント |
 
 ## 認証情報の紐付け

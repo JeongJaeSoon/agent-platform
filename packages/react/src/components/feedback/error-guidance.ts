@@ -113,6 +113,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "아직 답하지 않은 승인·질문이 있습니다 — 모두 답하거나 만료된 뒤 재개하세요.",
   PERMISSION_WAIT_ABOVE_PROFILE:
     "대기 시간이 프로필 한도보다 깁니다 — 프로필 값 이하로 줄이세요.",
+  TEAM_MANAGES_AGENTS:
+    "이 팀이 담당 팀인 에이전트가 있습니다 — 그 에이전트들의 담당 팀을 먼저 옮기세요.",
   CONFIG_TOKEN_INVALID:
     "Slack App Configuration Token을 쓸 수 없어요 — owner·admin이 새 token을 붙여 넣으세요.",
   SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
@@ -241,6 +243,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "Approvals or questions are still unanswered — answer them all, or let them expire, then resume.",
   PERMISSION_WAIT_ABOVE_PROFILE:
     "The wait is longer than the profile's limit — lower it to the profile's value or less.",
+  TEAM_MANAGES_AGENTS:
+    "This team is still the managing team of some agents — move them to another team first.",
   CONFIG_TOKEN_INVALID:
     "The Slack App Configuration Token can't be used — an owner or admin should paste a new token.",
   SLACK_APP_CREATING: "The Slack app is being created — check again shortly.",
@@ -386,6 +390,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "まだ答えていない承認・質問があります — すべてに答えるか、期限が切れてから再開してください。",
   PERMISSION_WAIT_ABOVE_PROFILE:
     "待ち時間がプロファイルの上限より長いです — プロファイルの値以下にしてください。",
+  TEAM_MANAGES_AGENTS:
+    "このチームが担当チームのエージェントがあります — 先にそのエージェントの担当チームを移してください。",
   CONFIG_TOKEN_INVALID:
     "Slack App Configuration Token を使えません — owner・admin が新しい token を貼り付けてください。",
   SLACK_APP_CREATING:

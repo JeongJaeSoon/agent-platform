@@ -44,9 +44,10 @@ import {
 import {
   type AuthorizationPolicy,
   type Caller,
+  MANAGEMENT_ROLES,
   receiptActorOf,
 } from "./policy.ts";
-import { ACTOR_INACTIVE, NOT_FOUND } from "./service-errors.ts";
+import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 
 type Unavailable = NonNullable<ListGitHubRepositoriesResponse["unavailable"]>;
 type InstallationPage = Pick<
@@ -756,6 +757,8 @@ export function createGitHubRepositoryService(deps: {
       // The URL and branch come from GitHub's answer, never from the body.
       const result = await store.resolve({
         ...write,
+        agentId,
+        managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
         receiptId,
         base: repositoryIdBase(repository.name),
         reserved,
@@ -771,6 +774,7 @@ export function createGitHubRepositoryService(deps: {
           `Catalog row ${result.id} holds that name, for another GitHub repository or not yet tied to one; picking the repository it was, now renamed, frees the name`,
         );
       }
+      if (result.outcome === "outranked") throw OUTRANKED();
       if (result.outcome !== "resolved") throw ACTOR_INACTIVE();
       if (result.changed) await reload();
       const pinned = await deps.pins?.pinFirst({

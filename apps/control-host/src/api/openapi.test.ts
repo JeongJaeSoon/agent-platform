@@ -421,6 +421,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/credential-bindings/{binding_id}",
         "/v1/agents/{id}/identities",
         "/v1/agents/{id}/identities/{identity_id}",
+        "/v1/agents/{id}/managing-team",
         "/v1/invites",
         "/v1/invites/accept",
         "/v1/invites/{id}",

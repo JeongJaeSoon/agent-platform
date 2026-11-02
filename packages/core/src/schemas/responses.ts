@@ -113,6 +113,7 @@ import {
   sessionShareSchema,
   sessionUsageResponseSchema,
   setAccessResponseSchema,
+  setAgentManagingTeamResponseSchema,
   setSessionShareResponseSchema,
   slackAppSettingsSchema,
   slackConfigTokenSummarySchema,
@@ -327,6 +328,8 @@ export const responseSchemas = {
   "DELETE /v1/teams/{team_id}": deleteTeamResponseSchema,
   "POST /v1/teams/{team_id}/members": teamChangeResponseSchema,
   "DELETE /v1/teams/{team_id}/members/{user_id}": teamChangeResponseSchema,
+  "PATCH /v1/teams/{team_id}/members/{user_id}": teamChangeResponseSchema,
+  "PUT /v1/agents/{id}/managing-team": setAgentManagingTeamResponseSchema,
   "GET /v1/agents/{id}/admins": agentAdminsViewSchema,
   "POST /v1/agents/{id}/admins": agentAdminChangeResponseSchema,
   "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}":

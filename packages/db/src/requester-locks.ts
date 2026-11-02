@@ -212,11 +212,13 @@ export async function lockSessionReach(
       : [];
 
   let agentId: string | null = null;
+  let managingTeamId: string | null = null;
   let directAdmin = false;
   let adminTeams: string[] = [];
   if (!answerer && userId !== null && session.agentReleaseId !== null) {
+    // The share lock queues this behind a change of the managing team.
     const [agent] = await tx
-      .select({ id: agents.id })
+      .select({ id: agents.id, managingTeamId: agents.managingTeamId })
       .from(agents)
       .innerJoin(agentReleases, eq(agentReleases.agentId, agents.id))
       .where(
@@ -228,6 +230,7 @@ export async function lockSessionReach(
       .limit(1)
       .for("share", { of: agents });
     agentId = agent?.id ?? null;
+    managingTeamId = agent?.managingTeamId ?? null;
   }
   if (agentId !== null && userId !== null) {
     const direct = await tx
@@ -258,7 +261,11 @@ export async function lockSessionReach(
     }
   }
 
-  const teamIds = [...new Set([...shareTeams, ...adminTeams])].sort();
+  const leadTeams =
+    !directAdmin && managingTeamId !== null ? [managingTeamId] : [];
+  const teamIds = [
+    ...new Set([...shareTeams, ...adminTeams, ...leadTeams]),
+  ].sort();
   const liveTeams =
     teamIds.length === 0
       ? new Set<string>()
@@ -312,13 +319,17 @@ export async function lockSessionReach(
               .for("share")
           ).map((row) => row.teamId),
         );
+  // Team id to the requester's role in it.
   const memberOf =
     userId === null || liveTeams.size === 0
-      ? new Set<string>()
-      : new Set(
+      ? new Map<string, string>()
+      : new Map(
           (
             await tx
-              .select({ teamId: memberTeamMembers.teamId })
+              .select({
+                teamId: memberTeamMembers.teamId,
+                role: memberTeamMembers.role,
+              })
               .from(memberTeamMembers)
               .where(
                 and(
@@ -329,10 +340,12 @@ export async function lockSessionReach(
               )
               .orderBy(asc(memberTeamMembers.id))
               .for("share")
-          ).map((row) => row.teamId),
+          ).map((row) => [row.teamId, row.role]),
         );
 
   if (!sees && !shareTeams.some((id) => memberOf.has(id))) return "not_found";
   if (answerer || directAdmin) return "ok";
+  // The managing team's lead administers the agent, as administers() says.
+  if (leadTeams.some((id) => memberOf.get(id) === "lead")) return "ok";
   return [...lending].some((id) => memberOf.has(id)) ? "ok" : "role";
 }

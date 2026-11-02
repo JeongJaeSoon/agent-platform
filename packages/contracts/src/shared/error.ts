@@ -137,6 +137,9 @@ export const API_ERROR_CODE_VALUES = [
   "PENDING_REQUESTS_OPEN",
   // A session asked to wait on its requests longer than its profile allows.
   "PERMISSION_WAIT_ABOVE_PROFILE",
+  // Archiving a team that is still an agent's managing team;
+  // `details.agent_ids` names those agents.
+  "TEAM_MANAGES_AGENTS",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);

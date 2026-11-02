@@ -1589,7 +1589,11 @@ describe("홈의 대기 시간", () => {
 });
 
 describe("내가 속한 팀", () => {
-  const TEAM = { id: "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b", name: "결제팀" };
+  const TEAM = {
+    id: "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+    name: "결제팀",
+    role: "member",
+  };
   const forbidden = () => apiError(403, "FORBIDDEN", "not allowed");
 
   test("구성원도 홈에서 속한 팀 이름으로 팀 화면을 연다", async () => {

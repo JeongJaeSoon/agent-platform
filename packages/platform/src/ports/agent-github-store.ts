@@ -1,10 +1,11 @@
-import type { Receipt } from "@werft-ai/contracts";
+import type { Receipt, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 
+/** `outranked`: the right to manage the agent ended before the write. */
 export type SetAgentGitHubResult =
   | { outcome: "saved"; receiptId: string | null }
-  | { outcome: "not_found" | "actor_inactive" };
+  | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 /** An agent's GitHub switch (`agents.github_enabled`) and its activity. */
 export interface AgentGitHubStore {
@@ -16,6 +17,8 @@ export interface AgentGitHubStore {
     agentId: string;
     enabled: boolean;
     principal: Principal;
+    /** Roles holding the right outright; anyone else must administer the agent. */
+    managerRoles: readonly WorkspaceRole[];
   }): Promise<SetAgentGitHubResult>;
   /**
    * The latest GitHub receipts for the agent, newest first: those naming it,

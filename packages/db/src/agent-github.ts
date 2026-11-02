@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { AgentGitHubStore } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
-import { actorStillMember, receiptActorOf } from "./control-shared.ts";
+import { lockAgentToChange } from "./agents.ts";
+import { receiptActorOf } from "./control-shared.ts";
 import { receiptFromRow } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { agentReleases, agents, receipts, sessions } from "./schema.ts";
@@ -39,21 +40,13 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
 
     setEnabled(input) {
       return db.transaction(async (tx) => {
-        if (!(await actorStillMember(tx, input.principal))) {
-          return { outcome: "actor_inactive" as const };
-        }
         const agentId = input.agentId.toLowerCase();
+        const locked = await lockAgentToChange(tx, input, agentId);
+        if ("outcome" in locked) return locked;
         const [held] = await tx
           .select({ enabled: agents.githubEnabled })
           .from(agents)
-          .where(
-            and(
-              eq(agents.workspaceId, input.workspaceId),
-              eq(agents.id, agentId),
-            ),
-          )
-          .limit(1)
-          .for("update");
+          .where(eq(agents.id, agentId));
         if (held === undefined) return { outcome: "not_found" as const };
         if (held.enabled === input.enabled) {
           return { outcome: "saved" as const, receiptId: null };

@@ -81,6 +81,7 @@ const detail: AgentDetail = {
     slug: "finance",
     name: "재무 분석가",
     description: null,
+    managing_team_id: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,

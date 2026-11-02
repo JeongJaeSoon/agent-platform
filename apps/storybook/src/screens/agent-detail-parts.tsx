@@ -130,6 +130,7 @@ export const RELEASED: DetailFixture = {
     slug: "billing",
     name: "결제 담당",
     description: null,
+    managing_team_id: null,
     status: "active",
     active_release_id: RELEASE.id,
     activation_revision: 1,
