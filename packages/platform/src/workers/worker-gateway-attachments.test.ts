@@ -252,7 +252,9 @@ describe("a repository attached mid-session", () => {
     expect(claimed.repository_access?.token.length).toBeGreaterThan(0);
   });
 
-  test("the next attempt's claim names it, so the worker adds the remote again after a restore", async () => {
+  // Claims are built from the session row each time, so a later attempt's
+  // claim reads the same list; the worker re-adds what it names after restore.
+  test("a claim made after the attachment names it", async () => {
     const w = wired();
     const claim = async () =>
       bootstrapClaimResponseSchema.parse(
@@ -265,9 +267,7 @@ describe("a repository attached mid-session", () => {
           },
         ),
       );
-    expect((await claim()).workspace.additional_repositories ?? []).toEqual(
-      [],
-    );
+    expect((await claim()).workspace.additional_repositories ?? []).toEqual([]);
     await w.attach("docs");
     expect(
       (await claim()).workspace.additional_repositories?.map(

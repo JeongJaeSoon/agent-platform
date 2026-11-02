@@ -413,7 +413,16 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     const run = new ScriptedRun();
     run.onSend = (sent) => finish(run, sent);
     const worker = new WorkerHost({
-      checkpoints: unwiredCheckpoints,
+      checkpoints: {
+        ...unwiredCheckpoints,
+        // The checkout is rebuilt here, with origin alone.
+        restorePlan: async () => {
+          steps.push("restoring");
+          await Bun.sleep(20);
+          steps.push("restored");
+          return { mode: "new" };
+        },
+      },
       execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
       gateway,
       runtimes: {
@@ -427,10 +436,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
       timeouts,
       workspace: {
         ...noWorkspace,
-        prepare: async () => {
-          steps.push("restored");
-          return "restore";
-        },
+        prepare: async () => "restore",
         attachRepositories: async ({ descriptor }) => {
           steps.push(descriptor.additional_repositories);
           return { attached: ["docs"], failed: [] };
@@ -440,7 +446,7 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     gateway.enqueue("hello");
     await worker.runLoop();
 
-    expect(steps).toEqual(["restored", [docs], "started"]);
+    expect(steps).toEqual(["restoring", "restored", [docs], "started"]);
   });
 
   test("an attachment handed out before the workspace is prepared waits for it", async () => {
