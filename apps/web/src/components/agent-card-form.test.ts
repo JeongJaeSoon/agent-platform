@@ -6,10 +6,16 @@ import {
 } from "@werft-ai/contracts";
 import {
   AGENT_CARD_LANGUAGE_VALUES,
+  allowingProfiles,
+  type CardDraft,
+  cardDraftOf,
   cardFromDraft,
   draftFromCard,
   EMPTY_DRAFT,
   modelOptions,
+  previewProfiles,
+  runningProfiles,
+  toolsBlocked,
 } from "./agent-card-form.tsx";
 
 const profile = (id: string, model: string): ProfileSummary => ({
@@ -43,14 +49,13 @@ describe("카드 폼 변환", () => {
     expect<unknown>(cardFromDraft(draftFromCard(CARD), CARD)).toEqual(CARD);
   });
 
-  test("도구 '전부'는 tools: null, 목록은 한 줄에 하나다", () => {
+  test("스위치를 켜면 tools: null, 끄면 체크한 도구가 tools다", () => {
     const card = cardFromDraft({
       ...EMPTY_DRAFT,
       role: " 역할 ",
       model: " m ",
       toolsMode: "list",
-      tools: "Read\n  Grep  \n\nWrite",
-      forbidden: "",
+      tools: ["Read", "Grep", "Write"],
     });
     expect<unknown>(card.capabilities).toEqual({
       tools: ["Read", "Grep", "Write"],
@@ -59,9 +64,43 @@ describe("카드 폼 변환", () => {
     });
     expect(card.role).toBe("역할");
     expect(
-      cardFromDraft({ ...EMPTY_DRAFT, toolsMode: "all", tools: "Read" })
+      cardFromDraft({ ...EMPTY_DRAFT, toolsMode: "all", tools: ["Read"] })
         .capabilities.tools,
     ).toBeNull();
+  });
+
+  test("새 카드는 forbidden: []로 간다", () => {
+    expect(EMPTY_DRAFT.forbidden).toEqual([]);
+    expect(cardFromDraft(EMPTY_DRAFT).capabilities.forbidden).toEqual([]);
+  });
+
+  test("체크를 끈 내장 도구의 per_tool 항목은 지우고 MCP 정책은 남긴다", () => {
+    const base: AgentCard = {
+      ...CARD,
+      capabilities: {
+        tools: ["Read", "Grep"],
+        mcp: null,
+        forbidden: [],
+        tool_policy: {
+          per_tool: { Read: "allow", Grep: "ask", mcp__docs__search: "allow" },
+        },
+      },
+    };
+    const card = cardFromDraft(
+      { ...draftFromCard(base), tools: ["Read"] },
+      base,
+    );
+    expect<unknown>(card.capabilities.tool_policy).toEqual({
+      per_tool: { Read: "allow", mcp__docs__search: "allow" },
+    });
+  });
+
+  test("기존 forbidden은 지우기 전까지 그대로 가고, 지우면 []다", () => {
+    const draft = draftFromCard(CARD);
+    expect(cardFromDraft(draft, CARD).capabilities.forbidden).toEqual(["Bash"]);
+    expect(
+      cardFromDraft({ ...draft, forbidden: [] }, CARD).capabilities.forbidden,
+    ).toEqual([]);
   });
 
   test("쉼표나 공백이 든 도구 이름도 그대로 왕복한다", () => {
@@ -121,7 +160,7 @@ describe("카드 폼 변환", () => {
         mcp: [{ server: "fake" }],
         tool_policy: {
           default: { mcp: "deny" },
-          per_tool: { Read: "allow", Bash: "ask" },
+          per_tool: { Read: "allow", Grep: "ask" },
         },
         credential_refs: ["github/app", "slack:bot"],
       },
@@ -157,8 +196,8 @@ describe("카드 폼 변환", () => {
         language: "en",
         model: "claude-haiku-5",
         toolsMode: "list",
-        tools: "Write",
-        forbidden: "Read",
+        tools: ["Write"],
+        forbidden: ["Read"],
       },
       base,
     );
@@ -178,6 +217,26 @@ describe("카드 폼 변환", () => {
     });
   });
 
+  test("전에 저장된 한 줄에 하나 형식의 입력은 목록으로 읽고, 모양이 다르면 버린다", () => {
+    expect(
+      cardDraftOf({
+        ...EMPTY_DRAFT,
+        toolsMode: "list",
+        tools: "Read\n Grep \n",
+        forbidden: "Bash",
+      }),
+    ).toEqual({
+      ...EMPTY_DRAFT,
+      toolsMode: "list",
+      tools: ["Read", "Grep"],
+      forbidden: ["Bash"],
+    });
+    expect(cardDraftOf(EMPTY_DRAFT)).toEqual(EMPTY_DRAFT);
+    expect(cardDraftOf({ ...EMPTY_DRAFT, toolsMode: "some" })).toBeNull();
+    expect(cardDraftOf({ ...EMPTY_DRAFT, tools: [1] })).toBeNull();
+    expect(cardDraftOf("x")).toBeNull();
+  });
+
   test("새 카드(base 없음)는 편집기 칸과 기본값만 싣는다", () => {
     expect<unknown>(
       cardFromDraft({ ...EMPTY_DRAFT, role: "역할", model: "m" }),
@@ -189,5 +248,104 @@ describe("카드 폼 변환", () => {
       capabilities: { tools: null, mcp: null, forbidden: [] },
       rules: [],
     });
+  });
+});
+
+describe("미리보기 프로필과 허용 프로필 수", () => {
+  const withTools = (
+    id: string,
+    tools: string[],
+    over: Partial<ProfileSummary> = {},
+  ): ProfileSummary => ({
+    ...profile(id, "claude-sonnet-5"),
+    repository_mode: "optional",
+    tools,
+    ...over,
+  });
+  const wide = withTools("wide", ["Read", "Edit", "Bash"]);
+  const narrow = withTools("narrow", ["Read", "Edit"]);
+  const required = withTools("required", ["Read", "Bash"], {
+    repository_mode: "required",
+  });
+  const otherModel = withTools("haiku", ["Read"], {
+    model: "claude-haiku-5",
+    models: ["claude-haiku-5"],
+  });
+  const secondModel = withTools("both", ["Read"], {
+    model: "claude-haiku-5",
+    models: ["claude-haiku-5", "claude-sonnet-5"],
+  });
+  const profiles = [wide, required, otherModel, narrow, secondModel];
+  const releasable = (p: ProfileSummary) => p.repository_mode !== "required";
+  const draft = (over: Partial<CardDraft>): CardDraft => ({
+    ...EMPTY_DRAFT,
+    model: "claude-sonnet-5",
+    ...over,
+  });
+
+  test("미리보기 후보는 카드 모델을 돌리는 프로필이고, 마법사는 릴리스할 수 있는 것을 먼저 둔다", () => {
+    expect(
+      previewProfiles(profiles, "claude-sonnet-5").map((p) => p.id),
+    ).toEqual(["wide", "required", "narrow", "both"]);
+    expect(
+      previewProfiles(profiles, "claude-sonnet-5", releasable).map((p) => p.id),
+    ).toEqual(["wide", "narrow", "both"]);
+    // None it can release: the flow sends that card to the releases tab.
+    expect(
+      previewProfiles([required], "claude-sonnet-5", releasable).map(
+        (p) => p.id,
+      ),
+    ).toEqual(["required"]);
+  });
+
+  test("고른 도구를 모두 허용하는 프로필만 센다", () => {
+    const running = runningProfiles(profiles, "claude-sonnet-5");
+    const count = (over: Partial<CardDraft>) =>
+      allowingProfiles(running, draft(over)).map((p) => p.id);
+    expect(count({ toolsMode: "all" })).toEqual([
+      "wide",
+      "required",
+      "narrow",
+      "both",
+    ]);
+    expect(count({ toolsMode: "list", tools: ["Read", "Bash"] })).toEqual([
+      "wide",
+      "required",
+    ]);
+    expect(count({ toolsMode: "list", tools: ["Read", "Edit"] })).toEqual([
+      "wide",
+      "narrow",
+    ]);
+    expect(count({ toolsMode: "list", tools: [] })).toHaveLength(4);
+  });
+
+  test("허용 프로필이 0이면 저장을 막는다", () => {
+    expect(
+      toolsBlocked(
+        profiles,
+        draft({ toolsMode: "list", tools: ["Read", "Bash"] }),
+      ),
+    ).toBe(false);
+    // One profile runs Bash, the other Edit; none runs both.
+    expect(
+      toolsBlocked(
+        [required, narrow],
+        draft({ toolsMode: "list", tools: ["Bash", "Edit"] }),
+      ),
+    ).toBe(true);
+    // A name no profile has, kept from an old card, blocks until unchecked.
+    expect(
+      toolsBlocked(profiles, draft({ toolsMode: "list", tools: ["WebFetch"] })),
+    ).toBe(true);
+    expect(toolsBlocked([required], draft({ toolsMode: "all" }))).toBe(false);
+  });
+
+  test("카탈로그에 없는 모델은 모델 칸이 알리고 도구로는 막지 않는다", () => {
+    expect(
+      toolsBlocked(
+        profiles,
+        draft({ model: "gpt-x", toolsMode: "list", tools: ["Read"] }),
+      ),
+    ).toBe(false);
   });
 });

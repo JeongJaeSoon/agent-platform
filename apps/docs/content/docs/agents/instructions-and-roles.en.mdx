@@ -12,13 +12,24 @@ A card is the definition that says who an agent is and what it should do. Editin
 | `role` | Yes | One-line role. Up to 200 characters |
 | `instructions` | Yes | Instructions. Up to 20,000 characters |
 | `model` | Yes | Model name. Must be one of the models the run profile can run when you create a release |
-| `capabilities.tools` | Yes | List of tool names to use. They must be tools the run profile has |
+| `capabilities.tools` | Yes | List of tool names to use. They must be tools the run profile has. `null` means all of the profile's tools when the release is created |
 | `capabilities.mcp` | Yes | Only `null` is accepted for now |
-| `capabilities.forbidden` | | Tool names to forbid |
+| `capabilities.forbidden` | | Tool names to forbid. The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
 | `capabilities.credential_refs` | | Names of the credentials to use (not the values). [Permissions](/agents/permissions) |
 | `language` | | `ko` (default) or `en` |
 | `rules` | | List of `{id, text, source}`. `source` is `user` or `correction` |
+
+## Choosing tools in the web console
+
+In card editing (the "What it does" step of a new agent, and card editing on the agent's page), "Tools it may use" is a checklist of one profile's tools.
+
+- "Profile to choose tools from": pick one of the profiles that run the card's model. The new-agent flow lists first the profiles it can release without a repository, and picks the chosen one first in the release step. This value is not saved on the card.
+- With "Every tool the profile allows at release" on, `tools` is `null`. Turn it off and the checked tools are `tools`. Unchecking a tool is what forbids it.
+- When saving, the `tool_policy.per_tool` entries of unchecked built-in tools are removed, because a release refuses a policy for a built-in tool it does not run. MCP tool policies stay.
+- A name in `tools` that the profile does not have shows checked as "Not in the profile" and can only be turned off.
+- Below the list is the number of profiles that allow every tool chosen. At 0, the card cannot be saved.
+- An existing card's `forbidden` shows as a list, and "Clear blocked tools" empties it. Until then, those tools stay off in the checklist and cannot be changed.
 
 ## What the model reads today
 

@@ -30,6 +30,7 @@ import {
   type CardDraft,
   cardFromDraft,
   draftFromCard,
+  toolsBlocked,
 } from "../../components/agent-card-form.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
@@ -184,7 +185,10 @@ export function CardEditor({
             <Button
               type="submit"
               disabled={
-                save.isPending || (draft !== null && !catalog.isSuccess)
+                save.isPending ||
+                (draft !== null &&
+                  (!catalog.isSuccess ||
+                    toolsBlocked(catalog.data.items, draft)))
               }
             >
               {save.isPending ? t("agent.card.saving") : t("agent.card.save")}

@@ -139,6 +139,24 @@ async function openRelease(user: User) {
   return within(await screen.findByRole("dialog"));
 }
 const PROFILE = "claude-coding-local";
+/** A profile the new-agent flow can release: it needs no repository. */
+const catalogProfile = (
+  id: string,
+  model: string,
+  tools: string[],
+): ProfileSummary => ({
+  id,
+  source: "operator",
+  model,
+  models: [model],
+  tools,
+  permission_mode: "default",
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  billing: "metered",
+  repository_mode: "optional",
+  repository_ids: ["sample-app"],
+});
 const showTab = async (user: User, name: string) =>
   user.click(await screen.findByRole("tab", { name }));
 const showList = async (user: User, name: string) =>
@@ -1084,6 +1102,17 @@ describe("새 에이전트", () => {
     const { api } = renderAt("/agents/new", {
       ...meOk,
       ...server.routes,
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [
+            catalogProfile("claude-coding-fast", "claude-haiku-5", ["Read"]),
+            catalogProfile(PROFILE, CARD.model, ["Read", "Edit", "Bash"]),
+            catalogProfile("claude-coding-narrow", CARD.model, [
+              "Read",
+              "Edit",
+            ]),
+          ],
+        }),
       [`GET /v1/agents/${AGENT_ID}/slack/app`]: () =>
         json(200, {
           slack_app: null,
@@ -1116,7 +1145,32 @@ describe("새 에이전트", () => {
       "claude-sonnet-5",
     ]);
     await user.selectOptions(model, CARD.model);
-    await user.type(screen.getByLabelText("금지 도구"), "Bash{Enter}Write");
+    // One checklist of the preview profile's tools, no free-text fields.
+    expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
+    expect(
+      (screen.getByLabelText("도구를 보여 줄 프로필") as HTMLSelectElement)
+        .value,
+    ).toBe(PROFILE);
+    const all = screen.getByRole("switch", {
+      name: "릴리스할 때 프로필이 허용하는 도구 전부",
+    });
+    expect(all.getAttribute("aria-checked")).toBe("true");
+    const box = (name: string) =>
+      screen.getByRole("checkbox", { name: new RegExp(`^${name}`) });
+    expect((box("Bash") as HTMLButtonElement).disabled).toBe(true);
+    await user.click(all);
+    expect(
+      ["Read", "Edit", "Bash"].map((tool) =>
+        box(tool).getAttribute("aria-checked"),
+      ),
+    ).toEqual(["true", "true", "true"]);
+    expect(
+      screen.getByText("고른 도구를 모두 허용하는 프로필 1개"),
+    ).toBeDefined();
+    await user.click(box("Bash"));
+    expect(
+      screen.getByText("고른 도구를 모두 허용하는 프로필 2개"),
+    ).toBeDefined();
     await user.click(
       screen.getByRole("button", { name: "초안 저장하고 다음" }),
     );
@@ -1127,7 +1181,7 @@ describe("새 에이전트", () => {
       name: "결제 담당",
       card: {
         ...CARD,
-        capabilities: { tools: null, mcp: null, forbidden: ["Bash", "Write"] },
+        capabilities: { tools: ["Read", "Edit"], mcp: null, forbidden: [] },
       },
     });
     // The profile that runs the card's model is offered first.
@@ -1577,6 +1631,47 @@ describe("새 에이전트", () => {
       (posted(api, `/v1/agents/${AGENT_ID}/releases`) as { version_id: string })
         .version_id,
     ).toBe(server.versions[1]?.id ?? "missing");
+  });
+
+  test("고른 미리보기 프로필은 단계를 오가도 남고, 릴리스 단계가 그 프로필을 먼저 골라 둔다", async () => {
+    const server = agentServer({ repositoryMode: "optional" });
+    const { history } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: [
+            catalogProfile(PROFILE, CARD.model, ["Read", "Edit", "Bash"]),
+            catalogProfile("claude-coding-narrow", CARD.model, ["Read"]),
+          ],
+        }),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await user.type(screen.getByLabelText("역할"), CARD.role);
+    await user.type(screen.getByLabelText("지시 사항"), CARD.instructions);
+    await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
+    const preview = () =>
+      (screen.getByLabelText("도구를 보여 줄 프로필") as HTMLSelectElement)
+        .value;
+    expect(preview()).toBe(PROFILE);
+    await user.selectOptions(
+      screen.getByLabelText("도구를 보여 줄 프로필"),
+      "claude-coding-narrow",
+    );
+    act(() => history.back());
+    await atStep("이름");
+    await user.click(screen.getByRole("button", { name: "다음" }));
+    await atStep("하는 일");
+    expect(preview()).toBe("claude-coding-narrow");
+    expect(screen.queryByRole("checkbox", { name: /^Bash/ })).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "초안 저장하고 다음" }),
+    );
+    await atStep("릴리스");
+    expect(
+      ((await screen.findByLabelText("프로필")) as HTMLSelectElement).value,
+    ).toBe("claude-coding-narrow");
   });
 
   test("첫 단계에서 나갔다 돌아와도 그 초안의 이름·식별자를 이어 간다", async () => {
