@@ -10,7 +10,7 @@ function Teams({ inset = false }: { readonly inset?: boolean }) {
     <RowList variant={inset ? "joined" : "separate"}>
       <RowListItem opens>
         <RowLink inset={inset}>
-          <a href="#teams/platform">플랫폼</a>
+          <a href="/teams/platform">플랫폼</a>
         </RowLink>
         <span>구성원 3명</span>
         <button type="button" className="relative z-1">
@@ -82,7 +82,7 @@ describe("RowLink Slot", () => {
         <RowListItem opens>
           <RowLink className="font-semibold">
             <a
-              href="#teams/platform"
+              href="/teams/platform"
               className="text-foreground"
               data-team="platform"
               onClick={(event) => {
@@ -100,7 +100,7 @@ describe("RowLink Slot", () => {
     for (const name of ["text-foreground", "font-semibold", "after:inset-0"])
       expect(link.classList.contains(name)).toBe(true);
     expect(link.getAttribute("data-team")).toBe("platform");
-    expect(link.getAttribute("href")).toBe("#teams/platform");
+    expect(link.getAttribute("href")).toBe("/teams/platform");
     link.click();
     expect(clicks).toBe(1);
   });
