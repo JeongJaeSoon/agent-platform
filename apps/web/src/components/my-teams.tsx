@@ -4,6 +4,7 @@ import { isApiError } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   EmptyState,
+  Heading,
   RowList,
   RowListItem,
   Link as TextLink,
@@ -41,11 +42,7 @@ export function MyTeams({
   const items = teams.data?.items ?? [];
   if (!teams.error && items.length === 0 && !showEmpty) return null;
 
-  const title = (
-    <h2 id={titleId} className={SECTION_TITLE}>
-      {t("teams.mine.title")}
-    </h2>
-  );
+  const title = <Heading id={titleId}>{t("teams.mine.title")}</Heading>;
   return (
     <section className={SECTION} aria-labelledby={titleId}>
       {action ? (

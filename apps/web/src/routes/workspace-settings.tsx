@@ -18,6 +18,7 @@ import {
   SettingsSection,
   Skeleton,
   Switch,
+  Text,
 } from "@werft-ai/ui";
 import { Lock } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
@@ -42,10 +43,7 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 // GitHub-style settings (V4-SETTINGS-LAYOUT A): one column of sections, each
 // a title over a rule, labels above their fields and help under them.
 const SECTIONS = "flex flex-col gap-10";
-const META = "text-caption text-subtle-foreground";
 const ICON = "size-3.5 shrink-0";
-// Wide enough for the longer of On/Off, so the label does not reflow on a flip.
-const STATUS = `${META} min-w-6 text-right`;
 
 export type OnOutcome = (outcome: Outcome | null) => void;
 
@@ -116,10 +114,14 @@ export { SettingsSection as SettingsCard };
 export function ReadOnlyMark() {
   const { t } = useI18n();
   return (
-    <div className="inline-flex shrink-0 items-center gap-1 text-caption text-subtle-foreground">
+    <Text
+      as="div"
+      variant="meta"
+      className="inline-flex shrink-0 items-center gap-1"
+    >
       <Lock aria-hidden="true" className={ICON} strokeWidth={1.5} />
       {t("workspace.readOnlyMark")}
-    </div>
+    </Text>
   );
 }
 
@@ -177,7 +179,9 @@ function AllowedModels() {
       description={t("workspace.modelsHint")}
       foot={
         <>
-          <div className={META}>{t("workspace.modelsFoot")}</div>
+          <Text as="div" variant="meta">
+            {t("workspace.modelsFoot")}
+          </Text>
           <ReadOnlyMark />
         </>
       }
@@ -190,7 +194,9 @@ function AllowedModels() {
           onRetry={() => void profiles.refetch()}
         />
       ) : models.length === 0 ? (
-        <div className={META}>{t("workspace.modelsEmpty")}</div>
+        <Text as="div" variant="meta">
+          {t("workspace.modelsEmpty")}
+        </Text>
       ) : (
         <ul className="m-0 flex list-none flex-wrap gap-1 p-0">
           {models.map((model) => (
@@ -333,12 +339,9 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
             onChange={(event) => setDraft(event.target.value)}
           />
           {/* The label already says the unit; this is for sighted readers. */}
-          <span
-            aria-hidden="true"
-            className="text-control text-muted-foreground"
-          >
+          <Text as="span" variant="sub" aria-hidden="true">
             {t("workspace.retentionUnit")}
-          </span>
+          </Text>
         </div>
         <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
         <FieldDescription>{t("workspace.retentionFoot")}</FieldDescription>
@@ -403,16 +406,23 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           title={t("workspace.guestLabel")}
           meta={
             reason === undefined ? null : (
-              <div id={reasonId} className="text-caption text-muted-foreground">
+              <Text as="div" variant="meta" id={reasonId}>
                 {reason}
-              </div>
+              </Text>
             )
           }
           status={
             // aria-checked already says it; the words are for sighted users.
-            <div aria-hidden="true" className={STATUS}>
+            // min-w-6: wide enough for the longer of On/Off, so the label
+            // does not reflow on a flip.
+            <Text
+              as="div"
+              variant="meta"
+              aria-hidden="true"
+              className="min-w-6 text-right"
+            >
               {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
-            </div>
+            </Text>
           }
           control={
             <Switch

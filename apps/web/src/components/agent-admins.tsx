@@ -19,9 +19,11 @@ import {
   Combobox,
   ConfirmDialog,
   EmptyState,
+  Heading,
   RowLines,
   RowList,
   RowListItem,
+  Text,
   Link as TextLink,
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
@@ -44,7 +46,7 @@ import {
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { LoadFailure } from "./load-failure.tsx";
-import { MUTED, SECTION, SECTION_TITLE } from "./my-teams.tsx";
+import { SECTION } from "./my-teams.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { SEARCH_MAX, SEARCH_SETTLE_MS } from "./search-term.ts";
@@ -53,8 +55,6 @@ import { StatusScreen } from "./status-screen.tsx";
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
 const ADMIN_ROW = "gap-y-[var(--ap-row-line-gap)]";
 const PRIMARY = "font-semibold [overflow-wrap:anywhere]";
-const SECONDARY = "text-caption text-muted-foreground [overflow-wrap:anywhere]";
-const HINT = "text-caption text-muted-foreground";
 
 // Month/day in the product's zone, the way the console shows a short date.
 const DAY = new Intl.DateTimeFormat("en-US", {
@@ -107,10 +107,8 @@ export function AgentAdmins({
   return (
     <section className={SECTION} aria-labelledby={titleId}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("agentAdmins.title")}
-        </h2>
-        <p className={`${MUTED} text-caption`}>{t("agentAdmins.intro")}</p>
+        <Heading id={titleId}>{t("agentAdmins.title")}</Heading>
+        <Text variant="meta">{t("agentAdmins.intro")}</Text>
       </div>
       {mine ? (
         <AdminList agentId={agentId} onOutcome={onOutcome} />
@@ -122,9 +120,9 @@ export function AgentAdmins({
           onRetry={() => void administered.refetch()}
         />
       ) : (
-        <p className={HINT}>
+        <Text variant="meta">
           {permissionReason(t, "agent.admin.manage", role)}
-        </p>
+        </Text>
       )}
     </section>
   );
@@ -231,7 +229,7 @@ function AdminList({
   if (admins.isPending) return <StatusScreen kind="loading" />;
   if (admins.error) {
     return isApiError(admins.error, "FORBIDDEN") ? (
-      <p className={HINT}>{reason}</p>
+      <Text variant="meta">{reason}</Text>
     ) : (
       <LoadFailure error={admins.error} onRetry={() => void admins.refetch()} />
     );
@@ -346,12 +344,16 @@ function AdminList({
                 />
                 <RowLines>
                   <span className={PRIMARY}>{name}</span>
-                  <span className={SECONDARY}>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    className="[overflow-wrap:anywhere]"
+                  >
                     <span className="sr-only">
                       {t("agentAdmins.person")} ·{" "}
                     </span>
                     {user.email} · {since(user.created_at)}
-                  </span>
+                  </Text>
                 </RowLines>
                 {removeButton("users", user.user_id, name)}
               </RowListItem>
@@ -367,9 +369,13 @@ function AdminList({
               />
               <RowLines>
                 <span className={PRIMARY}>{row.name}</span>
-                <span className={SECONDARY}>
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="[overflow-wrap:anywhere]"
+                >
                   {t("agentAdmins.team")} · {since(row.created_at)}
-                </span>
+                </Text>
               </RowLines>
               {removeButton("teams", row.team_id, row.name)}
             </RowListItem>
@@ -437,9 +443,9 @@ function AdminList({
           {t("agentAdmins.add")}
         </ReasonButton>
         {partial ? (
-          <p id={hintId} className={`${MUTED} basis-full text-caption`}>
+          <Text id={hintId} variant="meta" className="basis-full">
             {partial}
-          </p>
+          </Text>
         ) : null}
       </form>
       <ConfirmDialog
@@ -501,7 +507,7 @@ export function AdministeredAgents({
         <EmptyState title={t("agentAdmins.mine.empty")} />
       ) : (
         <>
-          <p className={HINT}>{t("agentAdmins.mine.intro")}</p>
+          <Text variant="meta">{t("agentAdmins.mine.intro")}</Text>
           <RowList>
             {items.map((agent) => (
               <RowListItem
@@ -513,16 +519,22 @@ export function AdministeredAgents({
                     {agent.name}
                   </Link>
                 </TextLink>
-                <span className={`${SECONDARY} ml-auto`}>{agent.slug}</span>
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="ml-auto [overflow-wrap:anywhere]"
+                >
+                  {agent.slug}
+                </Text>
               </RowListItem>
             ))}
           </RowList>
           {items.length >= ADMINISTERED_LIST_LIMIT ? (
-            <p className={HINT}>
+            <Text variant="meta">
               {t("agentAdmins.mine.truncated", {
                 count: ADMINISTERED_LIST_LIMIT,
               })}
-            </p>
+            </Text>
           ) : null}
         </>
       )}

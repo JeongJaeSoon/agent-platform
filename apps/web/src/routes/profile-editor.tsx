@@ -30,6 +30,7 @@ import {
   KeyValueList,
   NativeSelect,
   NativeSelectOption,
+  Text,
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
@@ -459,9 +460,7 @@ export function ProfileEditor({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <p className="m-0 text-caption text-muted-foreground">
-          {t("profiles.editor.saveNote")}
-        </p>
+        <Text variant="meta">{t("profiles.editor.saveNote")}</Text>
         <div className="flex gap-2">
           <Button
             type="button"

@@ -18,6 +18,7 @@ import {
   NativeSelectOption,
   PageFrame,
   SkipLink,
+  Text,
 } from "@werft-ai/ui";
 import {
   type ReactNode,
@@ -312,9 +313,9 @@ function PageTrail({
   const leaf = useLeafTitle(pathname);
   if (!here) {
     return (
-      <p className="m-0 min-w-0 truncate font-medium text-control">
+      <Text weight="medium" truncate>
         {fallback}
-      </p>
+      </Text>
     );
   }
   // The same words as the sidebar item and the page title; a screen under an

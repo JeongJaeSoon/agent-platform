@@ -5,6 +5,7 @@ import type { ListWorkspaceSlackAppsResponse } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
+  Code,
   cn,
   EmptyState,
   formatTimestamp,
@@ -19,6 +20,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Text,
 } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { scopedKey } from "../api/queries.ts";
@@ -140,18 +142,22 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
               <TableRow key={item.slack_app.id}>
                 <TableCell>
                   <RowLines>
-                    <span className="font-medium [overflow-wrap:anywhere]">
+                    <Text
+                      as="span"
+                      weight="medium"
+                      className="[overflow-wrap:anywhere]"
+                    >
                       {name}
-                    </span>
-                    <span className="font-mono text-caption text-muted-foreground">
+                    </Text>
+                    <Code className="text-muted-foreground">
                       {item.slack_app.app_id ?? t("workspace.slackAppsNoId")}
-                    </span>
+                    </Code>
                     {/* Plain text: the row's details link already opens the agent. */}
-                    <span className="text-caption text-muted-foreground @[560px]:hidden">
+                    <Text as="span" variant="meta" className="@[560px]:hidden">
                       {item.agent?.name ?? t("workspace.slackAppsNoAgent")}
                       {" · "}
                       {formatTimestamp(item.slack_app.updated_at, locale)}
-                    </span>
+                    </Text>
                   </RowLines>
                 </TableCell>
                 <TableCell className={cn(WIDE, "text-muted-foreground")}>
@@ -225,9 +231,9 @@ function AppState({ item }: { readonly item: MadeApp }) {
         <Badge>{t("workspace.slackAppsNotInstalled")}</Badge>
       )}
       {connected ? (
-        <span className="text-caption text-muted-foreground">
+        <Text as="span" variant="meta">
           {link ? t("workspace.slackAppsSignIn") : `@${item.agent?.slug}`}
-        </span>
+        </Text>
       ) : null}
     </RowLines>
   );
