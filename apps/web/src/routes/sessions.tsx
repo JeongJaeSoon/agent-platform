@@ -360,8 +360,13 @@ function SessionsView({
       className="flex flex-col items-start gap-4 transition-opacity data-[busy=true]:opacity-60 data-[busy=true]:delay-150"
     >
       <SessionsOverview sessions={items} />
-      {/* A next page of the last filter's rows would land under the new one. */}
-      <PagedListFooter list={sessions} stale={busy} />
+      {isApiError(sessions.error, "FORBIDDEN") ? (
+        // Asking again would be refused again: say who may see it instead.
+        <StatusScreen kind="forbidden" />
+      ) : (
+        // A next page of the last filter's rows would land under the new one.
+        <PagedListFooter list={sessions} stale={busy} />
+      )}
       <Text variant="meta">
         {t("sessionList.shown", { count: items.length })}
       </Text>

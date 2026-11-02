@@ -86,11 +86,6 @@ import { MyTeams } from "../components/my-teams.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { expiryState } from "./api-keys.tsx";
-
-// GET /v1/agents' cap on `ids` (contracts AGENT_IDS_MAX); this app imports
-// no contracts values.
-const NAMED_AGENTS_MAX = 100;
-
 import {
   sessionLink,
   useSessionOverviewHead,
@@ -98,6 +93,10 @@ import {
 } from "./session-overview.tsx";
 import { loadError, useUnavailable } from "./sessions.tsx";
 import { duration, usageSummaryQuery } from "./usage.tsx";
+
+// GET /v1/agents' cap on `ids` (contracts AGENT_IDS_MAX); this app imports
+// no contracts values.
+const NAMED_AGENTS_MAX = 100;
 
 /** Done, not yet, or not knowable here (the list refused this viewer, or failed). */
 type StepState = "done" | "pending" | "unknown";
@@ -1211,6 +1210,7 @@ function RecentSessionTable({
   const sessions = useSessions();
   const items = sessions.data?.pages[0]?.items ?? [];
   // Home has no room for who started each session; they are all the viewer's.
+  // Without startedBy the table takes its home column template.
   const { startedBy: _startedBy, ...head } = useSessionOverviewHead();
   const messages = useSessionOverviewRowMessages();
 

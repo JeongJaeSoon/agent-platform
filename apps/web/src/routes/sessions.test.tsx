@@ -487,6 +487,26 @@ describe("sessions list", () => {
     expect(nextCalls).toBe(2);
   });
 
+  test("a next page refused for access says so under the rows, with no retry", async () => {
+    const user = await setupUser();
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/sessions": (request) =>
+        new URL(request.url).searchParams.get("cursor") === "next-1"
+          ? apiError(403, "FORBIDDEN", "not allowed")
+          : json(200, {
+              items: [summary(SESSION_ID, { status: "idle" })],
+              next_cursor: "next-1",
+            }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "더 보기" }));
+    await screen.findByText("이 화면을 볼 권한이 없습니다");
+    expect(screen.getByRole("link", { name: opener(SESSION_ID) })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "더 보기" })).toBeNull();
+  });
+
   test("a failed next page keeps the rows, and retry pressed again while asking asks once", async () => {
     const user = await setupUser();
     let release = () => {};
