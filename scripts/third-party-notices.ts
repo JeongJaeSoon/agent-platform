@@ -148,8 +148,12 @@ const AGENT_SDK = "@anthropic-ai/claude-agent-sdk";
 
 export type BaseImage = { bun: string; digest: string };
 
-/** The upstream Git LFS release the worker Dockerfile installs. */
+/** The upstream Git LFS release the worker Dockerfile builds from source. */
 export const GIT_LFS_VERSION = "3.8.1";
+/** The golang.org/x/net that build moves Git LFS to. */
+export const GIT_LFS_X_NET = "0.62.0";
+/** The Go toolchain that build uses. */
+export const GIT_LFS_GO = "1.27.3";
 
 /** The `oven/bun:<version>@<digest>` every app Dockerfile builds on. */
 export function baseImageOf(dockerfile: string): BaseImage {
@@ -588,9 +592,9 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "",
     `### Git LFS ${GIT_LFS_VERSION} (worker, \`/usr/local/bin/git-lfs\`)`,
     "",
-    `- **라이선스.** Git LFS 자체는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/git-lfs/LICENSE.md\`(https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/LICENSE.md)에 있다. 이미지에는 git-lfs 프로젝트가 배포한 linux 실행 파일이 수정 없이 들어 있다. worker Dockerfile이 아키텍처마다 릴리스의 sha256으로 고정해 받는다.`,
-    `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구도 같은 LICENSE.md에 있다. https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/go.mod 에 적힌 모듈도 링크하며, 각 모듈의 라이선스는 그 모듈의 소스에 있다.`,
-    `- **대응 소스.** https://github.com/git-lfs/git-lfs/tree/v${GIT_LFS_VERSION}`,
+    `- **라이선스.** Git LFS 자체는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/git-lfs/LICENSE.md\`(https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/LICENSE.md)에 있다. 이미지의 실행 파일은 worker Dockerfile이 git-lfs 프로젝트의 v${GIT_LFS_VERSION} 소스 릴리스(sha256 고정)에서 Go ${GIT_LFS_GO}로 직접 빌드한 것이다. git-lfs 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: \`golang.org/x/net\`을 v${GIT_LFS_X_NET}으로 올렸고, 그에 따라 \`golang.org/x/crypto\`·\`x/sync\`·\`x/sys\`·\`x/text\`도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).`,
+    `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구도 같은 LICENSE.md에 있다. https://github.com/git-lfs/git-lfs/blob/v${GIT_LFS_VERSION}/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크하며, 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 \`go version -m <실행 파일>\`을 실행하면 보인다.`,
+    `- **대응 소스.** https://github.com/git-lfs/git-lfs/tree/v${GIT_LFS_VERSION} 와 apps/worker/Dockerfile의 \`git-lfs\` stage(모듈 버전 변경)`,
   ];
   if (sdk !== undefined) {
     const embedded = CLAUDE_CODE_BUN[sdk.version] ?? UNREVIEWED;

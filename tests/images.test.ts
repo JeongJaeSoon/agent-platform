@@ -11,7 +11,9 @@ import {
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import {
+  GIT_LFS_GO,
   GIT_LFS_VERSION,
+  GIT_LFS_X_NET,
   REMOVED_AFTER_INSTALL,
 } from "../scripts/third-party-notices.ts";
 import {
@@ -56,7 +58,10 @@ describe("app Dockerfiles", () => {
     // Every FROM goes through the ARG; a literal tag would silently float.
     const froms = source.match(/^FROM .*$/gm) ?? [];
     expect(froms.length).toBeGreaterThan(0);
-    for (const line of froms) expect(line).toMatch(/^FROM \$\{BUN_IMAGE\}/);
+    for (const line of froms)
+      expect(line).toMatch(
+        /^FROM (--platform=\$BUILDPLATFORM )?\$\{BUN_IMAGE\}/,
+      );
   });
 
   test("all of them share one base digest", () => {
@@ -161,23 +166,50 @@ describe("app Dockerfiles", () => {
   });
 
   // A session's LFS objects come through the repository route (94S-1095).
-  // Upstream's release, pinned per arch; the notices name the same version.
+  // Built from upstream's pinned source with a patched x/net (94S-1194); the
+  // notices name the same versions, and no Go reaches the runtime stage.
   test("the worker carries git-lfs", () => {
     const source = basePins.worker.source;
     expect(source).toContain(`ARG GIT_LFS_VERSION=${GIT_LFS_VERSION}\n`);
+    expect(source).toContain(`ARG GIT_LFS_X_NET=${GIT_LFS_X_NET}\n`);
+    expect(source).toContain(`ARG GIT_LFS_GO=${GIT_LFS_GO}\n`);
+    expect(source).toMatch(
+      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/github\.com\/git-lfs\/git-lfs\/releases\/download\/v\$\{GIT_LFS_VERSION\}\/git-lfs-v\$\{GIT_LFS_VERSION\}\.tar\.gz \\$/m,
+    );
     for (const arch of ["amd64", "arm64"]) {
       expect(source).toMatch(
         new RegExp(
-          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/git-lfs/git-lfs/releases/download/v\\$\\{GIT_LFS_VERSION\\}/git-lfs-linux-${arch}-v\\$\\{GIT_LFS_VERSION\\}\\.tar\\.gz \\\\$`,
+          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://dl\\.google\\.com/go/go\\$\\{GIT_LFS_GO\\}\\.linux-${arch}\\.tar\\.gz \\\\$`,
           "m",
         ),
       );
     }
+    for (const file of ["go.mod", "go.sum"])
+      expect(source).toMatch(
+        new RegExp(
+          `echo "[0-9a-f]{64} {2}${file.replace(".", "\\.")}" \\| sha256sum -c -`,
+        ),
+      );
+    // Unpinned packages would reach the build: every input there is ADDed by
+    // checksum instead.
+    const start = source.indexOf(" AS git-lfs\n");
+    const end = source.indexOf(" AS runtime\n");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const stage = source.slice(start, end);
+    expect(stage).not.toContain("apt-get");
+    expect(stage).toMatch(
+      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\$/m,
+    );
+    expect(stage).toContain(
+      "\nENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla\n",
+    );
+    expect(source.match(/^COPY --from=git-lfs .*$/gm)).toEqual([
+      "COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs",
+      "COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md",
+    ]);
     expect(source).toContain(
       "COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs\n",
-    );
-    expect(source).toMatch(
-      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/raw\.githubusercontent\.com\/git-lfs\/git-lfs\/v\$\{GIT_LFS_VERSION\}\/LICENSE\.md \\$/m,
     );
     expect(source).toContain(
       "COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md\n",
