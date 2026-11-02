@@ -1068,9 +1068,11 @@ export const sessions = pgTable(
     // a replica that does not know the profile must not price its calls.
     unmetered: boolean().notNull().default(false),
     repositoryId: text("repository_id"),
-    // The repositories besides its own the session was started with,
-    // narrowing what its release lists (session-multi-repository.md). Null:
-    // not given at create, so the release's list applies whole.
+    // The repositories besides its own the session was started with or
+    // attached since, narrowing what its release lists
+    // (session-repository-attachment.md). Null on a session that attaches
+    // none, and on rows from before an omitted list was stored as empty: the
+    // release's list applies whole.
     attachedRepositoryIds: text("attached_repository_ids").array(),
     checkpointRevision: integer("checkpoint_revision"),
     checkpointCommittedAt: timestamp("checkpoint_committed_at", {
