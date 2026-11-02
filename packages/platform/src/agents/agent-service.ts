@@ -22,6 +22,8 @@ import {
   type AuthorizationPolicy,
   type Caller,
   MANAGEMENT_ROLES,
+  type OutsideAgentAccessSetting,
+  outsideAgentsUse,
 } from "../musterrolle/policy.ts";
 import {
   ACTOR_INACTIVE,
@@ -31,7 +33,7 @@ import {
   TEAM_NOT_FOUND,
 } from "../musterrolle/service-errors.ts";
 import type { SlackWelcome } from "../musterrolle/slack-welcome.ts";
-import type { AgentStore } from "../ports/agent-store.ts";
+import type { AgentReader, AgentStore } from "../ports/agent-store.ts";
 import type { WorkspaceKeyStore } from "../ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../ports/credential-binding-store.ts";
 import type { GitHubSettingsStore } from "../ports/github-settings.ts";
@@ -127,8 +129,11 @@ export function createAgentService(deps: {
   keys?: Pick<WorkspaceKeyStore, "find">;
   /** The ceiling a release's `github` is checked against; absent: all off. */
   githubSettings?: Pick<GitHubSettingsStore, "get">;
+  /** Axis A, as the policy reads it; absent: `use`. */
+  outsideAgents?: OutsideAgentAccessSetting;
 }) {
   const { authorization, store, catalog, credentials } = deps;
+  const outsideAgents = deps.outsideAgents ?? outsideAgentsUse;
   const AGENT_MANAGERS = MANAGEMENT_ROLES["agent.manage"] ?? [];
   // Who names any live team as an agent's managing team, as setManagingTeam.
   const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
@@ -214,13 +219,23 @@ export function createAgentService(deps: {
 
   async function onWorkspace(
     caller: Caller,
-    action: "agent.manage" | "agent.create",
+    action: "agent.read" | "agent.create",
   ): Promise<string> {
     await requirePermitted(authorization, caller, action, {
       kind: "workspace",
       id: caller.ownerId,
     });
     return personOf(caller);
+  }
+
+  // The rows are judged in the store, by the same rule as agent.read on one
+  // agent.
+  async function agentReader(caller: Caller): Promise<AgentReader> {
+    const userId = await onWorkspace(caller, "agent.read");
+    return {
+      userId,
+      outsideAccess: await outsideAgents.access(caller.ownerId),
+    };
   }
 
   async function manageAgent(caller: Caller, agentId: string) {
@@ -286,12 +301,12 @@ export function createAgentService(deps: {
       if (caller.actor?.principal.kind === "api_key") {
         return keysOwnAgent(caller, query);
       }
-      await onWorkspace(caller, "agent.manage");
-      const page = await store.list(caller.ownerId, query);
+      const reader = await agentReader(caller);
+      const page = await store.list(caller.ownerId, query, reader);
       if (query.include !== "summary") return page;
-      // Listing needs agent.manage on the workspace, which already reads
-      // every agent's detail, admins and bindings, so no per-agent check.
-      // Sessions are counted only where the caller could list them.
+      // The store leaves out each agent whose settings the caller may not
+      // read; that row goes without a summary. Sessions are counted only
+      // where the caller could list them.
       const summaries = await store.summaries(
         caller.ownerId,
         page.items.map((agent) => agent.id),
@@ -307,12 +322,16 @@ export function createAgentService(deps: {
     },
 
     async countAgents(caller: Caller): Promise<CountAgentsResponse> {
-      const userId = await onWorkspace(caller, "agent.manage");
-      return { counts: await store.count(caller.ownerId, userId) };
+      return {
+        counts: await store.count(caller.ownerId, await agentReader(caller)),
+      };
     },
 
     async getAgent(caller: Caller, agentId: string): Promise<AgentDetail> {
-      await manageAgent(caller, agentId);
+      await requirePermitted(authorization, caller, "agent.settings_read", {
+        kind: "agent",
+        id: agentId,
+      });
       const detail = await store.get(caller.ownerId, agentId);
       if (!detail) throw NOT_FOUND();
       return detail;

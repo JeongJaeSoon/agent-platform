@@ -93,9 +93,12 @@ const admins = createPostgresAgentAdminStore(db as unknown as Database);
 const bindings = createPostgresCredentialBindingStore(
   db as unknown as Database,
 );
-const page = await agents.list(WORKSPACE, { limit: PAGE });
+// Workspace 1's owner, who reads every agent's row and summary.
+const OWNER = "00000000-0000-4000-9000-000000000001";
+const READER = { userId: OWNER, outsideAccess: "use" } as const;
+const page = await agents.list(WORKSPACE, { limit: PAGE }, READER);
 const ids = page.items.map((agent) => agent.id);
-const VIEWER = { userId: null, apiKeyId: null };
+const VIEWER = { userId: OWNER, apiKeyId: null };
 const summaries = await agents.summaries(WORKSPACE, ids, VIEWER);
 const listed = Math.min(agentCount, PAGE);
 if (ids.length !== listed || summaries.size !== listed)
@@ -117,10 +120,10 @@ async function timed(fn: () => Promise<unknown>) {
 
 console.table({
   [`list(limit ${PAGE})`]: await timed(() =>
-    agents.list(WORKSPACE, { limit: PAGE }),
+    agents.list(WORKSPACE, { limit: PAGE }, READER),
   ),
   [`list + summaries(${listed})`]: await timed(async () => {
-    const first = await agents.list(WORKSPACE, { limit: PAGE });
+    const first = await agents.list(WORKSPACE, { limit: PAGE }, READER);
     await agents.summaries(
       WORKSPACE,
       first.items.map((agent) => agent.id),

@@ -6,7 +6,7 @@ import {
   agentCardSchema,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
-import type { AgentStore } from "../ports/agent-store.ts";
+import type { AgentReader, AgentStore } from "../ports/agent-store.ts";
 import {
   type CatalogProfile,
   profileFingerprint,
@@ -193,17 +193,20 @@ const release = {
 const PAGE = { limit: 50 };
 
 describe("agent service", () => {
-  test("only an owner manages agents: a member and an API key are refused before the store", async () => {
+  test("every member lists and counts agents, the store judging each row; an API key is refused before it", async () => {
     let reached = false;
+    const readers: AgentReader[] = [];
     const { store } = memoryStore();
     const service = serviceOver({
       ...store,
-      list: async () => {
+      list: async (_workspace, _query, reader) => {
         reached = true;
+        readers.push(reader);
         return { items: [], next_cursor: null };
       },
-      count: async () => {
+      count: async (_workspace, reader) => {
         reached = true;
+        readers.push(reader);
         return { all: 0, administered: 0, active: 0, draft: 0 };
       },
     });
@@ -218,16 +221,25 @@ describe("agent service", () => {
       { kind: "api" },
       crypto.randomUUID(),
     );
-    expect(await codeOf(service.listAgents(person("member"), PAGE))).toBe(
-      "FORBIDDEN",
-    );
     expect(await codeOf(service.listAgents(key, PAGE))).toBe("FORBIDDEN");
-    expect(await codeOf(service.countAgents(person("member")))).toBe(
-      "FORBIDDEN",
-    );
     expect(await codeOf(service.countAgents(key))).toBe("FORBIDDEN");
     expect(reached).toBe(false);
-    expect((await service.listAgents(owner, PAGE)).items).toEqual([]);
+    expect((await service.listAgents(person("member"), PAGE)).items).toEqual(
+      [],
+    );
+    await service.countAgents(person("member"));
+    expect(readers).toEqual([
+      { userId: OWNER, outsideAccess: "use" },
+      { userId: OWNER, outsideAccess: "use" },
+    ]);
+  });
+
+  test("a member outside the agent reads none of its settings", async () => {
+    const service = serviceOver(memoryStore().store);
+    expect(await codeOf(service.getAgent(person("member"), AGENT))).toBe(
+      "FORBIDDEN",
+    );
+    expect((await service.getAgent(owner, AGENT)).agent.id).toBe(AGENT);
   });
 
   test("a summary is read for the whole page only when asked for", async () => {

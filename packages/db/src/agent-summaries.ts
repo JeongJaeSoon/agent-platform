@@ -6,6 +6,7 @@ import {
 } from "@werft-ai/contracts";
 import type { SessionViewer } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { insideAgent } from "./administers.ts";
 import { actionableOfSession, IN_FLIGHT_STATUSES } from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import { earlierInSecond, releaseLabel } from "./release-labels.ts";
@@ -53,7 +54,8 @@ export async function agentSummaries(
   viewer: SessionViewer,
 ): Promise<Map<string, AgentSummary>> {
   const ids = [...new Set(agentIds.map((id) => id.toLowerCase()))];
-  if (ids.length === 0) return new Map();
+  const userId = viewer.userId?.toLowerCase();
+  if (ids.length === 0 || userId === undefined) return new Map();
   const heads = await db
     .select({
       id: agents.id,
@@ -70,7 +72,13 @@ export async function agentSummaries(
         eq(agentReleases.agentId, agents.id),
       ),
     )
-    .where(and(eq(agents.workspaceId, workspaceId), inArray(agents.id, ids)));
+    .where(
+      and(
+        eq(agents.workspaceId, workspaceId),
+        inArray(agents.id, ids),
+        insideAgent(db, workspaceId, userId, agents.id),
+      ),
+    );
   if (heads.length === 0) return new Map();
   const found = heads.map((head) => head.id);
 

@@ -70,7 +70,10 @@ export function createCredentialBindingService(deps: {
       caller: Caller,
       agentId: string,
     ): Promise<ListCredentialBindingsResponse> {
-      await bindOn(caller, agentId);
+      await requirePermitted(authorization, caller, "agent.settings_read", {
+        kind: "agent",
+        id: agentId,
+      });
       const bindings = await store.list(caller.ownerId, agentId);
       if (bindings === null) throw NOT_FOUND();
       return {

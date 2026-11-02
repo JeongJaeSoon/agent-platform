@@ -20,8 +20,12 @@ import {
   type Caller,
   type CatalogProfile,
   callerFor,
+  createAgentAdminService,
+  createAgentIdentityService,
   createAgentService,
   createAuthorizationPolicy,
+  createCredentialBindingService,
+  createSurfaceBindingService,
   type SessionCatalog,
   SessionServiceError,
   type TeamActor,
@@ -39,6 +43,7 @@ import { insideAgent } from "./administers.ts";
 import { createPostgresAgentAdminStore } from "./agent-admins.ts";
 import { createDatabaseAgentAuthority } from "./agent-authority.ts";
 import { createPostgresAgentGitHubStore } from "./agent-github.ts";
+import { createPostgresAgentIdentityStore } from "./agent-identities.ts";
 import { createPostgresAgentStore } from "./agents.ts";
 import { createPostgresCatalogRepositoryStore } from "./catalog-repositories.ts";
 import { createPostgresCredentialBindingStore } from "./credential-bindings.ts";
@@ -48,6 +53,7 @@ import { migrate } from "./migrate.ts";
 import { lockSessionReach } from "./requester-locks.ts";
 import * as schema from "./schema.ts";
 import { agents, receipts } from "./schema.ts";
+import { createPostgresSurfaceBindingStore } from "./surface-bindings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -427,6 +433,101 @@ integration("the managing team on PostgreSQL", () => {
         .map((r) => r.operation)
         .filter((op) => op === "set_team_member_role").length,
     ).toBe(3);
+  });
+
+  test("W, L and T read the agent's settings and O only its row; T changes nothing (agent-rbac R2)", async () => {
+    const { owner, lead, member, outsider, agentId } = await cast();
+    const policy = createAuthorizationPolicy({
+      identity: createDatabaseIdentityReader(db),
+      agents: authority(),
+    });
+    const agentsService = service();
+    const credentials = createCredentialBindingService({
+      authorization: policy,
+      store: createPostgresCredentialBindingStore(db),
+    });
+    const adminService = createAgentAdminService({
+      authorization: policy,
+      store: admins(),
+    });
+    const slack = createSurfaceBindingService({
+      authorization: policy,
+      store: createPostgresSurfaceBindingStore(db),
+      channels: {
+        kindOf: async () => {
+          throw new Error("no Slack here");
+        },
+      },
+    });
+    const identities = createAgentIdentityService({
+      authorization: policy,
+      store: createPostgresAgentIdentityStore(db),
+    });
+    await credentials.bind(owner, agentId, { credential_ref: "github" });
+
+    const reads = {
+      list: async (who: Caller) =>
+        (
+          await agentsService.listAgents(who, {
+            limit: 50,
+            include: "summary",
+          })
+        ).items.map((agent) => ("summary" in agent ? "summary" : "row")),
+      count: async (who: Caller) =>
+        (await agentsService.countAgents(who)).counts,
+      detail: (who: Caller) => agentsService.getAgent(who, agentId),
+      credentials: (who: Caller) => credentials.list(who, agentId),
+      admins: (who: Caller) => adminService.listAgentAdmins(who, agentId),
+      slack: (who: Caller) => slack.listSlackBindings(who, agentId),
+      identities: (who: Caller) => identities.listAgentIdentities(who, agentId),
+    };
+    const settings = [
+      reads.detail,
+      reads.credentials,
+      reads.admins,
+      reads.slack,
+      reads.identities,
+    ];
+    for (const who of [owner, lead, member]) {
+      expect(await reads.list(who)).toEqual(["summary"]);
+      expect((await reads.count(who)).all).toBe(1);
+      for (const read of settings) expect(await codeOf(read(who))).toBe("ok");
+    }
+    // O finds the agent's row, without its summary, and nothing behind it.
+    expect(await reads.list(outsider)).toEqual(["row"]);
+    expect(await reads.count(outsider)).toEqual({
+      all: 1,
+      administered: 0,
+      active: 0,
+      draft: 1,
+    });
+    for (const read of settings) {
+      expect(await codeOf(read(outsider))).toBe("FORBIDDEN:role");
+    }
+
+    // Reading the settings opens none of the writes beside them to T.
+    expect(
+      await codeOf(agentsService.updateAgent(member, agentId, { name: "t" })),
+    ).toStartWith("FORBIDDEN");
+    expect(
+      await codeOf(
+        credentials.bind(member, agentId, { credential_ref: "slack" }),
+      ),
+    ).toStartWith("FORBIDDEN");
+    expect(
+      await codeOf(
+        adminService.addAgentAdmin(member, agentId, "users", idOf(member)),
+      ),
+    ).toStartWith("FORBIDDEN");
+    expect(
+      await codeOf(
+        slack.putSlackBinding(member, agentId, {
+          channel_id: null,
+          mode: "on",
+          home: false,
+        }),
+      ),
+    ).toStartWith("FORBIDDEN");
   });
 
   test("my-teams says the role held in each team", async () => {
