@@ -42,8 +42,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "더 최근 제어가 먼저 적용됐습니다 — 현재 상태를 확인하세요.",
   TURN_NOT_STARTED:
     "아직 시작하지 않은 턴은 중단할 수 없습니다 — 실행이 시작된 뒤 다시 시도하세요.",
-  BACKEND_UNAVAILABLE:
-    "실행 환경에 연결하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
+  BACKEND_UNAVAILABLE: "서버가 응답하지 않습니다 — 잠시 뒤 다시 시도하세요.",
   LAUNCH_FAILED:
     "작업 환경을 여러 번 띄우지 못해 입력이 처리되지 않았습니다 — 담당자에게 알린 뒤 다시 보내세요.",
   LOGIN_LINK_REQUIRED:
@@ -168,8 +167,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "A more recent control was applied first — check the current state.",
   TURN_NOT_STARTED:
     "A turn that hasn't started can't be interrupted — try again once it's running.",
-  BACKEND_UNAVAILABLE:
-    "Couldn't reach the execution environment — try again shortly.",
+  BACKEND_UNAVAILABLE: "The server is unavailable — try again shortly.",
   LAUNCH_FAILED:
     "The work environment failed to start several times, so the input wasn't processed — tell the person in charge, then send it again.",
   LOGIN_LINK_REQUIRED:
@@ -312,7 +310,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   TURN_NOT_STARTED:
     "まだ始まっていないターンは中断できません — 実行が始まってからもう一度お試しください。",
   BACKEND_UNAVAILABLE:
-    "実行環境に接続できませんでした — しばらくしてからもう一度お試しください。",
+    "サーバーを利用できません — しばらくしてからもう一度お試しください。",
   LAUNCH_FAILED:
     "作業環境を何度か起動できず、入力は処理されませんでした — 担当者に知らせてから、もう一度送ってください。",
   LOGIN_LINK_REQUIRED:
