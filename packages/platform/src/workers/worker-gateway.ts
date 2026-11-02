@@ -94,6 +94,7 @@ import type {
   WorkerUnitOfWork,
 } from "../ports/worker-unit-of-work.ts";
 import type { JudgmentEgressStore } from "../sessions/achievements/achievement-judgment-store.ts";
+import type { JudgeConnections } from "../sessions/achievements/judge-connections.ts";
 import {
   hashJudgmentToken,
   JUDGMENT_TOKEN_PREFIX,
@@ -519,7 +520,7 @@ export function createWorkerGateway(deps: {
   // unavailable.
   judgments?: {
     store: JudgmentEgressStore;
-    upstream?: (connectionId: string) => EgressUpstream | null;
+    upstream?: JudgeConnections["upstream"];
   };
   // Absent, events are stored without the engine-neutral fields beside them.
   neutralize?: NeutralizeEvent;
@@ -1736,7 +1737,7 @@ export function createWorkerGateway(deps: {
       const upstream =
         result.connectionId === null
           ? null
-          : (deps.judgments.upstream?.(result.connectionId) ?? null);
+          : ((await deps.judgments.upstream?.(result.connectionId)) ?? null);
       if (upstream === null) {
         throw new WorkerGatewayError(
           503,

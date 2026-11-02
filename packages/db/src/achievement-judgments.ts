@@ -28,6 +28,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   ne,
   type SQL,
@@ -47,8 +48,10 @@ import {
   sessionAchievements,
   sessionOutcomes,
   sessions,
+  turns,
   workspaces,
 } from "./schema.ts";
+import { resultTextOf } from "./session-titles.ts";
 
 /** What queued a judgment, with what its workspace setting is judged on. */
 export type JudgmentCause =
@@ -234,6 +237,7 @@ function outcomeEvidenceOf(
       mergedAt: row.mergedAt,
       additions: count(metadata.additions),
       deletions: count(metadata.deletions),
+      title: typeof metadata.title === "string" ? metadata.title : null,
     };
   }
   const event = metadata.event as GitHubReviewEvent;
@@ -278,8 +282,13 @@ export function createPostgresAchievementJudgments(
           id: achievementJudgments.id,
           sessionId: achievementJudgments.sessionId,
           attempts: achievementJudgments.attempts,
+          errorCode: achievementJudgments.errorCode,
         });
-      return claimed.map((row) => ({ ...row, leaseToken }));
+      return claimed.map((row) => ({
+        ...row,
+        errorCode: row.errorCode as AchievementJudgmentError | null,
+        leaseToken,
+      }));
     },
 
     async context(judgment) {
@@ -310,6 +319,7 @@ export function createPostgresAchievementJudgments(
           builtin: achievementTypes.builtin,
           evidenceKind: achievementTypes.evidenceKind,
           judge: achievementRules.judge,
+          definition: achievementRules.definition,
         })
         .from(achievementRules)
         .innerJoin(
@@ -343,6 +353,22 @@ export function createPostgresAchievementJudgments(
             gt(achievementJudgments.calls, 0),
           ),
         );
+      const [last] = await db
+        .select({ inputDigest: achievementJudgments.inputDigest })
+        .from(achievementJudgments)
+        .where(
+          and(
+            eq(achievementJudgments.sessionId, judgment.sessionId),
+            ne(achievementJudgments.id, judgment.id),
+            eq(achievementJudgments.status, "succeeded"),
+            isNotNull(achievementJudgments.inputDigest),
+          ),
+        )
+        .orderBy(
+          desc(achievementJudgments.finishedAt),
+          desc(achievementJudgments.id),
+        )
+        .limit(1);
       return {
         session: {
           id: session.id,
@@ -356,6 +382,9 @@ export function createPostgresAchievementJudgments(
           maxPerSession: settings.max_per_session,
           ...(await spentToday(db, session.workspaceId)),
           sessionJudgments: called?.count ?? 0,
+          threshold: settings.threshold,
+          transcript: settings.transcript,
+          lastInputDigest: last?.inputDigest ?? null,
         },
         rules: rules.map((rule) => ({
           ...rule,
@@ -367,6 +396,43 @@ export function createPostgresAchievementJudgments(
           return evidence === null ? [] : [evidence];
         }),
       };
+    },
+
+    async renew(judgment, leaseMs) {
+      const renewed = await db
+        .update(achievementJudgments)
+        .set({
+          leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+        })
+        .where(
+          and(
+            eq(achievementJudgments.id, judgment.id),
+            eq(achievementJudgments.leaseToken, judgment.leaseToken),
+            eq(achievementJudgments.status, "running"),
+          ),
+        )
+        .returning({ id: achievementJudgments.id });
+      return renewed.length > 0;
+    },
+
+    async transcript(sessionId, limit) {
+      // The person's message and the engine's final answer; tool calls and
+      // their results live in events and are never read here.
+      const rows = await db
+        .select({
+          sequence: turns.sequence,
+          message: turns.message,
+          resultJson: turns.resultJson,
+        })
+        .from(turns)
+        .where(and(eq(turns.sessionId, sessionId), isNotNull(turns.endedAt)))
+        .orderBy(desc(turns.sequence))
+        .limit(limit);
+      return rows.reverse().map((row) => ({
+        sequence: row.sequence,
+        message: row.message,
+        result: resultTextOf(row.resultJson),
+      }));
     },
 
     finish(judgment, result) {
@@ -386,6 +452,7 @@ export function createPostgresAchievementJudgments(
             and(
               eq(achievementJudgments.id, judgment.id),
               eq(achievementJudgments.leaseToken, judgment.leaseToken),
+              eq(achievementJudgments.status, "running"),
             ),
           )
           .for("update");
@@ -397,6 +464,13 @@ export function createPostgresAchievementJudgments(
           leaseToken: null,
           leaseExpiresAt: null,
           tokenHash: null,
+          ...(result.luna === undefined
+            ? {}
+            : {
+                inputDigest: result.luna.inputDigest,
+                backend: "luna",
+                connectionId: result.luna.connectionId,
+              }),
         };
         const self = eq(achievementJudgments.id, judgment.id);
         // A session has one pending judgment, and a newer trigger's judges
@@ -460,6 +534,28 @@ export function createPostgresAchievementJudgments(
           }
           if (!requeued) await end("failed");
         }
+        for (const { ruleFamilyId, evidenceId } of result.luna?.declined ??
+          []) {
+          // The answer changed: the earlier row is taken down, never
+          // rewritten, and a person's confirmation or rejection stands.
+          await tx
+            .update(sessionAchievements)
+            .set({ supersededAt: sql`now()`, supersededBy: judgment.id })
+            .where(
+              and(
+                eq(sessionAchievements.sessionId, held.sessionId),
+                eq(sessionAchievements.ruleFamilyId, ruleFamilyId),
+                evidenceId === null
+                  ? isNull(sessionAchievements.evidenceId)
+                  : eq(sessionAchievements.evidenceId, evidenceId),
+                isNull(sessionAchievements.supersededAt),
+                inArray(sessionAchievements.reviewState, [
+                  "auto",
+                  "needs_review",
+                ]),
+              ),
+            );
+        }
         if (result.achievements.length > 0) {
           // A family's achievement for the evidence stays as it is, and so
           // does whatever a person decided about it.
@@ -482,7 +578,7 @@ export function createPostgresAchievementJudgments(
                 evidenceId: achievement.evidenceId,
                 payload: achievement.payload,
                 judge: achievement.judge,
-                probability: null,
+                probability: achievement.probability,
                 judgmentId: judgment.id,
                 reviewState: achievement.reviewState,
               })),

@@ -77,7 +77,7 @@ function SessionStoppedByVariablesScreen({
 }
 
 const meta = {
-  title: "Screens/Session stopped by variables (v3)",
+  title: "Proposals/Session stopped by variables (v3)",
   component: SessionStoppedByVariablesScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "requester" },

@@ -33,7 +33,7 @@ import {
 import { Lock } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 
-import { MOBILE, PartRequest, ScreenShell } from "./screen-kit.tsx";
+import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 import {
   Heading,
   MUTED_TEXT,
@@ -557,11 +557,6 @@ function WorkspaceSettingsScreen({
       >
         {/* One block, so the sub-nav mockup keeps its own margins. */}
         <div>
-          {page ? (
-            <div className="mb-4 flex flex-wrap gap-1">
-              <PartRequest name="Settings sub-nav" />
-            </div>
-          ) : null}
           {page ? (
             <LinkTabs aria-label="워크스페이스 설정 메뉴" className="mb-6">
               {SLACK_PAGES.map(([key, label]) => (

@@ -42,7 +42,7 @@ const USAGE = {
 function harness(
   options: {
     authorized?: Authorized;
-    upstream?: ((connectionId: string) => typeof LUNA | null) | null;
+    upstream?: ((connectionId: string) => Promise<typeof LUNA | null>) | null;
     recorded?: Awaited<ReturnType<JudgmentEgressStore["recordUsage"]>>;
   } = {},
 ) {
@@ -71,7 +71,7 @@ function harness(
     },
   } as unknown as WorkerUnitOfWork;
   const upstream =
-    options.upstream === undefined ? () => LUNA : options.upstream;
+    options.upstream === undefined ? async () => LUNA : options.upstream;
   const instance = createWorkerGateway({
     work,
     catalog,
@@ -134,7 +134,7 @@ describe("judgment requests on the judgment route", () => {
     await expect(
       noUpstream.instance.authorizeJudgmentEgress({ token: "wej_judge" }),
     ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });
-    const unknown = harness({ upstream: () => null });
+    const unknown = harness({ upstream: async () => null });
     await expect(
       unknown.instance.authorizeJudgmentEgress({ token: "wej_judge" }),
     ).rejects.toMatchObject({ status: 503, code: "BACKEND_UNAVAILABLE" });

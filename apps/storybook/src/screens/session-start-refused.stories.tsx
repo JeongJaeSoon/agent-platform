@@ -68,7 +68,7 @@ function SessionStartRefusedScreen(_: { readonly state: ScreenState }) {
 }
 
 const meta = {
-  title: "Screens/Session start refused (v3)",
+  title: "Proposals/Session start refused (v3)",
   component: SessionStartRefusedScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "requester" },

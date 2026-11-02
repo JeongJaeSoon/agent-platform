@@ -1,4 +1,5 @@
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -9,25 +10,22 @@ import {
   CardTitle,
   CopyButton,
   cn,
-  Link,
+  MoreLink,
   PageHeader,
+  StatCard,
+  Steps,
   Tabs,
   TabsList,
   TabsTrigger,
 } from "@werft-ai/ui";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
-
-import { LockedButton, PartRequest } from "./screen-kit.tsx";
 
 /*
  * Console v4 agent detail (Console.dc.html L709-788), shared by the v4 story
  * and the Slack console's detail: the head, the four tabs, the overview and
- * the card tab. Values are the fields GET /v1/agents/{id} returns; what it
- * does not return says so.
+ * the card tab. Values are the fields GET /v1/agents/{id} returns.
  */
-
-export const API_CHANGE = <Badge variant="red">API 변경 필요</Badge>;
 
 export interface AgentCard {
   readonly role: string;
@@ -64,17 +62,6 @@ const TABS: readonly (readonly [AgentTab, string])[] = [
   ["admins", "관리자"],
 ];
 
-function Avatar({ name }: { readonly name: string }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="grid size-8 flex-none place-items-center rounded-control bg-active font-semibold text-caption text-muted-foreground"
-    >
-      {name.slice(0, 2)}
-    </div>
-  );
-}
-
 /**
  * The state badge on the name's line, where the mockup has it; below 768px
  * the actions go under the title, as on a session's page.
@@ -91,7 +78,7 @@ export function AgentHead({
       stackBelow="lg"
       title={
         <div className="flex min-w-0 items-center gap-3">
-          <Avatar name={agent.name} />
+          <Avatar size="lg" shape="square" initials={agent.name.slice(0, 2)} />
           {agent.name}
         </div>
       }
@@ -100,19 +87,10 @@ export function AgentHead({
           {agent.released ? "릴리스" : "초안"}
         </Badge>
       }
-      description={
-        <div className="flex flex-wrap items-center gap-2">
-          {agent.card.role}
-          <PartRequest name="Avatar" />
-        </div>
-      }
+      description={agent.card.role}
       actions={
         <>
-          <LockedButton
-            label="이 에이전트로 새 세션"
-            reason="웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요."
-            size="default"
-          />
+          <Button type="button">이 에이전트로 새 세션</Button>
           <Button asChild variant="outline">
             <a href={backHref ?? "#agents"}>
               <ArrowLeft aria-hidden="true" />
@@ -160,35 +138,6 @@ export function AgentTabs<T extends string>({
   );
 }
 
-function Figure({
-  label,
-  value,
-  note,
-  muted = false,
-}: {
-  readonly label: string;
-  readonly value: ReactNode;
-  readonly note: string;
-  readonly muted?: boolean;
-}) {
-  return (
-    <Card className="h-full gap-3 p-4">
-      <CardDescription className="flex items-center gap-2 text-control">
-        {label}
-      </CardDescription>
-      <CardTitle
-        className={cn(
-          "text-number tabular-nums tracking-[-0.5px]",
-          muted && "text-muted-foreground",
-        )}
-      >
-        {value}
-      </CardTitle>
-      <CardDescription className="text-caption">{note}</CardDescription>
-    </Card>
-  );
-}
-
 function SectionHead({
   title,
   badge,
@@ -204,53 +153,6 @@ function SectionHead({
   );
 }
 
-const STEP_DONE =
-  "border-(color:--ap-tone-success-border) bg-(color:--ap-tone-success-bg) text-(color:--ap-tone-success-fg)";
-
-function Steps({
-  steps,
-}: {
-  readonly steps: readonly {
-    readonly title: string;
-    readonly desc: string;
-    readonly done: boolean;
-    readonly action?: ReactNode;
-  }[];
-}) {
-  return (
-    <Card className="gap-0 p-4">
-      <PartRequest name="Steps" />
-      {steps.map((step, index) => (
-        <div
-          key={step.title}
-          className="flex min-w-0 items-center gap-3 border-t py-3 first-of-type:border-t-0 last:pb-0"
-        >
-          <div
-            aria-hidden="true"
-            className={cn(
-              "grid size-6 flex-none place-items-center rounded-full border font-semibold text-caption",
-              step.done
-                ? STEP_DONE
-                : "border-(color:--ap-color-border-strong) text-muted-foreground",
-            )}
-          >
-            {step.done ? <Check className="size-3.5" /> : index + 1}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <CardTitle className="font-medium text-control">
-              {step.title}
-            </CardTitle>
-            <CardDescription className="text-caption">
-              {step.desc}
-            </CardDescription>
-          </div>
-          {step.action}
-        </div>
-      ))}
-    </Card>
-  );
-}
-
 export function AgentOverview({
   agent,
   className,
@@ -261,29 +163,26 @@ export function AgentOverview({
   const refs = agent.card.capabilities.credential_refs;
   return (
     <div className={cn("@container flex flex-col gap-8", className)}>
-      <div className="flex flex-col gap-3">
-        <PartRequest name="StatCard" />
-        <div className="grid grid-cols-1 gap-4 @[720px]:grid-cols-2">
-          <Figure
-            label="배포된 버전"
-            value={agent.released ? agent.version : "없음"}
-            muted={!agent.released}
-            note={
-              agent.released
-                ? `실행 프로필 ${agent.profile}`
-                : "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다."
-            }
-          />
-          <Figure
-            label="최신 버전"
-            value={agent.version}
-            note={
-              agent.released
-                ? `${agent.versionAt} · 새 세션은 최신 version으로 시작합니다.`
-                : `${agent.versionAt} · 아직 배포하지 않았습니다.`
-            }
-          />
-        </div>
+      <div className="grid grid-cols-1 gap-4 @[720px]:grid-cols-2">
+        <StatCard
+          label="배포된 버전"
+          value={agent.released ? agent.version : "없음"}
+          muted={!agent.released}
+          description={
+            agent.released
+              ? `실행 프로필 ${agent.profile}`
+              : "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다."
+          }
+        />
+        <StatCard
+          label="최신 버전"
+          value={agent.version}
+          description={
+            agent.released
+              ? `${agent.versionAt} · 새 세션은 최신 version으로 시작합니다.`
+              : `${agent.versionAt} · 아직 배포하지 않았습니다.`
+          }
+        />
       </div>
       <div className="flex flex-col gap-3">
         <SectionHead
@@ -294,49 +193,55 @@ export function AgentOverview({
             </Badge>
           }
         />
-        <Steps
-          steps={[
-            {
-              title: "자격 증명 연결",
-              desc:
-                refs.length === 0
-                  ? "카드가 쓰는 자격 증명이 없습니다."
-                  : agent.released
-                    ? `필요한 ${refs.length}개를 모두 연결했습니다.`
-                    : `연결이 필요합니다: ${refs.join(", ")}`,
-              done: agent.released || refs.length === 0,
-              action:
-                agent.released || refs.length === 0 ? undefined : (
-                  <Button variant="outline">배포 탭으로</Button>
-                ),
-            },
-            {
-              title: "release 만들기",
-              desc: agent.released
-                ? `release ${agent.releases}개가 있습니다.`
-                : "배포 탭에서 version과 실행 프로필로 release를 만듭니다.",
-              done: agent.released,
-            },
-            {
-              title: "활성화",
-              desc: agent.released
-                ? "새 세션은 최신 version으로 시작합니다."
-                : "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
-              done: agent.released,
-            },
-          ]}
-        />
+        <Card className="p-4">
+          <Steps
+            items={[
+              {
+                id: "credentials",
+                title: "자격 증명 연결",
+                description:
+                  refs.length === 0
+                    ? "카드가 쓰는 자격 증명이 없습니다."
+                    : agent.released
+                      ? `필요한 ${refs.length}개를 모두 연결했습니다.`
+                      : `연결이 필요합니다: ${refs.join(", ")}`,
+                done: agent.released || refs.length === 0,
+                action:
+                  agent.released || refs.length === 0 ? undefined : (
+                    <Button variant="outline">배포 탭으로</Button>
+                  ),
+              },
+              {
+                id: "release",
+                title: "release 만들기",
+                description: agent.released
+                  ? `release ${agent.releases}개가 있습니다.`
+                  : "배포 탭에서 version과 실행 프로필로 release를 만듭니다.",
+                done: agent.released,
+              },
+              {
+                id: "activate",
+                title: "활성화",
+                description: agent.released
+                  ? "새 세션은 최신 version으로 시작합니다."
+                  : "아직 켜지지 않았습니다. 배포 탭에서 release를 만들고 활성화하면 새 세션이 이 에이전트를 씁니다.",
+                done: agent.released,
+              },
+            ]}
+          />
+        </Card>
       </div>
       <div className="flex flex-col gap-3">
-        <SectionHead title="최근 세션" badge={API_CHANGE} />
-        <Card className="items-center gap-2 px-4 py-6 text-center">
-          <CardTitle>
-            이 에이전트의 세션을 고르는 API가 아직 없습니다.
-          </CardTitle>
-          <CardDescription className="text-control">
-            그동안은 세션 목록에서 찾으세요.{" "}
-            <Link href="#sessions">모든 세션</Link>
-          </CardDescription>
+        <SectionHead
+          title="최근 세션"
+          badge={
+            <MoreLink href="#sessions" size="control">
+              모든 세션
+            </MoreLink>
+          }
+        />
+        <Card className="px-4 py-6 text-center text-control text-muted-foreground">
+          이 에이전트로 만든 세션 중 볼 수 있는 세션이 없습니다.
         </Card>
       </div>
     </div>
@@ -408,7 +313,6 @@ export function AgentCardTab({ agent }: { readonly agent: AgentView }) {
               <Fact term="자격 증명">
                 <Names items={card.capabilities.credential_refs} />
               </Fact>
-              <Fact term="GitHub 연동·저장소">{API_CHANGE}</Fact>
             </dl>
           </CardContent>
         </Card>

@@ -293,7 +293,7 @@ function AgentVariablesScreen({ state }: { readonly state: PanelState }) {
 }
 
 const meta = {
-  title: "Screens/Agent variables (v3)",
+  title: "Proposals/Agent variables (v3)",
   component: AgentVariablesScreen,
   parameters: { layout: "fullscreen" },
   args: { state: "loading" },
