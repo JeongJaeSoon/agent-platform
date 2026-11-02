@@ -696,7 +696,8 @@ integration("usage summary on PostgreSQL", () => {
         builtin: true,
       },
     ]);
-    const [mergedV1, mergedV2, design] = [
+    const [mergedV1, mergedV2, design, designV2] = [
+      crypto.randomUUID(),
       crypto.randomUUID(),
       crypto.randomUUID(),
       crypto.randomUUID(),
@@ -722,13 +723,13 @@ integration("usage summary on PostgreSQL", () => {
       createdBy: ids.owner,
       supersededBy,
     });
-    await db
-      .insert(schema.achievementRules)
-      .values([
-        rule(mergedV1, 1, "PR merged", dev, prType, mergedV2),
-        rule(mergedV2, 2, "Merged PR", dev, prType, null, mergedV1),
-        rule(design, 1, "Design doc", docs, docType, null),
-      ]);
+    await db.insert(schema.achievementRules).values([
+      rule(mergedV1, 1, "PR merged", dev, prType, mergedV2),
+      rule(mergedV2, 2, "Merged PR", dev, prType, null, mergedV1),
+      rule(design, 1, "Design doc", docs, docType, designV2),
+      // The family's latest version has no achievement of its own yet.
+      rule(designV2, 2, "Design document", docs, docType, null, design),
+    ]);
 
     const judgment = async (
       sessionId: string,
@@ -866,7 +867,7 @@ integration("usage summary on PostgreSQL", () => {
       // One row per family, named and versioned by its latest version, with
       // what every version counted.
       ["Dev", "Merged PR", 2, "pull_request", 3, 0],
-      ["Docs", "Design doc", 1, "document", 1, 1],
+      ["Docs", "Design document", 2, "document", 1, 1],
     ]);
     expect(body.by_rule[0]).toMatchObject({
       id: mergedV2,
