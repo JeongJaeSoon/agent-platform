@@ -242,19 +242,20 @@ describe("a session pinned to an agent release", () => {
     const attaching = withSeededInstallation({
       profiles: {
         "coding-v1": profile,
-        "bare-v1": { ...profile, repository_mode: "none" as const },
+        "bare-v1": { ...profile, repository: "none" as const },
+        "either-v1": { ...profile, repository: "optional" as const },
       },
       repositories: {
         app: catalog.repositories.app as SessionCatalog["repositories"][string],
         docs: {
           url: "https://example.invalid/docs.git",
           branch: "main",
-          profiles: ["coding-v1"],
+          profiles: ["coding-v1", "either-v1"],
         },
         tools: {
           url: "https://example.invalid/tools.git",
           branch: "main",
-          profiles: ["coding-v1"],
+          profiles: ["coding-v1", "either-v1"],
         },
         elsewhere: {
           url: "https://example.invalid/elsewhere.git",
@@ -309,7 +310,21 @@ describe("a session pinned to an agent release", () => {
       expect(omitted.accepted[0]).not.toHaveProperty("attachedRepositoryIds");
     });
 
-    test("are refused as repository_not_allowed off the release's list or the profile, as the session's own, without a release or without a repository", async () => {
+    test("are stored for a session started without a repository on an optional profile", async () => {
+      const started = create(
+        { releaseProfile: "either-v1" },
+        {
+          profile_id: "either-v1",
+          repository_id: undefined,
+          attached_repository_ids: ["docs"],
+        },
+      );
+      expect(await started.result).not.toBeInstanceOf(Error);
+      expect(started.accepted[0]?.repository).toBe("none");
+      expect(started.accepted[0]?.attachedRepositoryIds).toEqual(["docs"]);
+    });
+
+    test("are refused as repository_not_allowed off the release's list or the profile, as the session's own, without a release or on a none profile", async () => {
       const cases: Array<[Options, Record<string, unknown>]> = [
         // The release does not list it.
         [
@@ -329,7 +344,19 @@ describe("a session pinned to an agent release", () => {
         [{}, { attached_repository_ids: ["app"] }],
         // No release.
         [{}, { agent_release_id: undefined, attached_repository_ids: [] }],
-        // A session without a repository.
+        // Without a repository on the optional profile, still the release's list.
+        [
+          {
+            releaseProfile: "either-v1",
+            github: { ...github, repositories: ["docs"] },
+          },
+          {
+            profile_id: "either-v1",
+            repository_id: undefined,
+            attached_repository_ids: ["tools"],
+          },
+        ],
+        // A none profile, even with nothing in the list.
         [
           { releaseProfile: "bare-v1" },
           {

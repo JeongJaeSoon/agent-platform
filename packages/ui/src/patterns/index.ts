@@ -67,6 +67,10 @@ export {
 export { Section, type SectionProps } from "./section.tsx";
 export { SettingRow, type SettingRowProps } from "./setting-row.tsx";
 export {
+  SettingsSection,
+  type SettingsSectionProps,
+} from "./settings-section.tsx";
+export {
   SideNav,
   SideNavGroup,
   type SideNavGroupProps,

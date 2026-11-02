@@ -271,7 +271,6 @@ export class GitWorkspace implements WorkspacePreparer {
   }): Promise<{ attached: string[]; failed: string[] }> {
     const attached: string[] = [];
     const failed: string[] = [];
-    if (input.descriptor.repository === null) return { attached, failed };
     for (const repository of input.descriptor.additional_repositories ?? []) {
       try {
         await this.attachRepository(repository, input.signal);

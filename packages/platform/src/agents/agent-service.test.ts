@@ -362,10 +362,16 @@ describe("agent service", () => {
     expect(restKept).toEqual(restPlain);
     expect(pinsKept.tools).toEqual(pinsPlain.tools);
 
-    // A release with no repository has nothing for them to act on.
-    const none = await service.createRelease(owner, AGENT, {
+    // An optional release with no repository attaches them; a none one has
+    // nothing for them to act on.
+    const repositoryless = await service.createRelease(owner, AGENT, {
       version_id: VERSION,
       runtime_profile_id: "either",
+    });
+    expect(repositoryless.release.policy_pins.github).toEqual(github);
+    const none = await service.createRelease(owner, AGENT, {
+      version_id: VERSION,
+      runtime_profile_id: "scratch",
     });
     expect(none.release.policy_pins.github).toBeUndefined();
   });
@@ -709,10 +715,25 @@ describe("a release's GitHub settings", () => {
     expect(made.release.policy_pins.github).toEqual(withActions);
   });
 
-  test("a release with no repository is repository_none", async () => {
+  test("an optional release with no repository keeps settings for the repositories it attaches", async () => {
+    const attaches: AgentGitHub = {
+      ...github,
+      repositories: ["sample-app", "docs-app"],
+    };
+    const made = await service().createRelease(owner, AGENT, {
+      ...release,
+      runtime_profile_id: "either",
+      repository_id: undefined,
+      github: attaches,
+    });
+    expect(made.release.repository_id).toBeNull();
+    expect(made.release.policy_pins.github).toEqual(attaches);
+  });
+
+  test("a release on a none profile is repository_none", async () => {
     expect(
       await refusal({
-        runtime_profile_id: "either",
+        runtime_profile_id: "scratch",
         repository_id: undefined,
         github,
       }),

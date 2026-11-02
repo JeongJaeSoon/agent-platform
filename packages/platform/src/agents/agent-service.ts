@@ -138,10 +138,15 @@ export function createAgentService(deps: {
   async function checkGitHub(
     ownerId: string,
     profileId: string,
+    profile: CatalogProfile,
     repositoryId: string | null,
     github: AgentGitHub,
   ): Promise<void> {
-    if (repositoryId === null) throw githubInvalid("github", "repository_none");
+    // A release without a repository on an `optional` profile attaches
+    // them (session-repository-attachment.md decision 4); `none` never does.
+    if (repositoryModeOf(profile) === "none") {
+      throw githubInvalid("github", "repository_none");
+    }
     for (const [index, id] of github.repositories.entries()) {
       const field = `github.repositories.${index}`;
       const pair = allowedPair(catalog, profileId, id);
@@ -151,7 +156,7 @@ export function createAgentService(deps: {
         throw githubInvalid(field, "app_required");
       }
     }
-    if (!github.repositories.includes(repositoryId)) {
+    if (repositoryId !== null && !github.repositories.includes(repositoryId)) {
       throw githubInvalid("github.repositories", "release_repository_outside");
     }
     if (github.actions_allow.length > 0 && !github.features.actions) {
@@ -421,17 +426,23 @@ export function createAgentService(deps: {
         );
       }
       // A release made from a card edit keeps the GitHub settings of the
-      // active one, so the edit cannot drop them. One with no repository has
+      // active one, so the edit cannot drop them. One on a `none` profile has
       // nothing for them to act on. Kept settings are checked as sent ones
       // are: the edit may move the release to another repository.
       const github =
         request.github ??
-        (repositoryId === null
+        (repositoryModeOf(profile) === "none"
           ? undefined
           : (await store.get(caller.ownerId, agentId))?.active_release
               ?.policy_pins.github);
       if (github !== undefined) {
-        await checkGitHub(caller.ownerId, profileId, repositoryId, github);
+        await checkGitHub(
+          caller.ownerId,
+          profileId,
+          profile,
+          repositoryId,
+          github,
+        );
       }
       const identity = {
         // As stored: PostgreSQL returns a uuid in lower case.

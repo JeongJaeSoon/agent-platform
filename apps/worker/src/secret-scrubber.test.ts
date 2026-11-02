@@ -15,6 +15,21 @@ describe("claimSecrets", () => {
     } as unknown as BootstrapClaimResponse;
     expect(claimSecrets(claim, "nonce")).toContain("wem_1");
   });
+
+  test("holds an attached repository's token when the session has no repository", () => {
+    const claim = {
+      session_credential: "wes_1",
+      runtime_config: { provider: { auth: { token: "wep_1" } } },
+      workspace: {
+        repository: null,
+        additional_repositories: [
+          { id: "docs", access: { kind: "egress_token", token: "wer_1" } },
+        ],
+      },
+      object_store: { access: { token: "weo_1" } },
+    } as unknown as BootstrapClaimResponse;
+    expect(claimSecrets(claim, "nonce")).toContain("wer_1");
+  });
 });
 
 describe("SecretScrubber", () => {

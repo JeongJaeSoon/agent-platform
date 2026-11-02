@@ -144,6 +144,10 @@ import {
 
 const WORKSPACE_PROFILE_MAX_AGE_MS = 1000;
 
+// The repository binding of a session without a repository of its own:
+// its repository route reaches only attached ones, each through the gate.
+const ATTACHED_ONLY_BINDING = "attached-only";
+
 export type WorkerGatewayStatus = 400 | 401 | 403 | 404 | 409 | 503;
 
 // A heartbeat says the attempt is alive. "allocated" would walk the attempt
@@ -916,7 +920,15 @@ export function createWorkerGateway(deps: {
       packages: PACKAGES_BINDING,
     };
     if (session.repositoryMode === "none") {
-      return { provider, repository: null, object_store, ...mcpBinding };
+      // An `optional` session without a repository still reaches the ones
+      // it attached; the gate decides each fetch.
+      return {
+        provider,
+        repository:
+          repositoryModeOf(profile) === "none" ? null : ATTACHED_ONLY_BINDING,
+        object_store,
+        ...mcpBinding,
+      };
     }
     const repository = session.repositoryId
       ? own(catalog.repositories, session.repositoryId)
@@ -1317,13 +1329,10 @@ export function createWorkerGateway(deps: {
             record?.authorApp ?? null,
             binding.repository?.id ?? null,
           );
-          const additional =
-            binding.repository === null
-              ? []
-              : await additionalWorkspaceRepositories(
-                  binding.sessionId,
-                  repositoryToken,
-                );
+          const additional = await additionalWorkspaceRepositories(
+            binding.sessionId,
+            repositoryToken,
+          );
           return {
             session_id: binding.sessionId,
             turn_id: null,
@@ -1566,9 +1575,18 @@ export function createWorkerGateway(deps: {
         }
         return grant(providerUpstreamOf(listed));
       }
-      if (result.repository === null) moved("session's repository");
-      const { id, url, branch } = result.repository;
       const other = request.repository_id;
+      // A session started without a repository reaches only the ones it
+      // attached (session-repository-attachment.md decision 4).
+      if (result.repository === null) {
+        if (other === undefined || result.binding !== ATTACHED_ONLY_BINDING) {
+          moved("session's repository");
+        }
+        return grant(
+          await additionalRepositoryUpstream(result.sessionId, other),
+        );
+      }
+      const { id, url, branch } = result.repository;
       if (other !== undefined && other !== id) {
         return grant(
           await additionalRepositoryUpstream(result.sessionId, other),
