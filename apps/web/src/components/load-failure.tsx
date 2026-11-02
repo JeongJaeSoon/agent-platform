@@ -1,26 +1,32 @@
 import { ApiError } from "@werft-ai/client";
-import { ErrorState } from "@werft-ai/ui";
-import { errorKey, useI18n } from "../i18n/i18n.tsx";
+import { ApiErrorState } from "@werft-ai/react/components";
+import { useI18n } from "../i18n/i18n.tsx";
 
 /**
- * A read that failed for a reason the reader can do something about: what
- * went wrong in our words, and a button that asks again. A 403 is not this;
- * each screen says who may see it instead.
+ * A first read that failed: `ApiErrorState` in the reader's language, with a
+ * button that asks again. A 403 is not this; each screen says who may see it
+ * instead.
  */
 export function LoadFailure({
   error,
   onRetry,
+  guidance,
 }: {
   readonly error: unknown;
   readonly onRetry: () => void;
+  /** The screen's own instruction, where it knows more than the code. */
+  readonly guidance?: string | undefined;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const code = error instanceof ApiError ? error.code : undefined;
   return (
-    <ErrorState
+    <ApiErrorState
+      locale={locale}
       title={t("status.loadFailed")}
-      message={t(
-        error instanceof ApiError ? errorKey(error.code) : "error.UNKNOWN",
-      )}
+      code={code}
+      guidance={guidance}
+      // Without a code there is no guidance to lead with.
+      message={code || guidance ? undefined : t("error.UNKNOWN")}
       retry={onRetry}
       retryLabel={t("common.retry")}
     />
