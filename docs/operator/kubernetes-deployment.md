@@ -112,7 +112,15 @@ release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은
 
 이 규칙은 ALB에서만 효과가 있다. 다른 controller는 `block-internal`이라는 Service가 없는 경로를 건너뛰고 `/`로 `/internal`을 열 수 있으므로, `ingress.className`이 `alb`가 아니면 chart가 render를 거부한다. `/internal` 요청을 404 규칙 밖으로 보낼 수 있는 annotation(`alb.ingress.kubernetes.io/`의 `actions.*`·`conditions.*`·`transforms.*`·`group.*`, `kubernetes.io/ingress.class`)이 `ingress.annotations`에 있어도 render를 거부한다. IngressClass의 `IngressClassParams`가 이 Ingress를 다른 Ingress와 같은 group에 넣으면 앞선 Ingress의 규칙이 먼저 평가되므로, 콘솔을 켤 때는 `alb` IngressClass가 group을 강제하지 않는지 확인한다(**AWS 전용**).
 
-**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route하므로 `/%69nternal/…`을 `/internal/…`로 처리한다. ALB path pattern에는 `%`를 쓸 수 없어 이런 경로를 규칙으로 막을 수 없고, `/internal` 규칙에 걸리지 않은 요청은 `/` 규칙으로 api에 닿는다. api가 인코딩한 `/internal` 요청을 거부하기 전에는 `ingress.console.enabled`를 켜지 않는다.
+**켜는 조건.** api는 percent-encoding을 디코드한 경로로 route한다. ALB path pattern에는 `%`를 쓸 수 없으므로 `/%69nternal/…`처럼 인코딩한 경로는 `/internal` 규칙에 걸리지 않고 `/` 규칙을 타고 api에 닿는다. api는 받은 그대로의(디코드 전) 경로가 `/internal`로 시작할 때만 worker 라우트로 보내고, 인코딩한 변형에는 404 `NOT_FOUND`로 답한다(94S-1179). 이 동작이 들어간 api 이미지를 쓸 때만 `ingress.console.enabled`를 켠다.
+
+dot segment(`/x/../internal/…`, `/%2e/internal/…`)는 Bun이 요청을 api에 넘기기 전에 `/internal/…`로 정리하므로, api는 이 경로를 그냥 `/internal/…`과 구분하지 못한다. 이 경로를 막는 것은 ALB다. ALB는 URI를 정규화한 뒤 규칙을 평가하지만, 문서에는 무엇을 정규화하는지 나와 있지 않다. 그래서 콘솔을 켠 뒤에는 사내망에서 아래 요청을 보내 확인한다(**AWS 전용**). `/internal/x`와 dot segment 두 경로는 ALB의 404(`text/plain`)가, `/%69nternal/x`는 api의 404(`application/json`)가 기대값이다. dot segment 경로에 `text/plain` 404가 아닌 응답이 오면 ALB가 그 경로를 api로 보낸 것이므로 콘솔을 다시 끈다.
+
+```bash
+for p in /internal/x /%69nternal/x /x/../internal/x /%2e/internal/x; do
+  curl -s --path-as-is -o /dev/null -w "$p %{http_code} %{content_type}\n" "https://<host>$p"
+done
+```
 
 켤 때는 설치별 파일에 다음을 둔다. 끄면 `/`와 `/internal` 규칙이 함께 빠지고 `/v1`·`/docs`·`/healthz`·`/readyz`는 그대로다.
 
