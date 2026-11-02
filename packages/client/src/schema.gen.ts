@@ -1261,7 +1261,7 @@ export interface paths {
         };
         /**
          * List the session's push requests
-         * @description Every push request of the session, newest first, with its state and who requested and decided it.
+         * @description Every push request of the session, newest first, with its state and who requested and resolved it.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -1291,7 +1291,7 @@ export interface paths {
         };
         /**
          * Read one push request
-         * @description One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who decided it.
+         * @description One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who resolved it (`resolved_by`; `decided_by` is its deprecated copy).
          *
          *     The API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.
          *
@@ -4532,7 +4532,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "PUSH_REQUEST_RESOLVED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -5640,6 +5640,30 @@ export interface components {
             };
             /** Format: date-time */
             requested_at: string;
+            resolved_by?: ({
+                principal: {
+                    /** @enum {string} */
+                    kind: "api_key" | "user" | "installation";
+                    id: string;
+                };
+                actor_user_id: string | null;
+                agent_id: string | null;
+            } | {
+                /** @constant */
+                kind: "policy";
+                agent_release_id: string;
+            }) | null;
+            resolved_at?: string | null;
+            resolution_reason?: string | null;
+            /** Format: uuid */
+            request_receipt_id: string;
+            resolution_receipt_id?: string | null;
+            finished_at: string | null;
+            push_receipt_id: string | null;
+            /**
+             * @deprecated
+             * @description Use `resolved_by`.
+             */
             decided_by: ({
                 principal: {
                     /** @enum {string} */
@@ -5653,13 +5677,21 @@ export interface components {
                 kind: "policy";
                 agent_release_id: string;
             }) | null;
+            /**
+             * @deprecated
+             * @description Use `resolved_at`.
+             */
             decided_at: string | null;
+            /**
+             * @deprecated
+             * @description Use `resolution_reason`.
+             */
             decision_reason: string | null;
-            /** Format: uuid */
-            request_receipt_id: string;
+            /**
+             * @deprecated
+             * @description Use `resolution_receipt_id`.
+             */
             decision_receipt_id: string | null;
-            finished_at: string | null;
-            push_receipt_id: string | null;
         };
         ListPushRequestsResponse: {
             items: components["schemas"]["PushRequest"][];
@@ -6253,7 +6285,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "resolve_repository" | "set_agent_github" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "decide_push" | "resolve_push" | "push" | "open_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "resolve_repository" | "set_agent_github" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -6287,7 +6319,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_DECIDED" | "PUSH_REQUEST_RESOLVED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -17480,13 +17512,17 @@ export interface operations {
                      *             "agent_id": null
                      *           },
                      *           "requested_at": "2026-10-11T08:30:00Z",
+                     *           "resolved_by": null,
+                     *           "resolved_at": null,
+                     *           "resolution_reason": null,
+                     *           "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *           "resolution_receipt_id": null,
+                     *           "finished_at": null,
+                     *           "push_receipt_id": null,
                      *           "decided_by": null,
                      *           "decided_at": null,
                      *           "decision_reason": null,
-                     *           "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *           "decision_receipt_id": null,
-                     *           "finished_at": null,
-                     *           "push_receipt_id": null
+                     *           "decision_receipt_id": null
                      *         }
                      *       ]
                      *     }
@@ -17609,13 +17645,17 @@ export interface operations {
                      *         "agent_id": null
                      *       },
                      *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "resolved_by": null,
+                     *       "resolved_at": null,
+                     *       "resolution_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "resolution_receipt_id": null,
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null,
                      *       "decided_by": null,
                      *       "decided_at": null,
                      *       "decision_reason": null,
-                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": null,
-                     *       "finished_at": null,
-                     *       "push_receipt_id": null
+                     *       "decision_receipt_id": null
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];
@@ -17788,13 +17828,17 @@ export interface operations {
                      *         "agent_id": null
                      *       },
                      *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "resolved_by": null,
+                     *       "resolved_at": null,
+                     *       "resolution_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "resolution_receipt_id": null,
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null,
                      *       "decided_by": null,
                      *       "decided_at": null,
                      *       "decision_reason": null,
-                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": null,
-                     *       "finished_at": null,
-                     *       "push_receipt_id": null
+                     *       "decision_receipt_id": null
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];
@@ -17915,6 +17959,20 @@ export interface operations {
                      *         "agent_id": null
                      *       },
                      *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "resolved_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "resolved_at": "2026-10-11T08:35:00Z",
+                     *       "resolution_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "resolution_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null,
                      *       "decided_by": {
                      *         "principal": {
                      *           "kind": "user",
@@ -17925,10 +17983,7 @@ export interface operations {
                      *       },
                      *       "decided_at": "2026-10-11T08:35:00Z",
                      *       "decision_reason": null,
-                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
-                     *       "finished_at": null,
-                     *       "push_receipt_id": null
+                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678"
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];
@@ -18113,6 +18168,20 @@ export interface operations {
                      *         "agent_id": null
                      *       },
                      *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "resolved_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "resolved_at": "2026-10-11T08:35:00Z",
+                     *       "resolution_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "resolution_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null,
                      *       "decided_by": {
                      *         "principal": {
                      *           "kind": "user",
@@ -18123,10 +18192,7 @@ export interface operations {
                      *       },
                      *       "decided_at": "2026-10-11T08:35:00Z",
                      *       "decision_reason": null,
-                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
-                     *       "finished_at": null,
-                     *       "push_receipt_id": null
+                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678"
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];
@@ -18312,6 +18378,20 @@ export interface operations {
                      *         "agent_id": null
                      *       },
                      *       "requested_at": "2026-10-11T08:30:00Z",
+                     *       "resolved_by": {
+                     *         "principal": {
+                     *           "kind": "user",
+                     *           "id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *         },
+                     *         "actor_user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "agent_id": null
+                     *       },
+                     *       "resolved_at": "2026-10-11T08:35:00Z",
+                     *       "resolution_reason": null,
+                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "resolution_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
+                     *       "finished_at": null,
+                     *       "push_receipt_id": null,
                      *       "decided_by": {
                      *         "principal": {
                      *           "kind": "user",
@@ -18322,10 +18402,7 @@ export interface operations {
                      *       },
                      *       "decided_at": "2026-10-11T08:35:00Z",
                      *       "decision_reason": null,
-                     *       "request_receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
-                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678",
-                     *       "finished_at": null,
-                     *       "push_receipt_id": null
+                     *       "decision_receipt_id": "e1d2c3b4-a5f6-4789-9abc-def012345678"
                      *     }
                      */
                     "application/json": components["schemas"]["PushRequest"];

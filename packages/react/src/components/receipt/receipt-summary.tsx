@@ -60,6 +60,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   share_session: "공유 범위 변경",
   request_push: "push 요청",
   decide_push: "push 승인·거부",
+  resolve_push: "push 승인·거부",
   push: "push",
   open_pull_request: "PR 열기",
   comment_pull_request: "PR 코멘트",

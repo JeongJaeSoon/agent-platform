@@ -35,6 +35,8 @@ import {
 type Row = typeof pushRequests.$inferSelect;
 
 function publicPushRequest(row: Row): PushRequest {
+  const resolvedBy = (row.decidedBy as PushDecider | null) ?? null;
+  const resolvedAt = row.decidedAt?.toISOString() ?? null;
   return {
     id: row.id,
     session_id: row.sessionId,
@@ -45,13 +47,17 @@ function publicPushRequest(row: Row): PushRequest {
     state: row.state as PushRequestState,
     requested_by: row.requestedBy as ReceiptActor,
     requested_at: row.createdAt.toISOString(),
-    decided_by: (row.decidedBy as PushDecider | null) ?? null,
-    decided_at: row.decidedAt?.toISOString() ?? null,
-    decision_reason: row.decisionReason,
+    resolved_by: resolvedBy,
+    resolved_at: resolvedAt,
+    resolution_reason: row.decisionReason,
     request_receipt_id: row.requestReceiptId,
-    decision_receipt_id: row.decisionReceiptId,
+    resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
+    decided_by: resolvedBy,
+    decided_at: resolvedAt,
+    decision_reason: row.decisionReason,
+    decision_receipt_id: row.decisionReceiptId,
   };
 }
 

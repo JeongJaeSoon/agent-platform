@@ -201,11 +201,15 @@ integration("postgres push requests", () => {
     );
     expect(approved).toMatchObject({
       state: "approved",
+      resolved_by: APPROVER,
+      resolution_reason: "reviewed",
       decided_by: APPROVER,
       decision_reason: "reviewed",
     });
-    expect(approved.decided_at).not.toBeNull();
-    expect(await receipt(approved.decision_receipt_id ?? "")).toMatchObject({
+    expect(approved.resolved_at).not.toBeNull();
+    expect(approved.resolved_at).toBe(approved.decided_at);
+    expect(approved.resolution_receipt_id).toBe(approved.decision_receipt_id);
+    expect(await receipt(approved.resolution_receipt_id ?? "")).toMatchObject({
       operation: "decide_push",
       status: "succeeded",
       actor: APPROVER,
@@ -217,8 +221,8 @@ integration("postgres push requests", () => {
       },
     });
     expect(
-      written(await decide(sessionId, request.id)).decision_receipt_id,
-    ).toBe(approved.decision_receipt_id);
+      written(await decide(sessionId, request.id)).resolution_receipt_id,
+    ).toBe(approved.resolution_receipt_id);
     expect(
       await decide(sessionId, request.id, { payloadHash: "other" }),
     ).toEqual({ outcome: "conflict" });
@@ -261,7 +265,7 @@ integration("postgres push requests", () => {
       }),
     );
     expect(
-      (await receipt(decided.decision_receipt_id ?? "")).result,
+      (await receipt(decided.resolution_receipt_id ?? "")).result,
     ).toMatchObject({ verdict: "allow", decider_key: deciderKey });
     const again = await decide(sessionId, request.id, {
       deciderKey,
@@ -276,7 +280,7 @@ integration("postgres push requests", () => {
     const asked = written(await create(person));
     const byPerson = written(await decide(person, asked.id));
     expect(
-      (await receipt(byPerson.decision_receipt_id ?? "")).result,
+      (await receipt(byPerson.resolution_receipt_id ?? "")).result,
     ).toMatchObject({ decider_key: null });
   });
 
@@ -476,8 +480,8 @@ integration("postgres push requests", () => {
       outcome: "replayed",
       request: {
         state: "pushed",
-        decided_by: APPROVER,
-        decision_receipt_id: approval?.decision_receipt_id,
+        resolved_by: APPROVER,
+        resolution_receipt_id: approval?.resolution_receipt_id,
         push_receipt_id: ok?.pushReceiptId,
       },
     });

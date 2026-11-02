@@ -1,0 +1,125 @@
+---
+title: "Achievement rules"
+description: Decide which of a session's work counts as an achievement, what judging sends out, and what it costs
+---
+
+Achievement rules are the workspace setting that decides which of a session's work counts as an achievement. The platform records what a session actually did (evidence) and keeps the evidence that matches a rule as an achievement. Achievements show on the session's Outputs tab and on the Achievements screen in the sidebar.
+
+## Evidence and achievements
+
+Evidence is a fact the platform saw itself; an achievement is evidence that matched a rule. The evidence kinds are fixed in code and cannot be added by people.
+
+| Evidence kind | What | Once it is an achievement |
+| --- | --- | --- |
+| PR (`github_pull_request`) | A PR the session opened. When its state changes (opened, merged), the evidence changes too | Counted at once |
+| Review (`github_review`) | A PR review the session submitted | Counted at once |
+| `out/` file (`out_file`) | A file the session left in `out/` of its last checkpoint | Counted after a person confirms it |
+| Conversation (`conversation`) | The session's conversation | Counted after a person confirms it |
+
+`out/` files and the conversation are text the agent wrote, so they are not counted until a person confirms them. No API creates an achievement directly; people only confirm or reject.
+
+## Categories, achievement types and rules
+
+Set them in the console under Settings → Achievement rules. Only workspace owners and admins can change them; other members can read them.
+
+- A **category** groups rules. Its name is 1 to 32 characters; renaming it shows past achievements under the new name. A category that still has rules in use cannot be archived.
+- An **achievement type** is the kind of achievement. There are three built-in types (`pull_request`, `code_review`, `document`), and people can create more. A type people create has a name, a key and one evidence kind, and its achievements carry only a title, link, evidence kind and evidence id. The key and evidence kind cannot change after creation. A workspace can have up to 50 types that are not archived.
+- A **rule** is one line under a category with one title, one achievement type and one achievement definition. One achievement type serves only one rule in use; for another definition, create a new type. A workspace can have up to 30 rules in use.
+
+Editing a rule creates a new version. Achievements already counted stay with the version they were counted under. A condition on the evidence state, such as "merged PRs only", goes in the definition sentence.
+
+## Count at once and Luna judging
+
+Each rule picks how it is judged.
+
+| Judging | What it does | Cost |
+| --- | --- | --- |
+| Count at once (`always`) | Counts evidence of its kind without conditions the first time it appears | None |
+| Luna (`luna`) | Sends the definition and the evidence to Luna (OpenAI Decisions API, `gpt-6-luna`) and gets the probability of "yes". Counts it when the probability is at or above the threshold (0.9 by default) | Per judgment |
+
+Luna writes no text; it answers only `yes` or `no` with its probability. The probability stays on the achievement as "probability it fits the definition". When evidence changes (a PR is merged), every Luna pair of that session is asked again. Nothing is sent when the whole question (rule versions, evidence, threshold) is the same as the last judgment's. A confirmed or rejected achievement does not change when judged again.
+
+<Callout type="warn">
+Luna judging needs an `openai_decisions` connection added by the operator. Storing connections has not landed yet, so Luna rules are not judged for now and stay as "no judge". Count-at-once rules run without a connection.
+</Callout>
+
+### When to judge, and limits
+
+Set these in the judging card under Settings → Achievement rules. A session with no evidence is not judged. A judgment runs 2 minutes after its last trigger, and the judge picks up work every 30 seconds, so achievements usually show 2 to 3 minutes after the trigger.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| When evidence appears or changes | On | PR opened or merged, review submitted, `out/` file |
+| Every N turns | Off | When on, every 5 to 100 turns. Matters only when a rule has a conversation type |
+| When the session stops | Off | Once on waiting, pause or close |
+| Send conversation | Last 20 turns | The conversation sent for conversation rules: none, or the last 20 turns (up to 16,000 tokens, without tool results) |
+| Daily budget | $1 | The workspace's daily Luna judging cost cap. Past it, that day's Luna judging waits until the next day (00:00 UTC). Count-at-once rules still count |
+| Per session | 20 | The cap on judgments that called Luna for one session. Count-at-once rules are not counted |
+
+A failed judgment (error, 10-second timeout, malformed answer) is retried up to three times, after 1, 5 and 30 minutes. If it still fails, the reason shows on the session detail. Owners and admins can judge a session again from its detail. Editing a rule does not judge past sessions again on its own.
+
+## Data sent to OpenAI
+
+Only Luna rules send data to OpenAI. Each rule is paired with each piece of evidence and one question goes out per pair. A rule is paired only with evidence of its type's kind.
+
+| Evidence kind | What is sent |
+| --- | --- |
+| PR | The definition, repository, number, state, merge time, changed line counts, PR title (200 characters) |
+| Review | The definition, repository, number, review event |
+| `out/` file | The definition, path, size, first 2,000 characters of the file |
+| Conversation | The definition, an excerpt of the last 20 turns (up to 16,000 tokens, without tool results). Nothing is sent when Send conversation is "none" |
+
+- PR bodies and review bodies are not sent. Review bodies are not stored either.
+- PR titles, file contents and the conversation are text anyone can write, so they are sent marked as untrusted input. If the judge is fooled, only that pair's yes or no changes; the platform fills an achievement's title, link and other fields from the evidence.
+- Requests pass through the egress proxy, and only the proxy attaches the connection's key.
+
+## Cost
+
+Luna costs $0.10 per million input tokens; output is free.
+
+| Evidence | Input per pair | Per pair |
+| --- | --- | --- |
+| PR or review summary | About 600 tokens | About $0.00006 |
+| First 2,000 characters of a file | About 1,200 tokens | About $0.00012 |
+| Last conversation excerpt | About 16,500 tokens | About $0.00165 |
+
+One judgment (PR and review evidence, four pairs) costs about $0.00025. The default daily budget of $1 covers about 4,000 such judgments.
+
+Judging cost is counted apart from session cost. "Cost per achievement" on the Achievements screen is the cost of every session in the period divided by the number of counted achievements. Sessions without an achievement are included; judging cost is not.
+
+## Permissions
+
+| Action | Who |
+| --- | --- |
+| Read categories, types, rules and judging settings | Workspace members |
+| Change categories, types, rules and judging settings; judge a session again | Owners, admins |
+| Confirm or reject an achievement | Owners, admins, that agent's admins |
+| See judging cost and 30-day counts (settings screen) | Whoever can read the whole workspace's usage (owner) |
+
+Changing rules and judging settings, confirming or rejecting an achievement, and judging a session again cannot be called with an API key, only with a person's web login cookie. Confirming, rejecting and judging again also need read access to that session. Each change leaves a receipt, and the receipt does not carry the definition text.
+
+## Read achievements with the API
+
+Read one session's achievements with a `sessions:read` key.
+
+```bash
+curl -sS "$API/v1/sessions/$SESSION_ID/achievements" -H "Authorization: Bearer $KEY" \
+  | jq -c '.items[] | {title, judge, review_state}'
+```
+
+```text
+{"title":"JeongJaeSoon/werft-sandbox#33","judge":"always","review_state":"auto"}
+```
+
+Read achievement counts and cost per achievement for a period with `GET /v1/usage/achievements`. Its scope rules are those of `GET /v1/usage/summary`.
+
+```bash
+curl -sS "$API/v1/usage/achievements?scope=me&since=$SINCE" -H "Authorization: Bearer $KEY" \
+  | jq -c '{achievement_count, needs_review_count, cost_usd, cost_per_achievement_usd, judge_cost_usd}'
+```
+
+```text
+{"achievement_count":1,"needs_review_count":0,"cost_usd":"0.000105","cost_per_achievement_usd":"0.000105","judge_cost_usd":"0.000000"}
+```
+
+Reference: [`GET /v1/sessions/{id}/achievements`](/reference/http-api/sessions/listSessionAchievements), [`GET /v1/usage/achievements`](/reference/http-api/limits-and-receipts/getUsageAchievements), [`GET /v1/achievement-rules`](/reference/http-api/workspace-settings/listAchievementRules)

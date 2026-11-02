@@ -1101,13 +1101,17 @@ const EXAMPLE_PUSH_REQUEST = {
   state: "requested",
   requested_by: EXAMPLE_ACTOR,
   requested_at: "2026-10-11T08:30:00Z",
+  resolved_by: null,
+  resolved_at: null,
+  resolution_reason: null,
+  request_receipt_id: EXAMPLE_RECEIPT_ID,
+  resolution_receipt_id: null,
+  finished_at: null,
+  push_receipt_id: null,
   decided_by: null,
   decided_at: null,
   decision_reason: null,
-  request_receipt_id: EXAMPLE_RECEIPT_ID,
   decision_receipt_id: null,
-  finished_at: null,
-  push_receipt_id: null,
 };
 const EXAMPLE_PULL_REQUEST = {
   push_request_id: EXAMPLE_PUSH_REQUEST_ID,
@@ -3274,7 +3278,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "List the session's push requests",
     description:
-      "Every push request of the session, newest first, with its state and who requested and decided it.",
+      "Every push request of the session, newest first, with its state and who requested and resolved it.",
     scope: "read",
     success: {
       status: 200,
@@ -3291,7 +3295,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Read one push request",
     description:
-      "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who decided it.\n\nThe API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.",
+      "One push request: what it pinned, its state (`requested`, `approved`, `rejected`, then `pushing`, `pushed` or `failed` once the platform pushes an approved one), and who resolved it (`resolved_by`; `decided_by` is its deprecated copy).\n\nThe API pushes an approved request within seconds: exactly the pinned commit, to `refs/heads/agent/<session-id>` on the repository the request pinned, never by force. It refuses, as `failed`, when the catalog entry for the repository changed after the request, the target is the repository's default branch, or the remote branch holds a commit the pinned one does not build on. `finished_at` and `push_receipt_id` are set once it ends; that `push` receipt (`GET /v1/receipts/{receipt_id}`) names the remote, the ref, the commit it replaced, the approver, and on failure the `refusal`.",
     scope: "read",
     success: {
       status: 200,
@@ -3322,6 +3326,9 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         ...EXAMPLE_PUSH_REQUEST,
         state: "approved",
+        resolved_by: EXAMPLE_ACTOR,
+        resolved_at: "2026-10-11T08:35:00Z",
+        resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
         decided_by: EXAMPLE_ACTOR,
         decided_at: "2026-10-11T08:35:00Z",
         decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
@@ -3360,6 +3367,9 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         ...EXAMPLE_PUSH_REQUEST,
         state: "rejected",
+        resolved_by: EXAMPLE_ACTOR,
+        resolved_at: "2026-10-11T08:35:00Z",
+        resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
         decided_by: EXAMPLE_ACTOR,
         decided_at: "2026-10-11T08:35:00Z",
         decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
@@ -3399,6 +3409,9 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         ...EXAMPLE_PUSH_REQUEST,
         state: "approved",
+        resolved_by: EXAMPLE_ACTOR,
+        resolved_at: "2026-10-11T08:35:00Z",
+        resolution_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",
         decided_by: EXAMPLE_ACTOR,
         decided_at: "2026-10-11T08:35:00Z",
         decision_receipt_id: "e1d2c3b4-a5f6-4789-9abc-def012345678",

@@ -227,6 +227,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   PUSH_REQUEST_OPEN:
     "The session already has an open push request (`requested`, `approved` or `pushing`) to the same repository and branch; the refusal receipt's `result.push_request_id` names it.",
   PUSH_REQUEST_DECIDED: "The push request was already approved or rejected.",
+  PUSH_REQUEST_RESOLVED: "The push request was already approved or rejected.",
   CHECKPOINT_MOVED:
     "The commit or checkpoint named no longer matches what the push request pinned.",
   CATALOG_MISMATCH:

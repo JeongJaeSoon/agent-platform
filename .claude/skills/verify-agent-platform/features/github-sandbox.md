@@ -12,6 +12,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 - `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
 - `dispatch` `POST /v1/sessions/{id}/github/workflow-dispatches` `{workflow, ref, inputs?}`. 게이트 순서대로 거절한다: 목록 밖 `403 workflow_not_allowed`, `agent/…` ref `403 agent_ref_refused`, App에 권한이 없으면 `409 app_permission_missing`(GitHub가 발급을 거절). 성공은 201 `{receipt_id, run}`.
 - `runs` `GET …/github/workflow-runs/{run_id}`(`actions_read`), `POST …/workflow-runs/{run_id}/rerun` `{failed_only?}`(플랫폼이 dispatch한 run만, 아니면 `403 run_ref_unprovable`).
+- `achievement` 바로 인정(`always`) 규칙이 있으면 PR 근거가 생긴 뒤 판정기 loop(마지막 trigger 2분 뒤, 30초마다)가 `GET /v1/sessions/{id}/achievements`에 성과를 남긴다: `title` `owner/repo#번호`, `judge: "always"`, `review_state: "auto"`, `payload`(PR 상태 복사), 판정 `trigger: "evidence"` `succeeded`, 비용 0. Luna 규칙은 연결 저장 전이라 `skipped`(`judge_unavailable`)다.
 - `receipts` `GET /v1/receipts/{id}`(거절은 `error.details.receipt_id`), `GET /v1/agents/{id}/github/activity`(그 에이전트의 게이트 receipt 최근 20개).
 
 ## How to get to it (user POV)
@@ -62,6 +63,17 @@ ap_web GET "/v1/agents/$AID/github" | tee "$EVIDENCE/gh-agent.txt"
 printf 'AID=%s\nREL=%s\n' "$AID" "$REL" >> "$VERIFY_RUN/ids.sh"
 ```
 
+```sh
+# 3b. 성과 규칙: pull_request type에 바로 인정 규칙 (세션 전에)
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+PRT=$(ap_web GET /v1/achievement-types | head -1 | jq -r '.items[] | select(.["key"]=="pull_request") | .id')
+CAT=$(ap_web POST /v1/achievement-categories '{"name":"개발"}' | head -1 | jq -r .category.id)
+ap_web POST /v1/achievement-rules "$(jq -nc --arg c "$CAT" --arg t "$PRT" '{category_id:$c,title:"PR 열기",type_id:$t,definition:"세션이 연 PR",judge:"always"}')" | head -1 | jq -c '.rule | {title, judge, version}'
+ap_web GET "/v1/workspaces/$WS/achievement-judge" | head -1 | jq -c '.achievement_judge | {connection_id, on_evidence}'
+```
+
+기대: 규칙 `{"title":"PR 열기","judge":"always","version":1}`, 판정 설정 `connection_id: null`, `on_evidence: true`. type의 key 칸은 jq에서 `.["key"]`로 읽는다(점 표기는 agent-guard의 키 파일 경로 패턴에 걸린다).
+
 기대: 상한 PUT `200` `revision: 1`. 릴리스 `200` `release.id`(`sha256:…`), 활성화 `200`. `GET …/github`는 `enabled: true`, `github`가 보낸 값, `active_release_id`가 `REL`.
 
 ```sh
@@ -73,25 +85,39 @@ SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_rele
 printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
 for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status)" = needs_input ] && break; sleep 2; done
 REQ=$(ap_get "/v1/sessions/$SID/pending-requests" | head -1 | jq -r '.items[0].request_id')
-ap_post "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", decision:"allow"}')"
+ap_web POST "/v1/sessions/$SID/answers" "$(jq -nc --arg r "$REQ" '{request_id:$r, kind:"permission", decision:"allow"}')"
 for i in $(seq 1 60); do [ "$(ap_get "/v1/sessions/$SID/turns/1" | head -1 | jq -r .status)" = completed ] && break; sleep 2; done
 ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 ```
 
-기대: 세션 `201`(저장소 `sandbox`), `needs_input`에 Bash 권한 요청 하나, answers `202`, turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
+기대: 세션 `201`(저장소 `sandbox`), `needs_input`에 Bash 권한 요청 하나, answers `202`(사람의 cookie로 답한다. 웹에서 발급한 개인 key로 자기 세션에 답하면 `403 FORBIDDEN` `self_approval`), turn 1 `completed`. clone이 실패하면 세션이 `failed`이고 이유는 6의 `mint_github_token` 거절 receipt에 있다.
 
 ```sh
 # 5. push 요청 → 승인 → push → PR
 . "$VERIFY_RUN/ids.sh"; ap_as owner
 P=$(ap_post "/v1/sessions/$SID/push-requests" '{}' | head -1); PRID=$(echo "$P" | jq -r .id); COMMIT=$(echo "$P" | jq -r .git_commit)
-ap_post "/v1/sessions/$SID/push-requests/$PRID/approve" "$(jq -nc --arg c "$COMMIT" '{git_commit:$c}')"
+ap_web POST "/v1/sessions/$SID/push-requests/$PRID/approve" "$(jq -nc --arg c "$COMMIT" '{git_commit:$c}')"
 for i in $(seq 1 30); do s=$(ap_get "/v1/sessions/$SID/push-requests/$PRID" | head -1 | jq -r .state); case $s in pushed|failed) break ;; esac; sleep 2; done; echo "$s"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-agent-platform: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{}'      # 같은 PR, created: false
 printf 'PRID=%s\n' "$PRID" >> "$VERIFY_RUN/ids.sh"
 ```
 
-기대: push 요청 `201` `state: "requested"`, `target_branch: "agent/<SID>"`, 요청 id는 `.id`다(`push_request_id`가 아니다). 결정 `200`(다른 `git_commit`이면 `409 CHECKPOINT_MOVED`, `details.refusal: "commit_mismatch"`, 요청은 `requested`로 남는다). 상태 `pushed`. PR `201` `created: true`와 `pull_request.url`, 두 번째 `200` `created: false`. `gh pr view <n> -R JeongJaeSoon/werft-sandbox --json author,headRefName,state`는 `app/werft-sandbox-agent`, `agent/<SID>`, `OPEN`.
+기대: push 요청 `201` `state: "requested"`, `target_branch: "agent/<SID>"`, 요청 id는 `.id`다(`push_request_id`가 아니다). 결정 `200`(cookie로. 다른 `git_commit`이면 `409 CHECKPOINT_MOVED`, `details.refusal: "commit_mismatch"`, 요청은 `requested`로 남는다). 상태 `pushed`. PR `201` `created: true`와 `pull_request.url`, 두 번째 `200` `created: false`. `gh pr view <n> -R JeongJaeSoon/werft-sandbox --json author,headRefName,state`는 `app/werft-sandbox-agent`, `agent/<SID>`, `OPEN`.
+
+```sh
+# 5b. 성과: PR 근거 → 바로 인정 성과
+. "$VERIFY_RUN/ids.sh"; ap_as owner
+for i in $(seq 1 60); do n=$(ap_get "/v1/sessions/$SID/achievements" | head -1 | jq '.items | length'); [ "$n" -gt 0 ] && break; sleep 5; done
+ap_get "/v1/sessions/$SID/achievements" | head -1 | jq -c '.items[] | {title, judge, review_state, evidence_kind, probability, payload}' | tee "$EVIDENCE/gh-achievement.txt"
+ap_get "/v1/sessions/$SID/achievements" | head -1 | jq -c '{judgment: (.judgment | {trigger, status}), judgment_count, judge_cost_usd}'
+ap_get "/v1/usage/achievements?scope=me&since=$(date -u -v-1d +%FT%TZ)" | head -1 | jq -c '{achievement_count, needs_review_count, cost_usd, cost_per_achievement_usd, judge_cost_usd}'
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select trigger, status, backend, calls, cost_usd, error_code from achievement_judgments where session_id = '$SID'"
+```
+
+기대: PR 전 `items` 0, `judgment` null. PR 뒤 2~3분 안에 성과 하나: `title` `JeongJaeSoon/werft-sandbox#<n>`, `judge: "always"`, `review_state: "auto"`, `evidence_kind: "github_pull_request"`, `probability: null`, `payload.state: "open"`. 판정은 `trigger: "evidence"`, `status: "succeeded"`, `judge_cost_usd` 0. Luna를 부르지 않은 것은 DB 행의 `backend` 빈 값, `calls` 0, `cost_usd` 0으로 본다(API 판정에는 backend 칸이 없다). 사용량은 `achievement_count: 1`, `cost_per_achievement_usd`가 세션 비용과 같고 `judge_cost_usd`는 0.
+
+2026-11-03 run `20261103-012555-27905`(main `f3cd5ace`)에서 1–5와 3b·5b를 확인했다. PR [werft-sandbox#33](https://github.com/JeongJaeSoon/werft-sandbox/pull/33) 201 → 150초 뒤 성과 하나, 판정 `evidence` `succeeded` calls 0, 사용량 `achievement_count` 1·`cost_usd` 0.000105·`cost_per_achievement_usd` 0.000105·`judge_cost_usd` 0. 닫고 브랜치 삭제.
 
 ```sh
 # 6. dispatch·run·rerun과 게이트 receipt
@@ -124,6 +150,7 @@ orch release verify-stack
 - **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/sessions/github-gate.ts`의 `settings === null`, 이 run에서는 몰지 않았다). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
 - **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 오너에게 기본 경로에 두게 한다.
 - **master key 없이 띄우면** App 등록이 `503 BACKEND_UNAVAILABLE`이다. `down.sh … --keep-volumes` 뒤 1부터 다시 한다.
+- **머지는 사람의 리뷰가 있어야 한다.** werft-sandbox `main`의 ruleset이 승인 리뷰 1개를 요구해 `gh pr merge`가 거절된다. `--admin`으로 넘지 않는다. 그래서 머지 뒤 근거 상태(`merged`)와 Luna 규칙의 다시 판정은 이 절차로 보지 못한다(연결 저장 뒤 후속 검증).
 - **sandbox 저장소는 공유 상태다.** 다른 카드가 연 PR·브랜치가 있다. `gh pr list -R JeongJaeSoon/werft-sandbox`로 자기 `agent/<SID>`만 골라 닫는다. 머지는 하지 않는다(auto mode가 [Merge Without Review]로 막는다. 필요하면 오너 줄로 넘긴다).
 - **다른 run의 파일을 읽지 않는다.** 남겨 둔 run의 `state.env`는 agent-guard가 막는다. 자기 run을 새로 띄운다.
 - **repo 밖 overlay**(예: 오너 확인 디렉터리의 카탈로그 App overlay)는 `up.sh`가 repo 기준으로 붙이므로 `../../…` 상대 경로로 넘긴다.
