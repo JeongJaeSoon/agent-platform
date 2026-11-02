@@ -209,6 +209,43 @@ describe('DisabledReason mode="control" 바깥 trigger', () => {
     expect(queryByRole("dialog")).toBeNull();
   });
 
+  test("바깥과 버튼의 핸들러·style을 Slot처럼 합치고 ref cleanup을 지킨다", async () => {
+    const user = await setupUser();
+    const calls: string[] = [];
+    const ref = (node: HTMLButtonElement | null) => {
+      calls.push(node ? "attach" : "null");
+      return () => {
+        calls.push("cleanup");
+      };
+    };
+    const { getByRole, unmount } = render(
+      <DisabledReason
+        mode="control"
+        reason={undefined}
+        ref={ref}
+        onFocus={() => calls.push("outer focus")}
+        style={{ minWidth: "48px" }}
+      >
+        <button
+          type="button"
+          onFocus={() => calls.push("own focus")}
+          style={{ color: "red" }}
+        >
+          복구
+        </button>
+      </DisabledReason>,
+    );
+    const button = getByRole("button", { name: "복구" });
+    expect(button.style.minWidth).toBe("48px");
+    expect(button.style.color).toBe("red");
+    await user.tab();
+    expect(calls).toContain("own focus");
+    expect(calls).toContain("outer focus");
+    unmount();
+    expect(calls).toContain("cleanup");
+    expect(calls).not.toContain("null");
+  });
+
   test("ref가 버튼에 닿는다", () => {
     const ref = createRef<HTMLButtonElement>();
     const { getByRole } = render(
