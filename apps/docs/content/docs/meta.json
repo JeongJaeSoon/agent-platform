@@ -10,9 +10,9 @@
     "api-keys",
     "observability",
     "sdk",
+    "run-server",
     "ui",
     "reference",
-    "operations",
     "contributing"
   ]
 }

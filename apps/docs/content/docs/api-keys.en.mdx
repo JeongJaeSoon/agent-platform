@@ -84,7 +84,7 @@ A revoked key gets 401 from the next request. Revoking a key that is already rev
 
 ## Operator CLI
 
-An operator can issue a key directly on the server. On the local stack it is `scripts/local.sh key` ([Quickstart](/getting-started/quickstart#get-an-api-key)). This path does not go through the permission checks above.
+An operator can issue a key directly on the server. On the local stack it is `scripts/local.sh key` ([Run a development server](/run-server/dev-server#get-an-api-key)). This path does not go through the permission checks above.
 
 ```sh
 scripts/local.sh key <owner> --scopes sessions:read,sessions:write
