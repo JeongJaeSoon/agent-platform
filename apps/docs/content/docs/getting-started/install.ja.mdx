@@ -29,9 +29,10 @@ bun run --cwd packages/sdk build:package
 npm pack ./packages/sdk/dist
 ```
 
-リポジトリのルートに `werft-ai-sdk-0.1.0.tgz` ができる。アプリのディレクトリでそのファイルをインストールする。
+リポジトリのルートに `werft-ai-sdk-0.1.0.tgz` ができる。リポジトリの隣にアプリのディレクトリを作り、そのファイルをインストールする。
 
 ```sh
+cd ..
 mkdir my-werft-app && cd my-werft-app
 npm init -y
 npm pkg set type=module

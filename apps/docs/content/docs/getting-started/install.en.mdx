@@ -29,9 +29,10 @@ bun run --cwd packages/sdk build:package
 npm pack ./packages/sdk/dist
 ```
 
-This writes `werft-ai-sdk-0.1.0.tgz` to the repository root. Install that file from your app directory.
+This writes `werft-ai-sdk-0.1.0.tgz` to the repository root. Create an app directory next to the repository and install that file there.
 
 ```sh
+cd ..
 mkdir my-werft-app && cd my-werft-app
 npm init -y
 npm pkg set type=module
