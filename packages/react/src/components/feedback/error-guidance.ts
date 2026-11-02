@@ -257,6 +257,10 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "Slack's response didn't match this agent's app or workspace, so nothing was saved — start the install again.",
   SLACK_INSTALL_CONFLICT:
     "This Slack app is already installed in another workspace — remove that install first.",
+  GITHUB_UNAVAILABLE:
+    "Couldn't get the App's installations or repositories from GitHub — try again shortly. If it keeps happening, check the App key.",
+  INSTALLATION_SUSPENDED:
+    "This installation is suspended on GitHub — turn it back on in that account's GitHub installation settings.",
 };
 
 const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
@@ -397,6 +401,10 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "Slack の応答がこのエージェントのアプリ・workspace と合わないため保存しませんでした — インストールをやり直してください。",
   SLACK_INSTALL_CONFLICT:
     "この Slack アプリはすでに別の workspace にインストールされています — 先にそちらのインストールを解除してください。",
+  GITHUB_UNAVAILABLE:
+    "GitHub から App のインストールやリポジトリを取得できませんでした — しばらくしてからもう一度お試しください。続く場合は App のキーを確認してください。",
+  INSTALLATION_SUSPENDED:
+    "このインストールは GitHub で停止されています — そのアカウントの GitHub インストール設定で再び有効にしてください。",
 };
 
 /** Every locale's guidance; `ERROR_GUIDANCE` is the Korean one. */
