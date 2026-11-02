@@ -16,6 +16,7 @@ import {
   FieldError,
   Heading,
   Link,
+  RowAction,
   RowList,
   SettingRow,
   Skeleton,
@@ -244,7 +245,7 @@ export function SlackConnect({
                           )
                         }
                       />
-                      <Button asChild variant="outline" size="sm">
+                      <RowAction asChild>
                         <Link
                           href={`https://api.slack.com/apps/${encodeURIComponent(record.app_id)}`}
                           target="_blank"
@@ -253,7 +254,7 @@ export function SlackConnect({
                         >
                           {t("slack.openInSlack")}
                         </Link>
-                      </Button>
+                      </RowAction>
                     </>
                   ) : null
                 }
@@ -273,10 +274,7 @@ export function SlackConnect({
                 )}
                 actions={
                   <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
+                    <RowAction
                       disabled={
                         busy ||
                         pending ||
@@ -287,16 +285,13 @@ export function SlackConnect({
                       {connect.isPending
                         ? t("slack.working")
                         : t(identity ? "slack.reinstall" : "slack.install")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
+                    </RowAction>
+                    <RowAction
                       disabled={busy || app.isFetching || identities.isFetching}
                       onClick={() => void refresh()}
                     >
                       {t("slack.refresh")}
-                    </Button>
+                    </RowAction>
                   </>
                 }
               />
@@ -320,18 +315,15 @@ export function SlackConnect({
                   )
                 }
                 actions={
-                  <Button
+                  <RowAction
                     id={RECHECK_ID}
-                    type="button"
-                    variant="outline"
-                    size="sm"
                     disabled={busy || pending}
                     onClick={() => recheck.mutate()}
                   >
                     {recheck.isPending
                       ? t("slack.working")
                       : t("slack.eventsUrl.recheck")}
-                  </Button>
+                  </RowAction>
                 }
               />
             ) : null}

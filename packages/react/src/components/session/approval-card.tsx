@@ -215,7 +215,7 @@ export function ApprovalCard({
             </Button>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               disabled={pending}
               onClick={() => {
                 returnFocus.current = true;

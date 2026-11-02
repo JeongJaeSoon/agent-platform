@@ -56,6 +56,7 @@ import {
   Page,
   RadioGroup,
   RadioGroupItem,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -634,27 +635,20 @@ function MemberTableRow({
     ? reasonOf(ENABLE_REASON, member.actions.enable)
     : reasonOf(DISABLE_REASON, member.actions.disable);
   const button = disabled ? (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="shrink-0"
+    <RowAction
       disabled={keepWhy !== undefined}
+      aria-label={`${name} 다시 활성화`}
     >
       다시 활성화
-    </Button>
+    </RowAction>
   ) : (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="shrink-0"
+    <RowAction
       disabled={keepWhy !== undefined}
       aria-label={`${name} 비활성화`}
       onClick={onDisable}
     >
       비활성화
-    </Button>
+    </RowAction>
   );
   return (
     <GridTableRow inactive={disabled} data-disabled={disabled}>
@@ -694,11 +688,7 @@ function MemberTableRow({
           {ROLE_LABEL[member.role]}
         </Badge>
       </GridTableCell>
-      <GridTableCell
-        raised={true}
-        align="end"
-        className="gap-1 [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]"
-      >
+      <GridTableCell raised={true} align="end" className="gap-1">
         {keepWhy ? (
           <DisabledReason
             reason={keepWhy}
@@ -842,16 +832,14 @@ function InvitesTab({
                     {`${formatTimestamp(invite.expires_at, "ko")}까지`}
                   </Text>
                 </RowLines>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
+                <RowAction
+                  variant="danger"
                   className="ml-auto"
                   aria-label={`${invite.email} 초대 회수`}
                   onClick={() => setRevoking(invite)}
                 >
                   회수
-                </Button>
+                </RowAction>
               </RowListItem>
             ))}
           </RowList>
@@ -1236,16 +1224,13 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell align="end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="min-w-[var(--ap-row-action-min-width)]"
+                        <RowAction
+                          variant="danger"
                           aria-label={`${name}님을 팀에서 빼기`}
                           onClick={() => setRemoving(member)}
                         >
                           빼기
-                        </Button>
+                        </RowAction>
                       </GridTableCell>
                     )}
                   </GridTableRow>

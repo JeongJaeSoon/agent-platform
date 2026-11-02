@@ -11,12 +11,12 @@ import type {
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Badge,
-  Button,
   ConfirmDialog,
   cn,
   formatTimestamp,
   Heading,
   Page,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -51,7 +51,6 @@ import {
 // One row per service (console v35): 64px tall, its button as wide as a row action.
 const SERVICE_ROW =
   "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
-const SERVICE_BUTTON = "ml-auto min-w-[var(--ap-row-action-min-width)]";
 // Lines under a service start where its name does: inset, mark, gap.
 const SERVICE_INDENT =
   "pl-[calc(var(--ap-row-padding-x)+var(--ap-size-tile-two-line)+0.75rem)]";
@@ -264,11 +263,9 @@ export function LinkedAccountsScreen() {
             {/* Linked rows offer only unlinking; linking again starts from
                 there. */}
             {accounts.isSuccess && live.length === 0 ? (
-              <Button
+              <RowAction
                 ref={startRef}
-                type="button"
-                variant="outline"
-                className={SERVICE_BUTTON}
+                className="ml-auto"
                 aria-label={start.isPending ? undefined : t("linked.connect")}
                 // Not held after success: back from Slack (bfcache) must be
                 // able to start again.
@@ -276,7 +273,7 @@ export function LinkedAccountsScreen() {
                 onClick={() => start.mutate()}
               >
                 {start.isPending ? t("linked.starting") : t("linked.link")}
-              </Button>
+              </RowAction>
             ) : null}
           </div>
           {accounts.isPending ? (
@@ -426,10 +423,8 @@ function GitHubService({
           </Text>
         </RowLines>
         {accounts !== undefined && !linked ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={SERVICE_BUTTON}
+          <RowAction
+            className="ml-auto"
             aria-label={
               start.isPending || unset ? undefined : t("linked.github.connect")
             }
@@ -437,7 +432,7 @@ function GitHubService({
             onClick={() => start.mutate()}
           >
             {start.isPending ? t("linked.github.starting") : t("linked.link")}
-          </Button>
+          </RowAction>
         ) : null}
       </div>
       {linked ? (
@@ -476,17 +471,15 @@ function GitHubService({
                   })}
                 </Text>
               </RowLines>
-              <Button
-                type="button"
+              <RowAction
                 variant="danger"
-                size="sm"
                 aria-disabled={unlinking === account.id || undefined}
                 onClick={() => {
                   if (unlinking !== account.id) onUnlink(account);
                 }}
               >
                 {t("linked.unlink")}
-              </Button>
+              </RowAction>
             </RowListItem>
           ))}
         </RowList>
@@ -571,10 +564,8 @@ function SlackAccounts({
               </Text>
             )}
           </RowLines>
-          <Button
-            type="button"
+          <RowAction
             variant="danger"
-            size="sm"
             // Not `disabled` while it runs: Chrome takes focus off a disabled
             // button, and a refused unlink would leave the keyboard lost.
             aria-disabled={unlinking === account.id || undefined}
@@ -583,7 +574,7 @@ function SlackAccounts({
             }}
           >
             {t("linked.unlink")}
-          </Button>
+          </RowAction>
         </RowListItem>
       ))}
     </RowList>

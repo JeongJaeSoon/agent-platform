@@ -34,6 +34,7 @@ import {
   linkVariants,
   Page,
   RelativeTime,
+  RowAction,
   RowLines,
   RowListItem,
   SecretField,
@@ -204,7 +205,6 @@ const SECTIONS = "flex flex-col gap-10";
 // The server's ceiling (workspace-settings.tsx AUDIT_RETENTION_MAX_DAYS).
 const AUDIT_RETENTION_MAX_DAYS = 3650;
 const ICON = "size-3.5 shrink-0";
-const ACTION = "min-w-12";
 const SLACK_APPS_URL = "https://api.slack.com/apps";
 // The page's link target for the app list (workspace-slack-apps.tsx).
 const SLACK_APPS_ANCHOR = "slack-apps";
@@ -885,11 +885,8 @@ function SlackPage({
         description={tokenLine(summary)}
         actions={
           editing ? undefined : (
-            <Button
-              type="button"
-              size="sm"
+            <RowAction
               variant={summary.state === "active" ? "outline" : "default"}
-              className={ACTION}
               onClick={() => setEditing(true)}
             >
               {summary.state === "active"
@@ -897,7 +894,7 @@ function SlackPage({
                 : summary.state === "needs_reentry"
                   ? "토큰 재등록"
                   : "토큰 등록"}
-            </Button>
+            </RowAction>
           )
         }
       />

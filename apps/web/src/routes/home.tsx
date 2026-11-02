@@ -27,8 +27,6 @@ import {
 } from "@werft-ai/react/components";
 import {
   Badge,
-  Button,
-  buttonVariants,
   Card,
   cn,
   formatElapsed,
@@ -40,6 +38,7 @@ import {
   MoreLink,
   Page,
   RelativeTime,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -981,18 +980,19 @@ function SlackTodo({
                   })}
                 </Text>
               </RowLines>
-              <Link
-                to="/agents/$id"
-                params={{ id: agent.id }}
-                search={{ tab: "slack" }}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-                aria-label={t("home.todo.ctaName", {
-                  action: t(`home.todo.cta.${action}`),
-                  agent: agent.name,
-                })}
-              >
-                {t(`home.todo.cta.${action}`)}
-              </Link>
+              <RowAction asChild>
+                <Link
+                  to="/agents/$id"
+                  params={{ id: agent.id }}
+                  search={{ tab: "slack" }}
+                  aria-label={t("home.todo.ctaName", {
+                    action: t(`home.todo.cta.${action}`),
+                    agent: agent.name,
+                  })}
+                >
+                  {t(`home.todo.cta.${action}`)}
+                </Link>
+              </RowAction>
             </RowListItem>
           );
         })}
@@ -1310,14 +1310,12 @@ function Checklist({ steps }: { readonly steps: readonly Step[] }) {
               ),
             done: step.state === "done",
             action: step.to ? (
-              <Button
+              <RowAction
                 asChild
-                size="sm"
                 variant={step === next ? "default" : "outline"}
-                className="shrink-0"
               >
                 <Link to={step.to}>{t(STEP_ACTION[step.to])}</Link>
-              </Button>
+              </RowAction>
             ) : undefined,
           }))}
         />

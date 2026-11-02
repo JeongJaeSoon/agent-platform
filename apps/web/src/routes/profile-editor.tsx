@@ -464,7 +464,7 @@ export function ProfileEditor({
         <div className="flex gap-2">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             aria-disabled={save.isPending || undefined}
             onClick={() => {
               if (!save.isPending) onCancel();
