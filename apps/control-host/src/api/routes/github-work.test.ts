@@ -193,8 +193,10 @@ function app(
     catalog,
     connections: (id, role) => {
       if (id !== "app" || options.repository === "elsewhere") return null;
-      if (role === "author") return onGitHubCom;
-      return options.reviewer === false ? null : reviewer;
+      if (role === "author") return { kind: "fixed", connection: onGitHubCom };
+      return options.reviewer === false
+        ? null
+        : { kind: "fixed", connection: reviewer };
     },
     store: {
       context: async (sessionId) =>

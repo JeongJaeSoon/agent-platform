@@ -2,9 +2,10 @@ import {
   completeGitHubAppManifestRequestSchema,
   completeGitHubAppManifestResponseSchema,
   deleteGitHubAppResponseSchema,
-  type GitHubAppRole,
   getGitHubAppResponseSchema,
   githubAppRoleParamsSchema,
+  listGitHubAppsResponseSchema,
+  postGitHubAppRequestSchema,
   putGitHubAppRequestSchema,
   putGitHubAppResponseSchema,
   startGitHubAppManifestRequestSchema,
@@ -12,7 +13,7 @@ import {
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type { StructuredLogger } from "@werft-ai/observability";
-import type { GitHubAppService } from "@werft-ai/platform";
+import type { GitHubAppRef, GitHubAppService } from "@werft-ai/platform";
 import type { Context } from "hono";
 import {
   type ApiEnvironment,
@@ -24,18 +25,16 @@ import {
 } from "../app.ts";
 import { mapped, requireParams } from "./errors.ts";
 
-// `/github-app` is the author App's, kept as it was; `/github-apps/{role}`
-// names the role.
 function target(context: Context<ApiEnvironment>): {
   workspaceId: string;
-  role: GitHubAppRole;
+  ref: GitHubAppRef;
 } {
   if (context.req.param("role") === undefined) {
     const { id } = requireParams(context, workspaceParamsSchema);
-    return { workspaceId: id.toLowerCase(), role: "author" };
+    return { workspaceId: id.toLowerCase(), ref: "author" };
   }
   const { id, role } = requireParams(context, githubAppRoleParamsSchema);
-  return { workspaceId: id.toLowerCase(), role };
+  return { workspaceId: id.toLowerCase(), ref: role.toLowerCase() };
 }
 
 export function registerGitHubAppRoutes(
@@ -52,17 +51,17 @@ export function registerGitHubAppRoutes(
     ],
   ] as const) {
     apiRoute(router, get, async (context) => {
-      const { workspaceId, role } = target(context);
+      const { workspaceId, ref } = target(context);
       const app = await mapped(() =>
-        service.describe(context.get("caller"), workspaceId, role),
+        service.describe(context.get("caller"), workspaceId, ref),
       );
       return jsonWithSchema(context, getGitHubAppResponseSchema, app);
     });
 
     apiRoute(router, put, async (context) => {
-      const { workspaceId, role } = target(context);
+      const { workspaceId, ref } = target(context);
       const set = await mapped(() =>
-        service.register(context.get("caller"), workspaceId, role, () =>
+        service.register(context.get("caller"), workspaceId, ref, () =>
           parseJsonBody(context, putGitHubAppRequestSchema),
         ),
       );
@@ -70,13 +69,31 @@ export function registerGitHubAppRoutes(
     });
 
     apiRoute(router, remove, async (context) => {
-      const { workspaceId, role } = target(context);
+      const { workspaceId, ref } = target(context);
       const deleted = await mapped(() =>
-        service.remove(context.get("caller"), workspaceId, role),
+        service.remove(context.get("caller"), workspaceId, ref),
       );
       return jsonWithSchema(context, deleteGitHubAppResponseSchema, deleted);
     });
   }
+
+  apiRoute(router, "listWorkspaceGitHubApps", async (context) => {
+    const { id } = requireParams(context, workspaceParamsSchema);
+    const listed = await mapped(() =>
+      service.list(context.get("caller"), id.toLowerCase()),
+    );
+    return jsonWithSchema(context, listGitHubAppsResponseSchema, listed);
+  });
+
+  apiRoute(router, "addWorkspaceGitHubApp", async (context) => {
+    const { id } = requireParams(context, workspaceParamsSchema);
+    const added = await mapped(() =>
+      service.add(context.get("caller"), id.toLowerCase(), () =>
+        parseJsonBody(context, postGitHubAppRequestSchema),
+      ),
+    );
+    return jsonWithSchema(context, putGitHubAppResponseSchema, added);
+  });
 
   apiRoute(router, "startGitHubAppManifest", async (context) => {
     const { id } = requireParams(context, workspaceParamsSchema);

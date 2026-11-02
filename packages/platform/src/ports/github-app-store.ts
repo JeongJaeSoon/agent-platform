@@ -3,7 +3,9 @@ import type {
   GitHubAppConflict,
   GitHubAppPermissions,
   GitHubAppRole,
+  GitHubAppUsage,
   GitHubUnavailable,
+  ReceiptActor,
 } from "@werft-ai/contracts";
 import type { RepoRef } from "./forge.ts";
 import type { SecretAudit } from "./secret-store.ts";
@@ -54,14 +56,107 @@ export type GitHubAppCredential = {
 };
 
 export type PutGitHubAppResult =
-  | { outcome: "stored"; app: GitHubAppRecord }
-  | { outcome: "actor_inactive" | "outranked" | "workspace_not_found" }
+  | {
+      outcome: "stored";
+      app: GitHubAppRecord & { role: GitHubAppRole };
+      /** Pins of the connection a replacement by another App dropped. */
+      pinsCleared: number;
+      /** Emptied pins of this App filled again with this connection. */
+      pinsRestored: number;
+    }
+  | {
+      outcome:
+        | "actor_inactive"
+        | "outranked"
+        | "workspace_not_found"
+        | "not_found"
+        | "app_id_mismatch";
+    }
   /** Decided under the workspace's lock, so two writes cannot both pass. */
   | { outcome: GitHubAppConflict };
 
 export type DeleteGitHubAppResult =
-  | { outcome: "deleted"; appId: number }
-  | { outcome: "not_found" | "actor_inactive" | "outranked" };
+  | { outcome: "deleted"; appId: number; usage: GitHubAppUsage }
+  | {
+      outcome:
+        | "not_found"
+        | "actor_inactive"
+        | "outranked"
+        | "ambiguous_role"
+        | "in_use_for_user_link";
+    };
+
+/**
+ * Which connection a write is for. A role address serves a role with at most
+ * one connection, as before several Apps a role (decision github-agent.md
+ * 11.1); a connection id takes only a new key for the same App.
+ */
+export type GitHubAppTarget =
+  | { kind: "role"; role: GitHubAppRole }
+  | { kind: "add"; role: GitHubAppRole }
+  | { kind: "connection"; id: string };
+
+export type SetUserLinkResult =
+  | { outcome: "stored"; before: string | null; changed: boolean }
+  | {
+      outcome:
+        | "not_found"
+        | "role_mismatch"
+        | "actor_inactive"
+        | "outranked"
+        | "workspace_not_found";
+    };
+
+/** A catalog repository's pinned connection for one role. */
+export type GitHubRepositoryPin = {
+  repositoryId: string;
+  role: GitHubAppRole;
+  /** Null: the pinned connection was removed. */
+  connectionId: string | null;
+  appId: number;
+  pinnedBy: "selection" | "first_mint" | "admin";
+};
+
+export type SetGitHubPinResult =
+  | { outcome: "stored"; before: string | null; changed: boolean }
+  | { outcome: "not_found" | "role_mismatch" };
+
+/**
+ * The connection each catalog repository's work uses (decision
+ * github-agent.md 11, "저장소에 고정된 연결").
+ */
+export interface GitHubPinStore {
+  get(
+    repositoryId: string,
+    role: GitHubAppRole,
+  ): Promise<GitHubRepositoryPin | null>;
+  list(): Promise<GitHubRepositoryPin[]>;
+  /**
+   * Pins `connectionId` unless the repository already has a pin for the
+   * role, and answers the pin that holds. A `selection` pin writes its
+   * `set_repository_github_app` receipt with it. `pin` is null when nothing
+   * holds and the connection is no longer `appId` of `role`: nothing is
+   * written.
+   */
+  pinFirst(input: {
+    repositoryId: string;
+    role: GitHubAppRole;
+    connectionId: string;
+    appId: number;
+    pinnedBy: "selection" | "first_mint";
+    /** A selection's actor and receipt; absent for a first mint. */
+    audit?: { ownerId: string; actor: ReceiptActor; receiptId: string };
+  }): Promise<{ pin: GitHubRepositoryPin | null; created: boolean }>;
+  /** An admin's change; the connection must be of the workspace and role. */
+  set(input: {
+    workspaceId: string;
+    repositoryId: string;
+    role: GitHubAppRole;
+    connectionId: string;
+    actor: ReceiptActor;
+    receiptId: string;
+  }): Promise<SetGitHubPinResult>;
+}
 
 /** What a manifest's code turned into on GitHub, secrets included. */
 export type GitHubAppManifestConversion = GitHubAppProfile & {
@@ -97,37 +192,57 @@ export interface GitHubAppManifestStore {
 
 /** What `put` also stores when the App came from a manifest. */
 export type GitHubAppManifestPut = {
+  /** Kept only when the new connection is the one people link with. */
   clientSecret: string;
-  /** Stored only while the author App is still this one (null: none). */
-  replaces: number | null;
   owner: string;
   public: boolean;
 };
 
 /**
- * One GitHub App per workspace and role. Every call names its role, so a
- * caller that only knows the author App never reads, replaces or deletes
- * the reviewer's row or key.
+ * The workspace's GitHub App connections, any number a role (decision
+ * github-agent.md 11). A role address still names one connection while its
+ * role has at most one, so a caller that only knows a role never reads,
+ * replaces or deletes a connection it cannot tell apart.
  */
 export interface GitHubAppStore {
-  find(
+  /** A role's connections, oldest first. */
+  ofRole(
     workspaceId: string,
     role: GitHubAppRole,
-  ): Promise<GitHubAppRecord | null>;
-  /** Registers or replaces the App; the receipt is written with it. */
+  ): Promise<Array<GitHubAppRecord & { role: GitHubAppRole }>>;
+  get(
+    workspaceId: string,
+    connectionId: string,
+  ): Promise<(GitHubAppRecord & { role: GitHubAppRole }) | null>;
+  /** Registers, adds or replaces a connection; the receipt is written with it. */
   put(
     workspaceId: string,
-    role: GitHubAppRole,
+    target: GitHubAppTarget,
     app: GitHubAppProfile & { apiBase: string },
     privateKey: string,
     audit: SecretAudit,
     manifest?: GitHubAppManifestPut,
   ): Promise<PutGitHubAppResult>;
+  /** Removes a connection with its key; its pins stay, emptied. */
   delete(
     workspaceId: string,
-    role: GitHubAppRole,
+    target: Exclude<GitHubAppTarget, { kind: "add" }>,
     audit: SecretAudit,
   ): Promise<DeleteGitHubAppResult>;
+  /** What removing the connection affects; null when it is not the workspace's. */
+  usage(
+    workspaceId: string,
+    connectionId: string,
+  ): Promise<GitHubAppUsage | null>;
+  /**
+   * The author connection people link their accounts with; its OAuth client
+   * secret goes with the change.
+   */
+  setUserLink(
+    workspaceId: string,
+    connectionId: string,
+    audit: SecretAudit,
+  ): Promise<SetUserLinkResult>;
   /**
    * Keeps a later read of the App's permissions on the row `id` names, while
    * that row still holds App `appId`: a replacement keeps the row's id, and a

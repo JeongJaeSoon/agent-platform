@@ -122,7 +122,8 @@ function wired() {
   });
   const gate = createGitHubGate({
     catalog,
-    connections: (_id, role) => (role === "author" ? connection : null),
+    connections: (_id, role) =>
+      role === "author" ? { kind: "fixed", connection } : null,
     store: {
       context,
       findDispatch: async () => null,

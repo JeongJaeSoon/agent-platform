@@ -46,7 +46,7 @@ scripts/local.sh up --fake-model
 {"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}
 ```
 
-`--fake-model` を付けると、モデル呼び出しは compose 内の fake Messages API が受ける。worker の中では本物の Claude Code が動き、fake はメッセージに書かれたスクリプトどおりに答える ([Quickstart](/getting-started/quickstart))。オプションなしで `scripts/local.sh up` を実行すると、シェルの `ANTHROPIC_API_KEY` で実際の Claude を呼び出し、費用がかかる。
+`--fake-model` を付けると、モデル呼び出しは compose 内の fake Messages API が受ける。worker の中では本物の Claude Code が動き、fake はメッセージに書かれたスクリプトどおりに答える ([最初のセッションを作る](/getting-started/quickstart))。オプションなしで `scripts/local.sh up` を実行すると、シェルの `ANTHROPIC_API_KEY` で実際の Claude を呼び出し、費用がかかる。
 
 ## 状態を確認する
 
@@ -72,7 +72,7 @@ csp_…
 
 `key_id` は stderr に出力されるキーの id である。キー本体は stdout に一度だけ出力される。再び見ることはできないので、変数にだけ保持する。`quickstart` はキーの owner 名で、このキーで作成したセッションはこの owner のものになる。scope は [API キー](/api-keys) にある。
 
-`API` と `KEY` は、[Quickstart](/getting-started/quickstart) の例が同じターミナルで引き続き使う。キーが正しいかもそこで最初に確認する。
+SDK には `baseUrl` でサーバーのアドレス(`API`)を、`apiKey` でこのキーを渡す([SDK のインストール](/getting-started/install#クライアントを作る))。`WERFT_API_KEY="$KEY"` のように環境変数で渡してもよい。HTTP API の例は `API` と `KEY` を同じターミナルで引き続き使う。
 
 ## 停止する
 
@@ -97,5 +97,5 @@ scripts/local.sh down
 
 ## 次のステップ
 
-- [Quickstart](/getting-started/quickstart): このサーバーで最初のセッションを作成する
+- [SDK のインストール](/getting-started/install): SDK でこのサーバーに接続し、最初のセッションを作る
 - [セルフホスティング](/run-server/self-hosting): 複数の人が使うサーバーを運用する

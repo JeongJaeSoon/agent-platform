@@ -897,6 +897,13 @@
       "when": 1793604083452,
       "tag": "0218_achievement_judgment_threshold",
       "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1793621571906,
+      "tag": "0219_github_app_connections",
+      "breakpoints": true
     }
   ]
 }
