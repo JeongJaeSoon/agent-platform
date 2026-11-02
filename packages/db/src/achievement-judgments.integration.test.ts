@@ -2138,6 +2138,49 @@ integration("achievement judgments on PostgreSQL", () => {
       expect(listed?.judgment?.evidence_change).toBeNull();
     });
 
+    test("a merge a few hundred microseconds before the judgment, in the same millisecond, still changed its evidence", async () => {
+      const ws = await workspace();
+      const sessionId = await session(ws.workspaceId);
+      const pr = await pullRequest(sessionId, ws.workspaceId);
+      const [first] = await judgmentsOf(sessionId);
+      // One transaction: now() is the same in every statement.
+      const base = sql`date_trunc('milliseconds', now())`;
+      const secondId = randomUUID();
+      await db.transaction(async (tx) => {
+        await tx
+          .update(achievementJudgments)
+          .set({
+            status: "succeeded",
+            createdAt: sql`${base} - interval '1 second'`,
+            finishedAt: sql`${base} - interval '1 second'`,
+          })
+          .where(eq(achievementJudgments.id, first?.id ?? ""));
+        await tx.insert(achievementJudgments).values({
+          id: secondId,
+          workspaceId: ws.workspaceId,
+          ownerId: ws.workspaceId,
+          sessionId,
+          trigger: "evidence",
+          status: "succeeded",
+          nextAttemptAt: sql`${base}`,
+          createdAt: sql`${base} + interval '900 microseconds'`,
+          finishedAt: sql`${base} + interval '1 second'`,
+        });
+        await tx
+          .update(sessionOutcomes)
+          .set({
+            state: "merged",
+            mergedAt: sql`${base} + interval '600 microseconds'`,
+          })
+          .where(eq(sessionOutcomes.id, pr.id));
+      });
+      const listed = await judgments.list(ws.workspaceId, sessionId);
+      expect(listed?.judgment).toMatchObject({
+        id: secondId,
+        evidence_change: "pr_merged",
+      });
+    });
+
     test("a judgment that asked and then failed keeps the threshold it asked with, but no digest, so the next try asks again", async () => {
       for (const answers of [
         [0.95, "fail"],

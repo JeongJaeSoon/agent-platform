@@ -32,7 +32,6 @@ import {
   inArray,
   isNotNull,
   isNull,
-  lte,
   ne,
   type SQL,
   sql,
@@ -276,34 +275,30 @@ async function evidenceChangeOf(
   judgment: typeof achievementJudgments.$inferSelect,
 ): Promise<AchievementJudgment["evidence_change"]> {
   if (judgment.trigger !== "evidence") return null;
-  const [previous] = await db
-    .select({ createdAt: achievementJudgments.createdAt })
-    .from(achievementJudgments)
-    .where(
-      and(
-        eq(achievementJudgments.sessionId, judgment.sessionId),
-        sql`(${achievementJudgments.createdAt}, ${achievementJudgments.id}) < (${judgment.createdAt}, ${judgment.id})`,
-      ),
-    )
-    .orderBy(
-      desc(achievementJudgments.createdAt),
-      desc(achievementJudgments.id),
-    )
-    .limit(1);
-  if (!previous) return null;
-  const [merged] = await db
-    .select({ id: sessionOutcomes.id })
-    .from(sessionOutcomes)
-    .where(
-      and(
-        eq(sessionOutcomes.sessionId, judgment.sessionId),
-        eq(sessionOutcomes.type, "github_pull_request"),
-        gt(sessionOutcomes.mergedAt, previous.createdAt),
-        lte(sessionOutcomes.mergedAt, judgment.createdAt),
-      ),
-    )
-    .limit(1);
-  return merged ? "pr_merged" : null;
+  // One statement over the rows themselves: a timestamp read back into a
+  // Date loses its microseconds, and a merge in the judgment's millisecond
+  // would fall outside.
+  const result = await db.execute(sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM ${achievementJudgments} j
+      CROSS JOIN LATERAL (
+        SELECT p.created_at
+        FROM ${achievementJudgments} p
+        WHERE p.session_id = j.session_id
+          AND (p.created_at, p.id) < (j.created_at, j.id)
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT 1
+      ) previous
+      JOIN ${sessionOutcomes} o
+        ON o.session_id = j.session_id
+       AND o.type = 'github_pull_request'
+       AND o.merged_at > previous.created_at
+       AND o.merged_at <= j.created_at
+      WHERE j.id = ${judgment.id}
+    ) AS merged
+  `);
+  return rowsOf<{ merged: boolean }>(result)[0]?.merged ? "pr_merged" : null;
 }
 
 function judgmentOf(
