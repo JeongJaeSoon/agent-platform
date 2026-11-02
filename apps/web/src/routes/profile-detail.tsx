@@ -17,6 +17,7 @@ import {
   Badge,
   Button,
   buttonVariants,
+  Card,
   ConfirmDialog,
   cn,
   DangerZone,
@@ -537,7 +538,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
     value,
   });
   return (
-    <div className="rounded-card border bg-card p-4">
+    <Card className="p-4">
       <KeyValueList
         items={[
           item("id", t("profiles.detail.id"), <Mono>{profile.id}</Mono>),
@@ -643,7 +644,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
             : []),
         ]}
       />
-    </div>
+    </Card>
   );
 }
 
@@ -665,7 +666,7 @@ function Audit({ profile }: { readonly profile: ProfileSummary }) {
   if (record === undefined) return null;
   const previous = profile.installation?.previous_id;
   return (
-    <div className="rounded-card border bg-card p-4">
+    <Card className="p-4">
       <KeyValueList
         items={[
           ...(profile.installation
@@ -716,7 +717,7 @@ function Audit({ profile }: { readonly profile: ProfileSummary }) {
             : []),
         ]}
       />
-    </div>
+    </Card>
   );
 }
 
@@ -747,81 +748,80 @@ function History({
           : "profiles.workspace.description",
       )}
     >
-      <div className="rounded-card border bg-card">
-        <GridTable
-          aria-label={t("profiles.detail.history.title")}
-          columns={HISTORY_COLUMNS[0]}
-          narrowAt={640}
-          narrowColumns={HISTORY_COLUMNS[1]}
-        >
-          <GridTableHeader>
-            <GridTableColumnHeader>
-              {t("profiles.detail.history.version")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader>
-              {t("profiles.column.state")}
-            </GridTableColumnHeader>
-            <GridTableColumnHeader hideNarrow>
-              {t("profiles.detail.created")}
-            </GridTableColumnHeader>
-          </GridTableHeader>
-          {rows.map((item) => {
-            const state = stateOf(item);
-            const created =
-              item.installation?.created_at ?? item.workspace?.created_at;
-            return (
-              <GridTableRow key={item.id}>
-                <GridTableCell>
-                  <GridTableRowOpener
-                    asChild
-                    aria-label={t("profiles.open", { name: item.id })}
-                  >
-                    <Link
-                      to="/profiles/$profileId"
-                      params={{ profileId: item.id }}
-                    />
-                  </GridTableRowOpener>
-                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                    <span className="leading-5">
-                      <span className="font-medium text-foreground">
-                        {item.workspace
-                          ? t("profiles.versionTag", {
-                              version: versionOf(item),
-                            })
-                          : t("profiles.detail.history.named", {
-                              name: profileName(item),
-                              version: versionOf(item),
-                            })}
+      <GridTable
+        aria-label={t("profiles.detail.history.title")}
+        columns={HISTORY_COLUMNS[0]}
+        narrowAt={640}
+        narrowColumns={HISTORY_COLUMNS[1]}
+        framed={true}
+      >
+        <GridTableHeader>
+          <GridTableColumnHeader>
+            {t("profiles.detail.history.version")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader>
+            {t("profiles.column.state")}
+          </GridTableColumnHeader>
+          <GridTableColumnHeader hideNarrow>
+            {t("profiles.detail.created")}
+          </GridTableColumnHeader>
+        </GridTableHeader>
+        {rows.map((item) => {
+          const state = stateOf(item);
+          const created =
+            item.installation?.created_at ?? item.workspace?.created_at;
+          return (
+            <GridTableRow key={item.id}>
+              <GridTableCell>
+                <GridTableRowOpener
+                  asChild
+                  aria-label={t("profiles.open", { name: item.id })}
+                >
+                  <Link
+                    to="/profiles/$profileId"
+                    params={{ profileId: item.id }}
+                  />
+                </GridTableRowOpener>
+                <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                  <span className="leading-5">
+                    <span className="font-medium text-foreground">
+                      {item.workspace
+                        ? t("profiles.versionTag", {
+                            version: versionOf(item),
+                          })
+                        : t("profiles.detail.history.named", {
+                            name: profileName(item),
+                            version: versionOf(item),
+                          })}
+                    </span>
+                    {item.id === profile.id ? (
+                      <span className={META}>
+                        {" "}
+                        {t("profiles.detail.history.current")}
                       </span>
-                      {item.id === profile.id ? (
-                        <span className={META}>
-                          {" "}
-                          {t("profiles.detail.history.current")}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span
-                      className={cn("font-mono leading-4 wrap-anywhere", META)}
-                    >
-                      {item.id}
-                    </span>
-                  </div>
-                </GridTableCell>
-                <GridTableCell>
-                  <Badge variant={STATE_BADGE[state]}>
-                    {t(`profiles.state.${state}`)}
-                  </Badge>
-                </GridTableCell>
-                <GridTableCell hideNarrow>
-                  <span className={META}>
-                    {created ? formatTimestamp(created, locale) : "—"}
+                    ) : null}
                   </span>
-                </GridTableCell>
-              </GridTableRow>
-            );
-          })}
-        </GridTable>
-      </div>
+                  <span
+                    className={cn("font-mono leading-4 wrap-anywhere", META)}
+                  >
+                    {item.id}
+                  </span>
+                </div>
+              </GridTableCell>
+              <GridTableCell>
+                <Badge variant={STATE_BADGE[state]}>
+                  {t(`profiles.state.${state}`)}
+                </Badge>
+              </GridTableCell>
+              <GridTableCell hideNarrow>
+                <span className={META}>
+                  {created ? formatTimestamp(created, locale) : "—"}
+                </span>
+              </GridTableCell>
+            </GridTableRow>
+          );
+        })}
+      </GridTable>
     </Section>
   );
 }
@@ -853,70 +853,66 @@ function Narrowings({
       {rows.length === 0 ? (
         <EmptyState title={t("profiles.detail.narrowings.empty")} />
       ) : (
-        <div className="rounded-card border bg-card">
-          <GridTable
-            aria-label={t("profiles.detail.narrowings.title")}
-            columns={HISTORY_COLUMNS[0]}
-            narrowAt={640}
-            narrowColumns={HISTORY_COLUMNS[1]}
-          >
-            <GridTableHeader>
-              <GridTableColumnHeader>
-                {t("profiles.column.name")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader>
-                {t("profiles.column.state")}
-              </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
-                {t("profiles.column.model")}
-              </GridTableColumnHeader>
-            </GridTableHeader>
-            {rows.map((item) => {
-              const state = stateOf(item);
-              return (
-                <GridTableRow key={item.id}>
-                  <GridTableCell>
-                    <GridTableRowOpener
-                      asChild
-                      aria-label={t("profiles.open", { name: item.id })}
-                    >
-                      <Link
-                        to="/profiles/$profileId"
-                        params={{ profileId: item.id }}
-                      />
-                    </GridTableRowOpener>
-                    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
-                      <span className="font-medium text-foreground leading-5 wrap-anywhere">
-                        {t("profiles.detail.history.named", {
-                          name: profileName(item),
-                          version: versionOf(item),
-                        })}
-                      </span>
-                      <span
-                        className={cn(
-                          "font-mono leading-4 wrap-anywhere",
-                          META,
-                        )}
-                      >
-                        {item.id}
-                      </span>
-                    </div>
-                  </GridTableCell>
-                  <GridTableCell>
-                    <Badge variant={STATE_BADGE[state]}>
-                      {t(`profiles.state.${state}`)}
-                    </Badge>
-                  </GridTableCell>
-                  <GridTableCell hideNarrow>
-                    <span className="font-mono text-caption wrap-anywhere">
-                      {item.model}
+        <GridTable
+          aria-label={t("profiles.detail.narrowings.title")}
+          columns={HISTORY_COLUMNS[0]}
+          narrowAt={640}
+          narrowColumns={HISTORY_COLUMNS[1]}
+          framed={true}
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("profiles.column.name")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("profiles.column.state")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("profiles.column.model")}
+            </GridTableColumnHeader>
+          </GridTableHeader>
+          {rows.map((item) => {
+            const state = stateOf(item);
+            return (
+              <GridTableRow key={item.id}>
+                <GridTableCell>
+                  <GridTableRowOpener
+                    asChild
+                    aria-label={t("profiles.open", { name: item.id })}
+                  >
+                    <Link
+                      to="/profiles/$profileId"
+                      params={{ profileId: item.id }}
+                    />
+                  </GridTableRowOpener>
+                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                    <span className="font-medium text-foreground leading-5 wrap-anywhere">
+                      {t("profiles.detail.history.named", {
+                        name: profileName(item),
+                        version: versionOf(item),
+                      })}
                     </span>
-                  </GridTableCell>
-                </GridTableRow>
-              );
-            })}
-          </GridTable>
-        </div>
+                    <span
+                      className={cn("font-mono leading-4 wrap-anywhere", META)}
+                    >
+                      {item.id}
+                    </span>
+                  </div>
+                </GridTableCell>
+                <GridTableCell>
+                  <Badge variant={STATE_BADGE[state]}>
+                    {t(`profiles.state.${state}`)}
+                  </Badge>
+                </GridTableCell>
+                <GridTableCell hideNarrow>
+                  <span className="font-mono text-caption wrap-anywhere">
+                    {item.model}
+                  </span>
+                </GridTableCell>
+              </GridTableRow>
+            );
+          })}
+        </GridTable>
       )}
     </Section>
   );

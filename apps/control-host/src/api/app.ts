@@ -696,6 +696,16 @@ export function createApiApp(options: CreateApiAppOptions = {}): ApiRouter {
     // no input would be cut off mid-wait. Each internal family authenticates
     // itself, so the body is read under the clock and the clock is then
     // stopped for the handler.
+    // Hono routes on the decoded path, but the ALB's 404 rule for /internal
+    // matches the path as sent, so /%69nternal would pass the ALB through the
+    // console's "/" rule and land here. Only the undecoded prefix counts.
+    internal.use("*", async (context, next) => {
+      const sent = new URL(context.req.url).pathname;
+      if (sent !== "/internal" && !sent.startsWith("/internal/")) {
+        return errorResponse(context, 404, "NOT_FOUND", "Resource not found");
+      }
+      await next();
+    });
     internal.use("*", ingestThenStopClock);
     options.registerInternalRoutes(internal);
     app.route("/internal", internal);

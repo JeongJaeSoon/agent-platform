@@ -13,6 +13,11 @@ import {
 } from "../ports/github-gate.ts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
 import {
+  attachCatalog,
+  attachmentContext,
+  memoryAttachmentStore,
+} from "../testing/repository-attachment-fakes.ts";
+import {
   createGitHubMcpServer,
   type GitHubMcpServices,
   sessionBoundAuthorization,
@@ -24,6 +29,7 @@ import {
   type GitHubWorkStore,
 } from "./github-work-service.ts";
 import type { PushActor } from "./push-request-service.ts";
+import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -112,6 +118,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     recordReview: async () => "receipt-review",
     pullRequestOpener: async () => null,
   };
+  const attachmentStore = memoryAttachmentStore();
+  const attachContext = attachmentContext();
   const services = (authorization: AuthorizationPolicy): GitHubMcpServices => {
     policies.push(authorization);
     return {
@@ -136,6 +144,12 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         authorization,
         gate,
         store: workStore,
+      }),
+      attachments: createRepositoryAttachmentService({
+        store: attachmentStore,
+        context: { context: async () => attachContext },
+        catalog: attachCatalog,
+        waitMs: 0,
       }),
     };
   };
@@ -174,6 +188,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     policies,
     gate,
     workStore,
+    attachmentStore,
   };
 }
 
@@ -230,6 +245,7 @@ describe("tools/list", () => {
       "request_push",
       "open_pull_request",
       "comment_pull_request",
+      "attach_repository",
     ]);
   });
 
@@ -241,6 +257,7 @@ describe("tools/list", () => {
       "dispatch_workflow",
       "get_workflow_run",
       "rerun_workflow",
+      "attach_repository",
     ]);
     expect(toolNames(await list({ review: true }))).toContain("submit_review");
     expect(toolNames(await list({ review: true }))).not.toContain(
@@ -383,6 +400,81 @@ describe("tools/call", () => {
         },
       },
     });
+  });
+});
+
+describe("attach_repository", () => {
+  test("a repository off the release's list is refused with repository_not_allowed and a receipt", async () => {
+    const h = harness();
+    const answer = payload(
+      await h.call("attach_repository", { repository_id: "secret" }),
+    );
+    expect(answer).toMatchObject({
+      isError: true,
+      body: {
+        code: "GITHUB_REFUSED",
+        details: {
+          reason_code: "repository_not_allowed",
+          receipt_id: "receipt-1",
+        },
+      },
+    });
+    expect(h.attachmentStore.receipts).toEqual([
+      {
+        id: "receipt-1",
+        status: "failed",
+        result: {
+          session_id: SESSION,
+          attempt_id: "att_1",
+          agent_id: "agent-1",
+          agent_release_id: "release-1",
+          repository_id: "secret",
+          branch: null,
+          commit: null,
+          failure: null,
+          reason_code: "repository_not_allowed",
+        },
+        error: {
+          code: "GITHUB_REFUSED",
+          message: "GitHub work refused: repository_not_allowed",
+        },
+      },
+    ]);
+    expect(h.attachmentStore.rows.size).toBe(0);
+  });
+
+  test("one on the list is recorded for the grant's attempt as its creator", async () => {
+    const h = harness();
+    const answer = payload(
+      await h.call("attach_repository", { repository_id: "docs" }),
+    );
+    expect(answer).toEqual({
+      body: {
+        repository_id: "docs",
+        status: "pending",
+        branch: "trunk",
+        commit: null,
+        failure: null,
+        already_attached: false,
+        receipt_id: "receipt-1",
+      },
+    });
+    expect(h.attachmentStore.rows.get("docs")?.attemptId).toBe("att_1");
+  });
+
+  test("anything but a repository id is refused before the service", async () => {
+    const h = harness();
+    const answer = payload(
+      await h.call("attach_repository", {
+        repository_id: "docs",
+        session_id: OTHER,
+      }),
+    );
+    expect(answer).toMatchObject({
+      isError: true,
+      body: { code: "VALIDATION_ERROR" },
+    });
+    expect(h.attachmentStore.receipts).toEqual([]);
   });
 });
 

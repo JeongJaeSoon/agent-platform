@@ -141,6 +141,7 @@ beforeEach(async () => {
             rerun: unused,
             review: unused,
           },
+          attachments: { attach: unused },
         }),
       }),
     },
@@ -331,6 +332,7 @@ describe("the built-in github MCP server on stored rows", () => {
       "mcp__github__dispatch_workflow",
       "mcp__github__get_workflow_run",
       "mcp__github__rerun_workflow",
+      "mcp__github__attach_repository",
     ]);
     expect(JSON.stringify(claim)).not.toMatch(GITHUB_TOKEN_SHAPES);
   });
@@ -402,7 +404,12 @@ describe("the built-in github MCP server on stored rows", () => {
       (
         listed.body as { result: { tools: Array<{ name: string }> } }
       ).result.tools.map((tool) => tool.name),
-    ).toEqual(["request_push", "open_pull_request", "comment_pull_request"]);
+    ).toEqual([
+      "request_push",
+      "open_pull_request",
+      "comment_pull_request",
+      "attach_repository",
+    ]);
     const called = await relay(token, {
       jsonrpc: "2.0",
       id: 2,

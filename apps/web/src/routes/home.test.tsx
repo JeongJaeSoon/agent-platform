@@ -2,6 +2,7 @@ import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
 import type { MemberView } from "@werft-ai/contracts";
 import { waitingSessionsQuery, withQueryScope } from "@werft-ai/core";
+import { useMinute } from "@werft-ai/react/components";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -15,7 +16,7 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
-import { statusPageQuery, useNow, waitedFor } from "./home.tsx";
+import { statusPageQuery, waitedFor } from "./home.tsx";
 
 // Text a sighted user reads: a Tooltip keeps a hidden copy of its note.
 function shownText(element: Element): string {
@@ -1582,7 +1583,7 @@ describe("waitedFor", () => {
   test("홈의 시각은 응답이 그대로여도 분마다 움직인다", () => {
     jest.useFakeTimers({ now: new Date(at) });
     try {
-      const { result, unmount } = renderHook(() => useNow());
+      const { result, unmount } = renderHook(() => useMinute(true));
       expect(waitedFor(at, "ko", result.current)).toBe("0분");
       act(() => jest.advanceTimersByTime(12 * 60_000));
       expect(waitedFor(at, "ko", result.current)).toBe("12분");

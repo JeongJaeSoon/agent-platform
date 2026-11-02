@@ -47,6 +47,16 @@ Titles, bodies, and comments are sanitized before they are sent to GitHub. Lines
 
 The platform adds a tail to the end of the PR body: the session id and commit, the session's address, the agent and release, and who started the session and how. Push to the branch again and ask for the PR again, and only the tail changes to the new commit; the text a person wrote above it stays.
 
+## Attaching a repository mid-session
+
+While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval.
+
+- The attached repository becomes a git remote named `repository_id` in the workspace, with its default branch fetched to `<repository_id>/<branch>`. The agent never sees a token.
+- Attaching the same repository again changes nothing and succeeds. While the fetch is running the tool answers `pending`; call it again to read the outcome.
+- The fetch is limited to 300 seconds and 2 GiB. Past either, the attachment fails with the reason in `failure` (`fetch_timeout`, `fetch_too_large`).
+- Each attachment leaves an `attach_repository` [receipt](/approvals/receipt): who asked and from which attempt, the repository, the release, the commit fetched, and the refusal reason (`repository_not_allowed`).
+- When the session restarts on another worker (a restore), the attached repositories' remotes are added again. A CLAUDE.md in an attached repository is not read as instructions.
+
 ## Link your GitHub account
 
 The GitHub App's bot account (`<App slug>[bot]`) is always the commit author. Link your GitHub account and the commits of sessions you start also carry your name in a `Co-authored-by:` trailer, so GitHub shows the commit as your contribution too.

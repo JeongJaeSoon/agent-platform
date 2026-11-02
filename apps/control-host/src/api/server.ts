@@ -30,6 +30,7 @@ import {
   createPostgresPendingRequests,
   createPostgresPullRequests,
   createPostgresPushRequests,
+  createPostgresRepositoryAttachments,
   createPostgresSecretStore,
   createPostgresSessionAttributionStore,
   createPostgresSessionControl,
@@ -89,6 +90,7 @@ import {
   createPullRequestService,
   createPushExecutor,
   createPushRequestService,
+  createRepositoryAttachmentService,
   createSessionAchievementService,
   createSessionAttributionService,
   createSessionOutcomeService,
@@ -862,6 +864,12 @@ const pullRequests = createPullRequestService({
 // The built-in `github` MCP server: the same services as the session API,
 // each made with the authorization of the one session a grant names.
 const githubMcpStore = createPostgresGitHubMcpStore(db);
+const repositoryAttachmentStore = createPostgresRepositoryAttachments(db);
+const repositoryAttachments = createRepositoryAttachmentService({
+  store: repositoryAttachmentStore,
+  context: githubGateStore,
+  catalog,
+});
 const githubMcp = createGitHubMcpServer({
   store: githubMcpStore,
   services: (bound) => ({
@@ -886,6 +894,7 @@ const githubMcp = createGitHubMcpServer({
       gate: github,
       store: githubGateStore,
     }),
+    attachments: repositoryAttachments,
   }),
 });
 const pushExecutor = createPushExecutor({
@@ -947,6 +956,7 @@ const workers = createWorkerGateway({
     : { checkpointProtocol: checkpoints.protocol }),
   pending: createPostgresWorkerPendingStore(db),
   github,
+  attachments: repositoryAttachmentStore,
   attribution: {
     store: sessionAttribution,
     consoleOrigin,

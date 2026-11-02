@@ -10,6 +10,8 @@ import {
   pendingQuestionSchema,
   questionAnswerMismatch,
   type RegisterPendingRequest,
+  type RepositoryAttachOrder,
+  type RepositoryAttachResult,
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
@@ -49,6 +51,11 @@ export type PendingRequestsOptions = {
    * first, which is what changes a park's premise.
    */
   onControl?: (control: ControlIntent, poll: { answered: boolean }) => void;
+  /**
+   * Repositories the agent attached for this worker to fetch; repeated each
+   * poll until `reportAttached` has reported them.
+   */
+  onAttachments?: (orders: RepositoryAttachOrder[]) => void;
   /** The gateway refused a settlement's reason or answer result; outcomes alone go from then on. */
   onSettlementDetailRefused?: (error: WorkerGatewayRequestError) => void;
   pollIntervalMs?: number;
@@ -118,6 +125,8 @@ export class PendingRequestRegistry {
   private readonly answering = new Map<string, Promise<void>>();
   // Unsent deliveries of parked answers, resent the same way.
   private readonly deliveries = new Map<string, ParkedDelivery["outcome"]>();
+  // Unsent attachment fetch results by request receipt, resent the same way.
+  private readonly attachResults = new Map<string, RepositoryAttachResult>();
   // Handed to a park: their rows stay open for the turn that resumes them,
   // so nothing this worker learns of them is settled.
   private readonly parked = new Set<string>();
@@ -269,6 +278,12 @@ export class PendingRequestRegistry {
     this.poll();
   }
 
+  /** How an attachment's fetch ended, resent until a poll lands. */
+  reportAttached(result: RepositoryAttachResult): void {
+    this.attachResults.set(result.receipt_id, result);
+    this.poll();
+  }
+
   /** One poll now, answers applied, settled once it has answered or `timeoutMs` has passed. */
   async refresh(timeoutMs: number): Promise<void> {
     const round = new Promise<void>((resolve) => {
@@ -296,7 +311,13 @@ export class PendingRequestRegistry {
         deadline - performance.now(),
       );
     }
-    if (this.settlements.size === 0 && this.deliveries.size === 0) return;
+    if (
+      this.settlements.size === 0 &&
+      this.deliveries.size === 0 &&
+      this.attachResults.size === 0
+    ) {
+      return;
+    }
     this.poll();
     if (this.polling !== undefined) {
       await settledWithin(this.polling, deadline - performance.now());
@@ -332,7 +353,8 @@ export class PendingRequestRegistry {
       !force &&
       this.pending.size === 0 &&
       this.settlements.size === 0 &&
-      this.deliveries.size === 0
+      this.deliveries.size === 0 &&
+      this.attachResults.size === 0
     ) {
       return;
     }
@@ -596,7 +618,8 @@ export class PendingRequestRegistry {
         this.watching ||
         this.pending.size > 0 ||
         this.settlements.size > 0 ||
-        this.deliveries.size > 0)
+        this.deliveries.size > 0 ||
+        this.attachResults.size > 0)
     ) {
       once = false;
       this.again = false;
@@ -616,16 +639,28 @@ export class PendingRequestRegistry {
       const delivered = [...this.deliveries]
         .slice(0, PENDING_SETTLEMENTS_MAX)
         .map(([request_id, outcome]) => ({ request_id, outcome }));
+      const attached = [...this.attachResults.values()].slice(
+        0,
+        PENDING_SETTLEMENTS_MAX,
+      );
       try {
         const response = await this.options.gateway.pendingControl({
           ...this.options.scope(),
           answers_after: this.answersAfter,
           ...(batch.length > 0 ? { settled: batch } : {}),
           ...(delivered.length > 0 ? { delivered } : {}),
+          ...(attached.length > 0 ? { attached } : {}),
         });
         this.forget(carried);
         this.forgetDelivered(delivered);
+        this.forgetAttached(attached);
         sent = true;
+        if (response.attachments !== undefined) {
+          const orders = response.attachments.filter(
+            (order) => !this.attachResults.has(order.receipt_id),
+          );
+          if (orders.length > 0) this.options.onAttachments?.(orders);
+        }
         // Answers first: one that came with a park is applied, and the park
         // then judged on what is left waiting.
         let answered = false;
@@ -667,6 +702,7 @@ export class PendingRequestRegistry {
         if (!isRetryable(error)) {
           this.forget(carried);
           this.forgetDelivered(delivered);
+          this.forgetAttached(attached);
         }
       }
       this.roundWaiters = this.roundWaiters.filter((waiter) => {
@@ -683,7 +719,8 @@ export class PendingRequestRegistry {
         (this.watching ||
           this.pending.size > 0 ||
           this.settlements.size > 0 ||
-          this.deliveries.size > 0) &&
+          this.deliveries.size > 0 ||
+          this.attachResults.size > 0) &&
         !this.again
       ) {
         await Promise.race([
@@ -701,6 +738,14 @@ export class PendingRequestRegistry {
     for (const [requestId, settled] of carried) {
       if (this.settlements.get(requestId) === settled) {
         this.settlements.delete(requestId);
+      }
+    }
+  }
+
+  private forgetAttached(batch: RepositoryAttachResult[]): void {
+    for (const item of batch) {
+      if (this.attachResults.get(item.receipt_id) === item) {
+        this.attachResults.delete(item.receipt_id);
       }
     }
   }
