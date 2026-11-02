@@ -37,7 +37,7 @@ type Viewer = "owner" | "admin" | "member";
 type State = "ready" | "short" | "empty";
 type Feature = "actions" | "workflows" | "review";
 
-const CARD = "flex flex-col gap-4 rounded-card border bg-card p-6";
+const CARD = "flex flex-col gap-4 rounded-card border bg-card p-4";
 const MANAGER_COLUMNS =
   "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";
 const MEMBER_COLUMNS = "minmax(0,1.2fr) 88px minmax(0,1fr) 88px";
@@ -309,7 +309,7 @@ function GitHubCard({
         저장소까지 열지는 설치할 때 GitHub에서 정합니다.
       </Text>
       {empty ? (
-        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-6">
+        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
           <Text weight="medium">아직 연결된 GitHub App이 없습니다</Text>
           <Text variant="sub">
             GitHub에서 App을 만들면 콘솔이 키를 받아 보관합니다. 만든 뒤 조직에
@@ -435,7 +435,7 @@ function UserLinkRow({ manage }: { readonly manage: boolean }) {
   return (
     <section
       aria-labelledby={titleId}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border bg-card p-6"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border bg-card p-4"
     >
       <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1">
         <Heading id={titleId} level={2}>
@@ -467,7 +467,7 @@ function GitHubScreen({
         title="GitHub 연결 설정"
         description="에이전트가 저장소를 clone하고, 승인된 결과를 push하고, PR을 열 때 쓰는 GitHub 연결입니다. 에이전트마다 쓸 저장소는 에이전트의 GitHub 탭에서 고릅니다."
       >
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-10">
           <GitHubCard manage={manage} state={state} />
           {state === "empty" ? null : (
             <>

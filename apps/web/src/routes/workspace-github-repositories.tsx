@@ -228,7 +228,7 @@ export function RepositorySheet({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-0 right-0 left-auto flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-none border-y-0 border-r-0 p-6 sm:max-w-[40rem]"
+        className="top-0 right-0 left-auto flex h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-none border-y-0 border-r-0 p-4 sm:max-w-[40rem]"
         onCloseAutoFocus={focusBack(opener)}
       >
         <div className="flex items-start gap-3">

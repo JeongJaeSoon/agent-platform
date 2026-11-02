@@ -80,7 +80,7 @@ import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
 import { type OnOutcome, WorkspacePage } from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
-const CARD = "flex flex-col gap-4 rounded-card border bg-card p-6";
+const CARD = "flex flex-col gap-4 rounded-card border bg-card p-4";
 // Installation table: name, type, repositories, App, connected by, status, menu.
 const MANAGER_COLUMNS =
   "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";
@@ -287,7 +287,7 @@ function GitHubCard({
       </div>
       <Text variant="sub">{t("github.card.hint")}</Text>
       {empty ? (
-        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-6">
+        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
           <Text weight="medium">{t("github.empty.title")}</Text>
           <Text variant="sub">{t("github.empty.hint")}</Text>
           {canManage ? (
