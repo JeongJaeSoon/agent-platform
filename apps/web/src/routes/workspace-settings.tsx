@@ -15,7 +15,7 @@ import {
   Page,
   SecretField,
   SettingRow,
-  SettingsSection as SettingsCard,
+  SettingsSection,
   Skeleton,
   Switch,
 } from "@werft-ai/ui";
@@ -110,7 +110,8 @@ export function WorkspaceSettingsScreen() {
   );
 }
 
-export { SettingsCard };
+// The GitHub settings screens still import it by this name.
+export { SettingsSection as SettingsCard };
 
 export function ReadOnlyMark() {
   const { t } = useI18n();
@@ -131,7 +132,7 @@ function Basics() {
   const workspace = useMe()?.workspace;
   const inputId = useId();
   return (
-    <SettingsCard title={t("workspace.basics")} foot={<ReadOnlyMark />}>
+    <SettingsSection title={t("workspace.basics")} foot={<ReadOnlyMark />}>
       <Field>
         <FieldLabel htmlFor={inputId}>{t("workspace.name")}</FieldLabel>
         <Input
@@ -157,7 +158,7 @@ function Basics() {
         />
         <FieldDescription>{t("workspace.idHint")}</FieldDescription>
       </Field>
-    </SettingsCard>
+    </SettingsSection>
   );
 }
 
@@ -171,7 +172,7 @@ function AllowedModels() {
   const profiles = useQuery(profilesQuery(client));
   const models = [...new Set(profiles.data?.items.map((p) => p.model))];
   return (
-    <SettingsCard
+    <SettingsSection
       title={t("workspace.models")}
       description={t("workspace.modelsHint")}
       foot={
@@ -199,7 +200,7 @@ function AllowedModels() {
           ))}
         </ul>
       )}
-    </SettingsCard>
+    </SettingsSection>
   );
 }
 
@@ -209,7 +210,7 @@ function ReadOnlySettings() {
   const settings = useMe()?.workspace?.settings;
   return (
     <>
-      <SettingsCard
+      <SettingsSection
         title={t("workspace.retention")}
         description={t("workspace.retentionHint")}
       >
@@ -220,8 +221,8 @@ function ReadOnlySettings() {
               })
             : "—"}
         </div>
-      </SettingsCard>
-      <SettingsCard
+      </SettingsSection>
+      <SettingsSection
         title={t("workspace.guest")}
         description={t("workspace.guestHint")}
       >
@@ -232,7 +233,7 @@ function ReadOnlySettings() {
               : "workspace.guestValueOff",
           )}
         </div>
-      </SettingsCard>
+      </SettingsSection>
     </>
   );
 }
@@ -300,7 +301,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   };
 
   return (
-    <SettingsCard
+    <SettingsSection
       title={t("workspace.retention")}
       onSubmit={submit}
       foot={
@@ -345,7 +346,7 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         <FieldDescription>{t("workspace.retentionHint")}</FieldDescription>
         <FieldDescription>{t("workspace.retentionFoot")}</FieldDescription>
       </Field>
-    </SettingsCard>
+    </SettingsSection>
   );
 }
 
@@ -396,7 +397,7 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   });
 
   return (
-    <SettingsCard
+    <SettingsSection
       title={t("workspace.guest")}
       description={t("workspace.guestHint")}
       descriptionId={hintId}

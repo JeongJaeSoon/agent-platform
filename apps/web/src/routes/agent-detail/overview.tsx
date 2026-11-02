@@ -23,8 +23,10 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  KeyValueList,
   MoreLink,
   RelativeTime,
+  Section,
   Skeleton,
   StatCard,
 } from "@werft-ai/ui";
@@ -39,13 +41,10 @@ import { usagePeriod } from "../operations.tsx";
 import { credentialBindingsQuery } from "./credentials.tsx";
 import { latestVersion } from "./versions.tsx";
 
-// Console v4: section head 28px tall, 12px above its body.
-const SECTION = "flex min-w-0 flex-col gap-3";
-const SECTION_HEAD = "flex min-h-7 items-center justify-between gap-3";
 const SECTION_TITLE = "m-0 font-semibold text-body leading-5";
 const META = "m-0 text-caption text-muted-foreground";
-const TERM = "m-0 text-muted-foreground";
-const VALUE = "m-0 min-w-0 [overflow-wrap:anywhere]";
+// KeyValueList's dd does not break a long unspaced value; this does.
+const VALUE = "min-w-0 [overflow-wrap:anywhere]";
 
 /** The version new sessions run, or the newest one before any release. */
 export function shownVersion(detail: AgentDetail) {
@@ -194,7 +193,6 @@ export function AgentReadiness({
   readonly toRelease: ReactNode;
 }) {
   const { t } = useI18n();
-  const titleId = useId();
   const { client } = useAgentPlatform();
   const bindings = useQuery(credentialBindingsQuery(client, detail.agent.id));
   const { agent } = detail;
@@ -287,15 +285,15 @@ export function AgentReadiness({
   const ready = firstOpen === -1 && credentials.state === "done";
 
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <div className={SECTION_HEAD}>
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("agent.ready.title")}
-        </h2>
+    <Section
+      className="min-w-0"
+      title={t("agent.ready.title")}
+      actions={
         <Badge variant={ready ? "green" : "amber"}>
           {ready ? t("agent.ready.on") : t("agent.ready.todo")}
         </Badge>
-      </div>
+      }
+    >
       <Card className="gap-0 p-4">
         <ol className="m-0 flex list-none flex-col p-0">
           {steps.map((step, index) => (
@@ -340,7 +338,7 @@ export function AgentReadiness({
           ))}
         </ol>
       </Card>
-    </section>
+    </Section>
   );
 }
 
@@ -352,19 +350,18 @@ const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 72px";
 export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
   const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
-  const titleId = useId();
   const sessions = useQuery(agentSessionsQuery(client, agentId));
   const items = sessions.data?.items;
   return (
-    <section className={SECTION} aria-labelledby={titleId}>
-      <div className={SECTION_HEAD}>
-        <h2 id={titleId} className={SECTION_TITLE}>
-          {t("agent.sessions.title")}
-        </h2>
+    <Section
+      className="min-w-0"
+      title={t("agent.sessions.title")}
+      actions={
         <MoreLink asChild size="control">
           <RouterLink to="/sessions">{t("agent.sessions.all")}</RouterLink>
         </MoreLink>
-      </div>
+      }
+    >
       {sessions.error ? (
         <LoadFailure
           error={sessions.error}
@@ -414,7 +411,7 @@ export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
           </GridTable>
         </div>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -533,10 +530,7 @@ export function CardSummary({
 
   return (
     <div className="grid grid-cols-1 items-stretch gap-4 @[720px]:grid-cols-2">
-      <section
-        className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4 text-card-foreground"
-        aria-labelledby={titleId}
-      >
+      <Card role="region" className="min-w-0 px-4" aria-labelledby={titleId}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">
             <h2 id={titleId} className={SECTION_TITLE}>
@@ -565,51 +559,85 @@ export function CardSummary({
             {edit}
           </div>
         </div>
-        <dl className="m-0 grid grid-cols-1 items-baseline gap-x-4 gap-y-1 text-control sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-y-2">
-          <dt className={TERM}>{t("agents.name")}</dt>
-          <dd className={VALUE}>{detail.agent.name}</dd>
-          <dt className={TERM}>{t("agents.slug")}</dt>
-          <dd className={`${VALUE} font-mono`}>{detail.agent.slug}</dd>
-          {card ? (
-            <>
-              <dt className={TERM}>{t("agentCard.role")}</dt>
-              <dd className={VALUE}>{card.role}</dd>
-              <dt className={TERM}>{t("agentCard.instructions")}</dt>
-              <dd className={`${VALUE} line-clamp-3`}>{card.instructions}</dd>
-              <dt className={TERM}>{t("agents.cards.credentials")}</dt>
-              <dd className={VALUE}>
-                {names(card.capabilities.credential_refs ?? [])}
-              </dd>
-              <dt className={TERM}>{t("agents.cards.mcp")}</dt>
-              <dd className={VALUE}>
-                {names(
-                  (card.capabilities.mcp ?? []).map((server) => server.server),
-                )}
-              </dd>
-              <dt className={TERM}>{t("agentCard.model")}</dt>
-              <dd className={`${VALUE} font-mono`}>{card.model}</dd>
-              <dt className={TERM}>{t("agentCard.language")}</dt>
-              <dd className={VALUE}>{LOCALE_NAMES[card.language]}</dd>
-              <dt className={TERM}>{t("agentCard.tools")}</dt>
-              <dd className={VALUE}>
-                {card.capabilities.tools === null
-                  ? t("agentCard.toolsAll")
-                  : names(card.capabilities.tools)}
-              </dd>
-              <dt className={TERM}>{t("agentCard.forbidden")}</dt>
-              <dd className={VALUE}>{names(card.capabilities.forbidden)}</dd>
-            </>
-          ) : null}
-        </dl>
+        <KeyValueList
+          variant="grid"
+          stack="sm"
+          items={[
+            {
+              label: t("agents.name"),
+              value: <span className={VALUE}>{detail.agent.name}</span>,
+            },
+            {
+              label: t("agents.slug"),
+              value: (
+                <span className={`${VALUE} font-mono`}>
+                  {detail.agent.slug}
+                </span>
+              ),
+            },
+            ...(card
+              ? [
+                  {
+                    label: t("agentCard.role"),
+                    value: <span className={VALUE}>{card.role}</span>,
+                  },
+                  {
+                    label: t("agentCard.instructions"),
+                    value: (
+                      <span className={`${VALUE} line-clamp-3`}>
+                        {card.instructions}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: t("agents.cards.credentials"),
+                    value: names(card.capabilities.credential_refs ?? []),
+                  },
+                  {
+                    label: t("agents.cards.mcp"),
+                    value: names(
+                      (card.capabilities.mcp ?? []).map(
+                        (server) => server.server,
+                      ),
+                    ),
+                  },
+                  {
+                    label: t("agentCard.model"),
+                    value: (
+                      <span className={`${VALUE} font-mono`}>{card.model}</span>
+                    ),
+                  },
+                  {
+                    label: t("agentCard.language"),
+                    value: (
+                      <span className={VALUE}>
+                        {LOCALE_NAMES[card.language]}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: t("agentCard.tools"),
+                    value:
+                      card.capabilities.tools === null ? (
+                        <span className={VALUE}>{t("agentCard.toolsAll")}</span>
+                      ) : (
+                        names(card.capabilities.tools)
+                      ),
+                  },
+                  {
+                    label: t("agentCard.forbidden"),
+                    value: names(card.capabilities.forbidden),
+                  },
+                ]
+              : []),
+          ]}
+        />
         {card ? null : (
           <p className={`${META} text-control`}>{t("agent.noActive")}</p>
         )}
-      </section>
+      </Card>
       {card ? (
-        <section
-          className="flex min-w-0 flex-col gap-3 rounded-card border bg-card p-4 text-card-foreground"
-          aria-labelledby={rawId}
-        >
+        <Card role="region" className="min-w-0 px-4" aria-labelledby={rawId}>
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 flex-col gap-0.5">
               <h2 id={rawId} className={SECTION_TITLE}>
@@ -645,7 +673,7 @@ export function CardSummary({
           <pre className="m-0 flex-1 overflow-auto whitespace-pre-wrap rounded-control border bg-muted px-3 py-2 font-mono text-caption leading-[1.6] [overflow-wrap:anywhere]">
             {raw}
           </pre>
-        </section>
+        </Card>
       ) : null}
     </div>
   );

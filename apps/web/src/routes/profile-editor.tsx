@@ -17,6 +17,7 @@ import {
   AlertDescription,
   Badge,
   Button,
+  Card,
   Checkbox,
   Field,
   FieldContent,
@@ -541,7 +542,7 @@ export function ChangeReview({
 function BaseSummary({ base }: { readonly base: ProfileSummary }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col gap-2 rounded-card border bg-muted/40 p-3">
+    <Card variant="inset">
       <span className="font-medium text-body">
         {t("profiles.editor.baseHeading", { id: base.id })}
       </span>
@@ -578,6 +579,6 @@ function BaseSummary({ base }: { readonly base: ProfileSummary }) {
           },
         ]}
       />
-    </div>
+    </Card>
   );
 }

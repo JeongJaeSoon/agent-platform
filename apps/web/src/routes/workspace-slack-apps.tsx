@@ -11,6 +11,7 @@ import {
   linkVariants,
   RowLines,
   SettingRow,
+  SettingsSection,
   Skeleton,
   Table,
   TableBody,
@@ -29,7 +30,6 @@ import {
 } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
-import { SettingsCard } from "./workspace-settings.tsx";
 
 type MadeApp = ListWorkspaceSlackAppsResponse["items"][number];
 
@@ -72,7 +72,7 @@ export function SlackApps() {
   }, [anchored, loading]);
 
   return (
-    <SettingsCard
+    <SettingsSection
       id={SLACK_APPS_ANCHOR}
       title={t("workspace.slackApps")}
       description={t("workspace.slackAppsHint")}
@@ -94,7 +94,7 @@ export function SlackApps() {
       ) : (
         <AppTable items={apps.data.items} />
       )}
-    </SettingsCard>
+    </SettingsSection>
   );
 }
 

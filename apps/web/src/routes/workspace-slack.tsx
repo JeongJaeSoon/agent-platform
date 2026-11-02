@@ -25,6 +25,7 @@ import {
   Input,
   RowListItem,
   SettingRow,
+  SettingsSection,
   Skeleton,
 } from "@werft-ai/ui";
 import {
@@ -49,7 +50,6 @@ import type { Outcome } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   type OnOutcome,
-  SettingsCard,
   SlackGuest,
   WorkspacePage,
 } from "./workspace-settings.tsx";
@@ -309,7 +309,7 @@ function ConfigToken({
 
   return (
     <>
-      <SettingsCard
+      <SettingsSection
         title={t("workspace.token")}
         description={t("workspace.tokenHint")}
         rows={rows}
