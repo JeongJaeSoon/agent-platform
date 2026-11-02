@@ -1,4 +1,4 @@
-import { Skeleton } from "@werft-ai/ui";
+import { Skeleton, Text } from "@werft-ai/ui";
 import type { JSX } from "react";
 
 import type { ToolsSummaryMessages } from "./messages.ts";
@@ -42,28 +42,28 @@ export function ToolsSummary({
   });
   return (
     // As tall as the placeholder, so a short sentence does not pull the table up.
-    <p
-      data-slot="tools-summary"
-      className="m-0 min-h-12 text-body leading-6 @min-[40rem]:min-h-6"
-    >
+    <Text data-slot="tools-summary" className="min-h-12 @min-[40rem]:min-h-6">
       {parts.map((part, index) =>
         typeof part === "string" ? (
           part
         ) : "strong" in part || failed === 0 ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: the sentence's parts are fixed per locale
-          <b key={index} className="font-semibold tabular-nums">
+          <Text key={index} as="span" weight="medium" numeric>
             {"strong" in part ? part.strong : part.danger}
-          </b>
+          </Text>
         ) : (
-          <span
+          <Text
             // biome-ignore lint/suspicious/noArrayIndexKey: as above
             key={index}
-            className="font-semibold text-(color:--ap-tone-danger-fg) tabular-nums"
+            as="span"
+            weight="medium"
+            numeric
+            className="text-(color:--ap-tone-danger-fg)"
           >
             {part.danger}
-          </span>
+          </Text>
         ),
       )}
-    </p>
+    </Text>
   );
 }

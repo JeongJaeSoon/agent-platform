@@ -85,8 +85,6 @@ import { InviteDialog } from "./invite-dialog.tsx";
 import { TeamCreateDialog } from "./team-create-dialog.tsx";
 
 const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
-const PRIMARY =
-  "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
 
 // Role and actions keep one width on every row, so badges and buttons line
 // up under their headers; the actions track never drops below its button.
@@ -808,7 +806,9 @@ function InviteList({
           {pending.map((invite) => (
             <RowListItem key={invite.id}>
               <RowLines>
-                <span className={PRIMARY}>{invite.email}</span>
+                <Text as="span" weight="medium" className="block break-words">
+                  {invite.email}
+                </Text>
                 <Text
                   as="span"
                   variant="meta"

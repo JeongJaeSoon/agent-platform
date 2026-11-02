@@ -473,6 +473,7 @@ export function HomeScreen() {
           value: t("home.glance.keyExpires", {
             when: formatRelativeTime(key.expires_at ?? "", locale, now, {
               future: true,
+              inSentence: true,
             }),
           }),
         })),

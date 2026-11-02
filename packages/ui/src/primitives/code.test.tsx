@@ -24,6 +24,20 @@ describe("Code", () => {
     expect(classesOf(code).some((name) => name.startsWith("bg-"))).toBe(false);
   });
 
+  test('size="inherit"는 부모의 크기와 굵기를 따른다', () => {
+    const { container } = render(
+      <p className="font-medium text-control">
+        모델 <Code size="inherit">claude-opus</Code>
+      </p>,
+    );
+    const classes = classesOf(container.querySelector("[data-slot=code]"));
+    expect(classes).toContain("font-mono");
+    expect(classes).toContain("[font-size:inherit]");
+    expect(classes).toContain("[font-weight:inherit]");
+    for (const name of ["text-caption", "font-normal"])
+      expect(classes).not.toContain(name);
+  });
+
   test("className을 합치고 ref·나머지 props를 넘긴다", () => {
     const ref = createRef<HTMLElement>();
     const { container } = render(

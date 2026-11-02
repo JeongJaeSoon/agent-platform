@@ -54,7 +54,6 @@ import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
 const ADMIN_ROW = "gap-y-[var(--ap-row-line-gap)]";
-const PRIMARY = "font-semibold [overflow-wrap:anywhere]";
 
 // Month/day in the product's zone, the way the console shows a short date.
 const DAY = new Intl.DateTimeFormat("en-US", {
@@ -343,7 +342,13 @@ function AdminList({
                   tone={avatarTone(user.user_id)}
                 />
                 <RowLines>
-                  <span className={PRIMARY}>{name}</span>
+                  <Text
+                    as="span"
+                    weight="medium"
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {name}
+                  </Text>
                   <Text
                     as="span"
                     variant="meta"
@@ -368,7 +373,13 @@ function AdminList({
                 tone={avatarTone(row.team_id)}
               />
               <RowLines>
-                <span className={PRIMARY}>{row.name}</span>
+                <Text
+                  as="span"
+                  weight="medium"
+                  className="[overflow-wrap:anywhere]"
+                >
+                  {row.name}
+                </Text>
                 <Text
                   as="span"
                   variant="meta"
@@ -514,7 +525,10 @@ export function AdministeredAgents({
                 key={agent.id}
                 className={`${ADMIN_ROW} ${OPENS_ROW}`}
               >
-                <TextLink asChild className={`${PRIMARY} ${ROW_LINK}`}>
+                <TextLink
+                  asChild
+                  className={`${ROW_LINK} [overflow-wrap:anywhere]`}
+                >
                   <Link to="/agents/$id" params={{ id: agent.id }}>
                     {agent.name}
                   </Link>

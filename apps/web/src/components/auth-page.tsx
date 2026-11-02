@@ -33,8 +33,6 @@ export function FormError({ children }: { readonly children: ReactNode }) {
   );
 }
 
-export const ASIDE = "m-0 text-muted-foreground text-sm";
-
 /**
  * What an action came to, as a live region. Without children it stays
  * mounted but out of sight, so text put in later is still read out.

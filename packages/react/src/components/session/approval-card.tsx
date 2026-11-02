@@ -1,6 +1,7 @@
 import type { PendingRequest } from "@werft-ai/contracts";
 import {
   Button,
+  CodeBlock,
   cn,
   Field,
   FieldError,
@@ -169,9 +170,9 @@ export function ApprovalCard({
           <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--ap-control-height)]">
             {messages.input}
           </summary>
-          <pre className="mt-2 max-h-60 overflow-auto rounded-control bg-card p-2 font-mono text-caption">
+          <CodeBlock className="mt-2 max-h-60 overflow-y-auto">
             {inputText(request.input)}
-          </pre>
+          </CodeBlock>
         </details>
         {expired || denying ? null : (
           <div className="flex flex-wrap gap-2">

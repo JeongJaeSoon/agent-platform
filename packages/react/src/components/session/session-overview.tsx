@@ -1,5 +1,6 @@
 import type { SessionStatus, SessionSummary } from "@werft-ai/contracts";
 import {
+  Code,
   cn,
   GridTable,
   GridTableCell,
@@ -8,6 +9,7 @@ import {
   GridTableRow,
   RelativeTime,
   StatusDot,
+  Text,
   type TimestampLocale,
 } from "@werft-ai/ui";
 import { Folder } from "lucide-react";
@@ -206,12 +208,9 @@ export function SessionOverviewRow({
         </span>
         {session.title ? (
           // Above the opener, so hovering shows the whole id.
-          <span
-            className="relative font-mono text-caption text-subtle-foreground"
-            title={session.id}
-          >
+          <Code className="relative text-subtle-foreground" title={session.id}>
             {shortId}
-          </span>
+          </Code>
         ) : null}
       </GridTableCell>
       <GridTableCell>
@@ -239,9 +238,7 @@ export function SessionOverviewRow({
             {session.agent?.name ?? messages.unknown}
           </span>
           {session.model ? (
-            <span className="font-mono text-caption text-subtle-foreground">
-              {session.model}
-            </span>
+            <Code className="text-subtle-foreground">{session.model}</Code>
           ) : null}
         </GridTableCell>
       ) : (
@@ -261,8 +258,8 @@ export function SessionOverviewRow({
         {repositoryName ? (
           // A long name gives way first, so the branch stays in sight. Above
           // the opener, so hovering shows the whole name.
-          <span
-            className="relative flex min-w-0 font-mono text-caption"
+          <Code
+            className="relative flex min-w-0"
             title={branch ? `${repositoryName} · ${branch}` : repositoryName}
           >
             <span className="min-w-0 truncate">{repositoryName}</span>
@@ -271,11 +268,11 @@ export function SessionOverviewRow({
                 {` · ${branch}`}
               </span>
             ) : null}
-          </span>
+          </Code>
         ) : (
-          <span className="truncate text-caption text-subtle-foreground">
+          <Text as="span" variant="meta" className="truncate">
             {messages.noRepository}
-          </span>
+          </Text>
         )}
       </GridTableCell>
       {startedBy ? (

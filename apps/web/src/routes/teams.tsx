@@ -58,7 +58,7 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { MUTED, MyTeams, SECTION } from "../components/my-teams.tsx";
+import { MyTeams, SECTION } from "../components/my-teams.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, ROW_LINK } from "../components/row-link.ts";
@@ -74,7 +74,6 @@ import { useI18n } from "../i18n/i18n.tsx";
 // when the row is too narrow for both.
 const INLINE_FORM = "flex max-w-xl flex-wrap items-end gap-2";
 const NAME_FIELD = "min-w-0 flex-[1_1_14rem]";
-const SECONDARY = "text-muted-foreground text-sm [overflow-wrap:anywhere]";
 
 type TeamMember = TeamDetail["members"][number];
 
@@ -195,9 +194,14 @@ export function TeamsScreen() {
                       {team.name}
                     </Link>
                   </TextLink>
-                  <span className={`${SECONDARY} ml-auto`}>
+                  <Text
+                    as="span"
+                    variant="meta"
+                    numeric
+                    className="ml-auto [overflow-wrap:anywhere]"
+                  >
                     {t("teams.memberCount", { count: team.member_count })}
-                  </span>
+                  </Text>
                   <ChevronRight
                     aria-hidden="true"
                     className="size-4 shrink-0 text-subtle-foreground"
@@ -219,7 +223,7 @@ function TeamsTab({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();
   return (
     <div className="flex flex-col gap-[var(--ap-space-section)]">
-      <p className={`${MUTED} m-0 text-sm`}>{t("teams.intro")}</p>
+      <Text variant="sub">{t("teams.intro")}</Text>
       {children}
     </div>
   );
