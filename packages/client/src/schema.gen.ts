@@ -5554,7 +5554,7 @@ export interface components {
             };
             /** Format: date-time */
             requested_at: string;
-            resolved_by: ({
+            resolved_by?: ({
                 principal: {
                     /** @enum {string} */
                     kind: "api_key" | "user" | "installation";
@@ -5567,11 +5567,11 @@ export interface components {
                 kind: "policy";
                 agent_release_id: string;
             }) | null;
-            resolved_at: string | null;
-            resolution_reason: string | null;
+            resolved_at?: string | null;
+            resolution_reason?: string | null;
             /** Format: uuid */
             request_receipt_id: string;
-            resolution_receipt_id: string | null;
+            resolution_receipt_id?: string | null;
             finished_at: string | null;
             push_receipt_id: string | null;
             /**

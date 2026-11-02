@@ -77,6 +77,7 @@ function fakePush(outcome: Outcome) {
         target_branch: `agent/${SESSION}`,
         checkpoint_revision: 1,
         resolution_reason: null,
+        decision_reason: null,
         push_receipt_id: null,
       };
       pushes.unshift(push);
@@ -93,7 +94,11 @@ function fakePush(outcome: Outcome) {
         push,
         action === "approve"
           ? { state: "approved" }
-          : { state: "rejected", resolution_reason: reason },
+          : {
+              state: "rejected",
+              resolution_reason: reason,
+              decision_reason: reason,
+            },
       );
       return json(push);
     }

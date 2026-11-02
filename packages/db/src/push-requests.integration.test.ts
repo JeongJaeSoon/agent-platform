@@ -207,8 +207,8 @@ integration("postgres push requests", () => {
       decision_reason: "reviewed",
     });
     expect(approved.resolved_at).not.toBeNull();
-    expect(approved.decided_at).toBe(approved.resolved_at);
-    expect(approved.decision_receipt_id).toBe(approved.resolution_receipt_id);
+    expect(approved.resolved_at).toBe(approved.decided_at);
+    expect(approved.resolution_receipt_id).toBe(approved.decision_receipt_id);
     expect(await receipt(approved.resolution_receipt_id ?? "")).toMatchObject({
       operation: "decide_push",
       status: "succeeded",

@@ -106,11 +106,12 @@ export const pushRequestSchema = z.object({
   state: pushRequestStateSchema,
   requested_by: receiptActorSchema,
   requested_at: timestampSchema,
-  resolved_by: pushDeciderSchema.nullable(),
-  resolved_at: timestampSchema.nullable(),
-  resolution_reason: z.string().nullable(),
+  // Optional only while servers without them may still answer.
+  resolved_by: pushDeciderSchema.nullable().optional(),
+  resolved_at: timestampSchema.nullable().optional(),
+  resolution_reason: z.string().nullable().optional(),
   request_receipt_id: receiptIdSchema,
-  resolution_receipt_id: receiptIdSchema.nullable(),
+  resolution_receipt_id: receiptIdSchema.nullable().optional(),
   // Set once the platform's push ended, pushed or failed; its receipt says
   // where the commit went or why it did not.
   finished_at: timestampSchema.nullable(),
