@@ -197,4 +197,5 @@ export {
   type StatusDescriptor,
   type StatusStateOf,
   type StatusTone,
+  statusDot,
 } from "./status/vocabulary.ts";

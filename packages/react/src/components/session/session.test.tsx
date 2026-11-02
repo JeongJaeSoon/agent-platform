@@ -442,6 +442,42 @@ describe("SessionOverviewRow", () => {
     );
   });
 
+  test("멈춘 세션의 점은 다른 화면처럼 쉬는 점이고 문구는 그대로다", () => {
+    const { container } = render(
+      <SessionOverviewRow
+        session={{ ...SESSION, status: "stopped" }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+      />,
+    );
+    const dot = container.querySelector("[data-slot=status-dot]");
+    expect(dot?.getAttribute("data-status")).toBe("idle");
+    expect(container.textContent).toContain("work: status:stopped");
+  });
+
+  test("상태 뒤 설명은 노드를 받아 툴팁과 포커스를 행 링크 위에 둔다", () => {
+    const { getByText, getByRole } = render(
+      <SessionOverviewRow
+        session={{ ...SESSION, status: "needs_input" }}
+        renderLink={(link) => <a href="/sessions/abc" {...link} />}
+        messages={OVERVIEW_MESSAGES}
+        statusDetail={
+          <time dateTime="2026-11-02T00:00:00Z" tabIndex={0} title="exact">
+            12분
+          </time>
+        }
+      />,
+    );
+    const time = getByText("12분");
+    expect(time.tagName).toBe("TIME");
+    // Raised above the row's opener, so hover and focus reach it.
+    expect(time.parentElement?.className).toContain("relative");
+    time.focus();
+    expect(document.activeElement === time).toBe(true);
+    const row = getByRole("row");
+    expect(row.textContent).toContain("work: status:needs_input · 12분");
+  });
+
   test("저장소는 표시 이름 · branch로, 이름이 없으면 —로, 옛 서버면 catalog key로 보인다", () => {
     const cases = [
       [
