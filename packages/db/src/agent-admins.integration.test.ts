@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
-  agentCardSchema,
+  agentCardRequestSchema,
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -65,7 +65,7 @@ const CATALOG: SessionCatalog = {
   profiles: { coding: PROFILE },
   repositories: {},
 };
-const CARD = agentCardSchema.parse({
+const CARD = agentCardRequestSchema.parse({
   role: "재무 분석가",
   instructions: "v1",
   model: "claude-sonnet-5",

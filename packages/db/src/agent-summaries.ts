@@ -78,8 +78,10 @@ export async function agentSummaries(
   const fields = {
     agentId: agentVersions.agentId,
     versionNo: agentVersions.versionNo,
-    role: sql<string>`${agentVersions.card}->>'role'`,
-    instructions: sql<string>`left(${agentVersions.card}->>'instructions', ${AGENT_SUMMARY_INSTRUCTIONS_MAX})`,
+    role: sql<string | null>`${agentVersions.card}->>'role'`,
+    instructions: sql<
+      string | null
+    >`left(${agentVersions.card}->>'instructions', ${AGENT_SUMMARY_INSTRUCTIONS_MAX})`,
     capabilities: sql<unknown>`${agentVersions.card}->'capabilities'`,
   };
   const released = heads.flatMap((head) =>
@@ -251,7 +253,8 @@ export async function agentSummaries(
       version: {
         version_no: version.versionNo,
         role: version.role,
-        instructions: clip(version.instructions),
+        instructions:
+          version.instructions === null ? null : clip(version.instructions),
         mcp_servers: (capabilities.mcp ?? []).map((mcp) => mcp.server),
         credential_refs: capabilities.credential_refs ?? [],
       },

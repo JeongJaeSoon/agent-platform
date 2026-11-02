@@ -14,12 +14,12 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Avatar,
   avatarInitials,
-  Button,
   buttonVariants,
   Combobox,
   ConfirmDialog,
   EmptyState,
   Heading,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -313,17 +313,15 @@ function AdminList({
     });
   };
   const removeButton = (kind: AgentAdminKind, id: string, name: string) => (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
+    <RowAction
+      variant="danger"
       className="ml-auto"
       disabled={change.isPending}
       aria-label={t("agentAdmins.removeFor", { name })}
       onClick={() => setRemoving({ kind, id, name })}
     >
       {t("agentAdmins.remove")}
-    </Button>
+    </RowAction>
   );
 
   return (

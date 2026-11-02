@@ -1,11 +1,41 @@
 ---
 title: "시작"
-description: 세션 생성 요청의 필드, 응답, 재시도와 오류
+description: 세션 생성 요청의 필드, 응답, Idempotency-Key, 목록·공유 범위·제목, 오류
 ---
 
-세션은 저장소 하나와 실행 프로필 하나로 도는 대화다. 세션을 만들면 첫 메시지가 turn 1로 접수되고, scheduler가 그 세션의 worker 컨테이너를 띄운다. scope는 `sessions:write`다.
+세션은 실행 프로필 하나로 도는 대화다. 프로필이 저장소를 쓰면 저장소도 하나 고른다. 세션을 만들면 첫 메시지가 turn 1로 접수되고, scheduler가 그 세션의 worker 컨테이너를 띄운다. scope는 `sessions:write`다. SDK 예제는 [SDK 설치](/getting-started/install#클라이언트-만들기)에서 만든 `werft` 클라이언트를, HTTP API 예제는 서버 주소 `API`와 key `KEY` 셸 변수를 쓴다.
+
+<Callout>
+예제의 `GATE-SPEC {…}` 메시지는 [개발용 서버](/run-server/dev-server)의 fake 모델이 읽는 대본이다. fake 모델은 대본대로 도구를 부르고 답하므로 출력이 늘 같다. 실제 모델로 띄운 서버에서는 같은 도구 호출과 출력이 나오지 않으니 평소의 지시를 보낸다.
+</Callout>
 
 ## 만들기
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const created = await werft.sessions.create({
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"start","steps":[],"final":"started"}',
+});
+console.log(created);
+const sessionId = created.session_id;
+```
+
+```text
+{
+  session_id: '…',
+  turn_id: '1',
+  receipt_id: '…',
+  receipt_status: 'accepted',
+  status: 'queued'
+}
+```
+
+</Tab>
+<Tab>
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -28,20 +58,49 @@ SID=$(echo "$created" | jq -r .session_id)
 }
 ```
 
+레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
-| `profile_id` | 예 | 실행 프로필 id([실행 프로필 고르기](/agents/run-profiles)) |
-| `repository_id` | 예 | 카탈로그의 저장소 id. worker가 이 저장소를 clone한다 |
+| `profile_id` | `agent_release_id`가 없으면 예 | 실행 프로필 id([실행 프로필 고르기](/agents/run-profiles)) |
+| `repository_id` | 프로필에 따라 | 카탈로그의 저장소 id. worker가 이 저장소를 clone한다. 프로필의 `repository_mode`가 `required`면 필수, `none`이면 보내지 않는다([저장소 없는 세션](/sessions/without-repository)) |
 | `message` | 예 | 첫 turn의 입력. UTF-8 32,768바이트까지 |
 | `model` | | 프로필이 허용한 모델 중 하나. 빼면 기본 모델 |
 | `title` | | 세션 이름. 빼면 첫 `message`에서 만든다([제목](#제목)) |
-| `agent_release_id` | | 이 세션을 에이전트 release에 묶는다([만들기](/agents/create#세션에-묶기)) |
+| `agent_release_id` | | 이 세션을 에이전트 release에 묶는다([세션에 묶기](/agents/create#세션에-묶기)). 이때 `profile_id`와 `repository_id`는 빼면 release의 값이다 |
 
 응답은 201이다. 접수만 된 것이고 결과는 turn 조회로 본다([상태와 수명](/sessions/lifecycle)).
 
 ## Idempotency-Key
 
-세션 API의 모든 POST에는 `Idempotency-Key` 헤더가 필요하다. 없으면 400이다. 응답을 받지 못했으면 **같은 key와 같은 본문**으로 다시 보낸다. 서버는 명령을 한 번만 실행한다. 세션 생성과 메시지는 처음 응답을 그대로 돌려주고, interrupt 같은 제어는 그 receipt의 지금 상태를 돌려준다. 같은 key에 다른 본문이면 409 `IDEMPOTENCY_CONFLICT`다.
+세션 API의 모든 POST에는 `Idempotency-Key` 헤더가 필요하다. 응답을 받지 못했으면 **같은 key와 같은 본문**으로 다시 보낸다. 서버는 명령을 한 번만 실행한다. 세션 생성과 메시지는 처음 응답을 그대로 돌려주고, interrupt 같은 제어는 그 receipt의 지금 상태를 돌려준다. 같은 key에 다른 본문이면 409 `IDEMPOTENCY_CONFLICT`다.
+
+SDK는 호출마다 key를 하나 만들고, 그 호출의 재시도에 같은 key를 보낸다. 프로세스를 다시 띄운 뒤에도 같은 명령으로 이어 가려면 key를 직접 만들어 `idempotencyKey`로 넘긴다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const params = {
+  profile_id: "claude-coding-local",
+  repository_id: "sample-app",
+  message: 'GATE-SPEC {"id":"retry","steps":[],"final":"once"}',
+};
+const idempotencyKey = crypto.randomUUID();
+const first = await werft.sessions.create(params, { idempotencyKey });
+const second = await werft.sessions.create(params, { idempotencyKey });
+console.log(first.session_id === second.session_id ? "same session" : "two sessions");
+```
+
+```text
+same session
+```
+
+</Tab>
+<Tab>
 
 ```bash
 IDEM=$(uuidgen)
@@ -58,51 +117,172 @@ second=$(curl -sS "$API/v1/sessions" -H "Authorization: Bearer $KEY" -H 'Content
 same session
 ```
 
+헤더가 없으면 400이다. 레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
+
 새 의도에는 새 key를 쓴다. timeout 뒤 새 key로 보내면 세션이 둘 생길 수 있다.
 
 ## 목록 보기
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const page = await werft.sessions.list({ limit: 5 });
+for (const session of page.items) {
+  console.log(session.id, session.title, session.status);
+}
+
+// for await walks every page.
+for await (const session of werft.sessions.list({ status: "idle" })) {
+  console.log(session.id);
+}
+```
+
+`await`하면 첫 페이지(`items`, `next_cursor`, `nextPage()`)를, `for await`하면 모든 페이지의 항목을 준다.
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.items[] | {id, title, status}'
 ```
 
-`limit`, `cursor`(응답의 `next_cursor`), `status`로 거른다. key가 볼 수 있는 세션만 나온다.
+다음 페이지는 응답의 `next_cursor`를 `cursor`로 넘겨 읽는다.
+
+레퍼런스: [`GET /v1/sessions`](/reference/http-api/sessions/listSessions)
+
+</Tab>
+</Tabs>
+
+`limit`, `status`로 거른다. key가 볼 수 있는 세션만 나온다.
 
 `relation`은 볼 수 있는 세션 가운데서만 더 좁힌다. `started`는 내가 시작한 세션(key라면 그 key나 key를 만든 사람이 시작한 세션), `shared`는 남이 시작해 나를 지정하거나 내가 속한 팀을 지정해 공유한 세션, `administered`는 내가 관리하는(직접 또는 팀으로) 에이전트의 세션이다. 워크스페이스 전체에 보이는 남의 세션은 `all`(기본값)에만 나온다. `q`는 제목에 그 글자가 들어 있거나(대소문자 무시) id가 그 글자로 시작하는 세션을 찾는다. `agent_id`는 그 에이전트의 release로 만든 세션만 남긴다(어느 release든).
 
 각 항목의 `agent`(`id`, `name`, `release_version_no`, `release_label`)는 세션이 묶인 에이전트와 release다. `release_version_no`는 그 release가 쓰는 카드 version이고, `release_label`은 release의 이름(만든 시각, 예: `2026-10-30_14:30:28`)이다. 에이전트 release 없이 만든 세션은 `null`이다. `created_by`(`user_id`, `display_name`)는 세션을 시작한 사람이고, key로 만든 세션은 key를 만든 사람이다. 인계 뒤에도 바뀌지 않는다. 인계받은 사람은 그 세션을 읽을 수 있지만 `started`에는 시작한 사람에게만 나온다. `channel`은 세션을 만든 요청이 들어온 곳(`web`, `api`, `slack`)이다. 시작한 사람이나 경로를 기록에서 알 수 없는 예전 세션은 `null`이다. `slack_permalink`는 Slack에서 시작한 세션의 첫 메시지 링크다([원래 Slack 메시지 링크](/integrations/slack#원래-slack-메시지-링크)). 다른 경로로 만든 세션과 링크를 남기기 전 세션은 `null`이다.
 
+상태별 개수는 SDK에 없어 HTTP API로 읽는다. `GET /v1/sessions/counts`는 같은 `relation`·`q`로 목록을 끝까지 읽었을 때 상태별로 몇 개인지와 `total`을 준다. 볼 수 없는 세션은 세지 않는다.
+
 ```bash
 curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c
 ```
 
-`GET /v1/sessions/counts`는 같은 `relation`·`q`로 목록을 끝까지 읽었을 때 상태별로 몇 개인지와 `total`을 준다. 볼 수 없는 세션은 세지 않는다.
+레퍼런스: [`GET /v1/sessions/counts`](/reference/http-api/sessions/countSessions)
 
 목록과 상세의 `repository`는 세션을 만들 때의 저장소다. `id`는 카탈로그 키(`repository_id`와 같다), `full_name`은 화면에 보일 이름으로 저장소 URL에서 host·인증 정보·query·`.git`을 뺀 경로(`owner/name`, 그룹이 있으면 `group/sub/name`)이고 그렇게 읽히지 않는 URL이면 카탈로그 키다. `branch`는 worker가 clone한 브랜치이고, push가 쓰는 `agent/<session-id>`가 아니다. 세 값 모두 세션을 만들 때 적어 둔 것이라 운영자가 나중에 카탈로그를 바꾸거나 저장소를 빼도 바뀌지 않는다. 저장소 없이 만든 세션은 `repository`가 `null`이고, 카탈로그가 생기기 전에 만든 세션은 `id`가 `null`이다. 저장소 URL 자체는 어떤 응답에도 나오지 않는다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const session = await werft.sessions.get(sessionId);
+console.log(session.repository);
+```
+
+```text
+{ id: 'sample-app', full_name: 'agent/sample-app', branch: 'main' }
+```
+
+</Tab>
+<Tab>
 
 ```bash
 curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq -c .repository
 # {"id":"sample-app","full_name":"agent/sample-app","branch":"main"}
 ```
 
+레퍼런스: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
+
+</Tab>
+</Tabs>
+
+## 공유 범위
+
+세션을 누가 볼 수 있는지는 공유 범위로 읽는다. 세션을 볼 수 있으면 누구나 읽는다. scope는 `sessions:read`다.
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+const share = await werft.sessions.share(sessionId);
+console.log(share.scope, share.revision);
+```
+
+```text
+workspace 0
+```
+
+</Tab>
+<Tab>
+
+```bash
+curl -sS "$API/v1/sessions/$SID/share" -H "Authorization: Bearer $KEY" | jq -c '{scope, revision}'
+# {"scope":"workspace","revision":0}
+```
+
+레퍼런스: [`GET /v1/sessions/{id}/share`](/reference/http-api/sessions/getSessionShare)
+
+</Tab>
+</Tabs>
+
+`scope`는 `private`(만든 사람만), `people`(`user_ids`의 사람), `team`(`team_ids` 팀의 지금 구성원), `workspace`(모든 구성원) 중 하나다. 한 번도 바꾸지 않은 세션은 `workspace`, `revision` 0이다. 범위를 바꾸는 `POST /v1/sessions/{id}/share`는 웹 로그인으로만 부르므로 SDK 메서드가 없다([`setSessionShare`](/reference/http-api/sessions/setSessionShare)).
+
 ## 제목
 
 `title`을 주면 공백·줄바꿈 연속을 공백 하나로 줄이고 앞뒤를 잘라 저장한다. 그 결과가 비거나 80자(이모지·결합 문자 하나가 1자)를 넘으면 400이다. 빼면 첫 `message`에서 같은 규칙으로 만들고, 80자를 넘으면 앞 79자에 `…`를 붙인다. 모델은 부르지 않으므로 같은 메시지는 늘 같은 제목이다. 공백뿐인 메시지와 이 기능 전에 만든 세션은 `title`이 `null`이다.
+
+이름 바꾸기는 SDK에 없어 HTTP API로 부른다.
 
 ```bash
 curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
   -H 'Content-Type: application/json' -d '{"title":"결제 테스트 고치기"}' | jq '{id, title}'
 ```
 
-이름은 만든 사람(key가 만든 세션이면 그 key), 에이전트 관리자, owner·admin이 바꾼다. 공유로 보기만 하는 사람은 403, 볼 수 없는 사람은 404다. Idempotency-Key는 필요 없다. 바뀌면 SSE에 `title`을 실은 `status` 이벤트가 온다.
+이름은 만든 사람(key가 만든 세션이면 그 key), 에이전트 관리자, owner·admin이 바꾼다. 공유로 보기만 하는 사람은 403, 볼 수 없는 사람은 404다. Idempotency-Key는 필요 없다. 바뀌면 SSE에 `title`을 실은 `status` 이벤트가 온다. 레퍼런스: [`PATCH /v1/sessions/{id}`](/reference/http-api/sessions/updateSession)
 
 ## 오류
+
+서버 오류는 SDK에서 `APIError`로 온다. `isApiError(error, code)`로 가르고, `retryable`이 `true`인 오류는 SDK가 스스로 다시 보낸다([재시도와 Idempotency-Key](/getting-started/client#재시도와-idempotency-key)).
+
+<Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
+<Tab>
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.create({
+    profile_id: "claude-coding-local",
+    repository_id: "sample-app",
+    model: "claude-opus-9",
+    message: "hello",
+  });
+} catch (error) {
+  if (isApiError(error, "UNSUPPORTED_CAPABILITY")) {
+    console.log(error.status, error.code, error.retryable, error.message);
+  } else throw error;
+}
+```
+
+```text
+422 UNSUPPORTED_CAPABILITY false Profile claude-coding-local does not offer model claude-opus-9
+```
+
+</Tab>
+<Tab>
 
 오류 본문은 모든 API가 같은 모양이다. `retryable`이 `true`일 때만 같은 key로 다시 보낼 만하다.
 
 ```text
 {"error":{"code":"UNSUPPORTED_CAPABILITY","message":"Profile claude-coding-local does not offer model claude-opus-9","retryable":false,"request_id":"…","details":null}}
 ```
+
+레퍼런스: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
+
+</Tab>
+</Tabs>
 
 | 응답 | 뜻 |
 | --- | --- |
@@ -117,7 +297,10 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 
 실행 slot이 모자라면 거절하지 않는다. 세션이 `queued`로 기다린다.
 
+SDK의 오류 클래스(`APIError`, `ConnectionError`, `TimeoutError` 등)와 재시도 횟수·timeout은 모든 호출에 같으므로 [클라이언트 설정과 오류](/getting-started/client#오류)에 모았다.
+
 ## 다음 단계
 
 - [상태와 수명](/sessions/lifecycle): 세션과 turn의 상태
 - [보내기](/messages/send): 같은 세션에 메시지 더 보내기
+- [저장소의 예제](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md): key와 카탈로그 확인, 세션 목록, 이벤트 이어 받기, 재시도, 질문·권한 요청 답변, 제어와 복구, push 승인과 PR을 유즈케이스별 SDK 샘플로

@@ -66,8 +66,8 @@ export type ApiCard = components["schemas"]["CreateAgentRequest"]["card"];
 
 export function draftFromCard(card: AgentCard): CardDraft {
   return {
-    role: card.role,
-    instructions: card.instructions,
+    role: card.role ?? "",
+    instructions: card.instructions ?? "",
     language: card.language,
     model: card.model,
     toolsMode: card.capabilities.tools === null ? "all" : "list",

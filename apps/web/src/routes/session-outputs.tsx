@@ -14,12 +14,12 @@ import { useAgentPlatform, useSessionUsage } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
-  buttonVariants,
   Code,
   EmptyState,
   Heading,
   Link,
   RelativeTime,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
@@ -502,17 +502,15 @@ function SessionOutputs({ session }: { readonly session: SessionDetail }) {
               {item.omitted === null ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Link
-                      href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
-                      download={name.slice(name.lastIndexOf("/") + 1)}
-                      aria-label={t("session.outputs.download", { name })}
-                      className={buttonVariants({
-                        variant: "outline",
-                        size: "icon",
-                      })}
-                    >
-                      <Download className="size-3.5" aria-hidden="true" />
-                    </Link>
+                    <RowAction asChild size="icon-sm">
+                      <Link
+                        href={`/v1/sessions/${encodeURIComponent(session.id)}/outputs/${encodeURIComponent(item.path)}`}
+                        download={name.slice(name.lastIndexOf("/") + 1)}
+                        aria-label={t("session.outputs.download", { name })}
+                      >
+                        <Download className="size-3.5" aria-hidden="true" />
+                      </Link>
+                    </RowAction>
                   </TooltipTrigger>
                   <TooltipContent>
                     {t("session.outputs.download", { name })}

@@ -14,6 +14,7 @@ export const shellKo = {
   "shell.waitingMore": "답변 대기 {count}개 이상",
   "shell.waitingNone": "답변 대기 없음",
   "shell.breadcrumb": "위치",
+  "shell.menuTrail": "메뉴 위치",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -32,6 +33,7 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.waitingMore": "{count}+ waiting for an answer",
   "shell.waitingNone": "Nothing waiting for an answer",
   "shell.breadcrumb": "Breadcrumb",
+  "shell.menuTrail": "Menu breadcrumb",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -50,4 +52,5 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.waitingMore": "回答待ち {count}件以上",
   "shell.waitingNone": "回答待ちはありません",
   "shell.breadcrumb": "現在地",
+  "shell.menuTrail": "メニューの現在地",
 };

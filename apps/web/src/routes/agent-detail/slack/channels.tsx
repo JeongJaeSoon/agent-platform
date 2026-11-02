@@ -16,6 +16,7 @@ import {
   FieldLabel,
   Heading,
   Input,
+  RowAction,
   RowList,
   RowListItem,
   SettingRow,
@@ -454,10 +455,7 @@ export function SlackChannels({
                       </span>
                     }
                     actions={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
+                      <RowAction
                         aria-label={t(
                           pickHome
                             ? "slack.channelHome"
@@ -479,7 +477,7 @@ export function SlackChannels({
                         onClick={() => connectChannel(channel.id)}
                       >
                         {t(pickHome ? "slack.setHome" : "slack.add")}
-                      </Button>
+                      </RowAction>
                     }
                   />
                 ))}

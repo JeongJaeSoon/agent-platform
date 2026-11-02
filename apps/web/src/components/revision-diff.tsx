@@ -1,4 +1,4 @@
-import { Text } from "@werft-ai/ui";
+import { CodeBlock, Text } from "@werft-ai/ui";
 import { useI18n } from "../i18n/i18n.tsx";
 
 export type DiffLine = {
@@ -79,7 +79,7 @@ export function RevisionDiff({
         </Text>
       </figcaption>
       {changed ? (
-        <pre className="m-0 overflow-x-auto rounded-card border p-3 font-mono text-xs">
+        <CodeBlock>
           {lines.map((line, index) => (
             <span
               // Lines repeat, so position is the only stable identity here.
@@ -100,9 +100,9 @@ export function RevisionDiff({
               {"\n"}
             </span>
           ))}
-        </pre>
+        </CodeBlock>
       ) : (
-        <p className="m-0 text-muted-foreground">{t("diff.same")}</p>
+        <Text variant="sub">{t("diff.same")}</Text>
       )}
     </figure>
   );

@@ -9,6 +9,7 @@ import {
   ConfirmDialog,
   cn,
   formatTimestamp,
+  RowAction,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -205,9 +206,7 @@ function SummaryQuestion({
           </p>
         </div>
         {expired ? null : (
-          <Button
-            type="button"
-            variant="outline"
+          <RowAction
             className="shrink-0"
             aria-expanded={open}
             aria-controls={formId}
@@ -224,7 +223,7 @@ function SummaryQuestion({
               )}
               aria-hidden="true"
             />
-          </Button>
+          </RowAction>
         )}
       </div>
       <div

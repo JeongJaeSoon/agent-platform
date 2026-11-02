@@ -21,7 +21,6 @@ import {
   AlertTitle,
   Badge,
   type BadgeProps,
-  Button,
   buttonVariants,
   Card,
   CardFooter,
@@ -46,6 +45,7 @@ import {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
   PageBreadcrumbLink,
+  RowAction,
   RowList,
   Text,
   Link as TextLink,
@@ -640,10 +640,8 @@ function KeyList({
                 ) : null}
               </div>
               {key.revoked_at ? null : (
-                <Button
-                  type="button"
+                <RowAction
                   variant="danger"
-                  size="sm"
                   className="shrink-0"
                   disabled={revoke.isPending}
                   aria-label={t("apiKeys.revokeFor", {
@@ -652,7 +650,7 @@ function KeyList({
                   onClick={() => setConfirming(key)}
                 >
                   {t("apiKeys.revoke")}
-                </Button>
+                </RowAction>
               )}
             </li>
           );
@@ -949,7 +947,7 @@ function FormFoot({
       <Link
         to={listTo}
         data-slot="button"
-        className={buttonVariants({ variant: "outline" })}
+        className={buttonVariants({ variant: "ghost" })}
       >
         {t("common.cancel")}
       </Link>

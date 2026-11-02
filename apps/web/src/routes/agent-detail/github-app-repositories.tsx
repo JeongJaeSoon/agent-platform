@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useAgentPlatform } from "@werft-ai/react";
-import { Button, FieldError, Heading, Text } from "@werft-ai/ui";
+import { FieldError, Heading, RowAction, Text } from "@werft-ai/ui";
 import { useEffect, useId, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { errorKey, type MessageKey, useI18n } from "../../i18n/i18n.tsx";
@@ -143,10 +143,7 @@ export function AppRepositoryPicker({
                 {t("agentGitHub.pickInList")}
               </Text>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
+              <RowAction
                 aria-label={t("agentGitHub.pickName", {
                   name: repository.full_name,
                 })}
@@ -156,7 +153,7 @@ export function AppRepositoryPicker({
                 }}
               >
                 {t("agentGitHub.pickOne")}
-              </Button>
+              </RowAction>
             )
           }
         />
