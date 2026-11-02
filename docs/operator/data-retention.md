@@ -147,9 +147,9 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
   - 만드는 시점: `provider_usage` insert trigger가 더한다(`packages/db/migrations/0127_session_provider_tokens.sql`, `0169_usage_breakdown_rollup.sql`).
   - 보존 기간: 무기한.
 - **세션 성과물** — `session_outcomes`, `outcome_refresh_quotas`
-  - 이 표는 위 기준 커밋 뒤에 들어왔다(`packages/db/migrations/0200_session_outcomes.sql`). 그래서 이 항목에는 줄 번호를 적지 않는다.
-  - 담는 것: 세션이 남긴 GitHub PR(`github_pull_request`)과 리뷰(`github_review`) 한 건마다 URL, 저장소, release·에이전트, 상태와 그 시각(`state_changed_at`, `merged_at`, `closed_at`). PR 상태는 `open`·`merged`·`closed`이고, 다시 읽은 시각(`state_checked_at`)과 읽기 실패(`check_error`)도 남는다. `outcome_refresh_quotas`는 PR 상태를 다시 읽는 GitHub 호출의 rate limit 창이다.
-  - 만드는 시점: PR을 열거나 리뷰를 남기는 트랜잭션에서(`packages/db/src/pull-requests.ts`, `packages/db/src/github-settings.ts`의 `insert(sessionOutcomes)`). 머지되지 않은 PR은 그 뒤 상태를 다시 읽어 행을 고친다.
+  - 이 표는 위 기준 커밋 뒤에 들어왔다(`packages/db/migrations/0200_session_outcomes.sql`, 리뷰는 `0209_session_outcome_reviews.sql`). 그래서 이 항목에는 줄 번호를 적지 않는다.
+  - 담는 것: 세션이 남긴 GitHub PR(`github_pull_request`)과 리뷰(`github_review`) 한 건마다 URL, 저장소, release·에이전트, 상태와 그 시각(`state_changed_at`, `merged_at`, `closed_at`). PR 상태는 `open`·`merged`·`closed`이고, 다시 읽은 시각(`state_checked_at`)과 읽기 실패(`check_error`)도 남는다. `metadata`에는 PR이면 제목(최대 200자), head·base 브랜치, merge commit SHA, 변경 규모가, 리뷰면 리뷰한 PR 번호, 리뷰 종류, commit, 그 PR을 연 세션이 들어간다. 리뷰 본문은 남기지 않는다. `outcome_refresh_quotas`는 PR 상태를 다시 읽는 GitHub 호출의 rate limit 창이다.
+  - 만드는 시점: PR을 열거나 리뷰를 남기는 트랜잭션에서(`packages/db/src/pull-requests.ts`, `packages/db/src/github-settings.ts`의 `insert(sessionOutcomes)`). push 요청이 연 PR 중 성과물 행이 없는 것은 refresher가 `pull_requests` 행에서 나중에 채운다(`packages/db/src/session-outcomes.ts`의 `fillMissing`). 열린 PR과 닫힌 지 30일이 안 된 PR은 주기적으로 상태를 다시 읽어 행을 고친다. 머지된 PR과 리뷰는 다시 읽지 않는다.
   - 보존 기간: **정해지지 않음.** 설계에도 없다. 지우는 경로도 없다.
 
 ## 내용이 남는 곳과 마스킹
