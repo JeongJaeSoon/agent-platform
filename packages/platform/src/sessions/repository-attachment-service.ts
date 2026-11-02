@@ -71,7 +71,19 @@ export function createRepositoryAttachmentService(deps: {
     let current = row;
     while (current.status === "pending" && now() + pollMs < deadline) {
       await sleep(pollMs);
-      current = (await store.find(sessionId, row.repositoryId)) ?? current;
+      // A slow read is cut at the deadline and the last state answered.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const read = await Promise.race([
+        store.find(sessionId, row.repositoryId),
+        new Promise<"late">((resolve) => {
+          timer = setTimeout(
+            () => resolve("late"),
+            Math.max(0, deadline - now()),
+          );
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (read === "late") break;
+      current = read ?? current;
     }
     return current;
   }

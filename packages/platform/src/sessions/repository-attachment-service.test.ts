@@ -228,6 +228,27 @@ describe("attach", () => {
     expect(s.reads()).toBe(3);
   });
 
+  test("a read still running at the deadline is cut, and the last state answered", async () => {
+    const store = memoryAttachmentStore();
+    store.find = () => new Promise(() => {});
+    const attachments = createRepositoryAttachmentService({
+      store,
+      context: { context: async () => attachmentContext() },
+      catalog: attachCatalog,
+      waitMs: 100,
+      pollMs: 10,
+    });
+    const started = performance.now();
+    const answered = await attachments.attach({
+      sessionId: SESSION,
+      attemptId: "att_1",
+      actor,
+      repositoryId: "docs",
+    });
+    expect(answered.status).toBe("pending");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   test("a resent failure for an earlier request does not settle the request after it", async () => {
     const s = service();
     await s.attach("docs");
