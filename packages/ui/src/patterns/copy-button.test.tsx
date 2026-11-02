@@ -386,3 +386,48 @@ describe("CopyButton 이름과 보이는 글자", () => {
     }
   });
 });
+
+describe("CopyButton 알림", () => {
+  test("copiedLabel만 주면 바뀐 문구를 숨긴 status로도 알린다", async () => {
+    const screen = render(
+      <CopyButton value={VALUE} label="복사" copiedLabel="복사했습니다" />,
+    );
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
+    try {
+      const status = screen.getByRole("status");
+      expect(status.className.split(" ")).toContain("sr-only");
+      await user.click(screen.getByRole("button", { name: "복사" }));
+      await waitFor(() => expect(status.textContent).toBe("복사했습니다"));
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test("aria-labelledby로 이름을 고정해도 '복사됨'은 버튼 밖에 둔다", async () => {
+    function Labelled() {
+      const id = useId();
+      return (
+        <>
+          <span id={id}>키 ID 복사</span>
+          <CopyButton value={VALUE} aria-labelledby={id} copiedLabel="복사됨" />
+        </>
+      );
+    }
+    const screen = render(<Labelled />);
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
+    try {
+      const button = screen.getByRole("button", { name: "키 ID 복사" });
+      const status = screen.getByRole("status");
+      // Out of the flow while empty, so it adds no gap.
+      expect(status.className).toContain("empty:absolute");
+      await user.click(button);
+      await waitFor(() => expect(status.textContent).toBe("복사됨"));
+      expect(button.textContent).toBe("");
+    } finally {
+      restore();
+    }
+  });
+});

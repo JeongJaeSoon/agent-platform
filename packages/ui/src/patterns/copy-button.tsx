@@ -30,7 +30,8 @@ export type CopyButtonProps = Omit<
   readonly description?: string;
   /**
    * Visible text once the clipboard took the value; `label` by default. With
-   * a fixed `aria-label` it shows beside the button, in the live status,
+   * a fixed `aria-label` or `aria-labelledby` it shows beside the button, in
+   * the live status,
    * since a name that differs from the text inside fails label-in-name.
    */
   readonly copiedLabel?: ReactNode;
@@ -38,7 +39,9 @@ export type CopyButtonProps = Omit<
    * Announced politely after each copy. A button's changed name is not
    * announced reliably, and a fixed `aria-label` hides it entirely. A copy
    * that settles after `value` changed is not announced; see `onResult`.
-   * A `copiedLabel` shown beside the button is announced in its place.
+   * `copiedLabel` by default when it is not `label`; a `copiedLabel`
+   * shown beside the button is announced in its place. Compared by
+   * reference, so pass strings.
    */
   readonly copiedMessage?: string;
   /**
@@ -115,14 +118,19 @@ export function CopyButton({
 
   const Icon = copied && icon === "swap" ? Check : Copy;
   // Under a fixed name the copied text moves out to the status beside it.
+  const fixedName =
+    props["aria-label"] !== undefined || props["aria-labelledby"] !== undefined;
   const besideText =
-    props["aria-label"] !== undefined &&
+    fixedName &&
     copiedLabel !== label &&
     copiedLabel !== undefined &&
     copiedLabel !== null
       ? copiedLabel
       : null;
   const text = copied && besideText === null ? copiedLabel : label;
+  // A swapped label is a changed name, which is not announced reliably.
+  const announced =
+    copiedMessage ?? (copiedLabel !== label ? copiedLabel : undefined);
   const descriptionId = useId();
   const describedBy =
     [
@@ -152,12 +160,14 @@ export function CopyButton({
         </span>
       )}
       {besideText !== null ? (
-        <output data-slot="copy-button-status">
+        // Out of the flow while empty, so a gap beside it shows only with
+        // the text.
+        <output data-slot="copy-button-status" className="empty:absolute">
           {copied ? <span key={copies}>{besideText}</span> : null}
         </output>
-      ) : copiedMessage === undefined ? null : (
+      ) : announced === undefined || announced === null ? null : (
         <output className="sr-only">
-          {copied ? <span key={copies}>{copiedMessage}</span> : null}
+          {copied ? <span key={copies}>{announced}</span> : null}
         </output>
       )}
     </>

@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { createRef } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
 const { render, waitFor } = await setupDom();
 // Radix decides at import time whether a DOM exists; see test-support/dom.ts.
 const { DisabledReason } = await import("./disabled-reason.tsx");
+const { Dialog, DialogContent, DialogTitle, DialogTrigger } = await import(
+  "../primitives/dialog.tsx"
+);
 
 describe("DisabledReason", () => {
   test("비활성 버튼을 감싼 상자가 포커스·hover로 위쪽에 이유를 연다", async () => {
@@ -161,5 +165,57 @@ describe('DisabledReason mode="control"', () => {
     expect(document.activeElement === before).toBe(true);
     await user.keyboard("{Enter}");
     expect(pressed).toEqual(["click", "submit"]);
+  });
+});
+
+describe('DisabledReason mode="control" 바깥 trigger', () => {
+  function WithDialog({ reason }: { readonly reason: string | undefined }) {
+    return (
+      <Dialog>
+        <DialogTrigger asChild={true}>
+          <DisabledReason mode="control" reason={reason}>
+            {/* biome-ignore lint/a11y/useButtonType: DisabledReason sets the type, as checked below */}
+            <button className="own">팀 만들기</button>
+          </DisabledReason>
+        </DialogTrigger>
+        <DialogContent aria-describedby={undefined}>
+          <DialogTitle>새 팀</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  test("이유가 없으면 DialogTrigger가 넘긴 props로 다이얼로그를 연다", async () => {
+    const user = await setupUser();
+    const { getByRole, findByRole } = render(<WithDialog reason={undefined} />);
+    const button = getByRole("button", { name: "팀 만들기" });
+    expect(button.getAttribute("type")).toBe("button");
+    expect(button.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(button.className).toContain("own");
+    expect(button.className).toContain("aria-disabled:cursor-not-allowed");
+    await user.click(button);
+    expect(await findByRole("dialog", { name: "새 팀" })).toBeDefined();
+  });
+
+  test("이유가 있으면 다이얼로그를 열지 않고 팝업도 알리지 않는다", async () => {
+    const user = await setupUser();
+    const { getByRole, queryByRole } = render(
+      <WithDialog reason="팀을 만들 권한이 없습니다." />,
+    );
+    const button = getByRole("button", { name: "팀 만들기" });
+    expect(button.hasAttribute("aria-haspopup")).toBe(false);
+    await user.click(button);
+    await user.keyboard("{Enter}");
+    expect(queryByRole("dialog")).toBeNull();
+  });
+
+  test("ref가 버튼에 닿는다", () => {
+    const ref = createRef<HTMLButtonElement>();
+    const { getByRole } = render(
+      <DisabledReason mode="control" reason={undefined} ref={ref}>
+        <button type="button">복구</button>
+      </DisabledReason>,
+    );
+    expect(ref.current === getByRole("button", { name: "복구" })).toBe(true);
   });
 });

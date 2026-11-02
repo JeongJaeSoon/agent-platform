@@ -1,9 +1,11 @@
 import {
+  type ComponentProps,
   cloneElement,
   type JSX,
   type MouseEvent,
   type ReactElement,
   type ReactNode,
+  type Ref,
   useId,
 } from "react";
 
@@ -14,13 +16,7 @@ import {
   TooltipTrigger,
 } from "../primitives/tooltip.tsx";
 
-interface KeptControlProps {
-  readonly disabled?: boolean | undefined;
-  readonly onClick?:
-    | ((event: MouseEvent<HTMLButtonElement>) => void)
-    | undefined;
-  readonly "aria-describedby"?: string | undefined;
-}
+type KeptControlProps = ComponentProps<"button">;
 
 export type DisabledReasonProps =
   | {
@@ -34,17 +30,18 @@ export type DisabledReasonProps =
       readonly children: ReactElement<{ "aria-describedby"?: string }>;
       readonly className?: string | undefined;
     }
-  | {
+  | (Omit<KeptControlProps, "children"> & {
       /**
        * The button itself stays focusable and carries the reason; see
-       * `KeptControl`.
+       * `KeptControl`. Other props (a `DialogTrigger asChild` around it
+       * passes its own) go to the button.
        */
       readonly mode: "control";
       /** Why the button is unavailable; nothing while it is available. */
       readonly reason: ReactNode | undefined;
       /** A `button` or `Button`, not disabled for the reason itself. */
       readonly children: ReactElement<KeptControlProps>;
-    };
+    });
 
 /**
  * Says why a control is unavailable, on hover, keyboard focus or a tap,
@@ -56,11 +53,11 @@ export type DisabledReasonProps =
  * reach it; see `KeptControl`.
  */
 export function DisabledReason(props: DisabledReasonProps): JSX.Element {
-  return props.mode === "control" ? (
-    <KeptControl reason={props.reason}>{props.children}</KeptControl>
-  ) : (
-    <ReasonBox {...props} />
-  );
+  if (props.mode === "control") {
+    const { mode: _mode, ...rest } = props;
+    return <KeptControl {...rest} />;
+  }
+  return <ReasonBox {...props} />;
 }
 
 function ReasonBox({
@@ -113,13 +110,24 @@ function ReasonBox({
 function KeptControl({
   reason,
   children,
-}: {
-  readonly reason: ReactNode | undefined;
-  readonly children: ReactElement<KeptControlProps>;
-}): JSX.Element {
+  ref,
+  onClick: outerClick,
+  className: outerClassName,
+  ...outer
+}: Omit<
+  Extract<DisabledReasonProps, { mode: "control" }>,
+  "mode"
+>): JSX.Element {
   const withheld = reason !== undefined && reason !== null;
-  const { disabled, onClick } = children.props;
+  const own = children.props;
+  // As Radix Slot merges: the button's own props win, handlers both run.
+  const passed = Object.fromEntries(
+    Object.entries(outer).filter(
+      ([key]) => own[key as keyof KeptControlProps] === undefined,
+    ),
+  );
   const control = cloneElement(children, {
+    ...passed,
     ...(withheld && {
       "aria-disabled": true,
       // A DialogTrigger around it would announce a dialog it never opens.
@@ -127,18 +135,40 @@ function KeptControl({
       "aria-expanded": undefined,
       "aria-controls": undefined,
     }),
-    disabled: withheld ? undefined : disabled,
+    ref: mergeRefs(ref, own.ref),
+    type: own.type ?? outer.type ?? "button",
+    className: cn(
+      outerClassName,
+      own.className,
+      "aria-disabled:cursor-not-allowed",
+    ),
+    disabled: withheld ? undefined : (own.disabled ?? outer.disabled),
     onClick: (event: MouseEvent<HTMLButtonElement>) => {
-      if (!withheld) return onClick?.(event);
-      // Left alone, so a tap still pins the reason; a submit button would
-      // also submit, from here or from Enter in a field.
-      if (event.currentTarget.type === "submit") event.preventDefault();
+      if (withheld) {
+        // Left alone, so a tap still pins the reason; a submit button would
+        // also submit, from here or from Enter in a field.
+        if (event.currentTarget.type === "submit") event.preventDefault();
+        return;
+      }
+      own.onClick?.(event);
+      outerClick?.(event);
     },
-  } as Partial<KeptControlProps>);
+  });
   return (
     <Tooltip {...(!withheld && { open: false })}>
       <TooltipTrigger asChild={true}>{control}</TooltipTrigger>
       <TooltipContent side="top">{reason}</TooltipContent>
     </Tooltip>
   );
+}
+
+function mergeRefs<T>(
+  ...refs: (Ref<T> | undefined)[]
+): (node: T | null) => void {
+  return (node) => {
+    for (const ref of refs) {
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    }
+  };
 }
