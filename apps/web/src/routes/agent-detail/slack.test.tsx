@@ -128,6 +128,7 @@ describe("Slack management", () => {
     const state = await screen.findByRole("region", { name: "상태" });
     const alert = await within(state).findByRole("alert");
     expect(alert.textContent).toContain("불러오지 못했습니다");
+    expect(alert.textContent).toContain("INTERNAL_ERROR");
     const reads = (path: string) =>
       api.calls.filter((c) => c.method === "GET" && c.path === path).length;
     const before = {
@@ -182,9 +183,7 @@ describe("Slack management", () => {
     const user = await setupUser();
     await screen.findByText("홈 채널");
     await waitFor(() =>
-      expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
-        true,
-      ),
+      expect(document.querySelector("main [role=alert]") !== null).toBe(true),
     );
     const state = screen.getByRole("region", { name: "상태" });
     // Home and DM both read as unknown.
@@ -197,9 +196,7 @@ describe("Slack management", () => {
     );
     await screen.findByRole("navigation", { name: "Slack 구역" });
     await waitFor(() =>
-      expect(document.querySelector("[data-slot=field-error]") !== null).toBe(
-        true,
-      ),
+      expect(document.querySelector("main [role=alert]") !== null).toBe(true),
     );
     expect(screen.queryByText("연결된 채널이 없습니다") === null).toBe(true);
     await user.click(await screen.findByRole("button", { name: "채널 추가" }));

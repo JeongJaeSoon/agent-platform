@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
-import { FieldError, RowAction, SettingRow, Switch, Text } from "@werft-ai/ui";
+import { FieldError, SettingRow, Switch, Text } from "@werft-ai/ui";
 import { useState } from "react";
+import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
 import { slackKey, useSlackBindings, useSlackSettings } from "./queries.ts";
-import { dmOn, slackFailure } from "./shared.ts";
+import { dmOn, slackFailure, slackReason } from "./shared.ts";
 
 export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
@@ -48,9 +49,7 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
       }
       meta={
         <>
-          {bindings.error ? (
-            <FieldError>{slackFailure(bindings.error, t)}</FieldError>
-          ) : null}
+          {/* The status section above reports a failed bindings read. */}
           {update.error ? (
             <FieldError>{slackFailure(update.error, t)}</FieldError>
           ) : null}
@@ -63,11 +62,7 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
         </>
       }
       control={
-        lost ? (
-          <RowAction onClick={() => void bindings.refetch()}>
-            {t("common.retry")}
-          </RowAction>
-        ) : (
+        lost ? null : (
           <Switch
             aria-label={t("slack.dmSetting")}
             checked={dmOn(dm)}
@@ -145,7 +140,14 @@ export function SlackMentionOnly({
         settings.error || update.error ? (
           <>
             {settings.error ? (
-              <FieldError>{slackFailure(settings.error, t)}</FieldError>
+              // The row sits in a page that has loaded, so an alert, not a
+              // whole failure state.
+              <LoadFailure
+                error={settings.error}
+                guidance={slackReason(settings.error, t)}
+                kept
+                onRetry={() => void settings.refetch()}
+              />
             ) : null}
             {update.error ? (
               <FieldError>{slackFailure(update.error, t)}</FieldError>
@@ -154,11 +156,7 @@ export function SlackMentionOnly({
         ) : undefined
       }
       control={
-        lost ? (
-          <RowAction onClick={() => void settings.refetch()}>
-            {t("common.retry")}
-          </RowAction>
-        ) : (
+        lost ? null : (
           <Switch
             aria-label={t("slack.mentionOnly")}
             checked={settings.data?.mention_only ?? false}
