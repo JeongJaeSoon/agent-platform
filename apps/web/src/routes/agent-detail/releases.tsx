@@ -62,11 +62,11 @@ import { SECTION } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // Version, status, activated, card, profile, repository, by, note, actions;
-// a narrow table keeps the version, the status and the action, and the
-// version cell lists the rest.
+// a narrow table keeps the version and the action, and the version cell
+// shows the status and lists the rest.
 const COLUMNS = [
   "minmax(0,1fr) 96px minmax(0,1.2fr) 72px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) 120px",
-  "minmax(0,1fr) 96px 120px",
+  "minmax(0,1fr) 120px",
 ] as const;
 
 export function Releases({
@@ -320,7 +320,7 @@ export function Releases({
             <GridTableColumnHeader>
               {t("agent.releases.colVersion")}
             </GridTableColumnHeader>
-            <GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
               {t("agent.releases.colStatus")}
             </GridTableColumnHeader>
             <GridTableColumnHeader hideNarrow>
@@ -410,6 +410,15 @@ export function Releases({
             ) : (
               note
             );
+            const status = (
+              <Badge variant={active ? "green" : "gray"}>
+                {active
+                  ? t("agent.releases.active")
+                  : item.activated_at
+                    ? t("agent.releases.previous")
+                    : t("agent.releases.never")}
+              </Badge>
+            );
             return (
               <GridTableRow key={item.id} data-active={active}>
                 <GridTableCell>
@@ -422,6 +431,9 @@ export function Releases({
                       {name}
                     </Text>
                     {/* GridTable's narrowAt={760}, where the other columns drop. */}
+                    <span className="hidden [@container(max-width:760px)]:flex">
+                      {status}
+                    </span>
                     <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:760px)]:flex">
                       {(
                         [
@@ -446,15 +458,7 @@ export function Releases({
                     </dl>
                   </div>
                 </GridTableCell>
-                <GridTableCell>
-                  <Badge variant={active ? "green" : "gray"}>
-                    {active
-                      ? t("agent.releases.active")
-                      : item.activated_at
-                        ? t("agent.releases.previous")
-                        : t("agent.releases.never")}
-                  </Badge>
-                </GridTableCell>
+                <GridTableCell hideNarrow>{status}</GridTableCell>
                 <GridTableCell hideNarrow className="flex-wrap tabular-nums">
                   {activated}
                 </GridTableCell>

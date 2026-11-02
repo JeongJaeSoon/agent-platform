@@ -1056,15 +1056,21 @@ describe("에이전트 상세 탭", () => {
     ]);
     expect(row.textContent).toContain("활성");
     expect(row.textContent).toContain("claude-coding-local");
-    // A narrow table keeps the version, status and action columns; the
-    // version cell lists every column it drops, the activation as a time.
+    // A narrow table keeps the version and action columns; the version
+    // cell shows the status and lists every column it drops, the
+    // activation as a time.
     expect(table.dataset.narrowAt).toBe("760");
     expect(
       within(table)
         .getAllByRole("columnheader")
         .filter((head) => head.dataset.hideNarrow !== "true")
         .map((head) => head.textContent),
-    ).toEqual(["버전", "상태", "동작"]);
+    ).toEqual(["버전", "동작"]);
+    const narrowStatus = row.querySelector(
+      "span[class*='[@container(max-width:760px)]:flex']",
+    );
+    expect(narrowStatus?.className).toContain("hidden");
+    expect(narrowStatus?.textContent).toBe("활성");
     const narrow = row.querySelector("dl");
     expect(narrow?.className).toContain("hidden");
     expect(narrow?.className).toContain("[@container(max-width:760px)]:flex");
