@@ -8,18 +8,17 @@ import {
   Code,
   cn,
   EmptyState,
-  formatTimestamp,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   linkVariants,
+  RelativeTime,
   RowLines,
   SettingRow,
   SettingsSection,
   Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
 } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
@@ -111,101 +110,107 @@ export function SlackApps() {
 function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
   const { t, locale } = useI18n();
   return (
-    <div className="@container overflow-hidden rounded-card border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col">{t("workspace.slackAppsApp")}</TableHead>
-            <TableHead scope="col" className={WIDE}>
-              {t("workspace.slackAppsAgent")}
-            </TableHead>
-            <TableHead scope="col" className={FIT}>
-              {t("workspace.slackAppsState")}
-            </TableHead>
-            <TableHead scope="col" className={cn(FIT, WIDE, "text-right")}>
-              {t("workspace.slackAppsUpdated")}
-            </TableHead>
-            <TableHead scope="col" className={FIT}>
-              <span className="sr-only">{t("workspace.slackAppsMore")}</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => {
-            const name =
-              item.slack_app.kind === "link"
-                ? t("workspace.slackAppsLinkApp")
-                : t("workspace.slackAppsAgentApp", {
-                    name: item.agent?.name ?? t("workspace.slackAppsNoAgent"),
-                  });
-            return (
-              <TableRow key={item.slack_app.id}>
-                <TableCell>
-                  <RowLines>
-                    <Text
-                      as="span"
-                      weight="medium"
-                      className="[overflow-wrap:anywhere]"
-                    >
-                      {name}
-                    </Text>
-                    <Code className="text-muted-foreground">
-                      {item.slack_app.app_id ?? t("workspace.slackAppsNoId")}
-                    </Code>
-                    {/* Plain text: the row's details link already opens the agent. */}
-                    <Text as="span" variant="meta" className="@[560px]:hidden">
-                      {item.agent?.name ?? t("workspace.slackAppsNoAgent")}
-                      {" · "}
-                      {formatTimestamp(item.slack_app.updated_at, locale)}
-                    </Text>
-                  </RowLines>
-                </TableCell>
-                <TableCell className={cn(WIDE, "text-muted-foreground")}>
-                  {item.agent ? (
-                    <Link
-                      to="/agents/$id"
-                      params={{ id: item.agent.id }}
-                      className={linkVariants()}
-                    >
-                      {item.agent.name}
-                    </Link>
-                  ) : (
-                    t("workspace.slackAppsNoAgent")
-                  )}
-                </TableCell>
-                <TableCell className={FIT}>
-                  <AppState item={item} />
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    FIT,
-                    WIDE,
-                    "text-right text-caption text-muted-foreground",
-                  )}
+    <GridTable
+      aria-label={t("workspace.slackAppsList")}
+      columns={COLUMNS[0]}
+      narrowAt={640}
+      narrowColumns={COLUMNS[1]}
+      framed={true}
+    >
+      <GridTableHeader>
+        <GridTableColumnHeader>
+          {t("workspace.slackAppsApp")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader hideNarrow>
+          {t("workspace.slackAppsAgent")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader>
+          {t("workspace.slackAppsState")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader align="end" hideNarrow>
+          {t("workspace.slackAppsUpdated")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader>
+          <span className="sr-only">{t("workspace.slackAppsMore")}</span>
+        </GridTableColumnHeader>
+      </GridTableHeader>
+      {items.map((item) => {
+        const name =
+          item.slack_app.kind === "link"
+            ? t("workspace.slackAppsLinkApp")
+            : t("workspace.slackAppsAgentApp", {
+                name: item.agent?.name ?? t("workspace.slackAppsNoAgent"),
+              });
+        const updated = (
+          <RelativeTime value={item.slack_app.updated_at} locale={locale} />
+        );
+        return (
+          <GridTableRow key={item.slack_app.id}>
+            <GridTableCell>
+              <RowLines>
+                <Text
+                  as="span"
+                  weight="medium"
+                  className="[overflow-wrap:anywhere]"
                 >
-                  <time dateTime={item.slack_app.updated_at}>
-                    {formatTimestamp(item.slack_app.updated_at, locale)}
-                  </time>
-                </TableCell>
-                <TableCell className={FIT}>
-                  {item.agent ? (
-                    <Link
-                      to="/agents/$id"
-                      params={{ id: item.agent.id }}
-                      search={{ tab: "slack" }}
-                      className={linkVariants()}
-                    >
-                      {t("workspace.slackAppsMore")}
-                      <span className="sr-only">: {name}</span>
-                    </Link>
-                  ) : null}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+                  {name}
+                </Text>
+                <Code className="text-muted-foreground">
+                  {item.slack_app.app_id ?? t("workspace.slackAppsNoId")}
+                </Code>
+                {/* Plain text: the row's details link already opens the agent.
+                    GridTable's narrowAt={640}, where those columns drop. */}
+                <Text
+                  as="span"
+                  variant="meta"
+                  className="hidden [@container(max-width:640px)]:block"
+                >
+                  {item.agent?.name ?? t("workspace.slackAppsNoAgent")}
+                  {" · "}
+                  {updated}
+                </Text>
+              </RowLines>
+            </GridTableCell>
+            <GridTableCell hideNarrow className="text-muted-foreground">
+              {item.agent ? (
+                <Link
+                  to="/agents/$id"
+                  params={{ id: item.agent.id }}
+                  className={cn(linkVariants(), "[overflow-wrap:anywhere]")}
+                >
+                  {item.agent.name}
+                </Link>
+              ) : (
+                t("workspace.slackAppsNoAgent")
+              )}
+            </GridTableCell>
+            <GridTableCell>
+              <AppState item={item} />
+            </GridTableCell>
+            <GridTableCell
+              align="end"
+              hideNarrow
+              className="text-caption text-muted-foreground"
+            >
+              {updated}
+            </GridTableCell>
+            <GridTableCell align="end">
+              {item.agent ? (
+                <Link
+                  to="/agents/$id"
+                  params={{ id: item.agent.id }}
+                  search={{ tab: "slack" }}
+                  className={linkVariants()}
+                >
+                  {t("workspace.slackAppsMore")}
+                  <span className="sr-only">: {name}</span>
+                </Link>
+              ) : null}
+            </GridTableCell>
+          </GridTableRow>
+        );
+      })}
+    </GridTable>
   );
 }
 
@@ -239,7 +244,9 @@ function AppState({ item }: { readonly item: MadeApp }) {
   );
 }
 
-// Shrinks the column to its content so the app column takes the rest.
-const FIT = "w-px whitespace-nowrap";
-// Below 560px the agent and time fold into the app cell.
-const WIDE = "hidden @[560px]:table-cell";
+// App, agent, state, updated, details; a phone keeps the app, the state and
+// the details link, and the app cell names the agent and the time.
+const COLUMNS = [
+  "minmax(0,1.4fr) minmax(0,1fr) 136px 120px 64px",
+  "minmax(0,1fr) 136px 64px",
+] as const;

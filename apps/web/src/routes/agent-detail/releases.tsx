@@ -25,17 +25,18 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
   Heading,
   NativeSelect,
   NativeSelectOption,
+  RelativeTime,
+  RowAction,
   Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Text,
 } from "@werft-ai/ui";
 import { ChevronDown, ChevronUp, Plus } from "lucide-react";
 import {
@@ -54,35 +55,19 @@ import {
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
+import { NODE, withNodes } from "../../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
 import { SECTION } from "./classes.ts";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
-// To the second, as the release label is: activations a few seconds apart
-// must not read as the same time. Seoul, as every console timestamp.
-const SECOND = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Asia/Seoul",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23",
-});
-
-function toSecond(iso: string): string {
-  const parts = new Map(
-    SECOND.formatToParts(new Date(iso)).map((part) => [part.type, part.value]),
-  );
-  const at = (type: Intl.DateTimeFormatPartTypes) => parts.get(type) ?? "";
-  return `${at("year")}-${at("month")}-${at("day")}_${at("hour")}:${at("minute")}:${at("second")}`;
-}
-
-// The note column no longer takes all the spare width; the columns share it,
-// so a short history does not crowd to the left with only the gutter between.
-const SPREAD = "w-auto";
+// Version, status, activated, card, profile, repository, by, note, actions;
+// a narrow table keeps the version, the status and the action, and the
+// version cell lists the rest.
+const COLUMNS = [
+  "minmax(0,1fr) 72px minmax(0,1.2fr) 72px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.2fr) 88px",
+  "minmax(0,1fr) 72px 88px",
+] as const;
 
 export function Releases({
   detail,
@@ -108,7 +93,7 @@ export function Releases({
   /** Whether the tab is open; every tab stays mounted. */
   readonly shown: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -324,151 +309,182 @@ export function Releases({
           description={t("agent.releases.emptyBody")}
         />
       ) : (
-        <TableContainer label={t("agent.releases.title")}>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colVersion")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colStatus")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colActivated")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colCard")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.profile")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.repository")}
-                </TableHead>
-                <TableHead variant="nowrap" className={SPREAD}>
-                  {t("agent.releases.colBy")}
-                </TableHead>
-                <TableHead className={SPREAD}>
-                  {t("agent.releases.colNote")}
-                </TableHead>
-                <TableHead variant="actions">
-                  <span className="sr-only">
-                    {t("agent.releases.colActions")}
-                  </span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ordered.map((item) => {
-                const active = item.id === detail.agent.active_release_id;
-                const name =
-                  item.label ??
-                  t("agent.versionLabel", {
-                    version: versionNo(item.version_id) ?? "?",
-                  });
-                const label = t("agent.releaseLabel", {
-                  release: name,
-                  profile: item.runtime_profile_id,
-                });
-                return (
-                  <TableRow key={item.id} data-active={active}>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} font-medium tabular-nums`}
-                    >
+        <GridTable
+          aria-label={t("agent.releases.title")}
+          columns={COLUMNS[0]}
+          narrowAt={760}
+          narrowColumns={COLUMNS[1]}
+          framed={true}
+        >
+          <GridTableHeader>
+            <GridTableColumnHeader>
+              {t("agent.releases.colVersion")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader>
+              {t("agent.releases.colStatus")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("agent.releases.colActivated")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("agent.releases.colCard")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("agent.releases.profile")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("agent.releases.repository")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("agent.releases.colBy")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader hideNarrow>
+              {t("agent.releases.colNote")}
+            </GridTableColumnHeader>
+            <GridTableColumnHeader action>
+              <span className="sr-only">{t("agent.releases.colActions")}</span>
+            </GridTableColumnHeader>
+          </GridTableHeader>
+          {ordered.map((item) => {
+            const active = item.id === detail.agent.active_release_id;
+            const name =
+              item.label ??
+              t("agent.versionLabel", {
+                version: versionNo(item.version_id) ?? "?",
+              });
+            const label = t("agent.releaseLabel", {
+              release: name,
+              profile: item.runtime_profile_id,
+            });
+            const at = (iso: string) => (
+              <RelativeTime value={iso} locale={locale} />
+            );
+            // `== null`: an API from before these fields omits them mid-rollout.
+            const activated =
+              item.activated_at == null ? (
+                <Text as="span" variant="sub">
+                  {t("agent.releases.noteNone")}
+                </Text>
+              ) : item.deactivated_at == null ? (
+                at(item.activated_at)
+              ) : (
+                withNodes(
+                  t("agent.releases.activePeriod", { from: NODE, to: NODE }),
+                  at(item.activated_at),
+                  at(item.deactivated_at),
+                )
+              );
+            const card = t("agent.versionShort", {
+              version: versionNo(item.version_id) ?? "?",
+            });
+            const profile = (
+              <>
+                <Code className="wrap-anywhere">{item.runtime_profile_id}</Code>
+                {profiles.isSuccess &&
+                !items.some(
+                  (listed) => listed.id === item.runtime_profile_id,
+                ) ? (
+                  <Badge variant="amber" className="ml-2">
+                    {t("agent.releases.profileGone")}
+                  </Badge>
+                ) : null}
+              </>
+            );
+            const repository = (
+              <Code className="wrap-anywhere">
+                {item.repository_id ?? t("agent.releases.repositoryNone")}
+              </Code>
+            );
+            const by =
+              (item.created_by ? names.get(item.created_by) : undefined) ??
+              t("agent.releases.byMember");
+            const note = item.note ? (
+              <ReleaseNote note={item.note} />
+            ) : (
+              <Text as="span" variant="sub">
+                {t("agent.releases.noteNone")}
+              </Text>
+            );
+            // In full: the narrow list wraps, so the note needs no toggle.
+            const wholeNote = item.note ? (
+              <span className="wrap-anywhere">{item.note}</span>
+            ) : (
+              note
+            );
+            return (
+              <GridTableRow key={item.id} data-active={active}>
+                <GridTableCell>
+                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                    <Text as="span" weight="medium" className="tabular-nums">
                       {name}
-                    </TableCell>
-                    <TableCell variant="nowrap" className={SPREAD}>
-                      <Badge variant={active ? "green" : "gray"}>
-                        {active
-                          ? t("agent.releases.active")
-                          : item.activated_at
-                            ? t("agent.releases.previous")
-                            : t("agent.releases.never")}
-                      </Badge>
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} tabular-nums`}
-                    >
-                      {/* `== null`: an API from before these fields omits them mid-rollout. */}
-                      {item.activated_at == null ? (
-                        <span className="text-muted-foreground">
-                          {t("agent.releases.noteNone")}
-                        </span>
-                      ) : item.deactivated_at == null ? (
-                        toSecond(item.activated_at)
-                      ) : (
-                        t("agent.releases.activePeriod", {
-                          from: toSecond(item.activated_at),
-                          to: toSecond(item.deactivated_at),
-                        })
-                      )}
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} text-muted-foreground`}
-                    >
-                      {t("agent.versionShort", {
-                        version: versionNo(item.version_id) ?? "?",
-                      })}
-                    </TableCell>
-                    <TableCell variant="nowrap" className={SPREAD}>
-                      <Code>{item.runtime_profile_id}</Code>
-                      {profiles.isSuccess &&
-                      !items.some(
-                        (listed) => listed.id === item.runtime_profile_id,
-                      ) ? (
-                        <Badge variant="amber" className="ml-2">
-                          {t("agent.releases.profileGone")}
-                        </Badge>
-                      ) : null}
-                    </TableCell>
-                    <TableCell
-                      variant="nowrap"
-                      className={`${SPREAD} font-mono text-caption`}
-                    >
-                      {item.repository_id ?? t("agent.releases.repositoryNone")}
-                    </TableCell>
-                    <TableCell variant="nowrap" className={SPREAD}>
-                      {(item.created_by
-                        ? names.get(item.created_by)
-                        : undefined) ?? t("agent.releases.byMember")}
-                    </TableCell>
-                    <TableCell className={SPREAD}>
-                      {item.note ? (
-                        <ReleaseNote note={item.note} />
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {t("agent.releases.noteNone")}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell variant="actions">
-                      {active ? null : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={activating !== undefined}
-                          aria-label={t("agent.releases.activateFor", {
-                            release: label,
-                          })}
-                          onClick={() => onActivate(item)}
+                    </Text>
+                    {/* GridTable's narrowAt={760}, where the other columns drop. */}
+                    <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:760px)]:flex">
+                      {(
+                        [
+                          ["colActivated", activated],
+                          ["colCard", card],
+                          ["profile", profile],
+                          ["repository", repository],
+                          ["colBy", by],
+                          ["colNote", wholeNote],
+                        ] as const
+                      ).map(([key, value]) => (
+                        <div
+                          key={key}
+                          className="flex min-w-0 flex-wrap gap-x-2"
                         >
-                          {activating === item.id
-                            ? t("agent.releases.activating")
-                            : t("agent.releases.activate")}
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                          <dt className="text-muted-foreground">
+                            {t(`agent.releases.${key}`)}
+                          </dt>
+                          <dd className="m-0 min-w-0 tabular-nums">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                </GridTableCell>
+                <GridTableCell>
+                  <Badge variant={active ? "green" : "gray"}>
+                    {active
+                      ? t("agent.releases.active")
+                      : item.activated_at
+                        ? t("agent.releases.previous")
+                        : t("agent.releases.never")}
+                  </Badge>
+                </GridTableCell>
+                <GridTableCell hideNarrow className="flex-wrap tabular-nums">
+                  {activated}
+                </GridTableCell>
+                <GridTableCell hideNarrow className="text-muted-foreground">
+                  {card}
+                </GridTableCell>
+                <GridTableCell hideNarrow className="flex-wrap gap-y-1">
+                  {profile}
+                </GridTableCell>
+                <GridTableCell hideNarrow>{repository}</GridTableCell>
+                <GridTableCell hideNarrow className="wrap-anywhere">
+                  {by}
+                </GridTableCell>
+                <GridTableCell hideNarrow>{note}</GridTableCell>
+                <GridTableCell align="end">
+                  {active ? null : (
+                    <RowAction
+                      disabled={activating !== undefined}
+                      aria-label={t("agent.releases.activateFor", {
+                        release: label,
+                      })}
+                      onClick={() => onActivate(item)}
+                    >
+                      {activating === item.id
+                        ? t("agent.releases.activating")
+                        : t("agent.releases.activate")}
+                    </RowAction>
+                  )}
+                </GridTableCell>
+              </GridTableRow>
+            );
+          })}
+        </GridTable>
       )}
     </section>
   );
@@ -500,11 +516,9 @@ function ReleaseNote({ note }: { readonly note: string }) {
   }, [open]);
   const Chevron = open ? ChevronUp : ChevronDown;
   return (
-    // w-max: a narrow table would otherwise squeeze the note to a few letters
-    // wide instead of scrolling sideways.
     <div
       ref={box}
-      className={`flex w-max max-w-56 gap-1 ${open ? "items-start" : "items-center"}`}
+      className={`flex min-w-0 max-w-full gap-1 ${open ? "items-start" : "items-center"}`}
     >
       <span
         ref={text}

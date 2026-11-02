@@ -21,6 +21,24 @@ const AGENT_SESSIONS_SEARCH = `?agent_id=${AGENT_ID}&limit=5`;
 const selected = () =>
   screen.getByRole("tab", { selected: true }).textContent ?? "";
 const visiblePanel = () => screen.getByRole("tabpanel");
+
+/**
+ * A release row's version name, status, activation instants and card
+ * version. The version cell also holds the narrow-only list of the other
+ * columns, so only its first line is the name.
+ */
+function releaseCells(row: HTMLElement) {
+  const [version, status, activated, card] = within(row).getAllByRole("cell");
+  const times = [...(activated?.querySelectorAll("time") ?? [])].map((time) =>
+    time.getAttribute("datetime"),
+  );
+  return [
+    version?.firstElementChild?.firstElementChild?.textContent,
+    status?.textContent,
+    times.length > 0 ? times.join(" ~ ") : activated?.textContent,
+    card?.textContent,
+  ];
+}
 const tabIn = (history: { location: { search: string } }) =>
   new URLSearchParams(history.location.search).get("tab");
 /** Each figure's label, value and note line, as drawn. */
@@ -941,20 +959,13 @@ describe("에이전트 상세 탭", () => {
     );
     const table = await screen.findByRole("table");
     expect(
-      within(table)
-        .getAllByRole("row")
-        .slice(1)
-        .map((row) =>
-          [...row.querySelectorAll("td")]
-            .slice(0, 4)
-            .map((cell) => cell.textContent),
-        ),
+      within(table).getAllByRole("row").slice(1).map(releaseCells),
     ).toEqual([
-      ["2026-10-11_10:01:00", "활성", "2026-10-11_11:01:00", "v2"],
+      ["2026-10-11_10:01:00", "활성", "2026-10-11T02:01:00.000Z", "v2"],
       [
         "2026-10-11_10:00:00",
         "이전",
-        "2026-10-11_11:00:00 ~ 2026-10-11_11:01:00",
+        "2026-10-11T02:00:00.000Z ~ 2026-10-11T02:01:00.000Z",
         "v1",
       ],
     ]);
@@ -980,14 +991,7 @@ describe("에이전트 상세 탭", () => {
     );
     const table = await screen.findByRole("table");
     expect(
-      within(table)
-        .getAllByRole("row")
-        .slice(1)
-        .map((row) =>
-          [...row.querySelectorAll("td")]
-            .slice(0, 4)
-            .map((cell) => cell.textContent),
-        ),
+      within(table).getAllByRole("row").slice(1).map(releaseCells),
     ).toEqual([["버전 1", "활성", "—", "v1"]]);
   });
 
@@ -1032,14 +1036,44 @@ describe("에이전트 상세 탭", () => {
       "동작",
     ]);
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
-    await within(row).findByText("이민호");
-    expect(
-      [...row.querySelectorAll("td")]
-        .slice(0, 4)
-        .map((cell) => cell.textContent),
-    ).toEqual(["2026-10-11_10:00:00", "활성", "2026-10-11_11:00:00", "v1"]);
+    // The column and the version cell's narrow-only list both say it.
+    await within(row).findAllByText("이민호");
+    expect(releaseCells(row)).toEqual([
+      "2026-10-11_10:00:00",
+      "활성",
+      "2026-10-11T02:00:00.000Z",
+      "v1",
+    ]);
     expect(row.textContent).toContain("활성");
     expect(row.textContent).toContain("claude-coding-local");
+    // A narrow table keeps the version, status and action columns; the
+    // version cell lists every column it drops, the activation as a time.
+    expect(table.dataset.narrowAt).toBe("760");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .filter((head) => head.dataset.hideNarrow !== "true")
+        .map((head) => head.textContent),
+    ).toEqual(["버전", "상태", "동작"]);
+    const narrow = row.querySelector("dl");
+    expect(narrow?.className).toContain("hidden");
+    expect(narrow?.className).toContain("[@container(max-width:760px)]:flex");
+    expect(
+      [...(narrow?.querySelectorAll("dt") ?? [])].map((term) => [
+        term.textContent,
+        term.nextElementSibling?.textContent,
+      ]),
+    ).toEqual([
+      ["활성화 시각", expect.any(String)],
+      ["카드 버전", "v1"],
+      ["프로필", "claude-coding-local"],
+      ["저장소", expect.any(String)],
+      ["만든 사람", "이민호"],
+      ["메모", "—"],
+    ]);
+    expect(narrow?.querySelector("time")?.getAttribute("datetime")).toBe(
+      "2026-10-11T02:00:00.000Z",
+    );
     expect(
       within(visiblePanel())
         .getAllByRole("heading", { level: 2 })
