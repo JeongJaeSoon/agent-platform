@@ -1189,7 +1189,10 @@ function GlanceCard({
         <div className="flex items-center gap-3">
           <IconTile {...tile} size="two-line" />
           <div className="flex min-w-0 flex-1 flex-col gap-(--ap-row-line-gap)">
-            <Text variant="meta" className="leading-(--ap-leading-caption)">
+            <Text
+              variant="meta"
+              className="text-muted-foreground leading-(--ap-leading-caption)"
+            >
               {eyebrow}
             </Text>
             <Heading level={3} className="leading-(--ap-leading-body)">

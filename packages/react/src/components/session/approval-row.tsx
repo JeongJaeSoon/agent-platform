@@ -172,7 +172,7 @@ export function ApprovalRow({
                   <Text
                     as="span"
                     variant="meta"
-                    className="min-w-0 [overflow-wrap:anywhere]"
+                    className="min-w-0 text-foreground [overflow-wrap:anywhere]"
                   >
                     {subject}
                   </Text>

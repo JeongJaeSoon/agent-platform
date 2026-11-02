@@ -175,9 +175,7 @@ export function Credentials({
         <StatusScreen kind="loading" />
       ) : bindings.error ? (
         isApiError(bindings.error, "FORBIDDEN") ? (
-          <Text variant="meta">
-            {permissionReason(t, "agent.manage", role)}
-          </Text>
+          <p className={MUTED}>{permissionReason(t, "agent.manage", role)}</p>
         ) : (
           <LoadFailure
             error={bindings.error}
