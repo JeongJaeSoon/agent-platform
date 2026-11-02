@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createRef } from "react";
+import { createRef, useId } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
@@ -291,5 +291,98 @@ describe("CopyButton", () => {
         t.restore();
       }
     });
+  });
+});
+
+// WCAG 2.5.3 (axe label-content-name-mismatch): the text inside the button
+// is part of its name. axe itself needs a canvas happy-dom lacks, so the
+// Storybook run checks the same states in Chrome (copy-button.stories.tsx).
+describe("CopyButton 이름과 보이는 글자", () => {
+  const labelInName = (button: HTMLElement, name: string) =>
+    name
+      .toLowerCase()
+      .includes((button.textContent ?? "").trim().toLowerCase());
+
+  test("이름은 보이는 '복사'이고, 대상은 설명으로 잇는다", async () => {
+    const screen = render(
+      <CopyButton
+        value={VALUE}
+        label="복사"
+        copiedLabel="복사됨"
+        description={`키 ID ${VALUE}`}
+      />,
+    );
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
+    try {
+      const button = screen.getByRole("button", { name: "복사" });
+      expect(button.hasAttribute("aria-label")).toBe(false);
+      const describedBy = button.getAttribute("aria-describedby") ?? "";
+      expect(document.getElementById(describedBy)?.textContent).toBe(
+        `키 ID ${VALUE}`,
+      );
+      await user.click(button);
+      const copied = await screen.findByRole("button", { name: "복사됨" });
+      expect(labelInName(copied, "복사됨")).toBe(true);
+      expect(copied.getAttribute("aria-describedby")).toBe(describedBy);
+    } finally {
+      restore();
+    }
+  });
+
+  test("호출한 쪽의 aria-describedby 뒤에 설명을 붙인다", () => {
+    function WithHint() {
+      const hint = useId();
+      return (
+        <>
+          <span id={hint}>힌트</span>
+          <CopyButton
+            value={VALUE}
+            label="복사"
+            aria-describedby={hint}
+            description="키 ID"
+          />
+        </>
+      );
+    }
+    const screen = render(<WithHint />);
+    const ids = (
+      screen
+        .getByRole("button", { name: "복사" })
+        .getAttribute("aria-describedby") ?? ""
+    ).split(" ");
+    expect(document.getElementById(ids[0] ?? "")?.textContent).toBe("힌트");
+    expect(document.getElementById(ids[1] ?? "")?.textContent).toBe("키 ID");
+  });
+
+  test("aria-label로 이름을 고정하면 '복사됨'은 버튼 밖 status에 보이고 한 번만 알린다", async () => {
+    const screen = render(
+      <CopyButton
+        value={VALUE}
+        variant="ghost"
+        size="sm"
+        aria-label={`ID ${VALUE} 복사`}
+        copiedLabel="복사했습니다"
+        copiedMessage="복사했습니다"
+      />,
+    );
+    const user = await setupUser();
+    const restore = stubClipboard(async () => {});
+    try {
+      const name = `ID ${VALUE} 복사`;
+      const button = screen.getByRole("button", { name });
+      await user.click(button);
+      const status = screen.getByRole("status");
+      await waitFor(() => expect(status.textContent).toBe("복사했습니다"));
+      // Visible, outside the button, and the only live region.
+      expect(status.className.split(" ")).not.toContain("sr-only");
+      expect(button.contains(status)).toBe(false);
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      expect(button.textContent).toBe("");
+      expect(labelInName(button, name)).toBe(true);
+      expect(icon(button)).toContain("lucide-check");
+    } finally {
+      restore();
+    }
   });
 });

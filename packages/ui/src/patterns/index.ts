@@ -69,6 +69,7 @@ export {
   type PageProps,
 } from "./page-frame.tsx";
 export { PageHeader, type PageHeaderProps } from "./page-header.tsx";
+export { RowAction, type RowActionProps } from "./row-action.tsx";
 export {
   SecretField,
   type SecretFieldProps,
@@ -95,5 +96,10 @@ export {
   type StepperProps,
   type StepperStep,
 } from "./stepper.tsx";
-export { Steps, type StepsItem, type StepsProps } from "./steps.tsx";
+export {
+  Steps,
+  type StepsItem,
+  type StepsItemState,
+  type StepsProps,
+} from "./steps.tsx";
 export { useDetailLayout } from "./use-detail-layout.ts";

@@ -5,6 +5,13 @@ import { Button, Card, Steps } from "@werft-ai/ui";
 const COPY = {
   ko: {
     completed: "완료",
+    todo: "할 일",
+    unknown: "확인할 수 없음",
+    ready: [
+      ["자격 증명 연결", "연결 상태를 불러오지 못했습니다."],
+      ["릴리스", "릴리스 2개"],
+      ["활성화", "새 세션을 받지 않습니다."],
+    ],
     home: [
       [
         "연동 계정 연결",
@@ -25,6 +32,13 @@ const COPY = {
   },
   ja: {
     completed: "完了",
+    todo: "未完了",
+    unknown: "確認できません",
+    ready: [
+      ["認証情報の接続", "接続状態を読み込めませんでした。"],
+      ["リリース", "リリース 2 件"],
+      ["有効化", "新しいセッションを受け付けません。"],
+    ],
     home: [
       [
         "連携アカウントを接続",
@@ -45,6 +59,13 @@ const COPY = {
   },
   en: {
     completed: "completed",
+    todo: "to do",
+    unknown: "Unknown",
+    ready: [
+      ["Connect credentials", "Could not load the connections."],
+      ["Release", "2 releases"],
+      ["Activate", "Takes no new sessions."],
+    ],
     home: [
       [
         "Connect accounts",
@@ -204,4 +225,53 @@ export const CredentialsMobile: Story = {
   ...Credentials,
   name: "Credentials (390px)",
   globals: { viewport: { value: "mobile390", isRotated: false } },
+};
+
+/**
+ * Agent readiness: a step whose state could not be read says so on screen
+ * and after its title, in place of the circle's "?". Follows the toolbar's
+ * Language.
+ */
+export const Unknown: Story = {
+  render: (args, context) => {
+    const copy = copyFor(context);
+    const states = ["unknown", "done", "todo"] as const;
+    return (
+      <Card className="p-4">
+        <Steps
+          {...args}
+          completedLabel={copy.completed}
+          todoLabel={copy.todo}
+          unknownLabel={copy.unknown}
+          items={copy.ready.map(([title, description], index) => ({
+            id: String(index),
+            title,
+            description,
+            state: states[index],
+          }))}
+        />
+      </Card>
+    );
+  },
+};
+
+export const UnknownDark: Story = {
+  ...Unknown,
+  name: "Unknown (dark)",
+  globals: { theme: "dark" },
+};
+
+export const UnknownJapanese: Story = {
+  ...Unknown,
+  name: "Unknown (Japanese, 390px)",
+  globals: {
+    locale: "ja",
+    viewport: { value: "mobile390", isRotated: false },
+  },
+};
+
+export const UnknownEnglish: Story = {
+  ...Unknown,
+  name: "Unknown (English)",
+  globals: { locale: "en" },
 };

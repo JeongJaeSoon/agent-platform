@@ -88,11 +88,13 @@ describe("Table", () => {
       expect(el?.className).toContain("w-px");
       expect(el?.className).toContain("whitespace-nowrap");
       expect(el?.className).toContain(
-        "[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]",
+        "[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-button-min-width)]",
       );
     }
     expect(button.getAttribute("data-slot")).toBe("button");
     expect(button.getAttribute("data-size")).toBe("sm");
+    expect(TOKENS).toContain("--ap-row-action-button-min-width: 3rem;");
+    // The column floor of grid rows is a separate token and stays.
     expect(TOKENS).toContain("--ap-row-action-min-width: 6rem;");
   });
 

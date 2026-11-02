@@ -15,9 +15,10 @@ const CELL_PADDING_X =
 
 /*
  * `actions` is a column of row buttons: as narrow as its content, never
- * wrapped, and every labelled button in it at least --ap-row-action-min-width
- * wide so the column does not jump when a label changes ("disable" ↔
- * "enable"). An icon button keeps its own square size.
+ * wrapped, and every labelled button in it at least
+ * --ap-row-action-button-min-width wide, RowAction's floor. A label that
+ * changes ("disable" ↔ "enable") may shift the width; the right end stays.
+ * An icon button keeps its own square size.
  *
  * `nowrap` is a date, number or badge column: as narrow as its content and
  * never wrapped. `text` is the long-text column: it takes the width the other
@@ -30,7 +31,7 @@ const CELL_PADDING_X =
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-min-width)]",
+    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-button-min-width)]",
   nowrap: "w-px whitespace-nowrap",
   text: "w-full min-w-[var(--ap-row-text-min-width)] max-w-0 [&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
 } as const;

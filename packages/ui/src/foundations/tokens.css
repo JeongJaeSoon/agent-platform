@@ -57,8 +57,9 @@
     --ap-color-border-input: #d4d4d4;
     --ap-color-foreground: #171717;
     --ap-color-muted-foreground: #4d4d4d;
-    /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface. */
-    --ap-color-subtle-foreground: #6b6b6b;
+    /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface
+     and on the selected row (sidebar-accent); #6b6b6b fell to 4.47 there. */
+    --ap-color-subtle-foreground: #6a6a6a;
 
     /*
      * The single primary action, in the blue of links and checked controls,
@@ -258,8 +259,14 @@
     --ap-row-min-height: 3rem;
     --ap-row-head-min-height: 2.5rem;
     --ap-row-line-gap: 0.125rem;
-    /* A row button's floor in a table's actions column. */
+    /* An actions column's floor in a grid of rows. */
     --ap-row-action-min-width: 6rem;
+    /*
+     * A labelled row-end button's floor (RowAction, a table's actions cell):
+     * width follows the label, and two Hangul syllables (about 44px) do not
+     * look stubby.
+     */
+    --ap-row-action-button-min-width: 3rem;
     /* A table's long-text column floor; below it the frame scrolls. */
     --ap-row-text-min-width: 10rem;
     --ap-control-height: 2rem;

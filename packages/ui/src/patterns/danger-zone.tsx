@@ -7,9 +7,9 @@ import {
 } from "react";
 
 import { cn } from "../foundations/cn.ts";
-import { Button } from "../primitives/button.tsx";
 import { RowList } from "../primitives/row-list.tsx";
 import { DisabledReason } from "./disabled-reason.tsx";
+import { RowAction } from "./row-action.tsx";
 import { SettingRow } from "./setting-row.tsx";
 
 export type DangerZoneProps = Omit<ComponentProps<"section">, "title"> & {
@@ -86,20 +86,17 @@ export function DangerZoneRow({
   actionRef,
 }: DangerZoneRowProps): JSX.Element {
   const withheld = reason !== undefined && reason !== null;
+  // Right ends align down the zone; each width follows its label.
   const button = (
-    <Button
+    <RowAction
       ref={actionRef}
-      type="button"
       variant="danger"
-      size="sm"
-      // One width down the zone, whatever each row's label.
-      className="min-w-24"
       aria-label={actionName}
       disabled={disabled || withheld}
       onClick={onAction}
     >
       {actionLabel}
-    </Button>
+    </RowAction>
   );
   return (
     <SettingRow

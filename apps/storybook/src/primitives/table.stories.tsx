@@ -214,8 +214,8 @@ export const Default: Story = {
 
 /**
  * `variant="actions"` on the head and cells: the column fits its buttons and
- * each button is at least --ap-row-action-min-width (96px) wide, so "disable"
- * and "enable again" keep one width.
+ * each labelled button is at least --ap-row-action-button-min-width (48px)
+ * wide, its width following the label; right ends line up.
  */
 export const Actions: Story = {
   render: (_, { globals }) => (
@@ -307,9 +307,15 @@ export const ActionWidthToken: Story = {
     <Members
       locale={globals.locale}
       actions={true}
-      style={{ "--ap-row-action-min-width": "8rem" } as CSSProperties}
+      style={{ "--ap-row-action-button-min-width": "8rem" } as CSSProperties}
     />
   ),
+  play: async ({ canvasElement }) => {
+    for (const button of canvasElement.querySelectorAll("[data-size=sm]"))
+      await expect(button.getBoundingClientRect().width).toBeGreaterThanOrEqual(
+        128,
+      );
+  },
 };
 
 export const Dark: Story = {
@@ -344,7 +350,7 @@ export const English: Story = {
 
 /**
  * An icon button in the actions column keeps its square size; only labelled
- * buttons take the --ap-row-action-min-width floor.
+ * buttons take the --ap-row-action-button-min-width floor.
  */
 export const ActionsWithIconButton: Story = {
   name: "Actions with an icon button",
@@ -363,7 +369,7 @@ export const ActionsWithIconButton: Story = {
     await expect(within(canvasElement).getAllByRole("button").length).toBe(4);
     await expect(icon.getBoundingClientRect().width).toBe(28);
     await expect(labelled.getBoundingClientRect().width).toBeGreaterThanOrEqual(
-      96,
+      48,
     );
   },
 };
