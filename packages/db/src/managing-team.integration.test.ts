@@ -623,6 +623,8 @@ integration("the managing team on PostgreSQL", () => {
         await deleter.query("COMMIT");
         expect(await named).toEqual({ outcome: "team_not_found" });
       } finally {
+        // A no-op after COMMIT; frees the locks when a step above failed.
+        await deleter.query("ROLLBACK");
         deleter.release();
       }
     }
@@ -658,6 +660,7 @@ integration("the managing team on PostgreSQL", () => {
           agentIds: [agentId],
         });
       } finally {
+        await namer.query("ROLLBACK");
         namer.release();
       }
     }
