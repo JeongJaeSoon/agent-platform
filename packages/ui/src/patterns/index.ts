@@ -35,6 +35,7 @@ export {
   type FilterMenuOption,
   type FilterMenuProps,
 } from "./filter-menu.tsx";
+export { FormActions } from "./form-actions.tsx";
 export {
   type KeyValueItem,
   KeyValueList,
