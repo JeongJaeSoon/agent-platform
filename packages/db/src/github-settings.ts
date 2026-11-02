@@ -307,8 +307,10 @@ export function createPostgresGitHubSettingsStore(
         .select({ role: githubApps.role, permissions: githubApps.permissions })
         .from(githubApps)
         .where(eq(githubApps.workspaceId, workspaceId));
+      // A role with several connections names none of them here.
       const of = (role: "author" | "reviewer") => {
-        const found = rows.find((row) => row.role === role);
+        const held = rows.filter((row) => row.role === role);
+        const found = held.length === 1 ? held[0] : undefined;
         return found === undefined
           ? null
           : {

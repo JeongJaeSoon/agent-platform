@@ -9,7 +9,6 @@ import {
 } from "../ports/forge.ts";
 import {
   GitHubCallError,
-  type GitHubConnection,
   type GitHubConnections,
   type GitHubGate,
   GitHubGateError,
@@ -22,6 +21,10 @@ import type {
   SessionOutcomeStore,
 } from "../ports/session-outcomes.ts";
 import type { SessionCatalog } from "./catalog.ts";
+import {
+  createGitHubConnectionResolver,
+  type GitHubConnectionResolver,
+} from "./github-connection-resolver.ts";
 
 export const OUTCOME_REFRESH_INTERVAL_MS = 60_000;
 /** A claimed row a dead replica held is claimed again after this. */
@@ -59,12 +62,20 @@ export function createOutcomeRefresher(deps: {
   gate: GitHubGate;
   catalog: SessionCatalog;
   connections: GitHubConnections;
+  /** Picks the console connection a repository is pinned to. */
+  resolver?: GitHubConnectionResolver;
   logger: Logger;
   claimMax?: number;
   leaseMs?: number;
   now?: () => Date;
 }) {
-  const { store, gate, catalog, connections, logger } = deps;
+  const { store, gate, catalog, logger } = deps;
+  const resolver =
+    deps.resolver ??
+    createGitHubConnectionResolver({
+      connections: deps.connections,
+      pins: null,
+    });
   const claimMax = deps.claimMax ?? OUTCOME_CLAIM_MAX;
   const leaseMs = deps.leaseMs ?? OUTCOME_LEASE_MS;
   const now = deps.now ?? (() => new Date());
@@ -76,10 +87,12 @@ export function createOutcomeRefresher(deps: {
    * until a token is asked for.
    */
   async function appFailure(
-    connection: GitHubConnection,
+    repositoryId: string,
     repo: RepoRef,
   ): Promise<SessionOutcomeCheckError> {
-    const installed = await connection.installed(repo).catch(() => null);
+    const installed = await resolver
+      .installed(repositoryId, "author", repo)
+      .catch(() => null);
     return installed === false ? "not_found" : "forge_failed";
   }
 
@@ -98,12 +111,21 @@ export function createOutcomeRefresher(deps: {
         : undefined;
       const repo = entry ? repoRefOf(entry.url) : null;
       if (repo === null) continue;
-      const connection = connections(id, "author");
-      // The gate would refuse every grant: no App or PAT serves it now.
-      if (connection === null) {
+      const choice = await resolver.resolve(id, "author", repo, { pin: false });
+      // The gate would refuse every grant: no App or PAT serves it now, or
+      // the repository's pin cannot be served.
+      if (choice.kind === "none" || choice.kind === "refused") {
         fail(id, "github_refused");
         continue;
       }
+      if (choice.kind === "unreachable") {
+        fail(
+          id,
+          choice.pinState === "none_unreachable" ? "not_found" : "forge_failed",
+        );
+        continue;
+      }
+      const { connection } = choice;
       let key: string;
       try {
         key = await connection.quotaKey(repo);
@@ -115,7 +137,7 @@ export function createOutcomeRefresher(deps: {
         // A PAT whose user is unknown waits out its hour unread (§10); an
         // App's installation lookup failing is the read's own failure.
         if (connection.kind === "app") {
-          fail(id, await appFailure(connection, repo));
+          fail(id, await appFailure(id, repo));
         }
         continue;
       }
@@ -124,13 +146,21 @@ export function createOutcomeRefresher(deps: {
     return { byKey, unreachable };
   }
 
-  /** The repository and the connection serving it now, as the gate picks. */
-  function reachOf(repositoryId: string) {
+  /** Why no App reached the repository: not installed, or GitHub failing. */
+  async function reachFailure(
+    repositoryId: string,
+  ): Promise<SessionOutcomeCheckError> {
     const entry = Object.hasOwn(catalog.repositories, repositoryId)
       ? catalog.repositories[repositoryId]
       : undefined;
     const repo = entry ? repoRefOf(entry.url) : null;
-    return { repo, connection: connections(repositoryId, "author") };
+    const source = deps.connections(repositoryId, "author");
+    const app =
+      source?.kind === "registered" ||
+      (source?.kind === "fixed" && source.connection.kind === "app");
+    return repo !== null && app
+      ? await appFailure(repositoryId, repo)
+      : "forge_failed";
   }
 
   async function read(
@@ -163,15 +193,16 @@ export function createOutcomeRefresher(deps: {
     } catch (error) {
       if (error instanceof GitHubGateError) return failed("github_refused");
       if (error instanceof ForgeCredentialError) {
-        const { repo, connection } = reachOf(outcome.repositoryId);
+        return failed(await reachFailure(outcome.repositoryId));
+      }
+      // A console connection that reaches nothing, or GitHub not saying which.
+      if (error instanceof GitHubUnavailableError) {
+        const source = deps.connections(outcome.repositoryId, "author");
         return failed(
-          repo !== null && connection?.kind === "app"
-            ? await appFailure(connection, repo)
+          source?.kind === "registered"
+            ? await reachFailure(outcome.repositoryId)
             : "forge_failed",
         );
-      }
-      if (error instanceof GitHubUnavailableError) {
-        return failed("forge_failed");
       }
       throw error;
     }

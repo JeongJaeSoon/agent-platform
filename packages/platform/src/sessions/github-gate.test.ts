@@ -8,9 +8,14 @@ import {
   type GitHubRefusal,
 } from "@werft-ai/contracts";
 import type { GitCredential, RepoRef } from "../ports/forge.ts";
+import type {
+  GitHubPinStore,
+  GitHubRepositoryPin,
+} from "../ports/github-app-store.ts";
 import {
   type GitHubApi,
   type GitHubConnection,
+  type GitHubConnections,
   type GitHubDispatchRecord,
   GitHubGateError,
   type GitHubGateReceipt,
@@ -18,9 +23,12 @@ import {
   GitHubPermissionError,
   type GitHubPermissions,
   type GitHubSessionContext,
+  GitHubUnavailableError,
   type GitHubWork,
+  type RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
 import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
+import { createGitHubConnectionResolver } from "./github-connection-resolver.ts";
 import { createGitHubGate } from "./github-gate.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -99,7 +107,13 @@ function fakeApi(): GitHubApi {
 /** A connection with its own cache; each issued value names the connection. */
 function fakeConnection(
   label: string,
-  options: { kind?: "app" | "pat"; githubCom?: boolean; appId?: number } = {},
+  options: {
+    kind?: "app" | "pat";
+    githubCom?: boolean;
+    appId?: number;
+    /** Its installation's answer for every repository; default true. */
+    installed?: boolean | null;
+  } = {},
 ) {
   const issued: Array<{ repo: RepoRef; permissions: GitHubPermissions }> = [];
   const cache = new Map<string, GitCredential>();
@@ -109,7 +123,12 @@ function fakeConnection(
     githubCom: options.githubCom ?? true,
     appId: options.kind === "pat" ? null : (options.appId ?? 7),
     quotaKey: async () => `${label}:quota`,
-    installed: async () => (options.kind === "pat" ? null : true),
+    installed: async () =>
+      options.kind === "pat"
+        ? null
+        : options.installed === undefined
+          ? true
+          : options.installed,
     credential: async (repo, permissions) => {
       issued.push({ repo, permissions });
       if (refuse) throw new GitHubPermissionError("422");
@@ -148,6 +167,11 @@ function harness(
     reviewer?: ReturnType<typeof fakeConnection> | null;
     dispatches?: GitHubDispatchRecord[];
     catalog?: SessionCatalog;
+    /** Console connections by role, in place of the fixed author/reviewer. */
+    registered?: Partial<
+      Record<GitHubAppRole, readonly RegisteredGitHubConnection[]>
+    >;
+    pins?: Pick<GitHubPinStore, "get" | "pinFirst">;
   } = {},
 ) {
   const catalog = options.catalog ?? CATALOG;
@@ -211,15 +235,31 @@ function harness(
       return `receipt-${receipts.length}`;
     },
   };
+  const connections: GitHubConnections = (repositoryId, role) => {
+    asked.push({ repositoryId, role });
+    if (repositoryId === "ghes") {
+      return { kind: "fixed", connection: ghes.connection };
+    }
+    if (!["app", "docs", "tools"].includes(repositoryId)) return null;
+    const registered = options.registered?.[role];
+    if (registered !== undefined) {
+      return { kind: "registered", candidates: registered };
+    }
+    const connection = (role === "author" ? author : reviewer)?.connection;
+    return connection === undefined ? null : { kind: "fixed", connection };
+  };
   const gate = createGitHubGate({
     store,
     catalog,
-    connections: (repositoryId, role) => {
-      asked.push({ repositoryId, role });
-      if (repositoryId === "ghes") return ghes.connection;
-      if (!["app", "docs", "tools"].includes(repositoryId)) return null;
-      return (role === "author" ? author : reviewer)?.connection ?? null;
-    },
+    connections,
+    ...(options.pins === undefined
+      ? {}
+      : {
+          resolver: createGitHubConnectionResolver({
+            connections,
+            pins: options.pins,
+          }),
+        }),
   });
   const grant = (work: Omit<GitHubWork, "sessionId">) =>
     gate.grant({ sessionId: SESSION, ...work });
@@ -1016,6 +1056,340 @@ describe("another repository than the session's", () => {
       expect(await grant({ purpose: "actions_read" })).toMatchObject({
         context: { repositoryId: "app" },
       });
+    });
+  });
+});
+
+function memoryPins(initial: GitHubRepositoryPin[] = []) {
+  const rows = new Map(
+    initial.map((pin) => [`${pin.repositoryId}:${pin.role}`, pin]),
+  );
+  const pins: Pick<GitHubPinStore, "get" | "pinFirst"> = {
+    get: async (repositoryId, role) =>
+      rows.get(`${repositoryId}:${role}`) ?? null,
+    pinFirst: async (input) => {
+      const key = `${input.repositoryId}:${input.role}`;
+      const held = rows.get(key);
+      if (held !== undefined) return { pin: held, created: false };
+      const pin: GitHubRepositoryPin = {
+        repositoryId: input.repositoryId,
+        role: input.role,
+        connectionId: input.connectionId,
+        appId: input.appId,
+        pinnedBy: input.pinnedBy,
+      };
+      rows.set(key, pin);
+      return { pin, created: true };
+    },
+  };
+  return { pins, rows };
+}
+
+const CONNECTION_A = "0193a000-0000-7000-8000-00000000000a";
+const CONNECTION_B = "0193a000-0000-7000-8000-00000000000b";
+
+function registered(
+  id: string,
+  appId: number,
+  installed: boolean | null = true,
+) {
+  const fake = fakeConnection(id, { appId, installed });
+  return { fake, entry: { id, appId, connection: fake.connection } };
+}
+
+// Decision github-agent.md 11.2: a repository's console connection.
+describe("registered connections", () => {
+  test("the one connection that reaches an unpinned repository pins it at the first mint and is used after", async () => {
+    const a = registered(CONNECTION_A, 101);
+    const b = registered(CONNECTION_B, 102, false);
+    const { pins, rows } = memoryPins();
+    const { grant, receipts } = harness({
+      registered: { author: [a.entry, b.entry] },
+      pins,
+    });
+    expect(await grant({ purpose: "push" })).toMatchObject({ role: "author" });
+    expect(rows.get("app:author")).toEqual({
+      repositoryId: "app",
+      role: "author",
+      connectionId: CONNECTION_A,
+      appId: 101,
+      pinnedBy: "first_mint",
+    });
+    expect(receipts.at(-1)).toMatchObject({
+      operation: "mint_github_token",
+      status: "succeeded",
+      result: {
+        connection_id: CONNECTION_A,
+        pinned_by: "first_mint",
+        app_id: 101,
+      },
+    });
+    expect(b.fake.issued).toEqual([]);
+
+    // Pinned now: b reaching it later does not move the work.
+    const later = harness({
+      registered: {
+        author: [
+          registered(CONNECTION_A, 101).entry,
+          registered(CONNECTION_B, 102).entry,
+        ],
+      },
+      pins,
+    });
+    await later.grant({ purpose: "clone" });
+    expect(later.receipts.at(-1)?.result).toMatchObject({
+      connection_id: CONNECTION_A,
+    });
+    expect(later.receipts.at(-1)?.result).not.toHaveProperty("pinned_by");
+  });
+
+  test("two connections that reach an unpinned repository refuse with both named, and nothing is pinned", async () => {
+    const { pins, rows } = memoryPins();
+    const { grant, receipts } = harness({
+      registered: {
+        author: [
+          registered(CONNECTION_A, 101).entry,
+          registered(CONNECTION_B, 102).entry,
+        ],
+      },
+      pins,
+    });
+    expect((await refused(grant({ purpose: "push" }))).reason).toBe(
+      "ambiguous_app",
+    );
+    expect(receipts.at(-1)).toMatchObject({
+      status: "failed",
+      result: {
+        reason_code: "ambiguous_app",
+        role: "author",
+        candidate_connection_ids: [CONNECTION_A, CONNECTION_B],
+      },
+    });
+    expect(rows.size).toBe(0);
+  });
+
+  test("a pin whose connection was removed refuses; it never falls back to another connection", async () => {
+    const other = registered(CONNECTION_B, 102);
+    const { pins } = memoryPins([
+      {
+        repositoryId: "app",
+        role: "author",
+        connectionId: null,
+        appId: 101,
+        pinnedBy: "admin",
+      },
+    ]);
+    const { grant, receipts } = harness({
+      registered: { author: [other.entry] },
+      pins,
+    });
+    expect((await refused(grant({ purpose: "clone" }))).reason).toBe(
+      "pinned_app_removed",
+    );
+    expect(receipts.at(-1)?.result).toMatchObject({
+      reason_code: "pinned_app_removed",
+      role: "author",
+    });
+    expect(other.fake.issued).toEqual([]);
+  });
+
+  test("no connection reaching it, or GitHub not answering, fails with a receipt and pins nothing", async () => {
+    for (const [installed, pinState] of [
+      [false, "none_unreachable"],
+      [null, "lookup_failed"],
+    ] as const) {
+      const { pins, rows } = memoryPins();
+      const { grant, receipts } = harness({
+        registered: {
+          author: [
+            registered(CONNECTION_A, 101, installed).entry,
+            registered(CONNECTION_B, 102, false).entry,
+          ],
+        },
+        pins,
+      });
+      const error = await grant({ purpose: "clone" }).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      expect(error).toBeInstanceOf(GitHubUnavailableError);
+      expect(receipts.at(-1)).toMatchObject({
+        status: "failed",
+        result: { role: "author", connection_id: null, pin_state: pinState },
+      });
+      expect((error as GitHubUnavailableError).receiptId).toBe(
+        `receipt-${receipts.length}`,
+      );
+      expect(rows.size).toBe(0);
+    }
+  });
+
+  test("a pin to a connection this replica has not read yet is unreachable, not another App", async () => {
+    const { pins } = memoryPins([
+      {
+        repositoryId: "app",
+        role: "author",
+        connectionId: CONNECTION_B,
+        appId: 102,
+        pinnedBy: "selection",
+      },
+    ]);
+    const a = registered(CONNECTION_A, 101);
+    const { grant, receipts } = harness({
+      registered: { author: [a.entry] },
+      pins,
+    });
+    await expect(grant({ purpose: "clone" })).rejects.toBeInstanceOf(
+      GitHubUnavailableError,
+    );
+    expect(receipts.at(-1)?.result).toMatchObject({
+      connection_id: CONNECTION_B,
+      pin_state: "pinned_unreachable",
+    });
+    expect(a.fake.issued).toEqual([]);
+  });
+
+  test("the reviewer role is pinned on its own; the author's pin does not choose it", async () => {
+    const { pins, rows } = memoryPins([
+      {
+        repositoryId: "app",
+        role: "author",
+        connectionId: CONNECTION_A,
+        appId: 101,
+        pinnedBy: "selection",
+      },
+    ]);
+    const reviewerId = "0193a000-0000-7000-8000-00000000000c";
+    const { grant } = harness({
+      github: settings({ features: features({ review: true }) }),
+      ceiling: ALL_ON,
+      registered: {
+        author: [registered(CONNECTION_A, 101).entry],
+        reviewer: [registered(reviewerId, 103).entry],
+      },
+      pins,
+    });
+    expect(await grant({ purpose: "review" })).toMatchObject({
+      role: "reviewer",
+    });
+    expect(rows.get("app:reviewer")).toMatchObject({
+      connectionId: reviewerId,
+      pinnedBy: "first_mint",
+    });
+  });
+});
+
+describe("connection resolver", () => {
+  const repo = { owner: "acme", name: "app" };
+
+  test("installed: the pin's answer, one reach true, none false, several or unknown null", async () => {
+    const yes = registered(CONNECTION_A, 101).entry;
+    const no = registered(CONNECTION_B, 102, false).entry;
+    const unknown = registered(CONNECTION_B, 102, null).entry;
+    const resolverOf = (
+      candidates: RegisteredGitHubConnection[],
+      initial: GitHubRepositoryPin[] = [],
+    ) =>
+      createGitHubConnectionResolver({
+        connections: () => ({ kind: "registered", candidates }),
+        pins: memoryPins(initial).pins,
+      });
+    expect(await resolverOf([yes, no]).installed("app", "author", repo)).toBe(
+      true,
+    );
+    expect(await resolverOf([no]).installed("app", "author", repo)).toBe(false);
+    expect(
+      await resolverOf([yes, { ...yes, id: CONNECTION_B }]).installed(
+        "app",
+        "author",
+        repo,
+      ),
+    ).toBeNull();
+    expect(
+      await resolverOf([yes, unknown]).installed("app", "author", repo),
+    ).toBeNull();
+    expect(await resolverOf([]).installed("app", "author", repo)).toBeNull();
+    const pinnedTo = (connectionId: string | null): GitHubRepositoryPin => ({
+      repositoryId: "app",
+      role: "author",
+      connectionId,
+      appId: 102,
+      pinnedBy: "admin",
+    });
+    expect(
+      await resolverOf([yes, no], [pinnedTo(CONNECTION_B)]).installed(
+        "app",
+        "author",
+        repo,
+      ),
+    ).toBe(false);
+    expect(
+      await resolverOf([yes], [pinnedTo(null)]).installed(
+        "app",
+        "author",
+        repo,
+      ),
+    ).toBe(false);
+    expect(
+      await resolverOf([yes], [pinnedTo(CONNECTION_B)]).installed(
+        "app",
+        "author",
+        repo,
+      ),
+    ).toBeNull();
+  });
+
+  test("resolve without pin leaves no pin; another request's pin decides over this one", async () => {
+    const a = registered(CONNECTION_A, 101).entry;
+    const plain = memoryPins();
+    const resolver = createGitHubConnectionResolver({
+      connections: () => ({ kind: "registered", candidates: [a] }),
+      pins: plain.pins,
+    });
+    expect(
+      await resolver.resolve("app", "author", repo, { pin: false }),
+    ).toMatchObject({
+      kind: "connection",
+      connectionId: CONNECTION_A,
+      pinnedBy: null,
+    });
+    expect(plain.rows.size).toBe(0);
+
+    // The pin read found none, then another request pinned b first.
+    const raced = memoryPins();
+    const racing: Pick<GitHubPinStore, "get" | "pinFirst"> = {
+      get: async () => null,
+      pinFirst: async (input) => {
+        await raced.pins.pinFirst({
+          ...input,
+          connectionId: CONNECTION_B,
+          appId: 102,
+        });
+        return raced.pins.pinFirst(input);
+      },
+    };
+    const b = registered(CONNECTION_B, 102).entry;
+    expect(
+      await createGitHubConnectionResolver({
+        connections: () => ({ kind: "registered", candidates: [a, b] }),
+        pins: racing,
+      }).resolve("app", "author", repo, {
+        pin: true,
+        source: {
+          kind: "registered",
+          candidates: [
+            a,
+            {
+              ...b,
+              connection: registered(CONNECTION_B, 102, false).fake.connection,
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({
+      kind: "connection",
+      connectionId: CONNECTION_B,
+      pinnedBy: null,
     });
   });
 });

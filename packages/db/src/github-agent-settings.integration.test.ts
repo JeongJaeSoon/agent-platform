@@ -126,21 +126,21 @@ integration("GitHub agent settings, expand", () => {
       null,
     );
     const store = createPostgresGitHubAppStore(db, key);
-    expect(await store.find(workspaceId, "author")).toMatchObject({
-      id: appRow,
-      appId: 5513262,
-    });
-    expect(await store.find(workspaceId, "reviewer")).toBeNull();
+    expect(await store.ofRole(workspaceId, "author")).toMatchObject([
+      { id: appRow, appId: 5513262 },
+    ]);
+    expect(await store.ofRole(workspaceId, "reviewer")).toEqual([]);
     expect((await store.credentials("author")).map(({ id }) => id)).toEqual([
       appRow,
     ]);
     expect(await store.credentials("reviewer")).toEqual([]);
 
     // The image from before writes rows without a role or a switch: they
-    // land as the author App and an agent with GitHub on, and a second
-    // author App is still refused as one per workspace was.
+    // land as an author App and an agent with GitHub on. Another author App
+    // is now a second connection; the same App twice is still refused.
+    await insertApp(randomUUID(), 7);
     await expect(insertApp(randomUUID(), 7)).rejects.toThrow(
-      "github_apps_workspace_role_uniq",
+      "github_apps_workspace_app_uniq",
     );
     await pool.query(
       "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'b', 'b')",
@@ -156,6 +156,66 @@ integration("GitHub agent settings, expand", () => {
       { slug: "a", github_enabled: true },
       { slug: "b", github_enabled: true },
     ]);
+  });
+
+  test("the author App a workspace had becomes the one people link with; a saved ceiling stays", async () => {
+    await rm(before, { recursive: true, force: true });
+    before = await migrationsThrough("0217_achievement_judge_errors");
+    await migrate(db, { migrationsFolder: before });
+    const workspace = async () => {
+      const id = randomUUID();
+      await pool.query(
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'ws')",
+        [id, `ws-${id.slice(0, 8)}`],
+      );
+      return id;
+    };
+    const app = async (workspaceId: string, appId: number, role: string) => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO github_apps (id, workspace_id, role, app_id, slug, name, html_url, api_base)
+         VALUES ($1, $2, $3, $4, 's', 'n', 'https://github.com/apps/s', 'https://api.github.com')`,
+        [id, workspaceId, role, appId],
+      );
+      return id;
+    };
+    const fresh = await workspace();
+    const freshApp = await app(fresh, 1, "author");
+    const saved = await workspace();
+    const savedApp = await app(saved, 2, "author");
+    await app(saved, 3, "reviewer");
+    const ceiling = {
+      workflows: true,
+      actions: false,
+      checks: false,
+      issues: false,
+      review: false,
+    };
+    await pool.query(
+      "INSERT INTO github_workspace_settings (workspace_id, ceiling, revision) VALUES ($1, $2, 4)",
+      [saved, ceiling],
+    );
+    const none = await workspace();
+
+    await migrate(db, { migrationsFolder: MIGRATIONS });
+
+    const rows = (
+      await pool.query(
+        "SELECT workspace_id, ceiling, revision, user_link_connection_id FROM github_workspace_settings",
+      )
+    ).rows;
+    expect(rows.find((row) => row.workspace_id === fresh)).toMatchObject({
+      revision: 0,
+      user_link_connection_id: freshApp,
+      ceiling: { workflows: false },
+    });
+    expect(rows.find((row) => row.workspace_id === saved)).toEqual({
+      workspace_id: saved,
+      ceiling,
+      revision: 4,
+      user_link_connection_id: savedApp,
+    });
+    expect(rows.some((row) => row.workspace_id === none)).toBe(false);
   });
 
   test("a person may hold a GitHub link beside a Slack one; other providers stay refused", async () => {

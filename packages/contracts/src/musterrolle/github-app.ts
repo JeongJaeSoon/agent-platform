@@ -13,22 +13,50 @@ import { displayNameSchema, workspaceParamsSchema } from "./workspaces.ts";
 // clone, push and open pull requests, and an optional reviewer App that only
 // reviews. A private key goes in once and is never read back.
 
+/**
+ * `role` names a role (`author`, `reviewer`), served while that role has at
+ * most one connection, or else a connection id.
+ */
 export const githubAppRoleParamsSchema = workspaceParamsSchema
-  .extend({ role: githubAppRoleSchema })
+  .extend({ role: z.union([githubAppRoleSchema, z.uuid()]) })
   .strict();
 
-/** `details.reason_code` of a refused `PUT …/github-apps/{role}` (409). */
+/** `details.reason_code` of a refused App write (409 GITHUB_APP_CONFLICT). */
 export const GITHUB_APP_CONFLICT_VALUES = [
-  // The other role holds the same App: GitHub refuses an approval from the
-  // App that opened the pull request.
+  // Another connection holds the same App: GitHub refuses an approval from
+  // the App that opened the pull request.
   "same_app",
-  // A reviewer App needs the author App first.
+  // A reviewer App needs an author App first.
   "no_author_app",
-  // A manifest start without `replace` while an author App is registered.
+  // Kept for clients of earlier servers: a manifest now always adds a
+  // connection, so neither is answered any more.
   "author_app_exists",
-  // The author App changed between a manifest's start and its completion.
   "author_app_changed",
+  // A role address while the role has several connections: name one by id.
+  "ambiguous_role",
+  // People link their accounts with this connection and another author
+  // connection exists: choose that one first.
+  "in_use_for_user_link",
 ] as const;
+
+/** What removing a connection takes with it (decision github-agent.md 11.5). */
+export const githubAppUsageSchema = z
+  .object({
+    /** Catalog repositories pinned to it, for its role. */
+    pinned_repository_count: z.number().int().nonnegative(),
+    /**
+     * Agents with GitHub on whose active release names one of them (for a
+     * reviewer connection, those that turn review on). A release without
+     * GitHub settings reaches every repository its profile allows and is
+     * not counted, so this is a lower bound.
+     */
+    agent_count: z.number().int().nonnegative(),
+    /** Sessions not yet ended on one of them. */
+    active_session_count: z.number().int().nonnegative(),
+    /** People link their accounts with it. */
+    user_link: z.boolean(),
+  })
+  .strict();
 
 export const GITHUB_APP_PRIVATE_KEY_MAX_LENGTH = 16_384;
 
@@ -134,6 +162,8 @@ export const githubAppSchema = z
   .object({
     /** Absent from servers before the reviewer App: the author. */
     role: githubAppRoleSchema.optional(),
+    /** The connection's id; absent from servers before several Apps a role. */
+    connection_id: z.uuid().optional(),
     app_id: githubAppIdSchema,
     slug: z.string().min(1),
     name: z.string().min(1),
@@ -235,6 +265,8 @@ export const getGitHubAppResponseSchema = z
       .enum(GITHUB_APP_MANIFEST_BLOCKED_VALUES)
       .nullable()
       .optional(),
+    /** What removing the connection affects; null with no App. */
+    usage: githubAppUsageSchema.nullable().optional(),
   })
   .strict();
 
@@ -258,7 +290,10 @@ export const startGitHubAppManifestRequestSchema = z
     public: z.boolean().default(false),
     /** Also ask for `actions` and `workflows` write. */
     actions: z.boolean().default(false),
-    /** Required while an author App is registered. */
+    /**
+     * Ignored: a manifest always adds another author connection, and
+     * moving to it is removing the old one after.
+     */
     replace: z.boolean().default(false),
   })
   .strict();
@@ -290,7 +325,26 @@ export const completeGitHubAppManifestResponseSchema = z
   .strict();
 
 export const putGitHubAppResponseSchema = z
-  .object({ github_app: githubAppSchema, receipt_id: receiptIdSchema })
+  .object({
+    github_app: githubAppSchema,
+    receipt_id: receiptIdSchema,
+    /** Repository pins a replacement by another App dropped. */
+    pins_cleared: z.number().int().nonnegative().optional(),
+    /** Pins of this App, left empty when it was removed, filled again. */
+    pins_restored: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+/** Adds a connection; any number may share a role. */
+export const postGitHubAppRequestSchema = putGitHubAppRequestSchema
+  .extend({ role: githubAppRoleSchema })
+  .strict();
+
+export const listGitHubAppsResponseSchema = z
+  .object({
+    /** Every connection, author ones first, each with its `connection_id`. */
+    github_apps: z.array(githubAppSchema),
+  })
   .strict();
 
 export const deleteGitHubAppResponseSchema = z
@@ -299,6 +353,11 @@ export const deleteGitHubAppResponseSchema = z
 
 export type GitHubAppConflict = (typeof GITHUB_APP_CONFLICT_VALUES)[number];
 export type PutGitHubAppRequest = z.infer<typeof putGitHubAppRequestSchema>;
+export type PostGitHubAppRequest = z.infer<typeof postGitHubAppRequestSchema>;
+export type ListGitHubAppsResponse = z.infer<
+  typeof listGitHubAppsResponseSchema
+>;
+export type GitHubAppUsage = z.infer<typeof githubAppUsageSchema>;
 export type GitHubApp = z.infer<typeof githubAppSchema>;
 export type GitHubAppInstallation = z.infer<typeof githubAppInstallationSchema>;
 export type GitHubAppRepository = z.infer<typeof githubAppRepositorySchema>;

@@ -118,6 +118,9 @@ export const RECEIPT_OPERATION_VALUES = [
   "resolve_repository",
   // An agent's GitHub switch turned on or off.
   "set_agent_github",
+  // A catalog repository pinned to a GitHub App connection by a pick or an
+  // admin (decision github-agent.md 11).
+  "set_repository_github_app",
   "review_pull_request",
   "dispatch_workflow",
   "rerun_workflow",

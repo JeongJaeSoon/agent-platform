@@ -28,6 +28,10 @@ import {
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
 import type { SessionCatalog } from "./catalog.ts";
+import {
+  createGitHubConnectionResolver,
+  type GitHubConnectionResolver,
+} from "./github-connection-resolver.ts";
 
 const ANOTHER_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
   "clone",
@@ -46,8 +50,13 @@ export function createGitHubGate(deps: {
   store: GitHubGateStore;
   catalog: SessionCatalog;
   connections: GitHubConnections;
+  /** Picks the console connection a repository is pinned to. */
+  resolver?: GitHubConnectionResolver;
 }): GitHubGate {
   const { store, catalog, connections } = deps;
+  const resolver =
+    deps.resolver ??
+    createGitHubConnectionResolver({ connections, pins: null });
 
   return {
     async grant(work: GitHubWork): Promise<GitHubGrant | null> {
@@ -117,10 +126,13 @@ export function createGitHubGate(deps: {
                   message: `GitHub work refused: ${refusal}`,
                 },
         });
-      const refuse = async (reason: GitHubRefusal): Promise<never> => {
+      const refuse = async (
+        reason: GitHubRefusal,
+        extra: Record<string, unknown> = {},
+      ): Promise<never> => {
         const receiptId = await receipt(
           "failed",
-          { reason_code: reason },
+          { reason_code: reason, ...extra },
           reason,
           operation,
         );
@@ -171,9 +183,11 @@ export function createGitHubGate(deps: {
         if (allowed === null) return await refuse("repository_not_allowed");
         entry = allowed;
       }
-      const author = connections(repositoryId, "author");
+      const source = connections(repositoryId, "author");
+      // A catalog App or a PAT; console connections are all on github.com.
+      const author = source?.kind === "fixed" ? source.connection : null;
       // Not on GitHub: the catalog's own credential, as before the gate.
-      if (author === null && entry.auth?.kind !== "github_app") {
+      if (source === null && entry.auth?.kind !== "github_app") {
         // Another repository is only ever reached with the gate's own token.
         if (!own) throw new GitHubUnavailableError("No GitHub connection");
         return null;
@@ -242,20 +256,50 @@ export function createGitHubGate(deps: {
         fields.allowed_by = allowedBy;
       }
 
-      const connection =
-        needs.role === "author"
-          ? author
-          : connections(repositoryId, "reviewer");
-      if (connection === null) {
+      const repo = repoRefOf(entry.url);
+      if (repo === null) {
+        throw new GitHubUnavailableError("The repository URL names no repo");
+      }
+      const choice = await resolver.resolve(repositoryId, needs.role, repo, {
+        pin: true,
+        ...(needs.role === "author" ? { source } : {}),
+      });
+      if (choice.kind === "none") {
         if (needs.role === "reviewer") return await refuse("no_reviewer_app");
         throw new GitHubUnavailableError(
           "The repository's GitHub App is not registered",
         );
       }
-      const repo = repoRefOf(entry.url);
-      if (repo === null) {
-        throw new GitHubUnavailableError("The repository URL names no repo");
+      if (choice.kind === "refused") {
+        return await refuse(
+          choice.reason,
+          choice.reason === "ambiguous_app"
+            ? {
+                role: needs.role,
+                candidate_connection_ids: choice.candidateConnectionIds,
+              }
+            : { role: needs.role },
+        );
       }
+      if (choice.kind === "unreachable") {
+        const receiptId = await receipt(
+          "failed",
+          {
+            role: needs.role,
+            connection_id: choice.connectionId,
+            pin_state: choice.pinState,
+          },
+          null,
+          operation,
+        );
+        throw new GitHubUnavailableError(
+          choice.pinState === "lookup_failed"
+            ? "GitHub could not say which App reaches the repository"
+            : "No GitHub App connection reaches the repository",
+          receiptId,
+        );
+      }
+      const { connection, connectionId } = choice;
       let gitCredential: GitCredential;
       let fresh: boolean;
       try {
@@ -265,17 +309,28 @@ export function createGitHubGate(deps: {
         ));
       } catch (error) {
         if (error instanceof GitHubPermissionError) {
-          return await refuse("app_permission_missing");
+          return await refuse("app_permission_missing", {
+            role: needs.role,
+            connection_id: connectionId,
+          });
         }
-        // A reviewer App registered but not installed on the repository:
-        // the review attempt still leaves its receipt.
+        // An App registered but not installed on the repository (a reviewer,
+        // or a console connection pinned there): the attempt still leaves
+        // its receipt.
         if (
-          work.purpose === "review" &&
-          error instanceof ForgeCredentialError
+          error instanceof ForgeCredentialError &&
+          (work.purpose === "review" || connectionId !== null)
         ) {
           const receiptId = await receipt(
             "failed",
-            { role: needs.role, app_id: connection.appId },
+            {
+              role: needs.role,
+              app_id: connection.appId,
+              connection_id: connectionId,
+              ...(connectionId === null
+                ? {}
+                : { pin_state: "pinned_unreachable" }),
+            },
             null,
             operation,
           );
@@ -288,6 +343,8 @@ export function createGitHubGate(deps: {
           "succeeded",
           {
             role: needs.role,
+            connection_id: connectionId,
+            ...(choice.pinnedBy === null ? {} : { pinned_by: choice.pinnedBy }),
             app_id: connection.appId,
             permissions: needs.permissions,
             expires_at: gitCredential.expiresAt?.toISOString() ?? null,

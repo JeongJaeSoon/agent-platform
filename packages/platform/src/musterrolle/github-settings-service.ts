@@ -8,6 +8,8 @@ import {
   type PutGitHubOAuthClientSecretRequest,
   type PutGitHubOAuthClientSecretResponse,
   type PutGitHubSettingsRequest,
+  type PutGitHubUserLinkAppRequest,
+  type PutGitHubUserLinkAppResponse,
 } from "@werft-ai/contracts";
 import {
   type GitHubAppCredential,
@@ -71,6 +73,7 @@ export function createGitHubSettingsService(deps: {
   async function oauthOf(workspaceId: string): Promise<GitHubOAuth> {
     const status = await deps.oauth.status(workspaceId);
     return {
+      connection_id: status.connectionId,
       client_id: status.clientId,
       client_secret_set: status.clientSecretSet,
       callback_url: deps.callbackUrl,
@@ -376,6 +379,55 @@ export function createGitHubSettingsService(deps: {
             "The author GitHub App changed since its client id was read",
             undefined,
             { reason_code: "github_app_changed" },
+          );
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
+        case "outranked":
+          throw OUTRANKED();
+        default:
+          throw NOT_FOUND();
+      }
+    },
+
+    /**
+     * The author connection people link their accounts with (decision
+     * github-agent.md 11.3); the client secret goes with the change.
+     */
+    async putUserLinkApp(
+      caller: Caller,
+      workspaceId: string,
+      readBody: () => Promise<PutGitHubUserLinkAppRequest>,
+    ): Promise<PutGitHubUserLinkAppResponse> {
+      await requireConsoleManager(
+        caller,
+        workspaceId,
+        "The App people link their accounts with",
+      );
+      if (deps.apps === null) {
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "The secret store is off: the API was started without PLATFORM_SECRET_KEY",
+        );
+      }
+      const body = await readBody();
+      const receiptId = newId();
+      const result = await deps.apps.setUserLink(
+        workspaceId,
+        body.connection_id,
+        { principal: caller, receiptId, roles: MANAGERS },
+      );
+      switch (result.outcome) {
+        case "stored":
+          return {
+            receipt_id: result.changed ? receiptId : null,
+            oauth: await oauthOf(workspaceId),
+          };
+        case "role_mismatch":
+          throw new SessionServiceError(
+            "BAD_REQUEST",
+            "People link their accounts with an author App only",
+            undefined,
+            { reason_code: "role_mismatch" },
           );
         case "actor_inactive":
           throw ACTOR_INACTIVE();
