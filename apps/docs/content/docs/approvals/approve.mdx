@@ -32,13 +32,13 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
   -d "$(jq -nc --arg c "$PUSH_COMMIT" '{git_commit: $c}')" \
-  | jq '{state, decided_by: .decided_by.principal.kind}'
+  | jq '{state, resolved_by: .resolved_by.principal.kind}'
 ```
 
 ```text
 {
   "state": "approved",
-  "decided_by": "api_key"
+  "resolved_by": "api_key"
 }
 ```
 

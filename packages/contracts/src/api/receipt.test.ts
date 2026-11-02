@@ -119,3 +119,23 @@ describe("receipt target union", () => {
     expect(withActor.actor?.actor_user_id).toBe(USER_ID);
   });
 });
+
+describe("push resolution receipts", () => {
+  // Stage 5 of the rename writes the new names; servers of this version
+  // must read them first, mid-deploy.
+  test("old and new operation and error names both parse", () => {
+    const target = { session_id: SESSION_ID, turn_id: null, request_id: null };
+    for (const operation of ["decide_push", "resolve_push"]) {
+      for (const code of ["PUSH_REQUEST_DECIDED", "PUSH_REQUEST_RESOLVED"]) {
+        const receipt = {
+          ...base,
+          operation,
+          status: "failed",
+          target_ref: target,
+          error: { code, message: "The push request was already decided" },
+        };
+        expect(receiptSchema.safeParse(receipt).success).toBe(true);
+      }
+    }
+  });
+});
