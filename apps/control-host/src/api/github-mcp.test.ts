@@ -141,6 +141,7 @@ beforeEach(async () => {
             rerun: unused,
             review: unused,
           },
+          attachments: { attach: unused },
         }),
       }),
     },

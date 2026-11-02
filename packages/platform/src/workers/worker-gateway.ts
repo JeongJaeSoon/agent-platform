@@ -27,6 +27,7 @@ import type {
   RegisterPendingResponse,
   ReleaseRequest,
   ReleaseResponse,
+  RepositoryAttachOrder,
   RequestParkRequest,
   RequestParkResponse,
   RestorePlanRequest,
@@ -76,6 +77,7 @@ import type {
   ApprovalCheckpointCommit,
   WorkerPendingStore,
 } from "../ports/pending-requests.ts";
+import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
 import type { SessionAttributionStore } from "../ports/session-attribution.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
@@ -486,6 +488,8 @@ export function createWorkerGateway(deps: {
   onMcpReceiptError?: (error: unknown) => void;
   // Absent, the built-in `github` MCP route is refused.
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
+  // Absent, no attachment reaches a worker and its reports are dropped.
+  attachments?: Pick<RepositoryAttachmentStore, "pending" | "settle">;
   // Absent, the GitHub Packages registries refuse every request and a
   // claim names no GitHub owners.
   githubPackages?: {
@@ -530,6 +534,42 @@ export function createWorkerGateway(deps: {
     }
     const botUserId = await lookUp(authorApp).catch(() => null);
     return botUserId === null ? null : appBotAuthor(authorApp.slug, botUserId);
+  }
+
+  // A hint like hasUndelivered: a failed read waits for the next beat.
+  async function attachmentsWaiting(sessionId: string): Promise<boolean> {
+    if (deps.attachments === undefined) return false;
+    const rows = await deps.attachments.pending(sessionId).catch(() => []);
+    return rows.length > 0;
+  }
+
+  // The pending attachments a worker of the session fetches next, at the
+  // catalog's URL; one that left the catalog is settled failed rather than
+  // handed out forever.
+  async function attachOrders(
+    sessionId: string,
+  ): Promise<RepositoryAttachOrder[] | undefined> {
+    if (deps.attachments === undefined) return undefined;
+    const rows = await deps.attachments.pending(sessionId);
+    const gone = rows.filter(
+      (row) => own(catalog.repositories, row.repositoryId) === undefined,
+    );
+    if (gone.length > 0) {
+      await deps.attachments.settle(
+        sessionId,
+        gone.map((row) => ({
+          repository_id: row.repositoryId,
+          status: "failed",
+          failure: "fetch_failed",
+        })),
+      );
+    }
+    return rows.flatMap((row) => {
+      const entry = own(catalog.repositories, row.repositoryId);
+      return entry === undefined
+        ? []
+        : [{ id: row.repositoryId, url: entry.url, branch: row.branch }];
+    });
   }
 
   const decideMcp =
@@ -1367,6 +1407,10 @@ export function createWorkerGateway(deps: {
             object_store: {
               access: { kind: "egress_token", token: objectStoreToken },
             },
+            repository_access: {
+              kind: "egress_token",
+              token: repositoryToken,
+            },
             principal: { owner_scope: binding.ownerScope },
             restore: binding.restore,
             // A replay can bind a session that has since spent its budget;
@@ -1755,7 +1799,9 @@ export function createWorkerGateway(deps: {
         // turn the lease already renewed into an error the worker reads as
         // lost; the next beat reads it again.
         control_pending:
-          (await pending?.hasUndelivered(fence).catch(() => false)) ?? false,
+          ((await pending?.hasUndelivered(fence).catch(() => false)) ??
+            false) ||
+          (await attachmentsWaiting(fence.sessionId)),
       };
     },
 
@@ -1881,7 +1927,12 @@ export function createWorkerGateway(deps: {
           : { delivered: request.delivered }),
       });
       if (result.outcome !== "ok") return rejected(result);
+      if (request.attached !== undefined) {
+        await deps.attachments?.settle(fence.sessionId, request.attached);
+      }
+      const attachments = await attachOrders(fence.sessionId);
       return {
+        ...(attachments === undefined ? {} : { attachments }),
         control:
           result.control === null
             ? null
