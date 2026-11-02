@@ -67,6 +67,8 @@ export function Steps({
           >
             <span
               aria-hidden="true"
+              // The pointer's name for the "?"; the reader hears the label.
+              title={state === "unknown" ? unknownLabel : undefined}
               className={cn(
                 "grid size-6 flex-none place-content-center rounded-full border font-semibold text-xs",
                 state === "done"

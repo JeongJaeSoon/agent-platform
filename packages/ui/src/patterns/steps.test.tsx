@@ -90,6 +90,9 @@ describe("Steps 세 상태", () => {
     expect(unknown?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
       "?",
     );
+    expect(
+      unknown?.querySelector('[aria-hidden="true"]')?.getAttribute("title"),
+    ).toBe("확인할 수 없음");
     expect(unknown?.querySelector(".sr-only")?.textContent).toBe(
       ", 확인할 수 없음",
     );
