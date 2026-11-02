@@ -563,6 +563,47 @@ describe("성과 규칙", () => {
     );
   });
 
+  test("구분 보관: 보관하면 사라진 버튼 대신 구분 추가로 초점이 간다", async () => {
+    let archived = false;
+    await opened({
+      "GET /v1/achievement-categories": () =>
+        json(200, {
+          items: archived
+            ? CATEGORIES.filter((item) => item.id !== DOCS)
+            : CATEGORIES,
+        }),
+      [`POST /v1/achievement-categories/${DOCS}/archive`]: () => {
+        archived = true;
+        return json(200, {
+          category: {
+            ...category(DOCS, "문서", 2),
+            archived_at: AT,
+            archived_by: USER_ID,
+          },
+          receipt_id: RECEIPT_ID,
+        });
+      },
+    });
+    const card = section("구분") as HTMLElement;
+    const user = await setupUser();
+    await user.click(
+      within(card).getByRole("button", { name: "문서 이름 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "보관" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        within(card).queryByRole("button", { name: "문서 이름 바꾸기" }) ===
+          null,
+      ).toBe(true),
+    );
+    const add = within(card).getByRole("button", { name: "구분 추가" });
+    await waitFor(() => expect(document.activeElement === add).toBe(true));
+  });
+
   test("성과 type 표: 이름·key·근거 종류·저장되는 칸·쓰는 규칙, 내장 표시, 추가·이름 바꾸기", async () => {
     const created = type(
       "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
@@ -746,6 +787,16 @@ describe("성과 규칙", () => {
     expect(classes.includes("shrink-0")).toBe(false);
     expect(classes.includes("whitespace-normal")).toBe(true);
     expect(classes.includes("min-w-0")).toBe(true);
+    // A title without spaces may break anywhere in the types table too.
+    const table = within(section("성과 type") as HTMLElement).getByRole(
+      "table",
+    );
+    const used = within(table)
+      .getAllByRole("cell")
+      .find((cell) => cell.getAttribute("data-k") === "규칙");
+    expect(
+      used?.className.split(/\s+/).includes("[overflow-wrap:anywhere]"),
+    ).toBe(true);
   });
 
   test("규칙 편집: 다른 사용 중 규칙이 쓰지 않는 type만 고르고, 저장하면 새 버전을 보낸다", async () => {

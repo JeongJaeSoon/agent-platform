@@ -792,6 +792,7 @@ function CategoriesCard({
     null,
   );
   const opener = useRef<HTMLElement | null>(null);
+  const list = useRef<HTMLDivElement | null>(null);
   const open = (
     target: AchievementCategory | "new",
     event: { readonly currentTarget: HTMLElement },
@@ -806,7 +807,7 @@ function CategoriesCard({
       count={shown.length}
       description={t("achievementRules.category.description")}
     >
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+      <div ref={list} className="flex flex-wrap items-center gap-2 px-4 py-3">
         <ul className="m-0 contents list-none p-0">
           {shown.map((category) => (
             <li
@@ -865,6 +866,14 @@ function CategoriesCard({
                 )
               }
               onDone={() => setDialog(null)}
+              // The archived category's button leaves the list with it.
+              onArchived={() => {
+                // The add button sits beside the list, not in it.
+                opener.current =
+                  list.current?.querySelector<HTMLElement>(":scope > button") ??
+                  null;
+                setDialog(null);
+              }}
             />
           </DialogContent>
         </Dialog>
@@ -877,10 +886,12 @@ function CategoryForm({
   category,
   inUse,
   onDone,
+  onArchived,
 }: {
   readonly category: AchievementCategory | undefined;
   readonly inUse: boolean;
   readonly onDone: () => void;
+  readonly onArchived: () => void;
 }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -909,7 +920,7 @@ function CategoryForm({
         }),
       ),
     lists,
-    onDone,
+    onArchived,
   );
   const pending = save.isPending || archive.isPending;
   const title = category
