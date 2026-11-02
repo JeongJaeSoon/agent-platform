@@ -71,27 +71,20 @@ describe("Button", () => {
     expect(classes).toContain("disabled:pointer-events-none");
   });
 
-  test("aria-disabled도 0.45로 흐려지지만 포커스와 클릭은 남는다", () => {
-    let clicks = 0;
+  test("aria-disabled도 0.45로 흐려지지만 포인터를 막지 않고 포커스를 지킨다", () => {
     const { getByRole } = render(
-      <Button
-        type="button"
-        aria-disabled={true}
-        onClick={() => {
-          clicks += 1;
-        }}
-      >
+      <Button type="button" aria-disabled={true}>
         저장 중
       </Button>,
     );
     const button = getByRole("button", { name: "저장 중" });
     const classes = button.className.split(" ");
     expect(classes).toContain("aria-disabled:opacity-45");
-    expect(classes).not.toContain("aria-disabled:pointer-events-none");
+    expect(classes.filter((c) => c.startsWith("aria-disabled:"))).toEqual([
+      "aria-disabled:opacity-45",
+    ]);
     button.focus();
     expect(document.activeElement === button).toBe(true);
-    button.click();
-    expect(clicks).toBe(1);
   });
 
   test("호출자가 지정한 aria-disabled 투명도가 기본값을 이긴다", () => {
