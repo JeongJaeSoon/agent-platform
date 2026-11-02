@@ -420,8 +420,11 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
       if (!node.textContent?.trim() || !parent || parent.closest(".sr-only")) {
         continue;
       }
-      // A button centres its label; the button's own box is what lines up.
-      const control = parent.closest("button");
+      // A row's button, in a raised cell, centres its label; the button's own
+      // box is what lines up.
+      const control = cell.matches("[data-raised]")
+        ? parent.closest("button")
+        : null;
       if (control && cell.contains(control)) {
         const own = control.getBoundingClientRect();
         ends.push(rtl ? own.left : own.right);
@@ -812,6 +815,13 @@ export const FramedWithActions: Story = {
     await expect(own.width).toBeGreaterThanOrEqual(
       Number.parseFloat(getComputedStyle(button).minWidth),
     );
+    // The label's text sits in the middle of that box.
+    const text = document.createRange();
+    text.selectNodeContents(label);
+    const words = text.getBoundingClientRect();
+    await expect(
+      Math.abs(words.left + words.width / 2 - (own.left + own.width / 2)),
+    ).toBeLessThanOrEqual(1);
   },
 };
 

@@ -76,7 +76,10 @@ export type GridTableProps = Omit<
      * `minmax(0,…)` or a fixed width so no cell can push the table wider.
      */
     readonly columns: string;
-    /** Draws the card frame around the table. */
+    /**
+     * Draws the card frame on the table itself. A min-width on the table then
+     * includes the 1px border on each side.
+     */
     readonly framed?: boolean | undefined;
   };
 
@@ -198,13 +201,21 @@ function cellClasses(
 }
 
 export type GridTableColumnHeaderProps = Omit<ComponentProps<"div">, "role"> &
-  GridTableCellLayout & {
-    /**
-     * The row buttons' column: the label sits at the end, centred over a
-     * button of the minimum row-action width.
-     */
-    readonly action?: boolean | undefined;
-  };
+  Pick<GridTableCellLayout, "hideNarrow"> &
+  (
+    | {
+        /**
+         * The row buttons' column: the label sits at the end, centred in a
+         * box of the minimum row-action width.
+         */
+        readonly action: true;
+        readonly align?: undefined;
+      }
+    | {
+        readonly action?: false | undefined;
+        readonly align?: GridTableCellLayout["align"];
+      }
+  );
 
 export function GridTableColumnHeader({
   align,
