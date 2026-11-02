@@ -59,6 +59,21 @@ export const Failed: Story = {
   },
 };
 
+/** An agent's mid-session attachment the release's list refused. */
+export const AttachRefused: Story = {
+  name: "Attach repository refused",
+  args: {
+    operation: "attach_repository",
+    status: "failed",
+    target: { session_id: SESSION_ID, turn_id: null, request_id: null },
+    timestamps: { created_at: CREATED_AT, updated_at: CREATED_AT },
+    error: {
+      code: "GITHUB_REFUSED",
+      message: "GitHub work refused: repository_not_allowed",
+    },
+  },
+};
+
 export const FailedDark: Story = {
   ...Failed,
   name: "Error (dark)",

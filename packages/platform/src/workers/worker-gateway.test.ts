@@ -1267,7 +1267,7 @@ describe("WorkerGateway", () => {
     ).toBe(false);
   });
 
-  test("a session without a repository is claimed with no repository token and no CLAUDE.md", async () => {
+  test("a session without a repository is claimed with no workspace repository token and no CLAUDE.md", async () => {
     const base = {
       runtime_kind: "claude_agent_sdk" as const,
       runtime_version: "0.3.270",
@@ -1357,7 +1357,10 @@ describe("WorkerGateway", () => {
       );
     const claimed = await claimWith(binding);
     expect(claimed.workspace).toEqual({ repository: null });
-    expect(JSON.stringify(claimed)).not.toContain("wer_");
+    // Only the route token a mid-session attachment fetches with.
+    const { repository_access, ...rest } = claimed;
+    expect(repository_access?.token).toStartWith("wer_");
+    expect(JSON.stringify(rest)).not.toContain("wer_");
     expect(claimed.runtime_config.tools).toEqual(["Write"]);
     expect(claimed.restore_runtime_configs).toHaveLength(1);
     expect(claimed.restore_runtime_configs?.[0]).not.toHaveProperty(

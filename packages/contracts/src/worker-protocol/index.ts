@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { postSessionAnswerRequestSchema } from "../api/answer.ts";
 import { sessionEventVariants } from "../api/event.ts";
+import { repositoryAttachFailureSchema } from "../api/github-mcp.ts";
 import { pendingQuestionSchema } from "../api/pending.ts";
 import {
   attemptStateSchema,
@@ -361,6 +362,11 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // older worker's strict `git` would refuse the whole claim over a new key,
   // where an unknown top-level key is dropped.
   git_author: claimGitAuthorSchema.nullable().optional(),
+  // The attempt's repository route token, also when the claim names no
+  // repository: a repository the agent attaches mid-session is fetched with
+  // it (session-repository-attachment.md decision 3). Top-level so an older
+  // worker drops it.
+  repository_access: egressTokenAuthSchema.optional(),
 });
 
 // The claim as a log line may carry it: an allowlist of identifiers, never
@@ -609,6 +615,38 @@ export const parkedDeliverySchema = z
   })
   .strict();
 
+// A repository the agent attached mid-session, for the worker to add as a
+// remote and fetch with the claim's `repository_access`
+// (session-repository-attachment.md decision 3). `receipt_id` names the
+// request: a result settles only the request it echoes, so a resent result
+// for an earlier one never settles a later request for the same repository.
+export const repositoryAttachOrderSchema = z
+  .object({
+    id: z.string().min(1),
+    url: z.string().min(1),
+    branch: z.string().min(1),
+    receipt_id: z.string().min(1),
+  })
+  .strict();
+export const repositoryAttachResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      repository_id: z.string().min(1),
+      receipt_id: z.string().min(1),
+      status: z.literal("attached"),
+      commit: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+    })
+    .strict(),
+  z
+    .object({
+      repository_id: z.string().min(1),
+      receipt_id: z.string().min(1),
+      status: z.literal("failed"),
+      failure: repositoryAttachFailureSchema,
+    })
+    .strict(),
+]);
+
 // Answers are redelivered until the worker advances answers_after, so a crash
 // between applying an answer and the next poll replays the same sequence.
 // Settlements ride along and are resent until a call carrying them succeeds;
@@ -624,6 +662,13 @@ export const pendingControlRequestSchema = workerScopeSchema
     // only a server that parks hands out.
     delivered: z
       .array(parkedDeliverySchema)
+      .min(1)
+      .max(PENDING_SETTLEMENTS_MAX)
+      .optional(),
+    // The fetches of `attachments` this worker ran, resent like `settled`.
+    // Sent only for attachments a server handed out.
+    attached: z
+      .array(repositoryAttachResultSchema)
       .min(1)
       .max(PENDING_SETTLEMENTS_MAX)
       .optional(),
@@ -654,6 +699,9 @@ export const pendingControlResponseSchema = z.object({
       input_hash: sha256HexSchema,
     }),
   ),
+  // Repositories the agent attached that no worker has reported fetching
+  // yet, handed out again until one does. Absent from an older server.
+  attachments: z.array(repositoryAttachOrderSchema).optional(),
 });
 
 // The worker will not park after all, and says so before it has cancelled a
@@ -983,6 +1031,10 @@ export type PendingControlResponse = z.infer<
 export type FinalizeRequest = z.infer<typeof finalizeRequestSchema>;
 export type PermissionGrant = z.infer<typeof permissionGrantSchema>;
 export type ParkedDelivery = z.infer<typeof parkedDeliverySchema>;
+export type RepositoryAttachOrder = z.infer<typeof repositoryAttachOrderSchema>;
+export type RepositoryAttachResult = z.infer<
+  typeof repositoryAttachResultSchema
+>;
 export type ParkDeclinedRequest = z.infer<typeof parkDeclinedRequestSchema>;
 export type ParkDeclinedResponse = z.infer<typeof parkDeclinedResponseSchema>;
 export type RequestParkRequest = z.infer<typeof requestParkRequestSchema>;

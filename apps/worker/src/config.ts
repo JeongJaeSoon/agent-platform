@@ -6,12 +6,12 @@ import {
   integerSetting,
   positiveNumberSetting,
 } from "@werft-ai/contracts/settings";
-
 import {
   objectStoreConfigFromEnv,
   type WorkerObjectStoreConfig,
   type WorkerObjectStoreEnvironment,
 } from "./object-store.ts";
+import { type AttachLimits, DEFAULT_ATTACH_LIMITS } from "./workspace.ts";
 
 /**
  * Everything the worker reads from its environment. The first block is what
@@ -33,6 +33,8 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_CLAUDE_CONFIG_DIR?: string | undefined;
 
   WORKER_ANSWER_POLL_SEC?: string | undefined;
+  WORKER_ATTACH_FETCH_MAX_MB?: string | undefined;
+  WORKER_ATTACH_FETCH_TIMEOUT_SEC?: string | undefined;
   WORKER_CLAIM_TIMEOUT_SEC?: string | undefined;
   WORKER_DRAIN_TIMEOUT_SEC?: string | undefined;
   WORKER_HEARTBEAT_INTERVAL_SEC?: string | undefined;
@@ -150,6 +152,8 @@ export type WorkerConfig = {
   objectStore: WorkerObjectStoreConfig;
   runtime: WorkerRuntimeSettings;
   timeouts: WorkerTimeouts;
+  /** How long and how large one attached repository's fetch may get. */
+  attachLimits?: AttachLimits;
 };
 
 export function workerConfigFromEnv(
@@ -250,6 +254,19 @@ export function workerConfigFromEnv(
         3600,
       ),
       ...(stopGraceMs === undefined ? {} : { stopGraceMs }),
+    },
+    attachLimits: {
+      timeoutMs: seconds(
+        environment,
+        "WORKER_ATTACH_FETCH_TIMEOUT_SEC",
+        DEFAULT_ATTACH_LIMITS.timeoutMs / 1000,
+      ),
+      maxBytes: Math.round(
+        positiveNumberSetting(environment, "WORKER_ATTACH_FETCH_MAX_MB", {
+          default: DEFAULT_ATTACH_LIMITS.maxBytes / 1024 ** 2,
+        }) *
+          1024 ** 2,
+      ),
     },
   };
 }

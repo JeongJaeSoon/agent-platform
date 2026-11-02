@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
+  AdditionalWorkspaceRepository,
   AttemptState,
   BootstrapClaimResponse,
   CheckpointRef,
@@ -8,6 +9,8 @@ import type {
   NextInputResponse,
   PermissionGrant,
   ReleaseRequest,
+  RepositoryAttachOrder,
+  RepositoryAttachResult,
   RuntimeConfig,
   SessionRuntime,
   TerminalTurnStatus,
@@ -59,7 +62,7 @@ import {
   scrubbingLogger,
 } from "./secret-scrubber.ts";
 import { settledWithin, until } from "./waits.ts";
-import type { WorkspacePreparer } from "./workspace.ts";
+import { AttachLimitError, type WorkspacePreparer } from "./workspace.ts";
 
 /** Where the claim's object store token goes. */
 export type ObjectStoreAccess = { useToken(token: string): void };
@@ -324,6 +327,15 @@ export class WorkerHost {
   private abandonsAt: number | undefined;
   /** Aborted by any stop: a clone in progress is not worth finishing. */
   private readonly preparation = new AbortController();
+  // Attachments run one at a time, and only once the workspace is prepared
+  // and restored: an order can come with the first heartbeat, before
+  // `startUp` has a `.git` to add a remote to. `attaching` keeps a repeated
+  // order from queueing the same fetch twice.
+  private startAttachments: () => void = () => {};
+  private attachQueue = new Promise<void>((resolve) => {
+    this.startAttachments = resolve;
+  });
+  private readonly attaching = new Set<string>();
   private stoppedAt: number | undefined;
   private readonly stopped: Promise<void>;
   private announceStop: () => void = () => {};
@@ -422,30 +434,7 @@ export class WorkerHost {
         reason: describe(error),
       }),
     );
-    // Not a boundary either: the gate judges every repository the route is
-    // asked for.
-    const routed =
-      (await this.options
-        .repositoryRoutes?.(claim.workspace)
-        .catch((error: unknown) => {
-          this.logger.warn("worker.repository_routes.not_written", {
-            reason: describe(error),
-          });
-          return false;
-        })) ?? false;
-    // Nor this: the proxy is. Without it an install fails. A Go module named
-    // private with no route to it would go to github.com directly.
-    await this.options
-      .packageManagers?.(
-        claim.packages?.access.token,
-        claim.packages?.github,
-        routed ? goPrivateModules(claim.workspace) : [],
-      )
-      .catch((error: unknown) =>
-        this.logger.warn("worker.package_managers.not_written", {
-          reason: describe(error),
-        }),
-      );
+    await this.writeEngineRoutes(claim);
 
     // Everything this process holds that the engine's tools could print.
     this.scrubber = new SecretScrubber([
@@ -486,6 +475,7 @@ export class WorkerHost {
       pollIntervalMs: this.options.timeouts.answerPollIntervalMs,
       onOwnershipLost: (error) => this.lose(describe(error), error),
       onControl: (control, poll) => this.onControl(control, poll),
+      onAttachments: (orders) => this.onAttachments(claim, orders),
       onSettlementDetailRefused: (error) =>
         this.logger.warn("worker.pending.settlement_detail_refused", {
           reason: error.message,
@@ -516,6 +506,7 @@ export class WorkerHost {
       let ready = false;
       try {
         const plan = await this.startUp(claim);
+        if (plan !== undefined) this.startAttachments();
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           run = launcher.start({
@@ -572,6 +563,115 @@ export class WorkerHost {
       reason: stop.reason,
       turns: this.turns,
     };
+  }
+
+  /**
+   * The engine's git routes and package manager configuration for the
+   * claim's repositories, written again whenever one is attached. Each file
+   * is staged and renamed into place, so git and go never read half of one.
+   */
+  private async writeEngineRoutes(
+    claim: BootstrapClaimResponse,
+  ): Promise<void> {
+    // Not a boundary: the gate judges every repository the route is asked
+    // for.
+    const routed =
+      (await this.options
+        .repositoryRoutes?.(claim.workspace)
+        .catch((error: unknown) => {
+          this.logger.warn("worker.repository_routes.not_written", {
+            reason: describe(error),
+          });
+          return false;
+        })) ?? false;
+    // Nor this: the proxy is. Without it an install fails. A Go module named
+    // private with no route to it would go to github.com directly.
+    await this.options
+      .packageManagers?.(
+        claim.packages?.access.token,
+        claim.packages?.github,
+        routed ? goPrivateModules(claim.workspace) : [],
+      )
+      .catch((error: unknown) =>
+        this.logger.warn("worker.package_managers.not_written", {
+          reason: describe(error),
+        }),
+      );
+  }
+
+  /**
+   * Fetches the repositories the agent attached mid-session, one at a time
+   * (session-repository-attachment.md decision 3), and reports each outcome
+   * on the next control poll. One whose fetch a stop cut short is left
+   * unreported: it stays pending for the next attempt, whose claim already
+   * carries it.
+   */
+  private onAttachments(
+    claim: BootstrapClaimResponse,
+    orders: RepositoryAttachOrder[],
+  ): void {
+    for (const order of orders) {
+      if (this.attaching.has(order.id)) continue;
+      this.attaching.add(order.id);
+      this.attachQueue = this.attachQueue
+        .then(() => this.attachOne(claim, order))
+        .finally(() => this.attaching.delete(order.id));
+    }
+  }
+
+  private async attachOne(
+    claim: BootstrapClaimResponse,
+    order: RepositoryAttachOrder,
+  ): Promise<void> {
+    const attach = this.options.workspace.attachRepository;
+    const { receipt_id, ...entry } = order;
+    const repository: AdditionalWorkspaceRepository = {
+      ...entry,
+      ...(claim.repository_access === undefined
+        ? {}
+        : { access: claim.repository_access }),
+    };
+    let result: RepositoryAttachResult;
+    try {
+      if (attach === undefined) {
+        throw new Error("This worker's workspace takes no repository");
+      }
+      const commit = await attach.call(
+        this.options.workspace,
+        repository,
+        this.preparation.signal,
+      );
+      result = {
+        repository_id: order.id,
+        receipt_id,
+        status: "attached",
+        commit,
+      };
+      const listed = claim.workspace.additional_repositories ?? [];
+      if (!listed.some((entry) => entry.id === order.id)) {
+        claim.workspace.additional_repositories = [...listed, repository];
+      }
+      await this.writeEngineRoutes(claim);
+    } catch (error) {
+      if (this.preparation.signal.aborted) return;
+      result = {
+        repository_id: order.id,
+        receipt_id,
+        status: "failed",
+        failure:
+          error instanceof AttachLimitError ? error.failure : "fetch_failed",
+      };
+      this.logger.warn("worker.workspace.attach_failed", {
+        repository_id: order.id,
+        failure: result.failure,
+        reason: describe(error),
+      });
+    }
+    this.logger.info("worker.workspace.repository_attached", {
+      repository_id: order.id,
+      status: result.status,
+    });
+    this.pending?.reportAttached(result);
   }
 
   /**

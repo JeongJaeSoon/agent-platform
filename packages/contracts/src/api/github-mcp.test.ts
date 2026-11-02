@@ -27,10 +27,16 @@ describe("githubMcpTools", () => {
       "request_push",
       "open_pull_request",
       "comment_pull_request",
+      "attach_repository",
     ]);
     expect(
       githubMcpTools(settings({ workflows: true, checks: true, issues: true })),
-    ).toEqual(["request_push", "open_pull_request", "comment_pull_request"]);
+    ).toEqual([
+      "request_push",
+      "open_pull_request",
+      "comment_pull_request",
+      "attach_repository",
+    ]);
     expect<string[]>(
       githubMcpTools(settings({ actions: true, review: true })),
     ).toEqual(Object.keys(GITHUB_MCP_TOOL_ARGUMENTS));

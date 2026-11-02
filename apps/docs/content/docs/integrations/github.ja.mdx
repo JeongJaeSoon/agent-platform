@@ -47,6 +47,16 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
 
 PR 本文の末尾には、プラットフォームが書く末尾ブロックが付く。セッション id とコミット、セッションのアドレス、エージェントとリリース、誰がどの経路で開始したかが入る。そのブランチにもう一度 push して PR をもう一度要求すると、末尾ブロックだけが新しいコミットに変わり、その上に人が書いた本文はそのまま残る。
 
+## セッションの途中でリポジトリを付ける
+
+エージェントは作業の途中で、内蔵 MCP ツール `attach_repository({ repository_id })` で別のリポジトリを付ける。付けられるのは、エージェントのリリースの GitHub 設定（`github.repositories`）にあり、プロファイルが許可するリポジトリだけだ。人の承認は受けない。そのリポジトリへの書き込みは、これまでどおり push 要求の承認を通る。
+
+- 付けたリポジトリは、作業スペースで名前が `repository_id` の git リモートになり、デフォルトブランチを `<repository_id>/<branch>` に取得する。エージェントはトークンを見ない。
+- 同じリポジトリをもう一度付けても何も変えずに成功する。取得中なら `pending` を返し、もう一度呼ぶと結果を読める。
+- 取得には 300 秒と 2 GiB の上限がある。超えると付けるのは失敗で終わり、`failure` に理由（`fetch_timeout`、`fetch_too_large`）が残る。
+- 付けるたびに `attach_repository` の[レシート](/approvals/receipt)が残る。要求した人と attempt、リポジトリ、リリース、取得したコミット、拒否の理由（`repository_not_allowed`）が入る。
+- セッションが別の worker で再開すると（restore）、付けたリポジトリのリモートをもう一度付ける。付けたリポジトリの CLAUDE.md は指示として読まない。
+
 ## 自分の GitHub アカウントを連携する
 
 コミットの作成者は常に GitHub App の bot アカウント(`<App slug>[bot]`)だ。自分の GitHub アカウントを連携しておくと、自分が開始したセッションのコミットに `Co-authored-by:` トレーラーで自分の名前も入り、GitHub でそのコミットが自分の貢献としても表示される。

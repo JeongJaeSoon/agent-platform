@@ -48,6 +48,7 @@ export * from "./postgres-unit-of-work.ts";
 export * from "./pull-requests.ts";
 export * from "./push-requests.ts";
 export * from "./queries.ts";
+export * from "./repository-attachments.ts";
 export * from "./scheduler-store.ts";
 export * from "./schema.ts";
 export * from "./secret-values.ts";

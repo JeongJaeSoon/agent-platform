@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { readdirSync } from "node:fs";
 import {
   chmod,
@@ -16,7 +17,11 @@ import { join } from "node:path";
 import type { WorkspaceDescriptor } from "@werft-ai/contracts";
 
 import { RESTORED_CHECKPOINT_DIRECTORY } from "./checkpoint-restore.ts";
-import { COMMITTED_INSTRUCTIONS_MAX_BYTES, GitWorkspace } from "./workspace.ts";
+import {
+  AttachLimitError,
+  COMMITTED_INSTRUCTIONS_MAX_BYTES,
+  GitWorkspace,
+} from "./workspace.ts";
 
 let scratch: string;
 let origin: string;
@@ -430,6 +435,70 @@ describe("GitWorkspace", () => {
     expect(git(["remote", "get-url", "docs"], root)).toBe(docs);
     expect(git(["status", "--porcelain"], root)).toBe("");
     expect(await readdir(join(root, ".git"))).not.toContain("attach");
+  });
+
+  describe("one repository attached mid-session", () => {
+    async function docsRepository(bytes = 4) {
+      const docs = join(scratch, "docs.git");
+      git(
+        ["init", "--quiet", "--bare", "--initial-branch=trunk", docs],
+        scratch,
+      );
+      const seed = join(scratch, "docs-seed");
+      git(["clone", "--quiet", docs, seed], scratch);
+      await writeFile(join(seed, "DOCS.bin"), randomBytes(bytes));
+      git(["add", "DOCS.bin"], seed);
+      git(["commit", "--quiet", "-m", "docs"], seed);
+      git(["push", "--quiet", "origin", "HEAD:trunk"], seed);
+      return { docs, head: git(["rev-parse", "HEAD"], seed) };
+    }
+
+    test("answers the commit it fetched", async () => {
+      await prepare(descriptor());
+      const { docs, head } = await docsRepository();
+      const commit = await new GitWorkspace(root, "CLAUDE.md").attachRepository(
+        { id: "docs", url: docs, branch: "trunk" },
+        new AbortController().signal,
+      );
+      expect(commit).toBe(head);
+      expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(head);
+    });
+
+    test("a fetch past the size limit fails as too large and leaves no remote", async () => {
+      await prepare(descriptor());
+      const { docs } = await docsRepository(256 * 1024);
+      const workspace = new GitWorkspace(root, "CLAUDE.md", null, {
+        timeoutMs: 60_000,
+        maxBytes: 64 * 1024,
+      });
+      const failed = await workspace
+        .attachRepository(
+          { id: "docs", url: docs, branch: "trunk" },
+          new AbortController().signal,
+        )
+        .catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(AttachLimitError);
+      expect((failed as AttachLimitError).failure).toBe("fetch_too_large");
+      expect(git(["remote"], root)).not.toContain("docs");
+      expect(await readdir(join(root, ".git"))).not.toContain("attach");
+    });
+
+    test("a fetch past the time limit fails as timed out", async () => {
+      await prepare(descriptor());
+      const { docs } = await docsRepository();
+      const workspace = new GitWorkspace(root, "CLAUDE.md", null, {
+        timeoutMs: 1,
+        maxBytes: 1024 ** 3,
+      });
+      const failed = await workspace
+        .attachRepository(
+          { id: "docs", url: docs, branch: "trunk" },
+          new AbortController().signal,
+        )
+        .catch((error: unknown) => error);
+      expect((failed as AttachLimitError).failure).toBe("fetch_timeout");
+      expect(git(["remote"], root)).not.toContain("docs");
+    });
   });
 
   test("brings the origin's new commits into a reused checkout", async () => {

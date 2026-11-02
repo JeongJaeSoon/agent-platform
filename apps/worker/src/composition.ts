@@ -75,6 +75,7 @@ export function createWorkerHost(
       config.runtime.cwd,
       instructionsFile,
       config.egressCredentialUrl,
+      config.attachLimits,
     );
   const objectToken = new ObjectStoreToken();
   // Built before the host that learns the claim's secrets, so it asks the
