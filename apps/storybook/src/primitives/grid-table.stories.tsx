@@ -8,6 +8,7 @@ import {
   GridTableHeader,
   GridTableRow,
   GridTableRowOpener,
+  RowAction,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -492,14 +493,7 @@ function ManagedMembers({ locale }: { readonly locale: unknown }) {
             </Badge>
           </GridTableCell>
           <GridTableCell align="end" raised={true}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-w-[var(--ap-row-action-min-width)]"
-            >
-              {t.changeRole}
-            </Button>
+            <RowAction>{t.changeRole}</RowAction>
           </GridTableCell>
         </GridTableRow>
       ))}

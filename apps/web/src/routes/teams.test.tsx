@@ -70,7 +70,7 @@ async function pick(
 async function openAdd(user: Awaited<ReturnType<typeof setupUser>>) {
   await user.click(await screen.findByRole("button", { name: "구성원 추가" }));
   const dialog = await screen.findByRole("dialog", {
-    name: "결제팀 팀에 구성원 추가",
+    name: "결제팀에 구성원 추가",
   });
   const picker = within(dialog).getByRole("combobox", { name: "추가할 사람" });
   await waitFor(() => expect(document.activeElement === picker).toBe(true));
@@ -868,7 +868,7 @@ describe("팀 화면", () => {
     await user.click(removeMate);
     const removeDialog = await screen.findByRole("dialog");
     expect(removeDialog.textContent).toContain(
-      "Mate님을 결제팀 팀에서 뺄까요?",
+      "Mate님을 결제팀에서 뺄까요?",
     );
     await user.click(
       within(removeDialog).getByRole("button", { name: "빼기" }),

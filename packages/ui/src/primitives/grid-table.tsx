@@ -206,7 +206,8 @@ export type GridTableColumnHeaderProps = Omit<ComponentProps<"div">, "role"> &
     | {
         /**
          * The row buttons' column: the label sits at the end, centred in a
-         * box of the minimum row-action width.
+         * box as wide as the narrowest row button (RowAction's floor), so it
+         * lines up over a two-syllable button.
          */
         readonly action: true;
         readonly align?: undefined;
@@ -239,7 +240,7 @@ export function GridTableColumnHeader({
       {...props}
     >
       {action ? (
-        <span className="min-w-[var(--ap-row-action-min-width)] text-center">
+        <span className="min-w-[var(--ap-row-action-button-min-width)] text-center">
           {children}
         </span>
       ) : (

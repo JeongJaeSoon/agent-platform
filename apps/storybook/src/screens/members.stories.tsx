@@ -56,11 +56,12 @@ import {
   Page,
   RadioGroup,
   RadioGroupItem,
+  RowAction,
   RowLines,
   RowList,
   RowListItem,
   SearchInput,
-  SettingsSection,
+  Section,
   Skeleton,
   Stepper,
   Text,
@@ -1036,10 +1037,12 @@ function TeamPage({
   team,
   manages,
   initialDelete = false,
+  initialAdd = false,
 }: {
   readonly team: TeamDetailView;
   readonly manages: boolean;
   readonly initialDelete?: boolean;
+  readonly initialAdd?: boolean;
 }) {
   const [deleting, setDeleting] = useState(initialDelete);
   const [name, setName] = useState(team.name);
@@ -1057,7 +1060,7 @@ function TeamPage({
         </a>
       </div>
       {manages ? (
-        <SettingsSection title="팀 설정" titleAs="h3">
+        <Section title="팀 설정" titleAs="h3">
           <form
             className={INLINE_FORM}
             onSubmit={(event) => event.preventDefault()}
@@ -1080,9 +1083,9 @@ function TeamPage({
               이름 바꾸기
             </Button>
           </form>
-        </SettingsSection>
+        </Section>
       ) : null}
-      <TeamMembers team={team} manages={manages} />
+      <TeamMembers team={team} manages={manages} initialAdd={initialAdd} />
       {manages ? (
         <>
           <DangerZone title="위험 구역" titleAs="h3">
@@ -1112,9 +1115,11 @@ function TeamPage({
 function TeamMembers({
   team,
   manages,
+  initialAdd,
 }: {
   readonly team: TeamDetailView;
   readonly manages: boolean;
+  readonly initialAdd: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [removing, setRemoving] = useState<
@@ -1143,30 +1148,31 @@ function TeamMembers({
     .filter(Boolean)
     .join(" ");
   return (
-    <SettingsSection
+    <Section
       title="팀 구성원"
       titleAs="h3"
       badge={<Badge variant="gray">{`${team.members.length}명`}</Badge>}
-      {...(manages && {
-        description:
-          "여러 명을 골라 한 번에 추가할 수 있습니다. 추가하면 수락 없이 바로 구성원이 됩니다.",
-      })}
+      actions={
+        manages ? (
+          <AddMembers team={team} initialOpen={initialAdd} />
+        ) : undefined
+      }
     >
-      {manages ? <AddMembers team={team} /> : null}
       {team.members.length === 0 ? (
         <EmptyState title="아직 구성원이 없습니다." />
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="flex">
-            <SearchInput
-              type="search"
-              aria-label="이름이나 이메일로 구성원 찾기"
-              placeholder="이름이나 이메일로 구성원 찾기"
-              maxLength={SEARCH_MAX}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+          <ListToolbar
+            filter={null}
+            search={{
+              type: "search",
+              "aria-label": "이름이나 이메일로 구성원 찾기",
+              placeholder: "이름이나 이메일로 구성원 찾기",
+              maxLength: SEARCH_MAX,
+              value: query,
+              onChange: (event) => setQuery(event.target.value),
+            }}
+          />
           {shown.length === 0 ? (
             <EmptyState
               className="w-full"
@@ -1236,16 +1242,13 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell align="end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="min-w-[var(--ap-row-action-min-width)]"
+                        <RowAction
+                          variant="danger"
                           aria-label={`${name}님을 팀에서 빼기`}
                           onClick={() => setRemoving(member)}
                         >
                           빼기
-                        </Button>
+                        </RowAction>
                       </GridTableCell>
                     )}
                   </GridTableRow>
@@ -1260,21 +1263,33 @@ function TeamMembers({
         onOpenChange={(open) => {
           if (!open) setRemoving(null);
         }}
-        title={`${removing?.display_name ?? removing?.email ?? ""}님을 ${team.name} 팀에서 뺄까요?`}
+        title={`${removing?.display_name ?? removing?.email ?? ""}님을 ${team.name}에서 뺄까요?`}
         consequence="워크스페이스에는 그대로 남지만, 이 팀을 통해 관리하던 에이전트는 더 관리하지 못합니다. 다시 추가하면 돌아옵니다."
         confirmLabel="빼기"
         cancelLabel="취소"
         tone="danger"
         onConfirm={() => setRemoving(null)}
       />
-    </SettingsSection>
+    </Section>
   );
 }
 
-/** Pick active members who are not in the team yet, then add them at once. */
-function AddMembers({ team }: { readonly team: TeamDetailView }) {
+/**
+ * The 팀 구성원 head's button: pick active members who are not in the team
+ * yet in a dialog, then add them at once.
+ */
+function AddMembers({
+  team,
+  initialOpen,
+}: {
+  readonly team: TeamDetailView;
+  readonly initialOpen: boolean;
+}) {
   const pickerId = useId();
-  const [picked, setPicked] = useState<readonly Person[]>([]);
+  const [open, setOpen] = useState(initialOpen);
+  const [picked, setPicked] = useState<readonly Person[]>(
+    initialOpen ? PEOPLE.filter((person) => person.user_id === ID.hoon) : [],
+  );
   const taken = new Set([
     ...team.members.map((member) => member.user_id),
     ...picked.map((member) => member.user_id),
@@ -1283,70 +1298,105 @@ function AddMembers({ team }: { readonly team: TeamDetailView }) {
     (person) => person.disabled_at === null && !taken.has(person.user_id),
   );
   return (
-    <form
-      className="flex flex-col gap-2"
-      onSubmit={(event) => event.preventDefault()}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setPicked([]);
+        setOpen(next);
+      }}
     >
-      <FieldLabel htmlFor={pickerId}>추가할 사람</FieldLabel>
-      <div className="flex max-w-xl flex-wrap items-center gap-2">
-        <Combobox
-          id={pickerId}
-          className={NAME_FIELD}
-          options={candidates.map((member) => ({
-            value: member.user_id,
-            label: member.display_name,
-            description: member.email,
-          }))}
-          value={null}
-          clearOnSelect={true}
-          maxLength={SEARCH_MAX}
-          onValueChange={(value) => {
-            const member = candidates.find((m) => m.user_id === value);
-            if (member) setPicked((list) => [...list, member]);
-          }}
-          placeholder="이름이나 이메일로 찾기"
-          loadingMessage="구성원을 불러오는 중…"
-          emptyMessage="맞는 사람이 없습니다."
-          resultCountMessage={(count) => `${count}명이 있습니다.`}
-        />
-        <Button type="submit" variant="outline" disabled={picked.length === 0}>
-          {picked.length > 1 ? `${picked.length}명 추가` : "추가"}
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm">
+          <Plus aria-hidden="true" />
+          구성원 추가
         </Button>
-      </div>
-      {picked.length > 0 && (
-        <ul
-          aria-label="추가할 사람"
-          className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+      </DialogTrigger>
+      <DialogContent>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (picked.length > 0) setOpen(false);
+          }}
         >
-          {picked.map((member) => (
-            <li
-              key={member.user_id}
-              className="inline-flex items-center gap-1 rounded-full border bg-surface-sunken py-0.5 ps-2.5 pe-0.5 text-caption"
+          <DialogHeader>
+            <DialogTitle>{`${team.name}에 구성원 추가`}</DialogTitle>
+            <DialogDescription>
+              여러 명을 골라 한 번에 추가할 수 있습니다. 추가하면 수락 없이 바로
+              구성원이 됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <Field>
+            <FieldLabel htmlFor={pickerId}>추가할 사람</FieldLabel>
+            <Combobox
+              id={pickerId}
+              options={candidates.map((member) => ({
+                value: member.user_id,
+                label: member.display_name,
+                description: member.email,
+              }))}
+              value={null}
+              clearOnSelect={true}
+              maxLength={SEARCH_MAX}
+              onValueChange={(value) => {
+                const member = candidates.find((m) => m.user_id === value);
+                if (member) setPicked((list) => [...list, member]);
+              }}
+              placeholder="이름이나 이메일로 찾기"
+              loadingMessage="구성원을 불러오는 중…"
+              emptyMessage="맞는 사람이 없습니다."
+              resultCountMessage={(count) => `${count}명이 있습니다.`}
+            />
+          </Field>
+          {picked.length > 0 && (
+            <ul
+              aria-label="추가할 사람"
+              className="m-0 flex list-none flex-wrap gap-1.5 p-0"
             >
-              <Text
-                as="span"
-                className="max-w-48 truncate text-caption"
-                title={member.email}
-              >
-                {member.display_name}
-              </Text>
-              <button
-                type="button"
-                className="inline-grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
-                aria-label={`${member.display_name}님을 추가할 사람에서 빼기`}
-                onClick={() =>
-                  setPicked((list) =>
-                    list.filter((m) => m.user_id !== member.user_id),
-                  )
-                }
-              >
-                <X aria-hidden="true" className="size-3" strokeWidth={2} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </form>
+              {picked.map((member) => (
+                <li
+                  key={member.user_id}
+                  className="inline-flex items-center gap-1 rounded-full border bg-surface-sunken py-0.5 ps-2.5 pe-0.5 text-caption"
+                >
+                  <Text
+                    as="span"
+                    className="max-w-48 truncate text-caption"
+                    title={member.email}
+                  >
+                    {member.display_name}
+                  </Text>
+                  <button
+                    type="button"
+                    className="inline-grid size-5 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-default disabled:opacity-50"
+                    aria-label={`${member.display_name}님을 추가할 사람에서 빼기`}
+                    onClick={() =>
+                      setPicked((list) =>
+                        list.filter((m) => m.user_id !== member.user_id),
+                      )
+                    }
+                  >
+                    <X aria-hidden="true" className="size-3" strokeWidth={2} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                취소
+              </Button>
+            </DialogClose>
+            <Button
+              type="submit"
+              aria-disabled={picked.length === 0 || undefined}
+            >
+              {picked.length > 1 ? `${picked.length}명 추가` : "추가"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1373,6 +1423,7 @@ type Screen =
   | "team"
   | "team-empty"
   | "team-delete"
+  | "team-add"
   | "team-as-member"
   | "invites"
   | "invites-empty"
@@ -1399,6 +1450,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
     "team",
     "team-empty",
     "team-delete",
+    "team-add",
     "team-as-member",
   ].includes(screen);
 
@@ -1463,6 +1515,7 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         team={screen === "team-empty" ? EMPTY_TEAM : TEAM}
         manages={manager !== null}
         initialDelete={screen === "team-delete"}
+        initialAdd={screen === "team-add"}
       />
     );
   } else if (manager) {
@@ -1570,6 +1623,10 @@ export const TeamDetailAsMember: Story = {
   args: { screen: "team-as-member" },
 };
 export const TeamDelete: Story = { args: { screen: "team-delete" } };
+export const TeamAddMembers: Story = {
+  name: "Team detail (구성원 추가)",
+  args: { screen: "team-add" },
+};
 export const Invites: Story = { args: { screen: "invites" } };
 export const InvitesEmpty: Story = { args: { screen: "invites-empty" } };
 export const InviteRevoke: Story = { args: { screen: "invite-revoke" } };
