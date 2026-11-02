@@ -1,0 +1,97 @@
+import { describe, expect, test } from "bun:test";
+import { Bot } from "lucide-react";
+
+import { setupDom } from "../test-support/dom.ts";
+
+const { render } = await setupDom();
+const { MoreLink } = await import("./more-link.tsx");
+const { IconTile } = await import("./icon-tile.tsx");
+
+const classes = (element: Element) => [...element.classList].sort();
+
+describe("MoreLink", () => {
+  test("기본은 운영 탭의 12px 모양이고 화살표가 없다", () => {
+    const { getByRole } = render(
+      <MoreLink href="/operations/tools">도구 활동</MoreLink>,
+    );
+    const link = getByRole("link", { name: "도구 활동" });
+    for (const name of [
+      "whitespace-nowrap",
+      "font-normal",
+      "text-caption",
+      "leading-4",
+    ])
+      expect(link.classList.contains(name)).toBe(true);
+    expect(link.querySelector("svg")).toBeNull();
+  });
+
+  test("control은 13px이고 화살표 없이 글자만 둔다", () => {
+    const { getByRole } = render(
+      <MoreLink size="control" asChild>
+        <a href="/sessions">모두 보기</a>
+      </MoreLink>,
+    );
+    const link = getByRole("link", { name: "모두 보기" });
+    expect(link.classList.contains("text-control")).toBe(true);
+    expect(link.classList.contains("inline-flex")).toBe(false);
+    expect(link.querySelector("svg")).toBeNull();
+  });
+
+  test("arrow는 화살표를 router 링크 안 글자 뒤에 두고 이름은 글자만이다", () => {
+    const { getByRole } = render(
+      <MoreLink size="control" arrow asChild>
+        <a href="/sessions" data-router="tanstack">
+          세션 모두 보기
+        </a>
+      </MoreLink>,
+    );
+    const link = getByRole("link", { name: "세션 모두 보기" });
+    expect(link.getAttribute("data-router")).toBe("tanstack");
+    const icon = link.lastElementChild;
+    expect(icon?.tagName.toLowerCase()).toBe("svg");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(icon?.getAttribute("stroke-width")).toBe("2");
+    for (const name of [
+      "inline-flex",
+      "shrink-0",
+      "items-center",
+      "gap-1",
+      "whitespace-nowrap",
+      "text-control",
+    ])
+      expect(link.classList.contains(name)).toBe(true);
+  });
+
+  test("asChild 없이도 arrow는 링크 안 글자 뒤에 둔다", () => {
+    const { getByRole } = render(
+      <MoreLink size="control" arrow href="/agents">
+        에이전트
+      </MoreLink>,
+    );
+    const link = getByRole("link", { name: "에이전트" });
+    expect(link.lastElementChild?.tagName.toLowerCase()).toBe("svg");
+  });
+});
+
+describe("IconTile", () => {
+  test("색과 크기를 data와 class로 내고 스크린리더에서는 숨는다", () => {
+    const { container } = render(
+      <>
+        <IconTile icon={Bot} hue="violet" />
+        <IconTile icon={Bot} hue="teal" size="two-line" />
+      </>,
+    );
+    const [line, twoLine] = container.querySelectorAll("[data-slot=icon-tile]");
+    expect(line?.getAttribute("aria-hidden")).toBe("true");
+    expect(line?.getAttribute("data-hue")).toBe("violet");
+    expect(classes(line as Element)).toContain("bg-(--ap-color-tile-violet)");
+    expect(classes(line as Element)).toContain("size-(--ap-size-icon-tile)");
+    expect(twoLine?.getAttribute("data-hue")).toBe("teal");
+    expect(classes(twoLine as Element)).toContain(
+      "size-(--ap-size-tile-two-line)",
+    );
+    expect(twoLine?.querySelector("svg")?.getAttribute("class")).toContain(
+      "size-5",
+    );
+  });
+});

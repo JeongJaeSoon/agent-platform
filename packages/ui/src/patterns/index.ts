@@ -37,6 +37,12 @@ export {
   type FilterMenuProps,
 } from "./filter-menu.tsx";
 export {
+  IconTile,
+  type IconTileProps,
+  type TileHue,
+  type TileIcon,
+} from "./icon-tile.tsx";
+export {
   type KeyValueItem,
   KeyValueList,
   type KeyValueListProps,
@@ -47,6 +53,7 @@ export {
   LinkTabs,
   type LinkTabsProps,
 } from "./link-tabs.tsx";
+export { MoreLink, type MoreLinkProps } from "./more-link.tsx";
 export {
   PageBreadcrumb,
   PageBreadcrumbCurrent,
