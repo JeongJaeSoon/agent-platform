@@ -454,6 +454,9 @@ describe("프로필 만들기 (설치 프로필)", () => {
       ["auto", false],
       ["bypassPermissions", true],
     ]);
+    // A new ceiling starts on auto, so its sessions push and open pull
+    // requests without asking a person.
+    expect(mode.value).toBe("auto");
     expect(
       screen.getByText(
         "이 설치는 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS가 꺼져 있어 bypassPermissions를 고를 수 없습니다.",
@@ -628,7 +631,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
         term.textContent,
         term.nextElementSibling?.textContent,
       ]),
-    ).toEqual([["권한 모드", "bypassPermissions → default"]]);
+    ).toEqual([["권한 모드", "bypassPermissions → auto"]]);
   });
 
   test("the review names an empty repository list as such", async () => {
