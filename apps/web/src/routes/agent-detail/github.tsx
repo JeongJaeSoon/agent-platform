@@ -487,6 +487,18 @@ function GitHubSettings({
   const settings = draft?.settings ?? base;
   const release = draft?.from.release ?? detail.active_release;
   const saveError = useRef<HTMLDivElement>(null);
+  // The two queries disagree while one of them refetches.
+  const settling =
+    draft === null && data.active_release_id !== (release?.id ?? null);
+  const editable =
+    manages &&
+    data.enabled &&
+    data.unsavable === null &&
+    base !== null &&
+    !settling;
+  // Until a release pins GitHub settings the built-in github MCP stays off,
+  // so the defaults shown are themselves worth saving.
+  const firstSave = editable && data.github === null;
 
   const save = useMutation<
     { label: string; created: boolean },
@@ -495,8 +507,20 @@ function GitHubSettings({
     | { readonly stale: true }
   >({
     mutationFn: async () => {
-      if (!draft || !release) throw new Error("unsavable");
-      if (detail.agent.activation_revision !== draft.from.revision) {
+      const toSave: Draft | null =
+        draft ??
+        (firstSave && base && release
+          ? {
+              settings: base,
+              from: {
+                base,
+                release,
+                revision: detail.agent.activation_revision,
+              },
+            }
+          : null);
+      if (!toSave || !release) throw new Error("unsavable");
+      if (detail.agent.activation_revision !== toSave.from.revision) {
         throw { stale: true };
       }
       const made = await unwrap(
@@ -508,7 +532,7 @@ function GitHubSettings({
             ...(release.repository_id === null
               ? {}
               : { repository_id: release.repository_id }),
-            github: draft.settings,
+            github: toSave.settings,
           },
         }),
       );
@@ -518,7 +542,7 @@ function GitHubSettings({
             params: { path: { id: agentId } },
             body: {
               release_id: made.release.id,
-              expected_revision: draft.from.revision,
+              expected_revision: toSave.from.revision,
             },
           }),
         );
@@ -556,16 +580,7 @@ function GitHubSettings({
     return t("agentGitHub.saveRefused", { reason: failure(error, t) });
   })();
 
-  // The two queries disagree while one of them refetches.
-  const settling =
-    draft === null && data.active_release_id !== (release?.id ?? null);
-  const readOnly =
-    !manages ||
-    !data.enabled ||
-    data.unsavable !== null ||
-    base === null ||
-    settling ||
-    save.isPending;
+  const readOnly = !editable || save.isPending;
   const edit = (change: (current: Settings) => Settings) => {
     if (readOnly || !settings || !base || !release) return;
     const next = change(settings);
@@ -585,7 +600,11 @@ function GitHubSettings({
   };
   const pending = base && draft ? pendingCount(base, draft.settings) : 0;
   const noRepository =
-    draft !== null && draft.settings.repositories.length === 0;
+    (draft !== null || firstSave) && settings?.repositories.length === 0;
+  const pendingTitle =
+    firstSave && pending === 0
+      ? t("agentGitHub.pending.firstTitle")
+      : t("agentGitHub.pending.title", { count: pending });
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "use",
@@ -656,15 +675,13 @@ function GitHubSettings({
           </RowListItem>
         </RowList>
       </section>
-      {manages && (pending > 0 || saveFailure) ? (
+      {manages && (pending > 0 || firstSave || saveFailure) ? (
         <Alert
           variant={saveFailure ? "red" : "blue"}
           role="region"
-          aria-label={t("agentGitHub.pending.title", { count: pending })}
+          aria-label={pendingTitle}
         >
-          <AlertTitle>
-            {t("agentGitHub.pending.title", { count: pending })}
-          </AlertTitle>
+          <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
             {t("agentGitHub.pending.body", {
               version: version ?? "—",
@@ -685,25 +702,29 @@ function GitHubSettings({
             <Button
               type="button"
               size="sm"
-              disabled={pending === 0 || noRepository || save.isPending}
+              disabled={
+                (pending === 0 && !firstSave) || noRepository || save.isPending
+              }
               onClick={() => save.mutate()}
             >
               {save.isPending
                 ? t("agentGitHub.pending.saving")
                 : t("agentGitHub.pending.save")}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={save.isPending}
-              onClick={() => {
-                setDraft(null);
-                save.reset();
-              }}
-            >
-              {t("agentGitHub.pending.revert")}
-            </Button>
+            {draft !== null || saveFailure ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={save.isPending}
+                onClick={() => {
+                  setDraft(null);
+                  save.reset();
+                }}
+              >
+                {t("agentGitHub.pending.revert")}
+              </Button>
+            ) : null}
           </AlertActions>
         </Alert>
       ) : null}
