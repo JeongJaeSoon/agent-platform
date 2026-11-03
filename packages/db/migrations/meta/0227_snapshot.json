@@ -1,5 +1,5 @@
 {
-  "id": "815efbcc-fb40-49a4-93ab-8ee63c4ce193",
+  "id": "8e632c48-1e74-4f65-b478-4feef7b6c169",
   "prevId": "73fe76a0-fdf0-41a0-85cd-1207aa792186",
   "version": "7",
   "dialect": "postgresql",
@@ -4894,6 +4894,18 @@
           "notNull": true,
           "default": "'listed'"
         },
+        "deny": {
+          "name": "deny",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_catalog_id": {
+          "name": "tool_catalog_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "previous_id": {
           "name": "previous_id",
           "type": "text",
@@ -5034,6 +5046,10 @@
         "installation_profiles_github_app_repositories_check": {
           "name": "installation_profiles_github_app_repositories_check",
           "value": "\"installation_profiles\".\"github_app_repositories\" IN ('listed', 'installed')"
+        },
+        "installation_profiles_deny_check": {
+          "name": "installation_profiles_deny_check",
+          "value": "\"installation_profiles\".\"deny\" IS NULL OR (jsonb_typeof(\"installation_profiles\".\"deny\") = 'array' AND \"installation_profiles\".\"tool_catalog_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -9657,12 +9673,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "platform_prompt": {
-          "name": "platform_prompt",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "cost_usd": {
           "name": "cost_usd",
           "type": "numeric(14, 6)",
@@ -12903,6 +12913,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "deny": {
+          "name": "deny",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tool_catalog_id": {
+          "name": "tool_catalog_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "permission_mode": {
           "name": "permission_mode",
           "type": "text",
@@ -12998,6 +13020,10 @@
         "workspace_profiles_retired_check": {
           "name": "workspace_profiles_retired_check",
           "value": "(\"workspace_profiles\".\"retired_at\" IS NULL) = (\"workspace_profiles\".\"retired_by\" IS NULL)"
+        },
+        "workspace_profiles_deny_check": {
+          "name": "workspace_profiles_deny_check",
+          "value": "\"workspace_profiles\".\"deny\" IS NULL OR (jsonb_typeof(\"workspace_profiles\".\"deny\") = 'array' AND \"workspace_profiles\".\"tool_catalog_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false

@@ -19047,6 +19047,21 @@
                     "minLength": 1
                   }
                 },
+                "deny": {
+                  "description": "The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list.",
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "permission_mode": {
                   "type": "string",
                   "enum": [
@@ -19446,6 +19461,21 @@
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              "deny": {
+                "description": "The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list.",
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "permission_mode": {
                 "type": "string",
@@ -20727,6 +20757,63 @@
               },
               "required": [
                 "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tool_catalogs": {
+            "description": "The built-in tools this installation supports, per runtime version: what a profile's deny may name. A version not listed takes only `tools`.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "runtime_kind": {
+                  "type": "string",
+                  "enum": [
+                    "claude_agent_sdk",
+                    "codex_app_server",
+                    "pi_coding_agent"
+                  ]
+                },
+                "runtime_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tools": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "boundary": {
+                        "type": "string",
+                        "enum": [
+                          "local",
+                          "egress",
+                          "provider"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "boundary"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "runtime_kind",
+                "runtime_version",
+                "tools"
               ],
               "additionalProperties": false
             }

@@ -45,7 +45,7 @@ const GITHUB = [
   "Once the push is done, open the pull request with mcp__github__open_pull_request.",
   "git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token.",
   "Push only to branches named agent/<session-id> or agent/<session-id>-<name>.",
-  "If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not set up for this agent: say so, and that an administrator turns it on in the agent's GitHub tab in the console; do not try git push or gh.",
+  "If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not available in this session: say so, and that an administrator sets up GitHub in the agent's GitHub tab in the console and that a new session may be needed; do not try git push or gh.",
 ].join(" ");
 
 // The description is the administrators' text, so it sits in a block of its

@@ -957,8 +957,15 @@
     {
       "idx": 227,
       "version": "7",
-      "when": 1793738003003,
-      "tag": "0227_session_platform_prompt",
+      "when": 1793737715827,
+      "tag": "0227_profile_deny",
+      "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "7",
+      "when": 1793740783572,
+      "tag": "0228_session_platform_prompt",
       "breakpoints": true
     }
   ]
