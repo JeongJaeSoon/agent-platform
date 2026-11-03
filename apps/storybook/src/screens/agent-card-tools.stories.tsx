@@ -151,11 +151,11 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
             }
           />
           <FieldContent>
-            <FieldLabel>릴리스할 때 프로필이 허용하는 도구 전부</FieldLabel>
+            <FieldLabel>릴리스할 때 프로필이 막지 않은 도구 전부</FieldLabel>
             <FieldDescription>
-              릴리스를 만들 때 그 프로필의 도구로 정해집니다. 프로필에 나중에
-              더한 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만
-              씁니다.
+              릴리스를 만들 때 그 프로필이 막지 않은 도구로 정해집니다. 프로필
+              새 버전에서 막기를 푼 도구는 새 릴리스부터 들어갑니다. 끄면
+              아래에서 체크한 도구만 씁니다.
             </FieldDescription>
           </FieldContent>
         </Field>
