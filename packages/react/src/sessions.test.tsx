@@ -28,6 +28,7 @@ import {
   useSessionControl,
   useSessionEvents,
 } from "./index.ts";
+import { eventToolCallId } from "./sessions.ts";
 
 const { renderHook, waitFor, act } = await setupDom();
 
@@ -385,6 +386,24 @@ describe("a refused command", () => {
       expect(detail?.state.isInvalidated).toBe(false);
     });
   }
+});
+
+describe("eventToolCallId", () => {
+  test("a permission or question request carries the call it holds back", () => {
+    for (const kind of ["permission", "question"] as const) {
+      expect(
+        eventToolCallId({
+          event: "question",
+          data: {
+            request_id: "req_1",
+            tool_use_id: "call_2",
+            kind,
+            input: {},
+          },
+        }),
+      ).toBe("call_2");
+    }
+  });
 });
 
 describe("useSessionEvents", () => {

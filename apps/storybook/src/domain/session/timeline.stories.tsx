@@ -96,6 +96,65 @@ export const WaitingCall: Story = {
   },
 };
 
+// Stored as the worker runs them: the call, the permission it waited on,
+// then its result once allowed.
+const permitted = (held: boolean) =>
+  pairedTimelineEntries([
+    ["status", { phase: "running" }, "turn_04"],
+    [
+      "tool_use",
+      {
+        tool_call: {
+          id: "call_6",
+          name: "Bash",
+          input: { command: "gh auth status" },
+        },
+      },
+      "turn_04",
+    ],
+    [
+      "question",
+      {
+        request_id: "req_6",
+        tool_use_id: "call_6",
+        kind: "permission",
+        tool: "Bash",
+        input: { command: "gh auth status" },
+      },
+      "turn_04",
+    ],
+    ...(held
+      ? []
+      : ([
+          [
+            "tool_result",
+            {
+              tool_result: {
+                tool_call_id: "call_6",
+                is_error: false,
+                text: "Logged in to github.com",
+              },
+            },
+            "turn_04",
+          ],
+          ["assistant", { text: "GitHub CLI is signed in." }, "turn_04"],
+        ] as const)),
+  ]).map((entry) =>
+    entry.presentation.label.key === "session.event.kind.permission"
+      ? { ...entry, toolCallId: "call_6", requestId: "req_6" }
+      : entry,
+  );
+
+/** The permission a call waited on reads between the call and its result. */
+export const PermissionBeforeResult: Story = {
+  args: { entries: permitted(false) },
+};
+
+/** The same call while its permission still waits for an answer. */
+export const PermissionWaiting: Story = {
+  args: { entries: permitted(true), held: new Set(["call_6"]) },
+};
+
 /** The turn's end reported no usage, so its head has no token count. */
 export const TurnWithoutTokens: Story = {
   args: { entries: pairedTimelineEntries(WAIT_FAIL_EVENTS) },
