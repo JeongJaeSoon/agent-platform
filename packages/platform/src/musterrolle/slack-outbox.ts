@@ -501,13 +501,14 @@ export async function drainSlackOutbox(deps: {
       response.body !== null &&
       (response.body as { error?: unknown }).error === "missing_scope";
     if (!refused) return response;
-    // Posted as the app, the sender's name moves into the text.
+    // Posted as the app, the sender's name moves into the text; a row queued
+    // before the name left the text has it there already.
+    const named = `${sender.username}\n`;
     return deps.slack.postMessage(botToken, {
       ...target,
-      text: slackOutboxText({
-        ...claim.body,
-        text: `${sender.username}\n${claim.body.text}`,
-      }),
+      text: claim.body.text.startsWith(named)
+        ? text
+        : slackOutboxText({ ...claim.body, text: named + claim.body.text }),
     });
   };
   // A lost reply's notice clears the status once sent; a lost notice has

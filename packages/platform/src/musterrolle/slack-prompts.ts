@@ -816,7 +816,6 @@ export function slackSettledCard(
       ? card.deciderSlackUserId
       : null;
   let line = `*${escapeMrkdwn(copy.settled[result])}*`;
-  let title = copy.settled[result];
   if (decided && (via === "web" || decider !== null)) {
     const template =
       copy.settledBy[via ?? "slack"][result as SlackDecidedResult];
@@ -825,19 +824,20 @@ export function slackSettledCard(
         ? ""
         : escapeMrkdwn(copy.who).replace("{mention}", mention(decider));
     line = escapeMrkdwn(template).replace("{who}", who);
-    title = template.replace("{who}", "");
   }
   const summary = settledSummary(card.display, card.locale);
   const link =
     card.linkUrl !== null && isSafeLink(card.linkUrl) ? card.linkUrl : null;
+  // `line` is platform copy, escaped, with only a checked mention; an empty
+  // title leaves slackCardText the summary and link lines after it.
+  const rest = slackCardText({
+    locale: card.locale,
+    title: "",
+    lines: [summary],
+    linkUrl: link,
+  });
   return {
-    text: slackCardText({
-      locale: card.locale,
-      title,
-      mentionSlackUserId: decider,
-      lines: [summary],
-      linkUrl: link,
-    }),
+    text: `${line}${rest}`,
     blocks: [
       {
         type: "context",

@@ -542,7 +542,7 @@ describe("fake Slack takes a card with a folded container and its one-line settl
         {
           channelId: "C0X",
           ts: "1.2",
-          text: "<@U0DECIDER> 허용했어요\n명령 실행: npm test\n<https://console.example/sessions/x|웹에서 열기>",
+          text: "<@U0DECIDER>님이 허용했어요\n명령 실행: npm test\n<https://console.example/sessions/x|웹에서 열기>",
           blocks: [
             {
               type: "context",

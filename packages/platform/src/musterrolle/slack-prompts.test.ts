@@ -514,7 +514,7 @@ describe("slackSettledCard", () => {
       `<${LINK}|웹에서 열기>`,
     ]);
     expect(settled?.text).toBe(
-      `<@U0DECIDER> 허용했어요\n명령 실행: npm test\n<${LINK}|웹에서 열기>`,
+      `<@U0DECIDER>님이 허용했어요\n명령 실행: npm test\n<${LINK}|웹에서 열기>`,
     );
   });
 
@@ -554,8 +554,33 @@ describe("slackSettledCard", () => {
         "web",
       )?.text,
     ).toBe(
-      "<@U0DECIDER> 웹에서 허용했어요\n명령 실행: npm test\n웹 콘솔에서 확인해 주세요",
+      "<@U0DECIDER>님이 웹에서 허용했어요\n명령 실행: npm test\n웹 콘솔에서 확인해 주세요",
     );
+    // The text reads as the block does, in every language.
+    for (const [locale, sentence] of [
+      ["ko", "<@U0DECIDER>님이 웹에서 push를 거절했어요"],
+      ["ja", "<@U0DECIDER>さんがWebでpushを却下しました"],
+      ["en", "Push rejected on the web by <@U0DECIDER>"],
+    ] as const) {
+      const settled = slackSettledCard(
+        card(
+          {
+            kind: "push",
+            repositoryId: "repo-1",
+            repositoryName: null,
+            targetBranch: "agent/x",
+            gitCommit: "abcdef1".padEnd(40, "0"),
+            state: "rejected",
+            decidedByUserId: base.decidedByUserId,
+            createdAt: "2026-11-03T00:00:00Z",
+          },
+          { locale, linkUrl: null },
+        ),
+        "web",
+      );
+      expect(settled?.text.split("\n")[0]).toBe(sentence);
+      expect(settledLine(settled)[0]).toBe(`:no_entry_sign: ${sentence}`);
+    }
   });
 
   test("every language has a line for every decided result and path", () => {

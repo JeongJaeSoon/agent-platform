@@ -1081,6 +1081,46 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(instruction?.options.username).toBeUndefined();
   });
 
+  test("a row queued with the name in its text keeps it once, sent as the sender or as the app", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    await askFrom(sessionId, 2, "web", "Add a test, <!here>", true);
+    await outboxPass({ botToken: null });
+    const [queued] = await db
+      .select()
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "instruction"));
+    if (!queued) throw new Error("no instruction row");
+    expect(queued.status).toBe("pending");
+    // How rows were queued before the name left the text.
+    await db
+      .update(slackOutbox)
+      .set({
+        body: {
+          ...(queued.body as Record<string, unknown>),
+          text: "owner (웹 콘솔)\nAdd a test, <!here>",
+        },
+        nextAttemptAt: new Date(),
+      })
+      .where(eq(slackOutbox.id, queued.id));
+    await fetch(`${slack.url.replace(/\/api$/, "")}/fake/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        method: "chat.postMessage",
+        status: 200,
+        body: { ok: false, error: "missing_scope" },
+      }),
+    });
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(posted()[1]?.text).toBe(
+      "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
+    );
+    expect(posted()[1]?.options.username).toBeUndefined();
+  });
+
   test("a long answer is cut to Slack's limit with its link kept whole", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
