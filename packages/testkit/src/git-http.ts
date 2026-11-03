@@ -80,12 +80,16 @@ export async function startGitHttpServer(
   };
 }
 
-/** A bare repository `<name>.git` under the server's root with one commit on `branch`. */
+/**
+ * A bare repository `<name>.git` under the server's root with one commit on
+ * `branch`. With `commitDate`, the commit's sha depends on `files` alone.
+ */
 export async function createServedRepository(
   server: Pick<GitHttpServer, "root">,
   name: string,
   files: Record<string, string>,
   branch = "main",
+  commitDate?: string,
 ): Promise<string> {
   const work = await mkdtemp(join(tmpdir(), "testkit-git-work-"));
   try {
@@ -106,6 +110,9 @@ export async function createServedRepository(
         "initial",
       ],
       work,
+      commitDate === undefined
+        ? {}
+        : { GIT_AUTHOR_DATE: commitDate, GIT_COMMITTER_DATE: commitDate },
     );
     const bare = join(server.root, `${name}.git`);
     await runTestGit(["clone", "--quiet", "--bare", work, bare], server.root);
@@ -217,7 +224,11 @@ function indexOfBlankLine(bytes: Uint8Array): { at: number; length: number } {
   return { at: bytes.length, length: 0 };
 }
 
-export async function runTestGit(args: string[], cwd: string): Promise<string> {
+export async function runTestGit(
+  args: string[],
+  cwd: string,
+  env: Record<string, string> = {},
+): Promise<string> {
   const child = Bun.spawn(["git", ...args], {
     cwd,
     env: {
@@ -225,6 +236,7 @@ export async function runTestGit(args: string[], cwd: string): Promise<string> {
       HOME: cwd,
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_GLOBAL: "/dev/null",
+      ...env,
     },
     stderr: "pipe",
     stdout: "pipe",
