@@ -813,6 +813,17 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       dir: CONFIG_DIR,
       installations: { listAll: async () => rows },
       workspaces: { listAll: async () => [] },
+      repositories: { readCatalog: async () => null },
+      settings: {
+        read: async () => ({
+          generation: 0,
+          connections: [],
+          repositories: [],
+          mcpServers: [],
+          stored: new Map(),
+          invalid: [],
+        }),
+      },
       credential: () => "verify-restore-reads-no-credential",
       env,
     });
