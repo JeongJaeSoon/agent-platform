@@ -56,11 +56,13 @@ let getError: Error | null;
 let deferred: Promise<void>[];
 let results: string[];
 let userDelayMs: number;
+let viewUpdateError: Error | null;
 
 beforeEach(() => {
   calls = [];
   role = "owner";
   answerError = null;
+  viewUpdateError = null;
   outcome = { state: "open", kind: "permission" };
   listed = [];
   pushState = "requested";
@@ -231,7 +233,10 @@ function deps(): SlackInteractionDeps {
       },
       updateMessage: record("update") as never,
       openView: record("view", { viewId: "V1" }) as never,
-      updateView: record("viewUpdate") as never,
+      updateView: async (...args: unknown[]) => {
+        calls.push({ method: "viewUpdate", args });
+        if (viewUpdateError !== null) throw viewUpdateError;
+      },
       postEphemeral: record("ephemeral") as never,
     },
     botToken: async () => "xoxb-fixture",
@@ -525,6 +530,20 @@ describe("Slack interactions", () => {
       m: CARD_TS,
       t: THREAD_TS,
     });
+  });
+
+  test("a modal that cannot be filled or told so leaves the presser an ephemeral", async () => {
+    listed = [{ request_id: "q_1", kind: "question", questions: [question] }];
+    viewUpdateError = new Error("view_not_found");
+    const result = await send(
+      press(SLACK_INTERACTION_ACTIONS.questionOpen, { s: SESSION, r: "q_1" }),
+    );
+    expect(result).toMatchObject({ result: "view_opened" });
+    expect(called("viewUpdate")).toHaveLength(2);
+    expect(called("answer")).toEqual([]);
+    const told = called("ephemeral");
+    expect(told).toHaveLength(1);
+    expect((told[0]?.args[1] as { userId: string }).userId).toBe(LINKED);
   });
 
   test("the modal opens before a slow Slack user lookup, and an unlinked presser gets no question", async () => {

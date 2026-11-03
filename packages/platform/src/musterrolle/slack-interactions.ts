@@ -548,7 +548,10 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           viewId,
           view: slackNoticeView(text, pressed.locale),
         })
-        .catch((error: unknown) => failedQuietly(pressed, error, value));
+        .catch((error: unknown) => {
+          failedQuietly(pressed, error, value);
+          return tell(pressed, text);
+        });
     try {
       const admitted = await admit(pressed, value.s);
       if ("refused" in admitted) {
