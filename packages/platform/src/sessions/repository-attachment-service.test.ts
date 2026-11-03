@@ -27,12 +27,14 @@ function service(
     onSleep?: () => Promise<void> | void;
     readMs?: number;
     active?: string[];
+    activeProfile?: string;
   } = {},
 ) {
   const store = memoryAttachmentStore(options.attempts, options.attached);
   if (options.active !== undefined) {
     store.agent.active = {
       id: "release-2",
+      profileId: options.activeProfile ?? "p",
       github: attachGitHub(options.active),
     };
   }
@@ -251,6 +253,26 @@ describe("a repository only the agent's active release allows", () => {
         (entry) => entry.status,
       ),
     ).toEqual(["primary", "available"]);
+  });
+
+  test("the active release is judged on its own profile, not the session's", async () => {
+    const onNewProfile = { context: pinned, active: ["app", "lab"] };
+    expect(
+      (
+        await refusal(
+          service({ ...onNewProfile, activeProfile: "q" }).attach("lab"),
+        )
+      ).details,
+    ).toEqual({
+      reason_code: "allowed_in_newer_release",
+      receipt_id: "receipt-1",
+    });
+    expect(
+      (await refusal(service(onNewProfile).attach("lab"))).details,
+    ).toEqual({
+      reason_code: "repository_not_allowed",
+      receipt_id: "receipt-1",
+    });
   });
 
   test("an allowed attach never reads the active release", async () => {

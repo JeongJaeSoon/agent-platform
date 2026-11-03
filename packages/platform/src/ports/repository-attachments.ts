@@ -67,12 +67,14 @@ export interface RepositoryAttachmentStore {
   /** Every row of the session, oldest first. */
   list(sessionId: string): Promise<RepositoryAttachmentRow[]>;
   /**
-   * The GitHub settings of the active release of the agent whose release
-   * the session runs, in one read; null without one. Read only to tell a
-   * repository allowed in a newer release apart: the session keeps its own.
+   * The profile and GitHub settings of the active release of the agent
+   * whose release the session runs, in one read; null without one. Read
+   * only to tell a repository allowed in a newer release apart: the session
+   * keeps its own.
    */
   activeRelease(sessionId: string): Promise<{
     id: string;
+    profileId: string;
     github: AgentGitHub | "invalid" | null;
   } | null>;
   /** The session's pending rows, oldest first. */

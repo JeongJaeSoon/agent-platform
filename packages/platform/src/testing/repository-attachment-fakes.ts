@@ -30,16 +30,20 @@ const repo = (name: string, branch = "main") => ({
   profiles: ["p"],
 });
 
-/** `app` is the session's own; `docs` and `tools` are on the release's list, `secret` is not. */
+/**
+ * `app` is the session's own; `docs` and `tools` are on the release's list,
+ * `secret` is not. `lab` is allowed for profile `q` alone.
+ */
 export const attachCatalog = withSeededInstallation(
   resolveSessionCatalog(
     sessionCatalogConfigSchema.parse({
-      profiles: { p: profile },
+      profiles: { p: profile, q: profile },
       repositories: {
         app: repo("app"),
         docs: repo("docs", "trunk"),
         tools: repo("tools"),
         secret: repo("secret"),
+        lab: { ...repo("lab"), profiles: ["q"] },
       },
     }),
     environmentCredentials({ ANTHROPIC_KEY_MAIN: "resolved-key" }),

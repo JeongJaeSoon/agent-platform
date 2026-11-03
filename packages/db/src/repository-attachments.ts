@@ -201,6 +201,7 @@ export function createPostgresRepositoryAttachments(
       const [row] = await db
         .select({
           id: activeRelease.id,
+          profileId: activeRelease.runtimeProfileId,
           github: sql<unknown>`${activeRelease.policyPins} -> 'github'`,
         })
         .from(sessions)
@@ -213,11 +214,16 @@ export function createPostgresRepositoryAttachments(
         .where(eq(sessions.id, rawSessionId.toLowerCase()))
         .limit(1);
       if (row === undefined) return null;
+      const { id, profileId } = row;
       if (row.github === null || row.github === undefined) {
-        return { id: row.id, github: null };
+        return { id, profileId, github: null };
       }
       const github = agentGitHubSchema.safeParse(row.github);
-      return { id: row.id, github: github.success ? github.data : "invalid" };
+      return {
+        id,
+        profileId,
+        github: github.success ? github.data : "invalid",
+      };
     },
 
     async list(rawSessionId) {

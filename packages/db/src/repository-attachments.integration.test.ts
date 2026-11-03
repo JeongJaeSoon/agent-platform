@@ -316,13 +316,13 @@ integration("repository attachments on PostgreSQL", () => {
        VALUES ($1, $2, 1, '{}', $3)`,
       [versionId, agentId, "a".repeat(64)],
     );
-    const release = async (pins: object) => {
+    const release = async (pins: object, profileId = "claude-coding-v1") => {
       const id = `sha256:${randomUUID()}`;
       await pool.query(
         `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
            runtime_profile_id, repository_id, profile_digest,
            runtime_config_snapshot, effective_tools, policy_pins)
-         VALUES ($1, $2, $3, $4, 'claude-coding-v1', 'sample-app', $5, '{}', '{}', $6)`,
+         VALUES ($1, $2, $3, $4, $7, 'sample-app', $5, '{}', '{}', $6)`,
         [
           id,
           agentId,
@@ -330,6 +330,7 @@ integration("repository attachments on PostgreSQL", () => {
           "a".repeat(64),
           `sha256:${"c".repeat(64)}`,
           JSON.stringify(pins),
+          profileId,
         ],
       );
       return id;
@@ -350,13 +351,18 @@ integration("repository attachments on PostgreSQL", () => {
     );
     expect(await store.activeRelease(s.sessionId)).toEqual({
       id: pinned,
+      profileId: "claude-coding-v1",
       github: github(["sample-app"]),
     });
 
-    const newer = await release({ github: github(["sample-app", "docs"]) });
+    const newer = await release(
+      { github: github(["sample-app", "docs"]) },
+      "general",
+    );
     await activate(newer, 1);
     expect(await store.activeRelease(s.sessionId.toUpperCase())).toEqual({
       id: newer,
+      profileId: "general",
       github: github(["sample-app", "docs"]),
     });
 
@@ -364,6 +370,7 @@ integration("repository attachments on PostgreSQL", () => {
     await activate(bare, 2);
     expect(await store.activeRelease(s.sessionId)).toEqual({
       id: bare,
+      profileId: "claude-coding-v1",
       github: null,
     });
 
@@ -371,6 +378,7 @@ integration("repository attachments on PostgreSQL", () => {
     await activate(broken, 3);
     expect(await store.activeRelease(s.sessionId)).toEqual({
       id: broken,
+      profileId: "claude-coding-v1",
       github: "invalid",
     });
   });
