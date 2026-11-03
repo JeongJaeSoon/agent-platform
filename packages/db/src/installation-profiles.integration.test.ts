@@ -501,6 +501,50 @@ integration("installation profiles on PostgreSQL", () => {
     expect(written).toHaveLength(1);
   });
 
+  test("a block beside a write that holds the settings generation and goes on to the blocked row", async () => {
+    const owner = await person(await workspace(), "owner");
+    const store = createPostgresInstallationProfileStore(db);
+    const first = `gen-a-${ids()}`;
+    const second = `gen-b-${ids()}`;
+    await imported(first);
+    await imported(second);
+    const writer = await pool.connect();
+    try {
+      await writer.query("BEGIN");
+      // As seeding several ceilings: one written, the generation held.
+      await writer.query(
+        "UPDATE installation_profiles SET version = version WHERE id = $1",
+        [first],
+      );
+      const writerPid = (await writer.query("SELECT pg_backend_pid() AS pid"))
+        .rows[0].pid;
+      const blocking = store.setBlocked({
+        actor: owner,
+        receiptId: randomUUID(),
+        profileId: second,
+        blocked: true,
+      });
+      for (let waited = 0; ; waited += 1) {
+        const { rows } = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> $1",
+          [writerPid],
+        );
+        if (rows.length > 0) break;
+        if (waited > 200) throw new Error("the block never waited");
+        await Bun.sleep(10);
+      }
+      await writer.query(
+        "UPDATE installation_profiles SET version = version WHERE id = $1",
+        [second],
+      );
+      await writer.query("COMMIT");
+      expect((await blocking).outcome).toBe("changed");
+    } finally {
+      await writer.query("ROLLBACK").catch(() => undefined);
+      writer.release();
+    }
+  });
+
   test("blocking and unblocking each write one receipt, and only a live owner does it", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");

@@ -13,6 +13,7 @@ import {
   bodyReservation,
   type CredentialProxyServer,
   type EgressGrant,
+  isPushAdvertisement,
   mcpCallOf,
   parseGrant,
   responseHeaders,
@@ -111,6 +112,30 @@ describe("routeOf", () => {
       ["POST", "/repository/%2e%2e/git-upload-pack", ""],
     ] as const) {
       expect(routeOf(method, path, search)).toBeNull();
+    }
+  });
+
+  test("knows a push's advertisement on every repository route, nothing else", () => {
+    for (const path of [
+      "/repository/info/refs",
+      "/repository/docs/info/refs",
+      "/repository/docs/.git/info/refs",
+    ]) {
+      expect(
+        isPushAdvertisement("GET", path, "?service=git-receive-pack"),
+      ).toBe(true);
+    }
+    for (const [method, path, search] of [
+      ["GET", "/repository/info/refs", "?service=git-upload-pack"],
+      ["POST", "/repository/info/refs", "?service=git-receive-pack"],
+      ["GET", "/repository/info/refs", "?service=git-receive-pack&x=1"],
+      ["POST", "/repository/git-receive-pack", ""],
+      ["POST", "/repository/docs/.git/git-receive-pack", ""],
+      ["GET", "/repository/a/b/info/refs", "?service=git-receive-pack"],
+      ["GET", "/repository/../info/refs", "?service=git-receive-pack"],
+      ["GET", "/provider/info/refs", "?service=git-receive-pack"],
+    ] as const) {
+      expect(isPushAdvertisement(method, path, search)).toBe(false);
     }
   });
 
@@ -985,6 +1010,41 @@ describe("startCredentialProxy", () => {
     expect(
       (await fetch(`http://127.0.0.1:${server.port}/healthz`)).status,
     ).toBe(200);
+  });
+
+  test("a push's advertisement gets the notice as one ERR packet, with no authorizer asked", async () => {
+    const up = upstream(() => new Response("ok"));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["authorization", "Bearer upstream"],
+      ]),
+    );
+    const server = proxy(auth.url, up.port);
+    const origin = `http://127.0.0.1:${server.port}`;
+    const expected =
+      "0106ERR git push does not reach GitHub here. Push and open pull requests with the platform's GitHub tools (mcp__github__request_push, mcp__github__open_pull_request). If this agent has no GitHub tools, an administrator turns GitHub on in the agent's GitHub tab.\n";
+    for (const [path, headers] of [
+      ["/repository/info/refs", {}],
+      [
+        "/repository/docs/.git/info/refs",
+        { authorization: `Bearer ${WORKER_TOKEN}` },
+      ],
+    ] as const) {
+      const response = await fetch(
+        `${origin}${path}?service=git-receive-pack`,
+        { headers },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe(
+        "application/x-git-receive-pack-advertisement",
+      );
+      expect(await response.text()).toBe(expected);
+    }
+    const unknown = await fetch(`${origin}/repository/docs/info/lfs/locks`);
+    expect(unknown.status).toBe(404);
+    expect(await unknown.text()).toBe("no such credential route\n");
+    expect(auth.asked).toEqual([]);
+    expect(up.seen).toEqual([]);
   });
 
   test("an upstream outside the policy is refused even when the authorizer names it", async () => {

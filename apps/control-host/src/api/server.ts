@@ -25,6 +25,7 @@ import {
   createPostgresGitHubPinStore,
   createPostgresGitHubSettingsStore,
   createPostgresInstallationProfileStore,
+  createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
   createPostgresJudgmentEgress,
   createPostgresLinkedAccountStore,
@@ -189,6 +190,7 @@ import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
+import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
@@ -300,7 +302,7 @@ const catalogSource = {
 const profileSources = await loadProfileSources(catalogSource);
 if (Object.keys(profileSources.connections).length === 0) {
   logger.warn(
-    "No provider connections in connections.yaml; no profile runs until one is added",
+    "No provider connections in connections.yaml; profiles run only on connections the installation settings hold",
     {},
   );
 }
@@ -340,10 +342,25 @@ const db = drizzle(pool, { schema });
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
 const installationProfileStore = createPostgresInstallationProfileStore(db);
 const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
+const installationSettings = settingsSource({
+  store: createPostgresInstallationSettingsStore(db, secretKey),
+  env: process.env,
+  readSecret: catalogSource.readSecret,
+});
+const reportLeftOut = leftOutReporter((message, fields) =>
+  logger.warn(message, fields),
+);
 const workspaceProfileVersions = createProfileRegistry({
   workspaces: workspaceProfileStore,
   installations: installationProfileStore,
   repositories: catalogRepositoryStore,
+  settings: {
+    async read() {
+      const snapshot = await installationSettings.read();
+      reportLeftOut(snapshot);
+      return snapshot;
+    },
+  },
   sources: profileSources.sources,
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
@@ -355,7 +372,12 @@ const catalog = profileCatalog(
       : { runtime_versions: runtimeVersions }),
   },
   workspaceProfileVersions,
-  (rows) => withConsoleRepositories(profileSources.catalog.repositories, rows),
+  (rows, settings) =>
+    withConsoleRepositories(
+      profileSources.catalog.repositories,
+      rows,
+      settings?.repositories,
+    ),
 );
 const logCatalog = (message: string): void => {
   logger.info(message, {
@@ -737,7 +759,7 @@ const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
   catalog,
-  connections: profileSources.connections,
+  connections: () => workspaceProfileVersions.connections,
   allowUnattended: profileSources.sources.allowUnattended,
   runtimes: installedRuntimes,
 });

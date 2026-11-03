@@ -1537,6 +1537,23 @@ describe("session detail", () => {
     // The message stands above the turn's lines, not as one of them.
     const list = screen.getByRole("list", { name: "이벤트" });
     expect(list.querySelectorAll("li")).toHaveLength(1);
+    // An absolute box (the link's new-tab text) placed from outside the
+    // scrolling timeline escapes its clip and stretches the page below the
+    // app shell, so each one is positioned from within it.
+    const scroller = list.closest(".overflow-y-auto") as HTMLElement;
+    const boxes = scroller.querySelectorAll(".sr-only, .absolute");
+    expect(boxes.length).toBeGreaterThan(0);
+    // Exact tokens: a breakpoint variant such as md:relative leaves 390px open.
+    const positioned = (el: Element) =>
+      ["relative", "absolute", "sticky", "fixed"].some((token) =>
+        el.classList.contains(token),
+      );
+    for (const box of boxes) {
+      let holder = box.parentElement;
+      while (holder !== null && !positioned(holder))
+        holder = holder.parentElement;
+      expect(holder !== null && scroller.contains(holder)).toBe(true);
+    }
     // A queued turn has no events yet, so no group of its own.
     expect(screen.queryByText("아직 줄 선 지시")).toBeNull();
 

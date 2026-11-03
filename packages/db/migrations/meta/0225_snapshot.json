@@ -1,5 +1,5 @@
 {
-  "id": "e6d5203c-b1c3-41bd-aaea-e0397f54ee30",
+  "id": "626d47b3-72e9-4c54-8457-2232a9017a4b",
   "prevId": "7de8e697-8915-40ef-8624-f494e6146b94",
   "version": "7",
   "dialect": "postgresql",
@@ -2696,6 +2696,25 @@
           "primaryKey": false,
           "notNull": false
         },
+        "auth_kind": {
+          "name": "auth_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'github_app'"
+        },
+        "auth": {
+          "name": "auth",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "credential_source": {
+          "name": "credential_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "app_role": {
           "name": "app_role",
           "type": "text",
@@ -2789,7 +2808,7 @@
             }
           ],
           "isUnique": true,
-          "where": "\"catalog_repositories\".\"removed_at\" IS NULL",
+          "where": "\"catalog_repositories\".\"removed_at\" IS NULL AND \"catalog_repositories\".\"auth_kind\" = 'github_app'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2830,7 +2849,7 @@
       "checkConstraints": {
         "catalog_repositories_source_check": {
           "name": "catalog_repositories_source_check",
-          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console', 'selection')"
+          "value": "\"catalog_repositories\".\"source\" IN ('seed', 'console', 'selection', 'import')"
         },
         "catalog_repositories_app_role_check": {
           "name": "catalog_repositories_app_role_check",
@@ -2842,7 +2861,15 @@
         },
         "catalog_repositories_console_id_check": {
           "name": "catalog_repositories_console_id_check",
-          "value": "\"catalog_repositories\".\"source\" = 'seed' OR \"catalog_repositories\".\"github_repository_id\" IS NOT NULL"
+          "value": "\"catalog_repositories\".\"auth_kind\" <> 'github_app' OR \"catalog_repositories\".\"source\" = 'seed' OR \"catalog_repositories\".\"github_repository_id\" IS NOT NULL"
+        },
+        "catalog_repositories_auth_kind_check": {
+          "name": "catalog_repositories_auth_kind_check",
+          "value": "\"catalog_repositories\".\"auth_kind\" IN ('github_app', 'none', 'basic', 'bearer', 'github_app_explicit')"
+        },
+        "catalog_repositories_credential_check": {
+          "name": "catalog_repositories_credential_check",
+          "value": "CASE \"catalog_repositories\".\"auth_kind\"\n        WHEN 'github_app' THEN \"catalog_repositories\".\"auth\" IS NULL AND \"catalog_repositories\".\"credential_source\" IS NULL\n        WHEN 'none' THEN \"catalog_repositories\".\"auth\" IS NULL AND \"catalog_repositories\".\"credential_source\" IS NULL\n        WHEN 'github_app_explicit' THEN \"catalog_repositories\".\"auth\" IS NOT NULL AND \"catalog_repositories\".\"credential_source\" = 'external'\n        ELSE \"catalog_repositories\".\"auth\" IS NOT NULL AND \"catalog_repositories\".\"credential_source\" IN ('stored', 'external')\n      END"
         }
       },
       "isRLSEnabled": false
@@ -5498,6 +5525,122 @@
       },
       "isRLSEnabled": false
     },
+    "public.mcp_servers": {
+      "name": "mcp_servers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credential_ref": {
+          "name": "credential_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth": {
+          "name": "auth",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credential_source": {
+          "name": "credential_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspaces": {
+          "name": "workspaces",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "disabled_at": {
+          "name": "disabled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disabled_by": {
+          "name": "disabled_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "mcp_servers_disabled_by_users_id_fk": {
+          "name": "mcp_servers_disabled_by_users_id_fk",
+          "tableFrom": "mcp_servers",
+          "tableTo": "users",
+          "columnsFrom": ["disabled_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "mcp_servers_created_by_users_id_fk": {
+          "name": "mcp_servers_created_by_users_id_fk",
+          "tableFrom": "mcp_servers",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "mcp_servers_credential_source_check": {
+          "name": "mcp_servers_credential_source_check",
+          "value": "\"mcp_servers\".\"credential_source\" IN ('stored', 'external')"
+        },
+        "mcp_servers_origin_check": {
+          "name": "mcp_servers_origin_check",
+          "value": "\"mcp_servers\".\"origin\" IN ('import', 'console')"
+        },
+        "mcp_servers_console_stored_check": {
+          "name": "mcp_servers_console_stored_check",
+          "value": "\"mcp_servers\".\"origin\" <> 'console' OR \"mcp_servers\".\"credential_source\" = 'stored'"
+        },
+        "mcp_servers_github_reserved_check": {
+          "name": "mcp_servers_github_reserved_check",
+          "value": "\"mcp_servers\".\"id\" <> 'github'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.member_team_members": {
       "name": "member_team_members",
       "schema": "",
@@ -6506,6 +6649,100 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.provider_connections": {
+      "name": "provider_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "definition": {
+          "name": "definition",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "credential_source": {
+          "name": "credential_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "disabled_at": {
+          "name": "disabled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disabled_by": {
+          "name": "disabled_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "provider_connections_disabled_by_users_id_fk": {
+          "name": "provider_connections_disabled_by_users_id_fk",
+          "tableFrom": "provider_connections",
+          "tableTo": "users",
+          "columnsFrom": ["disabled_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "provider_connections_created_by_users_id_fk": {
+          "name": "provider_connections_created_by_users_id_fk",
+          "tableFrom": "provider_connections",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "provider_connections_credential_source_check": {
+          "name": "provider_connections_credential_source_check",
+          "value": "\"provider_connections\".\"credential_source\" IN ('stored', 'external')"
+        },
+        "provider_connections_origin_check": {
+          "name": "provider_connections_origin_check",
+          "value": "\"provider_connections\".\"origin\" IN ('import', 'console')"
+        },
+        "provider_connections_console_stored_check": {
+          "name": "provider_connections_console_stored_check",
+          "value": "\"provider_connections\".\"origin\" <> 'console' OR \"provider_connections\".\"credential_source\" = 'stored'"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.provider_usage": {
@@ -9696,6 +9933,38 @@
       },
       "isRLSEnabled": false
     },
+    "public.settings_generation": {
+      "name": "settings_generation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "generation": {
+          "name": "generation",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "settings_generation_single_check": {
+          "name": "settings_generation_single_check",
+          "value": "\"settings_generation\".\"id\" = 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.slack_apps": {
       "name": "slack_apps",
       "schema": "",
@@ -10701,141 +10970,6 @@
         "slack_outbox_claim_check": {
           "name": "slack_outbox_claim_check",
           "value": "(\"slack_outbox\".\"claim_token\" IS NULL) = (\"slack_outbox\".\"lease_expires_at\" IS NULL) AND (\"slack_outbox\".\"status\" IN ('pending', 'sending') OR \"slack_outbox\".\"claim_token\" IS NULL) AND (\"slack_outbox\".\"status\" <> 'sending' OR \"slack_outbox\".\"claim_token\" IS NOT NULL)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.slack_thread_status": {
-      "name": "slack_thread_status",
-      "schema": "",
-      "columns": {
-        "session_link_id": {
-          "name": "session_link_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "dirty_rev": {
-          "name": "dirty_rev",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "sent_rev": {
-          "name": "sent_rev",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "sent_status": {
-          "name": "sent_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "claim_token": {
-          "name": "claim_token",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lease_expires_at": {
-          "name": "lease_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_at": {
-          "name": "next_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "inflight_at": {
-          "name": "inflight_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "uncertain_rev": {
-          "name": "uncertain_rev",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "uncertain_latest_at": {
-          "name": "uncertain_latest_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reconciled_at": {
-          "name": "reconciled_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "disabled_reason": {
-          "name": "disabled_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "slack_thread_status_reconciled_idx": {
-          "name": "slack_thread_status_reconciled_idx",
-          "columns": [
-            {
-              "expression": "reconciled_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "slack_thread_status_session_link_id_session_links_id_fk": {
-          "name": "slack_thread_status_session_link_id_session_links_id_fk",
-          "tableFrom": "slack_thread_status",
-          "tableTo": "session_links",
-          "columnsFrom": ["session_link_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "slack_thread_status_claim_check": {
-          "name": "slack_thread_status_claim_check",
-          "value": "(\"slack_thread_status\".\"claim_token\" IS NULL) = (\"slack_thread_status\".\"lease_expires_at\" IS NULL)"
-        },
-        "slack_thread_status_disabled_check": {
-          "name": "slack_thread_status_disabled_check",
-          "value": "(\"slack_thread_status\".\"disabled_reason\" IS NULL) = (\"slack_thread_status\".\"disabled_at\" IS NULL)"
         }
       },
       "isRLSEnabled": false

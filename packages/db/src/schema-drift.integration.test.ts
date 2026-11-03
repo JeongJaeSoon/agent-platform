@@ -47,6 +47,8 @@ const MIGRATIONS_ONLY = [
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 c6e3025aa20a67be3dc0885bb3301b1b",
   "function agents_reject_mutation() trigger language plpgsql volatility=v parallel=u body md5 f434237a3126c21bab918af2558fbc88",
   "function authz_decisions_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 f3f5febb7e684f1ec6da6675a5dc196c",
+  // 0225: every installation settings write raises the one generation.
+  "function bump_settings_generation() trigger language plpgsql volatility=v parallel=u body md5 ac57fd6125a65fb817be211cdd37b454",
   // 0201: counters kept by statement triggers, so /metrics and the usage
   // panel read a few rows instead of aggregating their source tables.
   "function checkpoint_output_objects_add() trigger language plpgsql volatility=v parallel=u set enable_seqscan=off body md5 12b46065dfe5eb5ef1ee314816133e71",
@@ -94,11 +96,15 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER agent_releases_approve_once BEFORE DELETE OR UPDATE ON public.agent_releases FOR EACH ROW EXECUTE FUNCTION agent_releases_approve_once() enabled=O",
   "trigger CREATE TRIGGER agent_versions_insert_only BEFORE DELETE OR UPDATE ON public.agent_versions FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
   "trigger CREATE TRIGGER authz_decisions_append_only BEFORE UPDATE ON public.authz_decisions FOR EACH ROW EXECUTE FUNCTION authz_decisions_refuse_update() enabled=O",
+  "trigger CREATE TRIGGER catalog_repositories_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.catalog_repositories FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER checkpoint_outputs_count_delete AFTER DELETE ON public.checkpoint_outputs REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_forget() enabled=O",
   "trigger CREATE TRIGGER checkpoint_outputs_count_insert AFTER INSERT ON public.checkpoint_outputs REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_add() enabled=O",
   "trigger CREATE TRIGGER checkpoint_outputs_count_truncate AFTER TRUNCATE ON public.checkpoint_outputs FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_clear() enabled=O",
   "trigger CREATE TRIGGER checkpoints_count_release AFTER UPDATE ON public.checkpoints REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION checkpoint_output_objects_release() enabled=O",
   "trigger CREATE TRIGGER credential_bindings_exclusive_target BEFORE INSERT OR UPDATE ON public.credential_bindings FOR EACH ROW EXECUTE FUNCTION credential_bindings_exclusive_target() enabled=O",
+  "trigger CREATE TRIGGER installation_profiles_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.installation_profiles FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
+  "trigger CREATE TRIGGER mcp_servers_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.mcp_servers FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
+  "trigger CREATE TRIGGER provider_connections_settings_generation AFTER INSERT OR DELETE OR UPDATE ON public.provider_connections FOR EACH ROW EXECUTE FUNCTION bump_settings_generation() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_delete AFTER DELETE ON public.provider_usage REFERENCING OLD TABLE AS removed_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_recount() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_insert AFTER INSERT ON public.provider_usage REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION provider_usage_totals_add() enabled=O",
   "trigger CREATE TRIGGER provider_usage_count_tokens AFTER INSERT ON public.provider_usage FOR EACH ROW EXECUTE FUNCTION sessions_count_provider_tokens() enabled=O",

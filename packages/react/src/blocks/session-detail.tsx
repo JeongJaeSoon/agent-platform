@@ -195,7 +195,9 @@ export function SessionDetail({
               : undefined)}
             // Scroll anchoring would move a list resized at its end away
             // from it, and the scroll that causes reads as the reader's.
-            className="min-h-0 flex-1 overflow-y-auto rounded-card border bg-card [overflow-anchor:none]"
+            // `relative` keeps absolute boxes inside (sr-only text) under
+            // its clip; placed from the wrapper they stretch the page.
+            className="relative min-h-0 flex-1 overflow-y-auto rounded-card border bg-card [overflow-anchor:none]"
           >
             <SessionTimeline
               events={events.events}
