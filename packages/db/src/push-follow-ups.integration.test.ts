@@ -307,6 +307,54 @@ integration("push follow-ups on PostgreSQL", () => {
     expect(await turnsOf(sessionId)).toHaveLength(1);
   });
 
+  test("an unknown outcome sends the session to recovery and keeps the hold", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const push = await pushRequest(ownerId, sessionId);
+    expect(await hold(sessionId, push)).toBe("held");
+    await gateway.finalize(worker.principal, {
+      ...worker.scope,
+      turn_id: turnId,
+      finalize_key: `${worker.scope.attempt_id}:${turnId}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "outcome_unknown",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+    expect(await turnsOf(sessionId)).toHaveLength(1);
+    expect(
+      await db
+        .select({ id: pushFollowUps.pushRequestId })
+        .from(pushFollowUps)
+        .where(eq(pushFollowUps.sessionId, sessionId)),
+    ).toEqual([{ id: push }]);
+  });
+
+  test("a pull request row of this push counts without branch fields; one on another branch does not", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    await finalize(worker, turnId, 0);
+    const push = await pushRequest(ownerId, sessionId);
+    await db.insert(pullRequests).values({
+      sessionId,
+      url: `https://github.invalid/pr/${crypto.randomUUID()}`,
+      ownerId,
+      repositoryId: "sample-app",
+      number: 2,
+      head: `agent/${sessionId}-other`,
+      base: "main",
+    });
+    expect(await hold(sessionId, push)).toBe("now");
+    await db.insert(pullRequests).values({
+      sessionId,
+      url: `https://github.invalid/pr/${crypto.randomUUID()}`,
+      pushRequestId: push,
+    });
+    expect(await hold(sessionId, push)).toBe("pull_request");
+  });
+
   test("a paused session keeps the hold for a later turn end", async () => {
     const { ownerId, sessionId, worker, turnId } = await runningTurn();
     const push = await pushRequest(ownerId, sessionId);

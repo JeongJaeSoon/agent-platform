@@ -2858,8 +2858,9 @@ export function createPostgresWorkerUnitOfWork(
             turnRowId: terminal.id,
           });
         }
-        // A parked turn resumes later and may still open the pull request.
-        if (terminal !== undefined && parked.length === 0) {
+        // A parked turn resumes later and may still open the pull request;
+        // an unknown outcome puts the session in recovery, which keeps holds.
+        if (terminal !== undefined && parked.length === 0 && !unknownOutcome) {
           await queuePushFollowUps(tx, { session: fenced.session });
         }
         // The Nth turn's end is when an every_n_turns judgment is due.
