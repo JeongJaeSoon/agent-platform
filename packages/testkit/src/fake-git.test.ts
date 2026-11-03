@@ -90,7 +90,7 @@ describe("fake-git-main.ts", () => {
         );
         expect(
           (await runTestGit(["rev-parse", "HEAD"], join(dir, repo))).trim(),
-        ).toBe(ready.heads[repo]);
+        ).toBe(ready.heads[repo] ?? "missing");
       }
       const requests = await (
         await fetch(`http://127.0.0.1:${ready.port}/requests`)
