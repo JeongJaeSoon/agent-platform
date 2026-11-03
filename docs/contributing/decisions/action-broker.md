@@ -30,7 +30,9 @@
 
 ## 1. 위치와 이름
 
-- 이름은 **에이전트 행동 도구 카탈로그**다. 코드 모듈은 `packages/platform/src/actions/`, 계약(봉투, 코드표)은 `packages/contracts/src/api/agent-actions.ts`다. 둘 다 아직 없고 L1이 만든다.
+- 계약 목록의 이름은 **에이전트 행동 도구 카탈로그**다. 그 뒤에서 일하는 control-host 안의 모듈은 **action-broker**다. action-broker가 dispatcher, 정책 게이트, 자격 사용, receipt를 맡는다. 화면 문구에서는 "에이전트 작업"이라 쓴다(예: "에이전트 작업 기록").
+- 코드 모듈은 `packages/platform/src/action-broker/`, 계약(봉투, 코드표)은 `packages/contracts/src/api/action-broker.ts`다. 둘 다 아직 없고 L1이 만든다.
+- action-broker는 모듈 이름이고 레이어 이름이 아니다. 레이어 이름을 묻던 D9를 폐기한 것([10절](#10-오너-결정-d1d11))과 부딪히지 않는다. 오너가 이름을 Codex와 정하라고 맡겼고(2026-11-04), `worker-gateway`와 헷갈리는 `action-gateway`는 쓰지 않는다.
 - 정책 구현, 토큰 발급, 작업 기록은 control-host의 플랫폼 서비스에 둔다. 판정에 쓰는 사실(checkpoint, push 요청, release, 연결 계정)이 모두 그쪽 DB에 있기 때문이다. 엔진 어댑터는 계약을 엔진에 붙이는 일만 한다([9절](#9-어댑터-적합성-항목)). worker는 작업 공간 안의 일(commit hook, 턴 끝 귀속 복구, checkpoint, T4 스크립트)만 한다.
 - 내장 MCP 서버 이름 `github`와 도구 이름 `mcp__github__<tool>`은 바꾸지 않는다. GitHub와 상관없는 모델 도구(2단계의 `ask_person`, `send_message`)가 생기면 두 번째 내장 서버 `platform`을 같은 경로로 더한다.
 - "GitHub Actions workflow"는 늘 "workflow"라고 쓴다. 이름의 "행동(actions)"과 섞이지 않게 하려는 것이다.
@@ -92,7 +94,7 @@
 카탈로그 3.3~3.5절.
 
 ```ts
-// packages/contracts/src/api/agent-actions.ts (L1)
+// packages/contracts/src/api/action-broker.ts (L1)
 type ActionRefusal = {
   code: string;                                   // ^[a-z][a-z0-9_]{1,63}$
   by: "policy" | "person" | "platform" | "github";
@@ -364,7 +366,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | D6 | 첨부 저장소 push에 사람 승인 | 도구 기본값 | T5 `push.attached`: 새 release `allow`, 칸 없는 옛 release `ask`. 대상은 release 목록 안 저장소의 `agent/<session-id>…` 브랜치뿐이고 force push 금지와 워크스페이스 상한은 그대로다. 첨부와 쓰기가 모두 사람 없이 열린다 |
 | D7 | push 뒤 PR 자동 생성 | 폐기 | PR은 모델이 `open_pull_request`(또는 `gh pr create`)를 부를 때만 열린다 |
 | D8 | push·PR·저장소 읽기를 엔진 권한 단계에서 빼기 | (a) 유지, PR 8 조건 | [6절](#6-행동-부류-정책) |
-| D9 | 레이어 이름 | 폐기 | 이름은 "도구 카탈로그" |
+| D9 | 레이어 이름 | 폐기 | 이름은 "도구 카탈로그". 그 뒤의 control-host 모듈 이름 action-broker는 레이어 이름이 아니다([1절](#1-위치와-이름)) |
 | D10 | 한 턴에 PR 여러 개 | 폐기 + 도구 한계 | 1단계 `request_push`의 소스는 턴 끝 HEAD 하나. 여러 소스는 `source_ref`(L4b, 2단계) |
 | D11 | commit bot과 PR bot이 같은가 | 도구 기본값 | commit identity의 App은 주 저장소의 고정 연결 App이다(PR 2). 주 저장소가 콘솔에 등록한 App으로 연결되고, bot 조회가 성공하고, 연결이 바뀌지 않았을 때만 PR을 여는 App과 같은 bot이다. 예외: 첨부 저장소의 다른 App, `Werft` fallback, 연결 변경, PAT 연결 저장소, 이미 열린 PR을 이어 쓸 때 |
 
