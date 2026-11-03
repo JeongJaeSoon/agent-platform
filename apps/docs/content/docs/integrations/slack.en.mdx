@@ -3,8 +3,8 @@ title: "Slack"
 description: What works in the Slack integration today, and what does not exist yet
 ---
 
-<Callout type="warn">
-You cannot yet mention the agent in Slack to start a session, or approve with a Slack button. Installing the Slack app (OAuth) and receiving Slack events do not exist yet. Below are the APIs that are already there in preparation.
+<Callout type="info">
+When a session waits on a person (a tool permission, a question, a push approval), a card appears in its thread and can be settled in Slack. See [Approvals and answers](#approvals-and-answers).
 </Callout>
 
 | What exists today | API | Who |
@@ -65,6 +65,22 @@ The words the platform writes in Slack (refusal notices, failure and waiting-for
 - A user who never saved a language, and a Slack account that is not linked, get Korean.
 
 Model answers and what users type are not translated. The deployment welcome has no single reader, so it is sent in Korean.
+
+## Approvals and answers
+
+When a session started from a Slack thread waits on a person, each request it waits on gets one card in that thread. The card mentions whoever started the session and shows a link to the same request on the web and when it expires.
+
+| Request | What the card offers |
+| --- | --- |
+| Tool permission | **Allow** and **Deny** |
+| Question | Option buttons for a single question with five options or fewer, plus **Type an answer** when free text is allowed. Otherwise **Answer** opens a form |
+| Push approval | Repository, branch and commit, with **Approve** (asks once more) and **Reject** |
+
+The person who presses must have their Slack account linked to a web account ([Link a Slack account](#link-a-slack-account)) and must be someone who may answer that session's requests on the web, judged by the same rules. An unlinked account gets the link page, and someone without the right gets a refusal; both are shown to that person only, and nothing is settled.
+
+Once settled, the card loses its buttons and says who settled it and how. Pressing a request that the web or someone else already settled does not settle it again; the card changes to the current result. A push approved or rejected in Slack is followed by an instruction telling the session, so it opens the pull request or reports the rejection.
+
+Buttons and forms arrive at the agent app's Interactivity address, `/v1/slack/interactions/{agent_id}`. As with events, each request is checked against the app's signing secret and a timestamp within 300 seconds. Installation finalize puts the address in the manifest along with the Event Subscriptions address. For an app created before this feature, **Recheck** (`POST /v1/agents/{id}/slack/app/events/recheck`) sends the manifest again and registers it.
 
 ## Original Slack message link
 
