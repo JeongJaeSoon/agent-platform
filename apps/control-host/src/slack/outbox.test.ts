@@ -519,10 +519,16 @@ const reads = (node: PlanNode, relation: string): boolean =>
 
 // The pass's own turns scan (alias `turns`; subplans use ot/st) either
 // fetches by id, or is the inner side of a nested loop whose outer side has
-// already read session_links: probed once per live link, never per session.
+// already read session_links and is bounded to that row's session by its
+// index: probed once per live link, never per session or whole.
 function turnsReadPerLink(plan: PlanNode, linkedOuter = false): boolean {
-  if (plan["Relation Name"] === "turns" && plan.Alias === "turns")
-    return linkedOuter || /\bid = ANY \(/.test(plan["Index Cond"] ?? "");
+  if (plan["Relation Name"] === "turns" && plan.Alias === "turns") {
+    const cond = plan["Index Cond"] ?? "";
+    return (
+      /\bid = ANY \(/.test(cond) ||
+      (linkedOuter && /\bsession_id = /.test(cond))
+    );
+  }
   const children = plan.Plans ?? [];
   if (children.length === 0) return true;
   return children.every((child, index) =>
@@ -564,6 +570,27 @@ describe("the outbox plan check", () => {
         ],
       }),
     ).toBe(true);
+  });
+
+  test("refuses a whole turns index read under the links and filtered after", () => {
+    expect(
+      turnsReadPerLink({
+        "Node Type": "Nested Loop",
+        Plans: [
+          linksScan,
+          {
+            "Node Type": "Materialize",
+            Plans: [
+              {
+                "Node Type": "Index Scan",
+                "Relation Name": "turns",
+                Alias: "turns",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 
   test("refuses turns read for every session before the links are checked", () => {
