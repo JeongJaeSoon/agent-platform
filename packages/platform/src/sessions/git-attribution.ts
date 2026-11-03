@@ -181,7 +181,7 @@ const TAIL_SHAPES: readonly TailShape[] = [
   {
     lines: [
       {
-        line: /^Opened in a Werft session(?: · \[session\]\(<\S+>\))? · commit `[^`]+`$/,
+        line: /^Opened in a Werft session(?: · \[session\]\(<\S+>\))? · commit `[0-9a-f]{7}`$/,
       },
       { line: /^$/ },
       { line: /^<details><summary>Details<\/summary>$/ },
@@ -193,7 +193,12 @@ const TAIL_SHAPES: readonly TailShape[] = [
       {
         line: /^- Started by: (unknown|none \(App only\)|GitHub account not linked \(App only\)|GitHub account linked \([A-Za-z0-9-]+\))$/,
       },
-      { line: /^- Requested by: \S.*$/, optional: true },
+      // Reserved for the turn's requester, in the values the action
+      // broker's caller mapping names; anything else there is a person's.
+      {
+        line: /^- Requested by: (?:[A-Za-z0-9-]+|a person without a linked GitHub account) \((?:Slack|web console|API key|platform)\)$|^- Requested by: none \(App only\)$/,
+        optional: true,
+      },
       { line: /^<\/details>$/ },
     ],
     linked: /^- Started by: GitHub account linked \(([A-Za-z0-9-]+)\)$/,
@@ -218,6 +223,10 @@ const TAIL_SHAPES: readonly TailShape[] = [
 ];
 const TAIL_CO_AUTHOR =
   /^Co-authored-by: ([A-Za-z0-9-]+) <[1-9][0-9]*\+([A-Za-z0-9-]+)@users\.noreply\.github\.com>$/;
+
+// A code span opens and closes on backtick runs of the same length
+// (CommonMark), so ``` `` <!-- ` `` ``` is code, not a comment.
+const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
 
 const QUOTING_ELEMENT =
   /<(\/?)(details|pre|div|table|blockquote|section|textarea|script|style)\b[^>]*>/gi;
@@ -251,16 +260,13 @@ function fitsShape(lines: readonly string[], shape: TailShape): boolean {
 }
 
 /**
- * Where `line` leaves an HTML comment, given whether it starts inside one,
- * and the line's text outside comments (where elements still count).
+ * Whether `line`, starting outside a comment, ends inside one, and its text
+ * outside comments (where elements still count).
  */
-function scanComments(
-  line: string,
-  inComment: boolean,
-): { inComment: boolean; outside: string } {
+function scanComments(line: string): { inComment: boolean; outside: string } {
   let outside = "";
   let rest = line;
-  let inside = inComment;
+  let inside = false;
   while (rest !== "") {
     if (inside) {
       const close = rest.indexOf("-->");
@@ -340,29 +346,34 @@ export function withPullRequestTail(body: string, tail: string): string {
         continue;
       }
     }
+    // What follows a comment's end on its line still counts.
+    let text = line;
     if (inComment) {
-      inComment = scanComments(line, true).inComment;
-      continue;
-    }
-    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    const marks = run?.[1] ?? "";
-    const after = run?.[2] ?? "";
-    if (fence !== null) {
-      if (
-        marks[0] === fence[0] &&
-        marks.length >= fence.length &&
-        after.trim() === ""
-      ) {
-        fence = null;
+      const close = line.indexOf("-->");
+      if (close === -1) continue;
+      inComment = false;
+      text = line.slice(close + 3);
+    } else {
+      const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      const marks = run?.[1] ?? "";
+      const after = run?.[2] ?? "";
+      if (fence !== null) {
+        if (
+          marks[0] === fence[0] &&
+          marks.length >= fence.length &&
+          after.trim() === ""
+        ) {
+          fence = null;
+        }
+        continue;
       }
-      continue;
+      // A backtick fence's info string has no backtick; that line is inline code.
+      if (run && !(marks[0] === "`" && after.includes("`"))) {
+        fence = marks;
+        continue;
+      }
     }
-    // A backtick fence's info string has no backtick; that line is inline code.
-    if (run && !(marks[0] === "`" && after.includes("`"))) {
-      fence = marks;
-      continue;
-    }
-    const scanned = scanComments(line.replace(/`[^`]*`/g, ""), false);
+    const scanned = scanComments(text.replace(CODE_SPAN, ""));
     inComment = scanned.inComment;
     for (const [, close, name] of scanned.outside.matchAll(QUOTING_ELEMENT)) {
       const tag = (name ?? "").toLowerCase();

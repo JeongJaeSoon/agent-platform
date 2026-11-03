@@ -157,10 +157,18 @@ describe("the folded pull request tail", () => {
       "- Started by: GitHub account linked (octocat)\n- Requested by: octocat (Slack)\n</details>",
     );
     // Either way it is the platform's tail, replaced on the next write.
-    for (const tail of [render(), requested]) {
-      expect(
-        withPullRequestTail(`Intro\n\n${tail}`, render({ commit: "b" })),
-      ).toBe(`Intro\n\n${render({ commit: "b" })}`);
+    const newer = render({ commit: "b".repeat(40) });
+    for (const tail of [
+      render(),
+      requested,
+      render({
+        requestedBy: "a person without a linked GitHub account (Slack)",
+      }),
+      render({ requestedBy: "none (App only)" }),
+    ]) {
+      expect(withPullRequestTail(`Intro\n\n${tail}`, newer)).toBe(
+        `Intro\n\n${newer}`,
+      );
     }
   });
 
@@ -187,11 +195,17 @@ describe("the folded pull request tail", () => {
     ]) {
       const once = withPullRequestTail(body, render());
       expect(once).toBe(`${body}\n-->\n\n${render()}`);
-      const newer = render({ commit: "b" });
+      const newer = render({ commit: "b".repeat(40) });
       expect(withPullRequestTail(once, newer)).toBe(`${body}\n-->\n\n${newer}`);
     }
-    // Closed on the same or a later line, a comment leaves nothing open.
-    for (const body of ["<!-- note -->", "<!--\nnote\n-->", "`<!--` is how"]) {
+    // Closed on the same or a later line, or named in code, a comment leaves
+    // nothing open.
+    for (const body of [
+      "<!-- note -->",
+      "<!--\nnote\n-->",
+      "`<!--` is how",
+      "Use `` <!-- ` `` here.",
+    ]) {
       expect(withPullRequestTail(body, render())).toBe(
         `${body}\n\n${render()}`,
       );
@@ -199,9 +213,16 @@ describe("the folded pull request tail", () => {
   });
 
   test("a tail inside a person's HTML comment is hidden text, not the tail", () => {
-    const hidden = `<!--\n${render({ commit: "old" })}\n-->`;
+    const hidden = `<!--\n${render({ commit: "0".repeat(40) })}\n-->`;
     expect(withPullRequestTail(hidden, render())).toBe(
       `${hidden}\n\n${render()}`,
+    );
+  });
+
+  test("an element opened after a comment's end on its line still quotes", () => {
+    const example = `<!-- note\n--> <details>\n<summary>Example</summary>\n\n${render({ commit: "0".repeat(40) })}\n</details>`;
+    expect(withPullRequestTail(example, render())).toBe(
+      `${example}\n\n${render()}`,
     );
   });
 
@@ -237,13 +258,18 @@ describe("the folded pull request tail", () => {
         "Co-authored-by: pair <583231+",
       ),
       tail.replace("\n\nCo-authored-by", "\nCo-authored-by"),
+      tail.replace("`cacbb01`", "`reviewed manually; do not overwrite`"),
+      tail.replace(
+        "</details>",
+        "- Requested by: Alice; keep this approval note\n</details>",
+      ),
     ]) {
       expect(edited).not.toBe(tail);
       expect(withPullRequestTail(edited, tail)).toBe(`${edited}\n\n${tail}`);
     }
   });
 
-  test.todo("keeps the push request marker beside the folded tail");
+  test.todo("keeps the push request marker beside the folded tail", () => {});
 });
 
 describe("replacing the pull request tail", () => {
