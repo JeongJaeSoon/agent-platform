@@ -11,6 +11,7 @@ export * from "./output.ts";
 export * from "./pending.ts";
 export * from "./present-turn-event.ts";
 export * from "./profile-derivation.ts";
+export * from "./profile-tools.ts";
 export * from "./profiles.ts";
 export * from "./pull-request.ts";
 export * from "./push-request.ts";

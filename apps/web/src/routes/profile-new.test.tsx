@@ -45,7 +45,9 @@ function catalog(
       "GET /v1/installation-profiles/options": () => json(200, options),
       "POST /v1/workspace-profiles": async (request: Request) => {
         const { name, base_profile_id, ...narrowed } =
-          (await request.json()) as CreateWorkspaceProfileRequest;
+          (await request.json()) as CreateWorkspaceProfileRequest & {
+            tools: string[];
+          };
         const n =
           items.filter((item) => item.workspace?.name === name).length + 1;
         const made: ProfileSummary = {
@@ -60,7 +62,10 @@ function catalog(
         return json(201, { profile: made, receipt_id: RECEIPT_ID });
       },
       "POST /v1/installation-profiles": async (request: Request) => {
-        const body = (await request.json()) as CreateInstallationProfileRequest;
+        const body =
+          (await request.json()) as CreateInstallationProfileRequest & {
+            tools: string[];
+          };
         const n =
           items.filter((item) => item.installation?.name === body.name).length +
           1;

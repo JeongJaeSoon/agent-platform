@@ -257,6 +257,7 @@ import {
   slackEventsPublicUrlFrom,
 } from "./slack-config.ts";
 import { signInWithSlackOff, slackOidcSettingsFromEnv } from "./slack-link.ts";
+import { installedToolCatalogView } from "./tool-catalogs.ts";
 
 const authMode = process.env.AUTH_MODE;
 const databaseUrl = process.env.DATABASE_URL;
@@ -370,6 +371,7 @@ const catalog = profileCatalog(
     ...(runtimeVersions === undefined
       ? {}
       : { runtime_versions: runtimeVersions }),
+    tool_catalogs: installedToolCatalogView,
   },
   workspaceProfileVersions,
   (rows, settings) =>

@@ -266,6 +266,25 @@ describe("POST /v1/workspace-profiles", () => {
       workspaceProfileChangeResponseSchema.parse(await created.json()),
     ).toEqual({ profile: VERSION, receipt_id: RECEIPT });
 
+    const { tools: _, ...toolless } = REQUEST;
+    for (const deny of [["Bash"], []]) {
+      const denying = await post(
+        {
+          create: async (_caller, request) => {
+            asked = request;
+            return { profile: VERSION, receipt_id: RECEIPT };
+          },
+        },
+        "/v1/workspace-profiles",
+        { ...toolless, deny, accept_added_tools: ["Edit"] },
+      );
+      expect(denying.status).toBe(201);
+      expect(asked).toEqual({
+        ...toolless,
+        deny,
+        accept_added_tools: ["Edit"],
+      });
+    }
     for (const bad of [
       { ...REQUEST, name: "Strict_Review" },
       { ...REQUEST, models: [] },
@@ -273,6 +292,8 @@ describe("POST /v1/workspace-profiles", () => {
       { ...REQUEST, deny: ["Bash"] },
       { ...REQUEST, deny: [] },
       { ...REQUEST, tools: undefined },
+      { ...REQUEST, accept_added_tools: ["Bash"] },
+      { ...toolless, deny: [""] },
     ]) {
       const response = await post({}, "/v1/workspace-profiles", bad);
       expect(response.status).toBe(400);
@@ -438,6 +459,20 @@ describe("POST /v1/installation-profiles", () => {
     expect(
       installationProfileChangeResponseSchema.parse(await answered.json()),
     ).toEqual({ profile: denying, receipt_id: RECEIPT });
+    const { tools: _, ...toolless } = CEILING_REQUEST;
+    const byDeny = await onInstallation(
+      {
+        create: async (_caller, request) => {
+          asked = request;
+          return { profile: denying, receipt_id: RECEIPT };
+        },
+      },
+      "POST",
+      path,
+      { ...toolless, deny: [] },
+    );
+    expect(byDeny.status).toBe(201);
+    expect(asked).toEqual({ ...toolless, deny: [] });
     for (const bad of [
       { ...CEILING_REQUEST, name: "Coding" },
       { ...CEILING_REQUEST, models: [] },
@@ -446,6 +481,8 @@ describe("POST /v1/installation-profiles", () => {
       { ...CEILING_REQUEST, deny: ["Bash"] },
       { ...CEILING_REQUEST, deny: [] },
       { ...CEILING_REQUEST, tools: undefined },
+      { ...CEILING_REQUEST, accept_added_tools: ["Bash"] },
+      { ...toolless, deny: [""] },
     ]) {
       expect((await onInstallation({}, "POST", path, bad)).status).toBe(400);
     }
