@@ -144,6 +144,32 @@ describe("slackOutboxText", () => {
     );
   });
 
+  test.each([
+    [
+      "<!date^1793600000^{date}^https://evil.example/login|웹에서 승인>",
+      "&lt;!date^1793600000^{date}^https://evil.example/login|웹에서 승인&gt;",
+    ],
+    [
+      "<!here> <!subteam^S1|@oncall>",
+      "&lt;!here&gt; &lt;!subteam^S1|@oncall&gt;",
+    ],
+    ["<@U1> <#C1|general>", "&lt;@U1&gt; &lt;#C1|general&gt;"],
+    [
+      "<https://evil.example|웹에서 승인>",
+      "웹에서 승인 (https://evil.example)",
+    ],
+    [
+      "[웹에서 승인](https://evil.example)",
+      "웹에서 승인 (https://evil.example)",
+    ],
+    [
+      "<!date^1793600000^{date_short}|2026-11-02>",
+      "<!date^1793600000^{date_short}|2026-11-02>",
+    ],
+  ])("a model's %s reaches Slack as %s", (text, posted) => {
+    expect(slackOutboxText({ text })).toBe(posted);
+  });
+
   test("lets through only the mentions the body names", () => {
     expect(
       slackOutboxText({
