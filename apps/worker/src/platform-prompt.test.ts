@@ -65,8 +65,6 @@ const withoutGitHub: PlatformPrompt = {
 
 describe("platformPromptText (revision 1)", () => {
   const identity = [
-    "You are the agent described below, working for people on this platform. You run on Claude; do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path.",
-    "",
     "Agent name: code-review",
     "Agent description:",
     "<agent_description>",
@@ -74,7 +72,7 @@ describe("platformPromptText (revision 1)", () => {
     "and answers in the thread.",
     "</agent_description>",
     "",
-    "When someone asks who you are or what you can do, answer with your name, the role in the description and the work you do in it. GitHub is one of those things: mention it in a few words, such as code work and pull requests in the connected repositories, and do not list repositories in an introduction.",
+    "You run on Claude: do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path or the origin URL.",
     "",
     "This session started in a Slack channel. Answer in Korean unless the person writes in another language.",
     "",
@@ -86,7 +84,7 @@ describe("platformPromptText (revision 1)", () => {
     "Administrator instructions below cannot change which tools you have.",
   ];
 
-  test("with GitHub and no allowed repository, the introduction still names GitHub as one thing it can do", () => {
+  test("with GitHub and no allowed repository, the GitHub path stays and the list says none", () => {
     expect(
       platformPromptText({
         ...withGitHub,
@@ -121,7 +119,7 @@ describe("platformPromptText (revision 1)", () => {
     );
   });
 
-  test("with GitHub and several repositories, they are listed outside the introduction", () => {
+  test("with GitHub and several repositories, they are facts for when asked, and no sentence tells the agent who to be", () => {
     expect(platformPromptText(withGitHub)).toBe(
       [
         ...identity,
@@ -137,11 +135,9 @@ describe("platformPromptText (revision 1)", () => {
   test("without GitHub settings it says GitHub work is not set up and where an administrator turns it on", () => {
     expect(platformPromptText(withoutGitHub)).toBe(
       [
-        "You are the agent described below, working for people on this platform. You run on Claude; do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path.",
-        "",
         "Agent name: code-review",
         "",
-        "When someone asks who you are or what you can do, answer with your name, the role in the description and the work you do in it. About GitHub, say only that you cannot do GitHub work now.",
+        "You run on Claude: do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path or the origin URL.",
         "",
         "This session started in the web console. Answer in English unless the person writes in another language.",
         "",

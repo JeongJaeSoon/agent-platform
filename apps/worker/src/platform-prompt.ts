@@ -1,21 +1,17 @@
 import type { PlatformPrompt } from "@werft-ai/contracts";
 
 /**
- * The platform's paragraph at the front of the appended system prompt: who
- * the agent is and how GitHub work goes, ahead of the administrators'
- * instructions. Every word is part of the checkpoint fingerprint of the
- * sessions of this revision, so a change in wording is a new revision, never
- * an edit here.
+ * The platform's paragraph at the front of the appended system prompt: only
+ * what the platform alone knows (the agent's name and description as its
+ * author wrote them, where the session started, its repositories and GitHub
+ * tools) and its safety rules. The role is the author's to give, in the
+ * instructions below. Every word is part of the checkpoint fingerprint of
+ * the sessions of this revision, so a change in wording is a new revision,
+ * never an edit here.
  */
 export function platformPromptText(prompt: PlatformPrompt): string {
   return [
     identityText(prompt),
-    [
-      "When someone asks who you are or what you can do, answer with your name, the role in the description and the work you do in it.",
-      prompt.github === null
-        ? "About GitHub, say only that you cannot do GitHub work now."
-        : "GitHub is one of those things: mention it in a few words, such as code work and pull requests in the connected repositories, and do not list repositories in an introduction.",
-    ].join(" "),
     `This session started in ${SURFACES[prompt.origin_surface]}. Answer in ${LANGUAGES[prompt.language]} unless the person writes in another language.`,
     ...(prompt.github === null
       ? withoutGitHubText(prompt.repository)
@@ -43,8 +39,6 @@ const NAMING =
 // own rather than inside a sentence of the platform's.
 function identityText({ agent_identity: agent }: PlatformPrompt): string {
   return [
-    "You are the agent described below, working for people on this platform. You run on Claude; do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path.",
-    "",
     `Agent name: ${agent.name}`,
     ...(agent.description === null
       ? []
@@ -54,6 +48,8 @@ function identityText({ agent_identity: agent }: PlatformPrompt): string {
           agent.description,
           "</agent_description>",
         ]),
+    "",
+    "You run on Claude: do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path or the origin URL.",
   ].join("\n");
 }
 
