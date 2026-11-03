@@ -99,7 +99,8 @@ ADD --checksum=sha256:ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b33
   https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_arm64.tar.gz \
   /tmp/gh-arm64.tar.gz
 RUN mkdir /tmp/gh \
-  && tar -xzf "/tmp/gh-${TARGETARCH}.tar.gz" -C /tmp/gh --strip-components=1
+  && tar -xzf "/tmp/gh-${TARGETARCH}.tar.gz" -C /tmp/gh --strip-components=1 \
+    --no-same-owner
 
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
