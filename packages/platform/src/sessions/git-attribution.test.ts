@@ -277,8 +277,6 @@ describe("the folded pull request tail", () => {
       expect(withPullRequestTail(edited, tail)).toBe(`${edited}\n\n${tail}`);
     }
   });
-
-  test.todo("keeps the push request marker beside the folded tail", () => {});
 });
 
 describe("replacing the pull request tail", () => {
