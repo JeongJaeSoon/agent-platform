@@ -233,8 +233,7 @@ describe("replacing the pull request tail", () => {
   });
 
   test("a line a person adds inside the tail makes it theirs, kept whole", () => {
-    const opening =
-      "Opened by Werft from session `old`, commit `abc`.";
+    const opening = "Opened by Werft from session `old`, commit `abc`.";
     const agent = "- Agent: none, release none\n- Push request: `p`";
     const own = `${agent}\n- Trigger: web\n- Started by: none (App only)`;
     for (const added of [
