@@ -10,13 +10,13 @@
 export const PLATFORM_AUTO_MODE = {
   allow: [
     "$defaults",
-    "Agent Platform Git Work: Committing changes in this session's workspace, and pushing them to GitHub through the platform's push flow, which pushes only this session's saved checkpoint to an agent work branch the platform created for this session, in a repository the agent was granted. Not covered: pushing to the default branch, a protected branch or any branch the platform did not create for this session; force pushes or rewriting pushed history; pushing to a repository the agent was not granted or one attached only for reading; committing secrets or credentials.",
+    "Agent Platform Git Work: Committing changes in this session's workspace, and pushing them to GitHub through the platform's push flow, which pushes only this session's saved checkpoint to an agent work branch the platform created for this session, in this session's own repository. Not covered: pushing to the default branch, a protected branch or any branch the platform did not create for this session; force pushes or rewriting pushed history; pushing to any other repository, including one attached to this session to read; committing secrets or credentials.",
     "Agent Platform Pull Requests: Opening a pull request from such an agent work branch, and editing the title and description of, or commenting on, a pull request this session opened. Not covered: merging, approving or closing pull requests; submitting a review, including on a pull request this session opened; editing or commenting on pull requests this session did not open; secrets in pull request text or comments.",
     "Agent Platform Repository Reading: Listing the repositories the agent was granted, and attaching one of them to read its code. Not covered: writing to an attached repository.",
   ],
   soft_deny: [
     "$defaults",
-    "Agent Platform GitHub Administration: changing repository settings, branch protection, webhooks, deploy keys or Actions secrets, deleting branches or repositories, and merging pull requests, by any route.",
+    "Agent Platform GitHub Administration: changing repository settings, branch protection, webhooks, deploy keys or Actions secrets, deleting branches or repositories on GitHub, and merging pull requests, by any route.",
   ],
   environment: [
     "$defaults",
