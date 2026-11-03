@@ -184,10 +184,19 @@ beforeAll(async () => {
   expect(approverKey.status).toBe(201);
   approver = new Api({ ...env, apiKey: approverKey.body.secret });
 
+  const team = await web<{ team: { id: string } }>("POST", "/v1/teams", {
+    name: "mcpprobe",
+  });
+  expect(team.status).toBe(201);
   const created = await web<{
     agent: { id: string };
     versions: { id: string }[];
-  }>("POST", "/v1/agents", { slug: "mcpprobe", name: "mcpprobe", card });
+  }>("POST", "/v1/agents", {
+    slug: "mcpprobe",
+    name: "mcpprobe",
+    managing_team_id: team.body.team.id,
+    card,
+  });
   expect(created.status).toBe(201);
   agentId = created.body.agent.id;
   const released = await web<{

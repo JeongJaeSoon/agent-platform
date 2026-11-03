@@ -240,6 +240,22 @@ describe("Slack management", () => {
     ).toBe(true);
   });
 
+  test("the channels section says every channel member reads the replies, managing team or not", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    });
+    const heading = await screen.findByRole("heading", {
+      name: "홈 채널 지정",
+    });
+    const section = heading.closest("section") as HTMLElement;
+    expect(
+      within(section).getByText(
+        "이 채널의 모든 사람이 답을 읽습니다. 담당 팀 밖 사람도 포함됩니다.",
+      ),
+    ).toBeDefined();
+  });
+
   test("offers no channel actions until the bindings say which step it is", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -1875,6 +1891,43 @@ describe("Slack management", () => {
         (call) => call.method === "POST" && call.path === `${PATH}/slack/app`,
       ),
     ).toBe(false);
+  });
+  test("warns that another Slack user made the app and says Slack no longer has it when installing", async () => {
+    const { left } = renderAt(DETAIL, {
+      ...routes(APP),
+      [`GET ${PATH}/slack/app`]: () =>
+        json(
+          200,
+          appResponse(APP, [
+            {
+              code: "config_token_issuer_changed",
+              previous_user_id: "U0MOCK",
+              user_id: "U123",
+            },
+            { code: "no_active_release" },
+          ]),
+        ),
+      [`POST ${PATH}/slack/install/start`]: () =>
+        apiError(409, "SLACK_APP_GONE", "internal description"),
+    });
+    expect(
+      await screen.findByText("다른 Slack 사용자가 만든 앱입니다"),
+    ).toBeDefined();
+    expect(document.body.textContent).toContain(
+      "앱을 만든 Slack 사용자(U0MOCK)와 지금 App Configuration Token의 사용자(U123)가 다릅니다.",
+    );
+    expect(screen.getByText("활성 릴리스가 없습니다")).toBeDefined();
+    const user = await setupUser();
+    const button = screen.getByRole("button", { name: "Slack 앱 설치" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText(
+        "Slack에 이 앱이 더 이상 없습니다. 위험 구역에서 앱을 삭제한 뒤 다시 설치하면 새 앱이 만들어집니다.",
+      ),
+    ).toBeDefined();
+    expect(left).toEqual([]);
+    expect(document.body.textContent).not.toContain("internal description");
   });
   test("shows 403 and withholds installation", async () => {
     renderAt(DETAIL, {

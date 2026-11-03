@@ -103,7 +103,7 @@ describe("replacing the pull request tail", () => {
     `---\n${PULL_REQUEST_TAIL_MARKER}\n${text}\n${PULL_REQUEST_TAIL_END_MARKER}`;
   const tailOf = (sessionId: string) =>
     block(
-      `Opened by agent-platform from session \`${sessionId}\`, commit \`abc\`.\n\n- Agent: none, release none\n- Push request: \`p\`\n- Trigger: web\n- Started by: none (App only)`,
+      `Opened by Werft from session \`${sessionId}\`, commit \`abc\`.\n\n- Agent: none, release none\n- Push request: \`p\`\n- Trigger: web\n- Started by: none (App only)`,
     );
   const tail = tailOf("new");
   const OLD = tailOf("old");
@@ -182,9 +182,17 @@ describe("replacing the pull request tail", () => {
       `${tail}\n\n${details}`,
     );
     const edited = block(
-      "Opened by agent-platform from session `old`, commit `abc`.\n\nReviewed by hand",
+      "Opened by Werft from session `old`, commit `abc`.\n\nReviewed by hand",
     );
     expect(withPullRequestTail(edited, tail)).toBe(`${edited}\n\n${tail}`);
+  });
+
+  test("a tail written before the rename is still replaced", () => {
+    const legacy = OLD.replace("Opened by Werft", "Opened by agent-platform");
+    expect(legacy).not.toBe(OLD);
+    expect(withPullRequestTail(`Intro\n\n${legacy}`, tail)).toBe(
+      `Intro\n\n${tail}`,
+    );
   });
 
   test("the text after the tail is kept as written", () => {
@@ -225,8 +233,7 @@ describe("replacing the pull request tail", () => {
   });
 
   test("a line a person adds inside the tail makes it theirs, kept whole", () => {
-    const opening =
-      "Opened by agent-platform from session `old`, commit `abc`.";
+    const opening = "Opened by Werft from session `old`, commit `abc`.";
     const agent = "- Agent: none, release none\n- Push request: `p`";
     const own = `${agent}\n- Trigger: web\n- Started by: none (App only)`;
     for (const added of [

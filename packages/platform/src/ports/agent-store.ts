@@ -127,7 +127,7 @@ export interface AgentStore {
      * `managerRoles` name any live team; anyone else only a team they are
      * in, re-read under share locks.
      */
-    managingTeam?: { id: string } & ManagerRoles;
+    managingTeam: { id: string } & ManagerRoles;
     card: AgentCard;
     contentSha256: string;
     createdBy: string;

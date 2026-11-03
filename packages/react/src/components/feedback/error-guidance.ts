@@ -118,6 +118,8 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   CONFIG_TOKEN_INVALID:
     "Slack App Configuration Token을 쓸 수 없어요 — owner·admin이 새 token을 붙여 넣으세요.",
   SLACK_APP_CREATING: "Slack 앱을 만드는 중이에요 — 잠시 뒤 다시 확인하세요.",
+  SLACK_APP_GONE:
+    "Slack에 이 앱이 없어요 — Slack 탭에서 앱을 삭제하고 다시 설치하세요.",
   SLACK_LINK_NOT_CONFIGURED:
     "Slack 계정 연결을 아직 쓸 수 없어요 — 워크스페이스 관리자에게 Slack 연결 설정을 요청하세요.",
   GITHUB_LINK_NOT_CONFIGURED:
@@ -248,6 +250,8 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
   CONFIG_TOKEN_INVALID:
     "The Slack App Configuration Token can't be used — an owner or admin should paste a new token.",
   SLACK_APP_CREATING: "The Slack app is being created — check again shortly.",
+  SLACK_APP_GONE:
+    "Slack no longer has this app — delete it on the Slack tab and install again.",
   SLACK_LINK_NOT_CONFIGURED:
     "Slack account linking isn't available yet — ask a workspace administrator to set up the Slack connection.",
   GITHUB_LINK_NOT_CONFIGURED:
@@ -396,6 +400,8 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "Slack App Configuration Token を使えません — owner・admin が新しい token を貼り付けてください。",
   SLACK_APP_CREATING:
     "Slack アプリを作成しています — しばらくしてからもう一度確認してください。",
+  SLACK_APP_GONE:
+    "Slack にこのアプリがありません — Slack タブでアプリを削除し、もう一度インストールしてください。",
   SLACK_LINK_NOT_CONFIGURED:
     "Slack アカウントの連携はまだ使えません — ワークスペースの管理者に Slack 接続の設定を依頼してください。",
   GITHUB_LINK_NOT_CONFIGURED:

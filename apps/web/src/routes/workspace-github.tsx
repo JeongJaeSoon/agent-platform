@@ -77,10 +77,13 @@ import {
   useRepositoryPage,
 } from "./workspace-github-repositories.tsx";
 import { GitHubUserLinkRow } from "./workspace-github-user-link.tsx";
-import { type OnOutcome, WorkspacePage } from "./workspace-settings.tsx";
+import {
+  SETTINGS_CARD as CARD,
+  type OnOutcome,
+  WorkspacePage,
+} from "./workspace-settings.tsx";
 
 const GITHUB_WEB = "https://github.com/";
-const CARD = "flex flex-col gap-4 rounded-card border bg-card p-4";
 // Installation table: name, type, repositories, App, connected by, status, menu.
 const MANAGER_COLUMNS =
   "minmax(0,1.2fr) 88px 96px minmax(0,1fr) minmax(0,1.2fr) 88px 32px";

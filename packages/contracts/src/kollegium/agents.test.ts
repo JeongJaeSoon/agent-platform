@@ -25,6 +25,7 @@ import {
 const AGENT_ID = "019a0000-0000-7000-8000-0000000000a1";
 const VERSION_ID = "019a0000-0000-7000-8000-0000000000a2";
 const WORKSPACE_ID = "019a0000-0000-7000-8000-0000000000a3";
+const TEAM = "019a0000-0000-7000-8000-0000000000a4";
 const AT = "2026-09-22T01:00:00Z";
 const PINS = {
   tools: {
@@ -614,6 +615,7 @@ describe("agent, version and release", () => {
       createAgentRequestSchema.safeParse({
         slug: "finance-analyst",
         name: "재무 분석가",
+        managing_team_id: TEAM,
         card,
       }).success,
     ).toBe(true);
@@ -621,8 +623,18 @@ describe("agent, version and release", () => {
       createAgentRequestSchema.safeParse({
         slug: "finance-analyst",
         name: "재무 분석가",
+        managing_team_id: TEAM,
       }).success,
     ).toBe(false);
+    expect(
+      createAgentRequestSchema.safeParse({
+        slug: "finance-analyst",
+        name: "재무 분석가",
+        card,
+      }).error?.issues,
+    ).toMatchObject([
+      { path: ["managing_team_id"], message: "managing_team_id is required" },
+    ]);
     expect(updateAgentRequestSchema.safeParse({}).success).toBe(false);
     expect(updateAgentRequestSchema.safeParse({ team: null }).success).toBe(
       false,
@@ -639,6 +651,7 @@ describe("agent, version and release", () => {
         slug: "finance-analyst",
         name: "재무 분석가",
         description,
+        managing_team_id: TEAM,
         card,
       }).success;
     expect(create("x".repeat(2000))).toBe(true);
@@ -681,6 +694,7 @@ describe("card read and request shapes", () => {
     const body = (requestCard: unknown) => ({
       slug: "finance-analyst",
       name: "재무 분석가",
+      managing_team_id: TEAM,
       card: requestCard,
     });
     expect(createAgentRequestSchema.safeParse(body(bare)).success).toBe(true);

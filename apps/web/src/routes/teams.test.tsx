@@ -85,18 +85,22 @@ async function openAdd(user: Awaited<ReturnType<typeof setupUser>>) {
 /** The teams API as one stateful server, as the real routes answer. */
 function teamServer({
   refuse = {},
+  members = [],
+  deleteRefusal,
 }: {
   refuse?: Record<string, () => Response>;
+  members?: TeamDetail["members"];
+  deleteRefusal?: () => Response;
 } = {}) {
   let team: TeamDetail | null = {
     id: TEAM_ID,
     workspace_id: WORKSPACE_ID,
     name: "결제팀",
-    member_count: 0,
+    member_count: members.length,
     created_by: USER_ID,
     created_at: AT,
     revision: 1,
-    members: [],
+    members,
   };
   const view = () => {
     if (!team) throw new Error("deleted");
@@ -140,8 +144,22 @@ function teamServer({
         return change();
       },
       [`DELETE ${path}`]: () => {
+        if (deleteRefusal) return deleteRefusal();
         team = null;
         return json(200, { receipt_id: RECEIPT_ID });
+      },
+      [`PATCH ${path}/members/${MATE_ID}`]: async (request: Request) => {
+        const { role } = (await request.json()) as {
+          role: TeamDetail["members"][number]["role"];
+        };
+        if (team)
+          team = {
+            ...team,
+            members: team.members.map((m) =>
+              m.user_id === MATE_ID ? { ...m, role } : m,
+            ),
+          };
+        return change();
       },
       [`POST ${path}/members`]: async (request: Request) => {
         const { user_id } = (await request.json()) as { user_id: string };
@@ -506,18 +524,25 @@ describe("팀 화면", () => {
     ).toBeDefined();
     const table = screen.getByRole("table", { name: "팀 구성원" });
     expect(within(table).getByText("Mate")).toBeDefined();
-    // Roles come from the member list, which only managers read.
+    // Workspace roles come from the member list, which only managers read;
+    // the team role comes with the team.
     expect(
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["구성원", "추가한 날"]);
+    ).toEqual(["구성원", "팀 역할", "추가한 날"]);
+    expect(
+      within(within(table).getAllByRole("row")[1] as HTMLElement)
+        .getAllByRole("cell")
+        .map((c) => c.textContent),
+    ).toEqual(["MAMatemate@example.com", "구성원", "2026. 10. 11. 09:00"]);
     for (const control of ["이름 바꾸기", "구성원 추가", "팀 삭제"])
       expect(
         screen.queryByRole("button", { name: control }),
         control,
       ).toBeNull();
     expect(screen.queryByRole("button", { name: /빼기/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /역할 바꾸기/ })).toBeNull();
     expect(screen.queryByLabelText("팀 이름")).toBeNull();
     expect(screen.queryByLabelText("추가할 사람")).toBeNull();
     expect(api.calls.some((c) => c.path === "/v1/members")).toBe(false);
@@ -709,7 +734,7 @@ describe("팀 화면", () => {
       within(table)
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
-    ).toEqual(["구성원", "역할", "추가한 날", "관리"]);
+    ).toEqual(["구성원", "워크스페이스 역할", "팀 역할", "추가한 날", "관리"]);
     const mateRow = within(table).getAllByRole("row")[1] as HTMLElement;
     expect(
       within(mateRow)
@@ -718,8 +743,9 @@ describe("팀 화면", () => {
     ).toEqual([
       "MAMatemate@example.com",
       "구성원",
+      "구성원",
       "2026. 10. 11. 09:00",
-      "빼기",
+      "역할 바꾸기빼기",
     ]);
     const remove = within(mateRow).getByRole("button", {
       name: "Mate님을 팀에서 빼기",
@@ -914,6 +940,194 @@ describe("팀 화면", () => {
     );
     expect(server.team).toBeNull();
     expect(await screen.findByText("아직 팀이 없습니다.")).toBeDefined();
+  });
+
+  const mateMember: TeamDetail["members"][number] = {
+    user_id: MATE_ID,
+    email: mate.email,
+    display_name: mate.display_name,
+    role: "member",
+    added_by: USER_ID,
+    added_at: AT,
+  };
+
+  test("관리자는 대화상자에서 팀 역할을 골라 저장하고, 표가 바뀐 역할을 보인다", async () => {
+    const server = teamServer({ members: [mateMember] });
+    const { api } = renderAt(`/members/teams/${TEAM_ID}`, server.routes);
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "팀 구성원" });
+    const opener = within(table).getByRole("button", {
+      name: "Mate님의 팀 역할 바꾸기",
+    });
+    await user.click(opener);
+    const dialog = await screen.findByRole("dialog", {
+      name: "팀 역할 바꾸기",
+    });
+    const radio = (name: string) =>
+      within(dialog).getByRole("radio", { name }) as HTMLButtonElement;
+    expect(radio("구성원").getAttribute("aria-checked")).toBe("true");
+    expect(
+      document.getElementById(
+        radio("팀 관리자").getAttribute("aria-describedby") ?? "",
+      )?.textContent,
+    ).toBe("이 팀이 담당 팀인 에이전트를 관리합니다.");
+    const save = within(dialog).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    // The role it already has saves nothing.
+    expect(save.disabled).toBe(true);
+    await user.click(radio("팀 관리자"));
+    expect(api.calls.some((c) => c.method === "PATCH")).toBe(false);
+    await user.click(save);
+    await waitFor(() =>
+      expect(said()).toContain(
+        "Mate님의 팀 역할을 팀 관리자(으)로 바꿨습니다.",
+      ),
+    );
+    expect(
+      api.calls
+        .filter((c) => c.method === "PATCH")
+        .map((c) => [c.path, c.body]),
+    ).toEqual([[`/v1/teams/${TEAM_ID}/members/${MATE_ID}`, { role: "lead" }]]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("table", { name: "팀 구성원" })).getByText(
+          "팀 관리자",
+        ),
+      ).toBeDefined(),
+    );
+    expect(server.team?.members[0]?.role).toBe("lead");
+  });
+
+  test("담당 팀인 팀을 지우려 하면 지우지 않고 그 에이전트 이름을 링크로 알린다", async () => {
+    const OTHER_ID = "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
+    const server = teamServer({
+      deleteRefusal: () =>
+        json(409, {
+          error: {
+            code: "TEAM_MANAGES_AGENTS",
+            message: "The team manages agents",
+            retryable: false,
+            request_id: "req-1",
+            details: { agent_ids: [AGENT_ID, OTHER_ID] },
+          },
+        }),
+    });
+    const { api, history } = renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      "GET /v1/agents": (request: Request) => {
+        const ids =
+          new URL(request.url).searchParams.get("ids")?.split(",") ?? [];
+        // Only one of them is still readable to this caller.
+        return json(200, {
+          items: ids
+            .filter((id) => id === AGENT_ID)
+            .map((id) => ({
+              id,
+              workspace_id: WORKSPACE_ID,
+              slug: "billing-bot",
+              name: "결제 봇",
+              description: null,
+              managing_team_id: TEAM_ID,
+              managing_team_name: "결제팀",
+              status: "active",
+              active_release_id: null,
+              activation_revision: 0,
+              created_by: USER_ID,
+              created_at: AT,
+              updated_at: AT,
+            })),
+          next_cursor: null,
+        });
+      },
+    });
+    const user = await setupUser();
+    const danger = await screen.findByRole("region", { name: "위험 구역" });
+    expect(danger.textContent).toContain(
+      "이 팀이 담당 팀인 에이전트가 있으면 그 에이전트의 담당 팀을 먼저 바꿔야 삭제할 수 있습니다.",
+    );
+    await user.click(within(danger).getByRole("button", { name: "팀 삭제" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "팀 삭제",
+      }),
+    );
+    const alert = await screen.findByRole("alert");
+    await waitFor(() =>
+      expect(alert.textContent).toContain(
+        "이 팀이 담당 팀인 에이전트가 있어 삭제하지 못했습니다. 아래 에이전트의 담당 팀을 먼저 바꾸세요.",
+      ),
+    );
+    const list = within(alert).getByRole("list", {
+      name: "이 팀이 담당 팀인 에이전트",
+    });
+    await waitFor(() =>
+      expect(
+        within(list)
+          .getByRole("link", { name: "결제 봇" })
+          .getAttribute("href"),
+      ).toBe(`/agents/${AGENT_ID}`),
+    );
+    expect(list.textContent).toContain("그 밖에 1개");
+    expect(
+      api.calls
+        .filter((c) => c.path === "/v1/agents")
+        .map((c) => new URLSearchParams(c.search).get("ids")),
+    ).toEqual([[AGENT_ID, OTHER_ID].sort().join(",")]);
+    expect(server.team).not.toBeNull();
+    expect(history.location.pathname).toBe(`/members/teams/${TEAM_ID}`);
+  });
+
+  test("담당 팀인 에이전트의 이름을 읽지 못하면 개수로 알린다", async () => {
+    const server = teamServer({
+      deleteRefusal: () =>
+        json(409, {
+          error: {
+            code: "TEAM_MANAGES_AGENTS",
+            message: "The team manages agents",
+            retryable: false,
+            request_id: "req-1",
+            details: { agent_ids: [AGENT_ID] },
+          },
+        }),
+    });
+    renderAt(`/members/teams/${TEAM_ID}`, {
+      ...server.routes,
+      "GET /v1/agents": () => apiError(500, "INTERNAL", "boom"),
+    });
+    const user = await setupUser();
+    const danger = await screen.findByRole("region", { name: "위험 구역" });
+    await user.click(within(danger).getByRole("button", { name: "팀 삭제" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "팀 삭제",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "이 팀이 담당 팀인 에이전트 1개가 있어 삭제하지 못했습니다. 각 에이전트의 담당 팀을 먼저 바꾸세요.",
+      ),
+    );
+  });
+
+  test("내가 속한 팀에 그 팀에서의 내 역할이 보인다", async () => {
+    renderAt("/members/teams", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/teams": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold team.manage"),
+      "GET /v1/my-teams": () =>
+        json(200, {
+          items: [{ id: TEAM_ID, name: "결제팀", role: "lead" }],
+          next_cursor: null,
+        }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "내가 속한 팀",
+    });
+    const row = within(section).getByRole("link", { name: "결제팀" })
+      .parentElement as HTMLElement;
+    expect(row.textContent).toBe("결제팀팀 관리자");
   });
 });
 

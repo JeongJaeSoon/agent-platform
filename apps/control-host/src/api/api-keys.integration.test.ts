@@ -240,10 +240,32 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     return user.id;
   }
 
-  async function agentWithRelease(cookie: string, slug: string) {
+  /** A team holding `members`, as rows: this app has no team routes. */
+  async function team(name: string, ...members: string[]) {
+    const teamId = crypto.randomUUID();
+    await db
+      .insert(schema.memberTeams)
+      .values({ id: teamId, workspaceId, name });
+    for (const userId of members) {
+      await db.insert(schema.memberTeamMembers).values({
+        id: crypto.randomUUID(),
+        workspaceId,
+        teamId,
+        userId,
+      });
+    }
+    return teamId;
+  }
+
+  async function agentWithRelease(
+    cookie: string,
+    slug: string,
+    teamId: string,
+  ) {
     const created = await send("POST", "/v1/agents", asCookie(cookie), {
       slug,
       name: slug,
+      managing_team_id: teamId,
       card,
     });
     expect(created.status).toBe(201);
@@ -339,8 +361,16 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     cookies.admin = await login("admin@example.com");
     cookies.other = await login("other@example.com");
 
-    const mine = await agentWithRelease(cookies.member, "reviewer");
-    const owners = await agentWithRelease(cookies.owner, "finance");
+    const mine = await agentWithRelease(
+      cookies.member,
+      "reviewer",
+      await team("reviewers", memberId),
+    );
+    const owners = await agentWithRelease(
+      cookies.owner,
+      "finance",
+      await team("finance"),
+    );
     agentIds.mine = mine.agentId;
     agentIds.owners = owners.agentId;
     releases.mine = mine.releaseId;

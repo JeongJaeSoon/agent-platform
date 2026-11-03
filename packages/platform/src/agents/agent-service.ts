@@ -353,14 +353,10 @@ export function createAgentService(deps: {
         ...(request.description === undefined
           ? {}
           : { description: request.description }),
-        ...(request.managing_team_id === undefined
-          ? {}
-          : {
-              managingTeam: {
-                id: request.managing_team_id,
-                managerRoles: TEAM_ASSIGNERS,
-              },
-            }),
+        managingTeam: {
+          id: request.managing_team_id,
+          managerRoles: TEAM_ASSIGNERS,
+        },
         card: request.card,
         contentSha256: cardContentSha256(request.card),
         createdBy: userId,

@@ -69,6 +69,8 @@ release로 만든 세션은 그보다 좁게, release에 고정된 도구만 쓴
 
 에이전트에는 담당 팀을 하나 정할 수 있다. 담당 팀의 팀 관리자(`lead`)는 그 에이전트의 관리자이고, 구성원(`member`)은 관리하지 않는다. owner·admin이 아니면 자기가 속한 팀만 담당 팀으로 고른다. 담당 팀으로 정해진 팀은 그 에이전트를 보관하거나 담당 팀을 옮기기 전에는 지울 수 없다.
 
+팀 역할은 콘솔의 팀 화면에서 본다. 구성원 표의 **팀 역할** 칸이 **팀 관리자**(`lead`)와 **구성원**(`member`)을 나누고, **내가 속한 팀** 목록에도 내 역할이 붙는다. owner·admin은 구성원 줄의 **역할 바꾸기**로 역할을 고르고 **저장**한다(`PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`). 담당 팀인 팀을 지우려 하면 콘솔은 삭제하지 않고 그 팀이 담당 팀인 에이전트 이름과 링크를 보인다(`409 TEAM_MANAGES_AGENTS`). 각 에이전트의 담당 팀을 먼저 바꾼다.
+
 에이전트를 보는 범위는 이렇다.
 
 | 누가 | 정보(이름·slug·설명·담당 팀·상태·활성 release) | 설정(카드·release·관리자·자격 연결·GitHub·Slack) 읽기 | 설정 바꾸기 |
@@ -110,6 +112,8 @@ curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
 ```
 
 `WID`는 `GET /v1/auth/me`의 `workspace.id`다.
+
+콘솔에서는 **워크스페이스 설정**의 **에이전트 접근**에서 바꾼다. **담당 팀 밖 구성원의 에이전트 접근**은 **보고 실행**(`use`)·**보기만**(`view`)·**숨김**(`none`), **워크스페이스 공개 세션**은 **담당 팀 안에만**(`managing_team`)·**모든 구성원**(`workspace`)이다. 바꾼 값만 보내고, 저장하면 화면이 `GET /v1/auth/me`를 다시 읽는다. owner·admin이 아닌 구성원에게는 고르는 칸 없이 지금 값만 보인다.
 
 <Callout>
 이전에는 `workspace` 공유 세션을 모든 member가 봤다. 지금은 기본값이 `managing_team`이라, 담당 팀을 정한 에이전트의 세션은 바로 안쪽만 본다. 예전처럼 보이려면 `agent_outsider_session_visibility`를 `workspace`로 바꾼다.

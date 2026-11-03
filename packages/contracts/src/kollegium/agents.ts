@@ -599,9 +599,12 @@ export const createAgentRequestSchema = z
     description: agentDescriptionSchema.optional(),
     /**
      * Owners and admins name any live team; anyone else only a team they are
-     * in. Optional for now; a later release requires it.
+     * in. Agents made before this was required keep a null one.
      */
-    managing_team_id: z.uuid().optional(),
+    managing_team_id: z.uuid({
+      error: (issue) =>
+        issue.input === undefined ? "managing_team_id is required" : undefined,
+    }),
     card: agentCardRequestSchema,
   })
   .strict();

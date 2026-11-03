@@ -54,7 +54,8 @@ ap_web GET "/v1/workspaces/$WS/github-app" | tee "$EVIDENCE/gh-app-get.txt"
 ap_web GET "/v1/workspaces/$WS/github-settings"            # revision 0, 모두 false
 ap_web PUT "/v1/workspaces/$WS/github-settings" '{"ceiling":{"workflows":false,"actions":true,"checks":false,"issues":false,"review":false},"revision":0}'
 CARD='{"role":"sandbox","instructions":"Follow the script.","language":"ko","model":"claude-sonnet-5","capabilities":{"tools":["Read","Bash"],"mcp":null,"forbidden":[]},"rules":[]}'
-A=$(ap_web POST /v1/agents "{\"slug\":\"sandbox\",\"name\":\"sandbox\",\"card\":$CARD}" | head -1)
+TEAM=$(ap_web POST /v1/teams '{"name":"sandbox"}' | head -1 | jq -r .team.id)
+A=$(ap_web POST /v1/agents "{\"slug\":\"sandbox\",\"name\":\"sandbox\",\"managing_team_id\":\"$TEAM\",\"card\":$CARD}" | head -1)
 AID=$(echo "$A" | jq -r .agent.id); VID=$(echo "$A" | jq -r '.versions[0].id')
 GH='{"repositories":["sandbox"],"push_approval":true,"features":{"workflows":false,"actions":true,"checks":false,"issues":false,"review":false},"actions_allow":[{"workflow":"sandbox-dispatch.yml"}]}'
 REL=$(ap_web POST "/v1/agents/$AID/releases" "$(jq -nc --arg v "$VID" --argjson g "$GH" '{version_id:$v, runtime_profile_id:"claude-coding-local", repository_id:"sandbox", github:$g}')" | head -1 | jq -r .release.id)

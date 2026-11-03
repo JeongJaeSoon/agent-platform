@@ -10,6 +10,7 @@ import {
   createAgentReleaseResponseSchema,
   type ListAgentsQuery,
   listAgentsResponseSchema,
+  requestBodyInvalidDetailsSchema,
 } from "@werft-ai/contracts";
 import {
   type AgentService,
@@ -525,7 +526,13 @@ describe("GET /v1/agents/counts", () => {
 });
 
 describe("POST /v1/agents", () => {
-  const body = { slug: "finance", name: "재무 분석가", card };
+  const TEAM = "019a0000-0000-7000-8000-0000000000c9";
+  const body = {
+    slug: "finance",
+    name: "재무 분석가",
+    managing_team_id: TEAM,
+    card,
+  };
 
   test("creates the agent with its first version", async () => {
     let created: unknown;
@@ -578,7 +585,6 @@ describe("POST /v1/agents", () => {
   });
 
   test("passes the managing team, and its refusals map to 404 and 403", async () => {
-    const TEAM = "019a0000-0000-7000-8000-0000000000c9";
     let asked: unknown;
     const created = await send(
       app(
@@ -591,7 +597,7 @@ describe("POST /v1/agents", () => {
       ),
       "POST",
       "/v1/agents",
-      { ...body, managing_team_id: TEAM },
+      body,
     );
     expect(created.status).toBe(201);
     expect(asked).toEqual({ id: TEAM, managerRoles: ["owner", "admin"] });
@@ -599,24 +605,52 @@ describe("POST /v1/agents", () => {
       app(store({ create: async () => ({ outcome: "team_not_found" }) })),
       "POST",
       "/v1/agents",
-      { ...body, managing_team_id: TEAM },
+      body,
     );
     expect(missing.status).toBe(404);
     const refused = await send(
       app(store({ create: async () => ({ outcome: "team_not_allowed" }) })),
       "POST",
       "/v1/agents",
-      { ...body, managing_team_id: TEAM },
+      body,
     );
     expect(refused.status).toBe(403);
-    expect(
-      (
-        await send(app(), "POST", "/v1/agents", {
-          ...body,
-          managing_team_id: null,
-        })
-      ).status,
-    ).toBe(400);
+  });
+
+  test("a body without a managing team is 400 naming managing_team_id, and nothing is written", async () => {
+    let writes = 0;
+    const issuesOf = async (sent: unknown) => {
+      const response = await send(
+        app(
+          store({
+            create: async () => {
+              writes += 1;
+              return { outcome: "created", detail };
+            },
+          }),
+        ),
+        "POST",
+        "/v1/agents",
+        sent,
+      );
+      expect(response.status).toBe(400);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(error.code).toBe("BAD_REQUEST");
+      expect(error.message).toBe("Request body is invalid");
+      return requestBodyInvalidDetailsSchema.parse(error.details).issues;
+    };
+    const { managing_team_id: _, ...withoutTeam } = body;
+    expect(await issuesOf(withoutTeam)).toEqual([
+      { path: "managing_team_id", message: "managing_team_id is required" },
+    ]);
+    for (const team of [null, "", "not-a-uuid"]) {
+      expect(
+        (await issuesOf({ ...body, managing_team_id: team })).map(
+          (issue) => issue.path,
+        ),
+      ).toEqual(["managing_team_id"]);
+    }
+    expect(writes).toBe(0);
   });
 
   test("refuses an API key and an oversized body", async () => {
