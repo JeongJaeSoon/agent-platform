@@ -890,23 +890,27 @@ export async function drainSlackOutbox(deps: {
   // Its failures only delay the statuses.
   const writeStatuses = async (until: number) => {
     const threadStatus = deps.outbox.threadStatus;
-    if (threadStatus === undefined) return;
-    try {
-      await reconcileSlackThreadStatuses({ store: threadStatus });
-      const statuses = await writeSlackThreadStatuses({
-        store: threadStatus,
-        slack: deps.slack,
-        botToken: botTokenOf,
-        logger: deps.logger,
-        batchSize: deps.batchSize,
-        deadline: until,
-        now,
-      });
-      drain.statuses = statuses.sent;
-    } catch (error) {
-      deps.logger.warn("Slack status step failed; going on", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    // A status backlog keeps only half the window, so the cards always get
+    // a turn.
+    const statusesUntil = now() + Math.max(0, until - now()) / 2;
+    if (threadStatus !== undefined) {
+      try {
+        await reconcileSlackThreadStatuses({ store: threadStatus });
+        const statuses = await writeSlackThreadStatuses({
+          store: threadStatus,
+          slack: deps.slack,
+          botToken: botTokenOf,
+          logger: deps.logger,
+          batchSize: deps.batchSize,
+          deadline: statusesUntil,
+          now,
+        });
+        drain.statuses = statuses.sent;
+      } catch (error) {
+        deps.logger.warn("Slack status step failed; going on", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     const cards = deps.outbox.cards;
     const updateMessage = deps.slack.updateMessage;

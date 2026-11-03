@@ -2750,6 +2750,64 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     expect(updated()).toHaveLength(1);
   });
 
+  test("a backlog of thread statuses leaves the cards half the window", async () => {
+    const { sessionId } = await cardThread();
+    // Three copies of the session in threads of their own, each status due.
+    const columns = async (table: string, skip: string[]) =>
+      (
+        (await db.execute(
+          sql`SELECT column_name FROM information_schema.columns
+              WHERE table_name = ${table}`,
+        )) as unknown as { rows: { column_name: string }[] }
+      ).rows
+        .map(({ column_name }) => column_name)
+        .filter((column) => !skip.includes(column))
+        .map((column) => `"${column}"`)
+        .join(", ");
+    const sessionRest = await columns("sessions", ["id"]);
+    const linkRest = await columns("session_links", [
+      "id",
+      "session_id",
+      "surface_ref",
+      "thread_id",
+    ]);
+    for (const n of [1, 2, 3]) {
+      const copy = randomUUID();
+      await db.execute(
+        sql.raw(`INSERT INTO sessions (id, ${sessionRest})
+          SELECT '${copy}', ${sessionRest} FROM sessions WHERE id = '${sessionId}'`),
+      );
+      await db.execute(
+        sql.raw(`INSERT INTO session_links (id, session_id, surface_ref, thread_id, ${linkRest})
+          SELECT gen_random_uuid(), '${copy}', '${CHANNEL}:30${n}.0', '30${n}.0', ${linkRest}
+          FROM session_links WHERE session_id = '${sessionId}'`),
+      );
+    }
+    await answerOn("web", randomUUID(), { decision: "allow" });
+    const start = Date.now();
+    let clock = start;
+    let statuses = 0;
+    const slowStatus = {
+      ...api,
+      // Each status takes a second of the pass.
+      setStatus: (...args: Parameters<typeof api.setStatus>) => {
+        clock += 1_000;
+        statuses += 1;
+        return api.setStatus(...args);
+      },
+    };
+    // The statuses-first step gets the first 4s of a 12s pass; the statuses
+    // stop at 2s, and the card goes in the 2s left.
+    await outboxPass({
+      slack: slowStatus,
+      deadline: start + 12_000,
+      statusesFirst: true,
+      now: () => clock,
+    });
+    expect(statuses).toBe(2);
+    expect(updated()).toHaveLength(1);
+  });
+
   test("expiry settles a card no one pressed", async () => {
     const first = await cardThread();
     await db
