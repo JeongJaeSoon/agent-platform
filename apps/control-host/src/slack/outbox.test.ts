@@ -42,6 +42,7 @@ import {
   sessions,
   slackApps,
   slackOutbox,
+  slackThreadStatus,
   turns,
   users,
   verifySlackInstallation,
@@ -67,8 +68,12 @@ import {
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_TEXT_MAX,
+  SLACK_THREAD_STATUS_TIMING,
   SlackApiError,
+  type SlackBotApi,
   slackBotToken,
+  reconcileSlackThreadStatuses,
+  writeSlackThreadStatuses,
   slackConversationKey,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
@@ -1852,5 +1857,527 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
     expect(JSON.stringify(logged)).not.toContain(BOT_CREDENTIAL);
     expect(JSON.stringify(await rows())).not.toContain(BOT_CREDENTIAL);
+  });
+});
+
+describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
+  useDatabase(engine);
+  const W = SLACK_THREAD_STATUS_TIMING.windowMs;
+  const LEASE = SLACK_THREAD_STATUS_TIMING.leaseMs;
+  const GRACE = SLACK_THREAD_STATUS_TIMING.graceMs;
+
+  const store = () => {
+    const found = createPostgresSlackOutboxStore(db).threadStatus;
+    if (!found) throw new Error("no thread status store");
+    return found;
+  };
+  const statusRows = () =>
+    db
+      .select()
+      .from(slackThreadStatus)
+      .orderBy(asc(slackThreadStatus.sessionLinkId));
+  const shown = () => slack.statuses.map((status) => status.status);
+  const api = createSlackBotApi({ apiUrl: slack.url });
+  const secrets = () => createPostgresSecretStore(db, key);
+
+  // A first setStatus that waits until released, then calls the fake Slack;
+  // the order the fake records is the order Slack applied them. Later calls
+  // go straight through.
+  function heldSlack() {
+    const held: { status: string; release: () => Promise<void> }[] = [];
+    let calls = 0;
+    const slackApi: Pick<SlackBotApi, "setStatus"> = {
+      setStatus: (token, input) => {
+        calls += 1;
+        if (held.length > 0) return api.setStatus(token, input);
+        return new Promise<void>((resolve, reject) => {
+          held.push({
+            status: input.status,
+            release: async () => {
+              await api.setStatus(token, input).then(resolve, reject);
+            },
+          });
+        });
+      },
+    };
+    return { held, slackApi, calls: () => calls };
+  }
+  const until = async (check: () => boolean) => {
+    for (let i = 0; i < 200 && !check(); i += 1) await Bun.sleep(10);
+    if (!check()) throw new Error("condition never held");
+  };
+  const writer = (
+    overrides: Partial<Parameters<typeof writeSlackThreadStatuses>[0]> = {},
+  ) =>
+    writeSlackThreadStatuses({
+      store: store(),
+      slack: api,
+      botToken: (workspaceId, slackAppId) =>
+        slackBotToken(secrets(), workspaceId, slackAppId),
+      logger,
+      batchSize: 10,
+      deadline: Date.now() + 10_000,
+      ...overrides,
+    });
+  // Moves every clock the rows hold back by `ms`, as if that long passed.
+  const elapse = (ms: number) =>
+    db.execute(sql`
+      UPDATE slack_thread_status SET
+        lease_expires_at = lease_expires_at - make_interval(secs => ${ms / 1000}),
+        inflight_at = inflight_at - make_interval(secs => ${ms / 1000}),
+        uncertain_latest_at = uncertain_latest_at - make_interval(secs => ${ms / 1000}),
+        next_at = next_at - make_interval(secs => ${ms / 1000}),
+        sent_at = sent_at - make_interval(secs => ${ms / 1000}),
+        disabled_at = disabled_at - make_interval(secs => ${ms / 1000})`);
+
+  async function sessionRow(sessionId: string) {
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    return session;
+  }
+
+  /** A request the session waits on: parked, so no live attempt is needed. */
+  async function waitOnPerson(sessionId: string, requestId = "toolu:1") {
+    const session = await sessionRow(sessionId);
+    const attemptId = `att-${randomUUID()}`;
+    await db.insert(attempts).values({
+      id: attemptId,
+      sessionId,
+      executionId: `exec-${attemptId}`,
+      leaseEpoch: session.leaseEpoch,
+      executionGeneration: session.executionGeneration,
+      authRevision: session.authRevision,
+      state: "running",
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    const [turn] = await db
+      .update(turns)
+      .set({ status: "needs_input", attemptId })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)))
+      .returning({ id: turns.id });
+    await db.insert(pendingRequests).values({
+      requestId,
+      sessionId,
+      turnId: turn?.id ?? 0,
+      attemptId,
+      kind: "permission",
+      payload: { kind: "permission", tool: "Bash", input: {} },
+      inputHash: "h",
+      expiresAt: new Date(Date.now() + 60_000),
+      parkedAt: new Date(),
+    });
+  }
+
+  async function idleThread() {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    return { fixture, sessionId };
+  }
+
+  test("the thread shows processing, then suspended on a request, then active; each once", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    expect(shown()).toEqual([]);
+    expect(await outboxPass()).toMatchObject({ statuses: 1 });
+    expect(shown()).toEqual(["processing"]);
+
+    await waitOnPerson(sessionId);
+    await outboxPass();
+    expect(shown()).toEqual(["processing", "suspended"]);
+
+    await db
+      .update(pendingRequests)
+      .set({ resolvedAt: new Date(), answeredAt: new Date() });
+    await endTurn(sessionId, 1, "completed", [[text("done")]]);
+    await outboxPass();
+    await outboxPass();
+    expect(shown()).toEqual(["processing", "suspended", "active"]);
+    expect(slack.statuses.at(-1)).toEqual({
+      channelId: CHANNEL,
+      threadTs: THREAD,
+      status: "active",
+    });
+  });
+
+  test("an approvable push waits on a person; a decided one does not", async () => {
+    const { sessionId } = await idleThread();
+    const session = await sessionRow(sessionId);
+    await db.update(sessions).set({ checkpointRevision: 1 });
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    const pushId = randomUUID();
+    await db.insert(pushRequests).values({
+      id: pushId,
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "a".repeat(40),
+      targetBranch: `agent/${sessionId}`,
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: receiptId,
+    });
+    await outboxPass();
+    expect(shown().at(-1)).toBe("suspended");
+    // Recovery refuses answers but not push decisions.
+    await db.update(sessions).set({ admissionState: "recovery_required" });
+    await outboxPass();
+    expect(shown().at(-1)).toBe("suspended");
+    await db
+      .update(pushRequests)
+      .set({
+        state: "rejected",
+        decidedAt: new Date(),
+        decidedBy: { kind: "policy" },
+        decisionReceiptId: receiptId,
+      })
+      .where(eq(pushRequests.id, pushId));
+    await outboxPass();
+    expect(shown().at(-1)).toBe("active");
+  });
+
+  test("a late active never lands after the suspended computed later, with two writers", async () => {
+    const { sessionId } = await idleThread();
+    const first = heldSlack();
+    const writing = writer({ slack: first.slackApi });
+    await until(() => first.held.length === 1);
+    expect(first.held[0]?.status).toBe("active");
+
+    await waitOnPerson(sessionId);
+    // The other replica finds the row leased and sends nothing.
+    const second = heldSlack();
+    expect(await writer({ slack: second.slackApi })).toMatchObject({
+      claimed: 0,
+    });
+    expect(second.calls()).toBe(0);
+
+    await first.held[0]?.release();
+    // Its own next turn finds the row dirty again and sends what is now.
+    expect(await writing).toMatchObject({ sent: 2 });
+    expect(shown()).toEqual(["active", "suspended"]);
+    const [row] = await statusRows();
+    expect(row).toMatchObject({ sentStatus: "suspended" });
+    expect(row?.sentRev).toBe(row?.dirtyRev);
+
+    // Two replicas at once: one sends.
+    await db
+      .update(pendingRequests)
+      .set({ resolvedAt: new Date(), answeredAt: new Date() });
+    await endTurn(sessionId, 1, "completed");
+    const [replicaA, replicaB] = await Promise.all([writer(), writer()]);
+    expect((replicaA?.sent ?? 0) + (replicaB?.sent ?? 0)).toBe(1);
+    expect(shown()).toEqual(["active", "suspended", "active"]);
+  });
+
+  test("a held send is not taken over before its lease and grace end; after, the latest goes again", async () => {
+    const { sessionId } = await idleThread();
+    const first = heldSlack();
+    const writing = writer({ slack: first.slackApi });
+    await until(() => first.held.length === 1);
+    await waitOnPerson(sessionId);
+
+    // The lease ran out, the grace has not.
+    await elapse(LEASE + GRACE / 2);
+    expect(await writer()).toMatchObject({ claimed: 0, expired: 0 });
+    expect(shown()).toEqual([]);
+
+    // Past the grace the send's outcome is unknown: recorded, not resent
+    // until the window has passed.
+    await elapse(GRACE);
+    expect(await writer()).toMatchObject({ expired: 1, claimed: 0 });
+    expect((await statusRows())[0]).toMatchObject({
+      uncertainRev: 1,
+      inflightAt: null,
+      claimToken: null,
+    });
+    await elapse(W);
+    expect(await writer()).toMatchObject({ sent: 1 });
+    expect(shown()).toEqual(["suspended"]);
+
+    // The old call lands late, over the newer one; its fence fails, so the
+    // row is uncertain again and the latest goes once more a window later.
+    await first.held[0]?.release();
+    expect(await writing).toMatchObject({ uncertain: 1 });
+    expect(shown()).toEqual(["suspended", "active"]);
+    const [row] = await statusRows();
+    expect(row?.sentRev).toBe(row?.dirtyRev);
+    expect(row?.uncertainLatestAt).not.toBeNull();
+    expect(await writer()).toMatchObject({ claimed: 0 });
+    await elapse(W);
+    expect(await writer()).toMatchObject({ sent: 1 });
+    expect(shown()).toEqual(["suspended", "active", "suspended"]);
+    expect((await statusRows())[0]).toMatchObject({
+      uncertainLatestAt: null,
+      nextAt: null,
+    });
+  });
+
+  test("a writer that died mid-send leaves its row resent a window later, the same value included", async () => {
+    await idleThread();
+    await outboxPass();
+    expect(shown()).toEqual(["active"]);
+    const [claim] = await store().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+    });
+    // Nothing is due; force a claim as a writer would on a later change.
+    expect(claim).toBeUndefined();
+    await db.execute(
+      sql`UPDATE slack_thread_status SET dirty_rev = dirty_rev + 1`,
+    );
+    const [dying] = await store().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+    });
+    if (!dying) throw new Error("nothing claimed");
+    expect(await store().beginSend(dying, 15_000)).not.toBeNull();
+    // It dies here; Slack may or may not have taken its call.
+    await db.execute(sql`UPDATE slack_thread_status SET sent_rev = dirty_rev`);
+    await elapse(LEASE + GRACE + 1_000);
+    expect(await writer()).toMatchObject({ expired: 1, sent: 0 });
+    await elapse(W);
+    expect(await writer()).toMatchObject({ sent: 1 });
+    expect(shown()).toEqual(["active", "active"]);
+    expect((await statusRows())[0]).toMatchObject({ uncertainLatestAt: null });
+  });
+
+  test("timeouts in a row push the resend past the latest; a new one during the resend is kept", async () => {
+    await idleThread();
+    const timeout: Pick<SlackBotApi, "setStatus"> = {
+      setStatus: async () => {
+        throw new SlackApiError(
+          "agents.sessions.setStatus",
+          "timeout",
+          false,
+        );
+      },
+    };
+    expect(await writer({ slack: timeout })).toMatchObject({ uncertain: 1 });
+    // Four minutes on a send times out again (the row let go early here):
+    // the bound moves to that send + W.
+    await elapse(4 * 60_000);
+    await db.update(slackThreadStatus).set({ nextAt: sql`now()` });
+    expect(await writer({ slack: timeout })).toMatchObject({ uncertain: 1 });
+    const { rows: bound } = (await db.execute(
+      sql`SELECT uncertain_rev,
+            next_at > now() + make_interval(secs => ${W / 1000 - 10}) AS later
+          FROM slack_thread_status`,
+    )) as unknown as { rows: { uncertain_rev: number; later: boolean }[] };
+    expect(bound).toEqual([{ uncertain_rev: 2, later: true }]);
+    expect(await writer()).toMatchObject({ claimed: 0 });
+
+    // The resend succeeds while another writer records a new uncertainty:
+    // the number moved, so the mark stays.
+    await elapse(W);
+    const late: Pick<SlackBotApi, "setStatus"> = {
+      setStatus: async (token, input) => {
+        const [current] = await statusRows();
+        await store().uncertain(
+          { sessionLinkId: current?.sessionLinkId ?? "", claimToken: randomUUID() },
+          new Date(),
+          W,
+        );
+        await api.setStatus(token, input);
+      },
+    };
+    expect(await writer({ slack: late })).toMatchObject({ sent: 1 });
+    expect((await statusRows())[0]?.uncertainLatestAt).not.toBeNull();
+  });
+
+  test("a request that expires without a press turns the thread active on the next drain", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await waitOnPerson(sessionId);
+    await outboxPass();
+    expect(shown()).toEqual(["suspended"]);
+    await endTurn(sessionId, 1, "completed");
+    await outboxPass();
+    expect(shown()).toEqual(["suspended"]);
+    // Expiry is a clock, not a write: hide the trigger's mark.
+    await db.update(pendingRequests).set({ expiresAt: new Date(Date.now() - 1) });
+    await db.execute(sql`UPDATE slack_thread_status SET sent_rev = dirty_rev`);
+    await outboxPass();
+    expect(shown()).toEqual(["suspended", "active"]);
+  });
+
+  test("a request parked in recovery shows active; a parked one otherwise suspended", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await waitOnPerson(sessionId);
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused", pauseReason: "awaiting_input" });
+    await outboxPass();
+    expect(shown()).toEqual(["suspended"]);
+    await db.update(sessions).set({ admissionState: "recovery_required" });
+    await outboxPass();
+    expect(shown()).toEqual(["suspended", "active"]);
+  });
+
+  test("120 links are each reconciled once in three drains", async () => {
+    const { fixture, sessionId } = await idleThread();
+    const columns = async (table: string) =>
+      (
+        (await db.execute(
+          sql`SELECT column_name FROM information_schema.columns
+              WHERE table_name = ${table} AND column_name <> 'id'
+              ORDER BY ordinal_position`,
+        )) as unknown as { rows: { column_name: string }[] }
+      ).rows.map(({ column_name }) => `"${column_name}"`);
+    const sessionColumns = await columns("sessions");
+    const linkColumns = (await columns("session_links")).filter(
+      (column) => !['"session_id"', '"surface_ref"', '"thread_id"'].includes(column),
+    );
+    for (let i = 0; i < 119; i += 1) {
+      const id = randomUUID();
+      await db.execute(
+        sql.raw(`INSERT INTO sessions (id, ${sessionColumns.join(", ")})
+          SELECT '${id}', ${sessionColumns.join(", ")} FROM sessions WHERE id = '${sessionId}'`),
+      );
+      await db.execute(
+        sql.raw(`INSERT INTO session_links (id, session_id, surface_ref, thread_id, ${linkColumns.join(", ")})
+          SELECT gen_random_uuid(), '${id}', '${CHANNEL}:${200 + i}.0', '${200 + i}.0', ${linkColumns.join(", ")}
+          FROM session_links WHERE session_id = '${sessionId}'`),
+      );
+    }
+    void fixture;
+    await db.delete(slackThreadStatus);
+    const passes = [];
+    for (let i = 0; i < 3; i += 1) {
+      passes.push(await reconcileSlackThreadStatuses({ store: store() }));
+    }
+    // Unreconciled first: the third pass takes the last 20, then the oldest.
+    expect(passes.map((pass) => pass.checked)).toEqual([50, 50, 50]);
+    const stamped = await statusRows();
+    expect(stamped).toHaveLength(120);
+    expect(stamped.every((row) => row.reconciledAt !== null)).toBe(true);
+  });
+
+  test("processing is sent again after 50 minutes, before Slack drops it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    await outboxPass();
+    await outboxPass();
+    expect(shown()).toEqual(["processing"]);
+    await elapse(51 * 60_000);
+    await db.update(slackThreadStatus).set({ reconciledAt: null });
+    await outboxPass();
+    expect(shown()).toEqual(["processing", "processing"]);
+  });
+
+  test("a status Slack will not show stops nothing and is not asked again until a day passes or the app is verified again", async () => {
+    const { sessionId } = await idleThread();
+    slack.failures.set("agents.sessions.setStatus", "not_authorized");
+    let calls = 0;
+    const counting = {
+      ...api,
+      setStatus: (...args: Parameters<SlackBotApi["setStatus"]>) => {
+        calls += 1;
+        return api.setStatus(...args);
+      },
+    };
+    expect(await outboxPass({ slack: counting })).toMatchObject({ sent: 1 });
+    expect(calls).toBe(1);
+    expect((await statusRows())[0]).toMatchObject({
+      disabledReason: "not_authorized",
+    });
+    await askFrom(sessionId, 2, "web", "more", true);
+    await outboxPass({ slack: counting });
+    await outboxPass({ slack: counting });
+    expect(calls).toBe(1);
+
+    await elapse(24 * 60 * 60_000 + 1_000);
+    await outboxPass({ slack: counting });
+    expect(calls).toBe(2);
+    await db.execute(
+      sql`UPDATE slack_installations SET verified_at = now() + interval '1 second'`,
+    );
+    await outboxPass({ slack: counting });
+    expect(calls).toBe(3);
+
+    // Any other failure only delays the status; the answers still go.
+    slack.failures.set("agents.sessions.setStatus", "internal_error");
+    await endTurn(sessionId, 2, "completed", [[text("ok")]]);
+    await db.update(slackThreadStatus).set({ nextAt: null });
+    expect(await outboxPass({ slack: counting })).toMatchObject({
+      statuses: 0,
+    });
+    expect(calls).toBe(4);
+    expect(posted().map((message) => message.text.split("\n")[0])).toContain(
+      "ok",
+    );
+    expect((await statusRows())[0]?.disabledReason).toBeNull();
+  });
+
+  test("each write that changes the session's state marks its thread due when it commits", async () => {
+    const { sessionId } = await idleThread();
+    await outboxPass();
+    const rev = async () => Number((await statusRows())[0]?.dirtyRev);
+    let last = await rev();
+    const raised = async () => {
+      const now = await rev();
+      const moved = now > last;
+      last = now;
+      return moved;
+    };
+    await addTurn(sessionId, 2);
+    expect(await raised()).toBe(true);
+    await waitOnPerson(sessionId);
+    expect(await raised()).toBe(true);
+    await db.update(pendingRequests).set({ resolvedAt: new Date() });
+    expect(await raised()).toBe(true);
+    await endTurn(sessionId, 2, "completed");
+    expect(await raised()).toBe(true);
+    await db.update(sessions).set({ admissionState: "paused" });
+    expect(await raised()).toBe(true);
+    await db.update(sessions).set({ checkpointRevision: 7 });
+    expect(await raised()).toBe(true);
+    await db
+      .update(sessions)
+      .set({ executionRevokedAt: new Date(), executionRevokedReason: "test" });
+    expect(await raised()).toBe(true);
+    await db.update(sessionLinks).set({ muted: true });
+    expect(await raised()).toBe(true);
+    // No send in between: the writer reads the state once, at the end.
+    expect(shown()).toEqual(["active"]);
+  });
+
+  test("a rolled-back write marks nothing; an unrelated session update marks nothing", async () => {
+    const { sessionId } = await idleThread();
+    await outboxPass();
+    const before = (await statusRows())[0]?.dirtyRev;
+    await db
+      .transaction(async (tx) => {
+        await tx
+          .update(sessions)
+          .set({ admissionState: "paused" })
+          .where(eq(sessions.id, sessionId));
+        throw new Error("rollback");
+      })
+      .catch(() => {});
+    await db
+      .update(sessions)
+      .set({ revision: sql`${sessions.revision} + 1` })
+      .where(eq(sessions.id, sessionId));
+    expect((await statusRows())[0]?.dirtyRev).toBe(before);
   });
 });
