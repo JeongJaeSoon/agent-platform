@@ -398,6 +398,38 @@ describe("the engine's own co-author", () => {
     git(["commit", "-q", "--allow-empty", "-m", message], { engine: true });
     expect(lastMessage()).toBe(["Extra", "", ...SESSION_LINES].join("\n"));
   });
+
+  test("ignores trailer settings from the repository and from git -c", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const engineCmd = `echo "Claude <noreply@anthropic.com>"`;
+    git(["config", "trailer.Agent-Session.key", "Other"]);
+    git(["config", "trailer.Co-authored-by.cmd", engineCmd]);
+    git(["commit", "-q", "--allow-empty", "-m", "Local config"], {
+      engine: true,
+    });
+    expect(lastMessage()).toBe(
+      ["Local config", "", ...SESSION_LINES].join("\n"),
+    );
+    git(["config", "--unset", "trailer.Agent-Session.key"]);
+    git(["config", "--unset", "trailer.Co-authored-by.cmd"]);
+    git(
+      [
+        "-c",
+        "trailer.Agent-Session.key=Other",
+        "-c",
+        `trailer.Co-authored-by.cmd=${engineCmd}`,
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "Command line config",
+      ],
+      { engine: true },
+    );
+    expect(lastMessage()).toBe(
+      ["Command line config", "", ...SESSION_LINES].join("\n"),
+    );
+  });
 });
 
 describe("the engine's git settings", () => {

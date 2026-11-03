@@ -60,6 +60,13 @@ werft_add_trailers() {
       esac
     done <"$_werft_trailers"
     [ $# -gt 0 ] || exit 0
+    # Outside any repository and with no config at all: a repository's or a
+    # `git -c` trailer.* setting could otherwise rename these keys or run a
+    # command that writes other lines.
+    case $_werft_file in /*) ;; *) _werft_file=$PWD/$_werft_file ;; esac
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CONFIG GIT_CONFIG_PARAMETERS
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0
+    cd / || exit 1
     exec git interpret-trailers --if-exists addIfDifferent --in-place "$@" "$_werft_file"
   )
 }
