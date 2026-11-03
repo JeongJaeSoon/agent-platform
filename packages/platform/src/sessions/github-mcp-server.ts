@@ -24,6 +24,24 @@ import { SessionServiceError } from "./session-service.ts";
  * request body picks the session.
  */
 
+/**
+ * What to do about a pull request call refused as not_pushed, by the push
+ * request's state. No promise that a pull request opens later: a push
+ * approved outside Slack starts no follow-up turn.
+ */
+function notPushedGuidance(details: unknown): string | null {
+  if (!isRecord(details) || details.refusal !== "not_pushed") return null;
+  switch (details.push_request_state) {
+    case "requested":
+      return "The push request is waiting for a person to approve it, so nothing is pushed yet and calling this tool again will not move it forward. Do not call it again in this turn: end your turn, and ask a person to approve the push.";
+    case "approved":
+    case "pushing":
+      return "The push is approved and runs in the background: wait a few seconds and call this tool again.";
+    default:
+      return null;
+  }
+}
+
 const GRANT_VERSION = "v1";
 export const GITHUB_MCP_GRANT_TTL_MS = 60_000;
 
@@ -290,10 +308,12 @@ export function createGitHubMcpServer(deps: {
             ...(error.details === null ? {} : { details: error.details }),
           });
         }
+        const guidance = notPushedGuidance(error.details);
         return text(
           {
             code: error.code,
             message: error.message,
+            ...(guidance === null ? {} : { guidance }),
             ...(error.details === null ? {} : { details: error.details }),
           },
           true,

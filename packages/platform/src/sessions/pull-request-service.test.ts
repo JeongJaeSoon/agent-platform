@@ -552,7 +552,13 @@ describe("opening a pull request", () => {
         ),
       ).toEqual({
         code: "PUSH_NOT_PUSHED",
-        details: { refusal: "not_pushed", receipt_id: "receipt-1" },
+        // The model tells a push waiting for a person from one still running
+        // by this state.
+        details: {
+          refusal: "not_pushed",
+          receipt_id: "receipt-1",
+          push_request_state: state,
+        },
       });
       expect(calls).toEqual([]);
       expect(receipts[0]).toMatchObject({
@@ -944,14 +950,15 @@ describe("a caller that may submit to the session", () => {
     const pushing = harness({ authorization: policy, state: "pushing" });
     pushing.saved.push(pulled);
     expect(
-      (
-        await refusal(
-          pushing.service.update(submitter, SESSION, PUSH, {
-            readBody: async () => ({ title: "Not yet" }),
-          }),
-        )
-      ).code,
-    ).toBe("PUSH_NOT_PUSHED");
+      await refusal(
+        pushing.service.update(submitter, SESSION, PUSH, {
+          readBody: async () => ({ title: "Not yet" }),
+        }),
+      ),
+    ).toMatchObject({
+      code: "PUSH_NOT_PUSHED",
+      details: { refusal: "not_pushed", push_request_state: "pushing" },
+    });
     expect(pushing.calls).toEqual([]);
   });
 
@@ -978,7 +985,7 @@ describe("a caller that may submit to the session", () => {
       ),
     ).toMatchObject({
       code: "PUSH_NOT_PUSHED",
-      details: { refusal: "not_pushed" },
+      details: { refusal: "not_pushed", push_request_state: "pushing" },
     });
     expect(commenting.calls).toEqual([]);
 
