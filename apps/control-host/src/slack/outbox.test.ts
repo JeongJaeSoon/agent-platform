@@ -2348,10 +2348,82 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     expect(shown()).toEqual(["active"]);
   });
 
-  test("a pass whose posts used up the deadline still sends a status batch", async () => {
-    await idleThread();
-    await outboxPass({ deadline: Date.now() - 1 });
-    expect(shown()).toEqual(["active"]);
+  test("a backlog of posts leaves the last third of the pass to the statuses", async () => {
+    const { sessionId } = await idleThread();
+    await askFrom(sessionId, 2, "web", "more", true);
+    await endTurn(sessionId, 2, "completed", [[text("ok")]]);
+    let clock = Date.now();
+    const slow = {
+      ...api,
+      // Each post takes ten seconds of the pass.
+      postMessage: (...args: Parameters<typeof api.postMessage>) => {
+        clock += 10_000;
+        return api.postMessage(...args);
+      },
+    };
+    await outboxPass({
+      slack: slow,
+      batchSize: 1,
+      deadline: clock + 12_000,
+      now: () => clock,
+    });
+    expect(posted()).toHaveLength(1);
+    expect(shown().length).toBeGreaterThan(0);
+  });
+
+  test("a status row reached after the deadline is handed back, not sent late", async () => {
+    const { sessionId } = await idleThread();
+    // A copy of the session in a second thread.
+    const columns = async (table: string, skip: string[]) =>
+      (
+        (await db.execute(
+          sql`SELECT column_name FROM information_schema.columns
+              WHERE table_name = ${table}`,
+        )) as unknown as { rows: { column_name: string }[] }
+      ).rows
+        .map(({ column_name }) => column_name)
+        .filter((column) => !skip.includes(column))
+        .map((column) => `"${column}"`)
+        .join(", ");
+    const copy = randomUUID();
+    const sessionRest = await columns("sessions", ["id"]);
+    const linkRest = await columns("session_links", [
+      "id",
+      "session_id",
+      "surface_ref",
+      "thread_id",
+    ]);
+    await db.execute(
+      sql.raw(`INSERT INTO sessions (id, ${sessionRest})
+        SELECT '${copy}', ${sessionRest} FROM sessions WHERE id = '${sessionId}'`),
+    );
+    await db.execute(
+      sql.raw(`INSERT INTO session_links (id, session_id, surface_ref, thread_id, ${linkRest})
+        SELECT gen_random_uuid(), '${copy}', '${CHANNEL}:300.0', '300.0', ${linkRest}
+        FROM session_links WHERE session_id = '${sessionId}'`),
+    );
+    expect(await statusRows()).toHaveLength(2);
+    let late = false;
+    const deadline = Date.now() + 10_000;
+    const lateSlack = {
+      ...api,
+      setStatus: (...args: Parameters<SlackBotApi["setStatus"]>) => {
+        late = true;
+        return api.setStatus(...args);
+      },
+    };
+    const pass = await writer({
+      slack: lateSlack,
+      deadline,
+      now: () => (late ? deadline : Date.now()),
+    });
+    expect(pass).toMatchObject({ sent: 1, deferred: 1 });
+    expect(shown()).toHaveLength(1);
+    expect((await statusRows()).every((row) => row.claimToken === null)).toBe(
+      true,
+    );
+    await writer();
+    expect(shown()).toHaveLength(2);
   });
 
   test("each write that changes the session's state marks its thread due when it commits", async () => {

@@ -412,6 +412,11 @@ export async function drainSlackOutbox(deps: {
   now?: () => number;
 }): Promise<SlackOutboxDrain> {
   const now = deps.now ?? Date.now;
+  // The last third of the pass is kept for thread statuses, so a backlog
+  // of posts cannot hold them back pass after pass.
+  const started = now();
+  const postsDeadline =
+    started + Math.max(0, deps.deadline - started) * (2 / 3);
   const drain: SlackOutboxDrain = {
     enqueued: 0,
     claimed: 0,
@@ -533,7 +538,7 @@ export async function drainSlackOutbox(deps: {
   });
   if (deps.botToken === null) return drain;
 
-  while (now() < deps.deadline) {
+  while (now() < postsDeadline) {
     const batch = await deps.outbox.claim({
       limit: deps.batchSize,
       leaseMs: deps.leaseMs,

@@ -183,9 +183,7 @@ export async function writeSlackThreadStatuses(deps: {
     graceMs: timing.graceMs,
     windowMs: timing.windowMs,
   });
-  // One batch even past the deadline, so a pass the posts used up still
-  // moves the statuses on.
-  for (let first = true; first || now() < deps.deadline; first = false) {
+  while (now() < deps.deadline) {
     const batch = await deps.store.claim({
       limit: deps.batchSize,
       leaseMs: timing.leaseMs,
@@ -199,6 +197,12 @@ export async function writeSlackThreadStatuses(deps: {
         channel_id: claim.channelId,
       };
       try {
+        if (now() >= deps.deadline) {
+          // Out of time: hand the row back for the next pass.
+          await deps.store.defer(claim, 0);
+          pass.deferred += 1;
+          continue;
+        }
         const facts = await deps.store.facts(claim.sessionId);
         if (facts === null) {
           if (await deps.store.skip(claim, claim.dirtyRev)) pass.skipped += 1;
