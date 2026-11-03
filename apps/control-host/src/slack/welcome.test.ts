@@ -31,6 +31,7 @@ import {
   registerSlackInstallation,
   slackApps,
   slackOutbox,
+  surfaceBindings,
   users,
   verifySlackInstallation,
   workspaces,
@@ -64,7 +65,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -432,7 +433,7 @@ async function settled(until: () => boolean) {
 describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
   useDatabase(engine);
 
-  test("a public home is joined once, then each new release says so once in it", async () => {
+  test("a public home is joined once and welcomed once, whatever release goes live", async () => {
     const [home] = slack.seedChannels([{ name: "home" }]);
     const channel = home?.id ?? "";
     const fixture = await installedAgent();
@@ -459,15 +460,14 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     expect((await fixture.activate(first.id)).receipt_id).toBeNull();
     expect(await outboxRows()).toHaveLength(1);
 
+    // A new release in the same channel: it heard its welcome already.
     const { release: second } = await fixture.release("changed");
     await fixture.activate(second.id);
-    // Back to the first: a rollback announces nothing.
     await fixture.activate(first.id);
 
     const rows = await outboxRows();
     expect(rows.map((row) => row.dedupeKey)).toEqual([
-      deploymentWelcomeKey(fixture.agentId, first.id, bound.slack_binding.id),
-      deploymentWelcomeKey(fixture.agentId, second.id, bound.slack_binding.id),
+      deploymentWelcomeKey(fixture.agentId, bound.slack_binding.id),
     ]);
     expect(rows[0]).toMatchObject({
       kind: "welcome",
@@ -476,7 +476,7 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
       status: "pending",
     });
 
-    expect(await outboxPass()).toMatchObject({ sent: 2 });
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
     expect(slack.messages).toEqual([
       expect.objectContaining({
         method: "chat.postMessage",
@@ -484,10 +484,75 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
         threadTs: null,
         text: slackWelcomeText("Notes"),
       }),
-      expect.objectContaining({ threadTs: null }),
     ]);
     // No thread, so no thread status to clear.
     expect(slack.statuses).toEqual([]);
+  });
+
+  test("each home channel hears once: a moved home is welcomed, moving back is not", async () => {
+    const [home, other] = slack.seedChannels([
+      { name: "home" },
+      { name: "other" },
+    ]);
+    const fixture = await installedAgent();
+    const first = await fixture.bind(home?.id ?? "", true);
+    const { release } = await fixture.release();
+    await fixture.activate(release.id);
+    const moved = await fixture.bind(other?.id ?? "", true);
+    await fixture.finalize();
+    const { release: second } = await fixture.release("changed");
+    await fixture.activate(second.id);
+    await fixture.bind(home?.id ?? "", true);
+    await fixture.finalize();
+
+    expect((await outboxRows()).map((row) => row.dedupeKey)).toEqual([
+      deploymentWelcomeKey(fixture.agentId, first.slack_binding.id),
+      deploymentWelcomeKey(fixture.agentId, moved.slack_binding.id),
+    ]);
+  });
+
+  test("a home welcomed under the old per-release key is not welcomed again", async () => {
+    const [home] = slack.seedChannels([{ name: "home" }]);
+    const fixture = await installedAgent();
+    const bound = await fixture.bind(home?.id ?? "", true);
+    const { release } = await fixture.release();
+    await fixture.activate(release.id);
+    // What a welcome sent before 94S-1298 left behind.
+    const legacy = `deployment-welcome:${fixture.agentId}:${release.id}:${bound.slack_binding.id}`;
+    await db
+      .update(slackOutbox)
+      .set({ dedupeKey: legacy, status: "sent" })
+      .where(eq(slackOutbox.kind, "welcome"));
+
+    const { release: second } = await fixture.release("changed");
+    await fixture.activate(second.id);
+    await fixture.finalize();
+
+    expect((await outboxRows()).map((row) => row.dedupeKey)).toEqual([legacy]);
+  });
+
+  test("a channel bound again after a disconnect is not welcomed again", async () => {
+    const [home] = slack.seedChannels([{ name: "home" }]);
+    const channel = home?.id ?? "";
+    const fixture = await installedAgent();
+    const before = await fixture.bind(channel, true);
+    const { release } = await fixture.release();
+    await fixture.activate(release.id);
+    // What revoking the install's identity does to its bindings.
+    await db
+      .update(surfaceBindings)
+      .set({ status: "revoked", home: false, revokedAt: new Date() })
+      .where(eq(surfaceBindings.id, before.slack_binding.id));
+
+    const after = await fixture.bind(channel, true);
+    expect(after.slack_binding.id).not.toBe(before.slack_binding.id);
+    await fixture.finalize();
+    const { release: second } = await fixture.release("changed");
+    await fixture.activate(second.id);
+
+    expect((await outboxRows()).map((row) => row.dedupeKey)).toEqual([
+      deploymentWelcomeKey(fixture.agentId, before.slack_binding.id),
+    ]);
   });
 
   test("a private home waits for the invite: no row before it, one after, then duplicate", async () => {
@@ -547,7 +612,7 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     // Forward again to the newest: that one is announced.
     await fixture.activate(second.id);
     expect((await outboxRows()).map((row) => row.dedupeKey)).toEqual([
-      deploymentWelcomeKey(fixture.agentId, second.id, bound.slack_binding.id),
+      deploymentWelcomeKey(fixture.agentId, bound.slack_binding.id),
     ]);
   });
 
@@ -586,7 +651,12 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
     const [row] = await outboxRows();
     if (!row) throw new Error("no welcome");
     const outbox = createPostgresSlackOutboxStore(db);
-    const entry = { ...row, dedupeKey: "deployment-welcome:probe" };
+    // Another channel: this one heard its welcome already.
+    const entry = {
+      ...row,
+      channelId: "C0PROBE",
+      dedupeKey: "deployment-welcome:probe",
+    };
     const homeId = bound.slack_binding.id;
 
     expect(
