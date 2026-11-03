@@ -62,7 +62,8 @@ export function createPostgresSlackThreadStatusStore(
   db: Database,
 ): SlackThreadStatusStore {
   const factsOf = async (sessionIds: string[]) => {
-    if (sessionIds.length === 0) return new Map<string, SlackThreadStatusFacts>();
+    if (sessionIds.length === 0)
+      return new Map<string, SlackThreadStatusFacts>();
     const turnIs = (statuses: SQL) =>
       sql<boolean>`EXISTS (SELECT 1 FROM turns t WHERE t.session_id = ${SESSION_ID} AND t.status IN (${statuses}))`;
     const rows = await db
@@ -86,10 +87,12 @@ export function createPostgresSlackThreadStatusStore(
         ), '[]'::json)`,
       })
       .from(sessions)
-      .where(sql`${sessions.id} IN (${sql.join(
-        sessionIds.map((id) => sql`${id}::uuid`),
-        sql`, `,
-      )})`);
+      .where(
+        sql`${sessions.id} IN (${sql.join(
+          sessionIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`,
+      );
     return new Map(
       rows.map((row) => [
         row.id,

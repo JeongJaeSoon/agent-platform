@@ -63,6 +63,7 @@ import {
   createSlackBotApi,
   drainSlackInbox,
   drainSlackOutbox,
+  reconcileSlackThreadStatuses,
   SecretKey,
   type SessionCatalogConfig,
   SLACK_OUTBOX_MESSAGES,
@@ -72,9 +73,8 @@ import {
   SlackApiError,
   type SlackBotApi,
   slackBotToken,
-  reconcileSlackThreadStatuses,
-  writeSlackThreadStatuses,
   slackConversationKey,
+  writeSlackThreadStatuses,
 } from "@werft-ai/platform";
 import { startFakeSlackApi } from "@werft-ai/testkit/fake-slack-api";
 import {
@@ -2162,11 +2162,7 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     await idleThread();
     const timeout: Pick<SlackBotApi, "setStatus"> = {
       setStatus: async () => {
-        throw new SlackApiError(
-          "agents.sessions.setStatus",
-          "timeout",
-          false,
-        );
+        throw new SlackApiError("agents.sessions.setStatus", "timeout", false);
       },
     };
     expect(await writer({ slack: timeout })).toMatchObject({ uncertain: 1 });
@@ -2190,7 +2186,10 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
       setStatus: async (token, input) => {
         const [current] = await statusRows();
         await store().uncertain(
-          { sessionLinkId: current?.sessionLinkId ?? "", claimToken: randomUUID() },
+          {
+            sessionLinkId: current?.sessionLinkId ?? "",
+            claimToken: randomUUID(),
+          },
           new Date(),
           W,
         );
@@ -2212,7 +2211,9 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     await outboxPass();
     expect(shown()).toEqual(["suspended"]);
     // Expiry is a clock, not a write: hide the trigger's mark.
-    await db.update(pendingRequests).set({ expiresAt: new Date(Date.now() - 1) });
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: new Date(Date.now() - 1) });
     await db.execute(sql`UPDATE slack_thread_status SET sent_rev = dirty_rev`);
     await outboxPass();
     expect(shown()).toEqual(["suspended", "active"]);
@@ -2245,7 +2246,8 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
       ).rows.map(({ column_name }) => `"${column_name}"`);
     const sessionColumns = await columns("sessions");
     const linkColumns = (await columns("session_links")).filter(
-      (column) => !['"session_id"', '"surface_ref"', '"thread_id"'].includes(column),
+      (column) =>
+        !['"session_id"', '"surface_ref"', '"thread_id"'].includes(column),
     );
     for (let i = 0; i < 119; i += 1) {
       const id = randomUUID();

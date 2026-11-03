@@ -27,13 +27,13 @@ import { markdownToSlackMrkdwn } from "./slack-mrkdwn.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";
 import { slackPromptMessage } from "./slack-prompts.ts";
 import {
-  reconcileSlackThreadStatuses,
-  writeSlackThreadStatuses,
-} from "./slack-session-status.ts";
-import {
   classifySlackSendResult,
   SLACK_SEND_MAX_ATTEMPTS,
 } from "./slack-send-result.ts";
+import {
+  reconcileSlackThreadStatuses,
+  writeSlackThreadStatuses,
+} from "./slack-session-status.ts";
 
 /** chat.postMessage truncates `text` past this many characters. */
 export const SLACK_TEXT_MAX = 40_000;

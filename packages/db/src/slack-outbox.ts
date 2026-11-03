@@ -39,10 +39,6 @@ import {
 } from "./push-requests.ts";
 import type { Database } from "./queries.ts";
 import {
-  createPostgresSlackThreadStatusStore,
-  touchSlackThreadStatus,
-} from "./slack-thread-status.ts";
-import {
   agents,
   attempts,
   events,
@@ -58,6 +54,10 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import {
+  createPostgresSlackThreadStatusStore,
+  touchSlackThreadStatus,
+} from "./slack-thread-status.ts";
 
 const t = slackOutbox;
 

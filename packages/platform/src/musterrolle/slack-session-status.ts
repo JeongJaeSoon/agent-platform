@@ -8,7 +8,11 @@ import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 
 /** What `agents.sessions.setStatus` shows under a Slack thread. */
-export type SlackThreadStatus = "processing" | "suspended" | "active" | "closed";
+export type SlackThreadStatus =
+  | "processing"
+  | "suspended"
+  | "active"
+  | "closed";
 
 /**
  * - `recovery`: answers to its pending requests cannot carry the session on
@@ -86,7 +90,10 @@ export async function slackStatusMaterial(
   facts: SlackThreadStatusFacts,
   pushSource?: PushSource,
 ): Promise<SlackSessionStatusMaterial> {
-  const session = { id: sessionId, checkpointRevision: facts.checkpointRevision };
+  const session = {
+    id: sessionId,
+    checkpointRevision: facts.checkpointRevision,
+  };
   let approvablePush = false;
   for (const push of facts.requestedPushes) {
     const verdict = await pushApprovability(
