@@ -52,9 +52,11 @@ export const API_ERROR_CODE_VALUES = [
   "AGENT_IDENTITY_TAKEN",
   // Slack apps: the workspace's App Configuration Token is unset
   // or Slack no longer takes it; an app for the agent is being created, or
-  // its creation's answer was lost; the agent has no active release yet.
+  // its creation's answer was lost; Slack no longer has the app the platform
+  // recorded; the agent has no active release yet.
   "CONFIG_TOKEN_INVALID",
   "SLACK_APP_CREATING",
+  "SLACK_APP_GONE",
   "AGENT_NOT_ACTIVE",
   // Installing an agent's Slack app: the install link's state is unknown,
   // spent, expired or another's; Slack sent the admin back with an error;

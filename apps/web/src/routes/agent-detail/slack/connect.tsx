@@ -87,8 +87,8 @@ export function SlackConnect({
   const appTarget = record?.app_id
     ? `${t("slack.appId")} ${record.app_id}`
     : undefined;
-  // At most one: the server reports the first reason sessions would fail.
-  const warning = app.data?.warnings[0];
+  // At most one reason sessions would fail, after any token issuer change.
+  const warnings = app.data?.warnings ?? [];
   const refresh = () => cache.invalidateQueries({ queryKey: key });
   const connect = useMutation({
     mutationFn: async () => {
@@ -212,16 +212,19 @@ export function SlackConnect({
             </Badge>
           )}
         </div>
-        {warning ? (
-          <Alert variant="amber">
+        {warnings.map((warning) => (
+          <Alert key={warning.code} variant="amber">
             <AlertTitle>{t(SLACK_WARNING_KEY[warning.code].title)}</AlertTitle>
             <AlertDescription>
               {t(SLACK_WARNING_KEY[warning.code].body, {
                 profile: "profile_id" in warning ? warning.profile_id : "",
+                previous:
+                  "previous_user_id" in warning ? warning.previous_user_id : "",
+                user: "user_id" in warning ? warning.user_id : "",
               })}
             </AlertDescription>
           </Alert>
-        ) : null}
+        ))}
         {record && (record.app_id || manage) ? (
           <RowList variant="joined">
             {record.app_id ? (

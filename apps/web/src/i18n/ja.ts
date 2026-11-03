@@ -34,6 +34,8 @@ export const slackJa = {
     "Slack のインストールが拒否されました。Slack タブから再インストールできます。",
   "slack.error.expired":
     "インストールリンクは期限切れか使用済みです。Slack タブから再インストールしてください。",
+  "slack.error.gone":
+    "Slack でこのアプリが見つかりません。削除されたか、別の Slack ユーザー・ワークスペースで作成されたアプリです。危険な操作でアプリを削除してからもう一度インストールすると、新しいアプリが作成されます。",
   "slack.error.rejected":
     "Slack アプリまたはワークスペースが一致しません。Slack タブからやり直してください。",
   "slack.error.cursor":
@@ -72,6 +74,9 @@ export const slackJa = {
   "slack.repositoryRequired.title": "Slack からはセッションを開始できません",
   "slack.repositoryRequired.body":
     "有効なリリースのプロファイル（{profile}）はセッションごとにリポジトリが必要ですが、リリースに使えるリポジトリがありません（選ばれていないか、カタログから外れています）。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。接続はできます。リリースタブでリポジトリを選んで新しいリリースを作成し、有効化してください。",
+  "slack.issuerChanged.title": "別の Slack ユーザーが作成したアプリです",
+  "slack.issuerChanged.body":
+    "アプリを作成した Slack ユーザー（{previous}）と、現在の App Configuration Token のユーザー（{user}）が異なります。このトークンではアプリのインストールや変更ができない場合があります。インストールに失敗したら、危険な操作でアプリを削除して、もう一度インストールしてください。",
   "slack.profileUnavailable.title": "Slack からはセッションを開始できません",
   "slack.profileUnavailable.body":
     "有効なリリースのプロファイル（{profile}）がカタログにないか、リリース後に変更されたか、運用担当者がブロックしました。Slack のメンションと DM は拒否され、スレッドに案内だけが残ります。リリースタブで使えるプロファイルの新しいリリースを作成し、有効化してください。",

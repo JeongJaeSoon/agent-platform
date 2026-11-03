@@ -47,6 +47,7 @@ const CREATING_AGENT = "019a0000-0000-7000-8000-0000000000c6";
 const DELETING_AGENT = "019a0000-0000-7000-8000-0000000000c7";
 const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000c8";
 const UNKNOWN_AGENT = "019a0000-0000-7000-8000-0000000000c9";
+const GONE_AGENT = "019a0000-0000-7000-8000-0000000000ca";
 const OWNER = "019a0000-0000-7000-8000-0000000000d1";
 const AGENT_ADMIN = "019a0000-0000-7000-8000-0000000000d2";
 const ORIGIN = "https://console.example.ts.net";
@@ -311,6 +312,8 @@ const setup = (async () => {
   seed(CREATING_AGENT, "creating");
   seed(DELETING_AGENT, "deleting");
   seed(OTHER_AGENT, "created", OTHER_WORKSPACE);
+  // Made by a Slack that no longer has it, as a mock Slack's app is.
+  seed(GONE_AGENT, "created");
 })();
 
 describe("starting an install", () => {
@@ -388,6 +391,34 @@ describe("starting an install", () => {
     const off = await appWith(false)(startPath(AGENT), { cookie: owner() });
     expect(off.status).toBe(503);
   });
+
+  test("an app Slack no longer has is refused before a link is made", async () => {
+    await setup;
+    const before = installs.states.size;
+    const gone = await call(startPath(GONE_AGENT), { cookie: owner() });
+    expect([gone.status, code(gone.json)]).toMatchObject([
+      409,
+      {
+        code: "SLACK_APP_GONE",
+        details: { slack_app_id: appOf(GONE_AGENT).id, app_id: "A0SEEDca" },
+      },
+    ]);
+    expect(installs.states.size).toBe(before);
+    expect(slack.state.calls.at(-1)).toEqual({
+      method: "apps.manifest.export",
+      appId: "A0SEEDca",
+    });
+  });
+
+  test("when Slack cannot say whether the app is there, the link is made", async () => {
+    await setup;
+    slack.state.next.export = async () => {
+      throw new SlackApiError("apps.manifest.export", "timeout", false);
+    };
+    const url = new URL(await start(AGENT, owner()));
+    handled.push(url.searchParams.get("state") ?? "");
+    expect(url.searchParams.get("client_id")).toBe(appOf(AGENT).clientId);
+  });
 });
 
 describe("completing an install", () => {
@@ -429,6 +460,7 @@ describe("completing an install", () => {
     });
     expect(body.receipt_id).not.toBeNull();
     expect(slack.state.calls.slice(before).map((c) => c.method)).toEqual([
+      "apps.manifest.export",
       "oauth.v2.access",
       "auth.test",
       "bots.info",
@@ -602,7 +634,12 @@ describe("completing an install", () => {
       "agent",
       "app",
     ]);
-    expect(slack.state.calls.length).toBe(before);
+    // Only each start's check reached Slack.
+    expect(
+      slack.state.calls
+        .slice(before)
+        .filter((c) => c.method !== "apps.manifest.export"),
+    ).toEqual([]);
   });
 
   test("Slack's answer for another app or team, an org install or missing scopes stores nothing", async () => {
@@ -641,7 +678,7 @@ describe("completing an install", () => {
       { reason_code: "scope", missing_scopes: ["chat:write"] },
     ]);
     expect(slack.state.calls.slice(before).map((c) => c.method)).toEqual(
-      Array(4).fill("oauth.v2.access"),
+      Array(4).fill(["apps.manifest.export", "oauth.v2.access"]).flat(),
     );
     expect(botTokenSlots().filter((key) => key.includes(app.id))).toEqual([]);
     expect(

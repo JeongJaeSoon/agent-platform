@@ -29,7 +29,12 @@ import {
 } from "./policy.ts";
 import { NOT_FOUND } from "./service-errors.ts";
 import { slackAppView } from "./slack-app-service.ts";
-import { SlackApiError, type SlackInstallApi } from "./slack-config-api.ts";
+import {
+  SLACK_APP_GONE_CODES,
+  SlackApiError,
+  type SlackConfigApi,
+  type SlackInstallApi,
+} from "./slack-config-api.ts";
 import {
   configTokenInvalid,
   type SlackConfigTokens,
@@ -138,6 +143,13 @@ const slackCallDetails = (error: SlackApiError) => ({
   ...(error.httpStatus === null ? {} : { http_status: error.httpStatus }),
   ...(error.failure === "slack_error" ? { slack_error: error.code } : {}),
 });
+const appGone = (app: SlackAppRecord) =>
+  new SessionServiceError(
+    "SLACK_APP_GONE",
+    "Slack no longer shows this agent's app to the config token's user: it was deleted, or made by another Slack user or team. Delete the app here and create it again",
+    undefined,
+    { slack_app_id: app.id, app_id: app.appId },
+  );
 const unsettled = (what: string) =>
   new SessionServiceError(
     "REVISION_CONFLICT",
@@ -170,7 +182,7 @@ export function createSlackInstallService(deps: {
   secrets: SecretStore | null;
   tokens: SlackConfigTokens | null;
   identities: AgentIdentityStore;
-  api: SlackInstallApi;
+  api: SlackInstallApi & Pick<SlackConfigApi, "exportApp">;
   finalize?: SlackInstallFinalize;
   now?: () => Date;
 }) {
@@ -232,6 +244,28 @@ export function createSlackInstallService(deps: {
     return null;
   }
 
+  // Slack's consent screen answers "Invalid client_id" for an app it does
+  // not have. Only Slack saying so stops the link; a check that fails any
+  // other way leaves the consent screen to decide.
+  async function slackLacksApp(
+    tokens: SlackConfigTokens,
+    workspaceId: string,
+    appId: string,
+  ): Promise<boolean> {
+    try {
+      await tokens.withToken(workspaceId, (token) =>
+        api.exportApp(token, appId),
+      );
+      return false;
+    } catch (error) {
+      return (
+        error instanceof SlackApiError &&
+        error.answered &&
+        SLACK_APP_GONE_CODES.has(error.code)
+      );
+    }
+  }
+
   return {
     /** A fresh single-use link to Slack's consent screen for the agent's app. */
     async start(
@@ -251,11 +285,18 @@ export function createSlackInstallService(deps: {
           { slack_app_id: app.id, uncertain: false },
         );
       }
-      if (app.state !== "created" || app.clientId === null) {
+      if (
+        app.state !== "created" ||
+        app.clientId === null ||
+        app.appId === null
+      ) {
         throw unsettled("This agent's Slack app is being deleted");
       }
       const teamId = (await tokens.describe(workspaceId)).issuer?.teamId;
       if (!teamId) throw configTokenInvalid("not_set");
+      if (await slackLacksApp(tokens, workspaceId, app.appId)) {
+        throw appGone(app);
+      }
       const at = now();
       const expiresAt = new Date(
         at.getTime() + SLACK_INSTALL_STATE_TTL_SECONDS * 1000,
