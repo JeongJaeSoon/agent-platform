@@ -217,6 +217,33 @@ export function createPostgresSlackOutboxStore(
           if (await releaseSuperseded(tx, input.agentId, whileHome.releaseId)) {
             return "not_home";
           }
+          if (input.kind === "welcome") {
+            // The key covers one binding. A channel bound again after the
+            // install was disconnected has a new binding, and rows from
+            // before 94S-1298 keyed each release: the channel heard it all
+            // the same. Channel ids are only unique within a Slack team.
+            const team = tx
+              .select({ teamId: slackInstallations.teamId })
+              .from(slackInstallations)
+              .where(eq(slackInstallations.id, input.installationId));
+            const [heard] = await tx
+              .select({ id: t.id })
+              .from(t)
+              .innerJoin(
+                slackInstallations,
+                eq(slackInstallations.id, t.installationId),
+              )
+              .where(
+                and(
+                  eq(t.kind, "welcome"),
+                  eq(t.agentId, input.agentId),
+                  eq(t.channelId, input.channelId),
+                  inArray(slackInstallations.teamId, team),
+                ),
+              )
+              .limit(1);
+            if (heard) return "duplicate";
+          }
         }
         const [row] = await tx
           .insert(t)
