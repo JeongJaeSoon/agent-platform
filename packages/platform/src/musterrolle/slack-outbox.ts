@@ -543,8 +543,14 @@ export async function settleSlackCards(deps: {
     });
     pass.due = await store.markDue();
     // Only the platform can read the manifest pushApprovability needs.
-    if (deps.pushSource !== undefined) {
-      for (const push of await store.openPushCards(deps.batchSize)) {
+    let afterSeq: number | null = null;
+    while (deps.pushSource !== undefined && now() < deps.deadline) {
+      const page = await store.openPushCards({
+        limit: deps.batchSize,
+        afterSeq,
+      });
+      for (const push of page) {
+        afterSeq = push.seq;
         const verdict = await pushApprovability(
           {
             id: push.sessionId,
@@ -558,11 +564,12 @@ export async function settleSlackCards(deps: {
           pass.due += 1;
         }
       }
+      if (page.length < deps.batchSize) break;
     }
   }
   const failed = async (claim: SlackCardClaim, error: string) => {
     const attempts = claim.attempts + 1;
-    if (attempts > timing.maxAttempts) {
+    if (attempts >= timing.maxAttempts) {
       await store.abandon(claim, error);
       pass.abandoned += 1;
       return;

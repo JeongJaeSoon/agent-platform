@@ -3019,12 +3019,13 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     await reopen();
     calls = 0;
     const failing = refusing(Array(10).fill("internal_error"));
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
       expect(await settler({ slack: failing })).toMatchObject({ deferred: 1 });
       expect(await cardRow()).toMatchObject({ settleAttempts: attempt });
       await elapse(31 * 60_000);
     }
     expect(await settler({ slack: failing })).toMatchObject({ abandoned: 1 });
+    expect(calls).toBe(5);
 
     // Gone for good: abandoned at once, never claimed again.
     await reopen();

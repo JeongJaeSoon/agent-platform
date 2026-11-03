@@ -364,11 +364,11 @@ export function createPostgresSlackCardSettleStore(
       );
     },
 
-    async openPushCards(limit) {
+    async openPushCards({ limit, afterSeq }) {
       const rows = await rowsOf(
         db,
         sql`
-          SELECT o.id, o.session_id, coalesce(o.settle_rendered, 'open') AS rendered,
+          SELECT o.id, o.seq, o.session_id, coalesce(o.settle_rendered, 'open') AS rendered,
             s.checkpoint_revision AS session_revision,
             p.checkpoint_revision, p.git_commit
           FROM slack_outbox o
@@ -381,11 +381,13 @@ export function createPostgresSlackCardSettleStore(
             AND ${SHOWS_CHOICE}
             AND (s.checkpoint_revision IS DISTINCT FROM p.checkpoint_revision
               OR o.settle_rendered = 'reject_only')
+            AND (${afterSeq}::bigint IS NULL OR o.seq > ${afterSeq}::bigint)
           ORDER BY o.seq
           LIMIT ${limit}`,
       );
       return rows.map((row) => ({
         id: row.id as string,
+        seq: Number(row.seq),
         sessionId: row.session_id as string,
         rendered: row.rendered as "open" | "reject_only",
         sessionCheckpointRevision:

@@ -344,6 +344,7 @@ export type SlackCardClaim = SlackCardFence & {
 /** A push card still showing a choice, for `pushApprovability`. */
 export type SlackOpenPushCard = {
   id: string;
+  seq: number;
   sessionId: string;
   rendered: "open" | "reject_only";
   sessionCheckpointRevision: number | null;
@@ -367,8 +368,15 @@ export interface SlackCardSettleStore {
   markDueAt(card: { channelId: string; slackTs: string }): Promise<boolean>;
   /** Marks one card `due` by its row (a push whose approvability moved). */
   markDueById(id: string): Promise<boolean>;
-  /** Push cards still showing a choice whose session has moved on since. */
-  openPushCards(limit: number): Promise<SlackOpenPushCard[]>;
+  /**
+   * Push cards still showing a choice whose session has moved on since, in
+   * `seq` order after `afterSeq`, so a pass can page past cards that stay
+   * as they are.
+   */
+  openPushCards(input: {
+    limit: number;
+    afterSeq: number | null;
+  }): Promise<SlackOpenPushCard[]>;
   /** Edits that outlived the lease and its grace become uncertain. */
   expireInflight(input: { graceMs: number; windowMs: number }): Promise<number>;
   /**

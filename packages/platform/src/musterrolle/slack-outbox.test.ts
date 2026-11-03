@@ -1,15 +1,73 @@
 import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
-import type { SlackOutboxEntry } from "../ports/slack-outbox-store.ts";
+import type {
+  SlackCardSettleStore,
+  SlackOpenPushCard,
+  SlackOutboxEntry,
+} from "../ports/slack-outbox-store.ts";
+import type { PushSource } from "../sessions/push-request-service.ts";
 import {
   createOutboxSlackNoticeSink,
   finalReplyText,
   SLACK_OUTBOX_MESSAGES,
   SLACK_TEXT_MAX,
+  settleSlackCards,
   slackOutboxText,
   slackPromptDedupeKey,
   slackTurnDedupeKey,
 } from "./slack-outbox.ts";
+
+describe("settleSlackCards", () => {
+  test("pages past push cards that stay reject-only, so a later one still gets its Reject-only card", async () => {
+    const push = (seq: number, rendered: "open" | "reject_only") =>
+      ({
+        id: `card-${seq}`,
+        seq,
+        sessionId: `session-${seq}`,
+        rendered,
+        sessionCheckpointRevision: 2,
+        checkpointRevision: 1,
+        gitCommit: "a".repeat(40),
+      }) satisfies SlackOpenPushCard;
+    const open = [
+      push(1, "reject_only"),
+      push(2, "reject_only"),
+      push(3, "open"),
+    ];
+    const marked: string[] = [];
+    const store = {
+      expireInflight: async () => 0,
+      markDue: async () => 0,
+      openPushCards: async ({ limit, afterSeq }) =>
+        open
+          .filter((card) => afterSeq === null || card.seq > afterSeq)
+          .slice(0, limit),
+      markDueById: async (id) => {
+        marked.push(id);
+        return true;
+      },
+      claim: async () => [],
+    } as Partial<SlackCardSettleStore> as SlackCardSettleStore;
+    const pushSource = {
+      readPushSource: async () => ({
+        status: "ready",
+        revision: 2,
+        gitCommit: "b".repeat(40),
+      }),
+    } as unknown as PushSource;
+    const pass = await settleSlackCards({
+      store,
+      slack: { updateMessage: async () => {} },
+      botToken: async () => null,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      pushSource,
+      batchSize: 1,
+      deadline: Date.now() + 60_000,
+    });
+    expect(marked).toEqual(["card-3"]);
+    expect(pass.due).toBe(1);
+  });
+});
 
 describe("createOutboxSlackNoticeSink", () => {
   const record = async (locale: UserLocale | null) => {
