@@ -18,10 +18,61 @@ function githubInput(tool: GitHubMcpTool, raw: unknown): unknown {
   return GITHUB_MCP_TOOL_ARGUMENTS[tool].parse(raw);
 }
 
-const ko = (tool: string, input: unknown, context = {}) =>
-  summarizeToolRequest(tool, input, context, "ko");
+/** The line alone; the file tools' excerpt has tests of its own. */
+const ko = (tool: string, input: unknown, context = {}) => {
+  const { verb, target } = summarizeToolRequest(tool, input, context, "ko");
+  return { verb, target };
+};
 
 describe("summarizeToolRequest", () => {
+  test("a file tool's excerpt is the first lines of what it writes, with real line breaks", () => {
+    // The owner's report: a Write card showed this as one JSON string.
+    const content =
+      "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n\n- `notes/`: 예시 텍스트 파일\n";
+    const write = summarizeToolRequest(
+      "Write",
+      { file_path: "README.md", content },
+      {},
+      "ko",
+    );
+    expect(write).toEqual({
+      verb: "파일 쓰기",
+      target: "README.md",
+      excerpt:
+        "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
+    });
+    expect(write.excerpt).not.toContain("\\n");
+    expect(
+      summarizeToolRequest(
+        "Edit",
+        { file_path: "a.ts", old_string: "x", new_string: "const a = 1;" },
+        {},
+        "ko",
+      ).excerpt,
+    ).toBe("const a = 1;");
+    expect(
+      summarizeToolRequest(
+        "MultiEdit",
+        { file_path: "a.ts", edits: [{ old_string: "x", new_string: "y" }] },
+        {},
+        "ko",
+      ).excerpt,
+    ).toBe("y");
+    expect(
+      summarizeToolRequest("Write", { file_path: "a" }, {}, "ko").excerpt,
+    ).toBeNull();
+    expect(
+      summarizeToolRequest("Bash", { command: "ls" }, {}, "ko").excerpt,
+    ).toBeNull();
+    const long = summarizeToolRequest(
+      "Write",
+      { file_path: "a", content: "x".repeat(1000) },
+      {},
+      "ko",
+    ).excerpt;
+    expect([...(long ?? "")].length).toBeLessThanOrEqual(300);
+  });
+
   test("built-in tools", () => {
     expect(
       ko("Bash", { command: "npm test", description: "Run the tests" }),
@@ -166,7 +217,11 @@ describe("summarizeToolRequest", () => {
     });
     expect(
       summarizeToolRequest("mcp__linear__save_issue", {}, {}, "en"),
-    ).toEqual({ verb: "Use the save_issue tool of linear", target: null });
+    ).toEqual({
+      verb: "Use the save_issue tool of linear",
+      target: null,
+      excerpt: null,
+    });
     expect(ko("Task", { prompt: "x" })).toEqual({
       verb: "Task 도구 사용",
       target: null,

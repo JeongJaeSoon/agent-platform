@@ -83,7 +83,41 @@ const COMMAND_MAX = 120;
 const URL_PATH_MAX = 40;
 const GITHUB = `${MCP_TOOL_PREFIX}github__`;
 
-export type ToolSummary = { verb: string; target: string | null };
+/**
+ * `excerpt`: the first lines of what a file tool writes, so a person sees
+ * the content without opening the raw input; null for other tools.
+ */
+export type ToolSummary = {
+  verb: string;
+  target: string | null;
+  excerpt: string | null;
+};
+
+const EXCERPT_LINES = 3;
+const EXCERPT_MAX = 300;
+
+function excerptOf(text: string | null): string | null {
+  if (text === null) return null;
+  const lines = text.split("\n");
+  const head = clip(
+    lines
+      .slice(0, EXCERPT_LINES)
+      .map((line) => clip(line, COMMAND_MAX))
+      .join("\n"),
+    EXCERPT_MAX,
+  );
+  return lines.length > EXCERPT_LINES && !head.endsWith("…")
+    ? `${head}\n…`
+    : head;
+}
+
+function editedText(input: unknown): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const edits = (input as { edits?: unknown }).edits;
+  return Array.isArray(edits)
+    ? field(edits[0], "new_string")
+    : field(input, "new_string");
+}
 
 const clip = (value: string, max: number) => {
   const chars = [...value];
@@ -132,9 +166,14 @@ export function summarizeToolRequest(
   locale: UserLocale,
 ): ToolSummary {
   const copy = SLACK_SUMMARY_MESSAGES[locale];
-  const summary = (verb: string, target: string | null): ToolSummary => ({
+  const summary = (
+    verb: string,
+    target: string | null,
+    excerpt: string | null = null,
+  ): ToolSummary => ({
     verb: clip(verb, VERB_MAX),
     target: target === null ? null : clip(target, TARGET_MAX),
+    excerpt: excerptOf(excerpt),
   });
   switch (tool) {
     case "Bash":
@@ -144,11 +183,23 @@ export function summarizeToolRequest(
       );
     case "Edit":
     case "MultiEdit":
-      return summary(copy.editFile, field(input, "file_path"));
+      return summary(
+        copy.editFile,
+        field(input, "file_path"),
+        editedText(input),
+      );
     case "NotebookEdit":
-      return summary(copy.editFile, field(input, "notebook_path"));
+      return summary(
+        copy.editFile,
+        field(input, "notebook_path"),
+        field(input, "new_source"),
+      );
     case "Write":
-      return summary(copy.writeFile, field(input, "file_path"));
+      return summary(
+        copy.writeFile,
+        field(input, "file_path"),
+        field(input, "content"),
+      );
     case "Read":
       return summary(copy.readFile, field(input, "file_path"));
     case "Glob":
@@ -183,7 +234,7 @@ function githubSummary(
   input: unknown,
   context: ToolSummaryContext,
   copy: SummaryCopy,
-): ToolSummary | null {
+): Omit<ToolSummary, "excerpt"> | null {
   if (!tool.startsWith(GITHUB)) return null;
   const head = headOf(context);
   switch (tool.slice(GITHUB.length)) {

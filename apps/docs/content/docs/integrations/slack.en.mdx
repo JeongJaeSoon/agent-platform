@@ -70,7 +70,7 @@ Model answers and what users type are not translated. The deployment welcome has
 
 When a session started from a Slack thread waits on a person, each request it waits on gets one card in that thread. The card mentions whoever started the session and shows a link to the same request on the web and when it expires. A card is written in the language of whoever started the session ([Notice language](#notice-language)) when it is posted, and keeps that language once settled.
 
-A tool permission card sums up what the agent wants to do in one line, such as `Run a command: bun test`, `Edit a file: src/app.ts` or `Open a PR: title (branch)`. The raw input the model passed is folded under **Raw input** and shows only when expanded. A push approval card shows the repository, branch and commit first and folds the rest under **Details**. Text the model wrote never becomes a mention or a link anywhere on the card.
+A tool permission card sums up what the agent wants to do in one line, such as `Run a command: bun test`, `Edit a file: src/app.ts` or `Open a PR: title (branch)`. A tool that writes or edits a file also shows the first three lines of what it writes under the summary. The raw input the model passed is folded under **Raw input** and shows only when expanded. It shows each field as `name: value`, with line breaks inside a value shown as real line breaks rather than `\n`. A long raw input is cut; **Open on the web** shows all of it. A push approval card shows the repository, branch and commit first and folds the rest under **Details**. Text the model wrote never becomes a mention or a link anywhere on the card.
 
 | Request | What the card offers |
 | --- | --- |
