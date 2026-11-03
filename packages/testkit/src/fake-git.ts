@@ -78,25 +78,31 @@ export async function startFakeGit(options: FakeGitOptions): Promise<FakeGit> {
   }
 
   const requests: FakeGitRequest[] = [];
-  const server = Bun.serve({
-    hostname: options.hostname ?? "127.0.0.1",
-    port: options.port ?? 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/healthz") return new Response("ok\n");
-      if (url.pathname === "/requests") return Response.json(requests);
-      const response = await serveGitHttp(root, request, url);
-      requests.push({
-        method: request.method,
-        path: `${url.pathname}${url.search}`,
-        status: response.status,
-      });
-      if (requests.length > requestLimit) {
-        requests.splice(0, requests.length - requestLimit);
-      }
-      return response;
-    },
-  });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({
+      hostname: options.hostname ?? "127.0.0.1",
+      port: options.port ?? 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/healthz") return new Response("ok\n");
+        if (url.pathname === "/requests") return Response.json(requests);
+        const response = await serveGitHttp(root, request, url);
+        requests.push({
+          method: request.method,
+          path: `${url.pathname}${url.search}`,
+          status: response.status,
+        });
+        if (requests.length > requestLimit) {
+          requests.splice(0, requests.length - requestLimit);
+        }
+        return response;
+      },
+    });
+  } catch (error) {
+    await rm(root, { force: true, recursive: true });
+    throw error;
+  }
   const port = server.port ?? 0;
   return {
     origin: `http://${options.hostname ?? "127.0.0.1"}:${port}`,

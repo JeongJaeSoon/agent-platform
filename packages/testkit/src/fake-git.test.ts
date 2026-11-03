@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type FakeGit, startFakeGit } from "./fake-git.ts";
@@ -218,5 +218,25 @@ describe("startFakeGit", () => {
     await expect(startFakeGit({ repositories: [] })).rejects.toThrow(
       /at least one repository/,
     );
+  });
+
+  test("removes the seeded repositories when the port cannot be bound", async () => {
+    const leftovers = async () =>
+      (await readdir(tmpdir())).filter((name) => name.startsWith("fake-git-"));
+    const taken = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response(),
+    });
+    try {
+      const before = await leftovers();
+
+      await expect(
+        startFakeGit({ repositories: ["sample-app"], port: taken.port ?? 0 }),
+      ).rejects.toThrow();
+      expect(await leftovers()).toEqual(before);
+    } finally {
+      taken.stop(true);
+    }
   });
 });
