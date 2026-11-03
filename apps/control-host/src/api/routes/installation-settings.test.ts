@@ -128,6 +128,15 @@ describe("POST /v1/installation/settings/import", () => {
     ] as const) {
       expect((await request({}, "POST", path, body)).status).toBe(400);
     }
+    // The outline is the route's to refuse: its issues name the field, and
+    // the service's `invalid_document` is left to the entries.
+    const outline = await request({}, "POST", IMPORT_PATH, {
+      ...DOCUMENT,
+      version: 2,
+    });
+    expect(
+      apiErrorResponseSchema.parse(await outline.json()).error.details,
+    ).toMatchObject({ issues: [{ path: "version" }] });
     expect(
       (
         await request(

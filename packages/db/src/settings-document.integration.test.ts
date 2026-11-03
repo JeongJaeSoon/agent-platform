@@ -333,10 +333,36 @@ integration("settings document import and export", () => {
       "import_repository",
       "import_repository",
     ]);
+    // A receipt names its destination and where the credential lives, never
+    // the credential's reference.
+    const fields = {
+      import_connection: [
+        "connection_id",
+        "credential_source",
+        "endpoint",
+        "kind",
+      ],
+      import_repository: [
+        "auth_kind",
+        "branch",
+        "credential_source",
+        "repository_id",
+        "source",
+        "url",
+      ],
+      import_mcp_server: [
+        "credential_ref",
+        "credential_source",
+        "mcp_server_id",
+        "url",
+      ],
+    } as Record<string, string[]>;
     for (const row of written) {
       expect(row.actor).toBeNull();
       expect(row.ownerId).toBe(actor.workspaceId);
-      expect(JSON.stringify(row.result)).not.toContain("PROVIDER_KEY_VALUE");
+      expect(Object.keys(row.result as object).sort()).toEqual(
+        fields[row.operation] ?? [],
+      );
     }
   });
 
