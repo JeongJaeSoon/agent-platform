@@ -24,6 +24,7 @@ import {
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestOperation,
+  type PullRequestReceipt,
   type PullRequestSource,
   type PullRequestStore,
 } from "../ports/pull-requests.ts";
@@ -528,7 +529,11 @@ export function createPullRequestService(deps: {
         }
       }
       const changed = after !== before.state;
-      const receiptId = await store.recordReceipt({
+      const record = changed
+        ? (input: PullRequestReceipt) =>
+            store.recordStateChange({ ...input, url: pullRequest.url })
+        : (input: PullRequestReceipt) => store.recordReceipt(input);
+      const receiptId = await record({
         ...receipt,
         pushRequestId: source.id,
         result: {

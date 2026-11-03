@@ -182,6 +182,9 @@ function app(
         receipts.push(input);
         return "44444444-4444-4444-8444-444444444444";
       },
+      recordStateChange: async () => {
+        throw new Error("not used");
+      },
       savePullRequest: async (input) => {
         recorded = {
           push_request_id: input.pushRequestId,

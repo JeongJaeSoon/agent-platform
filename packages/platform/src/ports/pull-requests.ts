@@ -111,6 +111,14 @@ export interface PullRequestStore {
    */
   recordReceipt(input: PullRequestReceipt): Promise<string>;
   /**
+   * The receipt of a close or reopen GitHub took, and in the same
+   * transaction the session's outcome for `url` made due for the
+   * refresher's next read: it no longer reads one closed over 30 days ago.
+   */
+  recordStateChange(
+    input: PullRequestReceipt & { url: string },
+  ): Promise<string>;
+  /**
    * Records the pull request opened from the push request, with its
    * `open_pull_request` receipt. When one is already recorded (a racing
    * call), keeps that one and the receipt says `created: false`. The first

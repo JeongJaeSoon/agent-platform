@@ -112,6 +112,7 @@ function harness(
   const titles = new Map<number, string>();
   const warnings: string[] = [];
   const receipts: PullRequestReceipt[] = [];
+  const dueAgain: string[] = [];
   const saved: PullRequest[] = [];
   const calls: string[] = [];
   const sourceReads: string[] = [];
@@ -145,6 +146,11 @@ function harness(
       receipts.push(input);
       return `receipt-${receipts.length}`;
     },
+    recordStateChange: async ({ url, ...input }) => {
+      receipts.push(input);
+      dueAgain.push(url);
+      return `receipt-${receipts.length}`;
+    },
     savePullRequest: async (input) => {
       receipts.push({ ...input, operation: "open_pull_request" } as never);
       const pullRequest: PullRequest = {
@@ -176,6 +182,7 @@ function harness(
   const comments: Array<{ marker: string; body: string }> = [];
   let failing = false;
   let readStatus: number | null = null;
+  let patchAnswer: ForgePullRequest["state"] | null = null;
   let gateRefusal = options.gateRefusal ?? null;
   const works: GitHubWork[] = [];
   const fail = () => {
@@ -256,10 +263,11 @@ function harness(
       if (open === null || open.number !== number) {
         throw new ForgeCredentialError("GitHub call failed (404)");
       }
+      const now = patchAnswer ?? state;
       open = {
         ...open,
-        state,
-        closedAt: state === "closed" ? "2026-11-04T00:00:00Z" : null,
+        state: now,
+        closedAt: now === "closed" ? "2026-11-04T00:00:00Z" : null,
       };
       return open;
     },
@@ -334,7 +342,12 @@ function harness(
     setOpen: (pull: Omit<ForgePullRequest, "mergedAt" | "closedAt">) => {
       open = { ...pull, mergedAt: null, closedAt: null };
     },
+    dueAgain,
     forgePullRequest: () => open,
+    /** GitHub answers every state change with this state. */
+    answerState: (state: ForgePullRequest["state"]) => {
+      patchAnswer = state;
+    },
     merge: () => {
       if (open !== null) {
         open = { ...open, state: "closed", mergedAt: "2026-11-04T00:00:00Z" };
@@ -990,6 +1003,23 @@ describe("closing and reopening the pull request", () => {
       "pull_request",
       "pull_request",
     ]);
+    // Each change makes the outcome due again, however long it was closed.
+    expect(h.dueAgain).toEqual([recorded.url, recorded.url]);
+  });
+
+  test("the state and changed come from GitHub's answer, not from the request", async () => {
+    const h = withPullRequest();
+    h.answerState("open");
+    expect(
+      await h.service.setState(actor, SESSION, PUSH, "closed"),
+    ).toMatchObject({ state: "open", changed: false });
+    expect(h.calls).toEqual(["read 7", "state 7 closed"]);
+    expect(h.receipts.at(-1)?.result).toMatchObject({
+      verdict: "allow",
+      state: "open",
+      changed: false,
+    });
+    expect(h.dueAgain).toEqual([]);
   });
 
   test("a pull request already in that state is answered unchanged, with a receipt and no write", async () => {
@@ -1002,6 +1032,7 @@ describe("closing and reopening the pull request", () => {
       await h.service.setState(actor, SESSION, PUSH, "closed"),
     ).toMatchObject({ state: "closed", changed: false });
     expect(h.calls).toEqual(["read 7", "read 7", "state 7 closed", "read 7"]);
+    expect(h.dueAgain).toEqual([recorded.url]);
     expect(h.receipts.map((receipt) => receipt.result)).toEqual([
       expect.objectContaining({
         verdict: "allow",

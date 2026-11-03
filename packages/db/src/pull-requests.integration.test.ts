@@ -390,6 +390,55 @@ integration("postgres pull requests", () => {
     expect(await outcomesOf(source.sessionId)).toEqual([]);
   });
 
+  test("a reopen of a pull request closed long ago makes its outcome due again, with its receipt", async () => {
+    const source = await pushed();
+    await save(source, 43);
+    const url = "https://github.com/acme/app/pull/43";
+    const longAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    await db
+      .update(sessionOutcomes)
+      .set({ state: "closed", closedAt: longAgo, stateCheckedAt: longAgo })
+      .where(eq(sessionOutcomes.sessionId, source.sessionId));
+    const id = await store.recordStateChange({
+      ownerId: OWNER,
+      sessionId: source.sessionId,
+      pushRequestId: source.pushRequestId,
+      actor: HUMAN,
+      operation: "reopen_pull_request",
+      url,
+      result: {
+        push_request_id: source.pushRequestId,
+        verdict: "allow",
+        refusal: null,
+        repository_id: "app",
+        number: 43,
+        url,
+        head: `agent/${source.sessionId}`,
+        base: "main",
+        created: false,
+        state: "open",
+        changed: true,
+      },
+    });
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, id));
+    expect(receipt).toMatchObject({
+      operation: "reopen_pull_request",
+      status: "succeeded",
+      result: { state: "open", changed: true },
+    });
+    expect(await outcomesOf(source.sessionId)).toEqual([
+      expect.objectContaining({
+        url,
+        state: "closed",
+        closedAt: null,
+        stateCheckedAt: null,
+      }),
+    ]);
+  });
+
   test("a refusal receipt is failed with the refusal's error", async () => {
     const source = await pushed();
     const id = await store.recordReceipt({
