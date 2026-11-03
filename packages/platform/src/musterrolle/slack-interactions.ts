@@ -278,7 +278,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   ): Promise<string> {
     try {
       await deps.pending.answer(caller, value.s, {
-        idempotencyKey: `slack:${value.r}`,
+        // Per presser: a replay names whoever pressed first, so another
+        // person's press must miss it and read the request as answered.
+        idempotencyKey: `slack:${value.r}:${pressed.userId}`,
         body: { request_id: value.r, ...body },
       });
     } catch (error) {
@@ -349,7 +351,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
     try {
       await deps.pushes.decide(actor, value.s, value.r, {
-        idempotencyKey: `slack:${value.r}`,
+        idempotencyKey: `slack:${value.r}:${pressed.userId}`,
         readBody: async () => ({ decision, git_commit: request.git_commit }),
       });
     } catch (error) {

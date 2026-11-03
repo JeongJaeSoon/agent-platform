@@ -315,7 +315,7 @@ describe("Slack interactions", () => {
     const [answer] = called("answer");
     expect(answer?.args[1]).toBe(SESSION);
     expect(answer?.args[2]).toEqual({
-      idempotencyKey: "slack:toolu_1",
+      idempotencyKey: `slack:toolu_1:${LINKED}`,
       body: { request_id: "toolu_1", kind: "permission", decision: "allow" },
     });
     const update = called("update")[0]?.args[1] as {
@@ -384,7 +384,7 @@ describe("Slack interactions", () => {
       }),
     );
     expect(called("answer")[0]?.args[2]).toEqual({
-      idempotencyKey: "slack:q_1",
+      idempotencyKey: `slack:q_1:${LINKED}`,
       body: {
         request_id: "q_1",
         kind: "question",
@@ -458,7 +458,7 @@ describe("Slack interactions", () => {
       result: "answered",
     });
     expect(called("answer")[0]?.args[2]).toEqual({
-      idempotencyKey: "slack:q_1",
+      idempotencyKey: `slack:q_1:${LINKED}`,
       body: {
         request_id: "q_1",
         kind: "question",
@@ -498,7 +498,7 @@ describe("Slack interactions", () => {
       idempotencyKey: string;
       readBody(): Promise<unknown>;
     };
-    expect(input.idempotencyKey).toBe("slack:push-1");
+    expect(input.idempotencyKey).toBe(`slack:push-1:${LINKED}`);
     expect(await input.readBody()).toEqual({
       decision: "approve",
       git_commit: "a".repeat(40),
