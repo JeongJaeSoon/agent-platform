@@ -88,7 +88,9 @@ const FEATURES = [
 // its first save from none picked: `legacy_defaults` needs at least one.
 const NO_REPOSITORY_DEFAULTS: Settings = {
   repositories: [],
-  push_approval: true,
+  // Same first-save default as the server's `legacy_defaults` (owner
+  // decision d123).
+  push_approval: false,
   features: {
     workflows: false,
     actions: false,
