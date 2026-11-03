@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { closeSync, fstatSync, openSync } from "node:fs";
+import { PERMISSION_MODE_VALUES } from "@werft-ai/contracts";
 import { PLATFORM_AUTO_MODE } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { MEMORY_READ_GUIDANCE } from "./memory-read.ts";
@@ -590,7 +591,10 @@ describe("Claude SDK adapter options", () => {
       onPermission: async () => ({ behavior: "allow" as const }),
     };
     const auto = buildSdkOptions({ ...config, permissionMode: "auto" }, allow);
-    expect(auto.settings).toEqual({ autoMode: PLATFORM_AUTO_MODE });
+    expect(auto.settings).toEqual({
+      attribution: { commit: "", pr: "", sessionUrl: false },
+      autoMode: PLATFORM_AUTO_MODE,
+    });
     for (const section of Object.values(PLATFORM_AUTO_MODE)) {
       expect(section[0]).toBe("$defaults");
     }
@@ -612,8 +616,21 @@ describe("Claude SDK adapter options", () => {
       "bypassPermissions",
     ] as const) {
       expect(
-        buildSdkOptions({ ...config, permissionMode }, allow),
-      ).not.toHaveProperty("settings");
+        buildSdkOptions({ ...config, permissionMode }, allow).settings,
+      ).not.toHaveProperty("autoMode");
+    }
+  });
+
+  test("every mode turns the engine's own commit and pull request signature off", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    for (const permissionMode of PERMISSION_MODE_VALUES) {
+      expect(
+        buildSdkOptions({ ...config, permissionMode }, allow).settings,
+      ).toMatchObject({
+        attribution: { commit: "", pr: "", sessionUrl: false },
+      });
     }
   });
 

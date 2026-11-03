@@ -1,5 +1,7 @@
 import {
+  type BuiltinToolCatalog,
   CLAUDE_DESCRIPTOR,
+  CLAUDE_TOOL_CATALOGS,
   claudeCheckpointCodec,
   claudeEventCodec,
 } from "@werft-ai/runtime-claude-codec";
@@ -18,3 +20,16 @@ export const installedDescriptors: readonly RuntimeDescriptor[] = [
 ];
 
 export const installedEventCodecs: readonly EventCodec[] = [claudeEventCodec];
+
+export const installedToolCatalogs: readonly BuiltinToolCatalog[] = [
+  ...CLAUDE_TOOL_CATALOGS,
+];
+
+export {
+  type BuiltinTool,
+  type BuiltinToolCatalog,
+  canonicalToolName,
+  legacyToolNames,
+  type ToolBoundary,
+  toolCatalogFor,
+} from "@werft-ai/runtime-claude-codec";

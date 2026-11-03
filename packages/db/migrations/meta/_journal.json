@@ -957,8 +957,15 @@
     {
       "idx": 227,
       "version": "7",
-      "when": 1793736460707,
-      "tag": "0227_slack_card_settle",
+      "when": 1793737715827,
+      "tag": "0227_profile_deny",
+      "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "7",
+      "when": 1793741176419,
+      "tag": "0228_slack_card_settle",
       "breakpoints": true
     }
   ]

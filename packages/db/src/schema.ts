@@ -3875,6 +3875,9 @@ export const workspaceProfiles = pgTable(
     model: text().notNull(),
     models: jsonb().$type<string[]>().notNull(),
     tools: jsonb().$type<string[]>().notNull(),
+    // Like the ceiling's: outside the base fingerprint and the digests.
+    deny: jsonb().$type<string[]>(),
+    toolCatalogId: text("tool_catalog_id"),
     permissionMode: text("permission_mode").notNull(),
     createdBy: uuid("created_by")
       .notNull()
@@ -3908,6 +3911,10 @@ export const workspaceProfiles = pgTable(
     check(
       "workspace_profiles_retired_check",
       sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
+    ),
+    check(
+      "workspace_profiles_deny_check",
+      sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
     ),
   ],
 );
@@ -4292,6 +4299,12 @@ export const installationProfiles = pgTable(
     githubAppRepositories: text("github_app_repositories")
       .notNull()
       .default("listed"),
+    // The built-in tools blocked, as named in the tool catalog
+    // `tool_catalog_id`. Outside `definition` and the fingerprint: an
+    // image from before reads the definition strictly, and the digests
+    // follow `tools`. Null on a row made from an allow list.
+    deny: jsonb().$type<string[]>(),
+    toolCatalogId: text("tool_catalog_id"),
     previousId: text("previous_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -4339,6 +4352,10 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_github_app_repositories_check",
       sql`${table.githubAppRepositories} IN ('listed', 'installed')`,
+    ),
+    check(
+      "installation_profiles_deny_check",
+      sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
     ),
   ],
 );
