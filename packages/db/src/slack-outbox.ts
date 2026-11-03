@@ -74,9 +74,10 @@ const fenced = (fence: SlackOutboxFence) =>
 
 // A turn asked from the web or the API after its thread was linked, with no
 // `instruction` row yet, or, `settled`, none past its sends: an answer waits
-// for it, a backoff included, so it never goes first.
+// for it, a backoff included, so it never goes first. A platform turn has no
+// channel; NULL here would make `NOT owesInstruction` drop its answer.
 const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
-  ${turn}.channel IN ('web', 'api')
+  coalesce(${turn}.channel IN ('web', 'api'), false)
   AND ${turn}.created_at >= ${link}.created_at
   AND NOT EXISTS (
     SELECT 1 FROM slack_outbox oi
