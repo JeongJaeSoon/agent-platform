@@ -134,7 +134,10 @@ describe("에이전트 상세 탭", () => {
   });
 
   test("웹에서 세션을 시작할 수 없다는 안내와 시작하는 길을 누르지 않아도 탭 위에 보인다", async () => {
-    const { history } = renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    const { history } = renderAt(`${DETAIL}?notice=created`, {
+      ...meOk,
+      ...agentServer().routes,
+    });
     await screen.findByRole("heading", { level: 1 });
     const hint = screen.getByText(
       "웹에서는 아직 세션을 시작할 수 없습니다. Slack에서 이 에이전트를 멘션하거나 API로 시작하세요.",
@@ -158,6 +161,10 @@ describe("에이전트 상세 탭", () => {
     await (await setupUser()).click(slack);
     await waitFor(() => expect(selected()).toBe("Slack"));
     expect(tabIn(history)).toBe("slack");
+    // Like a tab switch, the link keeps the rest of the address.
+    expect(new URLSearchParams(history.location.search).get("notice")).toBe(
+      "created",
+    );
   });
 
   test("상태 태그는 제목 줄의 이름 옆에 있되 제목 이름에 섞이지 않고, 설명 줄에는 설명만 둔다", async () => {
