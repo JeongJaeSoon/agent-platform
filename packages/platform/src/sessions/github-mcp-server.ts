@@ -286,7 +286,7 @@ export function createGitHubMcpServer(deps: {
             status: "deferred",
             continuation: "after_turn",
             message:
-              "Deferred, not refused: commits made in this turn reach a checkpoint only when the turn ends. End this turn now; the platform then starts a follow-up turn in which request_push pushes them. If you tell the user anything, say the push follows once this turn ends, not that it was refused or failed.",
+              "Deferred, not refused: commits made in this turn reach a checkpoint only when the turn ends. End this turn now; the platform then starts a follow-up turn in which you call request_push again, and the push runs after that (after a person approves it, when the release requires approval). Nothing is pushed yet. If you tell the user anything, say the push request continues after this turn, not that it was refused or failed.",
             ...(error.details === null ? {} : { details: error.details }),
           });
         }

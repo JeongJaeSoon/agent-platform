@@ -459,6 +459,10 @@ describe("request_push before the session's first checkpoint", () => {
     h.control.pushRefusal = "no_checkpoint";
     h.control.marked = false;
     const unmarked = payload(await h.call("request_push", {}));
+    expect(unmarked).toMatchObject({
+      isError: true,
+      body: { code: "PUSH_SOURCE_MISSING" },
+    });
     expect(unmarked.body).not.toHaveProperty("continuation");
     h.control.pushRefusal = "request_open";
     const open = payload(await h.call("request_push", {}));
