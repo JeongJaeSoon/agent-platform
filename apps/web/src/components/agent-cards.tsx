@@ -44,10 +44,6 @@ export function AgentCards({
   summarized = false,
 }: {
   readonly agents: readonly AgentListItem[];
-  /**
-   * The list was read with summaries, so an item without one is an agent
-   * whose settings the viewer does not read: its card shows the row only.
-   */
   readonly summarized?: boolean;
 }) {
   return (
@@ -194,7 +190,6 @@ function AgentCard({
   settings,
 }: {
   readonly agent: AgentListItem;
-  /** Absent for an agent whose settings the viewer does not read. */
   readonly settings?: Settings;
 }) {
   const { t } = useI18n();
@@ -288,7 +283,6 @@ function AgentCard({
   );
 }
 
-/** What a card says of an agent's settings, for a viewer who reads them. */
 function SettingFacts({ settings }: { readonly settings: Settings }) {
   const { t, locale } = useI18n();
   const { facts, bound } = settings;
@@ -326,7 +320,6 @@ function SettingFacts({ settings }: { readonly settings: Settings }) {
         </Detail>
       </Fact>
       <Fact term={t("agents.cards.credentials")}>
-        {/* What the card asks for and what is bound: both must answer. */}
         <Detail query={[facts, bound]}>
           {bound.data && version ? (
             <CredentialNeed refs={version.credential_refs} bound={bound.data} />

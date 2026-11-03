@@ -252,7 +252,6 @@ export function AgentPage({
 }: {
   readonly detail: DetailFixture;
   readonly tab: AgentTab;
-  /** Above the tabs, as the read-only notice is. */
   readonly notice?: ReactNode;
   readonly children: ReactNode;
 }) {
@@ -815,7 +814,6 @@ export function CardSummary({
   manages = true,
 }: {
   readonly detail: DetailFixture;
-  /** False for a managing team member, who reads the settings only. */
   readonly manages?: boolean;
 }) {
   const version = activeVersion(detail) ?? latestVersion(detail);

@@ -172,10 +172,6 @@ function AgentNotFound() {
   );
 }
 
-/**
- * A member outside the agent reads its row, not its settings (agent-rbac
- * (b)); a row they cannot find is the same page as no agent at all.
- */
 function OutsideAgent({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();

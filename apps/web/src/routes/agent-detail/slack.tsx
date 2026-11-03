@@ -73,8 +73,7 @@ export default function SlackTab({
     bindings.data !== undefined &&
     !bindings.data.items.some((binding) => binding.home);
   const manages = useManagesAgent();
-  // The danger zone exists only while there is an app to revoke or delete;
-  // the app's own sections only for whoever changes it.
+  // The danger zone exists only while there is an app to revoke or delete.
   const keys: readonly SectionKey[] = [
     "channels",
     ...(homeStep ? [] : (["basic"] as const)),

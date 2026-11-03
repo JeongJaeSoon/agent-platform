@@ -368,7 +368,6 @@ export const Assigned: Story = {
       ),
     ).toBeVisible();
     const select = canvas.getByLabelText("담당 팀으로 정할 팀");
-    // The current team is not offered again.
     await expect(
       [...(select as HTMLSelectElement).options].map((o) => o.textContent),
     ).toEqual(["팀 고르기", "영업", "고객지원"]);

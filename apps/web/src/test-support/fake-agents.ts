@@ -115,7 +115,6 @@ export function agentServer({
           profile("claude-coding-local", "claude-sonnet-5", repositoryMode),
         ],
       }),
-    // One team, which the signed-in user leads.
     "GET /v1/teams": () => json(200, { items: [TEAM], next_cursor: null }),
     [`GET /v1/teams/${TEAM_ID}`]: () =>
       json(200, {

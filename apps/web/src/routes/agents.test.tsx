@@ -538,10 +538,6 @@ describe("에이전트 카드", () => {
     };
   }
 
-  /**
-   * The administered tab over the agents `routes` lists: its rows come
-   * without summaries, so each card reads its agent.
-   */
   async function openAdministered(routes: Parameters<typeof renderAt>[1]) {
     const list = routes["GET /v1/agents"];
     if (!list) throw new Error("routes list agents");
@@ -1130,7 +1126,6 @@ describe("찾을 수 없는 에이전트", () => {
       renderAt("/agents/missing", {
         "GET /v1/auth/me": () => json(200, who),
         "GET /v1/agents/missing": () => apiError(status, code, message),
-        // Not among the rows the member reads either.
         "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       });
       expect(
@@ -1240,7 +1235,6 @@ describe("새 에이전트", () => {
       slug: "billing",
       name: "결제 담당",
       description: DESCRIPTION,
-      // The only team the owner could pick, picked for them.
       managing_team_id: TEAM_ID,
       card: {
         ...CARD,

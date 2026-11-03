@@ -201,7 +201,6 @@ interface SavedDraft {
   readonly name: string;
   readonly slug: string;
   readonly description: string;
-  /** Null on a draft saved before the flow asked for one. */
   readonly managingTeamId: string | null;
   readonly card: CardDraft;
 }
@@ -316,7 +315,6 @@ export function NewAgentFlow({
         "",
     },
   });
-  // Held beside the identity form: the team is chosen, not typed.
   const [team, setTeam] = useState(
     (typeof restored.managing_team_id === "string"
       ? restored.managing_team_id
@@ -370,7 +368,6 @@ export function NewAgentFlow({
     identityInput.name !== kept.name ||
     identityInput.slug !== kept.slug ||
     identityInput.description !== kept.description ||
-    // A team picked for an unsaved agent; a saved one keeps its own.
     (saved === null && team !== "") ||
     canonical(cardInput) !== canonical(kept.card);
   const leaving = useBlocker({
@@ -570,7 +567,6 @@ function NameStep({
   readonly form: StepForm<typeof agentIdentityStep>;
   readonly locked: boolean;
   readonly focus: boolean;
-  /** The managing team's id, "" until one is picked. */
   readonly team: string;
   readonly onTeamChange: (teamId: string) => void;
   readonly onNext: (values: Omit<Steps["job"], "flow">) => void;
@@ -580,7 +576,6 @@ function NameStep({
   const { everywhere, choices, error, refetch } = useTeamChoices();
   const [teamMissing, setTeamMissing] = useState(false);
   const teamSelect = useId();
-  // One team leaves nothing to choose.
   const only = choices?.length === 1 ? choices[0]?.id : undefined;
   useEffect(() => {
     if (!locked && team === "" && only !== undefined) onTeamChange(only);
@@ -588,7 +583,6 @@ function NameStep({
   if (error) return <LoadFailure error={error} onRetry={refetch} />;
   if (!locked && choices === undefined)
     return <Skeleton label={t("agents.flow.team")} />;
-  // A managing team is required, so without one to pick nothing is made.
   if (!locked && choices?.length === 0)
     return (
       <section className={AGENT_FORM}>

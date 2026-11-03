@@ -23,6 +23,10 @@ import {
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
+// After the DOM exists, like every module that loads Radix.
+const { ADMINISTERED_LIST_LIMIT } = await import(
+  "../components/agent-admins.tsx"
+);
 
 const TEAM_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
 const MATE_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
@@ -49,7 +53,6 @@ const people = new Map([owner, mate].map((m) => [m.user_id, m]));
 /** Every polite status on screen: the page's notice and the picker's count. */
 const said = () => screen.getAllByRole("status").map((s) => s.textContent);
 
-// The picker's options; the managing team's native select has its own.
 const optionTexts = () =>
   screen
     .queryAllByRole("option")
@@ -1221,10 +1224,13 @@ describe("에이전트 관리자", () => {
     expect(dialog.textContent).not.toContain("나 자신을 빼면");
   });
 
+  test("관리 목록 상한은 서버의 상한과 같다", () => {
+    expect(ADMINISTERED_LIST_LIMIT).toBe(TEAM_LIST_LIMIT);
+  });
+
   test("관리자 목록이 길어도 관리 여부는 이 에이전트의 관리자 목록으로 정한다", async () => {
     const agentsApi = agentServer();
     const agent = agentsApi.detail().agent;
-    // A full administered list that leaves this agent out decides nothing.
     const others = Array.from({ length: TEAM_LIST_LIMIT }, () => ({
       ...agent,
       id: crypto.randomUUID(),
@@ -1303,7 +1309,6 @@ describe("에이전트 관리자", () => {
     expect(
       screen.queryByRole("combobox", { name: "관리자로 추가할 사람이나 팀" }),
     ).toBeNull();
-    // Neither picker list is asked for.
     expect(
       api.calls.some((c) => c.path === "/v1/members" || c.path === "/v1/teams"),
     ).toBe(false);
@@ -1320,7 +1325,6 @@ describe("에이전트 관리자", () => {
       ...agentsApi.routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [agent] }),
-      // An admin team the member is in makes them one.
       "GET /v1/my-teams": () =>
         json(200, {
           items: [{ id: TEAM_ID, name: "결제팀", role: "member" }],

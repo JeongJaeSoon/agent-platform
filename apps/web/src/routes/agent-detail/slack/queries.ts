@@ -90,7 +90,6 @@ export function useSlackSettings(agentId: string) {
 export function useSlackChannels(
   agentId: string,
   query: string,
-  /** Searching Slack is for whoever connects channels. */
   enabled = true,
 ) {
   const { client } = useAgentPlatform();

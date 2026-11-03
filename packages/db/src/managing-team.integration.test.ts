@@ -502,7 +502,6 @@ integration("the managing team on PostgreSQL", () => {
       draft: 1,
       unassigned: 0,
     });
-    // The row names the managing team to O too, who cannot read the team.
     const [team] = await db
       .select({ name: schema.memberTeams.name })
       .from(schema.memberTeams)

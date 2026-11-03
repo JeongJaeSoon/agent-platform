@@ -1267,7 +1267,6 @@ describe("Slack management", () => {
     renderAt(DETAIL, {
       ...routes(),
       "GET /v1/auth/me": () => json(200, memberMe()),
-      // A member who administers the agent: one who may make its app.
       [`GET ${PATH}/admins`]: () =>
         json(200, {
           users: [

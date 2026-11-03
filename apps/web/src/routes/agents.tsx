@@ -161,11 +161,6 @@ export function AgentsScreen() {
 
 const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
 
-/**
- * The design's two lists, each shown as cards or as the table: every agent
- * a page at a time and searched on the server, or the ones the caller
- * administers, which the server caps and the page searches itself.
- */
 function AgentList({
   counts,
 }: {
@@ -216,7 +211,6 @@ function AgentList({
             <SegmentedControlItem value="all" count={counts.all}>
               {t("agents.tabs.all")}
             </SegmentedControlItem>
-            {/* Only agents made before managing teams lack one. */}
             {counts.unassigned > 0 || scope === "unassigned" ? (
               <SegmentedControlItem
                 value="unassigned"
@@ -335,7 +329,6 @@ function AgentsIn({
   /** The list after the search. */
   readonly agents: readonly AgentListItem[];
   readonly onClear: () => void;
-  /** Read with summaries: see AgentCards. */
   readonly summarized?: boolean;
 }) {
   const { t } = useI18n();
@@ -450,8 +443,6 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   );
 }
 
-// Agent, managing team, state, updated; a phone keeps the agent and the
-// state, and the agent cell says the team and when it changed.
 const COLUMNS = [
   "minmax(0,1fr) minmax(0,200px) 104px 120px",
   "minmax(0,1fr) 104px",

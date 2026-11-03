@@ -32,17 +32,11 @@ import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { SECTION_BODY } from "./section-body.ts";
 
-/** A team someone may name as an agent's managing team. */
 export interface TeamChoice {
   readonly id: string;
   readonly name: string;
 }
 
-/**
- * The teams the viewer may make a managing team: every team for owners and
- * admins, who list them all; anyone else only the teams they are in, which
- * is all the server takes from them.
- */
 export function useTeamChoices() {
   const { client } = useAgentPlatform();
   const everywhere = useHasPermission("team.manage");
@@ -59,7 +53,6 @@ export function useTeamChoices() {
   };
 }
 
-/** The agent's managing team, or the mark of an agent that has none. */
 export function ManagingTeamName({ agent }: { readonly agent: Agent }) {
   const { t } = useI18n();
   return agent.managing_team_name === null ? (
@@ -71,10 +64,6 @@ export function ManagingTeamName({ agent }: { readonly agent: Agent }) {
   );
 }
 
-/**
- * The admins tab's first section: who the managing team is, and for those
- * who manage the agent, the way to name another one.
- */
 export function ManagingTeam({
   agent,
   manages,
@@ -105,7 +94,6 @@ export function ManagingTeam({
   );
 }
 
-/** Said only when the team's members can be read: owners, admins, its own. */
 function NoLeadNotice({ teamId }: { readonly teamId: string }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -143,7 +131,6 @@ function ChangeTeam({
   const [picked, setPicked] = useState("");
   const selectId = useId();
   const others = choices?.filter((team) => team.id !== agent.managing_team_id);
-  // The one admin team, when it is the obvious managing team (design (d)).
   const adminTeams = admins.data?.teams ?? [];
   const adminTeam =
     agent.managing_team_id === null && adminTeams.length === 1
@@ -165,8 +152,6 @@ function ChangeTeam({
         kind: "notice",
         text: t("managingTeam.saved", { name: team.name }),
       });
-      // The team decides who leads the agent and who reads it, so every
-      // read that judged the viewer by the old one goes stale.
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: queryKeysOf(client).agent(agent.id),

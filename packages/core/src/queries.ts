@@ -431,7 +431,6 @@ export function agentsQuery(client: ApiClient) {
 export function agentPagesQuery(
   client: ApiClient,
   q?: string,
-  /** Only the agents with no managing team. */
   unassigned = false,
 ) {
   return infiniteQueryOptions({

@@ -37,7 +37,6 @@ const myTeams = (role: "lead" | "member" | null) =>
     next_cursor: null,
   });
 
-/** The agent's server after it was given TEAM, as the wizard does. */
 async function managedServer() {
   const server = agentServer();
   await server.routes[`PUT /v1/agents/${AGENT_ID}/managing-team`](
@@ -77,7 +76,6 @@ describe("관리자 탭의 담당 팀", () => {
       "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다",
     );
     expect(within(section).getByText("담당 팀 미지정")).toBeDefined();
-    // The workspace keeps outsiders to their own sessions by default.
     expect(section.textContent).toContain(
       "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정)",
     );
@@ -110,7 +108,6 @@ describe("관리자 탭의 담당 팀", () => {
     renderAt(ADMINS_TAB, {
       ...meAs(memberMe()),
       ...server.routes,
-      // A member names only teams they are in.
       "GET /v1/my-teams": () =>
         json(200, {
           items: [
@@ -174,7 +171,6 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
     expect(
       screen.queryByRole("combobox", { name: "관리자로 추가할 사람이나 팀" }),
     ).toBeNull();
-    // Nothing was written on the way.
     expect(api.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
@@ -204,7 +200,6 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
       "GET /v1/my-teams": () => myTeams(null),
       [`GET /v1/agents/${AGENT_ID}`]: () =>
         apiError(403, "FORBIDDEN", "This principal may not read the agent"),
-      // Its row, without a summary: the server gives outsiders no settings.
       "GET /v1/agents": () =>
         json(200, { items: [server.detail().agent], next_cursor: null }),
     });

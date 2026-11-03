@@ -73,11 +73,6 @@ function avatarTone(id: string): 1 | 2 | 3 | 4 {
 /** contracts TEAM_LIST_LIMIT: a list this long may have left agents out. */
 export const ADMINISTERED_LIST_LIMIT = 200;
 
-/**
- * Who administers an agent: people and teams (design 4.1). Everyone who
- * reads the agent's settings reads the list; only those who manage the agent
- * get the add and remove controls.
- */
 export function AgentAdmins({
   agentId,
   onOutcome,
@@ -391,8 +386,6 @@ function AdminList({
                 );
               }}
               maxLength={SEARCH_MAX}
-              // Closed only without the right to list either; a failed search
-              // stays editable, and the next text asks again.
               disabled={!listsMembers && !listsTeams}
               filter="none"
               onQueryChange={setTerm}
