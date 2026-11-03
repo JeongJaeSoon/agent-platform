@@ -46,6 +46,18 @@ describe("escapeSlackControls without a policy", () => {
     expect(escapeSlackControls(date)).toBe(date);
   });
 
+  test.each([
+    "<!date^1793600000^{date}^https://evil.example/login|웹에서 승인>",
+    "<!date^1793600000^{date}^javascript:alert(1)|x>",
+    "<!date^1793600000^{date}|a^https://evil.example>",
+    "<!date^soon^{date}|x>",
+    "<!date^1793600000^|x>",
+  ])("a date control that is more than a date is escaped: %s", (date) => {
+    const escaped = `&lt;${date.slice(1, -1)}&gt;`;
+    expect(escapeSlackControls(date)).toBe(escaped);
+    expect(escapeSlackControls(date, { maskedLinks: "expand" })).toBe(escaped);
+  });
+
   test("bare ampersands are escaped once, entities are not doubled", () => {
     expect(escapeSlackControls("R&D &amp; ops &lt;b&gt;")).toBe(
       "R&amp;D &amp; ops &lt;b&gt;",
