@@ -36,6 +36,10 @@ function rowOf(row: Row): CatalogRepositoryRow {
   };
 }
 
+// What this store reads and writes; the other kinds carry their own
+// credential and are the installation settings' (installation-settings.ts).
+const appRows = eq(catalogRepositories.authKind, "github_app");
+
 // The seed and every console write take it, so an id is decided by one
 // writer at a time.
 const lockWrites = (tx: Database) =>
@@ -93,7 +97,7 @@ export function createPostgresCatalogRepositoryStore(
     const rows = await db
       .select()
       .from(catalogRepositories)
-      .where(isNull(catalogRepositories.removedAt))
+      .where(and(isNull(catalogRepositories.removedAt), appRows))
       .orderBy(asc(catalogRepositories.id));
     return rows.map(rowOf);
   };
@@ -108,6 +112,7 @@ export function createPostgresCatalogRepositoryStore(
           const rows = await tx
             .select()
             .from(catalogRepositories)
+            .where(appRows)
             .orderBy(asc(catalogRepositories.id));
           if (rows.length === 0) return null;
           return rows.filter((row) => row.removedAt === null).map(rowOf);
@@ -122,6 +127,7 @@ export function createPostgresCatalogRepositoryStore(
         const [any] = await tx
           .select({ id: catalogRepositories.id })
           .from(catalogRepositories)
+          .where(appRows)
           .limit(1);
         if (any) return [];
         const entries = await input.entries();
@@ -178,7 +184,7 @@ export function createPostgresCatalogRepositoryStore(
         ) {
           return { outcome: "outranked" as const };
         }
-        const active = isNull(catalogRepositories.removedAt);
+        const active = and(isNull(catalogRepositories.removedAt), appRows);
         const sameName = sql`lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})`;
         const [byId] = await tx
           .select()
@@ -345,6 +351,7 @@ export function createPostgresCatalogRepositoryStore(
             and(
               eq(catalogRepositories.id, input.id),
               isNull(catalogRepositories.removedAt),
+              appRows,
             ),
           )
           .limit(1);

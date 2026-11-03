@@ -1,0 +1,224 @@
+import {
+  type CatalogMcpServerConfig,
+  type CatalogProfileConfig,
+  type CatalogRepositoryConfig,
+  catalogMcpServerSchema,
+  catalogProviderSchema,
+  catalogRepositorySchema,
+  type InstallationSettingsStore,
+  type SecretKey,
+  type SecretOwnerRef,
+  type StoredOwnerKind,
+} from "@werft-ai/platform";
+import { and, asc, eq, isNull, ne } from "drizzle-orm";
+import type { Database } from "./queries.ts";
+import {
+  catalogRepositories,
+  mcpServers,
+  providerConnections,
+  type SettingsCredentialSource,
+  settingsGeneration,
+  workspaces,
+} from "./schema.ts";
+import { openSecretsOf, writeSecretInTx } from "./secret-values.ts";
+
+const PURPOSE = "settings_credential";
+
+type RepositoryRow = typeof catalogRepositories.$inferSelect;
+type McpRow = typeof mcpServers.$inferSelect;
+
+// The entry repositories.yaml would give for the row, so its binding hash
+// is the one the file's entry gave.
+function repositoryConfigOf(row: RepositoryRow): unknown {
+  return {
+    url: row.url,
+    branch: row.branch,
+    ...(row.profiles === null ? {} : { profiles: row.profiles }),
+    ...(row.auth === null ? {} : { auth: row.auth }),
+  };
+}
+
+function mcpConfigOf(row: McpRow): unknown {
+  return {
+    url: row.url,
+    credential_ref: row.credentialRef,
+    auth: row.auth,
+    workspaces: row.workspaces,
+  };
+}
+
+/**
+ * The `stored` reference a row's credential names, when it is that row's
+ * own and agrees with `credential_source`; false when it does not.
+ */
+function ownStoredRef(
+  kind: StoredOwnerKind,
+  id: string,
+  source: SettingsCredentialSource | null,
+  auth: { stored?: string | undefined } | undefined,
+): string | null | false {
+  const stored = auth?.stored;
+  if (stored === undefined) return source === "stored" ? false : null;
+  return source === "stored" && stored === `${kind}:${id}` ? stored : false;
+}
+
+async function generationIn(tx: Database): Promise<number> {
+  const [row] = await tx
+    .select({ generation: settingsGeneration.generation })
+    .from(settingsGeneration)
+    .where(eq(settingsGeneration.id, 1));
+  return row?.generation ?? 0;
+}
+
+// The table wants a workspace; an installation has one
+// (settings-replace-file-catalog.md §2).
+async function installationWorkspace(tx: Database): Promise<string | null> {
+  const [workspace] = await tx
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .orderBy(asc(workspaces.createdAt), asc(workspaces.id))
+    .limit(1);
+  return workspace?.id ?? null;
+}
+
+export function createPostgresInstallationSettingsStore(
+  db: Database,
+  /** Null when the secret store is off: no stored value is read or set. */
+  key: SecretKey | null,
+): InstallationSettingsStore {
+  return {
+    read(options) {
+      return db.transaction(
+        async (tx) => {
+          // First: a row read below is never older than this generation.
+          const generation = await generationIn(tx);
+          const invalid: string[] = [];
+          const refs: string[] = [];
+          const connections: Array<{
+            id: string;
+            provider: CatalogProfileConfig["provider"];
+          }> = [];
+          for (const row of await tx
+            .select()
+            .from(providerConnections)
+            .where(isNull(providerConnections.disabledAt))
+            .orderBy(asc(providerConnections.id))) {
+            const parsed = catalogProviderSchema.safeParse(row.definition);
+            const ref = parsed.success
+              ? ownStoredRef(
+                  "connection",
+                  row.id,
+                  row.credentialSource,
+                  parsed.data.auth,
+                )
+              : false;
+            if (!parsed.success || ref === false) {
+              invalid.push(`connection:${row.id}`);
+              continue;
+            }
+            if (ref !== null) refs.push(ref);
+            connections.push({ id: row.id, provider: parsed.data });
+          }
+          const repositories: Array<{
+            id: string;
+            repository: CatalogRepositoryConfig;
+          }> = [];
+          for (const row of await tx
+            .select()
+            .from(catalogRepositories)
+            .where(
+              and(
+                isNull(catalogRepositories.removedAt),
+                ne(catalogRepositories.authKind, "github_app"),
+              ),
+            )
+            .orderBy(asc(catalogRepositories.id))) {
+            const parsed = catalogRepositorySchema.safeParse(
+              repositoryConfigOf(row),
+            );
+            const ref = parsed.success
+              ? ownStoredRef(
+                  "repository",
+                  row.id,
+                  row.credentialSource,
+                  parsed.data.auth,
+                )
+              : false;
+            if (!parsed.success || ref === false) {
+              invalid.push(`repository:${row.id}`);
+              continue;
+            }
+            if (ref !== null) refs.push(ref);
+            repositories.push({ id: row.id, repository: parsed.data });
+          }
+          const servers: Array<{ id: string; server: CatalogMcpServerConfig }> =
+            [];
+          for (const row of await tx
+            .select()
+            .from(mcpServers)
+            .where(isNull(mcpServers.disabledAt))
+            .orderBy(asc(mcpServers.id))) {
+            const parsed = catalogMcpServerSchema.safeParse(mcpConfigOf(row));
+            const ref = parsed.success
+              ? ownStoredRef(
+                  "mcp",
+                  row.id,
+                  row.credentialSource,
+                  parsed.data.auth,
+                )
+              : false;
+            if (!parsed.success || ref === false) {
+              invalid.push(`mcp:${row.id}`);
+              continue;
+            }
+            if (ref !== null) refs.push(ref);
+            servers.push({ id: row.id, server: parsed.data });
+          }
+          let stored = new Map<string, string>();
+          if (options?.openStored && key !== null && refs.length > 0) {
+            const workspaceId = await installationWorkspace(tx);
+            if (workspaceId !== null) {
+              stored = await openSecretsOf(
+                tx,
+                key,
+                workspaceId,
+                PURPOSE,
+                refs as SecretOwnerRef[],
+              );
+            }
+          }
+          return {
+            generation,
+            connections,
+            repositories,
+            mcpServers: servers,
+            stored,
+            invalid,
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
+    },
+
+    putStoredValue(owner, value, updatedBy) {
+      if (key === null) {
+        return Promise.reject(
+          new Error("the secret store is off: no value can be stored"),
+        );
+      }
+      return db.transaction(async (tx) => {
+        const workspaceId = await installationWorkspace(tx);
+        if (workspaceId === null) {
+          throw new Error("no workspace yet to keep a stored value under");
+        }
+        await writeSecretInTx(
+          tx,
+          key,
+          { workspaceId, owner, purpose: PURPOSE },
+          value,
+          updatedBy,
+        );
+      });
+    },
+  };
+}

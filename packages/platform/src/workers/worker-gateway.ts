@@ -788,17 +788,21 @@ export function createWorkerGateway(deps: {
     repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
     revision: string;
+    settingsGeneration: number | null;
+    unavailableRepositories: ReadonlySet<string>;
     settled: ReadonlySet<string>;
   } | null = null;
   function claimCatalog(): NonNullable<typeof runnableOf> {
     const records = catalog.workspace_profiles?.records;
     const profiles = catalog.profiles;
     const repositories = catalog.repositories;
+    const settingsGeneration = catalog.settings_generation ?? null;
     if (
       runnableOf === null ||
       runnableOf.records !== records ||
       runnableOf.profiles !== profiles ||
-      runnableOf.repositories !== repositories
+      runnableOf.repositories !== repositories ||
+      runnableOf.settingsGeneration !== settingsGeneration
     ) {
       const workspace = workspaceCatalogProfiles(catalog);
       runnableOf = {
@@ -807,6 +811,9 @@ export function createWorkerGateway(deps: {
         repositories,
         pairs: buildRunnablePairs(workspace),
         revision: catalogRevision(catalog),
+        settingsGeneration,
+        unavailableRepositories:
+          catalog.unavailable_repositories ?? new Set<string>(),
         settled: new Set([
           ...Object.keys(profiles),
           // Blocked is the same on every replica: its sessions are failed,
@@ -1354,6 +1361,8 @@ export function createWorkerGateway(deps: {
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
         catalogRevision: claimable.revision,
+        settingsGeneration: claimable.settingsGeneration,
+        unsettledRepositoryIds: claimable.unavailableRepositories,
         settledProfileIds: claimable.settled,
         costLimitUsd: deps.options.sessionCostLimitUsd,
         tokenLimit,

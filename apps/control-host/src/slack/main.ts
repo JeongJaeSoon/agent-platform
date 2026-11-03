@@ -10,6 +10,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationProfileStore,
+  createPostgresInstallationSettingsStore,
   createPostgresLinkedAccountStore,
   createPostgresSecretStore,
   createPostgresSessionControl,
@@ -62,6 +63,7 @@ import {
   type SlackInboxDrain,
   type SlackNoticeSink,
   sessionCatalogView,
+  settingsView,
   slackBotToken,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -165,6 +167,15 @@ export function slackProfileCatalog(
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
       repositories: createPostgresCatalogRepositoryStore(db),
+      // The api's settings with no value opened: this role only checks
+      // what a session would name.
+      settings: {
+        read: async () =>
+          settingsView(
+            await createPostgresInstallationSettingsStore(db, null).read(),
+            () => SLACK_ROLE_CREDENTIAL,
+          ),
+      },
       sources: profileViewSources(
         connections,
         config.repositories,
@@ -173,7 +184,7 @@ export function slackProfileCatalog(
     }),
     // The api's catalog, so a release the console's repositories allow runs
     // here too.
-    (rows) => {
+    (rows, settings) => {
       const view = sessionCatalogView(config).repositories;
       const file: Record<string, CatalogRepository> = {};
       for (const [id, repository] of Object.entries(view)) {
@@ -184,13 +195,16 @@ export function slackProfileCatalog(
             : repository;
       }
       return Object.fromEntries(
-        Object.entries(withConsoleRepositories(file, rows)).map(
-          ([id, { auth: _auth, ...repository }]) => [id, repository],
-        ),
+        Object.entries(
+          withConsoleRepositories(file, rows, settings?.repositories),
+        ).map(([id, { auth: _auth, ...repository }]) => [id, repository]),
       );
     },
   );
 }
+
+// Stands in for every credential in the slack role's settings: never sent.
+const SLACK_ROLE_CREDENTIAL = "slack-role-holds-no-credential";
 
 export function slackSessionHandler(deps: {
   db: Database;

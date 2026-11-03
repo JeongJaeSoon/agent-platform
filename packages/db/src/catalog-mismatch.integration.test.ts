@@ -27,8 +27,10 @@ import * as schema from "./schema.ts";
 import {
   events,
   executions,
+  providerConnections,
   receipts,
   sessions,
+  settingsGeneration,
   turns,
   unassignedSessions,
   workerLaunches,
@@ -97,6 +99,8 @@ class ClaimingBackend implements ExecutionBackend {
     for (const { intent, nonce } of this.starting.splice(0)) {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
         catalogRevision: "catalog-under-test",
+        settingsGeneration: null,
+        unsettledRepositoryIds: new Set(),
         settledProfileIds: new Set([PROFILE_ID]),
         runnable: this.runnable,
         costLimitUsd: 1_000,
@@ -404,6 +408,8 @@ integration("claim against a catalog that dropped the pair", () => {
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       catalogRevision: "catalog-under-test",
+      settingsGeneration: null,
+      unsettledRepositoryIds: new Set(),
       settledProfileIds: new Set([PROFILE_ID]),
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
@@ -481,6 +487,8 @@ integration("claim against a catalog that dropped the pair", () => {
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
       catalogRevision: "catalog-under-test",
+      settingsGeneration: null,
+      unsettledRepositoryIds: new Set(),
       settledProfileIds: new Set([PROFILE_ID]),
       runnable: [pairAt(REGISTERED)],
       costLimitUsd: 1_000,
@@ -555,9 +563,15 @@ integration("claim against a catalog that dropped the pair", () => {
       launch: { ref: ExecutionRef; nonce: string },
       costLimitUsd = 1_000,
       settledProfileIds: ReadonlySet<string> = new Set([PROFILE_ID]),
+      settings: {
+        generation?: number;
+        unsettledRepositoryIds?: ReadonlySet<string>;
+      } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
         catalogRevision: "catalog-under-test",
+        settingsGeneration: settings.generation ?? null,
+        unsettledRepositoryIds: settings.unsettledRepositoryIds ?? new Set(),
         settledProfileIds,
         runnable: [pairAt(REGISTERED)],
         costLimitUsd,
@@ -651,6 +665,58 @@ integration("claim against a catalog that dropped the pair", () => {
       expect(
         (await claim(launch, 1_000, new Set(["op_wide_v1"]))).outcome,
       ).toBe("catalog_mismatch");
+    });
+
+    async function settingsGenerationNow() {
+      const [row] = await db
+        .select({ generation: settingsGeneration.generation })
+        .from(settingsGeneration);
+      if (!row) throw new Error("no settings generation row");
+      return row.generation;
+    }
+
+    // The pair may need a connection, repository or MCP server written since
+    // this host's read; once it has read that generation, it decides.
+    test("installation settings written after this host's read", async () => {
+      const session = await queuedSession(MOVED_TO);
+      const launch = await reserved(session.session_id);
+      const read = await settingsGenerationNow();
+      await db.insert(providerConnections).values({
+        id: `conn_${randomUUID().slice(0, 8)}`,
+        definition: {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.com",
+          auth: { kind: "api_key", value_env: "UNUSED" },
+        },
+        credentialSource: "external",
+        origin: "import",
+      });
+      const now = await settingsGenerationNow();
+      expect(now).toBeGreaterThan(read);
+      expect(
+        (await claim(launch, 1_000, undefined, { generation: read })).outcome,
+      ).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+      expect(
+        (await claim(launch, 1_000, undefined, { generation: now })).outcome,
+      ).toBe("catalog_mismatch");
+    });
+
+    test("a repository whose credential this host cannot read", async () => {
+      const session = await queuedSession(MOVED_TO);
+      const launch = await reserved(session.session_id);
+      const [row] = await db
+        .select({ repositoryId: sessions.repositoryId })
+        .from(sessions)
+        .where(eq(sessions.id, session.session_id));
+      if (!row?.repositoryId) throw new Error("session has no repository");
+      const unsettledRepositoryIds = new Set([row.repositoryId]);
+      expect(
+        (await claim(launch, 1_000, undefined, { unsettledRepositoryIds }))
+          .outcome,
+      ).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+      expect((await claim(launch)).outcome).toBe("catalog_mismatch");
     });
 
     test("a session the catalog allows that has spent its budget", async () => {

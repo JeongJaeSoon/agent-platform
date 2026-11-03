@@ -20,6 +20,7 @@ import {
   type CatalogProfileView,
   type CatalogRepository,
   type CatalogRepositoryView,
+  type CredentialRef,
   catalogProfileConfigSchema,
   type InstallationProfileEntry,
   type InstallationProfileState,
@@ -30,6 +31,7 @@ import {
   type WorkspaceProfileRecord,
   type WorkspaceProfiles,
 } from "./catalog.ts";
+import type { SettingsSnapshot } from "./installation-settings.ts";
 
 // One registry for every profile a process resolves
 // (docs/contributing/decisions/profile-db.md §2): the installation ceilings
@@ -98,8 +100,16 @@ export type SnapshotSources<P extends CatalogProfileView> = {
   repositoryIdsOf: (profileId: string) => string[];
   allowUnattended: boolean;
   runtimeSupported: (profile: CatalogProfileConfig) => boolean;
-  /** The profile a definition runs; may throw when a credential does not resolve. */
-  materialize: (id: string, definition: CatalogProfileConfig) => P;
+  /**
+   * The profile a definition runs; may throw when a credential does not
+   * resolve. `lookup`, when given, is tried before the sources' own: the
+   * settings read's, for a ceiling over a connection the database holds.
+   */
+  materialize: (
+    id: string,
+    definition: CatalogProfileConfig,
+    lookup?: (ref: CredentialRef) => string | undefined,
+  ) => P;
 };
 
 /**
@@ -315,24 +325,41 @@ export interface ProfileRegistry<P extends CatalogProfileView>
    * before the table was ever seeded, or for a registry given no store.
    */
   readonly repositoryRows: readonly CatalogRepositoryRow[] | null;
+  /**
+   * The installation settings as last read, or null before the first read
+   * or for a registry given none.
+   */
+  readonly settings: SettingsSnapshot | null;
+  /** The connections a ceiling may run against: the file's and the settings'. */
+  readonly connections: Connections;
 }
 
 /**
- * The operator file's repositories with the database's in place of every
- * `{ kind: github_app }` entry (repository-catalog-db.md §2). A file entry
- * that holds a credential keeps its id against a row of the same id.
+ * The operator file's repositories with the database's: its console App
+ * rows in place of every `{ kind: github_app }` entry
+ * (repository-catalog-db.md §2), and the settings' rows of the other kinds
+ * beside them. Until the file loader goes (settings-replace-file-catalog.md
+ * §8 S4), a file entry that holds a credential keeps its id against a row
+ * of the same id. `rows` null: the console's rows were never seeded, so the
+ * file's `{ kind: github_app }` entries still stand.
  */
 export function withConsoleRepositories(
   file: Readonly<Record<string, CatalogRepository>>,
-  rows: readonly CatalogRepositoryRow[],
+  rows: readonly CatalogRepositoryRow[] | null,
+  settings: Readonly<Record<string, CatalogRepository>> = {},
 ): Record<string, CatalogRepository> {
   const merged: Record<string, CatalogRepository> = {};
   for (const [id, repository] of Object.entries(file)) {
     const auth = repository.auth;
-    if (auth?.kind === "github_app" && "registered" in auth) continue;
+    if (rows !== null && auth?.kind === "github_app" && "registered" in auth) {
+      continue;
+    }
     merged[id] = repository;
   }
-  for (const row of rows) {
+  for (const [id, repository] of Object.entries(settings)) {
+    if (!Object.hasOwn(merged, id)) merged[id] = repository;
+  }
+  for (const row of rows ?? []) {
     if (Object.hasOwn(merged, row.id)) continue;
     // The shape resolveSessionCatalog gives the yaml entry, so a seeded
     // row binds as it did before the move.
@@ -347,6 +374,42 @@ export function withConsoleRepositories(
 }
 
 /**
+ * The sources with the settings' connections beside the file's, the file
+ * keeping an id both hold until its loader goes (S4).
+ */
+function withSettings<P extends CatalogProfileView>(
+  sources: SnapshotSources<P>,
+  settings: SettingsSnapshot | null,
+): SnapshotSources<P> {
+  if (settings === null) return sources;
+  return {
+    ...sources,
+    connections: { ...settings.connections, ...sources.connections },
+    materialize: (id, definition) =>
+      sources.materialize(id, definition, settings.lookup),
+  };
+}
+
+// Kept as the same objects while nothing in them changed: claim caches key
+// on the catalog's repositories object.
+function keepUnchanged(
+  next: SettingsSnapshot,
+  previous: SettingsSnapshot | null,
+): SettingsSnapshot {
+  if (previous === null) return next;
+  const same = <T>(a: T, b: T) => canonicalJson(a) === canonicalJson(b);
+  return {
+    ...next,
+    repositories: same(next.repositories, previous.repositories)
+      ? previous.repositories
+      : next.repositories,
+    mcp_servers: same(next.mcp_servers, previous.mcp_servers)
+      ? previous.mcp_servers
+      : next.mcp_servers,
+  };
+}
+
+/**
  * Runs no ceiling before its first read: the snapshot holds only the rows
  * `installations` last listed.
  */
@@ -355,6 +418,12 @@ export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   installations: Pick<InstallationProfileStore, "listAll">;
   /** Absent: the catalog keeps the operator file's repositories. */
   repositories?: Pick<CatalogRepositoryStore, "readCatalog">;
+  /**
+   * The installation settings (connections, MCP servers, repositories that
+   * carry their own credential), credentials resolved. Absent: the file's
+   * alone.
+   */
+  settings?: { read(): Promise<SettingsSnapshot> };
   sources: SnapshotSources<P>;
   now?: () => number;
   policy?: ProfileDerivationPolicy;
@@ -362,15 +431,24 @@ export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   let records: ReadonlyMap<string, WorkspaceProfileRecord> = new Map();
   let snapshot = installationProfileSnapshot(deps.sources, []);
   let repositoryRows: readonly CatalogRepositoryRow[] | null = null;
+  let settings: SettingsSnapshot | null = null;
+  let sources = deps.sources;
   const refresh = latestReads(
-    () =>
-      Promise.all([
+    // Settings first: what is read after them is never older than their
+    // generation, so a claim that trusts it fails nothing it has not seen.
+    async () => {
+      const read = (await deps.settings?.read()) ?? null;
+      return Promise.all([
         deps.workspaces.listAll(),
         deps.installations.listAll(),
         deps.repositories?.readCatalog() ?? Promise.resolve(null),
-      ]),
-    ([workspaceRows, installationRows, rows]) => {
-      snapshot = installationProfileSnapshot(deps.sources, installationRows);
+        read,
+      ]);
+    },
+    ([workspaceRows, installationRows, rows, read]) => {
+      settings = read === null ? null : keepUnchanged(read, settings);
+      sources = withSettings(deps.sources, settings);
+      snapshot = installationProfileSnapshot(sources, installationRows);
       records = new Map(workspaceRows.map((row) => [row.id, row]));
       // Kept when unchanged: the catalog's repositories object, which claim
       // caches key on, then stays the same object too.
@@ -398,6 +476,12 @@ export function createProfileRegistry<P extends CatalogProfileView>(deps: {
     get repositoryRows() {
       return repositoryRows;
     },
+    get settings() {
+      return settings;
+    },
+    get connections() {
+      return sources.connections;
+    },
     refresh,
   };
 }
@@ -413,28 +497,38 @@ export function profileCatalog<
 >(
   base: {
     repositories: Record<string, R>;
-    mcp_servers?: Record<string, CatalogMcpServer>;
+    mcp_servers?: Record<string, CatalogMcpServer> | undefined;
     runtime_versions?: RuntimeVersions;
   },
   registry: ProfileRegistry<P>,
   /**
-   * The repositories once the registry has read the console's rows, from
-   * `base.repositories` and those rows (`withConsoleRepositories`). Absent:
-   * `base.repositories` alone.
+   * The repositories once the registry has read the console's rows or the
+   * settings, from `base.repositories` and them (`withConsoleRepositories`).
+   * Absent: `base.repositories` alone.
    */
   consoleRepositories?: (
-    rows: readonly CatalogRepositoryRow[],
+    rows: readonly CatalogRepositoryRow[] | null,
+    settings: SettingsSnapshot | null,
   ) => Record<string, R>,
 ): {
   readonly profiles: Record<string, P>;
   readonly repositories: Record<string, R>;
-  mcp_servers?: Record<string, CatalogMcpServer>;
+  readonly mcp_servers?: Record<string, CatalogMcpServer> | undefined;
   readonly installation: ReadonlyMap<string, InstallationProfileEntry>;
+  /** The settings generation the catalog was read at; absent before. */
+  readonly settings_generation?: number | undefined;
+  /** Repository ids the settings hold that did not resolve here. */
+  readonly unavailable_repositories?: ReadonlySet<string> | undefined;
   workspace_profiles: ProfileRegistry<P>;
   runtime_versions?: RuntimeVersions;
 } {
-  let mergedFrom: readonly CatalogRepositoryRow[] | null = null;
+  let mergedFrom: {
+    rows: readonly CatalogRepositoryRow[] | null;
+    settings: SettingsSnapshot["repositories"] | undefined;
+  } | null = null;
   let merged = base.repositories;
+  let serversFrom: SettingsSnapshot["mcp_servers"] | null = null;
+  let servers = base.mcp_servers;
   return {
     get profiles() {
       return registry.profiles as Record<string, P>;
@@ -444,18 +538,39 @@ export function profileCatalog<
     },
     get repositories() {
       const rows = registry.repositoryRows;
-      if (consoleRepositories === undefined || rows === null) {
+      const settings = registry.settings;
+      if (
+        consoleRepositories === undefined ||
+        (rows === null && settings === null)
+      ) {
         return base.repositories;
       }
-      if (rows !== mergedFrom) {
-        merged = consoleRepositories(rows);
-        mergedFrom = rows;
+      if (
+        mergedFrom === null ||
+        rows !== mergedFrom.rows ||
+        settings?.repositories !== mergedFrom.settings
+      ) {
+        merged = consoleRepositories(rows, settings);
+        mergedFrom = { rows, settings: settings?.repositories };
       }
       return merged;
     },
-    ...(base.mcp_servers === undefined
-      ? {}
-      : { mcp_servers: base.mcp_servers }),
+    // The file's server keeps an id both hold until its loader goes (S4).
+    get mcp_servers() {
+      const settings = registry.settings;
+      if (settings === null) return base.mcp_servers;
+      if (settings.mcp_servers !== serversFrom) {
+        servers = { ...settings.mcp_servers, ...base.mcp_servers };
+        serversFrom = settings.mcp_servers;
+      }
+      return servers;
+    },
+    get settings_generation() {
+      return registry.settings?.generation;
+    },
+    get unavailable_repositories() {
+      return registry.settings?.unavailable_repositories;
+    },
     ...(base.runtime_versions === undefined
       ? {}
       : { runtime_versions: base.runtime_versions }),

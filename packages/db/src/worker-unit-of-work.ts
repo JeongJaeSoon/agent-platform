@@ -165,6 +165,7 @@ import {
   queueMessages,
   receipts,
   sessions,
+  settingsGeneration,
   turnContinuations,
   turns,
   unassignedSessions,
@@ -1156,6 +1157,8 @@ async function giveUpOnCatalogMismatch(
     ClaimInput,
     | "runnable"
     | "catalogRevision"
+    | "settingsGeneration"
+    | "unsettledRepositoryIds"
     | "settledProfileIds"
     | "costLimitUsd"
     | "tokenLimit"
@@ -1179,7 +1182,9 @@ async function giveUpOnCatalogMismatch(
     budgetExceeded(session, budgetOf(input)) ||
     runnablePairOf(session, runnable) !== undefined ||
     (session.profileId !== null &&
-      !input.settledProfileIds.has(session.profileId))
+      !input.settledProfileIds.has(session.profileId)) ||
+    (session.repositoryId !== null &&
+      input.unsettledRepositoryIds.has(session.repositoryId))
   ) {
     return null;
   }
@@ -1192,11 +1197,23 @@ async function giveUpOnCatalogMismatch(
     .from(catalogAuthority)
     .limit(1)
     .for("share");
+  // Held the same way: a settings write waits for this give-up rather than
+  // committing a row the claim judged without.
+  const [settings] =
+    input.settingsGeneration === null
+      ? []
+      : await tx
+          .select({ generation: settingsGeneration.generation })
+          .from(settingsGeneration)
+          .limit(1)
+          .for("share");
   // A block leaves the ceiling out of the revision, so the replica that read
   // it no longer matches the activated one; the row, read here, decides.
   if (
-    authority !== undefined &&
-    authority.revision !== input.catalogRevision &&
+    ((authority !== undefined &&
+      authority.revision !== input.catalogRevision) ||
+      (settings !== undefined &&
+        (input.settingsGeneration ?? 0) < settings.generation)) &&
     !(await profileBlocked(tx, session.profileId))
   ) {
     return null;
