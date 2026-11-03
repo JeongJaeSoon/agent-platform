@@ -1030,6 +1030,7 @@ describe("팀 화면", () => {
               name: "결제 봇",
               description: null,
               managing_team_id: TEAM_ID,
+              managing_team_name: "결제팀",
               status: "active",
               active_release_id: null,
               activation_revision: 0,
