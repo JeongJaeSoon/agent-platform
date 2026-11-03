@@ -67,7 +67,16 @@ export const workspaceKo = {
   "workspace.slack": "Slack 연결 설정",
   "workspace.subnav": "워크스페이스 설정 메뉴",
   "workspace.basics": "기본 정보",
-  "workspace.slackDescription": "소유자와 관리자만 바꿀 수 있습니다.",
+  "workspace.slackDescription":
+    "에이전트를 Slack에서 쓸 수 있게 이 콘솔이 Slack 앱을 만들 때 쓰는 연결입니다. 에이전트마다 앱 설치와 채널은 에이전트의 Slack 탭에서 정합니다.",
+  "workspace.slackCardHint":
+    "이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다. 앱을 만들려면 Slack의 App Configuration Token이 있어야 합니다.",
+  "workspace.slackCount": "앱 {count}개",
+  "workspace.slackNone": "연결 없음",
+  "workspace.slackEmpty": "아직 등록된 토큰이 없습니다",
+  "workspace.slackEmptyHint":
+    "Slack에서 App Configuration Token을 만들어 등록하세요. 등록하면 에이전트의 Slack 탭에서 그 에이전트의 앱을 만들고 설치할 수 있습니다.",
+  "workspace.tokenMenu": "App Configuration Token 메뉴",
   "workspace.slackApps": "자동으로 만든 Slack 앱",
   "workspace.slackAppsList": "앱 목록",
   "workspace.slackAppsHint":
@@ -98,12 +107,9 @@ export const workspaceKo = {
   "workspace.tokenUnsetHint":
     "이미 만든 앱은 계속 동작합니다. 새 앱을 만들려면 토큰을 등록하세요.",
   "workspace.tokenSection": "Slack 앱 생성",
-  "workspace.slackStartHint":
-    "에이전트를 Slack에서 쓰려면 먼저 Slack의 App Configuration Token을 등록하세요. 등록하면 이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다.",
-  "workspace.slackStart": "Slack 연결하기",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만들 때 쓰는 토큰입니다. 마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다.",
+    "마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다.",
   "workspace.tokenUnset": "등록 안 됨",
   "workspace.tokenActive": "토큰 확인됨",
   "workspace.tokenNeedsReentry": "재등록 필요",
@@ -210,7 +216,16 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.slack": "Slack connection",
   "workspace.subnav": "Workspace settings menu",
   "workspace.basics": "Basics",
-  "workspace.slackDescription": "Only owners and admins can change these.",
+  "workspace.slackDescription":
+    "The Slack connection this console uses to make Slack apps, so agents can be used from Slack. Each agent's app install and channels are set in its own Slack tab.",
+  "workspace.slackCardHint":
+    "This console makes the account linking app and a Slack app for each agent. Making them takes a Slack App Configuration Token.",
+  "workspace.slackCount": "Apps: {count}",
+  "workspace.slackNone": "Not connected",
+  "workspace.slackEmpty": "No token registered yet",
+  "workspace.slackEmptyHint":
+    "Make an App Configuration Token in Slack and register it here. Then each agent's Slack tab can make and install that agent's app.",
+  "workspace.tokenMenu": "App Configuration Token menu",
   "workspace.slackApps": "Slack apps made here",
   "workspace.slackAppsList": "Apps",
   "workspace.slackAppsHint":
@@ -241,12 +256,9 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenUnsetHint":
     "Apps already made keep working. Register a token to make new ones.",
   "workspace.tokenSection": "Slack app creation",
-  "workspace.slackStartHint":
-    "To use agents from Slack, first register a Slack App Configuration Token. With it, this console makes the account linking app and a Slack app for each agent.",
-  "workspace.slackStart": "Connect Slack",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "The token this console uses to make the account linking app and a Slack app for each agent. Last token check is when Slack last accepted the token, on registering or an automatic refresh.",
+    "Last token check is when Slack last accepted the token, on registering or an automatic refresh.",
   "workspace.tokenUnset": "Not registered",
   "workspace.tokenActive": "Token verified",
   "workspace.tokenNeedsReentry": "Re-register needed",
@@ -352,7 +364,16 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.slack": "Slack 接続設定",
   "workspace.subnav": "ワークスペース設定メニュー",
   "workspace.basics": "基本情報",
-  "workspace.slackDescription": "オーナーと管理者だけが変更できます。",
+  "workspace.slackDescription":
+    "エージェントを Slack で使えるように、このコンソールが Slack アプリを作るときに使う連携です。エージェントごとのアプリのインストールとチャンネルは、エージェントの Slack タブで設定します。",
+  "workspace.slackCardHint":
+    "このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成します。作成には Slack の App Configuration Token が必要です。",
+  "workspace.slackCount": "アプリ {count} 件",
+  "workspace.slackNone": "未接続",
+  "workspace.slackEmpty": "登録されたトークンはまだありません",
+  "workspace.slackEmptyHint":
+    "Slack で App Configuration Token を作成して登録してください。登録すると、各エージェントの Slack タブでそのエージェントのアプリを作成してインストールできます。",
+  "workspace.tokenMenu": "App Configuration Token のメニュー",
   "workspace.slackApps": "自動で作った Slack アプリ",
   "workspace.slackAppsList": "アプリ一覧",
   "workspace.slackAppsHint":
@@ -384,12 +405,9 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenUnsetHint":
     "作成済みのアプリはそのまま動作します。新しいアプリを作成するにはトークンを登録してください。",
   "workspace.tokenSection": "Slack アプリの作成",
-  "workspace.slackStartHint":
-    "Slack からエージェントを使うには、まず Slack の App Configuration Token を登録します。登録すると、このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成します。",
-  "workspace.slackStart": "Slack に接続",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成するときに使うトークンです。最終トークン確認は、登録または自動更新で Slack がトークンを受け付けた日時です。",
+    "最終トークン確認は、登録または自動更新で Slack がトークンを受け付けた日時です。",
   "workspace.tokenUnset": "未登録",
   "workspace.tokenActive": "トークン確認済み",
   "workspace.tokenNeedsReentry": "再登録が必要",
