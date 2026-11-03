@@ -4,7 +4,7 @@ import type { Database } from "./queries.ts";
 import { pushContinuations, sessions, turns } from "./schema.ts";
 
 export const PUSH_CONTINUATION_MESSAGE =
-  "Platform note: earlier in the previous turn you called request_push before this session had a checkpoint, so nothing was pushed. That turn has ended and its checkpoint, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. The push runs in the background: if open_pull_request answers not_pushed, wait a few seconds and call it again.";
+  "Platform note: earlier in the previous turn you called request_push before this session had a checkpoint, so the platform deferred the push to this turn; it was not refused. That turn has ended and its checkpoint, with the commits it made, is saved now. Call request_push again with the same arguments, then finish what you were asked to do. The push runs in the background: if open_pull_request answers not_pushed, wait a few seconds and call it again.";
 
 export async function runningTurnOf(
   db: Database,

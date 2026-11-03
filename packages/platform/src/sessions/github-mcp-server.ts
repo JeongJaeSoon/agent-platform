@@ -100,7 +100,7 @@ export type GitHubMcpServices = {
 
 const DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Ask to push this session's last checkpoint (the end of the previous turn, not commits made in this turn; check out the branch to push before ending that turn; before the session's first checkpoint this is refused and the platform starts a follow-up turn once this one ends) to agent/<session-id>, or to agent/<session-id>-<branch> when `branch` is given; each branch gets its own pull request. `repository_id` picks another repository attached to this session (attach_repository makes it a git remote of that name in the workspace; start from `<repository_id>/<its default branch>`); omitted, the session's own. When the release requires approval the request waits for a person and this returns at once; call open_pull_request after it is pushed.",
+    "Ask to push this session's last checkpoint (the end of the previous turn, not commits made in this turn; check out the branch to push before ending that turn; before the session's first checkpoint this is deferred, not refused: the platform starts a follow-up turn once this one ends and pushes there) to agent/<session-id>, or to agent/<session-id>-<branch> when `branch` is given; each branch gets its own pull request. `repository_id` picks another repository attached to this session (attach_repository makes it a git remote of that name in the workspace; start from `<repository_id>/<its default branch>`); omitted, the session's own. When the release requires approval the request waits for a person and this returns at once; call open_pull_request after it is pushed.",
   open_pull_request:
     "Open (or answer the already open) pull request from a pushed push request's branch and commit.",
   update_pull_request:
@@ -279,14 +279,22 @@ export function createGitHubMcpServer(deps: {
             sessionId,
             turnId: turnAtCall,
           }));
+        // Not an error to the model: the push still happens, one turn later,
+        // and a refusal here read as "the push was rejected" to the user.
+        if (continued) {
+          return text({
+            status: "deferred",
+            continuation: "after_turn",
+            message:
+              "Deferred, not refused: commits made in this turn reach a checkpoint only when the turn ends. End this turn now; the platform then starts a follow-up turn in which you call request_push again, and the push runs after that (after a person approves it, when the release requires approval). Nothing is pushed yet. If you tell the user anything, say the push request continues after this turn, not that it was refused or failed.",
+            ...(error.details === null ? {} : { details: error.details }),
+          });
+        }
         return text(
           {
             code: error.code,
-            message: continued
-              ? `${error.message} yet: commits made in this turn reach a checkpoint only when the turn ends. End this turn now; the platform then starts a follow-up turn in which request_push pins them.`
-              : error.message,
+            message: error.message,
             ...(error.details === null ? {} : { details: error.details }),
-            ...(continued ? { continuation: "after_turn" } : {}),
           },
           true,
         );
