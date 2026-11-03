@@ -45,10 +45,10 @@ curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: 
 
 ### 만들기
 
-에이전트에는 담당 팀이 꼭 있어야 한다. owner·admin은 `GET /v1/teams`의 아무 팀이나, 그 밖의 사람은 `GET /v1/my-teams`에 나오는 자기 팀을 고른다. 아래는 owner로 첫 팀을 고른다.
+에이전트에는 담당 팀이 꼭 있어야 한다. owner·admin은 `GET /v1/teams`의 아무 팀이나, 그 밖의 사람은 `GET /v1/my-teams`에 나오는 자기 팀을 고른다. 아래는 owner로 팀을 하나 만들어 쓴다(같은 이름의 팀이 이미 있으면 409이니 그 팀의 `id`를 쓴다).
 
 ```bash
-TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" | jq -r '.items[0].id')
+TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" -d '{"name": "Research"}' | jq -r .team.id)
 agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "slug": "research-bot",
   "name": "Research Bot",

@@ -45,10 +45,10 @@ curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: 
 
 ### 作成
 
-エージェントには担当チームが必ず必要である。owner・admin は `GET /v1/teams` のどのチームでも、それ以外の人は `GET /v1/my-teams` に出る自分のチームを選ぶ。以下では owner として最初のチームを選ぶ。
+エージェントには担当チームが必ず必要である。owner・admin は `GET /v1/teams` のどのチームでも、それ以外の人は `GET /v1/my-teams` に出る自分のチームを選ぶ。以下では owner としてチームを一つ作って使う(同じ名前のチームがすでにあると 409 なので、そのチームの `id` を使う)。
 
 ```bash
-TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" | jq -r '.items[0].id')
+TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" -d '{"name": "Research"}' | jq -r .team.id)
 agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "slug": "research-bot",
   "name": "Research Bot",

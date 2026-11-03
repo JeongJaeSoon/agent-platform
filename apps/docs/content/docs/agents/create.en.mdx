@@ -45,10 +45,10 @@ curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: 
 
 ### Create
 
-An agent must have a responsible team. An owner or admin picks any team from `GET /v1/teams`; anyone else picks a team of their own from `GET /v1/my-teams`. The example below picks the first team as the owner.
+An agent must have a responsible team. An owner or admin picks any team from `GET /v1/teams`; anyone else picks a team of their own from `GET /v1/my-teams`. The example below creates a team as the owner and uses it (a team of the same name already there is 409; use that team's `id`).
 
 ```bash
-TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" | jq -r '.items[0].id')
+TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" -d '{"name": "Research"}' | jq -r .team.id)
 agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "slug": "research-bot",
   "name": "Research Bot",
