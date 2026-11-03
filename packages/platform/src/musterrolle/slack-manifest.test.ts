@@ -177,7 +177,7 @@ describe("link app manifest", () => {
   test("the words are these, under review as one constant", () => {
     expect(LINK_APP_COPY).toEqual({
       nameSuffix: " 계정 연결",
-      description: "agent-platform 콘솔에서 Slack 계정을 연결합니다.",
+      description: "Werft 콘솔에서 Slack 계정을 연결합니다.",
     });
   });
 

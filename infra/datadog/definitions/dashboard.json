@@ -1,5 +1,5 @@
 {
-  "title": "Agent Platform alpha operations",
+  "title": "Werft alpha operations",
   "description": "Initial thresholds are provisional for the first seven days. Do not group by session_id.",
   "layout_type": "ordered",
   "template_variables": [

@@ -65,7 +65,7 @@ const LINKED: SessionAttributionRecord = {
 const TAIL = [
   "---",
   PULL_REQUEST_TAIL_MARKER,
-  `Opened by agent-platform from session \`${SESSION}\`, commit \`${"a".repeat(40)}\`.`,
+  `Opened by Werft from session \`${SESSION}\`, commit \`${"a".repeat(40)}\`.`,
   "",
   `- Session: https://console.example.com/sessions/${SESSION}`,
   "- Agent: `agent-1`, release `release-1`",

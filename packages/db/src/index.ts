@@ -32,6 +32,7 @@ export * from "./github-settings.ts";
 export * from "./identity.ts";
 export * from "./identity-reader.ts";
 export * from "./installation-profiles.ts";
+export * from "./installation-settings.ts";
 export * from "./interrupt-control.ts";
 export * from "./invites.ts";
 export * from "./lease-reconcile.ts";

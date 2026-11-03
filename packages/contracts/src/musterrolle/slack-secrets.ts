@@ -15,6 +15,7 @@ export const SECRET_PURPOSE_VALUES = [
   "github_app_private_key",
   "github_oauth_client_secret",
   "github_packages_token",
+  "settings_credential",
 ] as const;
 export const secretPurposeSchema = z.enum(SECRET_PURPOSE_VALUES);
 

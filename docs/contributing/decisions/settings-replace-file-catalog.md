@@ -46,7 +46,7 @@
 |---|---|
 | `id` text PK | 연결 id. 가져온 것은 YAML id 그대로. 다시 쓰지 않는다 |
 | `definition` jsonb | `catalogProviderSchema` 항목 그대로(`kind`, `endpoint`, `billing`, `auth`). 상한의 `definition.provider`와 canonical JSON으로 같아야 돈다(PD-5 규칙 유지) |
-| `credential_source` text | `stored` 또는 `external`. `stored`면 `definition.auth`는 `{ kind, stored: true }`이고 값은 `secret_values`(owner_ref `connection:<id>`)에 있다. `external`이면 `value_env`·`secret_id` 하나 |
+| `credential_source` text | `stored` 또는 `external`. `stored`면 `definition.auth`는 `{ kind, stored: "connection:<id>" }`이고 값은 `secret_values`(purpose `settings_credential`, owner_ref `connection:<id>`)에 있다. 참조가 자기 행을 가리키지 않으면 그 행은 읽지 않는다. `{ stored: true }`로 두면 kind·endpoint·billing이 같은 두 연결의 정의가 같아져, 상한이 provider의 canonical JSON으로 연결을 찾을 때(`installationProfileSnapshot`) 어느 값을 쓸지 가리지 못한다(S1에서 Codex와 정함). `external`이면 `value_env`·`secret_id` 하나. `origin = console`이면 `stored`만 된다(CHECK) |
 | `origin` text | `import`·`console` |
 | `disabled_at/by` | 사용 중지. 그 위 상한은 `connection_missing`과 같은 상태(`connection_disabled`)로 아무것도 돌리지 않는다. 회수 수단이다 |
 | `created_at/by` | 감사 |
@@ -84,13 +84,13 @@
 | `url` text | 바꾸지 않는다 |
 | `credential_ref` text | 에이전트 카드의 `credential_refs`와 맞춰 보는 이름(`packages/platform/src/agents/release-ids.ts:175-200`). 바꾸지 않는다 |
 | `credential_source` | `stored`(`secret_values`, owner_ref `mcp:<id>`) 또는 `external`(`secret_id`) |
-| `workspace_ids` jsonb | 지금의 `workspaces`(slug)를 id로 바꿔 둔다. 이 칸만 제자리에서 고칠 수 있다 |
+| `workspaces` jsonb | 지금의 `workspaces`(slug) 그대로. 허용 검사가 slug로 맞춰 보고(`mcp-egress.ts`), slug는 바뀌지 않으며, 가져오기가 워크스페이스보다 먼저 돌 수 있어서 id로 바꾸지 않는다(S1에서 Codex와 정함). 이 칸만 제자리에서 고칠 수 있다 |
 | `disabled_at/by`, `created_at/by`, `origin` | 연결과 같다 |
 
 release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.ts:63-77`). release 생성은 카드가 이름으로 가리킨 서버가 있는지와 `credential_ref`만 검사하고(`release-ids.ts:175-200`), claim이 그때의 카탈로그에서 서버를 찾아 `mcpBinding`을 만든다(`packages/platform/src/workers/worker-gateway.ts:723-730`). 그래서 행을 제자리에서 고치면 진행 중 세션의 다음 claim이 다른 서버를 받는다. 이것을 막으려고:
 
 - `url`·`credential_ref`·자격 출처는 바꾸지 않는다. 바꾸려면 새 id로 만들고 카드를 새 release로 옮긴다.
-- `workspace_ids`는 `mcpBinding`에 들지 않는다(`release_id`·`server_id`·`url`·`credential_ref`만 해시한다, `catalog.ts:610-622`). 그래서 이 칸만 제자리에서 고친다.
+- `workspaces`는 `mcpBinding`에 들지 않는다(`release_id`·`server_id`·`url`·`credential_ref`만 해시한다, `catalog.ts:610-622`). 그래서 이 칸만 제자리에서 고친다.
 - 가져온 행이 YAML과 같은 객체로 풀려 binding이 같은지 S1이 테스트로 보인다.
 - release에 MCP 서버 버전을 명시적으로 고정할지는 LATER로 둔다(Codex 의견, 아래 합의·이견).
 
@@ -174,7 +174,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 |---|---|---|
 | 결정 문서 | 이 문서(#993) | 문서 |
 | S0 | 1.1절: 상한 열 `github_app_repositories`와 `source: selection` migration, 관리·에이전트 화면의 설치 저장소 페이지 API, 고르기 API와 해석 행, `allowedPair`의 `installed`, 콘솔 등록·제거 제거, 저장소 화면·에이전트 GitHub 탭·상한 폼, 문구, OpenAPI·SDK·core 응답 표 | 큼 |
-| S1 | DB: `provider_connections`, `mcp_servers`, `catalog_repositories` 확장, store, 레지스트리가 세 테이블을 읽음, 지연 replica 규칙, 지문·binding·release id 동일성 테스트 | 큼 |
+| S1 | DB: `provider_connections`, `mcp_servers`, `catalog_repositories` 확장, store, 레지스트리가 세 테이블을 읽음, 지연 replica 규칙, 지문·binding·release id 동일성 테스트. S4까지 레지스트리는 파일과 DB를 합쳐 읽고 같은 id는 파일이 이긴다(파일만 있는 스택은 그대로 돈다). DB 행의 자격 증명이 이 replica에서 풀리지 않으면 그 행만 빠지고, 그 저장소의 세션은 이 replica가 실패시키지 않는다 | 큼 |
 | S2 | 가져오기/내보내기: 설정 문서 스키마, CLI `settings import/export`, API export/import, receipt | 중 |
 | S3 | API·콘솔: 연결 화면, MCP 서버 화면, 저장소 화면에 PAT·공개 저장소, 빈 설치 안내, OpenAPI·SDK·core 응답 표 | 큼 |
 | S4 | 파일 제거: 로더·`connections-from-yaml`·`catalog_authority`·`catalogRevision`·`platform.yaml`, `PLATFORM_CONFIG_DIR` 거부, helm(ConfigMap 삭제, migrate job 가져오기), compose·kind·image-smoke·d2-gate·test-ops, E2E·verify fixture를 설정 문서로, 문서(ko·en·ja)·콘솔 문구 | 큼 |

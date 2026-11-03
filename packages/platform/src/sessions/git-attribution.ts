@@ -153,12 +153,15 @@ export function pullRequestTail(input: {
   return lines.join("\n");
 }
 
-const TAIL_OPENING = "Opened by agent-platform from session ";
+const TAIL_OPENING = "Opened by Werft from session ";
 
 // What pullRequestTail writes between the markers, in order; `optional` lines
 // may be missing. Anything else there (a line a person added) is theirs.
 const TAIL_SHAPE: readonly { line: RegExp; optional?: true }[] = [
-  { line: /^Opened by agent-platform from session `[^`]+`, commit `[^`]+`\.$/ },
+  // Pull requests opened before the rename still carry the old name.
+  {
+    line: /^Opened by (?:Werft|agent-platform) from session `[^`]+`, commit `[^`]+`\.$/,
+  },
   { line: /^$/ },
   { line: /^- Session: \S+$/, optional: true },
   { line: /^- Agent: (`[^`]+`|none), release (`[^`]+`|none)$/ },
