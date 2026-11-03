@@ -476,10 +476,11 @@ async function runScenario(options: RunOptions): Promise<{
     timedOut = true;
     abortController.abort();
   }, 50_000);
-  await consume.catch((error: unknown) => {
-    if (!timedOut) throw error;
-  });
-  clearTimeout(timer);
+  await consume
+    .catch((error: unknown) => {
+      if (!timedOut) throw error;
+    })
+    .finally(() => clearTimeout(timer));
   if (timedOut) throw new Error("The harness run did not settle in 50s");
   lease?.release();
   const preparation = ledger.prepareCheckpoint();
