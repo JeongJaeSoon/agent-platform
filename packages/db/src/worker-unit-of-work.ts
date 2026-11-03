@@ -1204,7 +1204,9 @@ async function giveUpOnCatalogMismatch(
       ? undefined
       : await profileBlocked(tx, session.profileId);
   // Held the same way: a settings write waits for this give-up rather than
-  // committing a row the claim judged without.
+  // committing a row the claim judged without. Never waited for: a write in
+  // flight may go on to lock the ceiling held above, so the give-up yields
+  // and the claim is asked again.
   const [settings] =
     input.settingsGeneration === null
       ? []
@@ -1212,7 +1214,10 @@ async function giveUpOnCatalogMismatch(
           .select({ generation: settingsGeneration.generation })
           .from(settingsGeneration)
           .limit(1)
-          .for("share");
+          .for("share", { skipLocked: true });
+  if (input.settingsGeneration !== null && settings === undefined) {
+    return null;
+  }
   // A block leaves the ceiling out of the revision, so the replica that read
   // it no longer matches the activated one; the row, read here, decides.
   if (

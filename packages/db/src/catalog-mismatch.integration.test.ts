@@ -754,6 +754,54 @@ integration("claim against a catalog that dropped the pair", () => {
       await untouched(session.session_id, launch.ref);
     });
 
+    test("a settings write in flight that goes on to the give-up's ceiling", async () => {
+      const session = await queuedSession(MOVED_TO);
+      const launch = await reserved(session.session_id);
+      await db.insert(installationProfiles).values({
+        id: PROFILE_ID,
+        name: null,
+        version: 1,
+        origin: "catalog",
+        definition: { permission_mode: "default" },
+        permissionMode: "default",
+        fingerprint: "fp",
+        repositoryIds: null,
+      });
+      const current = await settingsGenerationNow();
+      const writer = await pool.connect();
+      try {
+        await writer.query("BEGIN");
+        // As seeding several ceilings: one written, the generation held.
+        await writer.query(
+          "INSERT INTO provider_connections (id, definition, credential_source, origin) VALUES ('in_flight', '{}', 'external', 'import')",
+        );
+        const claiming = claim(launch, 1_000, undefined, {
+          generation: current,
+        });
+        const settled = await Promise.race([
+          claiming.then(() => true),
+          Bun.sleep(1_000).then(() => false),
+        ]);
+        await writer.query(
+          "UPDATE installation_profiles SET fingerprint = 'fp2' WHERE id = $1",
+          [PROFILE_ID],
+        );
+        await writer.query("COMMIT");
+        expect(settled).toBe(true);
+        expect((await claiming).outcome).toBe("no_session");
+      } finally {
+        await writer.query("ROLLBACK").catch(() => undefined);
+        writer.release();
+        await db
+          .delete(providerConnections)
+          .where(eq(providerConnections.id, "in_flight"));
+        await db
+          .delete(installationProfiles)
+          .where(eq(installationProfiles.id, PROFILE_ID));
+      }
+      await untouched(session.session_id, launch.ref);
+    });
+
     test("a repository whose credential this host cannot read", async () => {
       const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);
