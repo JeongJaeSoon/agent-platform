@@ -96,27 +96,35 @@ export type ToolSummary = {
 const EXCERPT_LINES = 3;
 const EXCERPT_MAX = 300;
 
+/** At most EXCERPT_MAX characters, a trailing "…" line when there is more. */
 function excerptOf(text: string | null): string | null {
   if (text === null) return null;
   const lines = text.split("\n");
+  const more = lines.length > EXCERPT_LINES;
   const head = clip(
     lines
       .slice(0, EXCERPT_LINES)
       .map((line) => clip(line, COMMAND_MAX))
       .join("\n"),
-    EXCERPT_MAX,
+    more ? EXCERPT_MAX - 2 : EXCERPT_MAX,
   );
-  return lines.length > EXCERPT_LINES && !head.endsWith("…")
-    ? `${head}\n…`
-    : head;
+  return more && !head.endsWith("…") ? `${head}\n…` : head;
 }
 
+/** A string field as written, whitespace kept; null when blank. */
+function content(input: unknown, key: string): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/** An edit's new text; the first of several, with "…" for the rest. */
 function editedText(input: unknown): string | null {
   if (typeof input !== "object" || input === null) return null;
   const edits = (input as { edits?: unknown }).edits;
-  return Array.isArray(edits)
-    ? field(edits[0], "new_string")
-    : field(input, "new_string");
+  if (!Array.isArray(edits)) return content(input, "new_string");
+  const first = content(edits[0], "new_string");
+  return first !== null && edits.length > 1 ? `${first}\n…` : first;
 }
 
 const clip = (value: string, max: number) => {
@@ -192,13 +200,13 @@ export function summarizeToolRequest(
       return summary(
         copy.editFile,
         field(input, "notebook_path"),
-        field(input, "new_source"),
+        content(input, "new_source"),
       );
     case "Write":
       return summary(
         copy.writeFile,
         field(input, "file_path"),
-        field(input, "content"),
+        content(input, "content"),
       );
     case "Read":
       return summary(copy.readFile, field(input, "file_path"));
