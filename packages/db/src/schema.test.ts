@@ -139,6 +139,7 @@ describe("database schema", () => {
       "slack_install_states",
       "slack_installations",
       "slack_outbox",
+      "slack_thread_status",
       "storage_usage",
       "surface_bindings",
       "tool_call_days",

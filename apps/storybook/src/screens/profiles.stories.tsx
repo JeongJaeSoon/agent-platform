@@ -31,6 +31,7 @@ import {
   Textarea,
 } from "@werft-ai/ui";
 import { useId } from "react";
+import { expect } from "storybook/test";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
@@ -275,7 +276,7 @@ function KindPicker({ kind }: { readonly kind: "workspace" | "installation" }) {
   const legend = useId();
   return (
     <FieldSet className="gap-3">
-      <FieldLegend id={legend} variant="label" className="mb-0">
+      <FieldLegend id={legend} variant="label" className="mb-2">
         종류
       </FieldLegend>
       <RadioGroup value={kind} aria-labelledby={legend}>
@@ -383,10 +384,10 @@ function NewCeiling({ refused }: { readonly refused: boolean }) {
             </FieldDescription>
           </Field>
           <FieldSet className="gap-3">
-            <FieldLegend variant="label" className="mb-0">
+            <FieldLegend variant="label" className="mb-2">
               허용할 저장소
             </FieldLegend>
-            <FieldDescription>
+            <FieldDescription className="nth-last-2:mt-0">
               이 프로필의 세션과 릴리스가 쓸 수 있는 저장소입니다.
             </FieldDescription>
             <Field orientation="horizontal">
@@ -456,6 +457,21 @@ function NewWorkspace({ role }: { readonly role: Role }) {
               저장할 버전의 id: ws_acme_strict_v4
             </FieldDescription>
           </Field>
+          <FieldSet className="gap-3">
+            <FieldLegend variant="label" className="mb-2">
+              모델
+            </FieldLegend>
+            <FieldDescription className="nth-last-2:mt-0">
+              세션이 고를 수 있는 모델입니다. 바탕 프로필에 있는 모델만
+              고릅니다.
+            </FieldDescription>
+            <Field orientation="horizontal">
+              <Checkbox defaultChecked />
+              <FieldContent>
+                <FieldLabel className="font-mono">claude-sonnet-5</FieldLabel>
+              </FieldContent>
+            </Field>
+          </FieldSet>
           <FieldSet className="gap-2 rounded-card border bg-muted/40 p-3">
             <FieldLegend variant="label" className="mb-0">
               검토
@@ -538,9 +554,42 @@ export const ProfileCeilingDetailAdmin: Story = {
   name: "Admin · ceiling detail (narrow only)",
   args: { view: "detail", role: "admin" },
 };
+/** From the bottom of a label to the top of whatever follows it. */
+const spaceBelow = (label: Element): number => {
+  const next = label.nextElementSibling;
+  if (next === null) throw new Error("nothing follows the label");
+  return (
+    next.getBoundingClientRect().top - label.getBoundingClientRect().bottom
+  );
+};
+
+/**
+ * A fieldset's flex gap skips its rendered legend, so only the legend's own
+ * margin keeps a group label off what it labels. Each unboxed group label
+ * sits as far above its content as the name label above its input.
+ */
+const groupLabelsSitLikeFieldLabels =
+  (legendCount: number) =>
+  async ({ canvasElement }: { readonly canvasElement: HTMLElement }) => {
+    const name = [
+      ...canvasElement.querySelectorAll("form [data-slot=field-label]"),
+    ].find((label) => label.textContent === "이름");
+    if (name === undefined) throw new Error("no name label");
+    const legends = canvasElement.querySelectorAll(
+      "fieldset:not(.border) > [data-slot=field-legend]",
+    );
+    await expect(legends.length).toBe(legendCount);
+    for (const legend of legends) {
+      await expect(spaceBelow(legend)).toBe(spaceBelow(name));
+    }
+    await expect(spaceBelow(name)).toBeGreaterThan(0);
+  };
+
 export const ProfileNewCeiling: Story = {
   name: "Owner · new ceiling",
   args: { view: "newCeiling" },
+  // The kind and allowed-repository groups.
+  play: groupLabelsSitLikeFieldLabels(2),
 };
 export const ProfileNewCeilingRefused: Story = {
   name: "Owner · new ceiling refused",
@@ -559,4 +608,6 @@ export const ProfileNewWorkspaceMobile: Story = {
   name: "Owner · new workspace profile (390px)",
   args: { view: "newWorkspace" },
   globals: MOBILE,
+  // The kind group, and the model group with its one choice.
+  play: groupLabelsSitLikeFieldLabels(2),
 };

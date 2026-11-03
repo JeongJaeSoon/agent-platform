@@ -325,6 +325,14 @@ export function slackSessionHandler(deps: {
   });
 }
 
+// The pass child serves pass after pass, so this flips each pass: statuses
+// and posts take turns at the start of the outbox window.
+let statusesFirst = false;
+function nextStatusesFirst(): boolean {
+  statusesFirst = !statusesFirst;
+  return statusesFirst;
+}
+
 export async function main(
   environment: Environment = process.env,
 ): Promise<SlackInboxDrain> {
@@ -387,6 +395,7 @@ export async function main(
       batchSize: settings.batchSize,
       leaseMs: settings.leaseMs,
       deadline,
+      statusesFirst: nextStatusesFirst(),
     });
     if (sent.enqueued + sent.claimed + sent.uncertain > 0) {
       logger.info("Slack outbox pass", sent);

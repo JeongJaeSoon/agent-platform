@@ -155,7 +155,7 @@ Everyone in a channel reads what the agent posts there, including people outside
 | `config_error` | Slack refused the token or a scope (`error` holds Slack's code). Reinstall the app |
 | `join_failed` | The channel is archived or a workspace policy refused the join (`error`) |
 
-Deploying a new release posts one message in the home channel: `안녕하세요, <agent name>입니다. 이 채널에 배포됐어요. 멘션하면 답할게요` (Korean by default). Submitting the same definition again or rolling back to an earlier release posts nothing. Moving the home to another channel posts once in the new channel. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
+When a release is first deployed, the home channel gets `안녕하세요, <agent name>입니다. 이 채널에 연결됐어요. 멘션하면 답할게요` (Korean by default). Each channel hears it once per agent. Deploying a new release, submitting the same definition again, rolling back to an earlier release, or disconnecting Slack and connecting it again posts nothing in a channel that already heard it. Moving the home to a channel that has not heard it yet posts once there. If the bot is not in the home yet, the message waits until it is. A welcome or join that fails never fails the deployment.
 
 ## Next steps
 

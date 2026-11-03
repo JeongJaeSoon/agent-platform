@@ -1,4 +1,8 @@
-import type { PendingQuestion, UserLocale } from "@werft-ai/contracts";
+import type {
+  AdmissionState,
+  PendingQuestion,
+  UserLocale,
+} from "@werft-ai/contracts";
 import type {
   PendingRequestDisplay,
   ToolSummaryContext,
@@ -176,7 +180,129 @@ export type SlackOutboxSettle =
   | { status: "uncertain"; errorCode: string }
   | { status: "pending"; retryInMs: number; errorCode: string };
 
+/** One session's state as stored, read for its thread status. */
+export type SlackThreadStatusFacts = {
+  admissionState: AdmissionState;
+  executionRevoked: boolean;
+  /** A turn whose outcome is unknown: the session waits on recovery. */
+  unknownTurn: boolean;
+  checkpointRevision: number | null;
+  /** Pending under the answer path's own rule, parked ones included. */
+  answerableRequest: boolean;
+  runningTurn: boolean;
+  queuedTurn: boolean;
+  requestedPushes: {
+    checkpointRevision: number;
+    gitCommit: string;
+  }[];
+};
+
+export type SlackThreadStatusTarget = {
+  sessionLinkId: string;
+  sessionId: string;
+  workspaceId: string;
+  slackAppId: string;
+  channelId: string;
+  threadTs: string;
+};
+
+export type SlackThreadStatusFence = {
+  sessionLinkId: string;
+  claimToken: string;
+};
+
+export type SlackThreadStatusClaim = SlackThreadStatusTarget &
+  SlackThreadStatusFence & {
+    /** dirty_rev when claimed: what a send or a skip settles, no further. */
+    dirtyRev: number;
+    uncertainRev: number;
+    uncertain: boolean;
+    /** Taken over from a writer whose lease ran out: it sends regardless. */
+    inherited: boolean;
+    sentStatus: string | null;
+    sentAt: Date | null;
+  };
+
+export type SlackThreadStatusReconcile = SlackThreadStatusTarget & {
+  sentStatus: string | null;
+  sentAt: Date | null;
+  facts: SlackThreadStatusFacts;
+};
+
+/**
+ * The `slack` role's thread status rows (94S-1292). Every write after
+ * `claim` is fenced by its token except `uncertain`, which must land even
+ * when the lease is lost.
+ */
+export interface SlackThreadStatusStore {
+  /**
+   * Rows whose send outlived the lease and its grace become uncertain from
+   * the send's start (design §4 rule 6), so they wait out the window first.
+   */
+  expireInflight(input: { graceMs: number; windowMs: number }): Promise<number>;
+  /**
+   * Live links' rows that changed since their last send, or whose uncertain
+   * window passed, with no lease left (after its grace) and no `next_at`
+   * ahead and not disabled.
+   */
+  claim(input: {
+    limit: number;
+    leaseMs: number;
+    graceMs: number;
+  }): Promise<SlackThreadStatusClaim[]>;
+  /** Null when the session is gone. */
+  facts(sessionId: string): Promise<SlackThreadStatusFacts | null>;
+  /**
+   * The send's start, or null when the token is no longer this writer's or
+   * less than `minLeaseLeftMs` of the lease is left.
+   */
+  beginSend(
+    fence: SlackThreadStatusFence,
+    minLeaseLeftMs: number,
+  ): Promise<Date | null>;
+  /**
+   * A send that succeeded. The uncertainty clears only when this send began
+   * a window after the latest uncertain one and none was recorded since.
+   */
+  finish(
+    fence: SlackThreadStatusFence,
+    sent: {
+      dirtyRev: number;
+      status: string;
+      startedAt: Date;
+      uncertainRev: number;
+      windowMs: number;
+    },
+  ): Promise<boolean>;
+  /** The computed status is the one Slack shows: nothing to send. */
+  skip(fence: SlackThreadStatusFence, dirtyRev: number): Promise<boolean>;
+  /** A send whose outcome is unknown; lands without the lease. */
+  uncertain(
+    fence: SlackThreadStatusFence,
+    startedAt: Date,
+    windowMs: number,
+  ): Promise<void>;
+  /** Try again no sooner than `retryInMs` from now, nor any boundary set. */
+  defer(fence: SlackThreadStatusFence, retryInMs: number): Promise<boolean>;
+  /** Slack will not show a status there; skipped until re-enabled. */
+  disable(fence: SlackThreadStatusFence, reason: string): Promise<boolean>;
+  /**
+   * Re-enables rows disabled `disabledForMs` ago or before their
+   * installation was verified again, then up to `limit` live links whose
+   * row is missing or not yet closed and not disabled, longest unreconciled
+   * first.
+   */
+  reconcileBatch(input: {
+    limit: number;
+    disabledForMs: number;
+  }): Promise<SlackThreadStatusReconcile[]>;
+  /** Stamps the links reconciled, raising dirty_rev where marked dirty. */
+  reconciled(rows: { sessionLinkId: string; dirty: boolean }[]): Promise<void>;
+}
+
 export interface SlackOutboxStore {
+  /** Absent in stores without the thread status table. */
+  threadStatus?: SlackThreadStatusStore;
   /**
    * `whileHome`: insert only while that binding is the agent's live home
    * and that release is active, checked under share locks so a home move
