@@ -489,20 +489,18 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         if (!(await actorStillMember(tx, input.principal))) {
           return { outcome: "actor_inactive" };
         }
-        if (input.managingTeam !== undefined) {
-          const role = await lockedRole(tx, input.workspaceId, input.createdBy);
-          if (role === null) return { outcome: "actor_inactive" };
-          const allowed = await managingTeamAllowed(
-            tx,
-            input.workspaceId,
-            input.managingTeam.id,
-            {
-              userId: input.createdBy,
-              manager: input.managingTeam.managerRoles.includes(role),
-            },
-          );
-          if (allowed !== "ok") return { outcome: allowed };
-        }
+        const role = await lockedRole(tx, input.workspaceId, input.createdBy);
+        if (role === null) return { outcome: "actor_inactive" };
+        const allowed = await managingTeamAllowed(
+          tx,
+          input.workspaceId,
+          input.managingTeam.id,
+          {
+            userId: input.createdBy,
+            manager: input.managingTeam.managerRoles.includes(role),
+          },
+        );
+        if (allowed !== "ok") return { outcome: allowed };
         const agentId = randomUUID();
         const inserted = await tx
           .insert(agents)
@@ -512,7 +510,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
             slug: input.slug,
             name: input.name,
             description: input.description ?? null,
-            managingTeamId: input.managingTeam?.id.toLowerCase() ?? null,
+            managingTeamId: input.managingTeam.id.toLowerCase(),
             createdBy: input.createdBy,
           })
           .onConflictDoNothing({
@@ -539,13 +537,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           operation: "create_agent",
           workspaceId: input.workspaceId,
           agentId,
-          ...(input.managingTeam === undefined
-            ? {}
-            : {
-                result: {
-                  managing_team_id: input.managingTeam.id.toLowerCase(),
-                },
-              }),
+          result: {
+            managing_team_id: input.managingTeam.id.toLowerCase(),
+          },
         });
         const detail = await detailOf(tx, input.workspaceId, agentId);
         if (!detail) throw new Error(`agent ${agentId} vanished in its tx`);

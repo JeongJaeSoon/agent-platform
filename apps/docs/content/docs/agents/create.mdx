@@ -45,11 +45,15 @@ curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: 
 
 ### 만들기
 
+에이전트에는 담당 팀이 꼭 있어야 한다. owner·admin은 `GET /v1/teams`의 아무 팀이나, 그 밖의 사람은 `GET /v1/my-teams`에 나오는 자기 팀을 고른다. 아래는 owner로 팀을 하나 만들어 쓴다(같은 이름의 팀이 이미 있으면 409이니 그 팀의 `id`를 쓴다).
+
 ```bash
+TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" -d '{"name": "Research"}' | jq -r .team.id)
 agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "slug": "research-bot",
   "name": "Research Bot",
   "description": "저장소를 읽고 질문에 답한다",
+  "managing_team_id": "'"$TEAM"'",
   "card": {
     "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
@@ -71,7 +75,9 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 같은 워크스페이스에 같은 slug가 있으면 409 `ALREADY_EXISTS`다. 만들기만으로는 아무것도 활성화되지 않는다.
 
-요청에 `managing_team_id`로 팀 ID를 넣으면 그 팀이 담당 팀이 된다. owner·admin이 아니면 자기가 속한 팀만 넣을 수 있다. 응답의 `agent.managing_team_name`은 그 팀의 이름이고, 담당 팀이 없으면 `managing_team_id`와 함께 `null`이다.
+`managing_team_id`에 넣은 팀이 담당 팀이 된다. 빠지면 400 `BAD_REQUEST`이고 `error.details.issues`에 `{"path": "managing_team_id", "message": "managing_team_id is required"}`가 있다. owner·admin이 없는 팀을 넣으면 404다. 그 밖의 사람이 자기가 속하지 않은 팀을 넣으면, 없는 팀이어도 403(`details.reason_code: team_not_allowed`)이다. 그래서 속한 팀이 없는 member는 에이전트를 만들 수 없다. 응답의 `agent.managing_team_name`은 그 팀의 이름이다.
+
+담당 팀을 필수로 받기 전에 만든 에이전트는 담당 팀이 비어 있을 수 있다. 그런 에이전트도 지금처럼 읽고 고치고 실행한다. 목록과 응답에서는 `managing_team_id`와 `managing_team_name`이 `null`이고, `PUT /v1/agents/{id}/managing-team`으로 담당 팀을 정한다.
 
 ### 릴리스 만들기
 
@@ -130,7 +136,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ```text
 {"n":1,"next_cursor":null}
-{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":1}}
+{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":0}}
 ```
 
 목록은 오래된 에이전트부터 `limit`개(기본 50, 최대 100)씩 온다. 응답의 `next_cursor`를 `cursor`로 보내면 다음 페이지이고, 마지막 페이지에서는 `null`이다. `cursor` 없이 부르면 첫 페이지만 온다. `q`(최대 200자)를 주면 이름이나 식별자에 그 글자가 든 에이전트만 대소문자 구분 없이 오고, `ids`에 에이전트 ID를 쉼표로 이어(최대 100개) 주면 그 에이전트만 온다. `runtime_profile_id`를 주면 활성 release가 그 실행 프로필로 도는 에이전트만 오고, 활성 release가 없는 에이전트는 빠진다. 모두 같은 `cursor`로 다음 페이지를 읽는다. `GET /v1/agents/counts`는 목록을 끝까지 읽었을 때의 개수(`all`), 그중 내가 직접 또는 팀으로 관리하는 개수(`administered`), 활성 release로 켜진 개수(`active`), 보관되지 않았지만 아직 활성 release가 없는 초안 개수(`draft`), 담당 팀이 없는 개수(`unassigned`)를 준다. 목록에 `managing_team=unassigned`를 주면 담당 팀이 없는 에이전트만 온다. 둘 다 목록과 같은 권한이 있어야 하고 API key는 거절된다.

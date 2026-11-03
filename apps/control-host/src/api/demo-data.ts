@@ -379,9 +379,52 @@ async function workspaceAgents(client: DemoClient): Promise<AgentRow[]> {
   return rows;
 }
 
+const DEMO_TEAM = "데모 팀";
+
+/**
+ * The team that manages the demo agents, holding the demo member so the
+ * owner's sessions on them stay visible to the member.
+ */
+async function ensureDemoTeam(
+  owner: DemoClient,
+  member: DemoClient,
+): Promise<string> {
+  let teamId: string | undefined;
+  let cursor: string | null = null;
+  do {
+    const query: string = cursor
+      ? `?limit=100&cursor=${encodeURIComponent(cursor)}`
+      : "?limit=100";
+    const page = await owner.expect<{
+      items: { id: string; name: string }[];
+      next_cursor: string | null;
+    }>(200, "GET", `/v1/teams${query}`);
+    teamId = page.items.find((team) => team.name === DEMO_TEAM)?.id;
+    cursor = teamId === undefined ? page.next_cursor : null;
+  } while (cursor !== null);
+  if (teamId === undefined) {
+    teamId = (
+      await owner.expect<{ team: { id: string } }>(201, "POST", "/v1/teams", {
+        name: DEMO_TEAM,
+      })
+    ).team.id;
+  }
+  const me = await member.expect<{ user: { id: string } }>(
+    200,
+    "GET",
+    "/v1/auth/me",
+  );
+  // Adding someone already in the team writes nothing.
+  await owner.expect(200, "POST", `/v1/teams/${teamId}/members`, {
+    user_id: me.user.id,
+  });
+  return teamId;
+}
+
 async function ensureAgent(
   owner: DemoClient,
   agent: DemoAgent,
+  teamId: string,
 ): Promise<{ releaseId: string; created: boolean }> {
   const existing = (await workspaceAgents(owner)).find(
     (row) => row.slug === agent.slug,
@@ -398,6 +441,7 @@ async function ensureAgent(
     }>(201, "POST", "/v1/agents", {
       slug: agent.slug,
       name: agent.name,
+      managing_team_id: teamId,
       card: {
         role: agent.role,
         instructions: agent.instructions,
@@ -684,8 +728,13 @@ async function seedAs(
 ): Promise<DemoDataOutcome[]> {
   const outcomes: DemoDataOutcome[] = [];
   const releases = new Map<string, string>();
+  const teamId = await ensureDemoTeam(clients.owner, clients.member);
   for (const agent of DEMO_AGENTS) {
-    const { releaseId, created } = await ensureAgent(clients.owner, agent);
+    const { releaseId, created } = await ensureAgent(
+      clients.owner,
+      agent,
+      teamId,
+    );
     releases.set(agent.slug, releaseId);
     outcomes.push({
       kind: "agent",
