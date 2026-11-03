@@ -6,6 +6,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
+import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -40,10 +41,12 @@ const githubAppRows = eq(catalogRepositories.authKind, "github_app");
 
 // The seed and every console write take it, so an id is decided by one
 // writer at a time.
-const lockWrites = (tx: Database) =>
-  tx.execute(
+const lockWrites = async (tx: Database) => {
+  await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
   );
+  await lockSettingsGeneration(tx);
+};
 
 const managerOf = async (tx: Database, workspaceId: string, userId: string) => {
   // A demotion or disable committed after the policy's check wins.

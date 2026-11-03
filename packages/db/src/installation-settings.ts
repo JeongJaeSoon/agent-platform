@@ -64,6 +64,18 @@ async function generationIn(tx: Database): Promise<number> {
   return row?.generation ?? 0;
 }
 
+/**
+ * Taken by every settings writer before it locks a settings row: each row
+ * write raises the generation through its trigger, so two writers that
+ * lock rows first would take the generation in opposite orders.
+ */
+export async function lockSettingsGeneration(tx: Database): Promise<void> {
+  await tx
+    .select({ id: settingsGeneration.id })
+    .from(settingsGeneration)
+    .for("update");
+}
+
 async function secretOwnerWorkspace(tx: Database): Promise<string | null> {
   const [workspace] = await tx
     .select({ id: workspaces.id })
