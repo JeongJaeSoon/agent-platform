@@ -85,6 +85,22 @@ RUN tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
     -o /tmp/git-lfs . \
   && cp LICENSE.md /tmp/git-lfs-LICENSE.md
 
+# GitHub CLI, upstream's release binary pinned by version and per-arch sha256
+# (the release's checksums file). Only the binary and its license reach the
+# runtime stage. Bumped by hand with GH_VERSION in
+# scripts/third-party-notices.ts; tests/images.test.ts keeps them equal.
+FROM --platform=$BUILDPLATFORM ${BUN_IMAGE} AS gh
+ARG GH_VERSION=2.103.3
+ARG TARGETARCH
+ADD --checksum=sha256:4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d \
+  https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz \
+  /tmp/gh-amd64.tar.gz
+ADD --checksum=sha256:ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 \
+  https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_arm64.tar.gz \
+  /tmp/gh-arm64.tar.gz
+RUN mkdir /tmp/gh \
+  && tar -xzf "/tmp/gh-${TARGETARCH}.tar.gz" -C /tmp/gh --strip-components=1
+
 FROM ${BUN_IMAGE} AS runtime
 # git: workspace checkout, bundles and the tools Claude Code shells out to.
 # ca-certificates: the egress proxy tunnels TLS, the worker still verifies it.
@@ -115,6 +131,10 @@ RUN git config --system user.name Werft \
 COPY --from=git-lfs /tmp/git-lfs /usr/local/bin/git-lfs
 COPY --from=git-lfs /tmp/git-lfs-LICENSE.md /usr/local/share/doc/git-lfs/LICENSE.md
 RUN git lfs install --system --skip-repo --skip-smudge
+# gh carries no credentials, and api.github.com is not on the proxy's
+# allowlist by default: GitHub writes stay with the github MCP server.
+COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh
+COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE
 # The session's commit trailers (Co-authored-by, Agent-Session): every client
 # hook is one dispatcher that runs the repository's own hook of that name
 # too, since core.hooksPath stops git looking in .git/hooks. System scope
