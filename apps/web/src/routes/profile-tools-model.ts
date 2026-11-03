@@ -161,6 +161,17 @@ function baseCatalog(base: ProfileSummary): ToolCatalogView | null {
   };
 }
 
+/** The latest workspace version under `name`, which the server weighs new tools against. */
+export const latestVersion = (
+  items: readonly ProfileSummary[],
+  name: string,
+): ProfileSummary | undefined =>
+  items
+    .filter((item) => item.workspace?.name === name)
+    .sort(
+      (a, b) => (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
+    )[0];
+
 /**
  * A workspace version's checklist over `base`, or null when no catalog
  * lists the base's runtime version. It starts from `from`, the version it

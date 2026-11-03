@@ -1232,4 +1232,43 @@ describe("차단할 내장 도구", () => {
       accept_added_tools: ["Edit"],
     });
   });
+
+  test("a latest version saved after the form opened is read again when the server refuses against it", async () => {
+    let refused = false;
+    const server = catalog([
+      CODING,
+      version(1, "usable", { tools: ["Read", "Edit"] }),
+    ]);
+    const { api } = renderAt(
+      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      {
+        ...server.routes,
+        "POST /v1/workspace-profiles": async (request: Request) => {
+          if (!refused) {
+            refused = true;
+            // Someone else's v2, which never ran Edit, lands first.
+            server.items.push(version(2, "usable", { tools: ["Read"] }));
+            return refusal(400, "BAD_REQUEST", {
+              reason_code: "added_tool_not_accepted",
+              field: "accept_added_tools",
+            });
+          }
+          return server.routes["POST /v1/workspace-profiles"](request);
+        },
+      },
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    expect(screen.queryAllByRole("group", { name: "카탈로그 차이" })).toEqual(
+      [],
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    const diff = await screen.findByRole("group", { name: "카탈로그 차이" });
+    await user.click(
+      within(diff).getByRole("checkbox", { name: "Edit 실행을 받아들이기" }),
+    );
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(2));
+    expect(posted(api)[1]).toMatchObject({ accept_added_tools: ["Edit"] });
+  });
 });

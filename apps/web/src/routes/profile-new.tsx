@@ -38,6 +38,7 @@ import {
   ProfileEditor,
 } from "./profile-editor.tsx";
 import { installationOptionsQuery } from "./profile-tools.tsx";
+import { latestVersion } from "./profile-tools-model.ts";
 import { nextVersionId, profileName } from "./profiles.tsx";
 
 export type ProfileKind = "workspace" | "installation";
@@ -225,14 +226,7 @@ export function ProfileNewScreen() {
           start={start}
           operators={operators}
           nextId={(name) => nextVersionId(workspace, items, name)}
-          latest={(name) =>
-            items
-              .filter((item) => item.workspace?.name === name)
-              .sort(
-                (a, b) =>
-                  (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
-              )[0]
-          }
+          latest={(name) => latestVersion(items, name)}
           onCancel={() =>
             void navigate(
               from

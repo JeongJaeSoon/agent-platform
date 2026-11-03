@@ -33,7 +33,7 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
-import { queryKeysOf } from "../api/queries.ts";
+import { profilesQuery, queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { ProfileOptions, pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -47,6 +47,7 @@ import {
   askAgain,
   blockedOf,
   denyRequest,
+  latestVersion,
   NO_PICKS,
   type ToolPicks,
   workspaceTools,
@@ -177,16 +178,25 @@ export function ProfileEditor({
       });
       onSaved(profile.id);
     },
-    onError: (failure) => {
+    onError: async (failure) => {
       if (
         reasonOf(failure) === "added_tool_not_accepted" &&
         tools !== null &&
-        previous !== undefined
-      )
-        setDraft((now) => ({
-          ...now,
-          tools: askAgain(tools, now.tools, previous),
-        }));
+        name.success
+      ) {
+        // The server weighed the name's latest version, which may have
+        // landed after this list was read.
+        const fresh = await queryClient.fetchQuery({
+          ...profilesQuery(client),
+          staleTime: 0,
+        });
+        const latestNow = latestVersion(fresh.items, name.data) ?? previous;
+        if (latestNow !== undefined)
+          setDraft((now) => ({
+            ...now,
+            tools: askAgain(tools, now.tools, latestNow),
+          }));
+      }
       setError(saveRefusal(failure));
     },
   });
