@@ -9,6 +9,7 @@ import {
   createSessionResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
+  teamChangeResponseSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -240,10 +241,34 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     return user.id;
   }
 
-  async function agentWithRelease(cookie: string, slug: string) {
+  /** A team the owner makes, holding `members`. */
+  async function team(name: string, ...members: string[]) {
+    const made = await send("POST", "/v1/teams", asCookie(cookies.owner), {
+      name,
+    });
+    expect(made.status).toBe(201);
+    const teamId = teamChangeResponseSchema.parse(await made.json()).team.id;
+    for (const userId of members) {
+      const added = await send(
+        "POST",
+        `/v1/teams/${teamId}/members`,
+        asCookie(cookies.owner),
+        { user_id: userId },
+      );
+      expect(added.status).toBe(200);
+    }
+    return teamId;
+  }
+
+  async function agentWithRelease(
+    cookie: string,
+    slug: string,
+    teamId: string,
+  ) {
     const created = await send("POST", "/v1/agents", asCookie(cookie), {
       slug,
       name: slug,
+      managing_team_id: teamId,
       card,
     });
     expect(created.status).toBe(201);
@@ -339,8 +364,16 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     cookies.admin = await login("admin@example.com");
     cookies.other = await login("other@example.com");
 
-    const mine = await agentWithRelease(cookies.member, "reviewer");
-    const owners = await agentWithRelease(cookies.owner, "finance");
+    const mine = await agentWithRelease(
+      cookies.member,
+      "reviewer",
+      await team("reviewers", memberId),
+    );
+    const owners = await agentWithRelease(
+      cookies.owner,
+      "finance",
+      await team("finance"),
+    );
     agentIds.mine = mine.agentId;
     agentIds.owners = owners.agentId;
     releases.mine = mine.releaseId;

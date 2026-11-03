@@ -2232,7 +2232,7 @@ export interface paths {
         put?: never;
         /**
          * Create an agent and its first card version
-         * @description Nothing is released or activated. The creator administers the agent. `managing_team_id` is optional for now: an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
+         * @description Nothing is released or activated. The creator administers the agent. `managing_team_id` is required (400 BAD_REQUEST with a `details.issues` entry at `managing_team_id` when absent): an owner or admin names any live team (404 when there is none by that id), anyone else only a team they are in (403 FORBIDDEN, `details.reason_code` `team_not_allowed`). A slug already used in the workspace answers 409 ALREADY_EXISTS. API keys are refused.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -4347,7 +4347,7 @@ export interface components {
             name: string;
             description?: string;
             /** Format: uuid */
-            managing_team_id?: string;
+            managing_team_id: string;
             card: {
                 role?: string;
                 instructions?: string;

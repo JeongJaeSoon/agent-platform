@@ -260,9 +260,14 @@ async function agentInSlack() {
     }),
     credentials: createPostgresCredentialBindingStore(db),
   });
+  const managingTeamId = randomUUID();
+  await db
+    .insert(schema.memberTeams)
+    .values({ id: managingTeamId, workspaceId, name: "notes" });
   const created = await agentsService.createAgent(owner, {
     slug: "notes",
     name: "Notes",
+    managing_team_id: managingTeamId,
     card: agentCardRequestSchema.parse({
       role: "r",
       instructions: "i",

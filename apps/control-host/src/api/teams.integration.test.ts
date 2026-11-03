@@ -211,9 +211,16 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
     memberId = await addUser("member@example.com", "member");
     admin = await login("admin@example.com");
     member = await login("member@example.com");
+    // The agent's managing team holds no one, so the member stays outside.
+    const managing = await send("POST", "/v1/teams", owner, {
+      name: "research",
+    });
+    expect(managing.status).toBe(201);
     const created = await send("POST", "/v1/agents", owner, {
       slug: "research",
       name: "research",
+      managing_team_id: teamChangeResponseSchema.parse(await managing.json())
+        .team.id,
       card,
     });
     expect(created.status).toBe(201);
@@ -439,7 +446,12 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       } while (cursor);
       return pages;
     }
-    expect(await walk("/v1/teams", admin)).toEqual([["a"], ["b"], ["c"]]);
+    expect(await walk("/v1/teams", admin)).toEqual([
+      ["a"],
+      ["b"],
+      ["c"],
+      ["research"],
+    ]);
     expect(await walk("/v1/my-teams", member)).toEqual([["a"], ["c"]]);
     for (const [path, cookie] of [
       ["/v1/teams", owner],
