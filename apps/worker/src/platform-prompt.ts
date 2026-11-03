@@ -68,8 +68,8 @@ function withGitHubText(
     ].join(" "),
     [
       "GitHub work goes through the mcp__github__ tools.",
-      "Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn, so commit on the branch to push before a turn ends and call it in a later turn.",
-      "Before the session's first checkpoint, call it anyway: it answers deferred, which is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts.",
+      "Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn.",
+      "Call it before the session's first checkpoint too: if it answers deferred, that is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts.",
       "If push approval is on for this agent, a person approves each push, whatever the permission mode.",
       "Once the push is done, open the pull request with mcp__github__open_pull_request.",
       "git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token.",
@@ -86,6 +86,6 @@ function withoutGitHubText(repository: string | null): string[] {
       : [
           `If asked about the repository: this session works in ${repository}. ${NAMING}`,
         ]),
-    "GitHub work (push, pull requests) is not set up for this agent. An administrator turns it on in the agent's GitHub tab in the console. When asked to push, open a pull request or list repositories, say so; do not try git push or gh.",
+    "GitHub work (push, pull requests) is not set up for this agent. An administrator turns it on in the agent's GitHub tab in the console, for sessions started after that. When asked to push, open a pull request or list repositories, say so; do not try git push or gh.",
   ];
 }
