@@ -209,7 +209,11 @@ integration("push follow-ups on PostgreSQL", () => {
 
   const MESSAGE = "Platform note: a person approved push request in Slack.";
 
-  async function pushRequest(ownerId: string, sessionId: string) {
+  async function pushRequest(
+    ownerId: string,
+    sessionId: string,
+    branch = `agent/${sessionId}`,
+  ) {
     const receiptId = crypto.randomUUID();
     await db.insert(receipts).values({
       id: receiptId,
@@ -225,7 +229,7 @@ integration("push follow-ups on PostgreSQL", () => {
       repositoryId: "sample-app",
       checkpointRevision: 0,
       gitCommit: "a".repeat(40),
-      targetBranch: `agent/${sessionId}`,
+      targetBranch: branch,
       state: "requested",
       requestedBy: { kind: "user", id: "u" },
       requestReceiptId: receiptId,
@@ -237,6 +241,7 @@ integration("push follow-ups on PostgreSQL", () => {
     ownerId: string,
     sessionId: string,
     pushRequestId: string | null,
+    head = `agent/${sessionId}`,
   ) =>
     db.insert(pullRequests).values({
       sessionId,
@@ -245,7 +250,7 @@ integration("push follow-ups on PostgreSQL", () => {
       ownerId,
       repositoryId: "sample-app",
       number: 1,
-      head: `agent/${sessionId}`,
+      head,
       base: "main",
     });
 
@@ -285,6 +290,56 @@ integration("push follow-ups on PostgreSQL", () => {
         .from(pushFollowUps)
         .where(eq(pushFollowUps.sessionId, sessionId)),
     ).toEqual([]);
+  });
+
+  test("one session, two pushes on two branches: each push is decided on its own, so two pull requests stay possible", async () => {
+    const { ownerId, sessionId, worker, turnId } = await runningTurn();
+    const first = await pushRequest(
+      ownerId,
+      sessionId,
+      `agent/${sessionId}-first`,
+    );
+    const second = await pushRequest(
+      ownerId,
+      sessionId,
+      `agent/${sessionId}-second`,
+    );
+    expect(await hold(sessionId, first)).toBe("held");
+    const secondMessage = `${MESSAGE} (second)`;
+    expect(
+      await holdPushFollowUp(db, {
+        sessionId,
+        pushRequestId: second,
+        message: secondMessage,
+      }),
+    ).toBe("held");
+    // The running turn opens the first push's pull request only.
+    await recordPullRequest(
+      ownerId,
+      sessionId,
+      first,
+      `agent/${sessionId}-first`,
+    );
+    expect(await hold(sessionId, first)).toBe("pull_request");
+    await finalize(worker, turnId, 0);
+    expect(
+      (await turnsOf(sessionId)).slice(1).map((t) => [t.status, t.message]),
+    ).toEqual([["queued", secondMessage]]);
+    // The follow-up turn may open the second pull request; neither push
+    // asks again after that.
+    await recordPullRequest(
+      ownerId,
+      sessionId,
+      second,
+      `agent/${sessionId}-second`,
+    );
+    expect(await hold(sessionId, second)).toBe("pull_request");
+    expect(
+      await db
+        .select()
+        .from(pullRequests)
+        .where(eq(pullRequests.sessionId, sessionId)),
+    ).toHaveLength(2);
   });
 
   test("a failed turn still decides the held follow-up", async () => {
