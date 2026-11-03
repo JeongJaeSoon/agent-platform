@@ -116,7 +116,7 @@ function ManagingTeamSection({
           <div className="flex flex-col gap-3">
             {unassigned ? (
               <div>
-                <Button type="button" variant="outline" size="sm">
+                <Button type="button" variant="outline">
                   관리자 팀 재무을(를) 담당 팀으로
                 </Button>
               </div>
@@ -139,7 +139,7 @@ function ManagingTeamSection({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <Button type="submit" variant="outline" size="sm" disabled>
+              <Button type="submit" variant="outline" disabled>
                 {unassigned ? "지정" : "바꾸기"}
               </Button>
             </form>

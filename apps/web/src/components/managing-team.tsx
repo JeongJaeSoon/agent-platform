@@ -186,7 +186,6 @@ function ChangeTeam({
           <Button
             type="button"
             variant="outline"
-            size="sm"
             disabled={set.isPending}
             onClick={() => set.mutate(adminTeam)}
           >
@@ -225,7 +224,6 @@ function ChangeTeam({
           <Button
             type="submit"
             variant="outline"
-            size="sm"
             disabled={!choice || set.isPending}
           >
             {set.isPending
