@@ -355,7 +355,6 @@ describe("Slack prompt cards", () => {
       for (const word of [
         copy.rawInput,
         copy.details,
-        copy.byWeb,
         copy.freeTextGiven,
         copy.manyAnswered,
         copy.answerOnWeb,
@@ -510,29 +509,71 @@ describe("slackSettledCard", () => {
   test("an allowed tool: one context line, who decided, the request, the link", () => {
     const settled = slackSettledCard(card(askedTool()));
     expect(settledLine(settled)).toEqual([
-      ":white_check_mark: *허용됨* · <@U0DECIDER>",
+      ":white_check_mark: <@U0DECIDER>님이 허용했어요",
       "명령 실행: npm test",
       `<${LINK}|웹에서 열기>`,
     ]);
     expect(settled?.text).toBe(
-      `<@U0DECIDER> 허용됨\n명령 실행: npm test\n<${LINK}|웹에서 열기>`,
+      `<@U0DECIDER> 허용했어요\n명령 실행: npm test\n<${LINK}|웹에서 열기>`,
     );
   });
 
-  test("a decider without a linked Slack account is named as the web", () => {
-    const settled = slackSettledCard(
-      card(askedTool({ decision: "deny" }), {
-        deciderSlackUserId: null,
-        linkUrl: null,
-      }),
+  test("the path, when the caller knows it, is named with the decider", () => {
+    const line = (
+      via: "slack" | "web" | null,
+      deciderSlackUserId: string | null,
+      locale: UserLocale = "ko",
+    ) =>
+      settledLine(
+        slackSettledCard(
+          card(askedTool(), { deciderSlackUserId, locale }),
+          via,
+        ),
+      )[0];
+    expect(line("web", "U0DECIDER")).toBe(
+      ":white_check_mark: <@U0DECIDER>님이 웹에서 허용했어요",
     );
-    expect(settledLine(settled)).toEqual([
-      ":no_entry_sign: *거부됨* · 웹에서",
-      "명령 실행: npm test",
-    ]);
-    expect(settled?.text).toBe(
-      "거부됨 · 웹에서\n명령 실행: npm test\n웹 콘솔에서 확인해 주세요",
+    expect(line("slack", "U0DECIDER")).toBe(
+      ":white_check_mark: <@U0DECIDER>님이 허용했어요",
     );
+    // No linked Slack account: the path alone, or the result alone.
+    expect(line("web", null)).toBe(":white_check_mark: 웹에서 허용했어요");
+    expect(line(null, null)).toBe(":white_check_mark: *허용됨*");
+    expect(line("slack", null)).toBe(":white_check_mark: *허용됨*");
+    // A malformed id is no mention, and no dangling "님이".
+    expect(line(null, "<!channel>")).toBe(":white_check_mark: *허용됨*");
+    expect(line("web", "U0DECIDER", "ja")).toBe(
+      ":white_check_mark: <@U0DECIDER>さんがWebで許可しました",
+    );
+    expect(line("web", "U0DECIDER", "en")).toBe(
+      ":white_check_mark: Allowed on the web by <@U0DECIDER>",
+    );
+    expect(
+      slackSettledCard(
+        card(askedTool(), { deciderSlackUserId: "U0DECIDER", linkUrl: null }),
+        "web",
+      )?.text,
+    ).toBe(
+      "<@U0DECIDER> 웹에서 허용했어요\n명령 실행: npm test\n웹 콘솔에서 확인해 주세요",
+    );
+  });
+
+  test("every language has a line for every decided result and path", () => {
+    for (const locale of USER_LOCALE_VALUES as readonly UserLocale[]) {
+      const copy = SLACK_PROMPT_MESSAGES[locale];
+      expect(copy.who).toContain("{mention}");
+      for (const path of ["slack", "web"] as const) {
+        for (const result of [
+          "allowed",
+          "denied",
+          "answered",
+          "approved",
+          "rejected",
+        ] as const) {
+          expect(copy.settledBy[path][result]).toContain("{who}");
+        }
+      }
+    }
   });
 
   test("an expired or closed request names nobody", () => {
@@ -563,7 +604,7 @@ describe("slackSettledCard", () => {
         card(askedQuestion({ selected_option_ids: ["o1"], typed: true })),
       ),
     );
-    expect(lines[0]).toBe(":speech_balloon: *답함* · <@U0DECIDER>");
+    expect(lines[0]).toBe(":speech_balloon: <@U0DECIDER>님이 답했어요");
     expect(lines[1]).toBe(`Which branch?: ${HOSTILE} 1, 직접 입력한 답`);
     const many = slackSettledCard(
       card(
@@ -596,11 +637,11 @@ describe("slackSettledCard", () => {
         ),
       );
     expect(decided("pushed").slice(0, 2)).toEqual([
-      ":white_check_mark: *Push approved* · <@U0DECIDER>",
+      ":white_check_mark: Push approved by <@U0DECIDER>",
       "JeongJaeSoon/werft-sandbox ← abcdef1 · agent/x",
     ]);
     expect(decided("rejected")[0]).toBe(
-      ":no_entry_sign: *Push rejected* · <@U0DECIDER>",
+      ":no_entry_sign: Push rejected by <@U0DECIDER>",
     );
   });
 
@@ -618,7 +659,10 @@ describe("slackSettledCard", () => {
       expect(mrkdwnTexts(settled?.blocks ?? [])).not.toContain("<!channel>");
       expect(settled?.text).not.toContain("<!channel>");
       expect(settledLine(settled)[0]).toContain(
-        SLACK_PROMPT_MESSAGES[locale].settled.allowed,
+        SLACK_PROMPT_MESSAGES[locale].settledBy.slack.allowed.replace(
+          "{who}",
+          "",
+        ),
       );
     }
   });

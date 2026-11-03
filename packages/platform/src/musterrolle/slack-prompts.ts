@@ -51,6 +51,15 @@ export type SlackPromptResult =
   | "expired"
   | "closed";
 
+/** A result a person chose, as opposed to one the request ran out to. */
+export type SlackDecidedResult = Exclude<
+  SlackPromptResult,
+  "expired" | "closed"
+>;
+
+/** Where a request was settled, when the caller knows. */
+export type SlackDecisionPath = "slack" | "web";
+
 type PromptCopy = {
   permissionTitle: string;
   questionTitle: string;
@@ -82,10 +91,14 @@ type PromptCopy = {
   /** The folded raw input's title; `{tool}` is the tool's name. */
   rawInput: string;
   details: string;
-  /** The one line a settled card keeps. */
+  /** The one line a settled card keeps when no one or no path is named. */
   settled: Record<SlackPromptResult, string>;
-  /** Who settled it, when they have no linked Slack account. */
-  byWeb: string;
+  /**
+   * The line naming how it was settled: `{who}` is `who` filled with the
+   * decider's mention, or empty when they have no linked Slack account.
+   */
+  settledBy: Record<SlackDecisionPath, Record<SlackDecidedResult, string>>;
+  who: string;
   freeTextGiven: string;
   manyAnswered: string;
   answerOnWeb: string;
@@ -135,7 +148,23 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       expired: "만료됨",
       closed: "더 이상 답할 수 없어요",
     },
-    byWeb: "웹에서",
+    settledBy: {
+      slack: {
+        allowed: "{who}허용했어요",
+        denied: "{who}거부했어요",
+        answered: "{who}답했어요",
+        approved: "{who}push를 승인했어요",
+        rejected: "{who}push를 거절했어요",
+      },
+      web: {
+        allowed: "{who}웹에서 허용했어요",
+        denied: "{who}웹에서 거부했어요",
+        answered: "{who}웹에서 답했어요",
+        approved: "{who}웹에서 push를 승인했어요",
+        rejected: "{who}웹에서 push를 거절했어요",
+      },
+    },
+    who: "{mention}님이 ",
     freeTextGiven: "직접 입력한 답",
     manyAnswered: "질문 {n}개에 답했어요",
     answerOnWeb: "이 요청은 웹에서 답해 주세요",
@@ -189,7 +218,23 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       expired: "期限切れ",
       closed: "もう回答できません",
     },
-    byWeb: "Webで",
+    settledBy: {
+      slack: {
+        allowed: "{who}許可しました",
+        denied: "{who}拒否しました",
+        answered: "{who}回答しました",
+        approved: "{who}pushを承認しました",
+        rejected: "{who}pushを却下しました",
+      },
+      web: {
+        allowed: "{who}Webで許可しました",
+        denied: "{who}Webで拒否しました",
+        answered: "{who}Webで回答しました",
+        approved: "{who}Webでpushを承認しました",
+        rejected: "{who}Webでpushを却下しました",
+      },
+    },
+    who: "{mention}さんが",
     freeTextGiven: "直接入力した回答",
     manyAnswered: "{n}件の質問に回答しました",
     answerOnWeb: "このリクエストはWebで回答してください",
@@ -243,7 +288,23 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       expired: "Expired",
       closed: "Can no longer be answered",
     },
-    byWeb: "on the web",
+    settledBy: {
+      slack: {
+        allowed: "Allowed{who}",
+        denied: "Denied{who}",
+        answered: "Answered{who}",
+        approved: "Push approved{who}",
+        rejected: "Push rejected{who}",
+      },
+      web: {
+        allowed: "Allowed on the web{who}",
+        denied: "Denied on the web{who}",
+        answered: "Answered on the web{who}",
+        approved: "Push approved on the web{who}",
+        rejected: "Push rejected on the web{who}",
+      },
+    },
+    who: " by {mention}",
     freeTextGiven: "A typed answer",
     manyAnswered: "Answered {n} questions",
     answerOnWeb: "Please answer this request on the web",
@@ -372,13 +433,15 @@ const escapeMrkdwn = (text: string) =>
  * escaped but a checked mention and a link the platform made; without a
  * link it says to look in the web console.
  */
-export function slackCardText(parts: {
+export type SlackCardTextParts = {
   locale: UserLocale;
   title: string;
   mentionSlackUserId?: string | null;
   lines?: readonly string[];
   linkUrl?: string | null;
-}): string {
+};
+
+export function slackCardText(parts: SlackCardTextParts): string {
   const copy = SLACK_PROMPT_MESSAGES[parts.locale];
   const who = parts.mentionSlackUserId ? mention(parts.mentionSlackUserId) : "";
   const link =
@@ -450,13 +513,15 @@ function drawable(questions: PendingQuestion[]): boolean {
  * raw input folded, its buttons, and when it expires. Model-written text
  * never goes in a mrkdwn field, so it cannot mention anyone or hide a link.
  */
+export type SlackPromptMessageOptions = {
+  locale: UserLocale;
+  requesterSlackUserId: string | null;
+  linkUrl?: string;
+};
+
 export function slackPromptMessage(
   prompt: SlackPrompt,
-  options: {
-    locale: UserLocale;
-    requesterSlackUserId: string | null;
-    linkUrl?: string;
-  },
+  options: SlackPromptMessageOptions,
 ): { text: string; blocks: unknown[] } {
   const copy = SLACK_PROMPT_MESSAGES[options.locale];
   const title =
@@ -732,29 +797,44 @@ function settledSummary(
 /**
  * The settled card, drawn from the request as stored rather than from the
  * pressed message: one context line of how it ended, by whom, the request
- * in plain words and the web link. Null while the request is still open.
+ * in plain words and the web link. `via` names where it was settled when
+ * the caller knows; the decider comes from the card. Null while the
+ * request is still open.
  */
 export function slackSettledCard(
   card: SlackPromptCard,
+  via: SlackDecisionPath | null = null,
 ): { text: string; blocks: unknown[] } | null {
   const result = slackSettledResult(card.display);
   if (result === null) return null;
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
   const decided = result !== "expired" && result !== "closed";
   const decider =
-    decided && card.deciderSlackUserId !== null
-      ? mention(card.deciderSlackUserId)
-      : "";
-  const by = !decided ? "" : decider || escapeMrkdwn(copy.byWeb);
-  const label = copy.settled[result];
+    decided &&
+    card.deciderSlackUserId !== null &&
+    SLACK_ID.test(card.deciderSlackUserId)
+      ? card.deciderSlackUserId
+      : null;
+  let line = `*${escapeMrkdwn(copy.settled[result])}*`;
+  let title = copy.settled[result];
+  if (decided && (via === "web" || decider !== null)) {
+    const template =
+      copy.settledBy[via ?? "slack"][result as SlackDecidedResult];
+    const who =
+      decider === null
+        ? ""
+        : escapeMrkdwn(copy.who).replace("{mention}", mention(decider));
+    line = escapeMrkdwn(template).replace("{who}", who);
+    title = template.replace("{who}", "");
+  }
   const summary = settledSummary(card.display, card.locale);
   const link =
     card.linkUrl !== null && isSafeLink(card.linkUrl) ? card.linkUrl : null;
   return {
     text: slackCardText({
       locale: card.locale,
-      title: decided && decider === "" ? `${label} · ${copy.byWeb}` : label,
-      mentionSlackUserId: decider === "" ? null : card.deciderSlackUserId,
+      title,
+      mentionSlackUserId: decider,
       lines: [summary],
       linkUrl: link,
     }),
@@ -764,7 +844,7 @@ export function slackSettledCard(
         elements: [
           {
             type: "mrkdwn",
-            text: `${SETTLED_MARK[result]} *${escapeMrkdwn(label)}*${by ? ` · ${by}` : ""}`,
+            text: `${SETTLED_MARK[result]} ${line}`,
           },
           ...(summary === "" ? [] : [plain(summary, CONTEXT_TEXT_MAX)]),
           ...(link === null

@@ -944,7 +944,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ).toEqual([
       {
         threadTs: THREAD,
-        text: "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
+        // The name shows once, as the sender, not again in the text.
+        text: "Add a test, &lt;!here&gt;",
         username: "owner (웹 콘솔)",
         icon_url: "https://avatars.example/owner.png",
       },
@@ -955,6 +956,13 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         icon_url: undefined,
       },
     ]);
+    // As mock Slack serves it: the sender's name once, in the whole message.
+    const served = (
+      (await (
+        await fetch(`${slack.url.replace(/\/api$/, "")}/fake/messages`)
+      ).json()) as { messages: { text: string; options: object }[] }
+    ).messages[1];
+    expect(JSON.stringify(served).split("owner (웹 콘솔)")).toHaveLength(2);
     // Turn 1 came from Slack: it is already in the thread.
     expect(
       (await rows()).map(({ kind, dedupeKey }) => [kind, dedupeKey]),
@@ -983,7 +991,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .slice(1)
         .map(({ text, options }) => [text.split("\n")[0], options.username]),
     ).toEqual([
-      ["API", "API"],
+      ["Run the checks", "API"],
       [expect.stringMatching(/^Checks pass\./), undefined],
     ]);
   });
@@ -1046,7 +1054,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       posted()
         .slice(1)
         .map(({ text }) => text.split("\n")[0]),
-    ).toEqual(["owner (웹 콘솔)", "Second done."]);
+    ).toEqual(["Second", "Second done."]);
   });
 
   test("an app refused the sender's name posts the instruction once as itself", async () => {
@@ -1116,9 +1124,10 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass();
     expect(posted().map((message) => message.text)).toEqual([
       `We couldn't process the request right now. Try again shortly\n\n<${CONSOLE}/sessions/${sessionId}|Open on the web>`,
-      "owner (Web console)\nTry again",
-      "owner (Webコンソール)\nOnce more",
+      "Try again",
+      "Once more",
     ]);
+    expect(posted()[2]?.options.username).toBe("owner (Webコンソール)");
     expect(posted()[1]?.options.username).toBe("owner (Web console)");
 
     const [row] = await rows();

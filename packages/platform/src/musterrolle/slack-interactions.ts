@@ -48,6 +48,7 @@ import type { SlackInboxLogger } from "./slack-inbox.ts";
 import { slackOutboxText } from "./slack-outbox.ts";
 import {
   SLACK_PROMPT_MESSAGES,
+  type SlackDecisionPath,
   type SlackPromptResult,
   slackNoticeView,
   slackOptionAnswer,
@@ -55,6 +56,9 @@ import {
   slackQuestionView,
   slackSettledCard,
 } from "./slack-prompts.ts";
+
+/** Redraws the card; `via` is "slack" when this press settled it. */
+type SettleCard = (via?: SlackDecisionPath) => Promise<void>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -199,6 +203,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     pressed: Pressed,
     ts: string,
     value: SlackInteractionValue,
+    via?: SlackDecisionPath,
   ) {
     try {
       const posted = await deps.outbox.promptCard({
@@ -215,7 +220,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         });
         return;
       }
-      const card = slackSettledCard(posted);
+      const card = slackSettledCard(posted, via ?? null);
       if (card === null) return;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
@@ -316,7 +321,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     body:
       | { kind: "permission"; decision: "allow" | "deny" }
       | { kind: "question"; answers: QuestionAnswer[] },
-    card: () => Promise<void>,
+    card: SettleCard,
   ): Promise<string> {
     try {
       await deps.pending.answer(caller, value.s, {
@@ -345,7 +350,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await card();
       return "already";
     }
-    await card();
+    await card("slack");
     return "answered";
   }
 
@@ -353,7 +358,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     { caller, pressed }: Allowed,
     value: SlackInteractionValue,
     decision: PushDecision,
-    card: () => Promise<void>,
+    card: SettleCard,
   ): Promise<string> {
     if (caller.subject.principal === null) return "refused";
     const actor: PushActor = {
@@ -470,7 +475,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (!queued) {
       await tell(pressed, SLACK_PROMPT_MESSAGES[pressed.locale].followUpFailed);
     }
-    await card();
+    await card("slack");
     return decision === "approve" ? "approved" : "rejected";
   }
 
@@ -546,9 +551,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
 
   const cardOf =
     (pressed: Pressed, payload: SlackBlockActionsPayload) =>
-    (value: SlackInteractionValue) =>
-    () =>
-      settle(pressed, payload.message.ts, value);
+    (value: SlackInteractionValue): SettleCard =>
+    (via) =>
+      settle(pressed, payload.message.ts, value, via);
 
   async function fillView(
     pressed: Pressed,
@@ -746,7 +751,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
                 admitted,
                 value,
                 { kind: "question", answers: parsed.answers },
-                () => settle(pressed, metadata.m, value),
+                (via) => settle(pressed, metadata.m, value, via),
               ),
             ),
           );
