@@ -4,7 +4,11 @@ import type {
 } from "../ports/slack-outbox-store.ts";
 import { pushApprovability } from "../sessions/push-approvability.ts";
 import type { PushSource } from "../sessions/push-request-service.ts";
-import { SlackApiError, type SlackBotApi } from "./slack-config-api.ts";
+import {
+  SlackApiError,
+  type SlackBotApi,
+  SlackRateLimitedError,
+} from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 
 /** What `agents.sessions.setStatus` shows under a Slack thread. */
@@ -179,7 +183,9 @@ export async function writeSlackThreadStatuses(deps: {
     graceMs: timing.graceMs,
     windowMs: timing.windowMs,
   });
-  while (now() < deps.deadline) {
+  // One batch even past the deadline, so a pass the posts used up still
+  // moves the statuses on.
+  for (let first = true; first || now() < deps.deadline; first = false) {
     const batch = await deps.store.claim({
       limit: deps.batchSize,
       leaseMs: timing.leaseMs,
@@ -268,7 +274,12 @@ export async function writeSlackThreadStatuses(deps: {
         ) {
           // Slack answered with an error: nothing was applied.
           deps.logger.warn("Slack status failed; going on", { ...ids, code });
-          await deps.store.defer(claim, timing.retryMs);
+          await deps.store.defer(
+            claim,
+            failure instanceof SlackRateLimitedError
+              ? Math.max(timing.retryMs, failure.retryAfterSeconds * 1000)
+              : timing.retryMs,
+          );
           pass.deferred += 1;
         } else {
           deps.logger.warn("Slack status outcome unknown", { ...ids, code });

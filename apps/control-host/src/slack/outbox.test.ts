@@ -2335,6 +2335,25 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     expect((await statusRows())[0]?.disabledReason).toBeNull();
   });
 
+  test("a rate-limited status waits out Slack's Retry-After, not the shorter retry", async () => {
+    await idleThread();
+    slack.rateLimit("agents.sessions.setStatus", 120);
+    expect(await outboxPass()).toMatchObject({ statuses: 0 });
+    expect(shown()).toEqual([]);
+    await elapse(31_000);
+    await outboxPass();
+    expect(shown()).toEqual([]);
+    await elapse(90_000);
+    await outboxPass();
+    expect(shown()).toEqual(["active"]);
+  });
+
+  test("a pass whose posts used up the deadline still sends a status batch", async () => {
+    await idleThread();
+    await outboxPass({ deadline: Date.now() - 1 });
+    expect(shown()).toEqual(["active"]);
+  });
+
   test("each write that changes the session's state marks its thread due when it commits", async () => {
     const { sessionId } = await idleThread();
     await outboxPass();
