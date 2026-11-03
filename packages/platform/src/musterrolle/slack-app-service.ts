@@ -26,6 +26,7 @@ import {
 import { ACTOR_INACTIVE, NOT_FOUND, OUTRANKED } from "./service-errors.ts";
 import {
   type CreatedSlackApp,
+  SLACK_APP_GONE_CODES,
   SlackApiError,
   type SlackConfigApi,
 } from "./slack-config-api.ts";
@@ -43,8 +44,6 @@ const WORKSPACE_ACTION = "workspace.manage" as const;
 /** Longer than the create call's timeout plus the write after it. */
 export const SLACK_APP_CREATE_STALE_MS = 60_000;
 const FINISH_ATTEMPTS = 3;
-// Slack's answer when the app it is asked to delete no longer exists.
-const GONE_CODES = new Set(["app_not_found", "invalid_app_id", "app_deleted"]);
 
 const FORBIDDEN_WEB_ONLY = () =>
   new SessionServiceError(
@@ -113,6 +112,21 @@ export function slackAppView(record: SlackAppRecord): SlackApp {
       slack_bot_token: slackSecretSummaryOf(record.secrets.slack_bot_token),
     },
   };
+}
+
+function issuerWarnings(
+  record: SlackAppRecord | null,
+  issuer: { userId: string } | null,
+): SlackWarning[] {
+  const maker = record?.state === "created" ? record.createdByTokenUser : null;
+  if (!maker || !issuer || maker === issuer.userId) return [];
+  return [
+    {
+      code: "config_token_issuer_changed",
+      previous_user_id: maker,
+      user_id: issuer.userId,
+    },
+  ];
 }
 
 export type SlackAppService = ReturnType<typeof createSlackAppService>;
@@ -328,6 +342,7 @@ export function createSlackAppService(deps: {
       await readAgent(caller, agentId);
       const { apps, tokens } = ready();
       const record = await apps.findForAgent(caller.ownerId, agentId);
+      const token = await tokens.describe(caller.ownerId);
       if (
         record === null &&
         (await apps.getSettings(caller.ownerId, agentId)) === null
@@ -344,8 +359,11 @@ export function createSlackAppService(deps: {
           checked_at: null,
           url: null,
         },
-        warnings: await agentWarnings(caller.ownerId, agentId),
-        config_token: (await tokens.describe(caller.ownerId)).state,
+        warnings: [
+          ...issuerWarnings(record, token.issuer),
+          ...(await agentWarnings(caller.ownerId, agentId)),
+        ],
+        config_token: token.state,
       };
     },
 
@@ -459,7 +477,7 @@ export function createSlackAppService(deps: {
         );
       } catch (error) {
         if (!(error instanceof SlackApiError)) throw error;
-        if (!(error.answered && GONE_CODES.has(error.code))) {
+        if (!(error.answered && SLACK_APP_GONE_CODES.has(error.code))) {
           throw error.answered
             ? slackRefused(error)
             : answerLost("apps.manifest.delete");

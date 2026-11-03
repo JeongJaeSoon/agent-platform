@@ -110,7 +110,9 @@ export const slackAppSchema = z
 /**
  * Something the caller should know that did not stop the request: the
  * config token now belongs to another Slack user, who becomes each new
- * app's collaborator.
+ * app's collaborator. On a create, `previous_user_id` made the workspace's
+ * previous app; on a read, it made this app, which the new user may not be
+ * able to manage or install.
  */
 export const slackWarningSchema = z
   .object({
@@ -189,7 +191,12 @@ export const getSlackAppResponseSchema = z
         error: z.string().max(128).optional(),
       })
       .strict(),
-    warnings: z.array(slackAgentWarningSchema),
+    warnings: z.array(
+      z.discriminatedUnion("code", [
+        slackWarningSchema,
+        ...slackAgentWarningSchema.options,
+      ]),
+    ),
     /**
      * The workspace's App Configuration Token, so a console can say why an
      * app cannot be made before asking; only `active` can make one.

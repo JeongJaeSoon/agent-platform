@@ -5020,7 +5020,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's Slack app, if the platform made one",
     description:
-      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `profile_unavailable` (with the `profile_id`) while the catalog no longer has the active release's profile, defines it otherwise than it was released, or an owner blocked it, and `repository_required` (with the `profile_id`) while the release names no repository and its profile needs one. Connecting is not blocked. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
+      "The agent's live Slack app (`creating`, `created` or `deleting`), or null when it has none. Secrets appear only as whether each is stored; `secrets.slack_bot_token.configured` says whether Slack handed over a bot token; an install refused after the code exchange keeps it, so the agent's `slack_bot` identity is what says the app is installed. The install link comes from `POST /v1/agents/{id}/slack/install/start`. `warnings` says why every Slack mention and DM would be refused with a notice in the thread: `no_active_release` before an activation, `profile_unavailable` (with the `profile_id`) while the catalog no longer has the active release's profile, defines it otherwise than it was released, or an owner blocked it, and `repository_required` (with the `profile_id`) while the release names no repository and its profile needs one. Connecting is not blocked. `config_token_issuer_changed` (with the app's maker as `previous_user_id` and the token's issuer as `user_id`) says the App Configuration Token now belongs to another Slack user than the one who made this app, who may not be able to manage it or install it. `config_token` is the workspace's App Configuration Token state (`unset`, `active`, `needs_reentry`), readable here by the agent's admins too: only `active` can create the app, and only an owner or admin can set it. Owners, admins, the agent's admins and the live members of its managing team; API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -5124,7 +5124,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "startSlackInstall",
     tag: "Agents",
     summary: "Get a single-use link that installs the agent's Slack app",
-    description: `Returns Slack's consent URL for the agent's app with a new OAuth \`state\`, valid ${SLACK_INSTALL_STATE_TTL_SECONDS / 60} minutes; every call makes another. The state is bound to the caller, the workspace, the agent and the app, and only that caller can complete it (\`POST /v1/slack/install/complete\`). The app must be \`created\`: none answers 404, one still being created 409 SLACK_APP_CREATING, one being deleted 409 REVISION_CONFLICT. The Slack team it must be installed in is the one the workspace's App Configuration Token belongs to (409 CONFIG_TOKEN_INVALID when none is set). Owners, admins and the agent's admins from a signed-in console; API keys are refused.`,
+    description: `Returns Slack's consent URL for the agent's app with a new OAuth \`state\`, valid ${SLACK_INSTALL_STATE_TTL_SECONDS / 60} minutes; every call makes another. The state is bound to the caller, the workspace, the agent and the app, and only that caller can complete it (\`POST /v1/slack/install/complete\`). The app must be \`created\`: none answers 404, one still being created 409 SLACK_APP_CREATING, one being deleted 409 REVISION_CONFLICT. When the config token belongs to the Slack user who made the app, Slack is first asked whether the app still exists (\`apps.manifest.export\`): when Slack says it does not, the answer is 409 SLACK_APP_GONE; when the check fails any other way, or the token is another Slack user's (GET warns with \`config_token_issuer_changed\`), the link is made anyway. The Slack team it must be installed in is the one the workspace's App Configuration Token belongs to (409 CONFIG_TOKEN_INVALID when none is set). Owners, admins and the agent's admins from a signed-in console; API keys are refused.`,
     auth: "session",
     success: {
       status: 200,
@@ -5137,7 +5137,12 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [401, 403, 404, 409, 503],
     errorCodes: {
-      409: ["SLACK_APP_CREATING", "REVISION_CONFLICT", "CONFIG_TOKEN_INVALID"],
+      409: [
+        "SLACK_APP_CREATING",
+        "SLACK_APP_GONE",
+        "REVISION_CONFLICT",
+        "CONFIG_TOKEN_INVALID",
+      ],
     },
     errorNotes: {
       REVISION_CONFLICT: "Here: the agent's app is being deleted.",

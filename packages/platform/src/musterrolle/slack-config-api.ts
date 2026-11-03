@@ -12,6 +12,12 @@ import { z } from "zod";
 // error code, never a body: the body of a create answer holds secrets.
 
 export const SLACK_API_URL = "https://slack.com/api";
+// Slack's answer, to an apps.manifest call, when the app it names no longer exists.
+export const SLACK_APP_GONE_CODES: ReadonlySet<string> = new Set([
+  "app_not_found",
+  "invalid_app_id",
+  "app_deleted",
+]);
 export const SLACK_HTTP_TIMEOUT_MS = 10_000;
 
 /**
@@ -93,6 +99,8 @@ export interface SlackConfigApi {
     manifest: object,
   ): Promise<{ permissionsUpdated: boolean }>;
   deleteApp(configToken: string, appId: string): Promise<void>;
+  /** Resolves while Slack still shows the app to this token's user. */
+  exportApp(configToken: string, appId: string): Promise<void>;
 }
 
 /** What `oauth.v2.access` granted, before it is checked. */
@@ -348,6 +356,14 @@ export function createSlackConfigApi(
     async deleteApp(configToken, appId) {
       await call(
         "apps.manifest.delete",
+        { token: configToken, body: { app_id: appId } },
+        z.object({}),
+      );
+    },
+
+    async exportApp(configToken, appId) {
+      await call(
+        "apps.manifest.export",
         { token: configToken, body: { app_id: appId } },
         z.object({}),
       );
