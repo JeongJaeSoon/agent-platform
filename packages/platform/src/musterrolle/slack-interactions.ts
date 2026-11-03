@@ -96,9 +96,16 @@ export type SlackInteractionDeps = {
   logger: SlackInboxLogger;
   now?: () => Date;
   newRequestId?: () => string;
+  wait?: (ms: number) => Promise<void>;
+  /**
+   * Runs a press's work after Slack has its answer: Slack waits three
+   * seconds, the card and the session may take longer.
+   */
+  defer?: (work: () => Promise<void>) => void;
 };
 
 const OK: SlackInteractionResponse = { ok: true };
+const FOLLOW_UP_ATTEMPTS = 3;
 const CLEAR: SlackInteractionResponse = { response_action: "clear" };
 
 const REQUEST_GONE_CODES = new Set([
@@ -137,6 +144,17 @@ export type SlackInteractionService = ReturnType<
 export function createSlackInteractionService(deps: SlackInteractionDeps) {
   const now = deps.now ?? (() => new Date());
   const newRequestId = deps.newRequestId ?? (() => crypto.randomUUID());
+  const wait =
+    deps.wait ?? ((ms: number) => new Promise((done) => setTimeout(done, ms)));
+  const defer =
+    deps.defer ??
+    ((work: () => Promise<void>) => {
+      void work().catch((error: unknown) => {
+        deps.logger.warn("Slack interaction failed after its answer", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
 
   const ok = (result: string, body = OK): SlackInteractionOutcome => ({
     kind: "ok",
@@ -327,17 +345,23 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       ownerId: caller.ownerId,
       verified: true,
     };
+    const read = () =>
+      deps.pushes.get(actor, value.s, value.r).catch((error: unknown) => {
+        if (
+          error instanceof SessionServiceError &&
+          error.code === "NOT_FOUND"
+        ) {
+          return null;
+        }
+        throw error;
+      });
     const stateOf = async (): Promise<SlackPromptResult | "open"> => {
-      const request = await deps.pushes
-        .get(actor, value.s, value.r)
-        .catch(() => null);
+      const request = await read();
       if (request === null) return "closed";
       if (request.state === "requested") return "open";
       return request.state === "rejected" ? "rejected" : "approved";
     };
-    const request = await deps.pushes
-      .get(actor, value.s, value.r)
-      .catch(() => null);
+    const request = await read();
     if (request === null || request.state !== "requested") {
       await card(
         request === null
@@ -374,37 +398,72 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       );
       return "failed";
     }
+    // The decision stands; the session only learns of it from this turn.
+    // The key makes a retry a no-op once one attempt has landed.
+    const followUp = {
+      idempotencyKey: `slack-push:${value.r}`,
+      body: {
+        message: slackPushFollowUp(decision, {
+          id: request.id,
+          repositoryId: request.repository_id,
+          targetBranch: request.target_branch,
+        }),
+        mode: "enqueue" as const,
+      },
+    };
+    for (let attempt = 1; attempt <= FOLLOW_UP_ATTEMPTS; attempt += 1) {
+      try {
+        await deps.sessions.appendMessage(caller, value.s, followUp);
+        break;
+      } catch (error) {
+        deps.logger.warn("Slack push follow-up turn not queued", {
+          agent_id: pressed.agentId,
+          attempt,
+          code:
+            error instanceof SessionServiceError
+              ? error.code
+              : error instanceof Error
+                ? error.message
+                : String(error),
+        });
+        if (attempt < FOLLOW_UP_ATTEMPTS) await wait(attempt * 500);
+      }
+    }
     await card(
       decision === "approve" ? "approved" : "rejected",
       pressed.userId,
     );
-    try {
-      await deps.sessions.appendMessage(caller, value.s, {
-        idempotencyKey: `slack-push:${value.r}`,
-        body: {
-          message: slackPushFollowUp(decision, {
-            id: request.id,
-            repositoryId: request.repository_id,
-            targetBranch: request.target_branch,
-          }),
-          mode: "enqueue",
-        },
-      });
-    } catch (error) {
-      deps.logger.warn("Slack push follow-up turn not queued", {
-        agent_id: pressed.agentId,
-        code:
-          error instanceof SessionServiceError
-            ? error.code
-            : error instanceof Error
-              ? error.message
-              : String(error),
-      });
-    }
     return decision === "approve" ? "approved" : "rejected";
   }
 
+  function handled(agentId: string, outcome: SlackInteractionOutcome) {
+    if (outcome.kind === "ok") {
+      deps.logger.info("Slack interaction handled", {
+        agent_id: agentId,
+        result: outcome.result,
+      });
+    }
+  }
+
+  /**
+   * Slack takes the answer to a press within three seconds. Only a modal
+   * must open inside that window, with its trigger; the rest runs after.
+   */
   async function onAction(
+    agentId: string,
+    app: { workspaceId: string; slackAppId: string; appId: string },
+    payload: SlackBlockActionsPayload,
+  ): Promise<SlackInteractionOutcome> {
+    if (
+      payload.actions[0]?.action_id === SLACK_INTERACTION_ACTIONS.questionOpen
+    ) {
+      return actOn(agentId, app, payload);
+    }
+    defer(async () => handled(agentId, await actOn(agentId, app, payload)));
+    return ok("accepted");
+  }
+
+  async function actOn(
     agentId: string,
     app: { workspaceId: string; slackAppId: string; appId: string },
     payload: SlackBlockActionsPayload,
@@ -432,7 +491,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     const card = (result: SlackPromptResult, by: string | null) =>
       settle(admitted.pressed, payload.message.ts, asked, result, by);
 
-    switch (action.action_id) {
+    // Option buttons share a block, where Slack wants each id once.
+    const actionId = action.action_id.startsWith(
+      `${SLACK_INTERACTION_ACTIONS.questionOption}:`,
+    )
+      ? SLACK_INTERACTION_ACTIONS.questionOption
+      : action.action_id;
+    switch (actionId) {
       case SLACK_INTERACTION_ACTIONS.permissionAllow:
       case SLACK_INTERACTION_ACTIONS.permissionDeny:
         return ok(
@@ -442,7 +507,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
             {
               kind: "permission",
               decision:
-                action.action_id === SLACK_INTERACTION_ACTIONS.permissionAllow
+                actionId === SLACK_INTERACTION_ACTIONS.permissionAllow
                   ? "allow"
                   : "deny",
             },
@@ -501,7 +566,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           await decidePush(
             admitted,
             value,
-            action.action_id === SLACK_INTERACTION_ACTIONS.pushApprove
+            actionId === SLACK_INTERACTION_ACTIONS.pushApprove
               ? "approve"
               : "reject",
             card,
@@ -571,13 +636,22 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       },
       { locale: pressed.locale, requesterSlackUserId: null },
     ).blocks;
-    const result = await answer(
-      admitted,
-      value,
-      { kind: "question", answers: parsed.answers },
-      (outcome, by) => settle(pressed, metadata.m, asked, outcome, by),
+    // Checked above, so the modal can close now; the answer and the card
+    // run after Slack has its answer.
+    defer(async () =>
+      handled(
+        agentId,
+        ok(
+          await answer(
+            admitted,
+            value,
+            { kind: "question", answers: parsed.answers },
+            (outcome, by) => settle(pressed, metadata.m, asked, outcome, by),
+          ),
+        ),
+      ),
     );
-    return ok(result, CLEAR);
+    return ok("accepted", CLEAR);
   }
 
   return {

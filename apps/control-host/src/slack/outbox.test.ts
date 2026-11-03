@@ -1164,7 +1164,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(posted()).toHaveLength(2);
     expect(
       actionsOf(posted()[1] ?? card).map((button) => button.action_id),
-    ).toEqual(["question.option", "question.option"]);
+    ).toEqual(["question.option:0", "question.option:1"]);
 
     await ask("toolu:3", { kind: "permission", tool: "Read", input: null });
     await outboxPass({ botToken: null });

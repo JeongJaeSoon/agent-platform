@@ -105,14 +105,35 @@ describe("Slack prompt cards", () => {
       return actions.elements.map((e) => [e.action_id, JSON.parse(e.value).o]);
     };
     expect(actionIds([question(2, { allow_free_text: true })])).toEqual([
-      ["question.option", "0"],
-      ["question.option", "1"],
+      ["question.option:0", "0"],
+      ["question.option:1", "1"],
       ["question.open", undefined],
     ]);
     expect(actionIds([question(6)])).toEqual([["question.open", undefined]]);
     expect(actionIds([question(2, { multi_select: true })])).toEqual([
       ["question.open", undefined],
     ]);
+  });
+
+  test("every button in a block has its own action_id, as Slack requires", () => {
+    const { blocks } = slackPromptMessage(
+      {
+        kind: "question",
+        sessionId: SESSION,
+        requestId: "q_1",
+        questions: [question(5, { allow_free_text: true })],
+        expiresAt: "2026-11-03T00:00:00Z",
+      },
+      { locale: "en", requesterSlackUserId: null },
+    );
+    for (const block of blocks as {
+      type: string;
+      elements?: { action_id: string }[];
+    }[]) {
+      if (block.type !== "actions") continue;
+      const ids = (block.elements ?? []).map((e) => e.action_id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
   });
 
   test("a settled card drops its buttons and expiry and names who settled it", () => {

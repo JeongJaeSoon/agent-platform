@@ -374,7 +374,7 @@ export function slackPromptMessage(
           ...only.options.map((option, index) =>
             button(
               option.label,
-              SLACK_INTERACTION_ACTIONS.questionOption,
+              `${SLACK_INTERACTION_ACTIONS.questionOption}:${index}`,
               slackPromptValue(prompt, index),
             ),
           ),

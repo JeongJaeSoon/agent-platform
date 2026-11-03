@@ -52,6 +52,9 @@ let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
 let decideError: SessionServiceError | null;
+let getError: Error | null;
+let deferred: Promise<void>[];
+let results: string[];
 
 beforeEach(() => {
   calls = [];
@@ -61,6 +64,9 @@ beforeEach(() => {
   listed = [];
   pushState = "requested";
   decideError = null;
+  getError = null;
+  deferred = [];
+  results = [];
 });
 
 const record =
@@ -197,6 +203,7 @@ function deps(): SlackInteractionDeps {
     pushes: {
       async get(...args) {
         calls.push({ method: "pushGet", args });
+        if (getError !== null) throw getError;
         if (pushState === null)
           throw new SessionServiceError("NOT_FOUND", "gone");
         return {
@@ -223,8 +230,19 @@ function deps(): SlackInteractionDeps {
     botToken: async () => "xoxb-fixture",
     outbox: { readerLocale: async () => "en" },
     connectUrl: "https://app.example/settings/linked-accounts",
-    logger: { warn() {}, info() {} } as never,
+    logger: {
+      warn() {},
+      info(message: string, fields?: Record<string, unknown>) {
+        if (message === "Slack interaction handled") {
+          results.push(String(fields?.result));
+        }
+      },
+    },
     now: () => NOW,
+    wait: async () => {},
+    defer: (work) => {
+      deferred.push(work());
+    },
   };
 }
 
@@ -266,12 +284,17 @@ function press(actionId: string, value: Record<string, string>, user = LINKED) {
   });
 }
 
+// What Slack is answered, with the result of the work run after it.
 async function send(body: string, headers = signed(body), agentId = AGENT) {
-  return createSlackInteractionService(deps()).receive({
+  const outcome = await createSlackInteractionService(deps()).receive({
     agentId,
     rawBody: new TextEncoder().encode(body),
     ...headers,
   });
+  await Promise.all(deferred);
+  return outcome.kind === "ok" && outcome.result === "accepted"
+    ? { ...outcome, result: results.at(-1) ?? "accepted" }
+    : outcome;
 }
 
 const settledText = () =>
@@ -327,6 +350,63 @@ describe("Slack interactions", () => {
     expect(settledText()).toContain(`<@${LINKED}>`);
   });
 
+  test("Slack is answered before a press's work runs", async () => {
+    const service = createSlackInteractionService(deps());
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    const outcome = await service.receive({
+      agentId: AGENT,
+      rawBody: new TextEncoder().encode(body),
+      ...signed(body),
+    });
+    expect(outcome).toEqual({
+      kind: "ok",
+      body: { ok: true },
+      result: "accepted",
+    });
+    expect(called("answer")).toEqual([]);
+    await Promise.all(deferred);
+    expect(called("answer")).toHaveLength(1);
+  });
+
+  test("a follow-up turn that fails is tried again before the card is settled", async () => {
+    let fails = 2;
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      sessions: {
+        appendMessage: (async (...args: unknown[]) => {
+          calls.push({ method: "append", args });
+          if (fails-- > 0) throw new Error("queue unavailable");
+        }) as never,
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+      s: SESSION,
+      r: "push-1",
+    });
+    await service.receive({
+      agentId: AGENT,
+      rawBody: new TextEncoder().encode(body),
+      ...signed(body),
+    });
+    await Promise.all(deferred);
+    const appends = called("append");
+    expect(appends).toHaveLength(3);
+    expect(
+      new Set(
+        appends.map(
+          (c) => (c.args[2] as { idempotencyKey: string }).idempotencyKey,
+        ),
+      ),
+    ).toEqual(new Set(["slack-push:push-1"]));
+    expect(calls.findIndex((c) => c.method === "update")).toBeGreaterThan(
+      calls.lastIndexOf(appends[2] as Call),
+    );
+  });
+
   test("a press on a request someone already answered shows its result and answers nothing new", async () => {
     answerError = new SessionServiceError("REQUEST_STALE", "answered");
     outcome = { state: "answered", kind: "permission", decision: "deny" };
@@ -377,7 +457,7 @@ describe("Slack interactions", () => {
   test("an option button answers a single question with that option", async () => {
     listed = [{ request_id: "q_1", kind: "question", questions: [question] }];
     await send(
-      press(SLACK_INTERACTION_ACTIONS.questionOption, {
+      press(`${SLACK_INTERACTION_ACTIONS.questionOption}:1`, {
         s: SESSION,
         r: "q_1",
         o: "1",
@@ -397,7 +477,7 @@ describe("Slack interactions", () => {
     listed = [{ request_id: "q_1", kind: "question", questions: [question] }];
     outcome = { state: "open", kind: "question" };
     const result = await send(
-      press(SLACK_INTERACTION_ACTIONS.questionOption, {
+      press(`${SLACK_INTERACTION_ACTIONS.questionOption}:1`, {
         s: SESSION,
         r: "q_1",
         o: "7",
@@ -521,6 +601,20 @@ describe("Slack interactions", () => {
     expect(called("decide")).toEqual([]);
     expect(called("append")).toEqual([]);
     expect(called("update")).toHaveLength(1);
+  });
+
+  test("a failed push lookup leaves the card's buttons and decides nothing", async () => {
+    getError = new Error("canceling statement due to statement timeout");
+    await expect(
+      send(
+        press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+          s: SESSION,
+          r: "push-1",
+        }),
+      ),
+    ).rejects.toThrow("statement timeout");
+    expect(called("update")).toEqual([]);
+    expect(called("decide")).toEqual([]);
   });
 
   test("a member the policy refuses a push for decides nothing", async () => {
