@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
+  Badge,
   EmptyState,
   RowList,
   RowListItem,
@@ -66,6 +67,12 @@ export function MyTeams({
                       {team.name}
                     </Link>
                   </TextLink>
+                  <Badge
+                    variant={team.role === "lead" ? "blue" : "gray"}
+                    className="ml-auto shrink-0"
+                  >
+                    {t(`teams.role.${team.role}`)}
+                  </Badge>
                 </RowListItem>
               ))}
             </RowList>

@@ -25,6 +25,14 @@ export const sessionListKo = {
   "sessionList.unknown": "—",
   "sessionList.noRepository": "저장소 없음",
   "sessionList.map": "에이전트 지도",
+  "session.share.title": "공유 범위",
+  "session.share.private": "세션을 가진 사람만",
+  "session.share.people": "지정한 사람 {count}명",
+  "session.share.team": "지정한 팀 {count}개",
+  "session.share.workspace": "워크스페이스",
+  "session.share.workspaceLimited":
+    "워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+  "session.share.failed": "공유 범위를 확인하지 못했습니다.",
 };
 
 export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
@@ -54,6 +62,14 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "sessionList.unknown": "—",
   "sessionList.noRepository": "No repository",
   "sessionList.map": "Agent map",
+  "session.share.title": "Shared with",
+  "session.share.private": "Only the session's owner",
+  "session.share.people": "Named people: {count}",
+  "session.share.team": "Named teams: {count}",
+  "session.share.workspace": "Workspace",
+  "session.share.workspaceLimited":
+    "Workspace (people outside the managing team cannot see it, by workspace setting)",
+  "session.share.failed": "Could not read who this session is shared with.",
 };
 
 export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
@@ -83,4 +99,12 @@ export const sessionListJa: Record<keyof typeof sessionListKo, string> = {
   "sessionList.unknown": "—",
   "sessionList.noRepository": "リポジトリなし",
   "sessionList.map": "エージェントマップ",
+  "session.share.title": "共有範囲",
+  "session.share.private": "セッションの所有者のみ",
+  "session.share.people": "指定した人: {count} 人",
+  "session.share.team": "指定したチーム: {count}",
+  "session.share.workspace": "ワークスペース",
+  "session.share.workspaceLimited":
+    "ワークスペース(担当チーム外の人は見られません。ワークスペース設定)",
+  "session.share.failed": "共有範囲を確認できませんでした。",
 };

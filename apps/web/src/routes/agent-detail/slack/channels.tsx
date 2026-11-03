@@ -292,6 +292,8 @@ export function SlackChannels({
           {homeStep ? (
             <Text variant="sub">{t("slack.homeStepHint")}</Text>
           ) : null}
+          {/* A channel's replies follow no session sharing (agent-rbac (b)). */}
+          <Text variant="sub">{t("slack.channelsAudience")}</Text>
           <output
             aria-live="polite"
             className={notice ? "text-control" : "sr-only"}
