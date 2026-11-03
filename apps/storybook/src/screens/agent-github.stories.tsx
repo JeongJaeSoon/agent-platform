@@ -493,7 +493,8 @@ type TabProps = {
 // A savable release without a repository starts from none picked.
 const NO_REPOSITORY_DEFAULTS: AgentGitHub = {
   repositories: [],
-  push_approval: true,
+  // github.tsx NO_REPOSITORY_DEFAULTS (owner decision d123).
+  push_approval: false,
   features: {
     review: false,
     actions: false,
@@ -1138,7 +1139,7 @@ export const AgentGitHubNoRepositoryUnpicked: Story = {
   name: "저장소 없는 릴리스: 저장소를 고르기 전",
   args: {
     data: NO_REPOSITORY_DATA,
-    draft: { ...NO_REPOSITORY_DEFAULTS, push_approval: false },
+    draft: { ...NO_REPOSITORY_DEFAULTS, push_approval: true },
     activity: [],
   },
   play: async ({ canvas }) => {
