@@ -3077,11 +3077,10 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     expect(
       await settler({ slack: refusing(["invalid_blocks"]) }),
     ).toMatchObject({ sent: 1 });
-    expect(updated().at(-1)?.blocks).toEqual([
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: updated().at(-1)?.text },
-      },
+    const fallback = updated().at(-1);
+    if (!fallback) throw new Error("no text fallback");
+    expect(fallback.blocks as unknown).toEqual([
+      { type: "section", text: { type: "mrkdwn", text: fallback.text } },
     ]);
     expect(await cardRow()).toMatchObject({ settleState: "settled" });
 
