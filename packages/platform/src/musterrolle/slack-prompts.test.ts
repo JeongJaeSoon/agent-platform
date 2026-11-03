@@ -224,8 +224,17 @@ describe("Slack prompt cards", () => {
     expect(rawOf("").text).toBe('""');
     expect(rawOf(null).text).toBe("null");
     expect(rawOf([]).text).toBe("[]");
-    // No JSON form at all: nothing to show, so no container.
-    expect(rawOf(undefined).text).toBeUndefined();
+    // No JSON form, or one that cannot be made: no container at all.
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const input of [undefined, () => 1, circular]) {
+      expect(rawOf(input)).toEqual({
+        collapsed: undefined,
+        title: undefined,
+        type: undefined,
+        text: undefined,
+      });
+    }
   });
 
   test("a push card shows the catalog name, a 7-character commit and a shortened branch", () => {
