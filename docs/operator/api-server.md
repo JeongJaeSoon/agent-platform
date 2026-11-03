@@ -904,7 +904,7 @@ Slack은 에이전트 앱의 이벤트를 `POST /v1/slack/events/{agent_id}`로 
 - `app_uninstalled`와 bot token을 담은 `tokens_revoked`는 그 설치를 `revoked`로 바꾸고 `processed`로 남는다.
 - 로그는 id·결과·`status`·`drop_reason`·재시도 번호만 남긴다. 본문·메시지 글·서명·헤더 값은 응답·로그·오류에 나오지 않는다.
 
-버튼과 답변 창은 `POST /v1/slack/interactions/{agent_id}`로 온다. 리미터·256 KiB·서명·시각 검사와 같은 `401`은 이벤트와 같다. 본문은 `payload=<JSON>` form이고, 파싱할 수 없으면 `400`이다. inbox에 쌓지 않고 바로 처리한다. 누른 Slack 사용자를 연결 계정으로 판정(`session.approve`)한 뒤 요청에 답하거나 push를 결정하고, `chat.update`로 카드를 결과로 바꾼다. 거절과 이미 처리된 요청은 누른 사람에게만 ephemeral로 알린다. 카드는 `slack` 역할이 outbox로 올린다(아래 "Slack 스레드와 세션").
+버튼과 답변 창은 `POST /v1/slack/interactions/{agent_id}`로 온다. 리미터·256 KiB·서명·시각 검사와 같은 `401`은 이벤트와 같다. 본문은 `payload=<JSON>` form이고, 파싱할 수 없으면 `400`이다. inbox에 쌓지 않는다. Slack은 3초 안에 답을 받아야 하므로 버튼은 `{ok: true}`로 먼저 답하고 같은 프로세스에서 이어서 처리한다. 답하기 창을 여는 버튼(`trigger_id`는 3초 안에만 쓸 수 있다)과 창 제출의 입력 검사만 답하기 전에 한다. 누른 Slack 사용자를 연결 계정으로 판정(`session.approve`)한 뒤 요청에 답하거나 push를 결정하고, `chat.update`로 카드를 결과로 바꾼다. 거절과 이미 처리된 요청은 누른 사람에게만 ephemeral로 알린다. 카드는 `slack` 역할이 outbox로 올린다(아래 "Slack 스레드와 세션").
 
 마무리 ①은 설치가 끝날 때 앱 manifest 전체를 다시 보낸다(`apps.manifest.update`). 이름·bot 이름·설명·scope는 앱을 만들 때와 같고, `settings.interactivity`에 `<값>/v1/slack/interactions/<agent_id>`가, `settings.event_subscriptions`에 request URL과 bot event `app_mention`·`message.im`·`message.channels`·`message.groups`·`member_joined_channel`·`app_uninstalled`·`tokens_revoked`가 붙는다. Slack이 `permissions_updated: true`로 답하면(scope가 바뀌어 다시 설치해야 함) `warnings`에 `reinstall_required`가 오고 로그에 남는다. 아직 따로 저장하지는 않는다. 이어서 마무리 ②가 저장된 채널마다 참가를 확인하고 home에 환영을 넣는다(아래 "채널 참가와 배포 환영"). bot이 아직 없는 채널은 `warnings`에 `{code: "awaiting_invite" | "config_error" | "join_failed", channel_id, error?}`로 온다.
 
