@@ -32,6 +32,16 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
+  // 0225: a state write marks the session's Slack thread status due at commit.
+  "constraint pending_requests.pending_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint pending_requests.pending_requests_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint push_requests.push_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint push_requests.push_requests_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint session_links.session_links_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint session_links.session_links_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint sessions.sessions_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint turns.turns_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint turns.turns_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   // 0137, 0139: agent versions, releases and their audit rows are
   // insert-only; a release takes its first approval and nothing else.
   "function agent_releases_approve_once() trigger language plpgsql volatility=v parallel=u body md5 c6e3025aa20a67be3dc0885bb3301b1b",
@@ -56,6 +66,9 @@ const MIGRATIONS_ONLY = [
   // 0127, capped by 0129: a session's provider tokens are counted as usage
   // rows are inserted; usage_breakdown_rollup also keeps session_model_usage.
   "function sessions_count_provider_tokens() trigger language plpgsql volatility=v parallel=u body md5 d379ea7e669588977ef342b8f7d882d5",
+  "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
+  "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
+  "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
   // 0107: retained input is charged to storage_usage as turns are inserted.
   "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
   "function tool_call_outcomes_add() trigger language plpgsql volatility=v parallel=u body md5 658a9e9cf14c49d749ab3d2d896981e9",
@@ -68,6 +81,15 @@ const MIGRATIONS_ONLY = [
   "function tool_hist_step(state integer[], bucket integer, delta integer) integer[] language sql volatility=i parallel=s body md5 20e7f2741f305c44a7febf7acc1b90ff",
   "function tool_hist_sum(integer[]) integer[] language internal volatility=i parallel=u body md5 3eb6d2f5e7ee95ed566dd6cdda54dac3",
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
+  "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_insert AFTER INSERT ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_update AFTER UPDATE ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((old.resolved_at IS DISTINCT FROM new.resolved_at) OR (old.answered_at IS DISTINCT FROM new.answered_at) OR (old.parked_at IS DISTINCT FROM new.parked_at) OR (old.expires_at IS DISTINCT FROM new.expires_at))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER push_requests_slack_thread_status_insert AFTER INSERT ON public.push_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER push_requests_slack_thread_status_update AFTER UPDATE ON public.push_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.state IS DISTINCT FROM new.state)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER session_links_slack_thread_status_insert AFTER INSERT ON public.session_links DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((new.session_id IS NOT NULL)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER session_links_slack_thread_status_update AFTER UPDATE ON public.session_links DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((new.session_id IS NOT NULL) AND ((old.session_id IS DISTINCT FROM new.session_id) OR (old.revoked_at IS DISTINCT FROM new.revoked_at) OR (old.muted IS DISTINCT FROM new.muted)))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER sessions_slack_thread_status_update AFTER UPDATE ON public.sessions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((old.admission_state IS DISTINCT FROM new.admission_state) OR (old.execution_revoked_at IS DISTINCT FROM new.execution_revoked_at) OR (old.checkpoint_revision IS DISTINCT FROM new.checkpoint_revision))) EXECUTE FUNCTION slack_thread_status_of_session() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER turns_slack_thread_status_insert AFTER INSERT ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER turns_slack_thread_status_update AFTER UPDATE ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE TRIGGER agent_activation_events_insert_only BEFORE DELETE OR UPDATE ON public.agent_activation_events FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
   "trigger CREATE TRIGGER agent_releases_approve_once BEFORE DELETE OR UPDATE ON public.agent_releases FOR EACH ROW EXECUTE FUNCTION agent_releases_approve_once() enabled=O",
   "trigger CREATE TRIGGER agent_versions_insert_only BEFORE DELETE OR UPDATE ON public.agent_versions FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
