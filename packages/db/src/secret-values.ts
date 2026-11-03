@@ -172,7 +172,15 @@ export async function openSecretsOf(
         inArray(secretValues.ownerRef, [...ownerRefs]),
       ),
     );
-  return new Map(rows.map((row) => [row.ownerRef, openRow(key, row)]));
+  // A value that does not open (sealed under another key) is left out alone:
+  // its owner reads as unset, and the rest still open.
+  const opened = new Map<string, string>();
+  for (const row of rows) {
+    try {
+      opened.set(row.ownerRef, openRow(key, row));
+    } catch {}
+  }
+  return opened;
 }
 
 /**

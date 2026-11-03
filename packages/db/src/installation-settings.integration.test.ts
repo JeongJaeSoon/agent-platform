@@ -416,6 +416,34 @@ integration("installation settings", () => {
       "a-rotated-stored-key",
     );
 
+    // A value sealed under another key leaves out its own row only.
+    await db.insert(providerConnections).values({
+      id: "other_key",
+      definition: {
+        kind: "anthropic",
+        endpoint: "https://other.invalid",
+        auth: { kind: "api_key", stored: "connection:other_key" },
+      },
+      credentialSource: "stored",
+      origin: "console",
+    });
+    await createPostgresInstallationSettingsStore(
+      db,
+      SecretKey.fromHex("cd".repeat(32), "another key"),
+    ).putStoredValue(
+      { kind: "connection", id: "other_key" },
+      "sealed-elsewhere",
+      null,
+    );
+    const mixed = settingsSnapshot(
+      await store.read({ openStored: true }),
+      () => undefined,
+    );
+    expect(Object.keys(mixed.connections)).toEqual(["console_main"]);
+    expect(mixed.left_out.map(({ entry }) => entry)).toContain(
+      "connection:other_key",
+    );
+
     const secrets = createPostgresSecretStore(db, KEY);
     const slot = {
       workspaceId: workspace?.id ?? "",
