@@ -32,7 +32,7 @@ import { useState } from "react";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, LOCALE_NAMES, useI18n } from "../i18n/i18n.tsx";
 import { builtinToolNote } from "../routes/operations-tool-notes.ts";
-import { pickable } from "./profile-options.tsx";
+import { ProfileOptions, pickable } from "./profile-options.tsx";
 
 /** The card languages; agent-card-form.test.ts pins it to the contract. */
 export const AGENT_CARD_LANGUAGE_VALUES: readonly AgentCard["language"][] = [
@@ -168,6 +168,21 @@ export function previewProfiles(
   const running = runningProfiles(profiles, model);
   const preferred = running.filter(previewable);
   return preferred.length > 0 ? preferred : running;
+}
+
+/**
+ * The profile the checklist shows and a new release starts from: `wanted`
+ * while it is one of `previewProfiles`, else the first of them. The agent
+ * detail resolves both through here, so the two cannot name different ones.
+ */
+export function chosenProfile(
+  profiles: readonly ProfileSummary[],
+  model: string,
+  wanted: string | undefined,
+  previewable?: (profile: ProfileSummary) => boolean,
+): ProfileSummary | undefined {
+  const candidates = previewProfiles(profiles, model, previewable);
+  return candidates.find((profile) => profile.id === wanted) ?? candidates[0];
 }
 
 /** Of `candidates`, those that allow every tool the draft names. */
@@ -397,9 +412,12 @@ function ToolFields({
   const { t, locale } = useI18n();
   const candidates = previewProfiles(profiles, draft.model, previewable);
   const [ownPick, setOwnPick] = useState<string>();
-  const picked = previewId ?? ownPick;
-  const preview =
-    candidates.find((profile) => profile.id === picked) ?? candidates[0];
+  const preview = chosenProfile(
+    profiles,
+    draft.model,
+    previewId ?? ownPick,
+    previewable,
+  );
   const offered = preview?.tools ?? [];
   const all = draft.toolsMode === "all";
   const outside = all
@@ -431,11 +449,7 @@ function ToolFields({
               onPreviewChange?.(event.target.value);
             }}
           >
-            {candidates.map((profile) => (
-              <NativeSelectOption key={profile.id} value={profile.id}>
-                {profile.id}
-              </NativeSelectOption>
-            ))}
+            <ProfileOptions profiles={candidates} />
           </NativeSelect>
           <FieldDescription>
             {t("agentCard.previewProfileHint")}

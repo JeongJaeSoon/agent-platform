@@ -566,7 +566,7 @@ describe("에이전트 카드", () => {
     [...card.querySelectorAll("dt")].find((dt) => dt.textContent === term)
       ?.nextElementSibling?.textContent;
 
-  test("배포 판·설명·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
+  test("배포 판·설명·프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
     await openAdministered(releasedServer());
     const card = await cardFor("결제 담당");
     await waitFor(() =>
@@ -579,7 +579,7 @@ describe("에이전트 카드", () => {
     expect(card.textContent).not.toContain("2026-10-11_10:00:00");
     expect(card.textContent).toContain(DESCRIPTION);
     expect(card.textContent).not.toContain("지시문");
-    expect(fact(card, "실행 프로필")).toBe(PROFILE);
+    expect(fact(card, "프로필")).toBe(PROFILE);
     expect(fact(card, "MCP")).toBe("linear");
     expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
     // The colour beside the words is decoration; the words carry the state.
@@ -597,7 +597,7 @@ describe("에이전트 카드", () => {
     );
     expect(
       [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
-    ).toEqual(["담당 팀", "릴리스", "실행 프로필", "MCP", "자격 증명"]);
+    ).toEqual(["담당 팀", "릴리스", "프로필", "MCP", "자격 증명"]);
     expect(card.textContent).not.toContain("미계측");
     expect(
       within(card)
@@ -658,9 +658,7 @@ describe("에이전트 카드", () => {
       [`GET /v1/agents/${AGENT_ID}/credential-bindings`]: refuse,
     });
     const card = await cardFor("결제 담당");
-    await waitFor(() =>
-      expect(fact(card, "실행 프로필")).toBe("—불러오지 못함"),
-    );
+    await waitFor(() => expect(fact(card, "프로필")).toBe("—불러오지 못함"));
     expect(stateOf(card.querySelector("a") as HTMLElement)?.textContent).toBe(
       "초안",
     );
@@ -734,7 +732,7 @@ describe("에이전트 카드", () => {
       expect(asked.has(agents[6]?.id)).toBe(false);
       // Not yet read is a placeholder, never the dash of a failed read.
       const profile = [...late.querySelectorAll("dt")].find(
-        (dt) => dt.textContent === "실행 프로필",
+        (dt) => dt.textContent === "프로필",
       )?.nextElementSibling;
       expect(profile?.querySelector("[aria-busy=true]")).not.toBeNull();
       expect(screen.queryByText(/자세한 정보를 불러옵니다/)).toBeNull();
@@ -783,8 +781,8 @@ describe("에이전트 카드", () => {
       const draft = await cardFor("에이전트 0");
       expect(fact(draft, "릴리스")).toBe("—릴리스 전");
       // Said once: the profile row of an unreleased card is only a dash.
-      expect(fact(draft, "실행 프로필")).toBe("—없음");
-      expect(fact(card, "실행 프로필")).toBe(PROFILE);
+      expect(fact(draft, "프로필")).toBe("—없음");
+      expect(fact(card, "프로필")).toBe(PROFILE);
       expect(fact(card, "MCP")).toBe("linear");
       expect(fact(card, "자격 증명")).toBe("연결 필요 1개");
       expect(card.textContent).toContain("설명 13");
@@ -1202,10 +1200,9 @@ describe("새 에이전트", () => {
     await user.selectOptions(model, CARD.model);
     // One checklist of the preview profile's tools, no free-text fields.
     expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
-    expect(
-      (screen.getByLabelText("도구를 보여 줄 프로필") as HTMLSelectElement)
-        .value,
-    ).toBe(PROFILE);
+    expect((screen.getByLabelText("프로필") as HTMLSelectElement).value).toBe(
+      PROFILE,
+    );
     const all = screen.getByRole("switch", {
       name: "릴리스할 때 프로필이 허용하는 도구 전부",
     });
@@ -1360,7 +1357,7 @@ describe("새 에이전트", () => {
     );
     expect(option?.disabled).toBe(true);
     expect(option?.textContent).toBe(
-      "claude-coding-repo · claude-sonnet-5 · 저장소 필요",
+      "claude-coding-repo v1 · claude-sonnet-5 (설치) · 저장소 필요",
     );
     expect(document.body.textContent).toContain(
       "저장소가 꼭 필요한 프로필은 에이전트 상세의 릴리스 탭에서 기본 저장소와 함께 릴리스합니다.",
@@ -1384,9 +1381,14 @@ describe("새 에이전트", () => {
       ...server.routes,
       "GET /v1/profiles": () =>
         json(200, {
-          items: listed.items.map((p) =>
-            required.has(p.id) ? { ...p, repository_mode: "required" } : p,
-          ),
+          items: listed.items.map((p) => ({
+            ...p,
+            // The fallback has to run the card's model to be offered at all.
+            ...(p.id === "claude-coding-fast"
+              ? { models: [...p.models, "claude-sonnet-5"] }
+              : {}),
+            ...(required.has(p.id) ? { repository_mode: "required" } : {}),
+          })),
         }),
     });
     const user = await setupUser();
@@ -1396,13 +1398,14 @@ describe("새 에이전트", () => {
     const profile = (await screen.findByLabelText(
       "프로필",
     )) as HTMLSelectElement;
-    expect(profile.value).toBe(PROFILE);
-
-    required.add(PROFILE);
-    await services.queryClient.invalidateQueries();
-    await waitFor(() => expect(profile.value).toBe("claude-coding-fast"));
+    // Both run the card's model here, so the list's first one is picked.
+    expect(profile.value).toBe("claude-coding-fast");
 
     required.add("claude-coding-fast");
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(profile.value).toBe(PROFILE));
+
+    required.add(PROFILE);
     await services.queryClient.invalidateQueries();
     expect(
       await screen.findByText("저장소 없이 릴리스할 수 있는 프로필이 없습니다"),
@@ -1702,11 +1705,10 @@ describe("새 에이전트", () => {
     await toJobStep(user);
     await user.selectOptions(await screen.findByLabelText("모델"), CARD.model);
     const preview = () =>
-      (screen.getByLabelText("도구를 보여 줄 프로필") as HTMLSelectElement)
-        .value;
+      (screen.getByLabelText("프로필") as HTMLSelectElement).value;
     expect(preview()).toBe(PROFILE);
     await user.selectOptions(
-      screen.getByLabelText("도구를 보여 줄 프로필"),
+      screen.getByLabelText("프로필"),
       "claude-coding-narrow",
     );
     act(() => history.back());
@@ -2084,16 +2086,30 @@ describe("에이전트 상세", () => {
 
   test("release를 만들고 활성화한다: 저장·release·활성화는 서로 다른 문구다", async () => {
     const server = agentServer();
-    const { api } = renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const post = server.routes[`POST /v1/agents/${AGENT_ID}/releases`];
+    let refuse = true;
+    const { api } = renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      // The catalog changed under the form: the first try is refused.
+      [`POST /v1/agents/${AGENT_ID}/releases`]: (request: Request) => {
+        if (!refuse && post) return post(request);
+        refuse = false;
+        return apiError(
+          422,
+          "UNSUPPORTED_CAPABILITY",
+          `Unknown runtime profile ${PROFILE}`,
+        );
+      },
+    });
     const user = await setupUser();
     let dialog = await openRelease(user);
     const profile = dialog.getByLabelText("프로필") as HTMLSelectElement;
     // With no release yet the form offers the profile running the card's model.
     expect(profile.value).toBe(PROFILE);
-    await user.selectOptions(profile, "claude-coding-fast");
     await user.click(dialog.getByRole("button", { name: "릴리스 만들기" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "Unknown runtime profile claude-coding-fast",
+      `Unknown runtime profile ${PROFILE}`,
     );
     // A settled request closes the dialog; the choice is kept for the retry.
     dialog = await openRelease(user);
@@ -2318,7 +2334,21 @@ describe("에이전트 상세", () => {
 
   test("결과는 버튼을 누른 섹션에 나오고 포커스가 그리로 간다", async () => {
     const server = agentServer();
-    renderAt(CARD_TAB, { ...meOk, ...server.routes });
+    const post = server.routes[`POST /v1/agents/${AGENT_ID}/releases`];
+    let refuse = true;
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      [`POST /v1/agents/${AGENT_ID}/releases`]: (request: Request) => {
+        if (!refuse && post) return post(request);
+        refuse = false;
+        return apiError(
+          422,
+          "UNSUPPORTED_CAPABILITY",
+          `card.model: model claude-sonnet-5 is not the model of runtime profile ${PROFILE}`,
+        );
+      },
+    });
     const user = await setupUser();
     await openCardEditor(user);
     const section = (name: string) =>
@@ -2332,10 +2362,6 @@ describe("에이전트 상세", () => {
 
     await showTab(user, "릴리스");
     await openRelease(user);
-    await user.selectOptions(
-      screen.getByLabelText("프로필"),
-      "claude-coding-fast",
-    );
     await user.click(screen.getByRole("button", { name: "릴리스 만들기" }));
     const refused = await screen.findByRole("alert");
     expect(section("릴리스 기록").contains(refused)).toBe(true);
@@ -2520,7 +2546,7 @@ describe("편집 중 다른 곳의 저장", () => {
     );
   });
 
-  test("release 폼의 profile은 목록에서 모델 이름과 함께 고르고, 직전 release의 profile을 기본으로 둔다", async () => {
+  test("release 폼의 profile은 프로필 화면의 이름으로 고르고, 직전 release의 profile을 기본으로 둔다", async () => {
     const server = agentServer();
     await seedRelease(server);
     renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
@@ -2528,11 +2554,70 @@ describe("편집 중 다른 곳의 저장", () => {
     const select = (await screen.findByLabelText(
       "프로필",
     )) as HTMLSelectElement;
-    expect([...select.options].map((option) => option.textContent)).toEqual([
-      "claude-coding-fast · claude-haiku-5 · 카드 모델과 다름",
-      "claude-coding-local · claude-sonnet-5",
+    // One that does not run the card's model goes last and cannot be picked.
+    expect(
+      [...select.options].map((option) => [
+        option.textContent,
+        option.disabled,
+      ]),
+    ).toEqual([
+      ["claude-coding-local v1 · claude-sonnet-5 (설치)", false],
+      [
+        "claude-coding-fast v1 · claude-haiku-5 (설치) · 카드 모델과 다름",
+        true,
+      ],
     ]);
     expect(select.value).toBe(PROFILE);
+  });
+
+  test("상세의 카드 편집과 새 release는 프로필 하나를 같이 쓴다: 한쪽에서 바꾸면 다른 쪽도 그 프로필이다", async () => {
+    const server = agentServer();
+    const listed = server.routes["GET /v1/profiles"] as () => Response;
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": async () => {
+        const body = (await listed().json()) as { items: ProfileSummary[] };
+        return json(200, {
+          items: [
+            ...body.items,
+            {
+              ...body.items[0],
+              id: "claude-coding-wide",
+              model: CARD.model,
+              models: [CARD.model],
+              tools: ["Read", "Bash"],
+            } as ProfileSummary,
+          ],
+        });
+      },
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+    const cardProfile = (await within(card).findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(cardProfile.value).toBe(PROFILE);
+    await user.selectOptions(cardProfile, "claude-coding-wide");
+    // The checklist follows the profile picked.
+    await within(card).findByRole("checkbox", { name: /Bash/ });
+
+    await showTab(user, "릴리스");
+    let release = await openRelease(user);
+    const releaseProfile = (await release.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(releaseProfile.value).toBe("claude-coding-wide");
+
+    await user.selectOptions(releaseProfile, PROFILE);
+    await user.click(release.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(cardProfile.value).toBe(PROFILE);
+    release = await openRelease(user);
+    expect(
+      ((await release.findByLabelText("프로필")) as HTMLSelectElement).value,
+    ).toBe(PROFILE);
   });
 
   test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
@@ -2540,20 +2625,16 @@ describe("편집 중 다른 곳의 저장", () => {
     renderAt(DETAIL, { ...meOk, ...server.routes });
     const user = await setupUser();
     await openCardEditor(user);
-    await openRelease(user);
-    const described = async (label: string) =>
-      (
-        (await screen.findByLabelText(label)).getAttribute(
-          "aria-describedby",
-        ) ?? ""
-      )
+    const describedBy = (field: HTMLElement) =>
+      (field.getAttribute("aria-describedby") ?? "")
         .split(" ")
         .map((id) => document.getElementById(id)?.textContent)
         .join(" ");
-    expect(await described("모델")).toContain(
+    expect(describedBy(await screen.findByLabelText("모델"))).toContain(
       "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
     );
-    expect(await described("프로필")).toBe(
+    const release = await openRelease(user);
+    expect(describedBy(await release.findByLabelText("프로필"))).toBe(
       "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 릴리스할 수 있습니다 프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
@@ -2573,10 +2654,7 @@ describe("편집 중 다른 곳의 저장", () => {
     });
     const user = await setupUser();
     await openRelease(user);
-    await user.selectOptions(
-      await screen.findByLabelText("프로필"),
-      "claude-coding-fast",
-    );
+    await screen.findByLabelText("프로필");
     await user.click(screen.getByRole("button", { name: "릴리스 만들기" }));
     const refusal = await screen.findByText(/릴리스를 만들지 못했습니다/);
     expect(refusal.textContent).toBe(
@@ -2656,20 +2734,35 @@ describe("편집 중 다른 곳의 저장", () => {
     );
   });
 
-  test("카드 모델과 다른 모델의 profile을 고르면 release를 만들기 전에 알린다", async () => {
+  test("카드 모델을 돌리는 프로필이 없으면 고를 것이 없다고 하고 release를 만들지 못하게 한다", async () => {
     const server = agentServer();
-    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
-    const user = await setupUser();
-    await openRelease(user);
-    const select = await screen.findByLabelText("프로필");
-    await user.selectOptions(select, PROFILE);
-    expect(screen.queryByText(/이대로 만들면 거부됩니다/)).toBeNull();
-    await user.selectOptions(select, "claude-coding-fast");
-    expect(
-      (await screen.findByText(/이대로 만들면 거부됩니다/)).textContent,
-    ).toBe(
-      "카드 모델(이 버전): claude-sonnet-5 · 고른 프로필의 모델: claude-haiku-5. 둘이 달라 이대로 만들면 거부됩니다.",
+    const listed = server.routes["GET /v1/profiles"] as () => Response;
+    renderAt(RELEASE_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": async () => {
+        const body = (await listed().json()) as { items: ProfileSummary[] };
+        return json(200, {
+          items: body.items.filter((p) => !p.models.includes(CARD.model)),
+        });
+      },
+    });
+    const release = await openRelease(await setupUser());
+    const select = (await release.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(select.selectedOptions[0]?.textContent).toBe(
+      "릴리스할 수 있는 프로필이 없습니다",
     );
+    expect([...select.options].every((option) => option.disabled)).toBe(true);
+    expect(
+      (
+        release.getByRole("button", {
+          name: "릴리스 만들기",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 
   test("저장 응답을 기다리는 동안 이어서 쓴 내용은 응답이 와도 남는다", async () => {

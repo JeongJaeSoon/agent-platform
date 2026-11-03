@@ -42,6 +42,7 @@ import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import { releasedProfile } from "./releases.tsx";
 import { latestVersion } from "./versions.tsx";
 
 export function CardEditor({
@@ -50,8 +51,13 @@ export function CardEditor({
   onOutcome,
   onSaved,
   onClose,
+  profileId,
+  onProfileChange,
 }: {
   readonly detail: AgentDetail;
+  /** Shared with the releases tab, whose new release starts from it. */
+  readonly profileId: string | undefined;
+  readonly onProfileChange: (profileId: string) => void;
   readonly result: ReactNode;
   readonly onOutcome: (outcome: Outcome | null) => void;
   /** The version the save resolved to, which the release form then offers. */
@@ -257,6 +263,8 @@ export function CardEditor({
                 draft={draft}
                 catalog={catalog}
                 onChange={setDraft}
+                previewId={profileId ?? releasedProfile(detail)}
+                onPreviewChange={onProfileChange}
               />
             </FieldSet>
           ) : null}
