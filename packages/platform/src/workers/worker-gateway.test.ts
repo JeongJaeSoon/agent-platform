@@ -1486,6 +1486,89 @@ describe("WorkerGateway", () => {
     ]);
   });
 
+  test("a claim needing an MCP server whose settings row did not resolve here binds nothing and is retried", async () => {
+    const general = {
+      runtime_kind: "claude_agent_sdk" as const,
+      runtime_version: "0.3.270",
+      model: "claude-sonnet-5",
+      tools: ["Read"],
+      permission_mode: "plan" as const,
+      repository: "none" as const,
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.invalid",
+        auth: {
+          kind: "api_key" as const,
+          value: "provider-key",
+          ref: { value_env: "PROVIDER_KEY" },
+        },
+      },
+    };
+    const issued: ClaimInput["egress"][] = [];
+    await createWorkerGateway({
+      work: work({
+        claimAtomic: async (input) => {
+          issued.push(input.egress);
+          return { outcome: "no_session" };
+        },
+      }),
+      catalog: {
+        ...withSeededInstallation({
+          profiles: { general },
+          repositories: {},
+        }),
+        mcp_servers: {
+          kept: {
+            url: "https://mcp.example.invalid/kept",
+            credential_ref: "kept",
+            auth: {
+              kind: "bearer",
+              value: "kept-token",
+              ref: { value_env: "KEPT_TOKEN" },
+            },
+            workspaces: [],
+          },
+        },
+        unavailable_mcp_servers: new Set(["docs", "kept"]),
+      },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    })
+      .bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      )
+      .catch(() => undefined);
+    const [egress] = issued;
+    if (!egress) throw new Error("claim was not asked to issue egress tokens");
+    const session = (server: string) => ({
+      id: "s-1",
+      profileId: "general",
+      profileFingerprint: profileFingerprint(general),
+      model: "claude-sonnet-5",
+      repositoryMode: "none" as const,
+      repositoryId: null,
+      mcp: { releaseId: "rel-1", server, tools: [`mcp__${server}__search`] },
+    });
+    expect(() => egress.bindingsOf(session("docs"))).toThrow(
+      expect.objectContaining({
+        status: 503,
+        code: "BACKEND_UNAVAILABLE",
+        retryable: true,
+      }),
+    );
+    // The file's server of the same id serves it here.
+    expect(egress.bindingsOf(session("kept")).mcp).toBeDefined();
+  });
+
   test("a claim runs its release's tools and offers the profile's for restore, and the switched-off claim offers them back", async () => {
     const current = {
       runtime_kind: "claude_agent_sdk" as const,

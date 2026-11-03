@@ -1063,6 +1063,21 @@ export function createWorkerGateway(deps: {
     if (!profile) {
       throw new Error("A claimed session has no runnable profile");
     }
+    // Thrown inside the claim's transaction, so nothing is bound and the
+    // worker asks again, maybe of a replica that resolves the server.
+    const server = session.mcp?.server;
+    if (
+      server !== undefined &&
+      own(catalog.mcp_servers ?? {}, server) === undefined &&
+      catalog.unavailable_mcp_servers?.has(server)
+    ) {
+      throw new WorkerGatewayError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "The session's MCP server is in the installation settings but its credential does not resolve on this host",
+        true,
+      );
+    }
     // A session pinned under version 1 keeps that pin in its token: an API
     // replica from before version 2, still up during a rollout, accepts only
     // that.

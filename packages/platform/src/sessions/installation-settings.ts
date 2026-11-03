@@ -33,7 +33,20 @@ export type SettingsSnapshot = {
    * replica may resolve them, so a session on one is not failed here.
    */
   unavailable_repositories: ReadonlySet<string>;
+  /** MCP server ids the same way: a claim needing one is left to another replica. */
+  unavailable_mcp_servers: ReadonlySet<string>;
 };
+
+function invalidIds(
+  settings: InstallationSettings,
+  kind: "repository" | "mcp",
+): Set<string> {
+  return new Set(
+    settings.invalid
+      .filter((entry) => entry.startsWith(`${kind}:`))
+      .map((entry) => entry.slice(kind.length + 1)),
+  );
+}
 
 /** Every external reference the settings name, for fetching before they resolve. */
 export function settingsCredentialRefs(
@@ -71,11 +84,8 @@ export function settingsSnapshot(
     entry,
     reason: "does not parse",
   }));
-  const unavailable = new Set(
-    settings.invalid
-      .filter((entry) => entry.startsWith("repository:"))
-      .map((entry) => entry.slice("repository:".length)),
-  );
+  const unavailable = invalidIds(settings, "repository");
+  const unavailableMcp = invalidIds(settings, "mcp");
   const connections: Record<string, Provider> = {};
   for (const { id, provider } of settings.connections) {
     const { kind: _kind, ...fields } = provider.auth;
@@ -118,6 +128,7 @@ export function settingsSnapshot(
       ).mcp_servers?.[id];
       if (resolved) mcp_servers[id] = resolved;
     } catch (error) {
+      unavailableMcp.add(id);
       left_out.push({ entry: `mcp:${id}`, reason: describeConfigError(error) });
     }
   }
@@ -129,6 +140,7 @@ export function settingsSnapshot(
     lookup,
     left_out,
     unavailable_repositories: unavailable,
+    unavailable_mcp_servers: unavailableMcp,
   };
 }
 
@@ -201,10 +213,7 @@ export function settingsView(
       entry,
       reason: "does not parse",
     })),
-    unavailable_repositories: new Set(
-      settings.invalid
-        .filter((entry) => entry.startsWith("repository:"))
-        .map((entry) => entry.slice("repository:".length)),
-    ),
+    unavailable_repositories: invalidIds(settings, "repository"),
+    unavailable_mcp_servers: invalidIds(settings, "mcp"),
   };
 }
