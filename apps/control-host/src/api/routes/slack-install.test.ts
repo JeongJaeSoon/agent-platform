@@ -145,7 +145,12 @@ const responses: string[] = [];
 /** Every state, code and bot token the tests saw, for the leak scan. */
 const handled: string[] = [];
 
-function appWith(enabled: boolean) {
+function appWith(
+  enabled: boolean,
+  withTokens: (
+    tokens: ReturnType<typeof createSlackConfigTokens>,
+  ) => ReturnType<typeof createSlackConfigTokens> = (tokens) => tokens,
+) {
   const authorization = createAuthorizationPolicy({ agents: agentAuthority });
   const logger = new StructuredLogger({ sinks: [logs], level: "debug" });
   const app = createApiApp({
@@ -160,10 +165,12 @@ function appWith(enabled: boolean) {
           apps: enabled ? apps.store : null,
           states: enabled ? installs.store : null,
           secrets: enabled ? secrets.store : null,
-          tokens: createSlackConfigTokens({
-            store: tokenStore.store,
-            api: slack.api,
-          }),
+          tokens: withTokens(
+            createSlackConfigTokens({
+              store: tokenStore.store,
+              api: slack.api,
+            }),
+          ),
           identities: identities.store,
           api: slack.api,
           finalize: async (installed) => {
@@ -432,6 +439,28 @@ describe("starting an install", () => {
     handled.push(url.searchParams.get("state") ?? "");
     expect(url.searchParams.get("client_id")).toBe("9000.cb");
     expect(slack.state.calls.length).toBe(before);
+  });
+
+  test("a token that changed hands after it was described is not used for the check", async () => {
+    await setup;
+    const swapped = appWith(true, (tokens) => ({
+      ...tokens,
+      withToken: (workspaceId, use) =>
+        tokens.withToken(workspaceId, (token) => use(token, "U0OTHER")),
+    }));
+    const before = slack.state.calls.length;
+    const response = await swapped(startPath(GONE_AGENT), { cookie: owner() });
+    expect([response.status, response.json?.error?.code]).toEqual([
+      200,
+      undefined,
+    ]);
+    const url = new URL(
+      startSlackInstallResponseSchema.parse(response.json).authorize_url,
+    );
+    handled.push(url.searchParams.get("state") ?? "");
+    expect(slack.state.calls.slice(before).map((c) => c.method)).not.toContain(
+      "apps.manifest.export",
+    );
   });
 
   test("an answer that does not say the app is gone still makes the link", async () => {

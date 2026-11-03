@@ -250,13 +250,15 @@ export function createSlackInstallService(deps: {
   async function slackLacksApp(
     tokens: SlackConfigTokens,
     workspaceId: string,
-    appId: string,
+    app: { appId: string; maker: string },
   ): Promise<boolean> {
     try {
-      await tokens.withToken(workspaceId, (token) =>
-        api.exportApp(token, appId),
-      );
-      return false;
+      // The token in hand, not the one described before, must be the maker's.
+      return await tokens.withToken(workspaceId, async (token, issuer) => {
+        if (issuer !== app.maker) return false;
+        await api.exportApp(token, app.appId);
+        return false;
+      });
     } catch (error) {
       return (
         error instanceof SlackApiError &&
@@ -300,7 +302,10 @@ export function createSlackInstallService(deps: {
       if (
         app.createdByTokenUser !== null &&
         app.createdByTokenUser === issuer?.userId &&
-        (await slackLacksApp(tokens, workspaceId, app.appId))
+        (await slackLacksApp(tokens, workspaceId, {
+          appId: app.appId,
+          maker: app.createdByTokenUser,
+        }))
       ) {
         throw appGone(app);
       }
