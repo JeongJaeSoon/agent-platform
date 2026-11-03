@@ -282,6 +282,8 @@ export const profilesKo = {
     "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구만 다룹니다. MCP 도구는 에이전트의 MCP 설정이 정합니다.",
   "profiles.tools.unlimited":
     "아무것도 체크하지 않으면 제한 없음입니다. 다만 플랫폼이 지원하는 내장 도구 카탈로그({catalog}) 안에서입니다.",
+  "profiles.tools.unlimitedBase":
+    "아무것도 더 체크하지 않으면 바탕 프로필 {base}가 막지 않은 도구를 모두 씁니다. 그 범위는 플랫폼이 지원하는 내장 도구 카탈로그 안입니다.",
   "profiles.tools.providerNote":
     "provider 쪽 도구는 모델 공급자 쪽에서 돌아 외부 접속 proxy가 막지 못합니다. 첫 버전은 이 도구를 차단한 채 시작합니다.",
   "profiles.tools.boundary.local": "worker 안",
@@ -615,6 +617,8 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "A ticked tool does not run in this profile's sessions. Only built-in tools are listed here; an agent's MCP settings decide its MCP tools.",
   "profiles.tools.unlimited":
     "With nothing ticked there is no limit, within the built-in tool catalog the platform supports ({catalog}).",
+  "profiles.tools.unlimitedBase":
+    "With nothing more ticked it runs every tool the base profile {base} does not block, within the built-in tool catalog the platform supports.",
   "profiles.tools.providerNote":
     "Provider-side tools run at the model provider, where the egress proxy cannot stop them. A first version starts with them blocked.",
   "profiles.tools.boundary.local": "In worker",
@@ -956,6 +960,8 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "チェックしたツールはこのプロファイルのセッションで動きません。扱うのは組み込みツールだけです。MCP ツールはエージェントの MCP 設定が決めます。",
   "profiles.tools.unlimited":
     "何もチェックしなければ制限なしです。ただし、プラットフォームがサポートする組み込みツールのカタログ（{catalog}）の範囲内です。",
+  "profiles.tools.unlimitedBase":
+    "これ以上チェックしなければ、ベースのプロファイル {base} がブロックしていないツールをすべて使います。その範囲はプラットフォームがサポートする組み込みツールのカタログ内です。",
   "profiles.tools.providerNote":
     "provider 側のツールはモデル提供元で動くため、外部接続 proxy では止められません。最初のバージョンはこれらをブロックした状態で始まります。",
   "profiles.tools.boundary.local": "worker 内",

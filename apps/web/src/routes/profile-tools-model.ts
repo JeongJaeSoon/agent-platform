@@ -17,6 +17,7 @@ import { WORKSPACE_PROFILE_POLICY } from "@werft-ai/core/forms";
  * lists, what starts blocked, and what the previous version never had.
  */
 export type ToolChoiceModel = {
+  /** A workspace form's is its base's tools, under the base's id. */
   readonly catalog: ToolCatalogView;
   /** Null where the options are not readable: a workspace form. */
   readonly boundaries: ReadonlyMap<string, ToolBoundaryValue> | null;
@@ -140,9 +141,9 @@ export function ceilingTools(
 }
 
 /**
- * A base's tools as a catalog: what it runs and what it blocks. A workspace
- * form cannot read the options, so the boundaries stay unknown; the
- * derivation reads names only.
+ * A base's tools as a catalog under the base's id: what it runs and what it
+ * blocks. A workspace form cannot read the options, so the boundaries stay
+ * unknown; the derivation reads names only.
  */
 function baseCatalog(base: ProfileSummary): ToolCatalogView | null {
   if (base.deny == null) return null;

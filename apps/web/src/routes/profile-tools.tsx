@@ -110,7 +110,9 @@ export function DenyChecklist({
         </FieldLegend>
         <FieldDescription>{t("profiles.tools.hint")}</FieldDescription>
         <FieldDescription>
-          {t("profiles.tools.unlimited", { catalog: model.catalog.id })}
+          {model.boundaries === null
+            ? t("profiles.tools.unlimitedBase", { base: model.catalog.id })
+            : t("profiles.tools.unlimited", { catalog: model.catalog.id })}
         </FieldDescription>
         {hasProvider ? (
           <FieldDescription className="nth-last-2:mt-0">

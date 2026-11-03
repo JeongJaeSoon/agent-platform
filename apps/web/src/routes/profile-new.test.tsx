@@ -146,6 +146,11 @@ describe("프로필 만들기 (워크스페이스)", () => {
     ).toHaveLength(3);
     // No options here: an admin could not read them, so no boundary badges.
     expect(tools.querySelectorAll("[data-slot=badge]")).toHaveLength(0);
+    // Its bound is the base, not a catalog it cannot name.
+    expect(
+      within(tools).getByText(/^아무것도 더 체크하지 않으면 바탕 프로필 \S+가/),
+    ).toBeTruthy();
+    expect(within(tools).queryByText(/카탈로그\(/) === null).toBe(true);
     const mode = screen.getByLabelText("권한 모드") as HTMLSelectElement;
     expect(
       [...mode.options].map((option) => [option.value, option.disabled]),
