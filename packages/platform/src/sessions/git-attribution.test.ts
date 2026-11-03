@@ -7,6 +7,7 @@ import {
   coAuthorOf,
   PULL_REQUEST_TAIL_END_MARKER,
   PULL_REQUEST_TAIL_MARKER,
+  pullRequestTail,
   sessionUrlOf,
   withPullRequestTail,
 } from "./git-attribution.ts";
@@ -96,6 +97,153 @@ describe("the App bot a commit is written by", () => {
     expect(appBotAuthor("werft-dev", "0")).toBeNull();
     expect(appBotAuthor("werft-dev", "12a")).toBeNull();
   });
+});
+
+describe("the folded pull request tail", () => {
+  const COMMIT = "cacbb01f".padEnd(40, "0");
+  const render = (
+    overrides: Partial<Parameters<typeof pullRequestTail>[0]> = {},
+  ) =>
+    pullRequestTail({
+      sessionId: SESSION,
+      sessionUrl: `https://console.example.com/sessions/${SESSION}`,
+      commit: COMMIT,
+      pushRequestId: "p-1",
+      record: { ...LINKED, agentId: "agent-1", agentReleaseId: "sha256:f5" },
+      ...overrides,
+    });
+
+  test("folds the details and names the linked starter without a mention", () => {
+    expect(render()).toBe(
+      [
+        "---",
+        PULL_REQUEST_TAIL_MARKER,
+        `Opened in a Werft session · [session](<https://console.example.com/sessions/${SESSION}>) · commit \`cacbb01\``,
+        "",
+        "<details><summary>Details</summary>",
+        "",
+        `- Session: \`${SESSION}\``,
+        "- Agent: `agent-1`, release `sha256:f5`",
+        "- Push request: `p-1`",
+        "- Trigger: web",
+        "- Started by: GitHub account linked (octocat)",
+        "</details>",
+        "",
+        "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>",
+        PULL_REQUEST_TAIL_END_MARKER,
+      ].join("\n"),
+    );
+    expect(render()).not.toContain("@octocat");
+  });
+
+  test("names the session by id alone when asked, or without a console", () => {
+    for (const tail of [
+      render({ sessionLink: "id" }),
+      render({ sessionUrl: null }),
+    ]) {
+      expect(tail).toContain(
+        `${PULL_REQUEST_TAIL_MARKER}\nOpened in a Werft session · commit \`cacbb01\`\n`,
+      );
+      expect(tail).toContain(`- Session: \`${SESSION}\``);
+      expect(tail).not.toContain("console.example.com");
+    }
+  });
+
+  test("has a Requested by line only when given one", () => {
+    expect(render()).not.toContain("Requested by");
+    expect(render({ requestedBy: null })).not.toContain("Requested by");
+    const requested = render({ requestedBy: "octocat (Slack)" });
+    expect(requested).toContain(
+      "- Started by: GitHub account linked (octocat)\n- Requested by: octocat (Slack)\n</details>",
+    );
+    // Either way it is the platform's tail, replaced on the next write.
+    for (const tail of [render(), requested]) {
+      expect(
+        withPullRequestTail(`Intro\n\n${tail}`, render({ commit: "b" })),
+      ).toBe(`Intro\n\n${render({ commit: "b" })}`);
+    }
+  });
+
+  test("an unlinked or keyless starter gets no Co-authored-by", () => {
+    const unlinked = render({
+      record: record({ userId: "user-1", github: null }),
+    });
+    expect(unlinked).toContain(
+      "- Started by: GitHub account not linked (App only)\n</details>\n<!--",
+    );
+    const keyless = render({ record: record(null, "agent_key") });
+    expect(keyless).toContain("- Started by: none (App only)");
+    for (const tail of [unlinked, keyless]) {
+      expect(tail).not.toContain("Co-authored-by");
+      expect(withPullRequestTail(tail, render())).toBe(render());
+    }
+  });
+
+  test("a body ending inside an unclosed HTML comment gets it closed, so the tail shows", () => {
+    for (const body of [
+      "Summary\n\n<!-- reviewer notes, unfinished",
+      "Summary\n<!--\nnotes\n\nmore notes",
+      "Summary <!-- a --> then <!-- b",
+    ]) {
+      const once = withPullRequestTail(body, render());
+      expect(once).toBe(`${body}\n-->\n\n${render()}`);
+      const newer = render({ commit: "b" });
+      expect(withPullRequestTail(once, newer)).toBe(`${body}\n-->\n\n${newer}`);
+    }
+    // Closed on the same or a later line, a comment leaves nothing open.
+    for (const body of ["<!-- note -->", "<!--\nnote\n-->", "`<!--` is how"]) {
+      expect(withPullRequestTail(body, render())).toBe(
+        `${body}\n\n${render()}`,
+      );
+    }
+  });
+
+  test("a tail inside a person's HTML comment is hidden text, not the tail", () => {
+    const hidden = `<!--\n${render({ commit: "old" })}\n-->`;
+    expect(withPullRequestTail(hidden, render())).toBe(
+      `${hidden}\n\n${render()}`,
+    );
+  });
+
+  test("an old-shape tail is replaced by exactly one folded tail", () => {
+    const old = [
+      "---",
+      PULL_REQUEST_TAIL_MARKER,
+      `Opened by Werft from session \`${SESSION}\`, commit \`${"a".repeat(40)}\`.`,
+      "",
+      `- Session: https://console.example.com/sessions/${SESSION}`,
+      "- Agent: `agent-1`, release `sha256:f5`",
+      "- Push request: `p-1`",
+      "- Trigger: web",
+      "- Started by: GitHub account linked (@octocat)",
+      "",
+      "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>",
+      PULL_REQUEST_TAIL_END_MARKER,
+    ].join("\n");
+    const once = withPullRequestTail(`Summary\n\n${old}\n\nAfter`, render());
+    expect(once).toBe(`Summary\n\n${render()}\n\nAfter`);
+    expect(once.split(PULL_REQUEST_TAIL_MARKER)).toHaveLength(2);
+    expect(withPullRequestTail(once, render())).toBe(once);
+  });
+
+  test("a folded tail a person edited is theirs, kept whole", () => {
+    const tail = render();
+    for (const edited of [
+      tail.replace("</details>", "- Reviewed: yes\n</details>"),
+      tail.replace("Details</summary>", "More</summary>"),
+      tail.replace("(octocat)", "(@octocat)"),
+      tail.replace(
+        "Co-authored-by: octocat <583231+",
+        "Co-authored-by: pair <583231+",
+      ),
+      tail.replace("\n\nCo-authored-by", "\nCo-authored-by"),
+    ]) {
+      expect(edited).not.toBe(tail);
+      expect(withPullRequestTail(edited, tail)).toBe(`${edited}\n\n${tail}`);
+    }
+  });
+
+  test.todo("keeps the push request marker beside the folded tail");
 });
 
 describe("replacing the pull request tail", () => {
