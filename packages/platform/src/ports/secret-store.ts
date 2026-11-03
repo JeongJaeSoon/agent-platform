@@ -1,14 +1,22 @@
 import type { SecretPurpose, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
+import {
+  STORED_OWNER_KINDS,
+  type StoredOwnerKind,
+} from "../sessions/catalog.ts";
 
 /**
  * Who a secret belongs to: the workspace itself (the App Configuration
  * Token), one Slack app of it (that app's signing secret, client secret
- * and bot token) or its GitHub App (the private key).
+ * and bot token) or its GitHub App (the private key); or an installation
+ * settings row (a connection's, repository's or MCP server's stored
+ * credential), kept under the default workspace for the table's foreign key
+ * but never the workspace's to read or remove.
  */
 export type SecretOwner =
   | { kind: "workspace" }
-  | { kind: "slack_app" | "github_app"; id: string };
+  | { kind: "slack_app" | "github_app"; id: string }
+  | { kind: StoredOwnerKind; id: string };
 
 export type SecretSlot = {
   workspaceId: string;
@@ -20,12 +28,20 @@ export type SecretSlot = {
 export type SecretOwnerRef =
   | "workspace"
   | `slack_app:${string}`
-  | `github_app:${string}`;
+  | `github_app:${string}`
+  | `${StoredOwnerKind}:${string}`;
+
+export function isSettingsSecretOwner(
+  owner: SecretOwner,
+): owner is { kind: StoredOwnerKind; id: string } {
+  return (STORED_OWNER_KINDS as readonly string[]).includes(owner.kind);
+}
 
 export function secretOwnerRef(owner: SecretOwner): SecretOwnerRef {
-  return owner.kind === "workspace"
-    ? "workspace"
-    : `${owner.kind}:${owner.id.toLowerCase()}`;
+  if (owner.kind === "workspace") return "workspace";
+  // Exactly as a definition's `stored` reference names it.
+  if (isSettingsSecretOwner(owner)) return `${owner.kind}:${owner.id}`;
+  return `${owner.kind}:${owner.id.toLowerCase()}`;
 }
 
 /** Everything about a stored secret except its value. */

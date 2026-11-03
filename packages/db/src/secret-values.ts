@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  isSettingsSecretOwner,
   lastFour,
   openSecret,
   type PutSecretResult,
@@ -153,6 +154,35 @@ function openRow(key: SecretKey, row: Row): string {
   });
 }
 
+export async function openSecretsOf(
+  db: Database,
+  key: SecretKey,
+  workspaceId: string,
+  purpose: SecretSlot["purpose"],
+  ownerRefs: readonly SecretOwnerRef[],
+): Promise<Map<string, string>> {
+  if (ownerRefs.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(secretValues)
+    .where(
+      and(
+        eq(secretValues.workspaceId, workspaceId.toLowerCase()),
+        eq(secretValues.purpose, purpose),
+        inArray(secretValues.ownerRef, [...ownerRefs]),
+      ),
+    );
+  // A value that does not open (sealed under another key) is left out alone:
+  // its owner reads as unset, and the rest still open.
+  const opened = new Map<string, string>();
+  for (const row of rows) {
+    try {
+      opened.set(row.ownerRef, openRow(key, row));
+    } catch {}
+  }
+  return opened;
+}
+
 /**
  * Seals `value` into the slot inside the caller's transaction, so a store
  * that keeps more than the secret (a Slack app's row, the config token's
@@ -228,7 +258,7 @@ export async function describeSecrets(
         eq(secretValues.workspaceId, workspaceId.toLowerCase()),
         inArray(
           secretValues.ownerRef,
-          owners.map((owner) => secretOwnerRef(owner)),
+          owners.map((owner) => secretOwnerRef(workspaceOwner(owner))),
         ),
       ),
     );
@@ -285,23 +315,40 @@ async function write(
   }
 }
 
+// Checked at runtime too: a slot built from request data must not reach an
+// installation setting's credential through a workspace route.
+function workspaceOwner(owner: SecretOwner): SecretOwner {
+  if (isSettingsSecretOwner(owner)) {
+    throw new Error(
+      `secret owner ${owner.kind} belongs to the installation's settings, not a workspace`,
+    );
+  }
+  return owner;
+}
+
+const workspaceSlot = (slot: SecretSlot): SecretSlot => {
+  workspaceOwner(slot.owner);
+  return canonical(slot);
+};
+
+/** A workspace's own slots only: an installation settings owner is refused. */
 export function createPostgresSecretStore(
   db: Database,
   key: SecretKey,
 ): SecretStore {
   return {
-    describe: (slot) => describeSecret(db, slot),
+    describe: async (slot) => describeSecret(db, workspaceSlot(slot)),
 
     async get(slot) {
       const [row] = await db
         .select()
         .from(secretValues)
-        .where(bySlot(canonical(slot)));
+        .where(bySlot(workspaceSlot(slot)));
       return row ? openRow(key, row) : null;
     },
 
-    put(named, value, options) {
-      const slot = canonical(named);
+    async put(named, value, options) {
+      const slot = workspaceSlot(named);
       return db.transaction(async (tx): Promise<PutSecretResult> => {
         const audit = options?.audit;
         if (audit) {
@@ -340,8 +387,8 @@ export function createPostgresSecretStore(
       });
     },
 
-    delete(named, options) {
-      const slot = canonical(named);
+    async delete(named, options) {
+      const slot = workspaceSlot(named);
       return db.transaction(async (tx) => {
         const audit = options?.audit;
         if (audit) {

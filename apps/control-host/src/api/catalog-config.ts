@@ -12,6 +12,7 @@ import {
   type CatalogProfile,
   type CatalogProfileConfig,
   type CatalogProfileView,
+  type CatalogRepositoryStore,
   type Connections,
   type CredentialRef,
   catalogConnectionsSchema,
@@ -19,9 +20,9 @@ import {
   catalogRepositoryIds,
   catalogRows,
   createProfileRegistry,
-  credentialRefOf,
   describeConfigError,
   type InstallationProfileStore,
+  type InstallationSettingsStore,
   installationProfileSnapshot,
   ProfileFeatureGate,
   profileCatalog,
@@ -35,7 +36,9 @@ import {
   type SnapshotSources,
   sessionCatalogConfigSchema,
   sessionCatalogView,
+  settingsView,
   type WorkspaceProfileStore,
+  withConsoleRepositories,
   workerImageRuntimesFromEnv,
 } from "@werft-ai/platform";
 import { installedDescriptors } from "@werft-ai/runtime-codecs";
@@ -295,28 +298,35 @@ export async function loadProfileSources(options: {
     }
     if (value) secrets.set(ref.secret_id, value);
   }
-  const lookup = (ref: CredentialRef) =>
+  const fileLookup = (ref: CredentialRef) =>
     "value_env" in ref
       ? options.env[ref.value_env]
-      : secrets.get(ref.secret_id);
+      : "secret_id" in ref
+        ? secrets.get(ref.secret_id)
+        : undefined;
   // Every connection's credential resolves before the API starts, as every
   // profile's did when profiles carried them.
   for (const { path, ref } of catalogCredentialRefs(
     { profiles: {}, repositories: {} },
     connections,
   )) {
-    resolveCredential(path, ref, lookup);
+    resolveCredential(path, ref, fileLookup);
   }
-  const resolved = resolveSessionCatalog({ ...config, profiles: {} }, lookup);
+  const resolved = resolveSessionCatalog(
+    { ...config, profiles: {} },
+    fileLookup,
+  );
   const sources: SnapshotSources<CatalogProfile> = {
     connections,
     repositoryIdsOf: catalogRepositoryIds(config.repositories),
     allowUnattended: unattendedAllowed(options.env),
     runtimeSupported: runtimeServes,
-    materialize: (id, definition) => {
+    materialize: (id, definition, settings) => {
       const profile = resolveSessionCatalog(
         { profiles: { [id]: definition }, repositories: {} },
-        lookup,
+        settings === undefined
+          ? fileLookup
+          : (ref) => settings(ref) ?? fileLookup(ref),
       ).profiles[id];
       if (!profile) throw new Error(`profile ${id} did not resolve`);
       return profile;
@@ -356,14 +366,21 @@ export async function databaseCatalog(options: {
   dir: string;
   installations: Pick<InstallationProfileStore, "listAll">;
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
+  repositories: Pick<CatalogRepositoryStore, "readCatalog">;
+  settings: Pick<InstallationSettingsStore, "read">;
   credential: () => string;
   env: Record<string, string | undefined>;
 }): Promise<SessionCatalog> {
   const runtimeVersions = runtimeVersionsFromEnv(options.env);
   const config = await readCatalogConfig(options.dir);
+  const { settings, credential } = options;
   const registry = createProfileRegistry({
     workspaces: options.workspaces,
     installations: options.installations,
+    repositories: options.repositories,
+    settings: {
+      read: async () => settingsView(await settings.read(), credential),
+    },
     sources: {
       connections: await readConnections(options.dir),
       repositoryIdsOf: catalogRepositoryIds(config.repositories),
@@ -380,14 +397,17 @@ export async function databaseCatalog(options: {
     },
   });
   await registry.refresh();
+  const file = resolveSessionCatalog(config, credential);
   return profileCatalog(
     {
-      ...resolveSessionCatalog(config, options.credential),
+      ...file,
       ...(runtimeVersions === undefined
         ? {}
         : { runtime_versions: runtimeVersions }),
     },
     registry,
+    (rows, read) =>
+      withConsoleRepositories(file.repositories, rows, read?.repositories),
   );
 }
 
@@ -433,13 +453,15 @@ export async function loadSecretKey(options: {
     throw new Error(`${path} is invalid: ${describeConfigError(parsed.error)}`);
   }
   const at = "platform.secret_key";
-  const ref = credentialRefOf(parsed.data.secret_key);
+  const { value_env, secret_id } = parsed.data.secret_key;
+  const ref: CredentialRef =
+    value_env !== undefined ? { value_env } : { secret_id: secret_id ?? "" };
   let value: string | undefined;
-  if ("value_env" in ref) {
-    value = options.env[ref.value_env];
+  if (value_env !== undefined) {
+    value = options.env[value_env];
   } else {
     try {
-      value = await options.readSecret(ref.secret_id);
+      value = await options.readSecret(secret_id ?? "");
     } catch (error) {
       throw new CatalogCredentialError(
         at,
@@ -449,10 +471,7 @@ export async function loadSecretKey(options: {
     }
   }
   if (!value) throw new CatalogCredentialError(at, ref);
-  return SecretKey.fromHex(
-    value,
-    `${at} (${"value_env" in ref ? ref.value_env : ref.secret_id})`,
-  );
+  return SecretKey.fromHex(value, `${at} (${value_env ?? secret_id})`);
 }
 
 const profilesIn =

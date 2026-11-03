@@ -16,6 +16,7 @@ import type {
   InstallationProfileRecord,
   InstallationProfileStore,
 } from "../ports/installation-profile-store.ts";
+import type { InstallationSettings } from "../ports/installation-settings-store.ts";
 import {
   type CatalogProfile,
   type CatalogProfileConfig,
@@ -23,7 +24,9 @@ import {
 } from "./catalog.ts";
 import { ProfileFeatureGate } from "./feature-gate.ts";
 import { createInstallationProfileService } from "./installation-profiles.ts";
+import { settingsSnapshot } from "./installation-settings.ts";
 import {
+  type Connections,
   catalogRepositoryIds,
   catalogRows,
   createProfileRegistry,
@@ -186,25 +189,36 @@ function setup(
   options: {
     allowUnattended?: boolean;
     rows?: InstallationProfileRecord[];
+    fileConnections?: Connections;
+    settings?: InstallationSettings;
   } = {},
 ) {
   const rows = options.rows ?? catalogRows({ seed: SEED }, REPOSITORIES);
   const { store, writes, reads } = memoryStore(rows);
-  const connections = { main: MAIN };
+  const connections = options.fileConnections ?? { main: MAIN };
+  const { settings } = options;
   const catalog = profileCatalog(
     { repositories: REPOSITORIES },
     createProfileRegistry({
       workspaces: { listAll: async () => [] },
       installations: store,
+      ...(settings === undefined
+        ? {}
+        : {
+            settings: {
+              read: async () =>
+                settingsSnapshot(settings, () => "a-settings-key"),
+            },
+          }),
       sources: {
         connections,
         repositoryIdsOf: catalogRepositoryIds(REPOSITORIES),
         allowUnattended: options.allowUnattended ?? false,
         runtimeSupported: () => true,
-        materialize: (id, definition) => {
+        materialize: (id, definition, lookup) => {
           const profile = resolveSessionCatalog(
             { profiles: { [id]: definition }, repositories: {} },
-            () => "a-provider-key",
+            (ref) => lookup?.(ref) ?? "a-provider-key",
           ).profiles[id];
           if (!profile) throw new Error(`no ${id}`);
           return profile as CatalogProfile;
@@ -220,7 +234,7 @@ function setup(
     authorization,
     store,
     catalog,
-    connections,
+    connections: () => catalog.workspace_profiles.connections,
     allowUnattended: options.allowUnattended ?? false,
     runtimes: new ProfileFeatureGate(installedDescriptors),
     newId: () => "019a0000-0000-7000-8000-0000000000e1",
@@ -569,6 +583,62 @@ describe("blocking an installation ceiling", () => {
       code: "BAD_REQUEST",
       reason: "blocked",
     });
+  });
+});
+
+describe("connections the installation settings hold", () => {
+  const STORED: CatalogProfileConfig["provider"] = {
+    kind: "anthropic",
+    endpoint: "https://db.anthropic.invalid",
+    auth: { kind: "api_key", stored: "connection:console_main" },
+  };
+  const SETTINGS: InstallationSettings = {
+    generation: 3,
+    connections: [{ id: "console_main", provider: STORED }],
+    repositories: [],
+    mcpServers: [],
+    stored: new Map([["connection:console_main", "a-stored-provider-key"]]),
+    invalid: [],
+  };
+
+  test("are options and run a ceiling with no connections.yaml entry", async () => {
+    const { service, catalog } = setup({
+      fileConnections: {},
+      settings: SETTINGS,
+    });
+    await catalog.workspace_profiles.refresh();
+    const options = await service.options(caller("owner"));
+    expect(options.connections).toEqual([
+      { id: "console_main", kind: "anthropic", billing: "metered" },
+    ]);
+    const saved = await service.create(caller("owner"), {
+      ...REQUEST,
+      connection_id: "console_main",
+    });
+    expect(saved.profile.installation).toMatchObject({
+      state: "usable",
+      connection_id: "console_main",
+    });
+    expect(catalog.profiles.op_coding_v1?.provider).toMatchObject({
+      endpoint: "https://db.anthropic.invalid",
+      auth: { value: "a-stored-provider-key" },
+    });
+    expect(JSON.stringify(options)).not.toContain("a-stored-provider-key");
+  });
+
+  test("the file keeps an id both hold", async () => {
+    const { service, catalog } = setup({
+      settings: {
+        ...SETTINGS,
+        connections: [{ id: "main", provider: STORED }],
+        stored: new Map([["connection:main", "a-stored-provider-key"]]),
+      },
+    });
+    await catalog.workspace_profiles.refresh();
+    expect(catalog.workspace_profiles.connections.main).toEqual(MAIN);
+    expect((await service.options(caller("owner"))).connections).toEqual([
+      { id: "main", kind: "anthropic", billing: "metered" },
+    ]);
   });
 });
 
