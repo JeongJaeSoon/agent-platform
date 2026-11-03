@@ -100,10 +100,7 @@ export async function releaseSuperseded(
   return row !== undefined;
 }
 
-export function agentOf(
-  row: AgentRow,
-  managingTeamName: string | null,
-): Agent {
+export function agentOf(row: AgentRow, managingTeamName: string | null): Agent {
   return {
     id: row.id,
     workspace_id: row.workspaceId,

@@ -247,10 +247,13 @@ function ReasonButton({
 export function AgentPage({
   detail,
   tab,
+  notice,
   children,
 }: {
   readonly detail: DetailFixture;
   readonly tab: AgentTab;
+  /** Above the tabs, as the read-only notice is. */
+  readonly notice?: ReactNode;
   readonly children: ReactNode;
 }) {
   const { agent } = detail;
@@ -303,6 +306,7 @@ export function AgentPage({
         </div>
       }
     >
+      {notice}
       <Tabs value={tab} className="min-w-0 gap-[var(--ap-space-block)]">
         <div className="border-b">
           <TabsList variant="line" aria-label="에이전트 상세">
@@ -806,7 +810,14 @@ function Value({
 }
 
 /** overview.tsx CardSummary: the card in words, and as sent. */
-export function CardSummary({ detail }: { readonly detail: DetailFixture }) {
+export function CardSummary({
+  detail,
+  manages = true,
+}: {
+  readonly detail: DetailFixture;
+  /** False for a managing team member, who reads the settings only. */
+  readonly manages?: boolean;
+}) {
   const version = activeVersion(detail) ?? latestVersion(detail);
   const card = version?.card;
   const live =
@@ -841,9 +852,11 @@ export function CardSummary({ detail }: { readonly detail: DetailFixture }) {
                 v{version.version_no}
               </Badge>
             ) : null}
-            <Button type="button" variant="outline" size="sm">
-              상세 설정 편집
-            </Button>
+            {manages ? (
+              <Button type="button" variant="outline" size="sm">
+                상세 설정 편집
+              </Button>
+            ) : null}
           </div>
         </div>
         {card ? (

@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  EmptyState,
   Heading,
   RowList,
   SideNav,
@@ -8,6 +9,7 @@ import {
   SideNavLink,
 } from "@werft-ai/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useManagesAgent } from "../../components/agent-access.tsx";
 import { useI18n } from "../../i18n/i18n.tsx";
 import { SlackDmSetting, SlackMentionOnly } from "./slack/basic.tsx";
 import { SlackChannels } from "./slack/channels.tsx";
@@ -70,12 +72,14 @@ export default function SlackTab({
     installed &&
     bindings.data !== undefined &&
     !bindings.data.items.some((binding) => binding.home);
-  // The danger zone exists only while there is an app to revoke or delete.
+  const manages = useManagesAgent();
+  // The danger zone exists only while there is an app to revoke or delete;
+  // the app's own sections only for whoever changes it.
   const keys: readonly SectionKey[] = [
     "channels",
     ...(homeStep ? [] : (["basic"] as const)),
-    "advanced",
-    ...(app.data?.slack_app ? (["danger"] as const) : []),
+    ...(manages ? (["advanced"] as const) : []),
+    ...(manages && app.data?.slack_app ? (["danger"] as const) : []),
   ];
   const [current, setCurrent] = useCurrentSection(
     keys.map((key) => SECTION[key]),
@@ -100,6 +104,10 @@ export default function SlackTab({
     if (installed) setWasConnected(true);
   }, [installed]);
   if (!installed && !wasConnected) {
+    if (!manages)
+      return identities.isPending ? null : (
+        <EmptyState title={t("slack.notConnectedReadOnly")} />
+      );
     return (
       <div className="flex flex-col gap-8">
         <SlackConnect agentId={agentId} active={active} />
@@ -151,10 +159,12 @@ export default function SlackTab({
               {link("channels")}
               {homeStep ? null : link("basic")}
             </SideNavGroup>
-            <SideNavGroup label={t("slack.manage")}>
-              {link("advanced")}
-              {keys.includes("danger") ? link("danger") : null}
-            </SideNavGroup>
+            {manages ? (
+              <SideNavGroup label={t("slack.manage")}>
+                {link("advanced")}
+                {keys.includes("danger") ? link("danger") : null}
+              </SideNavGroup>
+            ) : null}
           </SideNav>
         }
       >
@@ -165,7 +175,7 @@ export default function SlackTab({
             invite={`/invite @${slug}`}
             notify={notify}
             homeStep={homeStep}
-            locked={unverified}
+            locked={unverified && manages}
           />
           {homeStep ? null : (
             <section
@@ -183,12 +193,14 @@ export default function SlackTab({
               </RowList>
             </section>
           )}
-          <SlackConnect
-            agentId={agentId}
-            active={active}
-            inPage
-            notify={notify}
-          />
+          {manages ? (
+            <SlackConnect
+              agentId={agentId}
+              active={active}
+              inPage
+              notify={notify}
+            />
+          ) : null}
         </div>
       </SideNavLayout>
       {toast}

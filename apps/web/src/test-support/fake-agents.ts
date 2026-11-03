@@ -7,6 +7,7 @@ import {
   CREDENTIAL_REVOKE_NOTICE,
   type CredentialBindingView,
   type ProfileSummary,
+  type TeamView,
 } from "@werft-ai/contracts";
 import {
   apiError,
@@ -17,6 +18,16 @@ import {
 } from "./fake-api.ts";
 
 export const AGENT_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
+export const TEAM_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
+export const TEAM: TeamView = {
+  id: TEAM_ID,
+  workspace_id: WORKSPACE_ID,
+  name: "재무",
+  member_count: 2,
+  created_by: USER_ID,
+  created_at: "2026-10-01T00:00:00.000Z",
+  revision: 1,
+};
 const VERSION_IDS = [
   "6b7c8d9e-0f1a-4b2c-9d3e-4f5a6b7c8d9e",
   "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
@@ -50,6 +61,7 @@ export function agentServer({
   const versions: AgentVersion[] = [version(1, CARD)];
   let name = "결제 담당";
   let description = initialDescription;
+  let team: TeamView | null = null;
   const releases: AgentRelease[] = [];
   const bindings: CredentialBindingView[] = [];
   let active: string | null = null;
@@ -75,8 +87,8 @@ export function agentServer({
         slug: "billing",
         name,
         description,
-        managing_team_id: null,
-        managing_team_name: null,
+        managing_team_id: team?.id ?? null,
+        managing_team_name: team?.name ?? null,
         status: "active",
         active_release_id: active,
         activation_revision: revision,
@@ -103,17 +115,56 @@ export function agentServer({
           profile("claude-coding-local", "claude-sonnet-5", repositoryMode),
         ],
       }),
+    // One team, which the signed-in user leads.
+    "GET /v1/teams": () => json(200, { items: [TEAM], next_cursor: null }),
+    [`GET /v1/teams/${TEAM_ID}`]: () =>
+      json(200, {
+        ...TEAM,
+        members: [
+          {
+            user_id: USER_ID,
+            email: "owner@example.com",
+            display_name: "Owner",
+            role: "lead",
+            added_by: USER_ID,
+            added_at: "2026-10-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    "GET /v1/my-teams": () =>
+      json(200, {
+        items: [{ id: TEAM.id, name: TEAM.name, role: "lead" }],
+        next_cursor: null,
+      }),
     // Creating the agent makes its first version from the card sent.
     "POST /v1/agents": async (request: Request) => {
       const body = (await request.json()) as {
         name: string;
         description?: string;
+        managing_team_id?: string;
         card: AgentCard;
       };
+      if (
+        body.managing_team_id !== undefined &&
+        body.managing_team_id !== TEAM.id
+      )
+        return apiError(422, "TEAM_NOT_ALLOWED", "Team not allowed");
       versions.splice(0, versions.length, version(1, body.card));
       name = body.name;
       description = body.description ?? null;
+      team = body.managing_team_id === undefined ? null : TEAM;
       return json(201, detail());
+    },
+    [`PUT ${path}/managing-team`]: async (request: Request) => {
+      const body = (await request.json()) as { team_id: string };
+      if (body.team_id !== TEAM.id)
+        return apiError(422, "TEAM_NOT_ALLOWED", "Team not allowed");
+      const changed = team === null;
+      team = TEAM;
+      return json(200, {
+        agent: detail().agent,
+        receipt_id: changed ? RECEIPT_ID : null,
+      });
     },
     [`GET ${path}`]: () => json(200, detail()),
     [`GET ${path}/admins`]: () => json(200, { users: [], teams: [] }),

@@ -21,6 +21,7 @@ import {
   Button,
   buttonVariants,
   Page,
+  Section,
   Skeleton,
   Tabs,
   TabsContent,
@@ -29,15 +30,28 @@ import {
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { agentQuery, queryKeysOf } from "../api/queries.ts";
+import {
+  agentQuery,
+  agentSummariesQuery,
+  queryKeysOf,
+} from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
+import {
+  ManagesAgentProvider,
+  useAgentAccess,
+} from "../components/agent-access.tsx";
 import { AgentAdmins } from "../components/agent-admins.tsx";
 import { AgentAvatar } from "../components/agent-cards.tsx";
 import { AgentStateBadge } from "../components/agent-state.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import {
+  ManagingTeam,
+  ManagingTeamName,
+} from "../components/managing-team.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { RevisionDiff } from "../components/revision-diff.tsx";
+import { SECTION_BODY } from "../components/section-body.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { CardEditor } from "./agent-detail/card-editor.tsx";
@@ -121,9 +135,8 @@ function AgentDetailPage({ id }: { readonly id: string }) {
 
   if (detail.isPending) return <StatusScreen kind="loading" />;
   if (detail.error) {
-    // One page for both, so a refusal does not confirm the agent exists.
-    return isApiError(detail.error, "FORBIDDEN") ||
-      isApiError(detail.error, "NOT_FOUND") ? (
+    if (isApiError(detail.error, "FORBIDDEN")) return <OutsideAgent id={id} />;
+    return isApiError(detail.error, "NOT_FOUND") ? (
       <AgentNotFound />
     ) : (
       <LoadFailure error={detail.error} onRetry={() => void detail.refetch()} />
@@ -155,6 +168,56 @@ function AgentNotFound() {
       >
         {t("agent.notFound.back")}
       </Link>
+    </Page>
+  );
+}
+
+/**
+ * A member outside the agent reads its row, not its settings (agent-rbac
+ * (b)); a row they cannot find is the same page as no agent at all.
+ */
+function OutsideAgent({ id }: { readonly id: string }) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const rows = useQuery(agentSummariesQuery(client, [id]));
+  if (rows.isPending) return <StatusScreen kind="loading" />;
+  if (rows.error)
+    return (
+      <LoadFailure error={rows.error} onRetry={() => void rows.refetch()} />
+    );
+  const agent = rows.data.items.find((item) => item.id === id);
+  if (!agent) return <AgentNotFound />;
+  return (
+    <Page
+      title={
+        <span className="flex min-w-0 items-center gap-3">
+          <AgentAvatar name={agent.name} />
+          <span className="min-w-0 [overflow-wrap:anywhere]">{agent.name}</span>
+        </span>
+      }
+      titleAside={<AgentStateBadge agent={agent} />}
+      description={
+        agent.description ? (
+          <span className="[overflow-wrap:anywhere]">{agent.description}</span>
+        ) : undefined
+      }
+      actions={
+        <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
+          <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
+          {t("agent.back")}
+        </Link>
+      }
+    >
+      <Section title={t("managingTeam.title")}>
+        <div className={SECTION_BODY}>
+          <div>
+            <ManagingTeamName agent={agent} />
+          </div>
+          <Alert>
+            <AlertDescription>{t("agent.outsider.body")}</AlertDescription>
+          </Alert>
+        </div>
+      </Section>
     </Page>
   );
 }
@@ -226,6 +289,8 @@ function AgentView({
   const [unbound, setUnbound] = useState<readonly string[] | null>(null);
   const credentialsTitle = useRef<HTMLHeadingElement>(null);
   const { agent } = detail;
+  const access = useAgentAccess(agent);
+  const manages = access === "manage";
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
   const releaseLabel = (releaseId: string | null) => {
@@ -359,7 +424,7 @@ function AgentView({
       </TabsContent>
       <TabsContent {...tabPanel("card")}>
         {/* The panel stays mounted, so an open editor keeps its input across tabs. */}
-        {editing ? (
+        {editing && manages ? (
           <CardEditor
             detail={detail}
             result={<PlacedOutcome placed={placed} at="card" />}
@@ -375,15 +440,17 @@ function AgentView({
             <CardSummary
               detail={detail}
               edit={
-                <Button
-                  ref={editButton}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(true)}
-                >
-                  {t("agent.card.edit")}
-                </Button>
+                manages ? (
+                  <Button
+                    ref={editButton}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditing(true)}
+                  >
+                    {t("agent.card.edit")}
+                  </Button>
+                ) : null
               }
             />
             {placed?.at === "card" ? (
@@ -495,6 +562,11 @@ function AgentView({
         />
       </TabsContent>
       <TabsContent {...tabPanel("admins")}>
+        <ManagingTeam
+          agent={agent}
+          manages={manages}
+          onOutcome={outcomeAt("admins")}
+        />
         <AgentAdmins agentId={agent.id} onOutcome={outcomeAt("admins")} />
         <PlacedOutcome placed={placed} at="admins" />
       </TabsContent>
@@ -567,7 +639,12 @@ function AgentView({
       }
     >
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
-      {body}
+      {access === "read" ? (
+        <Alert>
+          <AlertDescription>{t("agent.readOnly")}</AlertDescription>
+        </Alert>
+      ) : null}
+      <ManagesAgentProvider value={manages}>{body}</ManagesAgentProvider>
     </Page>
   );
 }

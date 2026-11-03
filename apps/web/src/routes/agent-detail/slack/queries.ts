@@ -87,9 +87,15 @@ export function useSlackSettings(agentId: string) {
   });
 }
 
-export function useSlackChannels(agentId: string, query: string) {
+export function useSlackChannels(
+  agentId: string,
+  query: string,
+  /** Searching Slack is for whoever connects channels. */
+  enabled = true,
+) {
   const { client } = useAgentPlatform();
   return useInfiniteQuery({
+    enabled,
     queryKey: [...slackKey(client, agentId), "channels", query],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>

@@ -38,6 +38,7 @@ import {
 import { type ReactNode, type RefObject, useState } from "react";
 import { agentListsFilter, queryKeysOf } from "../../api/queries.ts";
 import { permissionReason, useRole } from "../../auth/guard.tsx";
+import { useManagesAgent } from "../../components/agent-access.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
@@ -88,6 +89,7 @@ export function Credentials({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
+  const manages = useManagesAgent();
   const agentId = detail.agent.id;
   // The list's summaries say which names are bound.
   const invalidateBindings = () =>
@@ -217,13 +219,17 @@ export function Credentials({
                           : t("agent.credentials.namedByCard")}
                       </Text>
                     </RowLines>
-                    <RowAction
-                      disabled={busy}
-                      aria-label={t("agent.credentials.bindFor", { name: ref })}
-                      onClick={() => bind.mutate(ref)}
-                    >
-                      {t("agent.credentials.bind")}
-                    </RowAction>
+                    {manages ? (
+                      <RowAction
+                        disabled={busy}
+                        aria-label={t("agent.credentials.bindFor", {
+                          name: ref,
+                        })}
+                        onClick={() => bind.mutate(ref)}
+                      >
+                        {t("agent.credentials.bind")}
+                      </RowAction>
+                    ) : null}
                   </RowListItem>
                 ))}
               </RowList>
@@ -258,16 +264,18 @@ export function Credentials({
                         })}
                       </Text>
                     </RowLines>
-                    <RowAction
-                      variant="danger"
-                      disabled={busy}
-                      aria-label={t("agent.credentials.revokeFor", {
-                        name: binding.credential_ref,
-                      })}
-                      onClick={() => setRevoking(binding)}
-                    >
-                      {t("agent.credentials.revoke")}
-                    </RowAction>
+                    {manages ? (
+                      <RowAction
+                        variant="danger"
+                        disabled={busy}
+                        aria-label={t("agent.credentials.revokeFor", {
+                          name: binding.credential_ref,
+                        })}
+                        onClick={() => setRevoking(binding)}
+                      >
+                        {t("agent.credentials.revoke")}
+                      </RowAction>
+                    ) : null}
                   </RowListItem>
                 ))}
               </RowList>

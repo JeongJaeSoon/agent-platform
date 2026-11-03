@@ -7,6 +7,7 @@ import {
   json,
   me,
   memberMe,
+  USER_ID,
   WORKSPACE_ID,
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
@@ -1266,6 +1267,20 @@ describe("Slack management", () => {
     renderAt(DETAIL, {
       ...routes(),
       "GET /v1/auth/me": () => json(200, memberMe()),
+      // A member who administers the agent: one who may make its app.
+      [`GET ${PATH}/admins`]: () =>
+        json(200, {
+          users: [
+            {
+              user_id: USER_ID,
+              email: "owner@example.com",
+              display_name: "Owner",
+              created_by: USER_ID,
+              created_at: "2026-10-11T00:00:00.000Z",
+            },
+          ],
+          teams: [],
+        }),
       [`GET ${PATH}/slack/app`]: () =>
         json(200, appResponse(null, [], "needs_reentry")),
     });
