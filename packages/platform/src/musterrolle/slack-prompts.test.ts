@@ -642,6 +642,25 @@ describe("slackSettledCard", () => {
     expect(settledLine(many)[1]).toBe("질문 2개에 답했어요");
   });
 
+  test("a question answered on the web names the path, who, and the labels only", () => {
+    for (const [locale, sentence, typed] of [
+      ["ko", "<@U0DECIDER>님이 웹에서 답했어요", "직접 입력한 답"],
+      ["ja", "<@U0DECIDER>さんがWebで回答しました", "直接入力した回答"],
+      ["en", "Answered on the web by <@U0DECIDER>", "A typed answer"],
+    ] as const) {
+      const settled = slackSettledCard(
+        card(askedQuestion({ selected_option_ids: ["o1"], typed: true }), {
+          locale,
+        }),
+        "web",
+      );
+      expect(settledLine(settled).slice(0, 2)).toEqual([
+        `:speech_balloon: ${sentence}`,
+        `Which branch?: ${HOSTILE} 1, ${typed}`,
+      ]);
+    }
+  });
+
   test("a decided push names the repository, the short commit and the branch", () => {
     const decided = (state: "approved" | "pushed" | "rejected") =>
       settledLine(
