@@ -4,6 +4,7 @@ import type {
   PullRequestStore,
   PushRequestStore,
   PushWriteResult,
+  SessionOutcomeStore,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -16,6 +17,7 @@ import { Pool } from "pg";
 import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
+import { createPostgresSessionOutcomes } from "./session-outcomes.ts";
 import { pullRequests, receipts, sessionOutcomes, sessions } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
@@ -41,6 +43,7 @@ integration("postgres pull requests", () => {
   let db: NodePgDatabase<typeof schema>;
   let pushes: PushRequestStore;
   let store: PullRequestStore;
+  let outcomes: SessionOutcomeStore;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "pull_requests_it" });
@@ -48,6 +51,7 @@ integration("postgres pull requests", () => {
     db = drizzle(pool, { schema });
     pushes = createPostgresPushRequests(db);
     store = createPostgresPullRequests(db);
+    outcomes = createPostgresSessionOutcomes(db);
   });
 
   afterAll(async () => {
@@ -390,53 +394,105 @@ integration("postgres pull requests", () => {
     expect(await outcomesOf(source.sessionId)).toEqual([]);
   });
 
-  test("a reopen of a pull request closed long ago makes its outcome due again, with its receipt", async () => {
-    const source = await pushed();
-    await save(source, 43);
-    const url = "https://github.com/acme/app/pull/43";
-    const longAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
-    await db
-      .update(sessionOutcomes)
-      .set({ state: "closed", closedAt: longAgo, stateCheckedAt: longAgo })
-      .where(eq(sessionOutcomes.sessionId, source.sessionId));
-    const id = await store.recordStateChange({
-      ownerId: OWNER,
-      sessionId: source.sessionId,
-      pushRequestId: source.pushRequestId,
-      actor: HUMAN,
-      operation: "reopen_pull_request",
-      url,
-      result: {
-        push_request_id: source.pushRequestId,
-        verdict: "allow",
-        refusal: null,
-        repository_id: "app",
-        number: 43,
+  describe("a close or reopen GitHub took", () => {
+    const changeState = (
+      source: { sessionId: string; pushRequestId: string },
+      number: number,
+      state: "open" | "closed",
+    ) => {
+      const url = `https://github.com/acme/app/pull/${number}`;
+      return store.recordStateChange({
+        ownerId: OWNER,
+        sessionId: source.sessionId,
+        pushRequestId: source.pushRequestId,
+        actor: HUMAN,
+        operation:
+          state === "open" ? "reopen_pull_request" : "close_pull_request",
         url,
-        head: `agent/${source.sessionId}`,
-        base: "main",
-        created: false,
-        state: "open",
-        changed: true,
-      },
+        result: {
+          push_request_id: source.pushRequestId,
+          verdict: "allow",
+          refusal: null,
+          repository_id: "app",
+          number,
+          url,
+          head: `agent/${source.sessionId}`,
+          base: "main",
+          created: false,
+          state,
+          changed: true,
+        },
+      });
+    };
+    const claimOf = async (sessionId: string) =>
+      (
+        await outcomes.claim({
+          quotaKey: `quota-${crypto.randomUUID()}`,
+          repositoryIds: ["app"],
+          max: 100,
+          leaseMs: 60_000,
+        })
+      ).filter((claimed) => claimed.sessionId === sessionId);
+    const read = (state: "open" | "closed") =>
+      ({
+        kind: "state",
+        state,
+        mergedAt: null,
+        closedAt: state === "closed" ? new Date() : null,
+        metadata: {
+          title: "Retry failed payments",
+          merge_commit_sha: null,
+          additions: null,
+          deletions: null,
+          changed_files: null,
+          commits: null,
+        },
+      }) as const;
+
+    test("a reopen of one closed over 30 days ago is read again, and the read moves it to open", async () => {
+      const source = await pushed();
+      await save(source, 43);
+      const longAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+      await db
+        .update(sessionOutcomes)
+        .set({ state: "closed", closedAt: longAgo, stateCheckedAt: longAgo })
+        .where(eq(sessionOutcomes.sessionId, source.sessionId));
+      expect(await claimOf(source.sessionId)).toEqual([]);
+
+      const id = await changeState(source, 43, "open");
+      const [receipt] = await db
+        .select()
+        .from(receipts)
+        .where(eq(receipts.id, id));
+      expect(receipt).toMatchObject({
+        operation: "reopen_pull_request",
+        status: "succeeded",
+        result: { state: "open", changed: true },
+      });
+      const [claimed] = await claimOf(source.sessionId);
+      expect(claimed).toMatchObject({ number: 43, state: "closed" });
+      if (claimed === undefined) throw new Error("not claimed");
+      expect(await outcomes.finish(claimed, read("open"))).toBe(true);
+      expect(await outcomesOf(source.sessionId)).toEqual([
+        expect.objectContaining({ state: "open", closedAt: null }),
+      ]);
     });
-    const [receipt] = await db
-      .select()
-      .from(receipts)
-      .where(eq(receipts.id, id));
-    expect(receipt).toMatchObject({
-      operation: "reopen_pull_request",
-      status: "succeeded",
-      result: { state: "open", changed: true },
+
+    test("a read that began before the change cannot write over it", async () => {
+      const source = await pushed();
+      await save(source, 44);
+      const [early] = await claimOf(source.sessionId);
+      if (early === undefined) throw new Error("not claimed");
+
+      await changeState(source, 44, "closed");
+      expect(await outcomes.finish(early, read("open"))).toBe(false);
+      const [again] = await claimOf(source.sessionId);
+      if (again === undefined) throw new Error("not claimed again");
+      expect(await outcomes.finish(again, read("closed"))).toBe(true);
+      expect(await outcomesOf(source.sessionId)).toEqual([
+        expect.objectContaining({ state: "closed" }),
+      ]);
     });
-    expect(await outcomesOf(source.sessionId)).toEqual([
-      expect.objectContaining({
-        url,
-        state: "closed",
-        closedAt: null,
-        stateCheckedAt: null,
-      }),
-    ]);
   });
 
   test("a refusal receipt is failed with the refusal's error", async () => {

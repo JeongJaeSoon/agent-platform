@@ -258,10 +258,16 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
     recordStateChange({ url, ...input }) {
       return db.transaction(async (tx) => {
         const receiptId = await insertReceipt(tx, input);
-        // closed_at too: the refresher skips one closed over 30 days ago.
+        // closed_at too: the refresher skips one closed over 30 days ago. The
+        // lease too: a read that began before this change must not finish.
         await tx
           .update(sessionOutcomes)
-          .set({ stateCheckedAt: null, closedAt: null })
+          .set({
+            stateCheckedAt: null,
+            closedAt: null,
+            leaseToken: null,
+            leaseExpiresAt: null,
+          })
           .where(
             and(
               eq(sessionOutcomes.sessionId, input.sessionId),
