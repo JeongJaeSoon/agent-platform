@@ -515,7 +515,13 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
   const settings = draft ?? base;
   const readOnly = !data.enabled || data.unsavable !== null || base === null;
   const pending = base && draft ? pendingCount(base, draft) : 0;
-  const noRepository = draft !== undefined && draft.repositories.length === 0;
+  // github.tsx firstSave: the defaults alone are worth a save.
+  const firstSave = !readOnly && data.github === null;
+  const noRepository =
+    (draft !== undefined || firstSave) && settings?.repositories.length === 0;
+  const pendingTitle = firstSave
+    ? "GitHub 설정을 아직 저장하지 않았습니다"
+    : `릴리스에 넣지 않은 변경 ${pending}건`;
   const version = RELEASED.versions.find(
     (v) => v.id === RELEASE.version_id,
   )?.version_no;
@@ -555,13 +561,9 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
           </RowListItem>
         </RowList>
       </section>
-      {pending > 0 ? (
-        <Alert
-          variant="blue"
-          role="region"
-          aria-label={`릴리스에 넣지 않은 변경 ${pending}건`}
-        >
-          <AlertTitle>릴리스에 넣지 않은 변경 {pending}건</AlertTitle>
+      {pending > 0 || firstSave ? (
+        <Alert variant="blue" role="region" aria-label={pendingTitle}>
+          <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
             저장하면 지금 카드 버전 v{version}과 실행 프로필{" "}
             {RELEASE.runtime_profile_id}로 새 릴리스를 만들고 활성화합니다. 그
@@ -579,9 +581,11 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
             <Button type="button" size="sm" disabled={noRepository}>
               새 릴리스로 저장
             </Button>
-            <Button type="button" size="sm" variant="ghost">
-              되돌리기
-            </Button>
+            {draft !== undefined ? (
+              <Button type="button" size="sm" variant="ghost">
+                되돌리기
+              </Button>
+            ) : null}
           </AlertActions>
         </Alert>
       ) : null}
@@ -1106,6 +1110,17 @@ export const AgentGitHubLegacy: Story = {
         actions_allow: [],
       },
     },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      await canvas.findByRole("region", {
+        name: "GitHub 설정을 아직 저장하지 않았습니다",
+      }),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "새 릴리스로 저장" }),
+    ).toBeEnabled();
+    await expect(canvas.queryByRole("button", { name: "되돌리기" })).toBeNull();
   },
 };
 const NO_REPOSITORY_DATA: AgentGitHubResponse = {
