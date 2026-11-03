@@ -32,7 +32,7 @@ const integrationTest = testDatabaseUrl() ? test : test.skip;
 // Listed exactly, so a migration that loses, disables or rewrites one fails
 // as well; a migration that changes one on purpose updates its line here.
 const MIGRATIONS_ONLY = [
-  // 0225: a state write marks the session's Slack thread status due at commit.
+  // 0226: a state write marks the session's Slack thread status due at commit.
   "constraint pending_requests.pending_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint pending_requests.pending_requests_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint push_requests.push_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
