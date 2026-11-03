@@ -301,4 +301,61 @@ describe("markdownToSlackMrkdwn", () => {
     const odd = "\uE000 **x**";
     expect(markdownToSlackMrkdwn(odd)).toBe(odd);
   });
+
+  // Slack's own URL finder reads on to the next space, past a closing backtick.
+  describe("a code span ending in a URL keeps its closing backtick", () => {
+    const cases: [string, string, string][] = [
+      [
+        "1: letters right after the span",
+        "`origin`은 `http://egress-proxy:3129/repository/sandbox/.git`이고, 연결돼요",
+        `\`origin\`은 \`http://egress-proxy:3129/repository/sandbox/.git\`${ZW}이고, 연결돼요`,
+      ],
+      [
+        "2: a space after the span",
+        "`https://a.test/x` 를 보세요",
+        "`https://a.test/x` 를 보세요",
+      ],
+      [
+        "3: punctuation after the span",
+        "`https://a.test/x`.",
+        "`https://a.test/x`.",
+      ],
+      ["4: code that is not a URL", "`gh`로 조회해요", "`gh`로 조회해요"],
+      [
+        "5: letters on both sides",
+        "앞`https://a.test`뒤",
+        `앞\`https://a.test\`${ZW}뒤`,
+      ],
+      [
+        "6: a fence closing on the URL's line",
+        "```\nhttps://a.test/x```이어서",
+        "```\nhttps://a.test/x\n```이어서",
+      ],
+      [
+        "7: a double-backtick span",
+        "``https://a.test/x``이고",
+        `\`https://a.test/x\`${ZW}이고`,
+      ],
+      [
+        "8: a table cell, drawn inside a code block",
+        "| h |\n| --- |\n| `https://a.test`이고 |",
+        "```\nh\n------------------\nhttps://a.test이고\n```",
+      ],
+      [
+        "9: a closing parenthesis after the span",
+        "(`https://a.test/x`)",
+        "(`https://a.test/x`)",
+      ],
+      [
+        "10: code in a link label",
+        "[`https://a.test`이고](https://b.test)",
+        `\`https://a.test\`${ZW}이고 (https://b.test)`,
+      ],
+    ];
+    for (const [name, input, expected] of cases) {
+      test(name, () => {
+        expect(markdownToSlackMrkdwn(input)).toBe(expected);
+      });
+    }
+  });
 });
