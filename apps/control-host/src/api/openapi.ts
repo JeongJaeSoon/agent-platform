@@ -238,6 +238,9 @@ import {
   slackEventsResponseSchema,
   slackGuestRequestSchema,
   slackGuestResponseSchema,
+  slackInteractionFormSchema,
+  slackInteractionResponseSchema,
+  slackInteractionsParamsSchema,
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
@@ -384,6 +387,7 @@ const requestComponents = {
   CreateSlackAppRequest: createSlackAppRequestSchema,
   CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
   SlackEventEnvelope: slackEventEnvelopeSchema,
+  SlackInteractionForm: slackInteractionFormSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -501,6 +505,7 @@ const responseComponents = {
   StartSlackInstallResponse: startSlackInstallResponseSchema,
   CompleteSlackInstallResponse: completeSlackInstallResponseSchema,
   SlackEventsResponse: slackEventsResponseSchema,
+  SlackInteractionResponse: slackInteractionResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   UpdateAuthMeRequest: updateAuthMeRequestSchema,
@@ -696,6 +701,8 @@ export type RouteDeclaration = {
   csrf?: "always";
   query?: ComponentName;
   body?: ComponentName;
+  // The body goes as a form (application/x-www-form-urlencoded), not JSON.
+  form?: true;
   // Parsed with the body schema by openapi.test.ts.
   requestExample?: unknown;
   success:
@@ -5256,6 +5263,47 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "post",
+    path: "/v1/slack/interactions/{agent_id}",
+    operationId: "receiveSlackInteraction",
+    tag: "Agents",
+    summary: "Slack's interactivity request URL for one agent's app",
+    description:
+      'Called by Slack, not by people: each agent app\'s interactivity points here, beside its events route (Finalize registers both when SLACK_EVENTS_PUBLIC_URL is set). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app\'s signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack\'s JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{"ok": true}`; a submitted question modal answers `{"response_action": "clear"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).',
+    auth: "public",
+    body: "SlackInteractionForm",
+    form: true,
+    requestExample: {
+      payload: JSON.stringify({
+        type: "block_actions",
+        api_app_id: EXAMPLE_SLACK_APP.app_id,
+        team: { id: "T0A1B2C3D" },
+        user: { id: "U0PERSON1" },
+        channel: { id: "C0CHANNEL1" },
+        message: { ts: "1761300000.000200", thread_ts: "1761300000.000100" },
+        trigger_id: "1761300000.1234.abcdef",
+        actions: [
+          {
+            action_id: "permission.allow",
+            value: JSON.stringify({
+              s: "019a0000-0000-7000-8000-0000000000d1",
+              r: "toolu_01",
+            }),
+          },
+        ],
+      }),
+    },
+    success: {
+      status: 200,
+      schema: "SlackInteractionResponse",
+      description:
+        '`{"ok": true}` for a button press, `{"response_action": "clear"}` or `{"response_action": "errors", ...}` for a submitted modal.',
+      example: { ok: true },
+    },
+    errors: [400, 401, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
     path: "/v1/api-keys",
     operationId: "createApiKey",
     tag: "API keys",
@@ -6850,6 +6898,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/linked-accounts/{id}"))
     return linkedAccountParamsSchema;
   if (path === "/v1/slack/events/{agent_id}") return slackEventsParamsSchema;
+  if (path === "/v1/slack/interactions/{agent_id}") {
+    return slackInteractionsParamsSchema;
+  }
   if (path === "/v1/usage/tools/{name}/calls") {
     return usageToolCallsParamsSchema;
   }
@@ -7024,7 +7075,16 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
           request: {
             body: {
               required: true,
-              content: jsonContent(route.body, route.requestExample),
+              content: route.form
+                ? {
+                    "application/x-www-form-urlencoded": {
+                      schema: ref(route.body),
+                      ...(route.requestExample === undefined
+                        ? {}
+                        : { example: route.requestExample }),
+                    },
+                  }
+                : jsonContent(route.body, route.requestExample),
             },
           },
         }
