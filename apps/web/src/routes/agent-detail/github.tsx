@@ -487,6 +487,7 @@ function GitHubSettings({
   const settings = draft?.settings ?? base;
   const release = draft?.from.release ?? detail.active_release;
   const saveError = useRef<HTMLDivElement>(null);
+  const pendingRegion = useRef<HTMLDivElement>(null);
   // The two queries disagree while one of them refetches.
   const settling =
     draft === null && data.active_release_id !== (release?.id ?? null);
@@ -601,10 +602,11 @@ function GitHubSettings({
   const pending = base && draft ? pendingCount(base, draft.settings) : 0;
   const noRepository =
     (draft !== null || firstSave) && settings?.repositories.length === 0;
-  const pendingTitle =
-    firstSave && pending === 0
-      ? t("agentGitHub.pending.firstTitle")
-      : t("agentGitHub.pending.title", { count: pending });
+  // A first save turns the github MCP on whatever else it changes, so it
+  // keeps its own title instead of a change count.
+  const pendingTitle = firstSave
+    ? t("agentGitHub.pending.firstTitle")
+    : t("agentGitHub.pending.title", { count: pending });
   const actionsOn = settings?.features.actions ?? false;
   const keys: SectionKey[] = [
     "use",
@@ -677,9 +679,12 @@ function GitHubSettings({
       </section>
       {manages && (pending > 0 || firstSave || saveFailure) ? (
         <Alert
+          ref={pendingRegion}
+          tabIndex={-1}
           variant={saveFailure ? "red" : "blue"}
           role="region"
           aria-label={pendingTitle}
+          className="outline-none"
         >
           <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
@@ -720,6 +725,8 @@ function GitHubSettings({
                 onClick={() => {
                   setDraft(null);
                   save.reset();
+                  // The region stays for a first save but this button goes.
+                  if (firstSave) pendingRegion.current?.focus();
                 }}
               >
                 {t("agentGitHub.pending.revert")}

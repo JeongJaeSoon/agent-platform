@@ -501,12 +501,6 @@ describe("에이전트 GitHub 탭", () => {
     // Nothing drafted yet, so there is nothing to revert.
     expect(screen.queryByRole("button", { name: "되돌리기" })).toBeNull();
 
-    // Undone by hand still leaves the first save.
-    await user.click(switchNamed("push 전 사람 승인"));
-    await screen.findByText("릴리스에 넣지 않은 변경 1건");
-    await user.click(switchNamed("push 전 사람 승인"));
-    await screen.findByText("GitHub 설정을 아직 저장하지 않았습니다");
-
     const save = screen.getByRole("button", {
       name: "새 릴리스로 저장",
     }) as HTMLButtonElement;
@@ -531,6 +525,69 @@ describe("에이전트 GitHub 탭", () => {
     );
     expect(
       screen.queryByRole("button", { name: "새 릴리스로 저장" }),
+    ).toBeNull();
+  });
+
+  test("설정이 없는 릴리스는 되돌려도 첫 저장을 남기고, 되돌리기를 누르면 포커스를 저장 상자로 옮긴다", async () => {
+    const { server } = await activeAgent({ github: null });
+    let made = 0;
+    const routes = server.routes as unknown as Record<
+      string,
+      (request: Request) => Promise<Response>
+    >;
+    renderAt(
+      DETAIL,
+      routesFor(
+        server,
+        {
+          ...TAB,
+          github: null,
+          legacy_defaults: { ...SETTINGS, push_approval: false },
+        },
+        {
+          [`POST ${PATH}/releases`]: (request) => {
+            made += 1;
+            return routes[`POST ${PATH}/releases`]?.(request) ?? json(404, {});
+          },
+          [`POST ${PATH}/activate`]: () =>
+            apiError(409, "REVISION_CONFLICT", "activated by someone else"),
+        },
+      ),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    const region = () =>
+      screen.getByRole("region", {
+        name: "GitHub 설정을 아직 저장하지 않았습니다",
+      });
+
+    // Undone by hand still leaves the first save.
+    await user.click(switchNamed("push 전 사람 승인"));
+    await user.click(switchNamed("push 전 사람 승인"));
+    expect(region() !== null).toBe(true);
+    expect(screen.queryByRole("button", { name: "되돌리기" })).toBeNull();
+
+    await user.click(switchNamed("push 전 사람 승인"));
+    const revert = await screen.findByRole("button", { name: "되돌리기" });
+    revert.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "되돌리기" })).toBeNull(),
+    );
+    expect(document.activeElement === region()).toBe(true);
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+
+    // A conflict on a save without a draft keeps the first save on offer.
+    await user.click(screen.getByRole("button", { name: "새 릴리스로 저장" }));
+    await screen.findByText(/다른 사람이 그 사이 에이전트를 활성화했습니다/);
+    expect(made).toBe(1);
+    expect(region().getAttribute("data-variant")).toBe("red");
+    await user.click(screen.getByRole("button", { name: "되돌리기" }));
+    expect(document.activeElement === region()).toBe(true);
+    expect(
+      screen.queryByText(/다른 사람이 그 사이 에이전트를 활성화했습니다/),
     ).toBeNull();
   });
 
@@ -696,17 +753,18 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
       "false",
     );
-    await user.click(switchNamed("push 전 사람 승인"));
-    await screen.findByText("릴리스에 넣지 않은 변경 1건");
+    // The first save is on offer before any change, held until a repository.
+    await screen.findByText("GitHub 설정을 아직 저장하지 않았습니다");
     await screen.findByText("저장소를 하나 이상 고르면 저장할 수 있습니다.");
     const save = screen.getByRole("button", {
       name: "새 릴리스로 저장",
     }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     await user.click(switchNamed("push 전 사람 승인"));
+    expect(save.disabled).toBe(true);
+    await user.click(switchNamed("push 전 사람 승인"));
 
     await user.click(switchNamed("werft-sandbox"));
-    await screen.findByText("릴리스에 넣지 않은 변경 1건");
     expect(
       screen.queryByText("저장소를 하나 이상 고르면 저장할 수 있습니다.") ===
         null,
