@@ -747,6 +747,28 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ]);
   });
 
+  test("a turn the platform queued, with no channel or actor, answers in the thread too", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("pushing next turn")]]);
+    // A push continuation or an approved push's follow-up turn.
+    await addTurn(sessionId, 2);
+    await db
+      .update(turns)
+      .set({ channel: null, actorId: null })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 2)));
+    await endTurn(sessionId, 2, "completed", [[text("PR opened")]]);
+
+    await outboxPass();
+    await outboxPass();
+    expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
+      "pushing next turn",
+      "PR opened",
+    ]);
+    expect(await answeredThrough()).toBe(2);
+  });
+
   test("behind a turn holding the mark, answers past one pass's batch still go", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
