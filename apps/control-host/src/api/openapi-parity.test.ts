@@ -30,6 +30,7 @@ import type {
   SlackAppService,
   SlackChannelSearchService,
   SlackEventsService,
+  SlackInteractionService,
   SlackInstallService,
   SlackSecretService,
   SurfaceBindingService,
@@ -84,6 +85,7 @@ import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
+import { registerSlackInteractionRoutes } from "./routes/slack-interactions.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -119,6 +121,10 @@ function apiApp() {
       });
       registerSlackEventRoutes(router, {
         events: {} as SlackEventsService,
+        limiter: createSlackEventsLimiter(),
+      });
+      registerSlackInteractionRoutes(router, {
+        interactions: {} as SlackInteractionService,
         limiter: createSlackEventsLimiter(),
       });
     },

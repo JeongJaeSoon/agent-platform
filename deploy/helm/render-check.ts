@@ -527,6 +527,7 @@ function checkPreview(
 const PUBLIC_PATHS = [
   "Prefix /v1",
   "Prefix /v1/slack/events",
+  "Prefix /v1/slack/interactions",
   "Prefix /docs",
   "Exact /healthz",
   "Exact /readyz",

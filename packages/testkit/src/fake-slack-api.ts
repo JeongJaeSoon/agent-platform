@@ -771,6 +771,59 @@ export function createFakeSlackWebApi(
       if (url.pathname === "/fake/messages" && request.method === "GET") {
         return Response.json({ ok: true, messages });
       }
+      if (url.pathname === "/fake/updates" && request.method === "GET") {
+        return Response.json({ ok: true, updates, views });
+      }
+      // For curl on the local stack: posts {payload} as Slack's signed
+      // interactivity form, stamped with the app's id.
+      if (url.pathname === "/fake/interactions" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          url?: unknown;
+          app_id?: unknown;
+          payload?: unknown;
+        } | null;
+        if (
+          input === null ||
+          typeof input.url !== "string" ||
+          !/^https?:\/\//.test(input.url) ||
+          typeof input.app_id !== "string" ||
+          !apps.has(input.app_id) ||
+          typeof input.payload !== "object" ||
+          input.payload === null
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        const app = appOf(input.app_id);
+        const body = `payload=${encodeURIComponent(
+          JSON.stringify({ ...input.payload, api_app_id: app.appId }),
+        )}`;
+        const response = await fetch(input.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            ...signSlackRequest(
+              app.signingSecret,
+              body,
+              Math.floor(Date.now() / 1000),
+            ),
+          },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        });
+        const text = await response.text();
+        let answer: unknown = text;
+        try {
+          answer = JSON.parse(text);
+        } catch {}
+        return Response.json({
+          ok: true,
+          status: response.status,
+          body: answer,
+        });
+      }
       // For curl on the local stack: {method} answers its next send with
       // ok:true and no ts.
       if (url.pathname === "/fake/missing-ts" && request.method === "POST") {

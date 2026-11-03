@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { createSlackBotApi } from "@werft-ai/platform";
+import { createSlackBotApi, verifySlackSignature } from "@werft-ai/platform";
 import {
   createFakeSlackWebApi,
   startFakeSlackApi,
@@ -350,5 +350,100 @@ describe("fake Slack bot calls, through the slack role's client", () => {
     expect(
       await (await fetch(slack.url.replace(/\/api$/, "/fake/statuses"))).json(),
     ).toEqual({ ok: true, statuses: slack.statuses });
+  });
+});
+
+describe("fake Slack interactivity, for a local stack", () => {
+  const slack = startFakeSlackApi({ teamId: "T0X" });
+  const bot = `xoxb-${crypto.randomUUID()}`;
+  const signingSecret = crypto.randomUUID();
+  slack.apps.set("A0PRESS", {
+    appId: "A0PRESS",
+    clientId: "3.3",
+    clientSecret: crypto.randomUUID(),
+    signingSecret,
+    manifest: {},
+    botTokens: [bot],
+  });
+  const received: {
+    body: string;
+    timestamp: string | null;
+    signature: string | null;
+  }[] = [];
+  const target = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      received.push({
+        body: await request.text(),
+        timestamp: request.headers.get("X-Slack-Request-Timestamp"),
+        signature: request.headers.get("X-Slack-Signature"),
+      });
+      return Response.json({ ok: true });
+    },
+  });
+  const api = createSlackBotApi({ apiUrl: slack.url });
+  const root = slack.url.replace(/\/api$/, "");
+  afterAll(() => {
+    target.stop(true);
+    slack.stop();
+  });
+
+  test("/fake/interactions posts a signed form with the app's id; chat.update and views.open are read back", async () => {
+    const sent = await (
+      await fetch(`${root}/fake/interactions`, {
+        method: "POST",
+        body: JSON.stringify({
+          url: `http://127.0.0.1:${target.port}/v1/slack/interactions/x`,
+          app_id: "A0PRESS",
+          payload: { type: "block_actions", api_app_id: "A0OTHER" },
+        }),
+      })
+    ).json();
+    expect(sent).toEqual({ ok: true, status: 200, body: { ok: true } });
+    const [form] = received;
+    expect(
+      JSON.parse(new URLSearchParams(form?.body).get("payload") ?? ""),
+    ).toEqual({ type: "block_actions", api_app_id: "A0PRESS" });
+    expect(
+      verifySlackSignature({
+        signingSecret,
+        timestamp: form?.timestamp ?? null,
+        signature: form?.signature ?? null,
+        rawBody: new TextEncoder().encode(form?.body),
+        nowSeconds: Math.floor(Date.now() / 1000),
+      }),
+    ).toBe("ok");
+
+    await api.updateMessage(bot, {
+      channelId: "C0X",
+      ts: "1.2",
+      text: "settled",
+      blocks: [{ type: "section" }],
+    });
+    await api.openView(bot, { triggerId: "t1", view: { type: "modal" } });
+    expect(await (await fetch(`${root}/fake/updates`)).json()).toEqual({
+      ok: true,
+      updates: [
+        {
+          channelId: "C0X",
+          ts: "1.2",
+          text: "settled",
+          blocks: [{ type: "section" }],
+        },
+      ],
+      views: [{ triggerId: "t1", view: { type: "modal" } }],
+    });
+    expect(
+      (
+        await fetch(`${root}/fake/interactions`, {
+          method: "POST",
+          body: JSON.stringify({
+            url: "file:///x",
+            app_id: "A0PRESS",
+            payload: {},
+          }),
+        })
+      ).status,
+    ).toBe(400);
   });
 });
