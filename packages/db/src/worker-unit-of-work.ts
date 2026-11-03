@@ -1197,6 +1197,12 @@ async function giveUpOnCatalogMismatch(
     .from(catalogAuthority)
     .limit(1)
     .for("share");
+  // The ceiling before the generation: a ceiling write locks its row and
+  // then, through its trigger, the generation, so the other order deadlocks.
+  const blocked =
+    input.settingsGeneration === null
+      ? undefined
+      : await profileBlocked(tx, session.profileId);
   // Held the same way: a settings write waits for this give-up rather than
   // committing a row the claim judged without.
   const [settings] =
@@ -1214,7 +1220,7 @@ async function giveUpOnCatalogMismatch(
       authority.revision !== input.catalogRevision) ||
       (settings !== undefined &&
         (input.settingsGeneration ?? 0) < settings.generation)) &&
-    !(await profileBlocked(tx, session.profileId))
+    !(blocked ?? (await profileBlocked(tx, session.profileId)))
   ) {
     return null;
   }

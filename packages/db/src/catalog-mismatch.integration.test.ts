@@ -27,6 +27,7 @@ import * as schema from "./schema.ts";
 import {
   events,
   executions,
+  installationProfiles,
   providerConnections,
   receipts,
   sessions,
@@ -698,6 +699,59 @@ integration("claim against a catalog that dropped the pair", () => {
       expect(
         (await claim(launch, 1_000, undefined, { generation: now })).outcome,
       ).toBe("catalog_mismatch");
+    });
+
+    test("a ceiling write while a give-up behind the settings waits on it", async () => {
+      const session = await queuedSession(MOVED_TO);
+      const launch = await reserved(session.session_id);
+      await db.insert(installationProfiles).values({
+        id: PROFILE_ID,
+        name: null,
+        version: 1,
+        origin: "catalog",
+        definition: { permission_mode: "default" },
+        permissionMode: "default",
+        fingerprint: "fp",
+        repositoryIds: null,
+      });
+      const behind = (await settingsGenerationNow()) - 1;
+      const writer = await pool.connect();
+      try {
+        await writer.query("BEGIN");
+        await writer.query(
+          "SELECT 1 FROM installation_profiles WHERE id = $1 FOR UPDATE",
+          [PROFILE_ID],
+        );
+        const claiming = claim(launch, 1_000, undefined, {
+          generation: behind,
+        });
+        for (let waited = 0; ; waited += 1) {
+          const { rows } = await pool.query(
+            "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> $1",
+            [
+              (await writer.query("SELECT pg_backend_pid() AS pid")).rows[0]
+                .pid,
+            ],
+          );
+          if (rows.length > 0) break;
+          if (waited > 200) throw new Error("the claim never waited");
+          await Bun.sleep(10);
+        }
+        // Raises the generation through its trigger while holding the row.
+        await writer.query(
+          "UPDATE installation_profiles SET fingerprint = 'fp2' WHERE id = $1",
+          [PROFILE_ID],
+        );
+        await writer.query("COMMIT");
+        expect((await claiming).outcome).toBe("no_session");
+      } finally {
+        await writer.query("ROLLBACK").catch(() => undefined);
+        writer.release();
+        await db
+          .delete(installationProfiles)
+          .where(eq(installationProfiles.id, PROFILE_ID));
+      }
+      await untouched(session.session_id, launch.ref);
     });
 
     test("a repository whose credential this host cannot read", async () => {
