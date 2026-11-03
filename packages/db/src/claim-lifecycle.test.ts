@@ -346,7 +346,6 @@ describe("claim lifecycle", () => {
       origin_surface: "slack_dm",
       language: "en",
       repository: "acme/app",
-      github: { repositories: ["acme/app", "acme/docs"] },
     };
     expect(await promptBound(null)).toBeNull();
     expect(await promptBound(prompt)).toEqual(prompt);

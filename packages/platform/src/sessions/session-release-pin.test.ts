@@ -274,7 +274,7 @@ describe("a session pinned to an agent release", () => {
       return run.accepted[0]?.platformPrompt;
     };
 
-    test("revision 1 snapshots the agent, the surface and the release's repositories by GitHub name", async () => {
+    test("revision 1 snapshots the agent, the surface and the session's repository by GitHub name", async () => {
       expect(await create({ promptRevision: 1, identity, github })).toEqual({
         prompt_revision: 1,
         agent_identity: {
@@ -284,13 +284,13 @@ describe("a session pinned to an agent release", () => {
         origin_surface: "console",
         language: "ko",
         repository: "acme/app",
-        // A path that is not owner/repo, and an id the catalog does not
-        // hold, name nothing.
-        github: { repositories: ["acme/app", "acme/docs"] },
       });
     });
 
-    test("a release without GitHub settings is told so, and a blank description is none", async () => {
+    test("GitHub settings change nothing in it, and a blank description is none", async () => {
+      expect(await create({ promptRevision: 1, identity })).toEqual(
+        await create({ promptRevision: 1, identity, github }),
+      );
       expect(
         await create({
           promptRevision: 1,
@@ -302,7 +302,6 @@ describe("a session pinned to an agent release", () => {
         origin_surface: "console",
         language: "en",
         repository: "acme/app",
-        github: null,
       });
     });
 

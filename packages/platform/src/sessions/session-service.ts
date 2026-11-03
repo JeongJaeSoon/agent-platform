@@ -778,13 +778,10 @@ export function createSessionService(deps: {
         ? platformPromptOf({
             identity,
             surface: actor.subject.surface,
-            catalog,
-            profileId,
-            repository:
+            repositoryUrl:
               repositoryId === null || pair?.repository == null
                 ? null
-                : { id: repositoryId, url: pair.repository.url },
-            github: release?.policy_pins.github ?? null,
+                : pair.repository.url,
           })
         : undefined;
       const result = await inputs.acceptInputAtomic({

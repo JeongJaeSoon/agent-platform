@@ -4,38 +4,12 @@ import {
   platformPromptOf,
   platformPromptRevisionFromEnv,
 } from "./platform-prompt.ts";
-import type { SessionCatalog } from "./catalog.ts";
-import { withSeededInstallation } from "./profile-registry.ts";
-
-const profile: SessionCatalog["profiles"][string] = {
-  runtime_kind: "claude_agent_sdk",
-  runtime_version: "0.3.270",
-  model: "claude-sonnet-5",
-  tools: ["Read"],
-  permission_mode: "default",
-  provider: {
-    kind: "litellm",
-    endpoint: "https://litellm.invalid",
-    auth: {
-      kind: "api_key",
-      value: "test",
-      ref: { value_env: "PROVIDER_KEY" },
-    },
-  },
-};
-const catalog = withSeededInstallation({
-  profiles: { "coding-v1": profile },
-  repositories: {},
-});
 
 const promptFrom = (surface: AuthorizationSurface) =>
   platformPromptOf({
     identity: { name: "a", description: null, language: "ko" },
     surface,
-    catalog,
-    profileId: "coding-v1",
-    repository: null,
-    github: null,
+    repositoryUrl: null,
   }).origin_surface;
 
 describe("platformPromptOf", () => {
@@ -46,6 +20,25 @@ describe("platformPromptOf", () => {
     for (const channel_kind of ["public_channel", "private_channel"] as const) {
       expect(promptFrom({ kind: "slack", channel_kind })).toBe("slack_channel");
     }
+  });
+});
+
+describe("platformPromptOf repository", () => {
+  test("names the repository by its owner/repo path, and nothing for a path that is not one", () => {
+    const repositoryOf = (repositoryUrl: string | null) =>
+      platformPromptOf({
+        identity: { name: "a", description: " ", language: "ko" },
+        surface: { kind: "web" },
+        repositoryUrl,
+      });
+    expect(repositoryOf("https://github.com/acme/web.git")).toMatchObject({
+      repository: "acme/web",
+      agent_identity: { name: "a", description: null },
+    });
+    expect(
+      repositoryOf("https://gitlab.example/group/sub/repo.git").repository,
+    ).toBeNull();
+    expect(repositoryOf(null).repository).toBeNull();
   });
 });
 

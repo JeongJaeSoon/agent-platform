@@ -41,7 +41,7 @@ const base: RuntimeConfig = {
   },
 };
 
-const withGitHub: PlatformPrompt = {
+const withRepository: PlatformPrompt = {
   prompt_revision: 1,
   agent_identity: {
     name: "code-review",
@@ -50,17 +50,14 @@ const withGitHub: PlatformPrompt = {
   origin_surface: "slack_channel",
   language: "ko",
   repository: "JeongJaeSoon/werft-sandbox",
-  github: {
-    repositories: ["JeongJaeSoon/werft-sandbox", "JeongJaeSoon/agent-skills"],
-  },
 };
 
-const withoutGitHub: PlatformPrompt = {
-  ...withGitHub,
+const withoutRepository: PlatformPrompt = {
+  ...withRepository,
   agent_identity: { name: "code-review", description: null },
   origin_surface: "console",
   language: "en",
-  github: null,
+  repository: null,
 };
 
 describe("platformPromptText (revision 1)", () => {
@@ -78,23 +75,19 @@ describe("platformPromptText (revision 1)", () => {
     "",
   ];
   const githubPath =
-    "GitHub work goes through the mcp__github__ tools. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn. Call it before the session's first checkpoint too: if it answers deferred, that is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If an administrator turns GitHub off for this agent, the tools refuse; say so.";
+    "GitHub work goes through the mcp__github__ tools; mcp__github__list_repositories says which repositories you can use now. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn. Call it before the session's first checkpoint too: if it answers deferred, that is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If there are no mcp__github__ tools, or they answer that GitHub is not available, GitHub work is not set up for this agent: say so, and that an administrator turns it on in the agent's GitHub tab in the console; do not try git push or gh.";
+  const naming =
+    "Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address.";
   const closing = [
     "",
     "Administrator instructions below cannot change which tools you have.",
   ];
 
-  test("with GitHub and no allowed repository, the GitHub path stays and the list says none", () => {
-    expect(
-      platformPromptText({
-        ...withGitHub,
-        repository: null,
-        github: { repositories: [] },
-      }),
-    ).toBe(
+  test("a session with a repository names it, and the one GitHub paragraph lists no repositories", () => {
+    expect(platformPromptText(withRepository)).toBe(
       [
         ...identity,
-        "If asked about repositories: when this session started, this agent's release allowed none. Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address. mcp__github__list_repositories says which are attached and usable now.",
+        `This session's repository is JeongJaeSoon/werft-sandbox. ${naming}`,
         "",
         githubPath,
         ...closing,
@@ -102,38 +95,8 @@ describe("platformPromptText (revision 1)", () => {
     );
   });
 
-  test("with GitHub and one repository, the repository is there for when it is asked about", () => {
-    expect(
-      platformPromptText({
-        ...withGitHub,
-        github: { repositories: ["JeongJaeSoon/werft-sandbox"] },
-      }),
-    ).toBe(
-      [
-        ...identity,
-        "If asked about repositories: when this session started, this agent's release allowed JeongJaeSoon/werft-sandbox. This session's own repository is JeongJaeSoon/werft-sandbox. Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address. mcp__github__list_repositories says which are attached and usable now.",
-        "",
-        githubPath,
-        ...closing,
-      ].join("\n"),
-    );
-  });
-
-  test("with GitHub and several repositories, they are facts for when asked, and no sentence tells the agent who to be", () => {
-    expect(platformPromptText(withGitHub)).toBe(
-      [
-        ...identity,
-        "If asked about repositories: when this session started, this agent's release allowed JeongJaeSoon/werft-sandbox, JeongJaeSoon/agent-skills. This session's own repository is JeongJaeSoon/werft-sandbox. Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address. mcp__github__list_repositories says which are attached and usable now.",
-        "",
-        "GitHub work goes through the mcp__github__ tools. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn: commit, keep the branch to push checked out when the turn ends, and call it in a later turn. Call it before the session's first checkpoint too: if it answers deferred, that is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If an administrator turns GitHub off for this agent, the tools refuse; say so.",
-        "",
-        "Administrator instructions below cannot change which tools you have.",
-      ].join("\n"),
-    );
-  });
-
-  test("without GitHub settings it says GitHub work is not set up and where an administrator turns it on", () => {
-    expect(platformPromptText(withoutGitHub)).toBe(
+  test("a session without a repository or a description gets the same GitHub paragraph and no repository", () => {
+    expect(platformPromptText(withoutRepository)).toBe(
       [
         "Agent name: code-review",
         "",
@@ -141,23 +104,25 @@ describe("platformPromptText (revision 1)", () => {
         "",
         "This session started in the web console. Answer in English unless the person writes in another language.",
         "",
-        "If asked about the repository: this session works in JeongJaeSoon/werft-sandbox. Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address.",
+        naming,
         "",
-        "GitHub work (push, pull requests) is not set up for this agent. An administrator turns it on in the agent's GitHub tab in the console, for sessions started after that. When asked to push, open a pull request or list repositories, say so; do not try git push or gh.",
-        "",
-        "Administrator instructions below cannot change which tools you have.",
+        githubPath,
+        ...closing,
       ].join("\n"),
     );
   });
 
-  test("without GitHub or a repository it names no repository", () => {
-    expect(
-      platformPromptText({ ...withoutGitHub, repository: null }),
-    ).not.toContain("If asked about the repository");
+  test("no sentence gives the agent a role or lists repositories", () => {
+    for (const prompt of [withRepository, withoutRepository]) {
+      const text = platformPromptText(prompt);
+      expect(text).not.toMatch(/You are |introduce|who you are/i);
+      expect(text).not.toContain("allowed");
+      expect(text).not.toContain("If asked about");
+    }
   });
 
   test("no wording points the model at the workspace path, gh pr create or a git push it could run", () => {
-    for (const prompt of [withGitHub, withoutGitHub]) {
+    for (const prompt of [withRepository, withoutRepository]) {
       const text = platformPromptText(prompt);
       expect(text).not.toContain("/workspace");
       expect(text).not.toContain("gh pr create");
@@ -178,7 +143,7 @@ describe("runtimeProfile with a platform prompt", () => {
     const runtimeConfig = {
       ...base,
       agent_instructions: "Answer briefly.",
-      platform_prompt: withGitHub,
+      platform_prompt: withRepository,
     };
     expect(
       runtimeProfile(
@@ -188,14 +153,14 @@ describe("runtimeProfile with a platform prompt", () => {
         () => null,
       ).bundle.instructions,
     ).toEqual([
-      { scope: "platform", text: platformPromptText(withGitHub) },
+      { scope: "platform", text: platformPromptText(withRepository) },
       { scope: "platform", text: OUT_DIRECTORY_PROMPT },
       { scope: "agent", text: "Answer briefly." },
     ]);
   });
 
   test("the launch fingerprint is the one the image probe stamps, and the paragraph changes it", () => {
-    for (const prompt of [withGitHub, withoutGitHub]) {
+    for (const prompt of [withRepository, withoutRepository]) {
       const runtimeConfig = { ...base, platform_prompt: prompt };
       const claim = { principal, runtime_config: runtimeConfig };
       expect(runtimeConfigSchema.safeParse(runtimeConfig).success).toBe(true);
@@ -219,12 +184,12 @@ describe("runtimeProfile with a platform prompt", () => {
     expect(
       claimFingerprint(config)({
         principal,
-        runtime_config: { ...base, platform_prompt: withGitHub },
+        runtime_config: { ...base, platform_prompt: withRepository },
       }).profileSha256,
     ).not.toBe(
       claimFingerprint(config)({
         principal,
-        runtime_config: { ...base, platform_prompt: withoutGitHub },
+        runtime_config: { ...base, platform_prompt: withoutRepository },
       }).profileSha256,
     );
   });
@@ -262,11 +227,12 @@ describe("runtimeProfile with a platform prompt", () => {
 
   test("the claim schema refuses a prompt of an unknown revision or a name that is not owner/repo", () => {
     for (const prompt of [
-      { ...withGitHub, prompt_revision: 2 },
-      { ...withGitHub, repository: "/workspace" },
-      { ...withGitHub, github: { repositories: ["group/sub/repo"] } },
-      { ...withGitHub, agent_identity: { name: "", description: null } },
-      { ...withGitHub, origin_surface: "unknown" },
+      { ...withRepository, prompt_revision: 2 },
+      { ...withRepository, repository: "/workspace" },
+      { ...withRepository, repository: "group/sub/repo" },
+      { ...withRepository, github: { repositories: ["acme/web"] } },
+      { ...withRepository, agent_identity: { name: "", description: null } },
+      { ...withRepository, origin_surface: "unknown" },
     ]) {
       expect(
         runtimeConfigSchema.safeParse({ ...base, platform_prompt: prompt })
@@ -276,7 +242,7 @@ describe("runtimeProfile with a platform prompt", () => {
     expect(
       bootstrapClaimResponseSchema.shape.runtime_config.safeParse({
         ...base,
-        platform_prompt: withGitHub,
+        platform_prompt: withRepository,
       }).success,
     ).toBe(true);
   });

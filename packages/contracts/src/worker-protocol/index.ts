@@ -232,12 +232,12 @@ export const PLATFORM_PROMPT_SURFACE_VALUES = [
 ] as const;
 
 // What the worker renders the platform's paragraph of the system prompt
-// from: who the agent is, where the session started, and its GitHub path,
-// as the session was created. It is part of the checkpoint fingerprint, so
-// the platform stores it on the session once and never re-reads the agent,
-// the release or the catalog for it. `github` is null when the release has
-// no GitHub settings, which is also when the built-in `github` server is not
-// attached. A new revision is a new literal next to this one.
+// from: who the agent is, where the session started and its repository, as
+// the session was created. It is part of the checkpoint fingerprint, so the
+// platform stores it on the session once and never re-reads the agent or the
+// catalog for it. Whether GitHub is set up changes while a session runs, so
+// it is not here: the GitHub tools answer it. A new revision is a new
+// literal next to this one.
 export const platformPromptSchema = z
   .object({
     prompt_revision: z.literal(1),
@@ -255,13 +255,6 @@ export const platformPromptSchema = z
     language: z.enum(AGENT_CARD_LANGUAGE_VALUES),
     // The session's own repository.
     repository: githubRepositoryNameSchema.nullable(),
-    github: z
-      .object({
-        // The session's own first, then the others its release allows.
-        repositories: z.array(githubRepositoryNameSchema).max(33),
-      })
-      .strict()
-      .nullable(),
   })
   .strict();
 

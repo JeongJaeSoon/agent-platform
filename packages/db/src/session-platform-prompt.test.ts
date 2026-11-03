@@ -28,7 +28,6 @@ const prompt: PlatformPrompt = {
   origin_surface: "slack_channel",
   language: "ko",
   repository: "acme/app",
-  github: { repositories: ["acme/app"] },
 };
 
 function accept(

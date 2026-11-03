@@ -1812,7 +1812,6 @@ describe("WorkerGateway", () => {
       origin_surface: "slack_channel",
       language: "ko",
       repository: "acme/app",
-      github: { repositories: ["acme/app"] },
     };
     for (const runReleaseTools of [true, false]) {
       const prompted = await claimWith(

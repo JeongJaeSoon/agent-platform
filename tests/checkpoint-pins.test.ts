@@ -1156,7 +1156,6 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       origin_surface: "slack_channel",
       language: "ko",
       repository: "acme/app",
-      github: null,
     };
     expect(
       claimedSessionOf({

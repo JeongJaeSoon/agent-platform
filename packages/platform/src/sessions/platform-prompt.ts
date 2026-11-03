@@ -1,13 +1,10 @@
 import {
   type AgentCard,
-  type AgentGitHub,
   type AuthorizationSurface,
   githubRepositoryNameSchema,
   type PlatformPrompt,
   type PlatformPromptSurface,
 } from "@werft-ai/contracts";
-import { additionalRepositoriesOf } from "./additional-repositories.ts";
-import type { SessionCatalogView } from "./catalog.ts";
 import { pathNameOf } from "./session-repository.ts";
 
 /**
@@ -42,34 +39,13 @@ export type AgentPromptIdentity = {
   language: AgentCard["language"];
 };
 
-/**
- * The platform prompt of a session being created for an agent release. The
- * repositories are the ones the release and the catalog allow at creation,
- * whatever is attached: list_repositories answers that later.
- */
+/** The platform prompt of a session being created for an agent release. */
 export function platformPromptOf(input: {
   identity: AgentPromptIdentity;
   surface: AuthorizationSurface;
-  catalog: SessionCatalogView;
-  profileId: string;
-  repository: { id: string; url: string } | null;
-  github: AgentGitHub | null;
+  repositoryUrl: string | null;
 }): PlatformPrompt {
-  const { identity, repository, github } = input;
-  const own = repository === null ? null : githubNameOf(repository.url);
-  const others =
-    github === null
-      ? []
-      : additionalRepositoriesOf(input.catalog, {
-          repositoryId: repository?.id ?? null,
-          profileId: input.profileId,
-          attached: null,
-          github,
-          githubEnabled: true,
-        }).flatMap(({ repository: other }) => {
-          const name = githubNameOf(other.url);
-          return name === null ? [] : [name];
-        });
+  const { identity } = input;
   return {
     prompt_revision: 1,
     agent_identity: {
@@ -81,15 +57,8 @@ export function platformPromptOf(input: {
     },
     origin_surface: surfaceOf(input.surface),
     language: identity.language,
-    repository: own,
-    github:
-      github === null
-        ? null
-        : {
-            repositories: [
-              ...new Set([...(own === null ? [] : [own]), ...others]),
-            ],
-          },
+    repository:
+      input.repositoryUrl === null ? null : githubNameOf(input.repositoryUrl),
   };
 }
 
