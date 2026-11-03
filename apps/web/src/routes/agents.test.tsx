@@ -211,10 +211,10 @@ describe("agentRefusal", () => {
     const message =
       "card.model: model custom model is not the model of runtime profile claude-coding-local";
     expect(refusal("ko", "UNSUPPORTED_CAPABILITY", message)).toBe(
-      "카드 모델 custom model이(가) 프로필 claude-coding-local의 모델과 달라 릴리스를 만들지 못했습니다. 카드 모델과 같은 모델의 프로필을 고르세요.",
+      "카드 모델 custom model이(가) 프로필 claude-coding-local에서 실행되지 않아 릴리스를 만들지 못했습니다. 카드 모델을 실행하는 프로필을 고르세요.",
     );
     expect(refusal("en", "UNSUPPORTED_CAPABILITY", message)).toBe(
-      "The card's model custom model is not the model of profile claude-coding-local, so no release was created. Choose a profile that runs the card's model.",
+      "Profile claude-coding-local does not run the card's model custom model, so no release was created. Choose a profile that runs the card's model.",
     );
   });
 
@@ -2799,7 +2799,7 @@ describe("편집 중 다른 곳의 저장", () => {
     );
     const release = await openRelease(user);
     expect(describedBy(await release.findByLabelText("프로필"))).toBe(
-      "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 릴리스할 수 있습니다 프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
+      "각 프로필과 그 프로필의 기본 모델. 카드 모델을 실행할 수 있는 프로필만 릴리스할 수 있습니다 프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
     );
     expect(document.body.textContent).not.toContain("profiles.yaml");
   });
@@ -2822,7 +2822,7 @@ describe("편집 중 다른 곳의 저장", () => {
     await user.click(screen.getByRole("button", { name: "릴리스 만들기" }));
     const refusal = await screen.findByText(/릴리스를 만들지 못했습니다/);
     expect(refusal.textContent).toBe(
-      "카드 모델 claude-sonnet-5이(가) 프로필 claude-coding-fast의 모델과 달라 릴리스를 만들지 못했습니다. 카드 모델과 같은 모델의 프로필을 고르세요.",
+      "카드 모델 claude-sonnet-5이(가) 프로필 claude-coding-fast에서 실행되지 않아 릴리스를 만들지 못했습니다. 카드 모델을 실행하는 프로필을 고르세요.",
     );
     expect(document.body.textContent).not.toContain("is not the model of");
   });

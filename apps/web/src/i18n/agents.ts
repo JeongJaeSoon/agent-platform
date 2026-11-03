@@ -183,7 +183,7 @@ export const agentsKo = {
   "agent.releases.version": "버전",
   "agent.releases.profile": "프로필",
   "agent.releases.profileHint":
-    "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 릴리스할 수 있습니다",
+    "각 프로필과 그 프로필의 기본 모델. 카드 모델을 실행할 수 있는 프로필만 릴리스할 수 있습니다",
   "agent.releases.profileUnlisted":
     "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
   "agent.releases.repository": "저장소",
@@ -561,7 +561,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.version": "Version",
   "agent.releases.profile": "Profile",
   "agent.releases.profileHint":
-    "Each profile is shown with its model. Choose a profile that uses the same model as the card.",
+    "Each profile is shown with its default model. Choose a profile that can run the card's model.",
   "agent.releases.profileUnlisted":
     "A profile's permission mode is not shown on this screen yet.",
   "agent.releases.repository": "Repository",
@@ -931,7 +931,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.version": "バージョン",
   "agent.releases.profile": "プロファイル",
   "agent.releases.profileHint":
-    "各プロファイルと使用するモデルを表示しています。カードと同じモデルを使うプロファイルを選択してください。",
+    "各プロファイルと既定のモデルを表示しています。カードのモデルを実行できるプロファイルを選択してください。",
   "agent.releases.profileUnlisted":
     "プロファイルの権限モードは、この画面にはまだ表示されません。",
   "agent.releases.repository": "リポジトリ",
