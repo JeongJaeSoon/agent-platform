@@ -41,13 +41,13 @@ Preconditions:
   2. 수락한 사람이 같은 비밀번호로 `POST /v1/auth/login` → `200`, scopes 넷(`recover` 없음). `GET /v1/auth/me`의 `permissions`는 `api_key.manage_own, account.link, agent.create`. member의 `POST /v1/invites`·`PATCH /v1/members/{id}` → `403` `reason_code: role`.
   3. owner가 `ap_web PATCH "/v1/members/$DANA_ID" '{"role":"admin"}'` → `200` `role: admin`. dana가 다시 로그인한 뒤 member를 owner로(`'{"role":"owner"}'`), owner를 member로, `role: owner` 초대 → 셋 다 `403 OWNER_PROTECTED`. dana의 `GET /v1/members` → `assignable_roles: ["admin","member"]`(owner가 보면 `["owner","admin","member"]`), 이 둘로는 초대가 `201`. member를 admin으로 올렸다 내리기 → 둘 다 `200`.
   4. owner가 자기를 `admin`으로 → `403 SELF_PROTECTED`. 자기 비활성(`POST /v1/members/$ME/disable`) → `403 SELF_PROTECTED`. `ap_web GET /v1/members`의 자기 행은 `actions`가 모두 `{"allowed":false,"reason":"self_protected"}`. owner를 바꿀 수 있는 사람은 살아 있는 다른 owner뿐이라 이 API에서 `409 LAST_OWNER`는 나오지 않는다. owner 둘이 서로를 동시에 내리면 뒤의 요청은 바꾸는 사람이 더는 owner가 아니어서 `403`이다.
-  5. dana(admin)가 `POST /v1/agents`로 에이전트를 하나 만들고(`DANA_AID`), `POST /v1/api-keys '{"kind":"personal","scopes":["sessions:read"]}'`와 `'{"kind":"agent","agent_id":"<DANA_AID>","scopes":["sessions:read"]}'`(위 Preconditions처럼 `secret`을 `KEY`로) → 둘 다 `201`. 개인 key `GET /v1/sessions` `200`, 에이전트 key `GET /v1/auth/me` `200`.
+  5. dana(admin)가 팀 하나(`POST /v1/teams`)를 담당 팀으로 넣어 `POST /v1/agents`로 에이전트를 하나 만들고(`DANA_AID`), `POST /v1/api-keys '{"kind":"personal","scopes":["sessions:read"]}'`와 `'{"kind":"agent","agent_id":"<DANA_AID>","scopes":["sessions:read"]}'`(위 Preconditions처럼 `secret`을 `KEY`로) → 둘 다 `201`. 개인 key `GET /v1/sessions` `200`, 에이전트 key `GET /v1/auth/me` `200`.
   6. owner가 `ap_web POST "/v1/members/$DANA_ID/disable" '{"reason":"verify scenario a"}'` → `200` `member.disabled_at`. dana의 cookie `GET /v1/auth/me` → `401`, 개인 key → `401`, 에이전트 key → `200`. dana의 로그인 → `401` "Invalid email or password".
   7. owner가 `/enable` → `200` `disabled_at: null`. 예전 cookie·개인 key는 여전히 `401`, 다시 로그인하면 `200`, `me`의 role은 `admin` 그대로.
   8. `SELECT operation, result FROM receipts WHERE operation IN ('invite_member','accept_invite','change_member_role','disable_member','enable_member')` → `disable_member`의 `result`에 `revoked_web_sessions`·`revoked_personal_keys: 1`·`revoked_linked_accounts`·`sessions_awaiting_takeover`. `authz_decisions`에 `member.manage allow ok`(owner·admin의 관리 요청마다)와 `member.manage deny role`(2의 둘). `api_keys`는 개인 key만 `revoked_at`이 찬다. 끝나면 쓴 에이전트 key를 `DELETE /v1/api-keys/{id}`로 폐기한다.
   - 2026-10-12 run `20261012-022045-88049`에서 이 순서대로 확인했다. 증거는 `$EVIDENCE/musterrolle-a.txt`.
 - **b. 팀과 팀 관리자.** d와 같이 사람마다 `web-user.mjs`로 로그인하고 `ap_as <who>`로 바꾼다. owner bootstrap·login, 초대·수락으로 member와 admin(d의 1). `MEMBER_ID`는 member cookie로 `ap_web GET /v1/auth/me`의 `user.id`.
-  1. owner가 에이전트를 만든다: `ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"card\":$CARD}"` → `201`, `AID`.
+  1. owner가 구성원 없는 담당 팀과 에이전트를 만든다: `ap_web POST /v1/teams '{"name":"research"}'` → `201`, `MTID`. `ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"managing_team_id\":\"$MTID\",\"card\":$CARD}"` → `201`, `AID`. `managing_team_id`가 빠지면 `400`이다.
   2. member가 `ap_web PATCH "/v1/agents/$AID" "{\"card\":…}"` → `403` `reason_code: "role"`. member가 `ap_web POST /v1/teams '{"name":"mine"}'` → `403` `role`.
   3. owner가 `ap_web POST /v1/teams '{"name":"research admins"}'` → `201`, `TID`. `ap_web POST "/v1/teams/$TID/members" "{\"user_id\":\"$MEMBER_ID\"}"` → `200`, `team.member_count: 1`, `receipt_id`. 수락 단계는 없다. member가 `ap_web GET /v1/my-teams` → `200` `items: [{id: TID, name: "research admins"}]`(6에서 뺀 뒤에는 `[]`).
   4. owner가 `ap_web POST "/v1/agents/$AID/admins" "{\"team_id\":\"$TID\"}"` → `200`, `admins.teams[].name`에 팀.
@@ -74,7 +74,8 @@ Preconditions:
   # 1. config token (owner)
   node .claude/skills/verify-agent-platform/scripts/web-user.mjs <run id> slack-config owner "$WS"
   # 2. 에이전트 앱 (owner). CARD는 d의 2. release를 활성화해야 앱을 만든다
-  ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"card\":$CARD}"      # AID, VID = versions[0].id
+  ap_web POST /v1/teams '{"name":"research"}'                  # MTID = team.id
+  ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"managing_team_id\":\"$MTID\",\"card\":$CARD}"      # AID, VID = versions[0].id
   ap_web POST "/v1/agents/$AID/releases" "{\"version_id\":\"$VID\",\"runtime_profile_id\":\"claude-coding-local\",\"repository_id\":\"sample-app\"}"   # REL = release.id
   ap_web POST "/v1/agents/$AID/activate" "{\"release_id\":\"$REL\",\"expected_revision\":-1}"
   ap_web POST "/v1/agents/$AID/slack/app" '{}'                  # APP = slack_app.app_id

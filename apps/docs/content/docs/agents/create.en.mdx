@@ -45,11 +45,15 @@ curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: 
 
 ### Create
 
+An agent must have a responsible team. An owner or admin picks any team from `GET /v1/teams`; anyone else picks a team of their own from `GET /v1/my-teams`. The example below picks the first team as the owner.
+
 ```bash
+TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" | jq -r '.items[0].id')
 agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "slug": "research-bot",
   "name": "Research Bot",
   "description": "Reads the repository and answers questions",
+  "managing_team_id": "'"$TEAM"'",
   "card": {
     "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
@@ -71,7 +75,9 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 If the same workspace already has the same slug, the response is 409 `ALREADY_EXISTS`. Creating an agent alone does not activate anything.
 
-Put a team ID in `managing_team_id` and that team becomes the responsible team. Anyone but an owner or admin can only name a team they are in. The response's `agent.managing_team_name` is that team's name; without a responsible team it is `null`, like `managing_team_id`.
+The team in `managing_team_id` becomes the responsible team. Leaving it out is 400 `BAD_REQUEST`, with `{"path": "managing_team_id", "message": "managing_team_id is required"}` in `error.details.issues`. A team that does not exist is 404, and a team you are not in is 403 (`details.reason_code: team_not_allowed`) unless you are an owner or admin. So a member who is in no team cannot create an agent. The response's `agent.managing_team_name` is that team's name.
+
+An agent created before the responsible team was required may have none. It is still read, edited and run as before; the list and responses show `managing_team_id` and `managing_team_name` as `null`, and `PUT /v1/agents/{id}/managing-team` sets its team.
 
 ### Create a release
 
@@ -130,7 +136,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ```text
 {"n":1,"next_cursor":null}
-{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":1}}
+{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":0}}
 ```
 
 The list returns agents oldest first, `limit` at a time (default 50, at most 100). Send the response's `next_cursor` back as `cursor` for the next page; it is `null` on the last one. Without `cursor` you get the first page only. With `q` (up to 200 characters) you get only agents whose name or slug contains it, ignoring case; with `ids`, agent IDs joined by commas (up to 100), you get only those agents. With `runtime_profile_id` you get only agents whose active release runs on that runtime profile; an agent with no active release is left out. In every case the next page comes by the same `cursor`. `GET /v1/agents/counts` returns how many agents the list holds read to its end (`all`), how many of them you administer yourself or through a team (`administered`), how many are on through an active release (`active`), how many are drafts, not archived but with no active release yet (`draft`), and how many have no responsible team (`unassigned`). With `managing_team=unassigned` the list returns only agents without a responsible team. Both need the same permission as the list, and API keys are refused.
