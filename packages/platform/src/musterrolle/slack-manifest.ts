@@ -16,12 +16,18 @@ export type AgentAppManifestInput = {
   description: string;
   redirectUrl: string;
   /**
-   * The events route for this agent. Absent at creation: Slack checks the
+   * The events route for this agent; its interactions route sits beside
+   * it. Absent at creation: Slack checks the
    * URL with a challenge signed by a secret the app does not have yet, so
    * Finalize adds it once the route can answer.
    */
   eventsUrl?: string;
 };
+
+/** The agent's buttons and modals answer beside its events. */
+export function slackInteractionsUrlOf(eventsUrl: string): string {
+  return eventsUrl.replace(/\/v1\/slack\/events\//, "/v1/slack/interactions/");
+}
 
 const clip = (value: string, max: number) =>
   [...value].length > max ? [...value].slice(0, max).join("") : value;
@@ -65,6 +71,10 @@ export function buildAgentAppManifest(input: AgentAppManifestInput) {
             event_subscriptions: {
               request_url: input.eventsUrl,
               bot_events: [...SLACK_AGENT_BOT_EVENTS],
+            },
+            interactivity: {
+              is_enabled: true,
+              request_url: slackInteractionsUrlOf(input.eventsUrl),
             },
           }),
     },

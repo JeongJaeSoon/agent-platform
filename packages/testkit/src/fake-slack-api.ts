@@ -84,6 +84,10 @@ export type FakeSlackWebApi = {
   statuses: { channelId: string; threadTs: string; status: string }[];
   /** Every message chat.postMessage and chat.postEphemeral accepted. */
   messages: FakeSlackMessage[];
+  /** Every chat.update accepted, in order, with its blocks parsed. */
+  updates: { channelId: string; ts: string; text: string; blocks: unknown }[];
+  /** Every views.open accepted, in order. */
+  views: { triggerId: string; view: unknown }[];
   /** A send method named here answers ok:true without a ts, then forgets. */
   missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
@@ -158,6 +162,8 @@ export function createFakeSlackWebApi(
   const codes = new Map<string, { appId: string; redirectUri: string }>();
   const apps = new Map<string, FakeSlackApp>();
   const calls: FakeSlackCall[] = [];
+  const updates: FakeSlackWebApi["updates"] = [];
+  const views: FakeSlackWebApi["views"] = [];
   /** The scopes each pending code's authorize URL asked for. */
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
@@ -418,6 +424,27 @@ export function createFakeSlackWebApi(
       return { message_ts: ts };
     },
 
+    "chat.update"(context) {
+      installedBot(context);
+      const { channel, ts, text, blocks } = context.params;
+      if (!channel || !ts) throw new SlackError("message_not_found");
+      updates.push({
+        channelId: channel,
+        ts,
+        text: text ?? "",
+        blocks: blocks === undefined ? undefined : JSON.parse(blocks),
+      });
+      return { channel, ts };
+    },
+
+    "views.open"(context) {
+      installedBot(context);
+      const { trigger_id, view } = context.params;
+      if (!trigger_id || !view) throw new SlackError("invalid_arguments");
+      views.push({ triggerId: trigger_id, view: JSON.parse(view) });
+      return { view: { id: `V${views.length}` } };
+    },
+
     // Slack's archive link; the fake keeps no threads, so a reply's link
     // lacks the `thread_ts` and `cid` Slack adds.
     "chat.getPermalink"(context) {
@@ -612,6 +639,8 @@ export function createFakeSlackWebApi(
   return {
     apps,
     calls,
+    updates,
+    views,
     conversations,
     seedChannels,
     rateLimit(method, retryAfterSeconds, times = 1, after = 0) {

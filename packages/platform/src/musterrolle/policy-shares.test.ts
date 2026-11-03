@@ -597,6 +597,9 @@ describe("the pending requests a viewer is offered (94S-798)", () => {
       async recordSelfApproval() {
         throw new Error("never reached");
       },
+      async requestOutcome() {
+        throw new Error("never reached");
+      },
     };
     const pending = createPendingRequestService({
       authorization: createAuthorizationPolicy({
@@ -667,6 +670,9 @@ describe("the pending requests a viewer is offered (94S-798)", () => {
         async recordSelfApproval(input) {
           refused.push(input);
           return "receipt-self";
+        },
+        async requestOutcome() {
+          throw new Error("never reached");
         },
       },
     });

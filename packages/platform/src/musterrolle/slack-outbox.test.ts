@@ -7,6 +7,7 @@ import {
   SLACK_OUTBOX_MESSAGES,
   SLACK_TEXT_MAX,
   slackOutboxText,
+  slackPromptDedupeKey,
   slackTurnDedupeKey,
 } from "./slack-outbox.ts";
 
@@ -206,5 +207,10 @@ describe("slackOutboxText", () => {
 test("one dedupe key per turn and kind", () => {
   expect(slackTurnDedupeKey("completed", "l1", 2)).toBe("reply:l1:2");
   expect(slackTurnDedupeKey("failed", "l1", 2)).toBe("failure:l1:2");
-  expect(slackTurnDedupeKey("needs_input", "l1", 2)).toBe("input:l1:2");
+});
+
+test("one dedupe key per request and thread, the request id last and whole", () => {
+  expect(slackPromptDedupeKey("permission", "l1", "r:1")).toBe("prompt:l1:r:1");
+  expect(slackPromptDedupeKey("question", "l1", "r2")).toBe("prompt:l1:r2");
+  expect(slackPromptDedupeKey("push", "l1", "p1")).toBe("push:l1:p1");
 });

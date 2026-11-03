@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  pendingQuestionSchema,
   type SessionEventPayload,
   type UserLocale,
   withStoredNeutralFields,
@@ -8,6 +9,7 @@ import type {
   NeutralizeEvent,
   SlackOutboxFence,
   SlackOutboxStore,
+  SlackPendingPrompt,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
 } from "@werft-ai/platform";
@@ -19,17 +21,23 @@ import {
   inArray,
   isNull,
   ne,
-  or,
   type SQL,
   sql,
 } from "drizzle-orm";
 import { releaseSuperseded } from "./agents.ts";
-import { actionableOfTurn } from "./pending-requests.ts";
+import {
+  actionableNow,
+  actionableOfTurn,
+  actionableRequest,
+} from "./pending-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   agents,
+  attempts,
   events,
   linkedAccounts,
+  pendingRequests,
+  pushRequests,
   sessionLinks,
   sessions,
   slackApps,
@@ -88,12 +96,27 @@ const starterLocale = sql<UserLocale | null>`(
   )
 )`;
 
+// The request id of a card's key: whatever follows the link id, which holds
+// no colon (slackPromptDedupeKey).
+const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
+  const from = prefix.length + 1;
+  return sql`substr(${row}.dedupe_key, ${sql.raw(String(from))} + position(':' in substr(${row}.dedupe_key, ${sql.raw(String(from))})))`;
+};
+
 // Where a row may still go: an installation not revoked, for a session's row
 // its thread's link still live, unmuted and showing full answers, and for an
-// input notice a request still waiting (its key ends in the turn). Checked
-// again at claim, since a row can wait out a backoff after any of it changed.
+// input notice its request still waiting: a card's own request, or, for a
+// turn's notice from before the cards, any of its turn's. Checked again at
+// claim, since a row can wait out a backoff after any of it changed.
 const addressed = (db: Database, row: SQL) => sql`(
-  CASE WHEN ${row}.kind = 'input_notice' THEN EXISTS (
+  CASE WHEN ${row}.kind = 'input_notice' AND ${row}.dedupe_key LIKE 'prompt:%' THEN EXISTS (
+    ${actionableRequest(db, promptRequestId(row, "prompt:"), sql`${row}.session_id`)}
+  ) WHEN ${row}.kind = 'input_notice' AND ${row}.dedupe_key LIKE 'push:%' THEN EXISTS (
+    SELECT 1 FROM push_requests p
+    WHERE p.id::text = ${promptRequestId(row, "push:")}
+      AND p.session_id = ${row}.session_id
+      AND p.state = 'requested'
+  ) WHEN ${row}.kind = 'input_notice' THEN EXISTS (
     SELECT 1 FROM ${turns}
     WHERE ${turns.sessionId} = ${row}.session_id
       AND ${turns.sequence} = split_part(${row}.dedupe_key, ':', 3)::int
@@ -293,7 +316,7 @@ export function createPostgresSlackOutboxStore(
 
     async unansweredTurns(limit) {
       // The keys platform's slackTurnDedupeKey makes, spelled in SQL.
-      const prefix = sql`CASE WHEN ${turns.status} = 'completed' THEN 'reply' WHEN ${turns.status} IN ('failed', 'outcome_unknown') THEN 'failure' ELSE 'input' END`;
+      const prefix = sql`CASE WHEN ${turns.status} = 'completed' THEN 'reply' ELSE 'failure' END`;
       const rows = await db
         .select({
           sessionLinkId: sessionLinks.id,
@@ -346,14 +369,12 @@ export function createPostgresSlackOutboxStore(
                 SELECT ot.id FROM ${turns} ot
                 WHERE ot.session_id = ol.session_id
                   AND ot.sequence > ol.answered_through
-                  AND ot.status NOT IN ('queued', 'interrupted', 'cancelled')
-                  AND NOT (ot.status IN ('completed', 'failed', 'outcome_unknown')
-                    AND ot.created_at < ol.created_at)
+                  AND ot.status IN ('completed', 'failed', 'outcome_unknown')
+                  AND ot.created_at >= ol.created_at
                   AND NOT EXISTS (
                     SELECT 1 FROM ${t} oo
                     WHERE oo.dedupe_key = (CASE WHEN ot.status = 'completed' THEN 'reply'
-                        WHEN ot.status IN ('failed', 'outcome_unknown') THEN 'failure'
-                        ELSE 'input' END)
+                        ELSE 'failure' END)
                       || ':' || ol.id || ':' || ot.sequence
                   )
                   AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"), true)}
@@ -369,18 +390,9 @@ export function createPostgresSlackOutboxStore(
             eq(sessionLinks.muted, false),
             eq(sessionLinks.visibility, "full"),
             ne(slackInstallations.status, "revoked"),
-            or(
-              and(
-                inArray(turns.status, [
-                  "completed",
-                  "failed",
-                  "outcome_unknown",
-                ]),
-                // A turn from before the thread is not the thread's to answer.
-                gte(turns.createdAt, sessionLinks.createdAt),
-              ),
-              sql`EXISTS (${actionableOfTurn(db)})`,
-            ),
+            inArray(turns.status, ["completed", "failed", "outcome_unknown"]),
+            // A turn from before the thread is not the thread's to answer.
+            gte(turns.createdAt, sessionLinks.createdAt),
             sql`NOT EXISTS (
               SELECT 1 FROM ${t} o
               WHERE o.dedupe_key = ${prefix} || ':' || ${sessionLinks.id} || ':' || ${turns.sequence}
@@ -434,12 +446,7 @@ export function createPostgresSlackOutboxStore(
       return rows.map(
         ({ turnRowId, status, attemptId: _, ...row }): SlackUnansweredTurn => ({
           ...row,
-          state:
-            status === "completed"
-              ? "completed"
-              : status === "failed" || status === "outcome_unknown"
-                ? "failed"
-                : "needs_input",
+          state: status === "completed" ? "completed" : "failed",
           events: said
             .filter((event) => event.turnId === turnRowId)
             .map(({ type, payload, neutral, profileId }) => ({
@@ -454,6 +461,167 @@ export function createPostgresSlackOutboxStore(
             })),
         }),
       );
+    },
+
+    async unpromptedRequests(limit) {
+      const target = {
+        sessionLinkId: sessionLinks.id,
+        sessionId: sessions.id,
+        workspaceId: sessionLinks.workspaceId,
+        agentId: sessionLinks.agentId,
+        slackAppId: slackApps.id,
+        installationId: sessionLinks.installationId,
+        channelId: sessionLinks.channelId,
+        threadTs: sessionLinks.threadId,
+        locale: starterLocale,
+      };
+      // A link that still shows this thread its session in full.
+      const live = and(
+        isNull(sessionLinks.revokedAt),
+        eq(sessionLinks.muted, false),
+        eq(sessionLinks.visibility, "full"),
+        ne(slackInstallations.status, "revoked"),
+      );
+      const requester = (actorId: SQL) =>
+        and(
+          eq(linkedAccounts.workspaceId, sessionLinks.workspaceId),
+          eq(
+            linkedAccounts.userId,
+            sql`coalesce(${actorId}, ${sessionLinks.createdBy})`,
+          ),
+          eq(linkedAccounts.provider, "slack"),
+          eq(linkedAccounts.externalTenant, slackInstallations.teamId),
+          eq(linkedAccounts.status, "active"),
+        );
+      const asked = await db
+        .select({
+          ...target,
+          requesterSlackUserId: linkedAccounts.externalUserId,
+          requestId: pendingRequests.requestId,
+          payload: pendingRequests.payload,
+          expiresAt: pendingRequests.expiresAt,
+        })
+        .from(pendingRequests)
+        .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+        .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+        .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+        .innerJoin(sessionLinks, eq(sessionLinks.sessionId, sessions.id))
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, sessionLinks.installationId),
+        )
+        .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
+        .leftJoin(linkedAccounts, requester(sql`${turns.actorId}`))
+        .where(
+          and(
+            actionableNow(),
+            live,
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${t} o
+              WHERE o.dedupe_key = 'prompt:' || ${sessionLinks.id} || ':' || ${pendingRequests.requestId}
+            )`,
+          ),
+        )
+        .orderBy(asc(pendingRequests.createdAt), asc(pendingRequests.requestId))
+        .limit(limit);
+      const waiting = await db
+        .select({
+          ...target,
+          requesterSlackUserId: linkedAccounts.externalUserId,
+          requestId: pushRequests.id,
+          repositoryId: pushRequests.repositoryId,
+          targetBranch: pushRequests.targetBranch,
+          gitCommit: pushRequests.gitCommit,
+        })
+        .from(pushRequests)
+        .innerJoin(sessions, eq(sessions.id, pushRequests.sessionId))
+        .innerJoin(sessionLinks, eq(sessionLinks.sessionId, sessions.id))
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, sessionLinks.installationId),
+        )
+        .innerJoin(slackApps, eq(slackApps.appId, slackInstallations.appId))
+        .leftJoin(
+          linkedAccounts,
+          requester(sql`(${pushRequests.requestedBy}->>'actor_user_id')::uuid`),
+        )
+        .where(
+          and(
+            eq(pushRequests.state, "requested"),
+            live,
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${t} o
+              WHERE o.dedupe_key = 'push:' || ${sessionLinks.id} || ':' || ${pushRequests.id}
+            )`,
+          ),
+        )
+        .orderBy(asc(pushRequests.createdAt), asc(pushRequests.id))
+        .limit(limit);
+      return [
+        ...asked.flatMap(
+          ({ requestId, payload, expiresAt, ...row }): SlackPendingPrompt[] => {
+            const stored = payload as {
+              kind?: string;
+              tool?: string;
+              input?: unknown;
+              questions?: unknown;
+            };
+            const expires = expiresAt.toISOString();
+            if (
+              stored.kind === "permission" &&
+              typeof stored.tool === "string"
+            ) {
+              return [
+                {
+                  ...row,
+                  prompt: {
+                    kind: "permission",
+                    requestId,
+                    tool: stored.tool,
+                    input: stored.input ?? null,
+                    expiresAt: expires,
+                  },
+                },
+              ];
+            }
+            const questions = pendingQuestionSchema
+              .array()
+              .min(1)
+              .safeParse(stored.questions);
+            return stored.kind === "question" && questions.success
+              ? [
+                  {
+                    ...row,
+                    prompt: {
+                      kind: "question",
+                      requestId,
+                      questions: questions.data,
+                      expiresAt: expires,
+                    },
+                  },
+                ]
+              : [];
+          },
+        ),
+        ...waiting.map(
+          ({
+            requestId,
+            repositoryId,
+            targetBranch,
+            gitCommit,
+            ...row
+          }): SlackPendingPrompt => ({
+            ...row,
+            prompt: {
+              kind: "push",
+              requestId,
+              repositoryId,
+              targetBranch,
+              gitCommit,
+            },
+          }),
+        ),
+      ];
     },
 
     async expireSending() {

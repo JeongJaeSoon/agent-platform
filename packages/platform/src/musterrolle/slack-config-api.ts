@@ -446,6 +446,16 @@ export interface SlackBotApi {
     botToken: string,
     input: { channelId: string; ts: string },
   ): Promise<string>;
+  /** `chat.update` of a message the bot posted: new text and blocks. */
+  updateMessage?(
+    botToken: string,
+    input: { channelId: string; ts: string; text: string; blocks: unknown[] },
+  ): Promise<void>;
+  /** `views.open` with the `trigger_id` of a press made seconds ago. */
+  openView?(
+    botToken: string,
+    input: { triggerId: string; view: Record<string, unknown> },
+  ): Promise<void>;
 }
 
 /** What the outbox sends with a bot token. */
@@ -466,6 +476,8 @@ export interface SlackBotSender {
       text: string;
       username?: string;
       iconUrl?: string;
+      /** Block Kit; `text` stays the notification and fallback. */
+      blocks?: unknown[];
     },
   ): Promise<SlackSendResponse>;
   /** `users.info`'s 48px profile image; null when Slack names none. */
@@ -539,7 +551,9 @@ const listChannelsAnswer = z.object({
 
 export function createSlackBotApi(
   options?: SlackApiOptions,
-): SlackBotApi & SlackBotSender {
+): SlackBotApi &
+  Required<Pick<SlackBotApi, "updateMessage" | "openView">> &
+  SlackBotSender {
   const call = slackCaller(options);
   const send = slackSender(options);
   return {
@@ -667,6 +681,33 @@ export function createSlackBotApi(
       return answer.permalink;
     },
 
+    async updateMessage(botToken, input) {
+      await call(
+        "chat.update",
+        {
+          token: botToken,
+          body: {
+            channel: input.channelId,
+            ts: input.ts,
+            text: input.text,
+            blocks: input.blocks,
+          },
+        },
+        z.object({}),
+      );
+    },
+
+    async openView(botToken, input) {
+      await call(
+        "views.open",
+        {
+          token: botToken,
+          body: { trigger_id: input.triggerId, view: input.view },
+        },
+        z.object({}),
+      );
+    },
+
     postMessage(botToken, input) {
       return send("chat.postMessage", botToken, {
         channel: input.channelId,
@@ -674,6 +715,7 @@ export function createSlackBotApi(
         text: input.text,
         ...(input.username === undefined ? {} : { username: input.username }),
         ...(input.iconUrl === undefined ? {} : { icon_url: input.iconUrl }),
+        ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
         link_names: false,
         unfurl_links: false,
         unfurl_media: false,

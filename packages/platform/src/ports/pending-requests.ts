@@ -43,6 +43,11 @@ export type AnswerRequestResult =
   // for this session.
   | { outcome: "actor_inactive" | "role" };
 
+export type PendingRequestOutcome =
+  | { state: "open" | "closed"; kind: "permission" | "question" }
+  | { state: "answered"; kind: "question" }
+  | { state: "answered"; kind: "permission"; decision: "allow" | "deny" };
+
 /** The public half: what clients see and how they answer it. */
 export interface PendingRequestStore {
   // null when the session is not visible to the owner.
@@ -51,6 +56,16 @@ export interface PendingRequestStore {
     sessionId: string,
   ): Promise<PendingRequest[] | null>;
   answerAtomic(input: AnswerRequestInput): Promise<AnswerRequestResult>;
+  /**
+   * Where one request stands: `open` while a client can still answer it,
+   * `answered` with how a permission was answered, else `closed` (expired,
+   * withdrawn or invalidated). Null when the session or request is unknown.
+   */
+  requestOutcome(
+    ownerId: string,
+    sessionId: string,
+    requestId: string,
+  ): Promise<PendingRequestOutcome | null>;
   /**
    * Writes the failed `answer` receipt of a key refused for answering the
    * session it started (GA-8) and returns its id.

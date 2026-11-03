@@ -1,9 +1,9 @@
-import type { UserLocale } from "@werft-ai/contracts";
+import type { PendingQuestion, UserLocale } from "@werft-ai/contracts";
 
 /**
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
  * could not finish, or a reply whose send nobody can vouch for. `input_notice`:
- * a turn waiting on an approval only the web can give. `notice`: a refusal,
+ * a request the session waits on, with the buttons that settle it. `notice`: a refusal,
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").
  * `instruction`: an input sent from the web or the API, shown in the thread
@@ -40,6 +40,8 @@ export type SlackOutboxBody = {
   link_url?: string;
   locale?: UserLocale;
   mention_user_ids?: string[];
+  /** Block Kit, shown in place of `text`, which stays the notification. */
+  blocks?: unknown[];
   sender?: { username: string; slack_user_id?: string };
 };
 
@@ -90,15 +92,11 @@ export type SlackLinkedTurnTarget = {
   threadTs: string;
 };
 
-/**
- * A turn of a live linked session that has no outbox row of its kind yet.
- * `ended` holds a terminal status; `needs_input` is a running turn with a
- * pending request a client can still answer.
- */
+/** An ended turn of a live linked session that has no outbox row yet. */
 export type SlackUnansweredTurn = SlackLinkedTurnTarget & {
   /** The public turn id, 1-based within the session. */
   turnId: number;
-  state: "completed" | "failed" | "needs_input";
+  state: "completed" | "failed";
   /** The Slack account linked to whoever asked for the turn, if any. */
   requesterSlackUserId: string | null;
   /**
@@ -120,6 +118,37 @@ export type SlackUnpostedInstruction = SlackLinkedTurnTarget & {
   senderName: string | null;
   /** The Slack account linked to the sender, if any. */
   senderSlackUserId: string | null;
+};
+
+/**
+ * A request of a live linked session that a person can still settle, with
+ * no outbox row yet: a permission or question a client can answer, or a
+ * push request waiting for its decision.
+ */
+export type SlackPendingPrompt = SlackLinkedTurnTarget & {
+  /** The Slack account linked to whoever asked for the turn, if any. */
+  requesterSlackUserId: string | null;
+  prompt:
+    | {
+        kind: "permission";
+        requestId: string;
+        tool: string;
+        input: unknown;
+        expiresAt: string;
+      }
+    | {
+        kind: "question";
+        requestId: string;
+        questions: PendingQuestion[];
+        expiresAt: string;
+      }
+    | {
+        kind: "push";
+        requestId: string;
+        repositoryId: string;
+        targetBranch: string;
+        gitCommit: string;
+      };
 };
 
 export type SlackOutboxSettle =
@@ -157,11 +186,13 @@ export interface SlackOutboxStore {
    */
   unpostedInstructions(limit: number): Promise<SlackUnpostedInstruction[]>;
   /**
-   * Linked turns past the link's mark that ended or wait on input without
-   * their outbox row. A turn that owes an `instruction` row waits for it,
+   * Linked turns past the link's mark that ended without their outbox
+   * row. A turn that owes an `instruction` row waits for it,
    * so the answer never goes ahead of what it answers.
    */
   unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
+  /** Requests of live linked sessions without their `input_notice` row. */
+  unpromptedRequests(limit: number): Promise<SlackPendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
   expireSending(): Promise<SlackOutboxLost[]>;
   /**
