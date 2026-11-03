@@ -117,6 +117,12 @@ export const profileSummarySchema = z
     model: z.string().min(1),
     models: z.array(z.string().min(1)).min(1),
     tools: z.array(z.string().min(1)),
+    // Read only: a server ahead of this reader sends it; `tools` stays what
+    // a session gets. Requests carrying it are refused, not ignored.
+    deny: z.array(z.string().min(1)).nullable().optional().meta({
+      description:
+        "The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list.",
+    }),
     permission_mode: permissionModeSchema,
     runtime_kind: runtimeKindSchema,
     runtime_version: z.string().min(1),
@@ -277,6 +283,30 @@ export const installationProfileOptionsResponseSchema = z
         .strict(),
     ),
     repositories: z.array(z.object({ id: z.string().min(1) }).strict()),
+    // Optional so a reader ahead of its server reads options without it.
+    tool_catalogs: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            runtime_kind: runtimeKindSchema,
+            runtime_version: z.string().min(1),
+            tools: z.array(
+              z
+                .object({
+                  name: z.string().min(1),
+                  boundary: z.enum(["local", "egress", "provider"]),
+                })
+                .strict(),
+            ),
+          })
+          .strict(),
+      )
+      .optional()
+      .meta({
+        description:
+          "The built-in tools this installation supports, per runtime version: what a profile's deny may name. A version not listed takes only `tools`.",
+      }),
     // Whether PLATFORM_ALLOW_UNATTENDED_PERMISSIONS lets a ceiling run
     // bypassPermissions here.
     unattended_allowed: z.boolean(),

@@ -270,6 +270,9 @@ describe("POST /v1/workspace-profiles", () => {
       { ...REQUEST, name: "Strict_Review" },
       { ...REQUEST, models: [] },
       { ...REQUEST, extra: true },
+      { ...REQUEST, deny: ["Bash"] },
+      { ...REQUEST, deny: [] },
+      { ...REQUEST, tools: undefined },
     ]) {
       const response = await post({}, "/v1/workspace-profiles", bad);
       expect(response.status).toBe(400);
@@ -424,11 +427,25 @@ describe("POST /v1/installation-profiles", () => {
     expect(
       installationProfileChangeResponseSchema.parse(await created.json()),
     ).toEqual({ profile: CEILING, receipt_id: RECEIPT });
+    const denying = { ...CEILING, deny: ["Bash"] };
+    const answered = await onInstallation(
+      { create: async () => ({ profile: denying, receipt_id: RECEIPT }) },
+      "POST",
+      path,
+      CEILING_REQUEST,
+    );
+    expect(answered.status).toBe(201);
+    expect(
+      installationProfileChangeResponseSchema.parse(await answered.json()),
+    ).toEqual({ profile: denying, receipt_id: RECEIPT });
     for (const bad of [
       { ...CEILING_REQUEST, name: "Coding" },
       { ...CEILING_REQUEST, models: [] },
       { ...CEILING_REQUEST, permission_mode: "yolo" },
       { ...CEILING_REQUEST, endpoint: "https://elsewhere.invalid" },
+      { ...CEILING_REQUEST, deny: ["Bash"] },
+      { ...CEILING_REQUEST, deny: [] },
+      { ...CEILING_REQUEST, tools: undefined },
     ]) {
       expect((await onInstallation({}, "POST", path, bad)).status).toBe(400);
     }
