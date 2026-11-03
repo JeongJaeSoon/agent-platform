@@ -117,11 +117,11 @@ export const profileSummarySchema = z
     model: z.string().min(1),
     models: z.array(z.string().min(1)).min(1),
     tools: z.array(z.string().min(1)),
-    // Read only: a server ahead of this reader sends it; `tools` stays what
-    // a session gets. Requests carrying it are refused, not ignored.
+    // Optional so a reader ahead of its server reads a profile without it;
+    // `tools` stays what a session gets.
     deny: z.array(z.string().min(1)).nullable().optional().meta({
       description:
-        "The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list.",
+        "The built-in tools of its runtime version's tool catalog that `tools` leaves out: what it blocks. Null when no catalog lists that version.",
     }),
     permission_mode: permissionModeSchema,
     runtime_kind: runtimeKindSchema,
@@ -196,6 +196,46 @@ export function workspaceProfileId(
   return `ws_${prefix}_${name}_v${version}`;
 }
 
+const toolNamesSchema = z.array(z.string().min(1).max(200)).max(64);
+
+/**
+ * A version names its built-in tools one way: `tools`, an allow list kept
+ * as given, or `deny`, the tools of the runtime's catalog it blocks (`[]`
+ * blocks none). `accept_added_tools` opens tools the previous version never
+ * weighed, which a deny otherwise keeps blocked.
+ */
+const toolChoiceFields = {
+  tools: toolNamesSchema.exactOptional().meta({
+    description:
+      "The built-in tools sessions run, kept as given. Exactly one of `tools` and `deny`.",
+  }),
+  deny: toolNamesSchema.exactOptional().meta({
+    description:
+      "The built-in tools of the runtime version's tool catalog to block; the server stores the rest as `tools`. `[]` blocks none. Exactly one of `tools` and `deny`; 400 for a runtime version with no catalog.",
+  }),
+  accept_added_tools: toolNamesSchema.exactOptional().meta({
+    description:
+      "With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400.",
+  }),
+};
+
+function namesOneToolChoice(request: {
+  tools?: unknown;
+  deny?: unknown;
+  accept_added_tools?: unknown;
+}): boolean {
+  return (
+    (request.tools === undefined) !== (request.deny === undefined) &&
+    (request.accept_added_tools === undefined || request.deny !== undefined)
+  );
+}
+
+const ONE_TOOL_CHOICE = {
+  message:
+    "name exactly one of tools and deny; accept_added_tools goes with deny",
+  path: ["deny"],
+};
+
 /**
  * POST /v1/workspace-profiles: a new version of the workspace profile
  * `name`, narrowing the operator profile `base_profile_id`. Its id is new
@@ -208,10 +248,11 @@ export const createWorkspaceProfileRequestSchema = z
     // The default model, one of `models`.
     model: z.string().min(1).max(200),
     models: z.array(z.string().min(1).max(200)).min(1).max(32),
-    tools: z.array(z.string().min(1).max(200)).max(64),
+    ...toolChoiceFields,
     permission_mode: permissionModeSchema,
   })
-  .strict();
+  .strict()
+  .refine(namesOneToolChoice, ONE_TOOL_CHOICE);
 
 export const workspaceProfileIdParamsSchema = z
   .object({ profile_id: z.string().min(1).max(200) })
@@ -242,7 +283,7 @@ export const createInstallationProfileRequestSchema = z
     model: z.string().min(1).max(200),
     models: z.array(z.string().min(1).max(200)).min(1).max(32),
     title_model: z.string().min(1).max(200).optional(),
-    tools: z.array(z.string().min(1).max(200)).max(64),
+    ...toolChoiceFields,
     permission_mode: permissionModeSchema,
     project_settings: projectSettingsSchema.optional(),
     repository_mode: repositoryModeSchema.optional(),
@@ -251,7 +292,8 @@ export const createInstallationProfileRequestSchema = z
     github_app_repositories: githubAppRepositoriesSchema.optional(),
     previous_id: z.string().min(1).max(200).optional(),
   })
-  .strict();
+  .strict()
+  .refine(namesOneToolChoice, ONE_TOOL_CHOICE);
 
 export const installationProfileIdParamsSchema = workspaceProfileIdParamsSchema;
 
