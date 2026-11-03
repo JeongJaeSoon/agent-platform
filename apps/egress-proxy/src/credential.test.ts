@@ -15,7 +15,6 @@ import {
   type EgressGrant,
   isPushAdvertisement,
   mcpCallOf,
-  PUSH_NOTICE,
   parseGrant,
   responseHeaders,
   routeOf,
@@ -1022,8 +1021,8 @@ describe("startCredentialProxy", () => {
     );
     const server = proxy(auth.url, up.port);
     const origin = `http://127.0.0.1:${server.port}`;
-    const line = `ERR ${PUSH_NOTICE}\n`;
-    const expected = `${(line.length + 4).toString(16).padStart(4, "0")}${line}`;
+    const expected =
+      "0106ERR git push does not reach GitHub here. Push and open pull requests with the platform's GitHub tools (mcp__github__request_push, mcp__github__open_pull_request). If this agent has no GitHub tools, an administrator turns GitHub on in the agent's GitHub tab.\n";
     for (const [path, headers] of [
       ["/repository/info/refs", {}],
       [
