@@ -116,9 +116,9 @@ D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도�
 - **D2 (a).** 저장소에 PR 템플릿이 여럿이면 설정이 고른 것만 쓰고, 설정이 없으면 플랫폼 기본 틀을 쓴다. GitHub도 여럿 가운데 하나를 고르지 않으므로 플랫폼도 추측하지 않는다.
 - **D3 (b).** PR 꼬리와 `Agent-Session`의 세션 링크는 워크스페이스 설정 `session_link: url | id`로 정하고 기본은 url이다. 지금 동작은 그대로 두고, 공개 저장소를 다루는 워크스페이스는 콘솔 주소를 빼고 세션 id만 낼 수 있다. 모든 경로가 같은 값을 쓴다.
 - **D4 (a).** 에이전트가 구조화 필드 없이 `body`만 보내면 저장소 템플릿에 다시 배치하지 않고 그대로 쓴다(`verbatim`, 설정으로 `as_summary`). 기존 세션의 PR 모양이 갑자기 바뀌지 않게 하려는 것이다. 공통 정리, 엔진 서명 줄 제거, 꼬리는 그대로 적용한다.
-- **D5 (a).** 귀속이 틀린 commit(트레일러가 빠졌거나 author가 바뀐 것)은 worker가 턴 끝 checkpoint 직전에 고친다. 원격에 없는 commit만 다시 만들고, 고치지 못하면 `request_push`가 `attribution_mismatch`로 거절한다. 다시 만드는 것은 push 요청 전이므로 "승인 뒤 SHA를 바꾸지 않는다"는 위 규칙은 그대로다. 대신 에이전트가 기억하던 commit SHA가 다음 턴에 바뀔 수 있다.
-- **작성자와 Co-author.** PR과 commit 모두 작성자(author·committer)는 플랫폼 GitHub App bot이고, 요청한 사람은 `Co-authored-by`다. 요청한 사람은 세션 시작자가 아니라 그 commit이나 PR 호출이 일어난 턴의 요청자다. 요청자가 GitHub 계정을 연결하지 않았으면 이름을 어디에도 넣지 않고 `Agent-Session`만 남긴다. 에이전트 key·operator key·스케줄처럼 요청자가 없으면 App 단독이다. 자리별 값은 [호출자 매핑](agent-actions.md#7-호출자-매핑)에 있다. 위 "누가 들어가나"와 "미연결 안내"의 시작자 규칙은 이 규칙을 구현하는 단위(L15)가 머지될 때 고친다.
-- **D6~D11.** 도구 카탈로그가 도구 관점에서 다시 분류했다. D7·D9·D10은 플랫폼이 모델 대신 효과를 시작할지 묻는 질문이라 폐기했고, D6(첨부 저장소 push 기본 승인 없음)과 D11(commit bot의 App은 주 저장소의 고정 연결 App)은 도구 기본값이 됐고, D8은 (a)를 유지한다. 판정과 이유는 [도구 카탈로그 10절](agent-actions.md#10-오너-결정-d1d11)에 있다.
+- **D5 (a).** 귀속이 틀린 commit(트레일러가 빠졌거나 author가 바뀐 것)은 worker가 턴 끝 checkpoint 직전에 고친다. 원격에 없는 commit만 다시 만들고, 고치지 못하면 `request_push`가 `attribution_mismatch`로 거절한다. 복구는 턴 끝 checkpoint를 확정하기 전에 하고 push는 그 checkpoint의 commit을 고정하므로, "승인 뒤 SHA를 바꾸지 않는다"는 위 규칙은 그대로다. 대신 에이전트가 기억하던 commit SHA가 다음 턴에 바뀔 수 있다.
+- **작성자와 Co-author.** PR과 commit 모두 작성자(author·committer)는 플랫폼 GitHub App bot이고, 요청한 사람은 `Co-authored-by`다. 요청한 사람은 세션 시작자가 아니라 그 commit이나 PR 호출이 일어난 턴의 요청자다. 요청자가 GitHub 계정을 연결하지 않았으면 이름을 어디에도 넣지 않는다. commit에는 `Agent-Session`만 남고, PR 꼬리는 이름 없이 계정 미연결이라고만 적는다. 에이전트 key·operator key·스케줄처럼 요청자가 없으면 App 단독이다. 자리별 값은 [호출자 매핑](agent-actions.md#7-호출자-매핑)에 있다. 위 "누가 들어가나"와 "미연결 안내"의 시작자 규칙은 이 규칙을 구현하는 단위(L15)가 머지될 때 고친다.
+- **D6~D11.** 도구 카탈로그가 도구 관점에서 다시 분류했다. D7·D9·D10은 결정 목록에서 뺐고(D10의 여러 소스 지원은 도구 한계로 남는다), D6(첨부 저장소 push 기본 승인 없음)과 D11(commit bot의 App은 주 저장소의 고정 연결 App)은 도구 기본값이 됐고, D8은 (a)를 유지한다. 판정과 이유는 [도구 카탈로그 10절](agent-actions.md#10-오너-결정-d1d11)에 있다.
 
 ### 결정 6. push 전 사람 승인
 
