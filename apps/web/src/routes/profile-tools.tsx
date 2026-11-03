@@ -57,7 +57,6 @@ export function toolRefusalKey(reason: unknown): MessageKey | undefined {
 export const toolField = (path: string | undefined): string | undefined =>
   path === "tools" || path === "accept_added_tools" ? "deny" : path;
 
-/** The reason code a refusal carries, if any. */
 export const reasonOf = (failure: ApiError): unknown =>
   (failure.details as { readonly reason_code?: unknown } | undefined)
     ?.reason_code;

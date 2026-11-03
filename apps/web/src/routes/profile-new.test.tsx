@@ -973,7 +973,6 @@ describe("차단할 내장 도구", () => {
         `아무것도 체크하지 않으면 제한 없음입니다. 다만 플랫폼이 지원하는 내장 도구 카탈로그(${CATALOG_ID}) 안에서입니다.`,
       ),
     ).toBeDefined();
-    // Space on a focused box ticks it, as on any checkbox.
     const user = await setupUser();
     search.focus();
     await user.keyboard(" ");
