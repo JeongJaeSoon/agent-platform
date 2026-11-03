@@ -349,6 +349,32 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(text.split("Bash").length - 1).toBe(1);
   });
 
+  test("결과 뒤에 온 요청도 그 호출 행에서 결과 아래에 두고, 짝 없는 요청은 제 행에 둔다", () => {
+    render(
+      <Timeline
+        entries={[
+          call("c1"),
+          result("c1"),
+          permission("c1"),
+          result("c1"),
+          permission("gone"),
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        now={START}
+      />,
+    );
+    const [row, duplicate, alone] = rows();
+    expect(rows()).toHaveLength(3);
+    const text = row?.textContent ?? "";
+    expect(text.indexOf("session.event.kind.permission")).toBeGreaterThan(
+      text.indexOf("session.event.toolResult.unknown"),
+    );
+    // A second result does not end the call again; it keeps its own line.
+    expect(duplicate?.textContent).toContain("session.event.kind.toolResult");
+    expect(alone?.dataset.kind).toBe("request");
+  });
+
   test("질문 요청도 그 호출 행 안에 선택지·답변 슬롯과 함께 그린다", () => {
     const asked: TimelineEntry = {
       ...entry(
