@@ -34,6 +34,8 @@ import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { ModelConnections } from "./model-connections.tsx";
+import { OriginBadge } from "./settings-entries.tsx";
 
 // Name, version, kind, base, default model, permission mode, state; a phone
 // keeps the name and the state, and the name cell says the kind.
@@ -321,6 +323,9 @@ export function ProfilesScreen() {
           )}
         </div>
       )}
+      <div className="mt-[var(--ap-space-section)]">
+        <ModelConnections profiles={ceilings} />
+      </div>
     </Page>
   );
 }
@@ -394,9 +399,18 @@ function ProfileRow({
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <Text as="span" variant="meta">
-          {t(`profiles.kind.${kind}`)}
-        </Text>
+        <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
+          <Text as="span" variant="meta">
+            {t(`profiles.kind.${kind}`)}
+          </Text>
+          {profile.installation ? (
+            <OriginBadge
+              origin={
+                profile.installation.origin === "catalog" ? "file" : "console"
+              }
+            />
+          ) : null}
+        </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
         <Code className="wrap-anywhere">

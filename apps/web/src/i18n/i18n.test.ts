@@ -53,6 +53,7 @@ import { outputsEn, outputsJa, outputsKo } from "./outputs.ts";
 import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
 import { profilesEn, profilesJa, profilesKo } from "./profiles.ts";
 import { sessionListEn, sessionListJa, sessionListKo } from "./session-list.ts";
+import { settingsEn, settingsJa, settingsKo } from "./settings.ts";
 import { shellEn, shellJa, shellKo } from "./shell.ts";
 import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
 import { usageEn, usageJa, usageKo } from "./usage.ts";
@@ -151,6 +152,7 @@ describe("i18n", () => {
         preferencesKo,
         errorsKo,
         formsKo,
+        settingsKo,
       ],
       ja: [
         slackJa,
@@ -179,6 +181,7 @@ describe("i18n", () => {
         preferencesJa,
         errorsJa,
         formsJa,
+        settingsJa,
       ],
       en: [
         slackEn,
@@ -207,6 +210,7 @@ describe("i18n", () => {
         preferencesEn,
         errorsEn,
         formsEn,
+        settingsEn,
       ],
     };
     for (const locale of LOCALES) {

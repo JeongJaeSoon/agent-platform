@@ -106,6 +106,7 @@ import {
   createSessionService,
   createSessionShareService,
   createSessionTitler,
+  createSettingsConsoleService,
   createSettingsDocumentService,
   createSlackAppService,
   createSlackBotApi,
@@ -192,7 +193,11 @@ import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
-import { leftOutReporter, settingsSource } from "./installation-settings.ts";
+import {
+  credentialHostsFromEnv,
+  leftOutReporter,
+  settingsSource,
+} from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
@@ -224,7 +229,10 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github-work.ts";
-import { registerInstallationSettingsRoutes } from "./routes/installation-settings.ts";
+import {
+  registerInstallationSettingsRoutes,
+  registerSettingsConsoleRoutes,
+} from "./routes/installation-settings.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -766,10 +774,29 @@ const installationProfiles = createInstallationProfileService({
   allowUnattended: profileSources.sources.allowUnattended,
   runtimes: installedRuntimes,
 });
+const settingsDocumentStore = createPostgresSettingsDocumentStore(
+  db,
+  secretKey,
+);
+const rereadSettings = () =>
+  workspaceProfileVersions.refresh().catch(() => undefined);
 const settingsDocument = createSettingsDocumentService({
   authorization,
-  store: createPostgresSettingsDocumentStore(db),
-  reread: () => workspaceProfileVersions.refresh().catch(() => undefined),
+  store: settingsDocumentStore,
+  reread: rereadSettings,
+});
+const settingsConsole = createSettingsConsoleService({
+  authorization,
+  store: settingsDocumentStore,
+  files: () => ({
+    connections: profileSources.connections,
+    repositories: profileSources.config.repositories,
+    mcp_servers: profileSources.config.mcp_servers ?? {},
+  }),
+  leftOut: () => workspaceProfileVersions.settings?.left_out ?? [],
+  secretStoreOn: secretKey !== null,
+  credentialHosts: credentialHostsFromEnv(process.env),
+  reread: rereadSettings,
 });
 const agentAdmins = createAgentAdminService({
   authorization,
@@ -1209,6 +1236,7 @@ const app = createApiApp({
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, workspaceProfiles, installationProfiles);
     registerInstallationSettingsRoutes(router, settingsDocument);
+    registerSettingsConsoleRoutes(router, settingsConsole);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,

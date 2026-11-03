@@ -1,6 +1,10 @@
 import { describe, expect, jest, test } from "bun:test";
 import type { ApiClient } from "@werft-ai/client";
-import type { MemberView } from "@werft-ai/contracts";
+import type {
+  MemberView,
+  ProfileSummary,
+  SettingsConnection,
+} from "@werft-ai/contracts";
 import { waitingSessionsQuery, withQueryScope } from "@werft-ai/core";
 import { useMinute } from "@werft-ai/react/components";
 import { formatElapsed } from "@werft-ai/ui";
@@ -16,6 +20,7 @@ import {
   USER_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
+import { imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 import { statusPageQuery } from "./home.tsx";
 
@@ -26,8 +31,37 @@ function shownText(element: Element): string {
   return copy.textContent ?? "";
 }
 
-const { act, renderAt, renderHook, screen, waitFor, within } =
-  await appHarness();
+const harness = await appHarness();
+const { act, renderHook, screen, waitFor, within } = harness;
+
+const CONNECTION: SettingsConnection = {
+  id: "anthropic-main",
+  origin: "console",
+  state: "active",
+  kind: "anthropic",
+  endpoint: "https://api.anthropic.com",
+  billing: "per_token",
+  auth_kind: "api_key",
+  credential: { source: "stored", last4: "abcd" },
+  created_at: "2026-10-01T00:00:00.000Z",
+  disabled_at: null,
+};
+
+const settingsReads = (
+  connections: readonly SettingsConnection[],
+  profiles: readonly ProfileSummary[],
+) => ({
+  "GET /v1/installation/settings/connections": () =>
+    json(200, { items: connections, credential_hosts: null }),
+  "GET /v1/profiles": () => json(200, { items: profiles }),
+});
+
+// An installation with a connection and a ceiling, unless a test says not.
+const renderAt: typeof harness.renderAt = (path, routes) =>
+  harness.renderAt(path, {
+    ...settingsReads([CONNECTION], [imported("coding-claude")]),
+    ...routes,
+  });
 
 const owner: MemberView = {
   user_id: USER_ID,
@@ -105,7 +139,14 @@ describe("bootstrap checklist", () => {
       expect(api.calls.some((c) => c.path === "/v1/sessions")).toBe(true),
     );
     await waitFor(() =>
-      expect(read()).toEqual(["done", "pending", "pending", "pending"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "pending",
+        "pending",
+        "pending",
+      ]),
     );
     const order = [...document.querySelectorAll("main section > div h2")].map(
       (heading) => heading.textContent,
@@ -116,13 +157,15 @@ describe("bootstrap checklist", () => {
     const links = stepLinks();
     expect(links.map((link) => link?.slice(0, 2) ?? null)).toEqual([
       null,
+      ["실행 프로필", "/profiles"],
+      ["실행 프로필", "/profiles"],
       ["구성원 목록", "/members"],
       ["에이전트 목록", "/agents"],
       ["세션 목록", "/sessions"],
     ]);
     expect(
       links.map((link) => (link?.[2] ?? "").includes("bg-primary")),
-    ).toEqual([false, true, false, false]);
+    ).toEqual([false, false, false, true, false, false]);
   });
 
   test("초대를 보냈고 활성 release가 있는 에이전트가 있으면 두 단계가 완료다", async () => {
@@ -154,7 +197,14 @@ describe("bootstrap checklist", () => {
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "done", "done", "pending"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "done",
+        "done",
+        "pending",
+      ]),
     );
     expect(agent.id).toBe(AGENT_ID);
   });
@@ -177,7 +227,14 @@ describe("bootstrap checklist", () => {
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "done", "pending", "pending"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "done",
+        "pending",
+        "pending",
+      ]),
     );
   });
 
@@ -192,7 +249,14 @@ describe("bootstrap checklist", () => {
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "unknown", "pending", "pending"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "unknown",
+        "pending",
+        "pending",
+      ]),
     );
   });
 
@@ -263,7 +327,14 @@ describe("bootstrap checklist", () => {
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "pending", "pending", "done"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "pending",
+        "pending",
+        "done",
+      ]),
     );
   });
 
@@ -278,8 +349,85 @@ describe("bootstrap checklist", () => {
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "pending", "pending", "unknown"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "pending",
+        "pending",
+        "unknown",
+      ]),
     );
+  });
+
+  test("빈 설치의 소유자에게는 모델 연결과 설치 프로필 단계가 아직이고, 다음 할 일은 연결이다", async () => {
+    const { api } = renderAt("/", {
+      ...settingsReads([], []),
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+      ...noSessions,
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read()).toEqual([
+        "done",
+        "pending",
+        "pending",
+        "pending",
+        "pending",
+        "pending",
+      ]),
+    );
+    expect(checklistSteps()[1]?.textContent).toContain("모델 연결 추가하기");
+    expect(checklistSteps()[2]?.textContent).toContain("설치 프로필 만들기");
+    const links = stepLinks();
+    expect(
+      links.map((link) => (link?.[2] ?? "").includes("bg-primary")),
+    ).toEqual([false, true, false, false, false, false]);
+    expect(
+      api.calls.some((c) => c.path === "/v1/installation/settings/connections"),
+    ).toBe(true);
+  });
+
+  test("사용 중지되거나 값이 없는 연결만 있으면 연결 단계는 아직이다", async () => {
+    renderAt("/", {
+      ...settingsReads(
+        [
+          { ...CONNECTION, state: "disabled" },
+          { ...CONNECTION, id: "empty", state: "needs_value" },
+        ],
+        [],
+      ),
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+      ...noSessions,
+    });
+    const read = await states();
+    await waitFor(() =>
+      expect(read().slice(0, 3)).toEqual(["done", "pending", "pending"]),
+    );
+  });
+
+  test("관리자에게는 설치 단계가 없고 연결 목록도 묻지 않는다", async () => {
+    const { api } = renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+      ...noSessions,
+    });
+    const read = await states();
+    await waitFor(() => expect(read()).toHaveLength(4));
+    expect(
+      api.calls.some((c) => c.path === "/v1/installation/settings/connections"),
+    ).toBe(false);
   });
 });
 
@@ -1717,7 +1865,14 @@ describe("내가 관리하는 에이전트", () => {
     });
     const read = await states();
     await waitFor(() =>
-      expect(read()).toEqual(["done", "pending", "pending", "pending"]),
+      expect(read()).toEqual([
+        "done",
+        "done",
+        "done",
+        "pending",
+        "pending",
+        "pending",
+      ]),
     );
     expect(api.calls.some((c) => c.path === "/v1/administered-agents")).toBe(
       false,

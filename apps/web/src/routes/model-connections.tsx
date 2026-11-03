@@ -1,0 +1,407 @@
+import { useQuery } from "@tanstack/react-query";
+import { unwrap } from "@werft-ai/client";
+import type {
+  CreateSettingsConnectionRequest,
+  ProfileSummary,
+  SettingsConnection,
+} from "@werft-ai/contracts";
+import { useAgentPlatform } from "@werft-ai/react";
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Code,
+  EmptyState,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  GridTable,
+  GridTableCell,
+  GridTableColumnHeader,
+  GridTableHeader,
+  GridTableRow,
+  Input,
+  NativeSelect,
+  NativeSelectOption,
+  RowAction,
+  Section,
+  Skeleton,
+  Text,
+} from "@werft-ai/ui";
+import { Lock, Plus } from "lucide-react";
+import { useState } from "react";
+import { useHasPermission } from "../auth/guard.tsx";
+import { LoadFailure } from "../components/load-failure.tsx";
+import { useI18n } from "../i18n/i18n.tsx";
+import {
+  credentialText,
+  entryActions,
+  FormDialog,
+  OriginBadge,
+  type Outcome,
+  OutcomeLine,
+  SecretInput,
+  StateBadge,
+  settingsConnectionsQuery,
+  useRowActions,
+  useSettingsWrite,
+} from "./settings-entries.tsx";
+
+// id and source, kind and endpoint, credential, profiles over it, state,
+// actions; a phone keeps the id and the state.
+const COLUMNS = [
+  "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) 112px 128px 196px",
+  "minmax(0,1fr) 128px",
+] as const;
+
+/**
+ * The model settings' connections (settings-replace-file-catalog.md §1-§3):
+ * the operator file's and the database's in one table, each marked by
+ * where it comes from. Only the owner reads them.
+ */
+export function ModelConnections({
+  profiles,
+}: {
+  /** The installation ceilings, to count those over each connection. */
+  readonly profiles: readonly ProfileSummary[];
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const owns = useHasPermission("installation.settings.manage");
+  const connections = useQuery(settingsConnectionsQuery(client, owns));
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [adding, setAdding] = useState(false);
+  const rows = useRowActions("connection", setOutcome);
+
+  const over = (id: string) =>
+    profiles.filter((profile) => profile.installation?.connection_id === id)
+      .length;
+
+  return (
+    <Section
+      title={t("settings.connections.title")}
+      description={t("settings.connections.description")}
+      actions={
+        owns ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setOutcome(null);
+              setAdding(true);
+            }}
+          >
+            <Plus aria-hidden="true" />
+            {t("settings.connections.add")}
+          </Button>
+        ) : null
+      }
+    >
+      <div className="flex flex-col gap-[var(--ap-space-block)]">
+        {!owns ? (
+          <Text variant="meta" className="flex items-center gap-1">
+            <Lock aria-hidden="true" className="size-3.5 shrink-0" />
+            {t("settings.connections.locked")}
+          </Text>
+        ) : connections.isPending ? (
+          <Skeleton width="60%" />
+        ) : connections.isError ? (
+          <LoadFailure
+            error={connections.error}
+            onRetry={() => void connections.refetch()}
+          />
+        ) : connections.data.items.length === 0 ? (
+          <EmptyState title={t("settings.connections.empty")} />
+        ) : (
+          <GridTable
+            aria-label={t("settings.connections.title")}
+            columns={COLUMNS[0]}
+            narrowAt={860}
+            narrowColumns={COLUMNS[1]}
+            framed={true}
+          >
+            <GridTableHeader>
+              <GridTableColumnHeader>
+                {t("settings.column.id")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("settings.connections.endpoint")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("settings.column.credential")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("settings.connections.ceilings")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader>
+                {t("settings.column.state")}
+              </GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
+                {t("settings.column.actions")}
+              </GridTableColumnHeader>
+            </GridTableHeader>
+            {connections.data.items.map((item) => (
+              <ConnectionRow
+                key={`${item.origin}:${item.id}`}
+                item={item}
+                over={over(item.id)}
+                busy={rows.busy}
+                onValue={() => rows.openValue(item.id)}
+                onDisable={() => rows.openDisable(item.id)}
+              />
+            ))}
+          </GridTable>
+        )}
+        <OutcomeLine outcome={outcome} />
+      </div>
+      {owns ? (
+        <AddConnection
+          open={adding}
+          onOpenChange={setAdding}
+          hosts={connections.data?.credential_hosts ?? null}
+          onOutcome={setOutcome}
+        />
+      ) : null}
+      {rows.dialogs}
+    </Section>
+  );
+}
+
+function ConnectionRow({
+  item,
+  over,
+  busy,
+  onValue,
+  onDisable,
+}: {
+  readonly item: SettingsConnection;
+  readonly over: number;
+  readonly busy: boolean;
+  readonly onValue: () => void;
+  readonly onDisable: () => void;
+}) {
+  const { t } = useI18n();
+  const actions = entryActions(item);
+  return (
+    <GridTableRow data-origin={item.origin}>
+      <GridTableCell>
+        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+          <Code className="wrap-anywhere">{item.id}</Code>
+          <div className="flex flex-wrap items-center gap-1">
+            <OriginBadge origin={item.origin} />
+            <Text as="span" variant="meta">
+              {t(`settings.connections.authKind.${item.auth_kind}`)}
+            </Text>
+          </div>
+        </div>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+          <Code className="wrap-anywhere">{item.endpoint}</Code>
+          <Text as="span" variant="meta">
+            {item.kind} · {t(`settings.connections.billing.${item.billing}`)}
+          </Text>
+        </div>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <Text as="span" variant="meta" className="wrap-anywhere">
+          {credentialText(t, item.credential)}
+        </Text>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <Text as="span" variant="meta">
+          {t("settings.connections.usedBy", { count: over })}
+        </Text>
+      </GridTableCell>
+      <GridTableCell>
+        <StateBadge state={item.state} />
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        {item.origin === "file" ? (
+          <Text as="span" variant="meta">
+            {t("settings.fileRow")}
+          </Text>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {actions.setValue ? (
+              <RowAction
+                disabled={busy}
+                aria-label={t("settings.setValueFor", { id: item.id })}
+                onClick={onValue}
+              >
+                {item.state === "needs_value"
+                  ? t("settings.setFirstValue")
+                  : t("settings.setValue")}
+              </RowAction>
+            ) : null}
+            {actions.disable ? (
+              <RowAction
+                variant="danger"
+                disabled={busy}
+                aria-label={t("settings.disableFor", { id: item.id })}
+                onClick={onDisable}
+              >
+                {t("settings.disable")}
+              </RowAction>
+            ) : null}
+          </div>
+        )}
+      </GridTableCell>
+    </GridTableRow>
+  );
+}
+
+/** `host:port` of an endpoint, the port spelled out as the proxy lists it. */
+export function endpointHost(endpoint: string): string | null {
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const port = url.port || (url.protocol === "https:" ? "443" : "80");
+    return `${url.hostname}:${port}`;
+  } catch {
+    return null;
+  }
+}
+
+function AddConnection({
+  open,
+  onOpenChange,
+  hosts,
+  onOutcome,
+}: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  /** The egress credential allowlist, when the API knows it. */
+  readonly hosts: readonly string[] | null;
+  readonly onOutcome: (outcome: Outcome) => void;
+}) {
+  const { t } = useI18n();
+  const [kind, setKind] = useState<"anthropic" | "litellm">("anthropic");
+  const [endpoint, setEndpoint] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const create = useSettingsWrite(
+    "connection",
+    (
+      client,
+      body: Omit<CreateSettingsConnectionRequest, "billing"> & {
+        readonly billing: "none" | "per_token";
+      },
+    ) => unwrap(client.POST("/v1/installation/settings/connections", { body })),
+    {
+      onDone: (answer) => {
+        onOpenChange(false);
+        onOutcome({
+          kind: "notice",
+          text: t("settings.done.created", { id: answer.id }),
+        });
+      },
+      onRefused: setError,
+    },
+  );
+  const host = endpointHost(endpoint);
+  const outside = hosts !== null && host !== null && !hosts.includes(host);
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={(next) => {
+        setError(null);
+        if (!next) {
+          setKind("anthropic");
+          setEndpoint("");
+        }
+        onOpenChange(next);
+      }}
+      pending={create.isPending}
+      title={t("settings.connections.add")}
+      description={t("settings.immutable")}
+      error={error}
+      submitLabel={t("settings.create")}
+      pendingLabel={t("settings.creating")}
+      onSubmit={(form) => {
+        setError(null);
+        const billing = String(form.get("billing"));
+        create.mutate({
+          id: String(form.get("id")).trim(),
+          kind,
+          endpoint: endpoint.trim(),
+          billing: billing === "none" ? "none" : "per_token",
+          auth_kind:
+            kind === "litellm" && form.get("auth_kind") === "bearer"
+              ? "bearer"
+              : "api_key",
+          value: String(form.get("value")),
+        });
+      }}
+    >
+      <Field>
+        <FieldLabel>{t("settings.id")}</FieldLabel>
+        <Input
+          name="id"
+          required
+          maxLength={64}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <FieldDescription>{t("settings.idHint")}</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel>{t("settings.connections.kind")}</FieldLabel>
+        <NativeSelect
+          name="kind"
+          value={kind}
+          onChange={(event) =>
+            setKind(event.target.value === "litellm" ? "litellm" : "anthropic")
+          }
+        >
+          <NativeSelectOption value="anthropic">anthropic</NativeSelectOption>
+          <NativeSelectOption value="litellm">litellm</NativeSelectOption>
+        </NativeSelect>
+      </Field>
+      <Field>
+        <FieldLabel>{t("settings.connections.endpoint")}</FieldLabel>
+        <Input
+          name="endpoint"
+          type="url"
+          required
+          autoComplete="off"
+          spellCheck={false}
+          value={endpoint}
+          onChange={(event) => setEndpoint(event.target.value)}
+        />
+      </Field>
+      {outside ? (
+        <Alert variant="amber" role="status">
+          <AlertDescription>
+            {t("settings.connections.egressWarning", { host })}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <Field>
+        <FieldLabel>{t("settings.connections.billing")}</FieldLabel>
+        <NativeSelect name="billing" defaultValue="per_token">
+          <NativeSelectOption value="per_token">
+            {t("settings.connections.billing.per_token")}
+          </NativeSelectOption>
+          <NativeSelectOption value="none">
+            {t("settings.connections.billing.none")}
+          </NativeSelectOption>
+        </NativeSelect>
+      </Field>
+      {kind === "litellm" ? (
+        <Field>
+          <FieldLabel>{t("settings.connections.authKind")}</FieldLabel>
+          <NativeSelect name="auth_kind" defaultValue="api_key">
+            <NativeSelectOption value="api_key">
+              {t("settings.connections.authKind.api_key")}
+            </NativeSelectOption>
+            <NativeSelectOption value="bearer">
+              {t("settings.connections.authKind.bearer")}
+            </NativeSelectOption>
+          </NativeSelect>
+        </Field>
+      ) : null}
+      <SecretInput label={t("settings.connections.key")} />
+    </FormDialog>
+  );
+}

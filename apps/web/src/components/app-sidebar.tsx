@@ -56,6 +56,8 @@ type NavPath =
   | "/settings/workspace/slack"
   | "/settings/workspace/github"
   | "/settings/workspace/api-keys"
+  | "/settings/workspace/mcp-servers"
+  | "/settings/workspace/repositories"
   | "/settings/linked-accounts"
   | "/settings/api-keys"
   | "/settings/preferences";
@@ -213,6 +215,18 @@ export function useSettingsNavGroups(): readonly NavGroup[] {
     workspace.push({
       to: "/settings/workspace/github",
       label: "github.nav",
+      icon: SettingsIcon,
+    });
+    workspace.push({
+      to: "/settings/workspace/repositories",
+      label: "settings.repos.nav",
+      icon: SettingsIcon,
+    });
+  }
+  if (useHasPermission("installation.settings.manage")) {
+    workspace.push({
+      to: "/settings/workspace/mcp-servers",
+      label: "settings.mcp.nav",
       icon: SettingsIcon,
     });
   }
