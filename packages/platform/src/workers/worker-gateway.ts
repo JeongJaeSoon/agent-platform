@@ -1064,17 +1064,16 @@ export function createWorkerGateway(deps: {
       throw new Error("A claimed session has no runnable profile");
     }
     // Thrown inside the claim's transaction, so nothing is bound and the
-    // worker asks again, maybe of a replica that resolves the server.
+    // worker asks again, of a replica that has read or resolved the server.
     const server = session.mcp?.server;
     if (
       server !== undefined &&
-      own(catalog.mcp_servers ?? {}, server) === undefined &&
-      catalog.unavailable_mcp_servers?.has(server)
+      own(catalog.mcp_servers ?? {}, server) === undefined
     ) {
       throw new WorkerGatewayError(
         503,
         "BACKEND_UNAVAILABLE",
-        "The session's MCP server is in the installation settings but its credential does not resolve on this host",
+        "The session's release names an MCP server this host's catalog does not hold",
         true,
       );
     }

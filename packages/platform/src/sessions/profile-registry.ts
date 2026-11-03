@@ -515,7 +515,6 @@ export function profileCatalog<
   readonly settings_generation?: number | undefined;
   /** Repository ids the settings hold that did not resolve here. */
   readonly unavailable_repositories?: ReadonlySet<string> | undefined;
-  readonly unavailable_mcp_servers?: ReadonlySet<string> | undefined;
   workspace_profiles: ProfileRegistry<P>;
   runtime_versions?: RuntimeVersions;
 } {
@@ -566,9 +565,6 @@ export function profileCatalog<
     },
     get unavailable_repositories() {
       return registry.settings?.unavailable_repositories;
-    },
-    get unavailable_mcp_servers() {
-      return registry.settings?.unavailable_mcp_servers;
     },
     ...(base.runtime_versions === undefined
       ? {}

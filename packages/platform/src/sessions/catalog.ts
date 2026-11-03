@@ -531,8 +531,6 @@ export type SessionCatalog = {
   settings_generation?: number | undefined;
   /** Repository ids the settings hold that did not resolve here. */
   unavailable_repositories?: ReadonlySet<string> | undefined;
-  /** MCP server ids the settings hold that did not resolve here. */
-  unavailable_mcp_servers?: ReadonlySet<string> | undefined;
   workspace_profiles?: WorkspaceProfiles;
   installation?: InstallationProfiles;
   runtime_versions?: RuntimeVersions;

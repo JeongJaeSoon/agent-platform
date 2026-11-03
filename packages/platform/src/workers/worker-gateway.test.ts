@@ -1486,7 +1486,7 @@ describe("WorkerGateway", () => {
     ]);
   });
 
-  test("a claim needing an MCP server whose settings row did not resolve here binds nothing and is retried", async () => {
+  test("a claim needing an MCP server this host's catalog does not hold binds nothing and is retried", async () => {
     const general = {
       runtime_kind: "claude_agent_sdk" as const,
       runtime_version: "0.3.270",
@@ -1529,7 +1529,6 @@ describe("WorkerGateway", () => {
             workspaces: [],
           },
         },
-        unavailable_mcp_servers: new Set(["docs", "kept"]),
       },
       checkpoints: acceptAllCheckpoints,
       options: {
@@ -1565,7 +1564,6 @@ describe("WorkerGateway", () => {
         retryable: true,
       }),
     );
-    // The file's server of the same id serves it here.
     expect(egress.bindingsOf(session("kept")).mcp).toBeDefined();
   });
 
