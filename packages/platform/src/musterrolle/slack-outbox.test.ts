@@ -166,6 +166,10 @@ describe("slackOutboxText", () => {
       "<!date^1793600000^{date_short}|2026-11-02>",
       "<!date^1793600000^{date_short}|2026-11-02>",
     ],
+    [
+      "<!date^1793600000^{date}&#94;https://evil.example|x>",
+      "<!date^1793600000^{date}&amp;#94;https://evil.example|x>",
+    ],
   ])("a model's %s reaches Slack as %s", (text, posted) => {
     expect(slackOutboxText({ text })).toBe(posted);
   });
