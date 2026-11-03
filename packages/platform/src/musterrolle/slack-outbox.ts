@@ -393,8 +393,10 @@ function settleFor(
 /**
  * One outbox pass of the `slack` role: rows whose send outlived its lease
  * become `uncertain` (a lost reply gets a notice saying so), unanswered
- * turns are enqueued, then due rows are sent until none is left or
- * `deadline` passes. A row is `sending` only while its request is in
+ * turns are enqueued, thread statuses are written in the first third of
+ * the time left, then due rows are sent until none is left or `deadline`
+ * passes; each call starts before it, so a pass overruns it by at most
+ * one call. A row is `sending` only while its request is in
  * flight, so nothing Slack may already hold is sent twice.
  */
 export async function drainSlackOutbox(deps: {
@@ -412,11 +414,8 @@ export async function drainSlackOutbox(deps: {
   now?: () => number;
 }): Promise<SlackOutboxDrain> {
   const now = deps.now ?? Date.now;
-  // The last third of the pass is kept for thread statuses, so a backlog
-  // of posts cannot hold them back pass after pass.
   const started = now();
-  const postsDeadline =
-    started + Math.max(0, deps.deadline - started) * (2 / 3);
+  const statusDeadline = started + Math.max(0, deps.deadline - started) / 3;
   const drain: SlackOutboxDrain = {
     enqueued: 0,
     claimed: 0,
@@ -538,13 +537,39 @@ export async function drainSlackOutbox(deps: {
   });
   if (deps.botToken === null) return drain;
 
-  while (now() < postsDeadline) {
+  // Statuses first, within their share, so a backlog of posts cannot hold
+  // them back pass after pass; their failures only delay the statuses.
+  const threadStatus = deps.outbox.threadStatus;
+  if (threadStatus !== undefined) {
+    try {
+      await reconcileSlackThreadStatuses({ store: threadStatus });
+      const statuses = await writeSlackThreadStatuses({
+        store: threadStatus,
+        slack: deps.slack,
+        botToken: deps.botToken,
+        logger: deps.logger,
+        batchSize: deps.batchSize,
+        deadline: statusDeadline,
+        now,
+      });
+      drain.statuses = statuses.sent;
+    } catch (error) {
+      deps.logger.warn("Slack status step failed; going on", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  while (now() < deps.deadline) {
     const batch = await deps.outbox.claim({
       limit: deps.batchSize,
       leaseMs: deps.leaseMs,
     });
     if (batch.length === 0) break;
     for (const claim of batch) {
+      // Out of time: the row is still pending and comes back once its
+      // lease runs out.
+      if (now() >= deps.deadline) break;
       drain.claimed += 1;
       const ids = {
         id: claim.id,
@@ -628,29 +653,6 @@ export async function drainSlackOutbox(deps: {
       if (settled && outcome.status === "uncertain") {
         await noticeUncertain(claim);
       }
-    }
-  }
-  // Last, so a status follows the posts of this pass; its failures only
-  // delay the statuses.
-  const threadStatus = deps.outbox.threadStatus;
-  if (threadStatus !== undefined) {
-    const botToken = deps.botToken;
-    try {
-      await reconcileSlackThreadStatuses({ store: threadStatus });
-      const statuses = await writeSlackThreadStatuses({
-        store: threadStatus,
-        slack: deps.slack,
-        botToken,
-        logger: deps.logger,
-        batchSize: deps.batchSize,
-        deadline: deps.deadline,
-        now,
-      });
-      drain.statuses = statuses.sent;
-    } catch (error) {
-      deps.logger.warn("Slack status step failed; going on", {
-        error: error instanceof Error ? error.message : String(error),
-      });
     }
   }
   return drain;

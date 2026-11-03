@@ -2134,6 +2134,8 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
 
   test("a writer that died mid-send leaves its row resent a window later, the same value included", async () => {
     await idleThread();
+    // The second pass settles the mark the first pass's post left.
+    await outboxPass();
     await outboxPass();
     expect(shown()).toEqual(["active"]);
     const [claim] = await store().claim({
@@ -2348,11 +2350,14 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     expect(shown()).toEqual(["active"]);
   });
 
-  test("a backlog of posts leaves the last third of the pass to the statuses", async () => {
+  test("a backlog of posts neither holds back the statuses nor runs more than one post past the deadline", async () => {
     const { sessionId } = await idleThread();
-    await askFrom(sessionId, 2, "web", "more", true);
-    await endTurn(sessionId, 2, "completed", [[text("ok")]]);
-    let clock = Date.now();
+    for (const sequence of [2, 3]) {
+      await askFrom(sessionId, sequence, "web", "more", true);
+      await endTurn(sessionId, sequence, "completed", [[text("ok")]]);
+    }
+    const start = Date.now();
+    let clock = start;
     const slow = {
       ...api,
       // Each post takes ten seconds of the pass.
@@ -2363,12 +2368,17 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     };
     await outboxPass({
       slack: slow,
-      batchSize: 1,
-      deadline: clock + 12_000,
+      deadline: start + 12_000,
       now: () => clock,
     });
-    expect(posted()).toHaveLength(1);
-    expect(shown().length).toBeGreaterThan(0);
+    expect(shown()).toEqual(["active"]);
+    expect(posted()).toHaveLength(2);
+    expect(clock - start).toBe(20_000);
+    // The third is still pending, for a pass once its lease runs out.
+    const { rows } = (await db.execute(
+      sql`SELECT count(*)::int AS n FROM slack_outbox WHERE status = 'pending'`,
+    )) as unknown as { rows: { n: number }[] };
+    expect(rows[0]?.n).toBe(1);
   });
 
   test("a status row reached after the deadline is handed back, not sent late", async () => {
