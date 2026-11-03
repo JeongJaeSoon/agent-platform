@@ -1418,6 +1418,46 @@ describe("새 에이전트", () => {
     ).toBe(false);
   });
 
+  test("고른 프로필이 그사이 카드 모델을 잃거나 목록에서 빠지면 다른 프로필로 바꾼다", async () => {
+    const server = agentServer({ repositoryMode: "optional" });
+    const listed = (await (
+      (server.routes["GET /v1/profiles"] as () => Response)() as Response
+    ).json()) as { items: ProfileSummary[] };
+    let fastRunsCard = true;
+    let localListed = true;
+    const { services } = renderAt("/agents/new", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": () =>
+        json(200, {
+          items: listed.items
+            .filter((p) => localListed || p.id !== PROFILE)
+            .map((p) =>
+              p.id === "claude-coding-fast" && fastRunsCard
+                ? { ...p, models: [...p.models, "claude-sonnet-5"] }
+                : p,
+            ),
+        }),
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await fillJob(user);
+    await atStep("릴리스");
+    const profile = (await screen.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(profile.value).toBe("claude-coding-fast");
+
+    fastRunsCard = false;
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(profile.value).toBe(PROFILE));
+
+    fastRunsCard = true;
+    localListed = false;
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(profile.value).toBe("claude-coding-fast"));
+  });
+
   test("쓸 수 있는 프로필이 하나도 없으면 릴리스 폼 대신 그렇다고 알린다", async () => {
     const server = agentServer({ repositoryMode: "optional" });
     const listed = server.routes["GET /v1/profiles"] as () => Response;
@@ -2664,6 +2704,14 @@ describe("편집 중 다른 곳의 저장", () => {
     expect(
       ((await release.findByLabelText("프로필")) as HTMLSelectElement).value,
     ).toBe("claude-coding-both");
+    // A pick here that the haiku draft cannot show stays picked.
+    await user.selectOptions(release.getByLabelText("프로필"), PROFILE);
+    await user.click(release.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    release = await openRelease(user);
+    expect(
+      ((await release.findByLabelText("프로필")) as HTMLSelectElement).value,
+    ).toBe(PROFILE);
     await user.click(release.getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
