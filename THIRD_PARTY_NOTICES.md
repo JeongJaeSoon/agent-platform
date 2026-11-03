@@ -29,6 +29,12 @@
 - **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구도 같은 LICENSE.md에 있다. https://github.com/git-lfs/git-lfs/blob/v3.8.1/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크하며, 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 `go version -m <실행 파일>`을 실행하면 보인다.
 - **대응 소스.** https://github.com/git-lfs/git-lfs/tree/v3.8.1 와 apps/worker/Dockerfile의 `git-lfs` stage(모듈 버전 변경)
 
+### GitHub CLI 2.103.3 (worker, `/usr/local/bin/gh`)
+
+- **라이선스.** GitHub CLI는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 `/usr/local/share/doc/gh/LICENSE`(https://github.com/cli/cli/blob/v2.103.3/LICENSE)에 있다. 이미지의 실행 파일은 cli/cli 프로젝트가 배포한 v2.103.3 linux 릴리스 바이너리(sha256 고정)를 수정 없이 넣은 것이다.
+- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리와 https://github.com/cli/cli/blob/v2.103.3/go.mod 에 적힌 모듈을 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 `go version -m <실행 파일>`을 실행하면 보인다.
+- **소스.** https://github.com/cli/cli/tree/v2.103.3
+
 ### Claude Code 실행 파일 (worker)
 
 - **권리와 조건.** `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 플랫폼 빌드가 싣는 `claude` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.
