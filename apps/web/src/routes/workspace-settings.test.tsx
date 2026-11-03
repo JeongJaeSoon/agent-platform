@@ -122,6 +122,18 @@ const withGuest = (body: ReturnType<typeof me>, enabled: boolean) => ({
   },
 });
 const GUEST_SWITCH = { name: "Slack 게스트도 에이전트를 쓸 수 있게 하기" };
+// The Slack card with no token and no app yet.
+const START = "아직 등록된 토큰이 없습니다";
+const TOKEN_MENU = { name: "App Configuration Token 메뉴" };
+
+/** The token row's ⋯ menu, then one of its items. */
+async function tokenMenu(
+  user: Awaited<ReturnType<typeof setupUser>>,
+  item: string,
+) {
+  await user.click(await screen.findByRole("button", TOKEN_MENU));
+  await user.click(await screen.findByRole("menuitem", { name: item }));
+}
 
 describe("워크스페이스 설정", () => {
   test("소유자는 보존 기간을 바꾸고, 저장한 값으로 다시 읽는다", async () => {
@@ -387,8 +399,8 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const user = await setupUser();
-    // The token card's button comes right before the guest switch.
-    (await screen.findByRole("button", { name: "토큰 교체" })).focus();
+    // The token row's menu comes right before the guest switch.
+    (await screen.findByRole("button", TOKEN_MENU)).focus();
     await user.tab();
     expect(document.activeElement === toggle).toBe(true);
     await user.keyboard(" ");
@@ -678,9 +690,7 @@ describe("워크스페이스 설정", () => {
         });
       },
     });
-    expect(
-      await screen.findByRole("heading", { name: "Slack 연결하기" }),
-    ).toBeDefined();
+    expect(await screen.findByText(START)).toBeDefined();
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "토큰 등록" }));
@@ -695,11 +705,14 @@ describe("워크스페이스 설정", () => {
       api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
     ).toEqual([{ value: "fake-config-value" }]);
     expect(await screen.findByText("토큰 확인됨")).toBeDefined();
-    expect(screen.getByRole("heading", { name: "위험 구역" })).toBeDefined();
+    expect(screen.getByRole("button", TOKEN_MENU)).toBeDefined();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
-    // The start card is gone; focus is on the button that replaces the token.
+    // The start card is gone; focus is on the token's heading, before its menu.
     await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe("토큰 교체"),
+      expect(
+        document.activeElement ===
+          screen.getByRole("heading", { name: "Slack 앱 생성" }),
+      ).toBe(true),
     );
     // The value went to the server and nowhere else.
     await waitFor(() =>
@@ -769,6 +782,91 @@ describe("워크스페이스 설정", () => {
     expect(document.activeElement?.textContent).toBe("토큰 등록");
   });
 
+  test("메뉴의 토큰 교체로 연 칸을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
+    });
+    const user = await setupUser();
+    await tokenMenu(user, "토큰 교체");
+    await waitFor(() =>
+      expect(
+        document.activeElement === screen.getByLabelText("Refresh Token"),
+      ).toBe(true),
+    );
+    await user.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("Refresh Token")).toBeNull();
+    expect(
+      document.activeElement === screen.getByRole("button", TOKEN_MENU),
+    ).toBe(true);
+  });
+
+  test("메뉴의 토큰 삭제 확인을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
+    });
+    const user = await setupUser();
+    await tokenMenu(user, `${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement === screen.getByRole("button", TOKEN_MENU),
+      ).toBe(true),
+    );
+  });
+
+  test("등록된 토큰을 다시 읽다 실패해도 실패와 함께 토큰 삭제 메뉴를 남긴다", async () => {
+    let fail = false;
+    const { services } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        fail
+          ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
+          : json(200, REGISTERED_TOKEN),
+    });
+    await screen.findByRole("button", TOKEN_MENU);
+    fail = true;
+    await services.queryClient.refetchQueries();
+    expect(
+      await screen.findByText(
+        "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+      ),
+    ).toBeDefined();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", TOKEN_MENU));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+  });
+
+  test("다시 등록해야 하는 토큰은 행 아래에 이유를 말하고, 등록 버튼과 삭제만 있는 메뉴를 둔다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        json(200, { ...REGISTERED_TOKEN, state: "needs_reentry" }),
+      [`GET ${APPS}`]: () => json(200, { items: [LINK_APP] }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "Slack 앱 생성",
+    });
+    expect(
+      await within(section).findByText(/^저장된 토큰을 사용할 수 없습니다\./),
+    ).toBeDefined();
+    expect(
+      within(section).getByRole("button", { name: "토큰 재등록" }),
+    ).toBeDefined();
+    const user = await setupUser();
+    await user.click(within(section).getByRole("button", TOKEN_MENU));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+  });
+
   const ACTIVE_TOKEN = {
     ...UNSET_TOKEN,
     configured: true,
@@ -817,7 +915,7 @@ describe("워크스페이스 설정", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -845,7 +943,7 @@ describe("워크스페이스 설정", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -863,7 +961,7 @@ describe("워크스페이스 설정", () => {
         apiError(403, "FORBIDDEN", "Only an owner or admin can set it"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -881,7 +979,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -899,7 +997,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Try again", true),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -938,11 +1036,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "App Configuration Token 삭제",
-      }),
-    );
+    await tokenMenu(user, "App Configuration Token 삭제");
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
@@ -961,20 +1055,14 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "App Configuration Token 삭제",
-      }),
-    );
+    await tokenMenu(user, "App Configuration Token 삭제");
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "App Configuration Token을 삭제했습니다.",
     );
     // No token and no app: back to the start card, focus on its button.
-    expect(
-      await screen.findByRole("heading", { name: "Slack 연결하기" }),
-    ).toBeDefined();
+    expect(await screen.findByText(START)).toBeDefined();
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("토큰 등록"),
     );
@@ -986,8 +1074,8 @@ describe("워크스페이스 설정", () => {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
     });
-    const start = await screen.findByRole("region", { name: "Slack 연결하기" });
-    expect(start.textContent).toContain("App Configuration Token을 등록하세요");
+    const start = await screen.findByRole("region", { name: "Slack" });
+    expect(await within(start).findByText(START)).toBeDefined();
     expect(screen.queryByRole("region", { name: "Slack 게스트" })).toBeNull();
     expect(
       screen.queryByRole("region", { name: "자동으로 만든 Slack 앱" }),
@@ -995,7 +1083,7 @@ describe("워크스페이스 설정", () => {
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Slack 연결하기"]);
+    ).toEqual(["Slack"]);
     const user = await setupUser();
     await user.click(within(start).getByRole("button", { name: "토큰 등록" }));
     const link = within(start).getByRole("link", {
@@ -1028,14 +1116,14 @@ describe("워크스페이스 설정", () => {
     expect(
       within(section).getByRole("button", { name: "토큰 등록" }),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
     expect(
       await screen.findByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBeDefined();
   });
 
-  test("저장된 토큰을 사용할 수 없고 앱도 없으면 재등록만 묻는다", async () => {
+  test("저장된 토큰을 사용할 수 없고 앱도 없으면 시작 상자 대신 재등록 버튼과 삭제 메뉴를 둔다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
@@ -1052,7 +1140,8 @@ describe("워크스페이스 설정", () => {
     expect(
       screen.queryByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBeNull();
-    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
+    expect(within(section).getByRole("button", TOKEN_MENU)).toBeDefined();
   });
 
   test("앱 목록을 읽는 동안에는 토큰 칸만 기다리고 게스트·앱 목록을 먼저 그리지 않는다", async () => {
@@ -1078,11 +1167,9 @@ describe("워크스페이스 설정", () => {
     expect(screen.getByRole("region", { name: "Slack 앱 생성" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "토큰 등록" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Slack 게스트" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     release?.();
-    expect(
-      await screen.findByRole("region", { name: "Slack 연결하기" }),
-    ).toBeDefined();
+    expect(await screen.findByText(START)).toBeDefined();
   });
 
   test("시작 카드 뒤 토큰 다시 읽기가 실패하면 등록 버튼 대신 실패를 보인다", async () => {
@@ -1094,7 +1181,7 @@ describe("워크스페이스 설정", () => {
           ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
           : json(200, UNSET_TOKEN),
     });
-    await screen.findByRole("region", { name: "Slack 연결하기" });
+    await screen.findByText(START);
     fail = true;
     await services.queryClient.refetchQueries();
     expect(
@@ -1102,7 +1189,7 @@ describe("워크스페이스 설정", () => {
         "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
       ),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
   });
 
   test("등록 응답만으로 등록된 화면이 되고, 다시 읽기를 기다리지 않는다", async () => {
@@ -1129,7 +1216,7 @@ describe("워크스페이스 설정", () => {
     await user.click(screen.getByRole("button", { name: "등록" }));
     expect(await screen.findByText("토큰 확인됨")).toBeDefined();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
   });
 
   test("토큰을 지우면 다시 등록하는 버튼이 포커스를 받는다", async () => {
@@ -1147,11 +1234,7 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "App Configuration Token 삭제",
-      }),
-    );
+    await tokenMenu(user, "App Configuration Token 삭제");
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     await waitFor(() =>
@@ -1187,7 +1270,7 @@ describe("워크스페이스 설정", () => {
     expect(
       await screen.findByRole("region", { name: "Slack 앱 생성" }),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
   });
 
@@ -1198,7 +1281,7 @@ describe("워크스페이스 설정", () => {
     expect(
       await screen.findByRole("region", { name: "Slack 게스트" }),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)[0],
     ).toBe("Slack 게스트");

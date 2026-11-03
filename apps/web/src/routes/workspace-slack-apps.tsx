@@ -7,28 +7,21 @@ import {
   Badge,
   Code,
   cn,
-  EmptyState,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  Heading,
   linkVariants,
   RelativeTime,
   RowLines,
-  SettingRow,
-  SettingsSection,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { scopedKey } from "../api/queries.ts";
-import {
-  permissionReason,
-  useHasPermission,
-  useMe,
-  useRole,
-} from "../auth/guard.tsx";
+import { useHasPermission, useMe } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -53,11 +46,14 @@ export function useWorkspaceSlackApps() {
   });
 }
 
-/** The Slack apps the console made: their state, changed elsewhere. */
+/**
+ * The Slack apps the console made: their state, changed elsewhere. Only an
+ * owner or admin reads them, so only the Slack card of one shows this.
+ */
 export function SlackApps() {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
-  const role = useRole();
+  const titleId = useId();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
   const apps = useWorkspaceSlackApps();
@@ -81,29 +77,27 @@ export function SlackApps() {
   }, [anchored, loading]);
 
   return (
-    <SettingsSection
+    <section
       id={SLACK_APPS_ANCHOR}
-      title={t("workspace.slackApps")}
-      description={t("workspace.slackAppsHint")}
-      rows={
-        !canManage ? (
-          <SettingRow
-            title={t("workspace.slackAppsList")}
-            description={permissionReason(t, "workspace.manage", role)}
-          />
-        ) : undefined
-      }
+      aria-labelledby={titleId}
+      className="flex flex-col gap-2"
     >
-      {!canManage ? null : apps.isPending ? (
+      <Heading id={titleId} level={3}>
+        {t("workspace.slackApps")}
+      </Heading>
+      {apps.isPending ? (
         <Skeleton width="50%" />
       ) : apps.isError ? (
         <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
       ) : apps.data.items.length === 0 ? (
-        <EmptyState size="sm" title={t("workspace.slackAppsEmpty")} />
+        <Text variant="sub" className="rounded-card border border-dashed p-4">
+          {t("workspace.slackAppsEmpty")}
+        </Text>
       ) : (
         <AppTable items={apps.data.items} />
       )}
-    </SettingsSection>
+      <Text variant="meta">{t("workspace.slackAppsHint")}</Text>
+    </section>
   );
 }
 

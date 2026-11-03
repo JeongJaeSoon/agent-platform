@@ -11,6 +11,7 @@ import {
 import { PASS_LOOP_ROLES } from "../apps/control-host/src/pass-loop/loop.ts";
 import { DEFAULT_MAX_BODY_BYTES_IN_FLIGHT } from "../apps/egress-proxy/src/credential.ts";
 import {
+  GH_VERSION,
   GIT_LFS_GO,
   GIT_LFS_VERSION,
   GIT_LFS_X_NET,
@@ -218,6 +219,23 @@ describe("app Dockerfiles", () => {
     expect(source).toMatch(
       /^RUN git lfs install --system --skip-repo --skip-smudge$/m,
     );
+  });
+
+  test("the worker carries gh from the pinned release", () => {
+    const source = basePins.worker.source;
+    expect(source).toContain(`ARG GH_VERSION=${GH_VERSION}\n`);
+    for (const arch of ["amd64", "arm64"]) {
+      expect(source).toMatch(
+        new RegExp(
+          `^ADD --checksum=sha256:[0-9a-f]{64} \\\\\\n {2}https://github\\.com/cli/cli/releases/download/v\\$\\{GH_VERSION\\}/gh_\\$\\{GH_VERSION\\}_linux_${arch}\\.tar\\.gz \\\\$`,
+          "m",
+        ),
+      );
+    }
+    expect(source.match(/^COPY --from=gh .*$/gm)).toEqual([
+      "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
+      "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
+    ]);
   });
 
   // The API pushes approved sessions over https with git, the worker clones

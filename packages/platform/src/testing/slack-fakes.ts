@@ -602,6 +602,7 @@ export function createFakeSlackConfigApi(options?: {
       rotate?: Behaviour<RotatedConfigToken>;
       create?: Behaviour<CreatedSlackApp>;
       delete?: Behaviour<void>;
+      export?: Behaviour<void>;
     },
   };
   let appCounter = 0;
@@ -680,6 +681,18 @@ export function createFakeSlackConfigApi(options?: {
       }
       if (!state.apps.delete(appId)) {
         throw new SlackApiError("apps.manifest.delete", "app_not_found", true);
+      }
+    },
+    async exportApp(token, appId) {
+      state.calls.push({ method: "apps.manifest.export", appId });
+      requireAccess("apps.manifest.export", token);
+      const behaviour = state.next.export;
+      if (behaviour) {
+        state.next.export = undefined;
+        return behaviour();
+      }
+      if (!state.apps.has(appId)) {
+        throw new SlackApiError("apps.manifest.export", "app_not_found", true);
       }
     },
     async exchangeInstallCode(input) {
