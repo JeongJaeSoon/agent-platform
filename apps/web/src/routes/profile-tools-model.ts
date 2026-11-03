@@ -1,16 +1,18 @@
+import type {
+  InstallationProfileOptionsResponse,
+  ProfileSummary,
+  RuntimeKind,
+  ToolBoundaryValue,
+  ToolCatalogView,
+} from "@werft-ai/contracts";
 import {
   addedTools,
   canonicalTool,
   carriedDeny,
   firstVersionDeny,
-  type InstallationProfileOptionsResponse,
   MCP_TOOL_PREFIX,
-  type ProfileSummary,
-  type RuntimeKind,
-  type ToolBoundaryValue,
-  type ToolCatalogView,
-} from "@werft-ai/contracts";
-import { WORKSPACE_PROFILE_POLICY } from "@werft-ai/core/forms";
+  WORKSPACE_PROFILE_POLICY,
+} from "@werft-ai/core/forms";
 
 /**
  * A profile form's built-in tool checklist before anyone clicks: what it
