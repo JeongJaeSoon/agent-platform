@@ -216,7 +216,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 |---|---|
 | 입력 | PR 템플릿 설계의 구조화 필드(`pullRequestContentSchema`)에 `push_request_id`나 `push_intent_id` 가운데 정확히 하나 |
 | 플랫폼이 정하는 것 | base(카탈로그 브랜치), head(push 요청의 브랜치), 템플릿(D2), legacy `body`는 다시 배치하지 않음(D4), 꼬리와 `Co-authored-by`, 세션 링크(D3), 엔진 서명 줄 제거, 길이, push가 아직이면 예약 |
-| 출력 | `{ status: "scheduled", push_intent_id, push_request_id }` 또는 `{ status: "opened" \| "already_open", number, url, body_source }` |
+| 출력 | `{ status: "scheduled", push_intent_id, push_request_id }` 또는 `{ status: "opened" \| "already_open", number, url, body_source }`. `scheduled`의 두 id는 nullable이다. 의도가 push 요청이 되기 전에는 `push_request_id`가 null, 된 뒤에는 `push_intent_id`가 null이고, 둘 다 null일 수는 없다 |
 | 멱등 | push 요청 하나에 PR 행 하나. 다시 부르면 같은 행(`already_open`)이나 같은 예약(`scheduled`) |
 | 정책 | `pull_request.write`(`allow`/`deny`) |
 
@@ -229,7 +229,7 @@ type ActionResult<T> = { ok: true; result: T } | { ok: false; refusal: ActionRef
 | `forge_failed` | github | true |
 | `github_refused`, `pull_request_closed`, `head_moved`, `closed_unrecorded` | github | false |
 
-MCP에서 `not_pushed`는 더 나오지 않는다(예약). REST는 이행 기간 동안 지금처럼 `409 not_pushed`다.
+MCP에서 `not_pushed`는 더 나오지 않는다(예약). REST는 이행 기간 동안 기본이 지금처럼 `409 not_pushed`이고, `?schedule=true`일 때만 예약한다.
 
 ### 5.7 T7 `git push`: 안내만
 
@@ -366,7 +366,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | D8 | push·PR·저장소 읽기를 엔진 권한 단계에서 빼기 | (a) 유지, PR 8 조건 | [6절](#6-행동-부류-정책) |
 | D9 | 레이어 이름 | 폐기 | 이름은 "도구 카탈로그" |
 | D10 | 한 턴에 PR 여러 개 | 폐기 + 도구 한계 | 1단계 `request_push`의 소스는 턴 끝 HEAD 하나. 여러 소스는 `source_ref`(L4b, 2단계) |
-| D11 | commit bot과 PR bot이 같은가 | 도구 기본값 | commit identity의 App은 주 저장소의 고정 연결 App이다. 같은 bot은 그 연결이 정상일 때만 성립하는 조건부 결과다 |
+| D11 | commit bot과 PR bot이 같은가 | 도구 기본값 | commit identity의 App은 주 저장소의 고정 연결 App이다(PR 2). 주 저장소가 콘솔에 등록한 App으로 연결되고, bot 조회가 성공하고, 연결이 바뀌지 않았을 때만 PR을 여는 App과 같은 bot이다. 예외: 첨부 저장소의 다른 App, `Werft` fallback, 연결 변경, PAT 연결 저장소, 이미 열린 PR을 이어 쓸 때 |
 
 ## 11. 도구 위에 얹는 것
 
@@ -376,11 +376,11 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 |---|---|---|
 | F1 | push가 끝나면 PR 호출 없이 PR을 연다 | 만들지 않는다(D7) |
 | F4 | 한 요청의 남은 PR 묶음을 플랫폼이 이어서 | 만들지 않는다(D10) |
-| F2 | 이어 턴(`push_continuations`)과 Slack 승인 후속 턴 | 호환 경로. `AGENT_ACTION_FLOWS`가 off일 때 만들어지는 요청(`flow = 'legacy'`)에만 남는다. 모든 배포에서 설정을 켜고 남은 `legacy` 요청이 0이 된 뒤 후속 PR이 지운다 |
-| F3 | `request_push({ pull_request })` 한 번으로 push와 PR 예약 | 선택 복합 호출(L12). 설치 설정 `AGENT_ACTION_PR_IN_PUSH`(기본 off)와 PR 도구가 `trusted`인 세션에서만 받고, 그 밖은 `pull_request_needs_tool_call` |
+| F2 | 이어 턴(`push_continuations`)과 Slack 승인 후속 턴 | 호환 경로. push 요청 행은 만들 때의 흐름 `flow`(`legacy` \| `actions`)를 적고, 이어 턴과 후속 턴은 `flow = 'legacy'` 요청에만 생긴다. `AGENT_ACTION_FLOWS`가 off인 동안 만든 직접 요청만 `legacy`다. 의도에서 바뀐 요청(`origin = 'intent'`)은 늘 `actions`이고, 이미 만든 요청은 설정을 바꿔도 동작이 바뀌지 않는다. 모든 배포에서 설정을 켜고 남은 `legacy` 요청이 0이 된 뒤 후속 PR이 지운다 |
+| F3 | `request_push({ pull_request })` 한 번으로 push와 PR 예약 | 선택 복합 호출(L12). L12 전 replica는 strict 입력이라 이 칸을 `validation_error`로 거절한다. 그래서 설치 설정 `AGENT_ACTION_PR_IN_PUSH`(기본 off)는 모든 replica가 L12 이상일 때만 켜고, 꺼져 있으면 이 칸은 `validation_error`다. 켜져 있어도 PR 도구가 `trusted`가 아닌 세션은 `pull_request_needs_tool_call`(platform, false, 부작용 없음)이다 |
 | F5 | 지연 완료 결과를 사람에게(`action_notice`) | 모델이 부른 push·PR 호출에 딸린 고정 알림. 바깥 효과를 새로 만들지 않는다 |
 
-`AGENT_ACTION_FLOWS`는 "자동 흐름"을 켜는 설정이 아니라 T5·T6의 **지연 완료 계약**(턴 안 `request_push`의 의도, PR 예약)을 켜는 배포 장벽이다. 모든 replica가 L5 이상일 때 켠다.
+`AGENT_ACTION_FLOWS`는 "자동 흐름"을 켜는 설정이 아니라 T5·T6의 **지연 완료 계약**(턴 안 `request_push`의 의도, PR 예약)을 켜는 배포 장벽이다. 모든 replica가 L5 이상일 때 켠다. 이 설정은 새 직접 호출의 경로만 고르고, 이미 만든 요청은 행의 `flow`를 따른다.
 
 ## 12. 앞선 결정과의 차이
 
@@ -389,7 +389,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | 앞선 결정 | 바뀌는 것 | 고치는 단위 |
 |---|---|---|
 | [github-agent.md](github-agent.md) "입구는 둘(세션 API, 내장 MCP)" | `gh`가 같은 서비스의 셋째 입구가 된다. 서비스 한 곳은 그대로다 | L14 |
-| [github-agent.md 결정 6](github-agent.md#결정-6-push-전-사람-승인)의 이어 턴 | `AGENT_ACTION_FLOWS` on에서는 턴 안 `request_push`가 의도가 되고 이어 턴이 없다. off에서는 지금 그대로다 | L4, L5 |
+| [github-agent.md 결정 6](github-agent.md#결정-6-push-전-사람-승인)의 이어 턴 | `AGENT_ACTION_FLOWS` on에서는 턴 안 `request_push`가 의도가 되고 이어 턴이 없다. 이어 턴과 승인 후속 턴은 행의 `flow`가 `legacy`인 요청(설정 off 동안 만든 직접 요청)에만 남는다 | L4, L5 |
 | github-agent.md 결정 6 "정책 승인은 세션의 주 저장소에만" | D6: 첨부 저장소 push도 새 release는 기본 `allow` | L3 |
 | [github-agent.md 결정 5](github-agent.md#결정-5-co-authored-by) "Co-authored-by = 세션 시작자" | 그 턴을 요청한 사람으로. 미연결 안내 문구도 "연결하지 않은 요청자의 commit에는…"으로 | L15 |
 | `gh` 경로 차단(JeongJaeSoon/agent-platform#1113, `apps/worker/Dockerfile:135-137`) | 진짜 `gh`는 그대로 로그인이 없다. shim의 여덟 명령만 플랫폼 도구로 간다 | L14 |
@@ -410,7 +410,7 @@ T4·T8은 엔진의 셸 도구로 돌기 때문에 어댑터 계약이 따로 �
 | E | L4·PR 4·P1 / PR 5·6 / L0·L3·P4·PR 8 머지 | L5 / PR 7 / L2 |
 | F | L2·L5 / 각 조건 / L5·L16·PR 4 / L5·PR 3·PR 5 머지 | L12 / L4b·L8·L9·L11(2단계) / L14 / L15 |
 
-L 단위 가운데 L0이 먼저 머지된다. L0 머지 전에는 L1~L16을 시작하지 않는다.
+L0 머지 전에는 L1~L16 가운데 L13a만 시작한다. L13a는 프록시의 receive-pack 분기와 그 테스트만 고치고 이 문서의 계약에 기대지 않는다. T2-a도 L0을 기다리지 않는다.
 
 ## 대안
 
