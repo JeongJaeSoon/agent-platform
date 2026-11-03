@@ -4634,7 +4634,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -4644,6 +4644,8 @@ export interface components {
                 release_version_no: number;
                 /** @default null */
                 release_label: string | null;
+                /** @default null */
+                release_is_active: boolean | null;
             } | null;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
@@ -4781,7 +4783,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -4791,6 +4793,8 @@ export interface components {
                 release_version_no: number;
                 /** @default null */
                 release_label: string | null;
+                /** @default null */
+                release_is_active: boolean | null;
             } | null;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
@@ -14916,7 +14920,8 @@ export interface operations {
                      *             "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *             "name": "Checkout fixer",
                      *             "release_version_no": 3,
-                     *             "release_label": "2026-10-11_17:00:00"
+                     *             "release_label": "2026-10-11_17:00:00",
+                     *             "release_is_active": true
                      *           },
                      *           "created_by": {
                      *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -15357,7 +15362,8 @@ export interface operations {
                      *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
-                     *         "release_label": "2026-10-11_17:00:00"
+                     *         "release_label": "2026-10-11_17:00:00",
+                     *         "release_is_active": true
                      *       },
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -15512,7 +15518,8 @@ export interface operations {
                      *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
-                     *         "release_label": "2026-10-11_17:00:00"
+                     *         "release_label": "2026-10-11_17:00:00",
+                     *         "release_is_active": true
                      *       },
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
