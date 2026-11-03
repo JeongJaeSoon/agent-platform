@@ -436,7 +436,7 @@ integration("the managing team on PostgreSQL", () => {
   });
 
   test("W, L and T read the agent's settings and O only its row; T changes nothing (agent-rbac R2)", async () => {
-    const { owner, lead, member, outsider, agentId } = await cast();
+    const { owner, lead, member, outsider, agentId, teamId } = await cast();
     const policy = createAuthorizationPolicy({
       identity: createDatabaseIdentityReader(db),
       agents: authority(),
@@ -500,7 +500,24 @@ integration("the managing team on PostgreSQL", () => {
       administered: 0,
       active: 0,
       draft: 1,
+      unassigned: 0,
     });
+    // The row names the managing team to O too, who cannot read the team.
+    const [team] = await db
+      .select({ name: schema.memberTeams.name })
+      .from(schema.memberTeams)
+      .where(eq(schema.memberTeams.id, teamId));
+    const [row] = (await agentsService.listAgents(outsider, { limit: 50 }))
+      .items;
+    expect(row?.managing_team_name).toBe(team?.name ?? "missing");
+    expect(
+      (
+        await agentsService.listAgents(outsider, {
+          limit: 50,
+          managing_team: "unassigned",
+        })
+      ).items,
+    ).toEqual([]);
     for (const read of settings) {
       expect(await codeOf(read(outsider))).toBe("FORBIDDEN:role");
     }

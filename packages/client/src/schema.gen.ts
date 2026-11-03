@@ -2224,7 +2224,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, and `ids` the agents named (at most 100; an id of no agent in the workspace is left out); both narrow the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), and `managing_team=unassigned` the agents with no managing team; each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -2252,7 +2252,7 @@ export interface paths {
         };
         /**
          * How many agents the workspace has, by state, and how many the caller administers
-         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, `draft` how many are not `archived` and have none yet, and `unassigned` how many have no managing team, whatever their state. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3793,6 +3793,11 @@ export interface components {
             ids?: string;
             /** @description Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them. */
             runtime_profile_id?: string;
+            /**
+             * @description `unassigned` keeps the agents with no managing team (`managing_team_id` null), the ones made before managing teams.
+             * @constant
+             */
+            managing_team?: "unassigned";
         };
         ListApiKeysQuery: {
             cursor?: string;
@@ -7483,6 +7488,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -7521,6 +7527,8 @@ export interface components {
                 active: number;
                 /** @description How many of `all` are not `archived` and have no `active_release_id` yet. */
                 draft: number;
+                /** @description How many of `all` have no managing team: what `managing_team=unassigned` lists. */
+                unassigned: number;
             };
         };
         ListProfilesResponse: {
@@ -7845,6 +7853,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -8280,6 +8289,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -8302,6 +8312,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -23829,6 +23840,7 @@ export interface operations {
                 q?: string;
                 ids?: string;
                 runtime_profile_id?: string;
+                managing_team?: "unassigned";
             };
             header?: never;
             path?: never;
@@ -23853,6 +23865,7 @@ export interface operations {
                      *           "name": "Finance analyst",
                      *           "description": "Reads the quarterly reports and flags outliers.",
                      *           "managing_team_id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *           "managing_team_name": "Finance",
                      *           "status": "active",
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
@@ -24103,7 +24116,8 @@ export interface operations {
                      *         "all": 128,
                      *         "administered": 3,
                      *         "active": 97,
-                     *         "draft": 24
+                     *         "draft": 24,
+                     *         "unassigned": 5
                      *       }
                      *     }
                      */
@@ -29873,6 +29887,7 @@ export interface operations {
                      *         "name": "Finance analyst",
                      *         "description": "Reads the quarterly reports and flags outliers.",
                      *         "managing_team_id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *         "managing_team_name": "Finance",
                      *         "status": "active",
                      *         "active_release_id": null,
                      *         "activation_revision": -1,

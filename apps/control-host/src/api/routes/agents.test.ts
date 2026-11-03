@@ -70,6 +70,7 @@ const detail: AgentDetail = {
     name: "재무 분석가",
     description: null,
     managing_team_id: null,
+    managing_team_name: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,
@@ -141,7 +142,13 @@ const outage = () =>
 function store(overrides: Partial<AgentStore> = {}): AgentStore {
   return {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
-    count: async () => ({ all: 1, administered: 0, active: 1, draft: 0 }),
+    count: async () => ({
+      all: 1,
+      administered: 0,
+      active: 1,
+      draft: 0,
+      unassigned: 1,
+    }),
     summaries: async () => new Map(),
     get: async () => detail,
     findVersion: async () => detail.versions[0] ?? null,
@@ -421,6 +428,8 @@ describe("GET /v1/agents", () => {
       [{ limit: 50, ids: ["1b4e28ba-2fa1-11d2-883f-0016d3cca427"] }, 0],
       // No active release, so on no profile.
       [{ limit: 50, runtime_profile_id: "coding" }, 0],
+      // Made before managing teams, so it has none.
+      [{ limit: 50, managing_team: "unassigned" }, 1],
     ];
     for (const [query, kept] of filters) {
       const page = await service("agent").listAgents(key, query);
@@ -456,14 +465,26 @@ describe("GET /v1/agents/counts", () => {
       store({
         count: async (workspaceId, reader) => {
           asked.push(workspaceId, reader.userId, reader.outsideAccess);
-          return { all: 501, administered: 3, active: 410, draft: 80 };
+          return {
+            all: 501,
+            administered: 3,
+            active: 410,
+            draft: 80,
+            unassigned: 7,
+          };
         },
       }),
     );
     const response = await send(api, "GET", "/v1/agents/counts");
     expect(response.status).toBe(200);
     expect(countAgentsResponseSchema.parse(await response.json())).toEqual({
-      counts: { all: 501, administered: 3, active: 410, draft: 80 },
+      counts: {
+        all: 501,
+        administered: 3,
+        active: 410,
+        draft: 80,
+        unassigned: 7,
+      },
     });
     expect(asked[0]).toBe("owner-a");
   });

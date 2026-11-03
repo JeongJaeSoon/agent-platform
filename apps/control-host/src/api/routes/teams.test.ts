@@ -353,6 +353,7 @@ describe("PUT /v1/agents/{id}/managing-team", () => {
       name: "Finance",
       description: null,
       managing_team_id: TEAM,
+      managing_team_name: "Finance",
       status: "active" as const,
       active_release_id: null,
       activation_revision: -1,

@@ -76,6 +76,7 @@ export function agentServer({
         name,
         description,
         managing_team_id: null,
+        managing_team_name: null,
         status: "active",
         active_release_id: active,
         activation_revision: revision,
