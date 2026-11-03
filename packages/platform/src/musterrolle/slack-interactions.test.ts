@@ -47,7 +47,7 @@ type Call = { method: string; args: unknown[] };
 
 let calls: Call[];
 let role: WorkspaceRole;
-let answerError: SessionServiceError | null;
+let answerError: Error | null;
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
@@ -55,6 +55,7 @@ let decideError: SessionServiceError | null;
 let getError: Error | null;
 let deferred: Promise<void>[];
 let results: string[];
+let userDelayMs: number;
 
 beforeEach(() => {
   calls = [];
@@ -67,6 +68,7 @@ beforeEach(() => {
   getError = null;
   deferred = [];
   results = [];
+  userDelayMs = 0;
 });
 
 const record =
@@ -222,9 +224,14 @@ function deps(): SlackInteractionDeps {
     },
     sessions: { appendMessage: record("append") as never },
     slack: {
-      userInfo: async (_token, id) => ({ id, team_id: TEAM }),
+      userInfo: async (_token, id) => {
+        if (userDelayMs > 0)
+          await new Promise((r) => setTimeout(r, userDelayMs));
+        return { id, team_id: TEAM };
+      },
       updateMessage: record("update") as never,
-      openView: record("view") as never,
+      openView: record("view", { viewId: "V1" }) as never,
+      updateView: record("viewUpdate") as never,
       postEphemeral: record("ephemeral") as never,
     },
     botToken: async () => "xoxb-fixture",
@@ -284,6 +291,11 @@ function press(actionId: string, value: Record<string, string>, user = LINKED) {
   });
 }
 
+// Work deferred by deferred work lands in the list while it runs.
+async function drain() {
+  for (let i = 0; i < deferred.length; i += 1) await deferred[i];
+}
+
 // What Slack is answered, with the result of the work run after it.
 async function send(body: string, headers = signed(body), agentId = AGENT) {
   const outcome = await createSlackInteractionService(deps()).receive({
@@ -291,7 +303,7 @@ async function send(body: string, headers = signed(body), agentId = AGENT) {
     rawBody: new TextEncoder().encode(body),
     ...headers,
   });
-  await Promise.all(deferred);
+  await drain();
   return outcome.kind === "ok" && outcome.result === "accepted"
     ? { ...outcome, result: results.at(-1) ?? "accepted" }
     : outcome;
@@ -367,7 +379,7 @@ describe("Slack interactions", () => {
       result: "accepted",
     });
     expect(called("answer")).toEqual([]);
-    await Promise.all(deferred);
+    await drain();
     expect(called("answer")).toHaveLength(1);
   });
 
@@ -392,7 +404,7 @@ describe("Slack interactions", () => {
       rawBody: new TextEncoder().encode(body),
       ...signed(body),
     });
-    await Promise.all(deferred);
+    await drain();
     const appends = called("append");
     expect(appends).toHaveLength(3);
     expect(
@@ -487,7 +499,7 @@ describe("Slack interactions", () => {
     expect(called("answer")).toEqual([]);
   });
 
-  test("answer opens a modal that carries the request and the card back", async () => {
+  test("answer opens a loading modal at once, then fills it with the request and the card", async () => {
     listed = [{ request_id: "q_1", kind: "question", questions: [question] }];
     const result = await send(
       press(SLACK_INTERACTION_ACTIONS.questionOpen, { s: SESSION, r: "q_1" }),
@@ -495,17 +507,48 @@ describe("Slack interactions", () => {
     expect(result).toMatchObject({ result: "view_opened" });
     const opened = called("view")[0]?.args[1] as {
       triggerId: string;
-      view: { callback_id: string; private_metadata: string };
+      view: { callback_id?: string };
     };
     expect(opened.triggerId).toBe("trigger-1");
-    expect(opened.view.callback_id).toBe(SLACK_QUESTION_VIEW_CALLBACK);
-    expect(JSON.parse(opened.view.private_metadata)).toEqual({
+    expect(opened.view.callback_id).toBeUndefined();
+    expect(JSON.stringify(opened.view)).not.toContain("Which database?");
+    const filled = called("viewUpdate")[0]?.args[1] as {
+      viewId: string;
+      view: { callback_id: string; private_metadata: string };
+    };
+    expect(filled.viewId).toBe("V1");
+    expect(filled.view.callback_id).toBe(SLACK_QUESTION_VIEW_CALLBACK);
+    expect(JSON.parse(filled.view.private_metadata)).toEqual({
       s: SESSION,
       r: "q_1",
       c: CHANNEL,
       m: CARD_TS,
       t: THREAD_TS,
     });
+  });
+
+  test("the modal opens before a slow Slack user lookup, and an unlinked presser gets no question", async () => {
+    listed = [{ request_id: "q_1", kind: "question", questions: [question] }];
+    userDelayMs = 30;
+    const service = createSlackInteractionService(deps());
+    const body = press(
+      SLACK_INTERACTION_ACTIONS.questionOpen,
+      { s: SESSION, r: "q_1" },
+      STRANGER,
+    );
+    const outcome = await service.receive({
+      agentId: AGENT,
+      rawBody: new TextEncoder().encode(body),
+      ...signed(body),
+    });
+    expect(outcome).toMatchObject({ result: "view_opened" });
+    expect(called("view")).toHaveLength(1);
+    expect(called("viewUpdate")).toEqual([]);
+    await drain();
+    const shown = JSON.stringify(called("viewUpdate")[0]?.args[1]);
+    expect(shown).not.toContain("Which database?");
+    expect(shown).not.toContain(SLACK_QUESTION_VIEW_CALLBACK);
+    expect(called("ephemeral")).toHaveLength(1);
   });
 
   const submit = (values: Record<string, Record<string, unknown>>) =>
@@ -567,6 +610,30 @@ describe("Slack interactions", () => {
     expect(called("answer")).toEqual([]);
   });
 
+  test("a form whose checks outrun Slack's window stays open and answers nothing", async () => {
+    listed = [{ request_id: "q_1", kind: "question", questions: [question] }];
+    userDelayMs = 40;
+    const service = createSlackInteractionService({
+      ...deps(),
+      submitDeadlineMs: 5,
+    });
+    const body = submit({ "q0.text": { v: { value: "MySQL" } } });
+    const outcome = await service.receive({
+      agentId: AGENT,
+      rawBody: new TextEncoder().encode(body),
+      ...signed(body),
+    });
+    expect(outcome).toMatchObject({
+      body: {
+        response_action: "errors",
+        errors: { "q0.text": expect.any(String) },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    await drain();
+    expect(called("answer")).toEqual([]);
+  });
+
   test("approving a push decides it with the stored commit and queues a turn telling the session", async () => {
     const result = await send(
       press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
@@ -603,18 +670,56 @@ describe("Slack interactions", () => {
     expect(called("update")).toHaveLength(1);
   });
 
-  test("a failed push lookup leaves the card's buttons and decides nothing", async () => {
+  test("a failed push lookup leaves the card's buttons, decides nothing and tells the presser", async () => {
     getError = new Error("canceling statement due to statement timeout");
-    await expect(
-      send(
-        press(SLACK_INTERACTION_ACTIONS.pushApprove, {
-          s: SESSION,
-          r: "push-1",
-        }),
-      ),
-    ).rejects.toThrow("statement timeout");
+    const result = await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
+    );
+    expect(result).toMatchObject({ result: "failed" });
     expect(called("update")).toEqual([]);
     expect(called("decide")).toEqual([]);
+    const [told] = called("ephemeral");
+    expect((told?.args[1] as { userId: string }).userId).toBe(LINKED);
+  });
+
+  test("an answer that throws after Slack was answered tells the presser", async () => {
+    answerError = new Error("connection reset");
+    const result = await send(
+      press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+        s: SESSION,
+        r: "toolu_1",
+      }),
+    );
+    expect(result).toMatchObject({ result: "failed" });
+    expect(called("update")).toEqual([]);
+    expect(called("ephemeral")).toHaveLength(1);
+  });
+
+  test("a follow-up turn that never lands is told to the presser", async () => {
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      sessions: {
+        appendMessage: (async () => {
+          throw new Error("queue unavailable");
+        }) as never,
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+      s: SESSION,
+      r: "push-1",
+    });
+    await service.receive({
+      agentId: AGENT,
+      rawBody: new TextEncoder().encode(body),
+      ...signed(body),
+    });
+    await drain();
+    const [told] = called("ephemeral");
+    expect((told?.args[1] as { text: string }).text).toContain(
+      "Reply in this thread",
+    );
+    expect(called("update")).toHaveLength(1);
   });
 
   test("a member the policy refuses a push for decides nothing", async () => {

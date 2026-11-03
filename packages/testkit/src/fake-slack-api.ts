@@ -88,6 +88,8 @@ export type FakeSlackWebApi = {
   updates: { channelId: string; ts: string; text: string; blocks: unknown }[];
   /** Every views.open accepted, in order. */
   views: { triggerId: string; view: unknown }[];
+  /** Every views.update accepted, in order. */
+  viewUpdates: { viewId: string; view: unknown }[];
   /** A send method named here answers ok:true without a ts, then forgets. */
   missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
@@ -164,6 +166,7 @@ export function createFakeSlackWebApi(
   const calls: FakeSlackCall[] = [];
   const updates: FakeSlackWebApi["updates"] = [];
   const views: FakeSlackWebApi["views"] = [];
+  const viewUpdates: FakeSlackWebApi["viewUpdates"] = [];
   /** The scopes each pending code's authorize URL asked for. */
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
@@ -445,6 +448,17 @@ export function createFakeSlackWebApi(
       return { view: { id: `V${views.length}` } };
     },
 
+    "views.update"(context) {
+      installedBot(context);
+      const { view_id, view } = context.params;
+      if (!view_id || !view) throw new SlackError("invalid_arguments");
+      if (!/^V\d+$/.test(view_id) || Number(view_id.slice(1)) > views.length) {
+        throw new SlackError("not_found");
+      }
+      viewUpdates.push({ viewId: view_id, view: JSON.parse(view) });
+      return { view: { id: view_id } };
+    },
+
     // Slack's archive link; the fake keeps no threads, so a reply's link
     // lacks the `thread_ts` and `cid` Slack adds.
     "chat.getPermalink"(context) {
@@ -640,6 +654,7 @@ export function createFakeSlackWebApi(
     apps,
     calls,
     updates,
+    viewUpdates,
     views,
     conversations,
     seedChannels,
@@ -772,7 +787,7 @@ export function createFakeSlackWebApi(
         return Response.json({ ok: true, messages });
       }
       if (url.pathname === "/fake/updates" && request.method === "GET") {
-        return Response.json({ ok: true, updates, views });
+        return Response.json({ ok: true, updates, views, viewUpdates });
       }
       // For curl on the local stack: posts {payload} as Slack's signed
       // interactivity form, stamped with the app's id.

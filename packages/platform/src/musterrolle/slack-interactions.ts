@@ -48,6 +48,7 @@ import { slackOutboxText } from "./slack-outbox.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPromptResult,
+  slackNoticeView,
   slackOptionAnswer,
   slackPromptMessage,
   slackQuestionAnswers,
@@ -87,7 +88,7 @@ export type SlackInteractionDeps = {
   pushes: Pick<PushRequestService, "decide" | "get">;
   sessions: Pick<SessionService, "appendMessage">;
   slack: Pick<SlackBotApi, "userInfo"> &
-    Required<Pick<SlackBotApi, "updateMessage" | "openView">> &
+    Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   outbox: Pick<SlackOutboxStore, "readerLocale">;
@@ -102,6 +103,8 @@ export type SlackInteractionDeps = {
    * seconds, the card and the session may take longer.
    */
   defer?: (work: () => Promise<void>) => void;
+  /** How long a submitted form waits on its checks before asking again. */
+  submitDeadlineMs?: number;
 };
 
 const OK: SlackInteractionResponse = { ok: true };
@@ -144,6 +147,7 @@ export type SlackInteractionService = ReturnType<
 export function createSlackInteractionService(deps: SlackInteractionDeps) {
   const now = deps.now ?? (() => new Date());
   const newRequestId = deps.newRequestId ?? (() => crypto.randomUUID());
+  const submitDeadlineMs = deps.submitDeadlineMs ?? 2500;
   const wait =
     deps.wait ?? ((ms: number) => new Promise((done) => setTimeout(done, ms)));
   const defer =
@@ -210,7 +214,8 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
   }
 
-  async function admit(
+  /** Who pressed and how to answer them; null when the app has no bot. */
+  async function pressedFor(
     agentId: string,
     app: { workspaceId: string; slackAppId: string; appId: string },
     input: {
@@ -218,45 +223,48 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       userId: string;
       channelId: string;
       threadTs: string;
-      sessionId: string;
     },
-  ): Promise<Allowed | { refused: string }> {
+  ): Promise<Pressed | null> {
     const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
-    if (botToken === null) return { refused: "no_bot_token" };
+    if (botToken === null) return null;
     const locale =
       (await deps.outbox.readerLocale({
         workspaceId: app.workspaceId,
         teamId: input.teamId,
         slackUserId: input.userId,
       })) ?? DEFAULT_USER_LOCALE;
-    const pressed: Pressed = {
-      agentId,
-      ...app,
-      teamId: input.teamId,
-      userId: input.userId,
-      channelId: input.channelId,
-      threadTs: input.threadTs,
-      botToken,
-      locale,
-    };
-    const user = await deps.slack.userInfo(botToken, input.userId);
+    return { agentId, ...app, ...input, botToken, locale };
+  }
+
+  async function admit(
+    pressed: Pressed,
+    sessionId: string,
+  ): Promise<Allowed | { refused: string }> {
+    const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
     const decision: SlackDecision = await authorizeSlackInput(deps, {
-      event: { appId: app.appId, teamId: input.teamId, agentId },
+      event: {
+        appId: pressed.appId,
+        teamId: pressed.teamId,
+        agentId: pressed.agentId,
+      },
       user,
       action: "session.approve",
-      channel: { id: input.channelId, dm: input.channelId.startsWith("D") },
-      resource: { kind: "session", id: input.sessionId },
+      channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
+      resource: { kind: "session", id: sessionId },
       requestId,
       connectUrl: deps.connectUrl,
     });
     if (decision.status === "dropped") return { refused: decision.reason };
     if (decision.decision.outcome !== "allow") {
-      if (decision.notice !== null) {
-        await tell(
-          pressed,
-          SLACK_NOTICE_MESSAGES[locale][decision.notice.message],
-          decision.notice.link_url,
+      const told = decision.notice;
+      if (told !== null) {
+        defer(() =>
+          tell(
+            pressed,
+            SLACK_NOTICE_MESSAGES[pressed.locale][told.message],
+            told.link_url,
+          ),
         );
       }
       return { refused: decision.decision.reason_code };
@@ -411,10 +419,15 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         mode: "enqueue" as const,
       },
     };
-    for (let attempt = 1; attempt <= FOLLOW_UP_ATTEMPTS; attempt += 1) {
+    let queued = false;
+    for (
+      let attempt = 1;
+      !queued && attempt <= FOLLOW_UP_ATTEMPTS;
+      attempt += 1
+    ) {
       try {
         await deps.sessions.appendMessage(caller, value.s, followUp);
-        break;
+        queued = true;
       } catch (error) {
         deps.logger.warn("Slack push follow-up turn not queued", {
           agent_id: pressed.agentId,
@@ -428,6 +441,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         });
         if (attempt < FOLLOW_UP_ATTEMPTS) await wait(attempt * 500);
       }
+    }
+    if (!queued) {
+      await tell(pressed, SLACK_PROMPT_MESSAGES[pressed.locale].followUpFailed);
     }
     await card(
       decision === "approve" ? "approved" : "rejected",
@@ -445,135 +461,201 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
   }
 
+  function failedQuietly(
+    pressed: Pressed,
+    error: unknown,
+    value?: SlackInteractionValue,
+  ) {
+    deps.logger.warn("Slack interaction failed after its answer", {
+      agent_id: pressed.agentId,
+      session_id: value?.s ?? null,
+      request_id: value?.r ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  function buttonValue(raw: string | undefined): SlackInteractionValue | null {
+    try {
+      return slackInteractionValueSchema.parse(JSON.parse(raw ?? ""));
+    } catch {
+      return null;
+    }
+  }
+
   /**
-   * Slack takes the answer to a press within three seconds. Only a modal
-   * must open inside that window, with its trigger; the rest runs after.
+   * Slack takes the answer to a press within three seconds, and a trigger
+   * opens a modal only inside them: a press is answered at once and its
+   * work runs after; a form opens as a loading modal and is filled once
+   * the presser is judged.
    */
   async function onAction(
     agentId: string,
     app: { workspaceId: string; slackAppId: string; appId: string },
     payload: SlackBlockActionsPayload,
   ): Promise<SlackInteractionOutcome> {
-    if (
-      payload.actions[0]?.action_id === SLACK_INTERACTION_ACTIONS.questionOpen
-    ) {
-      return actOn(agentId, app, payload);
-    }
-    defer(async () => handled(agentId, await actOn(agentId, app, payload)));
-    return ok("accepted");
-  }
-
-  async function actOn(
-    agentId: string,
-    app: { workspaceId: string; slackAppId: string; appId: string },
-    payload: SlackBlockActionsPayload,
-  ): Promise<SlackInteractionOutcome> {
     const [action] = payload.actions;
-    if (action === undefined) return ok("ignored");
-    let value: SlackInteractionValue;
-    try {
-      value = slackInteractionValueSchema.parse(JSON.parse(action.value ?? ""));
-    } catch {
-      return ok("ignored");
-    }
-    const threadTs = payload.message.thread_ts ?? payload.message.ts;
-    const admitted = await admit(agentId, app, {
+    const value = buttonValue(action?.value);
+    if (action === undefined || value === null) return ok("ignored");
+    const pressed = await pressedFor(agentId, app, {
       teamId: payload.team.id,
       userId: payload.user.id,
       channelId: payload.channel.id,
-      threadTs,
-      sessionId: value.s,
+      threadTs: payload.message.thread_ts ?? payload.message.ts,
     });
-    if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
-    const asked = Array.isArray(payload.message.blocks)
-      ? (payload.message.blocks as unknown[])
-      : [];
-    const card = (result: SlackPromptResult, by: string | null) =>
-      settle(admitted.pressed, payload.message.ts, asked, result, by);
+    if (pressed === null) return ok("refused:no_bot_token");
+    if (action.action_id === SLACK_INTERACTION_ACTIONS.questionOpen) {
+      const { viewId } = await deps.slack.openView(pressed.botToken, {
+        triggerId: payload.trigger_id,
+        view: slackNoticeView(
+          SLACK_PROMPT_MESSAGES[pressed.locale].loading,
+          pressed.locale,
+        ),
+      });
+      defer(async () =>
+        handled(agentId, await fillView(pressed, viewId, payload, value)),
+      );
+      return ok("view_opened");
+    }
+    defer(async () =>
+      handled(agentId, await actOn(pressed, payload, action.action_id, value)),
+    );
+    return ok("accepted");
+  }
 
-    // Option buttons share a block, where Slack wants each id once.
-    const actionId = action.action_id.startsWith(
-      `${SLACK_INTERACTION_ACTIONS.questionOption}:`,
-    )
-      ? SLACK_INTERACTION_ACTIONS.questionOption
-      : action.action_id;
-    switch (actionId) {
-      case SLACK_INTERACTION_ACTIONS.permissionAllow:
-      case SLACK_INTERACTION_ACTIONS.permissionDeny:
-        return ok(
-          await answer(
-            admitted,
-            value,
-            {
-              kind: "permission",
-              decision:
-                actionId === SLACK_INTERACTION_ACTIONS.permissionAllow
-                  ? "allow"
-                  : "deny",
-            },
-            card,
-          ),
-        );
-      case SLACK_INTERACTION_ACTIONS.questionOption: {
-        const questions = await pendingQuestions(admitted.caller, value);
-        const answers =
-          questions === null ? null : slackOptionAnswer(questions, value.o);
-        if (answers === null) {
-          const now = await standing(admitted.caller, value);
-          if (now === "open") {
-            await notice(admitted.pressed, "failed");
-            return ok("failed");
-          }
-          await card(now, null);
-          return ok("already");
-        }
-        return ok(
-          await answer(admitted, value, { kind: "question", answers }, card),
-        );
+  const cardOf =
+    (pressed: Pressed, payload: SlackBlockActionsPayload) =>
+    (result: SlackPromptResult, by: string | null) =>
+      settle(
+        pressed,
+        payload.message.ts,
+        Array.isArray(payload.message.blocks)
+          ? (payload.message.blocks as unknown[])
+          : [],
+        result,
+        by,
+      );
+
+  async function fillView(
+    pressed: Pressed,
+    viewId: string,
+    payload: SlackBlockActionsPayload,
+    value: SlackInteractionValue,
+  ): Promise<SlackInteractionOutcome> {
+    const copy = SLACK_PROMPT_MESSAGES[pressed.locale];
+    const show = (text: string) =>
+      deps.slack
+        .updateView(pressed.botToken, {
+          viewId,
+          view: slackNoticeView(text, pressed.locale),
+        })
+        .catch((error: unknown) => failedQuietly(pressed, error, value));
+    try {
+      const admitted = await admit(pressed, value.s);
+      if ("refused" in admitted) {
+        await show(copy.unavailable);
+        return ok(`refused:${admitted.refused}`);
       }
-      case SLACK_INTERACTION_ACTIONS.questionOpen: {
-        const questions = await pendingQuestions(admitted.caller, value);
-        if (questions === null) {
-          const now = await standing(admitted.caller, value);
-          await card(now === "open" ? "closed" : now, null);
-          return ok("already");
-        }
-        const metadata: SlackQuestionViewMetadata = {
+      const questions = await pendingQuestions(admitted.caller, value);
+      if (questions === null) {
+        const state = await standing(admitted.caller, value);
+        const result = state === "open" ? "closed" : state;
+        await cardOf(pressed, payload)(result, null);
+        await show(copy.already[result]);
+        return ok("already");
+      }
+      const view = slackQuestionView(
+        questions,
+        {
           s: value.s,
           r: value.r,
-          c: payload.channel.id,
+          c: pressed.channelId,
           m: payload.message.ts,
-          t: threadTs,
-        };
-        const view = slackQuestionView(
-          questions,
-          metadata,
-          admitted.pressed.locale,
-        );
-        if (view === null) {
-          await notice(admitted.pressed, "failed");
-          return ok("failed");
-        }
-        await deps.slack.openView(admitted.pressed.botToken, {
-          triggerId: payload.trigger_id,
-          view,
-        });
-        return ok("view_opened");
+          t: pressed.threadTs,
+        },
+        pressed.locale,
+      );
+      if (view === null) {
+        await show(copy.unavailable);
+        return ok("failed");
       }
-      case SLACK_INTERACTION_ACTIONS.pushApprove:
-      case SLACK_INTERACTION_ACTIONS.pushReject:
-        return ok(
-          await decidePush(
-            admitted,
-            value,
-            actionId === SLACK_INTERACTION_ACTIONS.pushApprove
-              ? "approve"
-              : "reject",
-            card,
-          ),
-        );
-      default:
-        return ok("ignored");
+      await deps.slack.updateView(pressed.botToken, { viewId, view });
+      return ok("view_filled");
+    } catch (error) {
+      failedQuietly(pressed, error, value);
+      await show(SLACK_NOTICE_MESSAGES[pressed.locale].failed);
+      return ok("failed");
+    }
+  }
+
+  async function actOn(
+    pressed: Pressed,
+    payload: SlackBlockActionsPayload,
+    actionId: string,
+    value: SlackInteractionValue,
+  ): Promise<SlackInteractionOutcome> {
+    try {
+      const admitted = await admit(pressed, value.s);
+      if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
+      const card = cardOf(pressed, payload);
+      // Option buttons share a block, where Slack wants each id once.
+      const kind = actionId.startsWith(
+        `${SLACK_INTERACTION_ACTIONS.questionOption}:`,
+      )
+        ? SLACK_INTERACTION_ACTIONS.questionOption
+        : actionId;
+      switch (kind) {
+        case SLACK_INTERACTION_ACTIONS.permissionAllow:
+        case SLACK_INTERACTION_ACTIONS.permissionDeny:
+          return ok(
+            await answer(
+              admitted,
+              value,
+              {
+                kind: "permission",
+                decision:
+                  kind === SLACK_INTERACTION_ACTIONS.permissionAllow
+                    ? "allow"
+                    : "deny",
+              },
+              card,
+            ),
+          );
+        case SLACK_INTERACTION_ACTIONS.questionOption: {
+          const questions = await pendingQuestions(admitted.caller, value);
+          const answers =
+            questions === null ? null : slackOptionAnswer(questions, value.o);
+          if (answers === null) {
+            const state = await standing(admitted.caller, value);
+            if (state === "open") {
+              await notice(pressed, "failed");
+              return ok("failed");
+            }
+            await card(state, null);
+            return ok("already");
+          }
+          return ok(
+            await answer(admitted, value, { kind: "question", answers }, card),
+          );
+        }
+        case SLACK_INTERACTION_ACTIONS.pushApprove:
+        case SLACK_INTERACTION_ACTIONS.pushReject:
+          return ok(
+            await decidePush(
+              admitted,
+              value,
+              kind === SLACK_INTERACTION_ACTIONS.pushApprove
+                ? "approve"
+                : "reject",
+              card,
+            ),
+          );
+        default:
+          return ok("ignored");
+      }
+    } catch (error) {
+      failedQuietly(pressed, error, value);
+      await notice(pressed, "failed");
+      return ok("failed");
     }
   }
 
@@ -594,63 +676,99 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       return ok("ignored", CLEAR);
     }
     const value: SlackInteractionValue = { s: metadata.s, r: metadata.r };
-    const admitted = await admit(agentId, app, {
-      teamId: payload.team.id,
-      userId: payload.user.id,
-      channelId: metadata.c,
-      threadTs: metadata.t,
-      sessionId: metadata.s,
-    });
-    if ("refused" in admitted) return ok(`refused:${admitted.refused}`, CLEAR);
-    const { pressed } = admitted;
-    const questions = await pendingQuestions(admitted.caller, value);
-    if (questions === null) {
-      const now = await standing(admitted.caller, value);
-      await tell(
-        pressed,
-        SLACK_PROMPT_MESSAGES[pressed.locale].already[
-          now === "open" ? "closed" : now
-        ],
+    let locale: UserLocale = DEFAULT_USER_LOCALE;
+
+    // What has to be known before the form may close: who submitted, and
+    // that the answers fit the request as stored.
+    const check = async (): Promise<
+      SlackInteractionOutcome | (() => Promise<void>)
+    > => {
+      const pressed = await pressedFor(agentId, app, {
+        teamId: payload.team.id,
+        userId: payload.user.id,
+        channelId: metadata.c,
+        threadTs: metadata.t,
+      });
+      if (pressed === null) return ok("refused:no_bot_token", CLEAR);
+      locale = pressed.locale;
+      const admitted = await admit(pressed, metadata.s);
+      if ("refused" in admitted) {
+        return ok(`refused:${admitted.refused}`, CLEAR);
+      }
+      const questions = await pendingQuestions(admitted.caller, value);
+      if (questions === null) {
+        const state = await standing(admitted.caller, value);
+        defer(() =>
+          tell(
+            pressed,
+            SLACK_PROMPT_MESSAGES[pressed.locale].already[
+              state === "open" ? "closed" : state
+            ],
+          ),
+        );
+        return ok("already", CLEAR);
+      }
+      const parsed = slackQuestionAnswers(
+        questions,
+        payload.view.state.values,
+        pressed.locale,
       );
-      return ok("already", CLEAR);
-    }
-    const parsed = slackQuestionAnswers(
-      questions,
-      payload.view.state.values,
-      pressed.locale,
-    );
-    if (!parsed.ok) {
-      return ok("invalid", {
+      if (!parsed.ok) {
+        return ok("invalid", {
+          response_action: "errors",
+          errors: parsed.errors,
+        });
+      }
+      // The card as it was asked, rebuilt: a modal carries no message.
+      const asked = slackPromptMessage(
+        {
+          kind: "question",
+          sessionId: value.s,
+          requestId: value.r,
+          questions,
+          expiresAt: now().toISOString(),
+        },
+        { locale: pressed.locale, requesterSlackUserId: null },
+      ).blocks;
+      return async () => {
+        try {
+          handled(
+            agentId,
+            ok(
+              await answer(
+                admitted,
+                value,
+                { kind: "question", answers: parsed.answers },
+                (outcome, by) =>
+                  settle(pressed, metadata.m, asked, outcome, by),
+              ),
+            ),
+          );
+        } catch (error) {
+          failedQuietly(pressed, error, value);
+          await notice(pressed, "failed");
+        }
+      };
+    };
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const checked = await Promise.race([
+      check(),
+      new Promise<"late">((done) => {
+        timer = setTimeout(() => done("late"), submitDeadlineMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    // A check that finishes later is dropped: nothing is answered for a
+    // form Slack was told to keep open.
+    if (checked === "late") {
+      const block = Object.keys(payload.view.state.values)[0] ?? "q0";
+      return ok("late", {
         response_action: "errors",
-        errors: parsed.errors,
+        errors: { [block]: SLACK_PROMPT_MESSAGES[locale].retry },
       });
     }
-    // The card as it was asked, rebuilt: a modal carries no message.
-    const asked = slackPromptMessage(
-      {
-        kind: "question",
-        sessionId: value.s,
-        requestId: value.r,
-        questions,
-        expiresAt: now().toISOString(),
-      },
-      { locale: pressed.locale, requesterSlackUserId: null },
-    ).blocks;
-    // Checked above, so the modal can close now; the answer and the card
-    // run after Slack has its answer.
-    defer(async () =>
-      handled(
-        agentId,
-        ok(
-          await answer(
-            admitted,
-            value,
-            { kind: "question", answers: parsed.answers },
-            (outcome, by) => settle(pressed, metadata.m, asked, outcome, by),
-          ),
-        ),
-      ),
-    );
+    if (typeof checked !== "function") return checked;
+    defer(checked);
     return ok("accepted", CLEAR);
   }
 

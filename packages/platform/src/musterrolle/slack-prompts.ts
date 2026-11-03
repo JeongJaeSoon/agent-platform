@@ -66,6 +66,12 @@ type PromptCopy = {
   expires: string;
   link: string;
   answerRequired: string;
+  loading: string;
+  /** The form closed on a request this person cannot answer here. */
+  unavailable: string;
+  retry: string;
+  /** A push was decided, but the session could not be told. */
+  followUpFailed: string;
   /** `{who}` is the Slack mention of whoever settled it. */
   by: Record<Exclude<SlackPromptResult, "closed">, string>;
   /** Shown when the card is pressed after someone else settled it. */
@@ -96,6 +102,12 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     expires: "답하지 않으면 {time}에 만료돼요",
     link: "웹에서 열기",
     answerRequired: "답을 고르거나 입력해 주세요",
+    loading: "질문을 불러오고 있어요…",
+    unavailable:
+      "이 요청은 여기서 답할 수 없어요. 스레드의 안내를 확인해 주세요",
+    retry: "잠시 뒤 다시 제출해 주세요",
+    followUpFailed:
+      "결정은 반영됐지만 세션에 알리지 못했어요. 이 스레드에 답글을 달면 세션이 이어져요",
     by: {
       allowed: "{who}님이 허용했어요",
       denied: "{who}님이 거부했어요",
@@ -134,6 +146,12 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     expires: "回答がない場合、{time}に期限切れになります",
     link: "Webで開く",
     answerRequired: "回答を選ぶか入力してください",
+    loading: "質問を読み込んでいます…",
+    unavailable:
+      "このリクエストにはここで回答できません。スレッドの案内を確認してください",
+    retry: "しばらくしてからもう一度送信してください",
+    followUpFailed:
+      "決定は反映されましたが、セッションに伝えられませんでした。このスレッドに返信するとセッションが続きます",
     by: {
       allowed: "{who}さんが許可しました",
       denied: "{who}さんが拒否しました",
@@ -172,6 +190,12 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
     expires: "Expires at {time} if no one answers",
     link: "Open on the web",
     answerRequired: "Choose or type an answer",
+    loading: "Loading the question…",
+    unavailable:
+      "This request can't be answered here. See the note in the thread",
+    retry: "Please submit again in a moment",
+    followUpFailed:
+      "The decision is recorded, but the session could not be told. Reply in this thread to continue it",
     by: {
       allowed: "{who} allowed it",
       denied: "{who} denied it",
@@ -542,6 +566,20 @@ export function slackQuestionView(
     submit: plain(copy.submit, MODAL_TITLE_MAX),
     close: plain(copy.cancel, MODAL_TITLE_MAX),
     blocks,
+  };
+}
+
+/** A modal that only says something: while loading, or why it cannot ask. */
+export function slackNoticeView(
+  text: string,
+  locale: UserLocale,
+): Record<string, unknown> {
+  const copy = SLACK_PROMPT_MESSAGES[locale];
+  return {
+    type: "modal",
+    title: plain(copy.modalTitle, MODAL_TITLE_MAX),
+    close: plain(copy.cancel, MODAL_TITLE_MAX),
+    blocks: [{ type: "section", text: plain(text) }],
   };
 }
 

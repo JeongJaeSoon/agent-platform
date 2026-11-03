@@ -431,6 +431,7 @@ describe("fake Slack interactivity, for a local stack", () => {
           blocks: [{ type: "section" }],
         },
       ],
+      viewUpdates: [],
       views: [{ triggerId: "t1", view: { type: "modal" } }],
     });
     expect(

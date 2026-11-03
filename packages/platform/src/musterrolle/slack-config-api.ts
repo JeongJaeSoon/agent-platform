@@ -455,6 +455,11 @@ export interface SlackBotApi {
   openView?(
     botToken: string,
     input: { triggerId: string; view: Record<string, unknown> },
+  ): Promise<{ viewId: string }>;
+  /** `views.update` of a modal this app opened. */
+  updateView?(
+    botToken: string,
+    input: { viewId: string; view: Record<string, unknown> },
   ): Promise<void>;
 }
 
@@ -552,7 +557,7 @@ const listChannelsAnswer = z.object({
 export function createSlackBotApi(
   options?: SlackApiOptions,
 ): SlackBotApi &
-  Required<Pick<SlackBotApi, "updateMessage" | "openView">> &
+  Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
   SlackBotSender {
   const call = slackCaller(options);
   const send = slackSender(options);
@@ -698,12 +703,21 @@ export function createSlackBotApi(
     },
 
     async openView(botToken, input) {
-      await call(
+      const { view } = await call(
         "views.open",
         {
           token: botToken,
           body: { trigger_id: input.triggerId, view: input.view },
         },
+        z.object({ view: z.object({ id: z.string().min(1) }) }),
+      );
+      return { viewId: view.id };
+    },
+
+    async updateView(botToken, input) {
+      await call(
+        "views.update",
+        { token: botToken, body: { view_id: input.viewId, view: input.view } },
         z.object({}),
       );
     },
