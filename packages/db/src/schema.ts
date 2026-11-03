@@ -20,6 +20,7 @@ import {
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
+  type PlatformPrompt,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
@@ -1277,6 +1278,11 @@ export const sessions = pgTable(
     agentReleaseId: text("agent_release_id").references(
       (): AnyPgColumn => agentReleases.id,
     ),
+    // `platformPromptSchema`, written with the row and never updated: every
+    // claim hands it to the worker as it is, since it is part of the
+    // checkpoint fingerprint. Null is revision 0, no platform paragraph,
+    // which every row from before it is.
+    platformPrompt: jsonb("platform_prompt").$type<PlatformPrompt>(),
     // What this session's Messages calls cost, as the egress proxy metered
     // them: each is priced and added once (provider_usage), the
     // engine's calls and a tool's alike. An estimate. Sessions from before

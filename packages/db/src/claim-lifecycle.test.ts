@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
+import type { PlatformPrompt } from "@werft-ai/contracts";
 import {
   type EnsureExecutionResult,
   type ExecutionBackend,
@@ -323,6 +324,32 @@ describe("claim lifecycle", () => {
         await releaseWith({ tools: [] }, { agent_instructions: "" }),
       ),
     ).toBeNull();
+  });
+
+  test("the binding carries the session row's platform prompt as stored, and none for a revision 0 row", async () => {
+    const promptBound = async (prompt: PlatformPrompt | null) => {
+      const backend = new NonceHoldingBackend();
+      const sessionId = await queuedSession("default");
+      await db
+        .update(sessions)
+        .set({ platformPrompt: prompt })
+        .where(eq(sessions.id, sessionId));
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding.platformPrompt;
+    };
+    const prompt: PlatformPrompt = {
+      prompt_revision: 1,
+      agent_identity: { name: "code-review", description: "Reviews" },
+      origin_surface: "slack_dm",
+      language: "en",
+      repository: "acme/app",
+      github: { repositories: ["acme/app", "acme/docs"] },
+    };
+    expect(await promptBound(null)).toBeNull();
+    expect(await promptBound(prompt)).toEqual(prompt);
   });
 
   test("a claimed execution lost after its claim comes back as the next generation with a new nonce; the old nonce claims nothing", async () => {

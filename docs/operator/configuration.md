@@ -82,6 +82,10 @@ worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 �
 
 API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). 둘 다 없으면 지금처럼 동작한다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 그래서 SDK를 올리는 릴리스는 `profiles.yaml`의 `runtime_version`도 함께 올린다.
 
+API와 slack role은 `SESSION_PROMPT_REVISION`(기본 0, 허용 값 0·1, 틀린 값이면 기동하지 않음)으로 에이전트 release 세션의 system prompt 앞머리 문단을 정한다. 1이면 새 세션은 만들 때 에이전트 이름·설명, 시작한 곳(Slack 채널·DM, 웹 콘솔, API), 카드 언어, 저장소의 GitHub 이름(`owner/repo`)과 release의 GitHub 설정 유무를 `sessions.platform_prompt`에 남기고, worker가 그것으로 문단을 만든다. 설정이 있으면 GitHub 일을 내장 `mcp__github__` 도구로 하고 `git push`는 GitHub에 닿지 않는다고 알리고, 없으면 "이 에이전트에는 GitHub 작업이 설정되지 않았고 관리자가 콘솔 에이전트 GitHub 탭에서 켠다"고 답하게 한다. 0이면 새 세션도 문단이 없다(이 설정 전과 같다). 저장한 값은 세션이 끝날 때까지 바뀌지 않는다. 문단은 checkpoint fingerprint에 들어가므로 에이전트 이름·설명이나 release를 바꿔도 진행 중인 세션은 그대로 재개된다.
+
+켜는 순서: migration(0226) → claim을 처리하는 모든 API replica와 모든 worker 이미지(현재·직전)를 이 버전 이상으로 배포 → 1로 설정. 옛 worker는 이 값이 실린 claim을 거부하고, 옛 API는 이 값을 claim에 싣지 않아 새 worker가 문단 없이 돌려 그 세션의 checkpoint가 재개되지 않는다. 0으로 되돌리면 새 세션만 문단이 없어진다. 이미 1로 만든 세션은 계속 문단을 받는다. 1을 켠 뒤 API·worker를 이 버전 전으로 되돌리는 것은 지원하지 않는다. 로컬 compose(`infra/compose.local.yml`)는 API·slack·worker를 한 tree에서 빌드하므로 1을 기본으로 둔다.
+
 GitHub Packages bot token([결정](../contributing/decisions/github-packages-bot-token.md))을 다른 host로 보내야 할 때만 아래 값을 둔다. GitHub Enterprise Server나 테스트용 가짜 레지스트리가 그런 경우다. 값은 http(s) URL이고 userinfo·query·fragment가 있으면 API가 기동하지 않는다. 레지스트리 host는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에도 있어야 한다.
 
 | 변수 | 기본값 | 의미 |

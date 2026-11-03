@@ -214,6 +214,13 @@ export type CheckpointProtocol = {
   }): Promise<RestorePlanResult>;
 };
 
+// What every config of a session's claim carries from its release and its
+// row, whichever profile and tool list it is for.
+type ReleaseRun = Pick<
+  WorkerBinding,
+  "releaseTools" | "agentInstructions" | "platformPrompt"
+>;
+
 type ToolConfigs = {
   profile: RuntimeConfig;
   release: RuntimeConfig | null;
@@ -559,7 +566,7 @@ export function createWorkerGateway(deps: {
   // claim is the one an older worker accepts.
   function toolConfigsOf(
     profile: CatalogProfile,
-    release: Pick<WorkerBinding, "releaseTools" | "agentInstructions">,
+    release: ReleaseRun,
     providerToken: string,
     hasRepository: boolean,
   ): ToolConfigs {
@@ -569,6 +576,7 @@ export function createWorkerGateway(deps: {
       runReleaseTools,
     );
     const instructions = release.agentInstructions;
+    const prompt = release.platformPrompt;
     const configOf = (tools: readonly string[]): RuntimeConfig => {
       const config = runtimeConfigOf(
         profile,
@@ -576,9 +584,11 @@ export function createWorkerGateway(deps: {
         hasRepository,
         tools,
       );
-      return instructions
-        ? { ...config, agent_instructions: instructions }
-        : config;
+      return {
+        ...config,
+        ...(instructions ? { agent_instructions: instructions } : {}),
+        ...(prompt ? { platform_prompt: prompt } : {}),
+      };
     };
     return {
       profile: configOf(lists.profile),
@@ -934,7 +944,7 @@ export function createWorkerGateway(deps: {
     pin: ProfilePin,
     providerToken: string,
     hasRepository: boolean,
-    release: Pick<WorkerBinding, "releaseTools" | "agentInstructions">,
+    release: ReleaseRun,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
@@ -988,8 +998,7 @@ export function createWorkerGateway(deps: {
       | "model"
       | "restoreProfiles"
       | "repository"
-      | "releaseTools"
-      | "agentInstructions"
+      | keyof ReleaseRun
     >,
     current: ToolConfigs,
     providerToken: string,

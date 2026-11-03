@@ -75,6 +75,11 @@ import {
   sessionProfile,
   workspaceProfileRefusal,
 } from "./catalog.ts";
+import {
+  type AgentPromptIdentity,
+  type PlatformPromptRevision,
+  platformPromptOf,
+} from "./platform-prompt.ts";
 import { deriveSessionTitle } from "./session-title.ts";
 
 export const viewerOf = (actor: Caller): SessionViewer => ({
@@ -382,7 +387,16 @@ export function createSessionService(deps: {
         | "policy_pins"
       >
     >;
+    // The agent a new session's platform prompt names; null when the
+    // release or its agent is gone. Absent, no session gets the prompt.
+    promptIdentity?(
+      workspaceId: string,
+      releaseId: string,
+    ): Promise<AgentPromptIdentity | null>;
   };
+  // The platform prompt revision new sessions of an agent release get;
+  // absent is 0, none.
+  promptRevision?: PlatformPromptRevision;
   // Who a requester refused for an unbound credential is told to ask.
   credentials?: Pick<CredentialBindingStore, "contacts">;
   limits: InputLimits & {
@@ -756,6 +770,23 @@ export function createSessionService(deps: {
         allowed !== null && !runsOnCurrentImage(catalog, allowed.profile);
       const pair =
         allowed && runs && !staleRuntime ? { ...allowed, profile: runs } : null;
+      const identity =
+        release !== null && deps.promptRevision === 1
+          ? await deps.releases?.promptIdentity?.(actor.ownerId, release.id)
+          : undefined;
+      const platformPrompt = identity
+        ? platformPromptOf({
+            identity,
+            surface: actor.subject.surface,
+            catalog,
+            profileId,
+            repository:
+              repositoryId === null || pair?.repository == null
+                ? null
+                : { id: repositoryId, url: pair.repository.url },
+            github: release?.policy_pins.github ?? null,
+          })
+        : undefined;
       const result = await inputs.acceptInputAtomic({
         principal: actor,
         idempotencyKey: input.idempotencyKey,
@@ -786,6 +817,7 @@ export function createSessionService(deps: {
             }
           : {}),
         ...(release ? { agentReleaseId: release.id } : {}),
+        ...(platformPrompt === undefined ? {} : { platformPrompt }),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         ...(input.shareScope === undefined
           ? {}

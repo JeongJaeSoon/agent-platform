@@ -953,6 +953,13 @@
       "when": 1793733401698,
       "tag": "0226_slack_thread_status",
       "breakpoints": true
+    },
+    {
+      "idx": 227,
+      "version": "7",
+      "when": 1793738003003,
+      "tag": "0227_session_platform_prompt",
+      "breakpoints": true
     }
   ]
 }

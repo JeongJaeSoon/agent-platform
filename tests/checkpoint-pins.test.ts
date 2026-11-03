@@ -830,6 +830,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
   const catalog = async () => catalogOver(await seededRows());
   const sessionOf = async (overrides: {
     agentInstructions?: string | null;
+    platformPrompt?: unknown;
     branch?: string;
     model?: string | null;
     profileFingerprint?: string | null;
@@ -852,6 +853,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       repositoryMode: "repository" as const,
       releaseTools: null,
       agentInstructions: null,
+      platformPrompt: null,
       ...overrides,
     };
   };
@@ -1025,6 +1027,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
   test("a session row's release card instructions reach its claims; a row without a release, or a card without them, has none", () => {
     const row = {
       agent_instructions: "Answer in haiku.",
+      platform_prompt: null,
       branch: "main",
       id: "s1",
       model: null,
@@ -1143,6 +1146,96 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       expect(
         (await restorePlan(objects, pointer, seeded, runtime)).status,
       ).toBe(status);
+    }
+  });
+
+  test("a session row's platform prompt rides on every claim of it; a revision 0 row plans with the digest it had before the column", async () => {
+    const prompt = {
+      prompt_revision: 1,
+      agent_identity: { name: "code-review", description: null },
+      origin_surface: "slack_channel",
+      language: "ko",
+      repository: "acme/app",
+      github: null,
+    };
+    expect(
+      claimedSessionOf({
+        agent_instructions: null,
+        platform_prompt: prompt,
+        branch: "main",
+        id: "s1",
+        model: null,
+        owner_id: "owner-a",
+        profile_fingerprint: null,
+        profile_id: PROFILE_ID,
+        release_github: null,
+        release_id: "r1",
+        release_tools: ["Read"],
+        repo_url: null,
+        repository_id: REPOSITORY_ID,
+        repository_mode: "repository",
+      }).platformPrompt,
+    ).toEqual(prompt);
+
+    const resolved = await catalog();
+    const base = {
+      ...(await sessionOf({ releaseTools: ["Read"] })),
+      id: "s1",
+      githubAttached: false,
+    };
+    const prompted = { ...base, platformPrompt: prompt };
+    const claims = [
+      ["s1", sessionClaim(prompted, resolved)] as const,
+      ...restoreClaims(prompted, [], resolved),
+    ];
+    expect(claims.length).toBeGreaterThan(1);
+    for (const [, claim] of claims) {
+      expect(claim.runtime_config.platform_prompt).toEqual(prompt);
+    }
+    const plain = [
+      ["s1", sessionClaim(base, resolved)] as const,
+      ...restoreClaims(base, [], resolved),
+    ];
+    expect(
+      claims.map(([key, claim]) => {
+        const { platform_prompt: _, ...rest } = claim.runtime_config;
+        return [key, { ...claim, runtime_config: rest }];
+      }),
+    ).toEqual(plain);
+
+    // Each checkpoint, sealed by a worker given the row's value, is ready
+    // only when the image is asked with that same value: a revision 0 one
+    // without the field, a revision 1 one with it.
+    for (const [sealedWith, other] of [
+      [base, prompted],
+      [prompted, base],
+    ] as const) {
+      const objects = createMemoryCheckpointObjectStore({ versioned: true });
+      const sealed = sessionClaim(sealedWith, resolved);
+      const seeded = await seed(
+        objects,
+        [],
+        undefined,
+        imageClaimFingerprint(sealed).profileSha256,
+      );
+      const { sessionId } = seeded.row;
+      const pointer = pointerOf({
+        ...seeded.row,
+        manifestVersion: seeded.row.manifestVersion as string,
+      });
+      for (const [claim, status] of [
+        [sealed, "ready"],
+        [sessionClaim(other, resolved), "incompatible"],
+      ] as const) {
+        const runtime = planRuntime(
+          seeded.manifest.runtime,
+          imageOf({ [sessionId]: claim }),
+          sessionId,
+        );
+        expect(
+          (await restorePlan(objects, pointer, seeded, runtime)).status,
+        ).toBe(status);
+      }
     }
   });
 

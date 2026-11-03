@@ -317,6 +317,7 @@ export function createPostgresSessionUnitOfWork(
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
+          platformPrompt: input.platformPrompt ?? null,
           permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,

@@ -1089,6 +1089,7 @@ describe("compose layers", () => {
         "AWS_SECRET_ACCESS_KEY",
         "ANTHROPIC_API_KEY",
         "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS",
+        "SESSION_PROMPT_REVISION",
       ],
     ],
     [

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   GITHUB_CEILING_NONE,
+  type PlatformPrompt,
   type RuntimeConfig,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
@@ -1799,6 +1800,45 @@ describe("WorkerGateway", () => {
       const plain = await claimWith(without);
       expect(
         configsOf(plain).some((config) => "agent_instructions" in config),
+      ).toBe(false);
+    }
+
+    // The row's platform prompt rides the same way: on every config, run or
+    // restore, so no restore candidate of a revision 1 session lacks it; a
+    // revision 0 row adds the field nowhere.
+    const prompt: PlatformPrompt = {
+      prompt_revision: 1,
+      agent_identity: { name: "code-review", description: null },
+      origin_surface: "slack_channel",
+      language: "ko",
+      repository: "acme/app",
+      github: { repositories: ["acme/app"] },
+    };
+    for (const runReleaseTools of [true, false]) {
+      const prompted = await claimWith(
+        { ...binding, platformPrompt: prompt },
+        runReleaseTools,
+      );
+      expect(bootstrapClaimResponseSchema.safeParse(prompted).success).toBe(
+        true,
+      );
+      expect(configsOf(prompted).length).toBeGreaterThan(1);
+      expect(
+        configsOf(prompted).map((config) => config.platform_prompt),
+      ).toEqual(configsOf(prompted).map(() => prompt));
+      expect(
+        configsOf(prompted).map(({ platform_prompt: _, ...config }) =>
+          shape(config),
+        ),
+      ).toEqual(
+        configsOf(await claimWith(binding, runReleaseTools)).map(shape),
+      );
+    }
+    for (const without of [{ ...binding, platformPrompt: null }, binding]) {
+      expect(
+        configsOf(await claimWith(without)).some(
+          (config) => "platform_prompt" in config,
+        ),
       ).toBe(false);
     }
 

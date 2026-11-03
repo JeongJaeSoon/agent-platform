@@ -131,6 +131,7 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   NO_JUDGE_CONNECTIONS,
+  platformPromptRevisionFromEnv,
   profileCatalog,
   resolveAgentRelease,
   SessionServiceError,
@@ -554,6 +555,7 @@ const sessions = createSessionService({
   }),
   catalog,
   releases: agents,
+  promptRevision: platformPromptRevisionFromEnv(process.env),
   credentials: credentialBindings,
   limits,
 });
