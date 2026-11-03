@@ -673,6 +673,32 @@ describe.each(ENGINES)("the deployment welcome on %s", (engine) => {
       await outbox.enqueue(entry, { bindingId: homeId, releaseId: release.id }),
     ).toBe("enqueued");
 
+    // The welcomed channel's id again is a duplicate in its own team, and
+    // another channel in another team.
+    const live = { bindingId: homeId, releaseId: release.id };
+    expect(
+      await outbox.enqueue(
+        { ...row, dedupeKey: "deployment-welcome:same" },
+        live,
+      ),
+    ).toBe("duplicate");
+    const elsewhereTeam = await registerSlackInstallation(db, {
+      appId: "A0OTHERTEAM",
+      teamId: "T0OTHER",
+      workspaceId: row.workspaceId,
+    });
+    if (elsewhereTeam.outcome !== "registered") throw new Error("no install");
+    expect(
+      await outbox.enqueue(
+        {
+          ...row,
+          installationId: elsewhereTeam.installation.id,
+          dedupeKey: "deployment-welcome:other-team",
+        },
+        live,
+      ),
+    ).toBe("enqueued");
+
     // R1 → R2 → R1 while a welcome for R1 was on its way: R1 is active
     // again, and still a rollback.
     const { release: second } = await fixture.release("changed");
