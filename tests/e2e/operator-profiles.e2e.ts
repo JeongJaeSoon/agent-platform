@@ -161,12 +161,17 @@ beforeAll(async () => {
   expect(key.status).toBe(201);
   api = new Api({ ...env, apiKey: key.body.secret });
 
+  const team = await owner<{ team: { id: string } }>("POST", "/v1/teams", {
+    name: `ceiling-${RUN}`,
+  });
+  expect(team.status).toBe(201);
   const agent = await owner<{
     agent: { id: string };
     versions: { id: string }[];
   }>("POST", "/v1/agents", {
     slug: `ceiling-${RUN}`,
     name: `ceiling-${RUN}`,
+    managing_team_id: team.body.team.id,
     card: {
       role: "ceiling probe",
       instructions: "Answer as scripted.",

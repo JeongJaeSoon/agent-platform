@@ -38,11 +38,45 @@ export const workspaceKo = {
   "workspace.retentionValue": "감사 기록을 {days}일 보존합니다.",
   "workspace.guestValueOn": "Slack 게스트도 에이전트를 쓸 수 있습니다.",
   "workspace.guestValueOff": "Slack 게스트는 에이전트를 쓸 수 없습니다.",
+  "workspace.access": "에이전트 접근",
+  "workspace.accessHint":
+    "담당 팀 밖 구성원이 에이전트와 그 세션을 어디까지 다루는지 정합니다. 소유자·관리자, 에이전트 관리자, 담당 팀 구성원에게는 적용되지 않습니다.",
+  "workspace.accessAgent": "담당 팀 밖 구성원의 에이전트 접근",
+  "workspace.accessAgentFoot": "담당 팀이 없는 에이전트에도 적용됩니다.",
+  "workspace.accessAgent.use": "보고 실행",
+  "workspace.accessAgent.use.help":
+    "에이전트 정보(이름·설명·담당 팀)를 보고 세션을 시작합니다. 설정은 보지 못합니다.",
+  "workspace.accessAgent.view": "보기만",
+  "workspace.accessAgent.view.help":
+    "에이전트 정보를 보지만 세션을 시작하지 못합니다.",
+  "workspace.accessAgent.none": "숨김",
+  "workspace.accessAgent.none.help":
+    "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
+  "workspace.accessSessions": "워크스페이스 공개 세션",
+  "workspace.accessSessionsFoot":
+    "담당 팀이 있는 에이전트의 세션에만 적용됩니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
+  "workspace.accessSessions.managing_team": "담당 팀 안에만",
+  "workspace.accessSessions.managing_team.help":
+    "공유 범위가 워크스페이스인 세션을 소유자·관리자, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
+  "workspace.accessSessions.workspace": "모든 구성원",
+  "workspace.accessSessions.workspace.help":
+    "공유 범위가 워크스페이스인 세션을 모든 구성원이 봅니다.",
+  "workspace.accessValue": "{setting}: {value}",
+  "workspace.accessSaved": "에이전트 접근 설정을 저장했습니다.",
   "workspace.general": "일반",
   "workspace.slack": "Slack 연결 설정",
   "workspace.subnav": "워크스페이스 설정 메뉴",
   "workspace.basics": "기본 정보",
-  "workspace.slackDescription": "소유자와 관리자만 바꿀 수 있습니다.",
+  "workspace.slackDescription":
+    "에이전트를 Slack에서 쓸 수 있게 이 콘솔이 Slack 앱을 만들 때 쓰는 연결입니다. 에이전트마다 앱 설치와 채널은 에이전트의 Slack 탭에서 정합니다.",
+  "workspace.slackCardHint":
+    "이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다. 앱을 만들려면 Slack의 App Configuration Token이 있어야 합니다.",
+  "workspace.slackCount": "앱 {count}개",
+  "workspace.slackNone": "연결 없음",
+  "workspace.slackEmpty": "아직 등록된 토큰이 없습니다",
+  "workspace.slackEmptyHint":
+    "Slack에서 App Configuration Token을 만들어 등록하세요. 등록하면 에이전트의 Slack 탭에서 그 에이전트의 앱을 만들고 설치할 수 있습니다.",
+  "workspace.tokenMenu": "App Configuration Token 메뉴",
   "workspace.slackApps": "자동으로 만든 Slack 앱",
   "workspace.slackAppsList": "앱 목록",
   "workspace.slackAppsHint":
@@ -73,12 +107,9 @@ export const workspaceKo = {
   "workspace.tokenUnsetHint":
     "이미 만든 앱은 계속 동작합니다. 새 앱을 만들려면 토큰을 등록하세요.",
   "workspace.tokenSection": "Slack 앱 생성",
-  "workspace.slackStartHint":
-    "에이전트를 Slack에서 쓰려면 먼저 Slack의 App Configuration Token을 등록하세요. 등록하면 이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다.",
-  "workspace.slackStart": "Slack 연결하기",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만들 때 쓰는 토큰입니다. 마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다.",
+    "마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다.",
   "workspace.tokenUnset": "등록 안 됨",
   "workspace.tokenActive": "토큰 확인됨",
   "workspace.tokenNeedsReentry": "재등록 필요",
@@ -154,11 +185,47 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "Audit records are kept for {days} days.",
   "workspace.guestValueOn": "Slack guests can use agents.",
   "workspace.guestValueOff": "Slack guests cannot use agents.",
+  "workspace.access": "Agent access",
+  "workspace.accessHint":
+    "Sets how far members outside an agent's responsible team go with the agent and its sessions. It does not apply to owners, admins, the agent's admins or its responsible team's members.",
+  "workspace.accessAgent":
+    "Agent access for members outside the responsible team",
+  "workspace.accessAgentFoot":
+    "Applies to agents without a responsible team too.",
+  "workspace.accessAgent.use": "View and run",
+  "workspace.accessAgent.use.help":
+    "They see the agent's details (name, description, responsible team) and start sessions with it. They do not see its settings.",
+  "workspace.accessAgent.view": "View only",
+  "workspace.accessAgent.view.help":
+    "They see the agent's details but cannot start sessions with it.",
+  "workspace.accessAgent.none": "Hidden",
+  "workspace.accessAgent.none.help":
+    "The agent is not in their agent list, and they cannot start sessions with it.",
+  "workspace.accessSessions": "Workspace-shared sessions",
+  "workspace.accessSessionsFoot":
+    "Applies only to sessions of agents with a responsible team. A change applies to existing sessions at once.",
+  "workspace.accessSessions.managing_team": "Responsible team only",
+  "workspace.accessSessions.managing_team.help":
+    "Sessions shared with the workspace are seen only by owners, admins, the agent's admins and its responsible team's members. Members outside the responsible team see their own sessions and those shared with them by name or team.",
+  "workspace.accessSessions.workspace": "Every member",
+  "workspace.accessSessions.workspace.help":
+    "Sessions shared with the workspace are seen by every member.",
+  "workspace.accessValue": "{setting}: {value}",
+  "workspace.accessSaved": "Saved the agent access settings.",
   "workspace.general": "General",
   "workspace.slack": "Slack connection",
   "workspace.subnav": "Workspace settings menu",
   "workspace.basics": "Basics",
-  "workspace.slackDescription": "Only owners and admins can change these.",
+  "workspace.slackDescription":
+    "The Slack connection this console uses to make Slack apps, so agents can be used from Slack. Each agent's app install and channels are set in its own Slack tab.",
+  "workspace.slackCardHint":
+    "This console makes the account linking app and a Slack app for each agent. Making them takes a Slack App Configuration Token.",
+  "workspace.slackCount": "Apps: {count}",
+  "workspace.slackNone": "Not connected",
+  "workspace.slackEmpty": "No token registered yet",
+  "workspace.slackEmptyHint":
+    "Make an App Configuration Token in Slack and register it here. Then each agent's Slack tab can make and install that agent's app.",
+  "workspace.tokenMenu": "App Configuration Token menu",
   "workspace.slackApps": "Slack apps made here",
   "workspace.slackAppsList": "Apps",
   "workspace.slackAppsHint":
@@ -189,12 +256,9 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenUnsetHint":
     "Apps already made keep working. Register a token to make new ones.",
   "workspace.tokenSection": "Slack app creation",
-  "workspace.slackStartHint":
-    "To use agents from Slack, first register a Slack App Configuration Token. With it, this console makes the account linking app and a Slack app for each agent.",
-  "workspace.slackStart": "Connect Slack",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "The token this console uses to make the account linking app and a Slack app for each agent. Last token check is when Slack last accepted the token, on registering or an automatic refresh.",
+    "Last token check is when Slack last accepted the token, on registering or an automatic refresh.",
   "workspace.tokenUnset": "Not registered",
   "workspace.tokenActive": "Token verified",
   "workspace.tokenNeedsReentry": "Re-register needed",
@@ -271,11 +335,45 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "監査ログを {days} 日間保存します。",
   "workspace.guestValueOn": "Slack ゲストはエージェントを利用できます。",
   "workspace.guestValueOff": "Slack ゲストはエージェントを利用できません。",
+  "workspace.access": "エージェントへのアクセス",
+  "workspace.accessHint":
+    "担当チーム外のメンバーがエージェントとそのセッションをどこまで扱えるかを決めます。オーナー・管理者、エージェント管理者、担当チームのメンバーには適用されません。",
+  "workspace.accessAgent": "担当チーム外のメンバーのエージェントへのアクセス",
+  "workspace.accessAgentFoot": "担当チームのないエージェントにも適用されます。",
+  "workspace.accessAgent.use": "表示と実行",
+  "workspace.accessAgent.use.help":
+    "エージェントの情報(名前・説明・担当チーム)を見て、セッションを開始します。設定は見られません。",
+  "workspace.accessAgent.view": "表示のみ",
+  "workspace.accessAgent.view.help":
+    "エージェントの情報は見られますが、セッションは開始できません。",
+  "workspace.accessAgent.none": "非表示",
+  "workspace.accessAgent.none.help":
+    "エージェント一覧に表示されず、セッションも開始できません。",
+  "workspace.accessSessions": "ワークスペース公開のセッション",
+  "workspace.accessSessionsFoot":
+    "担当チームのあるエージェントのセッションにだけ適用されます。変更すると既存のセッションにもすぐ適用されます。",
+  "workspace.accessSessions.managing_team": "担当チーム内のみ",
+  "workspace.accessSessions.managing_team.help":
+    "共有範囲がワークスペースのセッションは、オーナー・管理者、エージェント管理者、担当チームのメンバーだけが見られます。担当チーム外のメンバーは、自分のセッションと名前・チームで共有されたセッションだけを見ます。",
+  "workspace.accessSessions.workspace": "すべてのメンバー",
+  "workspace.accessSessions.workspace.help":
+    "共有範囲がワークスペースのセッションを、すべてのメンバーが見られます。",
+  "workspace.accessValue": "{setting}: {value}",
+  "workspace.accessSaved": "エージェントへのアクセス設定を保存しました。",
   "workspace.general": "一般",
   "workspace.slack": "Slack 接続設定",
   "workspace.subnav": "ワークスペース設定メニュー",
   "workspace.basics": "基本情報",
-  "workspace.slackDescription": "オーナーと管理者だけが変更できます。",
+  "workspace.slackDescription":
+    "エージェントを Slack で使えるように、このコンソールが Slack アプリを作るときに使う連携です。エージェントごとのアプリのインストールとチャンネルは、エージェントの Slack タブで設定します。",
+  "workspace.slackCardHint":
+    "このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成します。作成には Slack の App Configuration Token が必要です。",
+  "workspace.slackCount": "アプリ {count} 件",
+  "workspace.slackNone": "未接続",
+  "workspace.slackEmpty": "登録されたトークンはまだありません",
+  "workspace.slackEmptyHint":
+    "Slack で App Configuration Token を作成して登録してください。登録すると、各エージェントの Slack タブでそのエージェントのアプリを作成してインストールできます。",
+  "workspace.tokenMenu": "App Configuration Token のメニュー",
   "workspace.slackApps": "自動で作った Slack アプリ",
   "workspace.slackAppsList": "アプリ一覧",
   "workspace.slackAppsHint":
@@ -307,12 +405,9 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.tokenUnsetHint":
     "作成済みのアプリはそのまま動作します。新しいアプリを作成するにはトークンを登録してください。",
   "workspace.tokenSection": "Slack アプリの作成",
-  "workspace.slackStartHint":
-    "Slack からエージェントを使うには、まず Slack の App Configuration Token を登録します。登録すると、このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成します。",
-  "workspace.slackStart": "Slack に接続",
   "workspace.token": "App Configuration Token",
   "workspace.tokenHint":
-    "このコンソールがアカウント連携アプリとエージェントごとの Slack アプリを作成するときに使うトークンです。最終トークン確認は、登録または自動更新で Slack がトークンを受け付けた日時です。",
+    "最終トークン確認は、登録または自動更新で Slack がトークンを受け付けた日時です。",
   "workspace.tokenUnset": "未登録",
   "workspace.tokenActive": "トークン確認済み",
   "workspace.tokenNeedsReentry": "再登録が必要",

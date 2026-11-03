@@ -173,7 +173,9 @@ ap_as owner
 ap_as owner
 ap_web GET /v1/profiles
 CARD='{"role":"verify helper","instructions":"Answer briefly.","language":"ko","model":"claude-sonnet-5","capabilities":{"tools":["Read"],"mcp":null,"forbidden":[]},"rules":[]}'
-AGENT=$(ap_web POST /v1/agents "$(jq -nc --argjson c "$CARD" '{slug:"verify-helper",name:"Verify Helper",card:$c}')")
+# Every new agent names a managing team (400 without one).
+TEAM=$(ap_web POST /v1/teams '{"name":"verify"}' | head -1 | jq -r .team.id)
+AGENT=$(ap_web POST /v1/agents "$(jq -nc --argjson c "$CARD" --arg t "$TEAM" '{slug:"verify-helper",name:"Verify Helper",managing_team_id:$t,card:$c}')")
 printf '%s\n' "$AGENT"
 AID=$(printf '%s\n' "$AGENT" | head -1 | jq -r .agent.id)
 printf 'AID=%s\n' "$AID" >> "$VERIFY_RUN/ids.sh"

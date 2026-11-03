@@ -374,6 +374,7 @@ const TEAMS: { name: string; members: string[] }[] = [
   },
   { name: "빈 팀", members: [] },
 ];
+const MANAGING_TEAM = "플랫폼팀";
 
 async function ensureTeams(owner: Web) {
   const teams = await owner.all<any>("/v1/teams");
@@ -605,9 +606,13 @@ async function ensureAgents(owner: Web) {
     await step(`agent ${spec.slug}`, async () => {
       let id = agentId[spec.slug];
       if (!id) {
+        // Managed by its first admin team, else the platform team.
+        const team =
+          spec.admins?.find((admin) => admin.team)?.team ?? MANAGING_TEAM;
         const made = await owner.ok<any>(201, "POST", "/v1/agents", {
           slug: spec.slug,
           name: spec.name,
+          managing_team_id: ids[`team:${team}`],
           card: card(spec.versions[0]!),
         });
         id = made.agent.id as string;
@@ -1273,6 +1278,7 @@ async function ensureGitHub(owner: Web, workspaceId: string) {
         await owner.ok<any>(201, "POST", "/v1/agents", {
           slug: GITHUB_AGENT,
           name: "GitHub 작업 도우미",
+          managing_team_id: ids[`team:${MANAGING_TEAM}`],
           card: card(spec),
         })
       ).agent.id;

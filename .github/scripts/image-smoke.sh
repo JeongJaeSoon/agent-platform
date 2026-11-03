@@ -178,12 +178,12 @@ egress_proxy_smoke() {
 case "$app" in
   worker)
     # The ticket's check: the bundled executable resolves and is the version
-    # the SDK pin promises. Also non-root, git and git-lfs present, workspace
-    # mount point.
+    # the SDK pin promises. Also non-root, git, git-lfs and gh present,
+    # workspace mount point.
     version="$(docker run --rm "$image" claude --version)"
     echo "claude --version: $version"
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
-    docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && git lfs version && test -d /workspace'
+    docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && git lfs version && gh --version && test -d /workspace'
     # a commit in a fresh repository needs no identity of its own
     # and carries the one docs/operator/images-and-supply-chain.md names.
     ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"

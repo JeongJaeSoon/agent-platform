@@ -268,9 +268,14 @@ async function installedAgent() {
     welcome,
   });
 
+  const managingTeamId = randomUUID();
+  await db
+    .insert(schema.memberTeams)
+    .values({ id: managingTeamId, workspaceId, name: "notes" });
   const created = await agents.createAgent(owner, {
     slug: "notes",
     name: "Notes",
+    managing_team_id: managingTeamId,
     card: card("i"),
   });
   const agentId = created.agent.id;

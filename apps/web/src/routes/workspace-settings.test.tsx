@@ -5,6 +5,7 @@ import {
   json,
   me,
   memberMe,
+  RECEIPT_ID,
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
@@ -50,6 +51,24 @@ function profile(id: string, model: string) {
 
 const RETENTION = `/v1/workspaces/${WORKSPACE_ID}/audit-retention`;
 const GUEST = `/v1/workspaces/${WORKSPACE_ID}/slack-guest`;
+const ACCESS = `/v1/workspaces/${WORKSPACE_ID}/agent-access`;
+const textOfIds = (ids: string | null) =>
+  (ids ?? "")
+    .split(" ")
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+const descriptionOf = (element: HTMLElement) =>
+  textOfIds(element.getAttribute("aria-describedby"));
+// The retention and agent access cards each have a 저장.
+const retentionSave = () =>
+  within(screen.getByRole("region", { name: "감사 기록 보존 기간" })).getByRole(
+    "button",
+    { name: "저장" },
+  );
+const findRetentionSave = async () =>
+  within(
+    await screen.findByRole("region", { name: "감사 기록 보존 기간" }),
+  ).getByRole("button", { name: "저장" });
 const APPS = `/v1/workspaces/${WORKSPACE_ID}/slack/apps`;
 const TOKEN = `/v1/workspaces/${WORKSPACE_ID}/slack/config-token`;
 const NO_SECRET = {
@@ -103,6 +122,18 @@ const withGuest = (body: ReturnType<typeof me>, enabled: boolean) => ({
   },
 });
 const GUEST_SWITCH = { name: "Slack 게스트도 에이전트를 쓸 수 있게 하기" };
+// The Slack card with no token and no app yet.
+const START = "아직 등록된 토큰이 없습니다";
+const TOKEN_MENU = { name: "App Configuration Token 메뉴" };
+
+/** The token row's ⋯ menu, then one of its items. */
+async function tokenMenu(
+  user: Awaited<ReturnType<typeof setupUser>>,
+  item: string,
+) {
+  await user.click(await screen.findByRole("button", TOKEN_MENU));
+  await user.click(await screen.findByRole("menuitem", { name: item }));
+}
 
 describe("워크스페이스 설정", () => {
   test("소유자는 보존 기간을 바꾸고, 저장한 값으로 다시 읽는다", async () => {
@@ -143,7 +174,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.clear(input);
     await user.type(input, "180");
-    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.click(retentionSave());
     expect((await screen.findByRole("status")).textContent).toBe(
       "감사 기록을 180일 보존합니다.",
     );
@@ -200,7 +231,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.clear(input);
     await user.type(input, "180");
-    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.click(retentionSave());
     await user.clear(input);
     await user.type(input, "200");
     release();
@@ -220,7 +251,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.clear(input);
     await user.type(input, "29");
-    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.click(retentionSave());
     expect((await screen.findByRole("alert")).textContent).toBe(
       "감사 기록은 30일보다 짧게 보존할 수 없습니다. 30일 이상(최대 3650일)으로 정하세요.",
     );
@@ -239,6 +270,17 @@ describe("워크스페이스 설정", () => {
     expect(AUDIT_RETENTION_MAX_DAYS).toBe(contract);
   });
 
+  test("에이전트 접근의 고르는 값은 계약의 값과 같다", async () => {
+    const contracts = await import("@werft-ai/contracts");
+    const { AGENT_ACCESS_CHOICES } = await import("./workspace-settings.tsx");
+    expect(AGENT_ACCESS_CHOICES).toEqual({
+      agent_outsider_access: [...contracts.AGENT_OUTSIDER_ACCESS_VALUES],
+      agent_outsider_session_visibility: [
+        ...contracts.AGENT_OUTSIDER_SESSION_VISIBILITY_VALUES,
+      ],
+    });
+  });
+
   test("최대치를 넘기면 최대치를 넘겼다고 알린다", async () => {
     renderAt("/settings/workspace", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -249,7 +291,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.clear(input);
     await user.type(input, "99999");
-    await user.click(screen.getByRole("button", { name: "저장" }));
+    await user.click(retentionSave());
     expect((await screen.findByRole("alert")).textContent).toBe(
       "감사 기록은 최대 3650일까지 보존할 수 있습니다. 3650일 이하로 정하세요.",
     );
@@ -260,7 +302,7 @@ describe("워크스페이스 설정", () => {
       "GET /v1/auth/me": () => json(200, adminMe()),
     });
     const user = await setupUser();
-    const save = await screen.findByRole("button", { name: "저장" });
+    const save = await findRetentionSave();
     expect(save.getAttribute("aria-disabled")).toBe("true");
     // Still a submit button, and pressing it submits nothing.
     await user.click(save);
@@ -283,7 +325,7 @@ describe("워크스페이스 설정", () => {
         apiError(403, "FORBIDDEN", "Only an owner can change audit retention"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await user.click(await findRetentionSave());
     expect((await screen.findByRole("alert")).textContent).toBe(
       "감사 기록 보존 기간 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
     );
@@ -357,8 +399,8 @@ describe("워크스페이스 설정", () => {
     });
     const toggle = await screen.findByRole("switch", GUEST_SWITCH);
     const user = await setupUser();
-    // The token card's button comes right before the guest switch.
-    (await screen.findByRole("button", { name: "토큰 교체" })).focus();
+    // The token row's menu comes right before the guest switch.
+    (await screen.findByRole("button", TOKEN_MENU)).focus();
     await user.tab();
     expect(document.activeElement === toggle).toBe(true);
     await user.keyboard(" ");
@@ -443,7 +485,7 @@ describe("워크스페이스 설정", () => {
         return json(200, { audit_retention_days: 90 });
       },
     });
-    const button = await screen.findByRole("button", { name: "저장" });
+    const button = await findRetentionSave();
     const user = await setupUser();
     await user.click(button);
     await waitFor(() =>
@@ -546,8 +588,9 @@ describe("워크스페이스 설정", () => {
         [...models.querySelectorAll("li")].map((li) => li.textContent),
       ).toEqual(["claude-haiku-5", "claude-sonnet-5"]),
     );
-    // Only the retention card saves; the name and models have no API to.
-    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(1);
+    // Only the retention and agent access cards save; the name and models
+    // have no API to.
+    expect(screen.getAllByRole("button", { name: "저장" })).toHaveLength(2);
     expect(screen.getAllByText("읽기 전용")).toHaveLength(2);
   });
 
@@ -647,9 +690,7 @@ describe("워크스페이스 설정", () => {
         });
       },
     });
-    expect(
-      await screen.findByRole("heading", { name: "Slack 연결하기" }),
-    ).toBeDefined();
+    expect(await screen.findByText(START)).toBeDefined();
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     const user = await setupUser();
     await user.click(screen.getByRole("button", { name: "토큰 등록" }));
@@ -664,11 +705,14 @@ describe("워크스페이스 설정", () => {
       api.calls.filter((c) => c.method === "PUT").map((c) => c.body),
     ).toEqual([{ value: "fake-config-value" }]);
     expect(await screen.findByText("토큰 확인됨")).toBeDefined();
-    expect(screen.getByRole("heading", { name: "위험 구역" })).toBeDefined();
+    expect(screen.getByRole("button", TOKEN_MENU)).toBeDefined();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
-    // The start card is gone; focus is on the button that replaces the token.
+    // The start card is gone; focus is on the token's heading, before its menu.
     await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe("토큰 교체"),
+      expect(
+        document.activeElement ===
+          screen.getByRole("heading", { name: "Slack 앱 생성" }),
+      ).toBe(true),
     );
     // The value went to the server and nowhere else.
     await waitFor(() =>
@@ -738,6 +782,91 @@ describe("워크스페이스 설정", () => {
     expect(document.activeElement?.textContent).toBe("토큰 등록");
   });
 
+  test("메뉴의 토큰 교체로 연 칸을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
+    });
+    const user = await setupUser();
+    await tokenMenu(user, "토큰 교체");
+    await waitFor(() =>
+      expect(
+        document.activeElement === screen.getByLabelText("Refresh Token"),
+      ).toBe(true),
+    );
+    await user.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("Refresh Token")).toBeNull();
+    expect(
+      document.activeElement === screen.getByRole("button", TOKEN_MENU),
+    ).toBe(true);
+  });
+
+  test("메뉴의 토큰 삭제 확인을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
+    });
+    const user = await setupUser();
+    await tokenMenu(user, `${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement === screen.getByRole("button", TOKEN_MENU),
+      ).toBe(true),
+    );
+  });
+
+  test("등록된 토큰을 다시 읽다 실패해도 실패와 함께 토큰 삭제 메뉴를 남긴다", async () => {
+    let fail = false;
+    const { services } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        fail
+          ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
+          : json(200, REGISTERED_TOKEN),
+    });
+    await screen.findByRole("button", TOKEN_MENU);
+    fail = true;
+    await services.queryClient.refetchQueries();
+    expect(
+      await screen.findByText(
+        "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+      ),
+    ).toBeDefined();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", TOKEN_MENU));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+  });
+
+  test("다시 등록해야 하는 토큰은 행 아래에 이유를 말하고, 등록 버튼과 삭제만 있는 메뉴를 둔다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        json(200, { ...REGISTERED_TOKEN, state: "needs_reentry" }),
+      [`GET ${APPS}`]: () => json(200, { items: [LINK_APP] }),
+    });
+    const section = await screen.findByRole("region", {
+      name: "Slack 앱 생성",
+    });
+    expect(
+      await within(section).findByText(/^저장된 토큰을 사용할 수 없습니다\./),
+    ).toBeDefined();
+    expect(
+      within(section).getByRole("button", { name: "토큰 재등록" }),
+    ).toBeDefined();
+    const user = await setupUser();
+    await user.click(within(section).getByRole("button", TOKEN_MENU));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+  });
+
   const ACTIVE_TOKEN = {
     ...UNSET_TOKEN,
     configured: true,
@@ -786,7 +915,7 @@ describe("워크스페이스 설정", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -814,7 +943,7 @@ describe("워크스페이스 설정", () => {
         }),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -832,7 +961,7 @@ describe("워크스페이스 설정", () => {
         apiError(403, "FORBIDDEN", "Only an owner or admin can set it"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -850,7 +979,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -868,7 +997,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "Try again", true),
     });
     const user = await setupUser();
-    await user.click(await screen.findByRole("button", { name: "토큰 교체" }));
+    await tokenMenu(user, "토큰 교체");
     await user.type(
       screen.getByLabelText("Refresh Token"),
       "fake-config-value",
@@ -907,11 +1036,7 @@ describe("워크스페이스 설정", () => {
         apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off"),
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "App Configuration Token 삭제",
-      }),
-    );
+    await tokenMenu(user, "App Configuration Token 삭제");
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
@@ -930,20 +1055,14 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "App Configuration Token 삭제",
-      }),
-    );
+    await tokenMenu(user, "App Configuration Token 삭제");
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "App Configuration Token을 삭제했습니다.",
     );
     // No token and no app: back to the start card, focus on its button.
-    expect(
-      await screen.findByRole("heading", { name: "Slack 연결하기" }),
-    ).toBeDefined();
+    expect(await screen.findByText(START)).toBeDefined();
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("토큰 등록"),
     );
@@ -955,8 +1074,8 @@ describe("워크스페이스 설정", () => {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () => json(200, UNSET_TOKEN),
     });
-    const start = await screen.findByRole("region", { name: "Slack 연결하기" });
-    expect(start.textContent).toContain("App Configuration Token을 등록하세요");
+    const start = await screen.findByRole("region", { name: "Slack" });
+    expect(await within(start).findByText(START)).toBeDefined();
     expect(screen.queryByRole("region", { name: "Slack 게스트" })).toBeNull();
     expect(
       screen.queryByRole("region", { name: "자동으로 만든 Slack 앱" }),
@@ -964,7 +1083,7 @@ describe("워크스페이스 설정", () => {
     expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Slack 연결하기"]);
+    ).toEqual(["Slack"]);
     const user = await setupUser();
     await user.click(within(start).getByRole("button", { name: "토큰 등록" }));
     const link = within(start).getByRole("link", {
@@ -997,14 +1116,14 @@ describe("워크스페이스 설정", () => {
     expect(
       within(section).getByRole("button", { name: "토큰 등록" }),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
     expect(
       await screen.findByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBeDefined();
   });
 
-  test("저장된 토큰을 사용할 수 없고 앱도 없으면 재등록만 묻는다", async () => {
+  test("저장된 토큰을 사용할 수 없고 앱도 없으면 시작 상자 대신 재등록 버튼과 삭제 메뉴를 둔다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
@@ -1021,7 +1140,8 @@ describe("워크스페이스 설정", () => {
     expect(
       screen.queryByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBeNull();
-    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
+    expect(within(section).getByRole("button", TOKEN_MENU)).toBeDefined();
   });
 
   test("앱 목록을 읽는 동안에는 토큰 칸만 기다리고 게스트·앱 목록을 먼저 그리지 않는다", async () => {
@@ -1047,11 +1167,9 @@ describe("워크스페이스 설정", () => {
     expect(screen.getByRole("region", { name: "Slack 앱 생성" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "토큰 등록" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Slack 게스트" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     release?.();
-    expect(
-      await screen.findByRole("region", { name: "Slack 연결하기" }),
-    ).toBeDefined();
+    expect(await screen.findByText(START)).toBeDefined();
   });
 
   test("시작 카드 뒤 토큰 다시 읽기가 실패하면 등록 버튼 대신 실패를 보인다", async () => {
@@ -1063,7 +1181,7 @@ describe("워크스페이스 설정", () => {
           ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
           : json(200, UNSET_TOKEN),
     });
-    await screen.findByRole("region", { name: "Slack 연결하기" });
+    await screen.findByText(START);
     fail = true;
     await services.queryClient.refetchQueries();
     expect(
@@ -1071,7 +1189,7 @@ describe("워크스페이스 설정", () => {
         "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
       ),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
   });
 
   test("등록 응답만으로 등록된 화면이 되고, 다시 읽기를 기다리지 않는다", async () => {
@@ -1098,7 +1216,7 @@ describe("워크스페이스 설정", () => {
     await user.click(screen.getByRole("button", { name: "등록" }));
     expect(await screen.findByText("토큰 확인됨")).toBeDefined();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
   });
 
   test("토큰을 지우면 다시 등록하는 버튼이 포커스를 받는다", async () => {
@@ -1116,11 +1234,7 @@ describe("워크스페이스 설정", () => {
       },
     });
     const user = await setupUser();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "App Configuration Token 삭제",
-      }),
-    );
+    await tokenMenu(user, "App Configuration Token 삭제");
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "삭제" }));
     await waitFor(() =>
@@ -1156,7 +1270,7 @@ describe("워크스페이스 설정", () => {
     expect(
       await screen.findByRole("region", { name: "Slack 앱 생성" }),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     expect(screen.getByRole("region", { name: "Slack 게스트" })).toBeDefined();
   });
 
@@ -1167,7 +1281,7 @@ describe("워크스페이스 설정", () => {
     expect(
       await screen.findByRole("region", { name: "Slack 게스트" }),
     ).toBeDefined();
-    expect(screen.queryByRole("region", { name: "Slack 연결하기" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)[0],
     ).toBe("Slack 게스트");
@@ -1212,6 +1326,199 @@ describe("워크스페이스 설정", () => {
         ).length,
       ).toBe(2),
     );
+  });
+
+  test("관리자는 에이전트 접근 두 설정을 골라 한 번에 저장하고, 바뀐 것만 보내며 다시 읽은 값을 보인다", async () => {
+    let settings = {
+      agent_outsider_access: "use",
+      agent_outsider_session_visibility: "managing_team",
+    };
+    const accessMe = () => {
+      const body = adminMe();
+      return {
+        ...body,
+        workspace: body.workspace && {
+          ...body.workspace,
+          settings: { ...body.workspace.settings, ...settings },
+        },
+      };
+    };
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, accessMe()),
+      [`PATCH ${ACCESS}`]: async (request: Request) => {
+        settings = { ...settings, ...((await request.json()) as object) };
+        return json(200, { ...settings, receipt_id: RECEIPT_ID });
+      },
+    });
+    const card = await screen.findByRole("region", { name: "에이전트 접근" });
+    const agent = within(card).getByRole("radiogroup", {
+      name: "담당 팀 밖 구성원의 에이전트 접근",
+    });
+    const sessions = within(card).getByRole("radiogroup", {
+      name: "워크스페이스 공개 세션",
+    });
+    const checked = (group: HTMLElement) =>
+      within(group)
+        .getAllByRole("radio")
+        .map((radio) => radio.getAttribute("aria-checked"));
+    await waitFor(() =>
+      expect(checked(agent)).toEqual(["true", "false", "false"]),
+    );
+    expect(checked(sessions)).toEqual(["true", "false"]);
+    expect(
+      within(sessions).getByRole("radio", { name: "담당 팀 안에만" }),
+    ).toBeDefined();
+    expect(
+      within(agent)
+        .getAllByRole("radio")
+        .map((radio) => descriptionOf(radio)),
+    ).toEqual([
+      "에이전트 정보(이름·설명·담당 팀)를 보고 세션을 시작합니다. 설정은 보지 못합니다.",
+      "에이전트 정보를 보지만 세션을 시작하지 못합니다.",
+      "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
+    ]);
+    const user = await setupUser();
+    // Arrow keys move the choice; nothing is sent until 저장.
+    within(agent).getByRole("radio", { name: "보고 실행" }).focus();
+    await user.keyboard("{ArrowDown>}");
+    await waitFor(() =>
+      expect(
+        within(agent)
+          .getByRole("radio", { name: "보기만" })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    await user.keyboard("{/ArrowDown}");
+    expect(api.calls.some((c) => c.path === ACCESS)).toBe(false);
+    await user.click(
+      within(sessions).getByRole("radio", { name: "모든 구성원" }),
+    );
+    await user.click(within(card).getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "에이전트 접근 설정을 저장했습니다.",
+    );
+    expect(
+      api.calls.filter((c) => c.path === ACCESS).map((c) => c.body),
+    ).toEqual([
+      {
+        agent_outsider_access: "view",
+        agent_outsider_session_visibility: "workspace",
+      },
+    ]);
+
+    // Only the key changed since the last save goes out.
+    await user.click(within(agent).getByRole("radio", { name: "숨김" }));
+    await user.click(within(card).getByRole("button", { name: "저장" }));
+    await waitFor(() =>
+      expect(
+        api.calls.filter((c) => c.path === ACCESS).map((c) => c.body),
+      ).toEqual([
+        {
+          agent_outsider_access: "view",
+          agent_outsider_session_visibility: "workspace",
+        },
+        { agent_outsider_access: "none" },
+      ]),
+    );
+    // Read again from /me: the screen follows the server's values.
+    await waitFor(() =>
+      expect(
+        within(sessions)
+          .getByRole("radio", { name: "모든 구성원" })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    expect(
+      api.calls.filter((c) => c.path === "/v1/auth/me").length,
+    ).toBeGreaterThan(2);
+    expect(
+      within(agent)
+        .getByRole("radio", { name: "숨김" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  test("에이전트 접근을 저장한 뒤 /me 다시 읽기가 실패해도 저장한 값을 보인다", async () => {
+    let saved = false;
+    let failedMe = 0;
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => {
+        if (!saved) return json(200, adminMe());
+        failedMe += 1;
+        return apiError(500, "INTERNAL_ERROR", "me failed");
+      },
+      [`PATCH ${ACCESS}`]: () => {
+        saved = true;
+        return json(200, {
+          agent_outsider_access: "none",
+          agent_outsider_session_visibility: "managing_team",
+          receipt_id: RECEIPT_ID,
+        });
+      },
+    });
+    const card = await screen.findByRole("region", { name: "에이전트 접근" });
+    const user = await setupUser();
+    await user.click(within(card).getByRole("radio", { name: "숨김" }));
+    await user.click(within(card).getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "에이전트 접근 설정을 저장했습니다.",
+    );
+    await waitFor(() => expect(failedMe).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(screen.queryByRole("status")?.textContent).toBe(
+        "에이전트 접근 설정을 저장했습니다.",
+      ),
+    );
+    expect(
+      within(card)
+        .getByRole("radio", { name: "숨김" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      (within(card).getByRole("button", { name: "저장" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("에이전트 접근을 바꾸지 않았으면 저장이 꺼져 있다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+    });
+    const card = await screen.findByRole("region", { name: "에이전트 접근" });
+    const save = within(card).getByRole("button", {
+      name: "저장",
+    }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+  });
+
+  test("에이전트 접근 저장을 서버가 403으로 거절하면 이유 문구를 보인다", async () => {
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`PATCH ${ACCESS}`]: () =>
+        apiError(403, "FORBIDDEN", "Only an owner or admin can change it"),
+    });
+    const card = await screen.findByRole("region", { name: "에이전트 접근" });
+    const user = await setupUser();
+    await user.click(within(card).getByRole("radio", { name: "숨김" }));
+    await user.click(within(card).getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "워크스페이스 설정 변경 권한이 있어야 할 수 있습니다. 지금 역할: 소유자.",
+    );
+  });
+
+  test("구성원은 에이전트 접근을 글로만 읽고, 고르는 칸이 없다", async () => {
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+    });
+    const card = await screen.findByRole("region", { name: "에이전트 접근" });
+    expect(card.textContent).toContain(
+      "담당 팀 밖 구성원의 에이전트 접근: 보고 실행",
+    );
+    expect(card.textContent).toContain(
+      "워크스페이스 공개 세션: 담당 팀 안에만",
+    );
+    expect(within(card).queryByRole("radio")).toBeNull();
+    expect(api.calls.some((c) => c.path === ACCESS)).toBe(false);
   });
 
   test("끝에 /가 붙은 주소에서도 설정 내비가 지금 페이지를 가리킨다", async () => {

@@ -41,6 +41,8 @@ export const slackKo = {
     "Slack에서 설치를 허용하지 않았습니다. Slack 탭에서 다시 설치할 수 있습니다.",
   "slack.error.expired":
     "설치 링크가 만료됐거나 이미 사용됐습니다. Slack 탭에서 다시 설치하세요.",
+  "slack.error.gone":
+    "Slack에 이 앱이 더 이상 없습니다. 위험 구역에서 앱을 삭제한 뒤 다시 설치하면 새 앱이 만들어집니다.",
   "slack.error.rejected":
     "Slack 앱이나 워크스페이스가 일치하지 않아 설치하지 못했습니다. Slack 탭에서 다시 시작하세요.",
   "slack.error.cursor":
@@ -80,6 +82,9 @@ export const slackKo = {
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
     "활성 릴리스의 프로필({profile})은 세션마다 저장소가 필요한데 릴리스에 쓸 수 있는 저장소가 없습니다(고르지 않았거나 카탈로그에서 빠졌습니다). Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. 릴리스 탭에서 저장소를 골라 새 릴리스를 만들고 활성화하세요.",
+  "slack.issuerChanged.title": "다른 Slack 사용자가 만든 앱입니다",
+  "slack.issuerChanged.body":
+    "앱을 만든 Slack 사용자({previous})와 지금 App Configuration Token의 사용자({user})가 다릅니다. 이 토큰으로는 앱을 설치하거나 고치지 못할 수 있습니다. 설치가 실패하면 {previous}의 토큰을 다시 등록하거나 {user}를 앱 공동 작업자로 추가하세요. 앱을 Slack에서 이미 지웠다면 위험 구역에서 앱을 삭제하고 다시 설치하세요.",
   "slack.profileUnavailable.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.profileUnavailable.body":
     "활성 릴리스의 프로필({profile})이 지금 카탈로그에 없거나, 릴리스 뒤에 바뀌었거나, 운영자가 차단했습니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 릴리스 탭에서 쓸 수 있는 프로필로 새 릴리스를 만들고 활성화하세요.",
@@ -127,6 +132,8 @@ export const slackKo = {
   "slack.channelHome": "{channel} 홈 지정",
   "slack.channelConnect": "{channel} 연결",
   "slack.connectedChannels": "연결된 채널",
+  "slack.channelsAudience":
+    "이 채널의 모든 사람이 답을 읽습니다. 담당 팀 밖 사람도 포함됩니다.",
   "slack.noConnectedChannels": "연결된 채널이 없습니다",
   "slack.addChannelHint": "채널 추가에서 이 에이전트가 반응할 채널을 고르세요.",
   "slack.addChannel": "채널 추가",

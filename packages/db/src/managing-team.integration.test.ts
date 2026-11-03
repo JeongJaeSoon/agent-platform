@@ -549,14 +549,20 @@ integration("the managing team on PostgreSQL", () => {
   test("the list's rows and cards follow who is inside each agent now, under either axis A", async () => {
     const { workspaceId, owner, member, outsider, teamId, agentId } =
       await cast();
-    // A second agent with no managing team: only W and its creator inside.
+    // A second agent with no managing team, as one made before it was
+    // required: only W and its creator inside.
     const other = (
       await service().createAgent(owner, {
         slug: `other-${randomUUID().slice(0, 8)}`,
         name: "other",
         card: card("v1"),
+        managing_team_id: teamId,
       })
     ).agent.id;
+    await db
+      .update(schema.agents)
+      .set({ managingTeamId: null })
+      .where(eq(schema.agents.id, other));
     const store = createPostgresAgentStore(db);
     const reader = (who: Caller, outsideAccess: "use" | "none") => ({
       userId: idOf(who),
@@ -686,6 +692,52 @@ integration("the managing team on PostgreSQL", () => {
         .map((team) => team.role);
     expect(await roleIn(lead)).toEqual(["lead"]);
     expect(await roleIn(member)).toEqual(["member"]);
+  });
+
+  test("an agent made before the managing team was required still reads, changes and runs", async () => {
+    const { workspaceId, owner, member, teamId } = await cast();
+    const agentId = (
+      await service().createAgent(member, {
+        slug: `legacy-${randomUUID().slice(0, 8)}`,
+        name: "legacy",
+        card: card("v1"),
+        managing_team_id: teamId,
+      })
+    ).agent.id;
+    await db
+      .update(schema.agents)
+      .set({ managingTeamId: null })
+      .where(eq(schema.agents.id, agentId));
+
+    for (const who of [owner, member]) {
+      const detail = await service().getAgent(who, agentId);
+      expect(detail.agent.managing_team_id).toBeNull();
+      expect(detail.agent.managing_team_name).toBeNull();
+    }
+    // Its creator still administers it with no team to go through.
+    const updated = await service().updateAgent(member, agentId, {
+      name: "legacy renamed",
+      card: card("v2"),
+    });
+    expect(updated.agent.name).toBe("legacy renamed");
+    expect(updated.agent.managing_team_id).toBeNull();
+    const released = await service().createRelease(member, agentId, {
+      version_id: updated.versions.find((v) => v.version_no === 2)
+        ?.id as string,
+      runtime_profile_id: "coding",
+    });
+    await service().activateAgent(member, agentId, {
+      release_id: released.release.id,
+      expected_revision: -1,
+    });
+    const running = await service().resolveRelease(
+      workspaceId,
+      released.release.id,
+    );
+    expect(running.agent_id).toBe(agentId);
+    expect(
+      (await service().getAgent(owner, agentId)).agent.active_release_id,
+    ).toBe(released.release.id);
   });
 
   test("who may name the managing team, at creation and after", async () => {

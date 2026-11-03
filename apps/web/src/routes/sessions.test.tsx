@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import type {
   ListPendingRequestsResponse,
   ListProfilesResponse,
@@ -3086,5 +3087,128 @@ describe("세션 상세 머리 경로", () => {
     expect(bar.queryByRole("link")).toBeNull();
     expect(bar.getByText("세션")).toBeTruthy();
     expect(bar.queryByText("/")).toBeNull();
+  });
+});
+
+describe("session share", () => {
+  const SHARE = `GET /v1/sessions/${SESSION_ID}/share`;
+  const share = (over: Record<string, unknown>) => ({
+    session_id: SESSION_ID,
+    scope: "workspace",
+    user_ids: [],
+    team_ids: [],
+    revision: 0,
+    updated_by: null,
+    updated_at: null,
+    audience_limited: false,
+    ...over,
+  });
+  const shownFor = async (over: Record<string, unknown>) => {
+    const view = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE]: () => json(200, share(over)),
+    });
+    const block = await screen.findByRole("region", { name: "공유 범위" });
+    const text = block.textContent;
+    view.container.remove();
+    return text;
+  };
+
+  test("a workspace scope kept inside the agent says so; one that is not reads as the workspace", async () => {
+    expect(await shownFor({ audience_limited: true })).toBe(
+      "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+    );
+    expect(await shownFor({ audience_limited: false })).toBe(
+      "공유 범위워크스페이스",
+    );
+  });
+
+  test("people and team scopes count whom they name, whatever the setting", async () => {
+    expect(
+      await shownFor({
+        scope: "people",
+        user_ids: [OTHER_ID, THIRD_ID],
+        revision: 1,
+        audience_limited: true,
+      }),
+    ).toBe("공유 범위지정한 사람 2명");
+    expect(
+      await shownFor({ scope: "team", team_ids: [OTHER_ID], revision: 1 }),
+    ).toBe("공유 범위지정한 팀 1개");
+    expect(await shownFor({ scope: "private", revision: 1 })).toBe(
+      "공유 범위세션을 가진 사람만",
+    );
+  });
+
+  test("someone who cannot read the share sees no block", async () => {
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE]: () => apiError(404, "NOT_FOUND", "Resource not found"),
+    });
+    expect(await screen.findByText("답변 대기")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        api.calls.some((c) => c.path === `/v1/sessions/${SESSION_ID}/share`),
+      ).toBe(true),
+    );
+    expect(screen.queryByRole("region", { name: "공유 범위" })).toBeNull();
+  });
+
+  test("a failed read says so and asks again on retry", async () => {
+    let fail = true;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE]: () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, share({ audience_limited: true })),
+    });
+    const block = await screen.findByRole("region", { name: "공유 범위" });
+    expect(within(block).getByRole("alert").textContent).toBe(
+      "공유 범위를 확인하지 못했습니다.",
+    );
+    fail = false;
+    await (await setupUser()).click(
+      within(block).getByRole("button", { name: "다시 시도" }),
+    );
+    await waitFor(() =>
+      expect(block.textContent).toBe(
+        "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+      ),
+    );
+  });
+
+  test("a read that fails after one that worked says so instead of the old scope", async () => {
+    let fail = false;
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE]: () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, share({ audience_limited: true })),
+    });
+    const block = await screen.findByRole("region", { name: "공유 범위" });
+    await waitFor(() =>
+      expect(block.textContent).toBe(
+        "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+      ),
+    );
+    const reads = () =>
+      api.calls.filter((c) => c.path === `/v1/sessions/${SESSION_ID}/share`)
+        .length;
+    const before = reads();
+    fail = true;
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    focusManager.setFocused(undefined);
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    await waitFor(() =>
+      expect(within(block).getByRole("alert").textContent).toBe(
+        "공유 범위를 확인하지 못했습니다.",
+      ),
+    );
+    expect(block.textContent).not.toContain("워크스페이스(");
   });
 });

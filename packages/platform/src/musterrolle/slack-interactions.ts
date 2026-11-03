@@ -248,13 +248,31 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   ): Promise<Pressed | null> {
     const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
     if (botToken === null) return null;
-    const locale =
-      (await deps.outbox.readerLocale({
-        workspaceId: app.workspaceId,
-        teamId: input.teamId,
-        slackUserId: input.userId,
-      })) ?? DEFAULT_USER_LOCALE;
+    const locale = await localeOf(agentId, app, input);
     return { agentId, ...app, ...input, botToken, locale };
+  }
+
+  /** The presser's language; the default one when it cannot be read. */
+  async function localeOf(
+    agentId: string,
+    app: { workspaceId: string },
+    input: { teamId: string; userId: string },
+  ): Promise<UserLocale> {
+    try {
+      return (
+        (await deps.outbox.readerLocale({
+          workspaceId: app.workspaceId,
+          teamId: input.teamId,
+          slackUserId: input.userId,
+        })) ?? DEFAULT_USER_LOCALE
+      );
+    } catch (error) {
+      deps.logger.warn("Slack presser language unreadable; using the default", {
+        agent_id: agentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return DEFAULT_USER_LOCALE;
+    }
   }
 
   async function admit(
@@ -523,27 +541,29 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     const [action] = payload.actions;
     const value = buttonValue(action?.value);
     if (action === undefined || value === null) return ok("ignored");
-    const presser = () =>
-      pressedFor(agentId, app, {
-        teamId: payload.team.id,
-        userId: payload.user.id,
-        channelId: payload.channel.id,
-        threadTs: payload.message.thread_ts ?? payload.message.ts,
-      });
-    // Only a form needs the token before the answer, to open its modal.
+    const input = {
+      teamId: payload.team.id,
+      userId: payload.user.id,
+      channelId: payload.channel.id,
+      threadTs: payload.message.thread_ts ?? payload.message.ts,
+    };
+    // The token is read first, like the signing secret, so a press that
+    // cannot reach Slack fails where Slack shows it; the language, the
+    // decision and the card come after the answer.
     if (action.action_id !== SLACK_INTERACTION_ACTIONS.questionOpen) {
+      const botToken = await deps.botToken(app.workspaceId, app.slackAppId);
+      if (botToken === null) return ok("refused:no_bot_token");
       defer(async () => {
-        const pressed = await presser();
+        const locale = await localeOf(agentId, app, input);
+        const pressed = { agentId, ...app, ...input, botToken, locale };
         handled(
           agentId,
-          pressed === null
-            ? ok("refused:no_bot_token")
-            : await actOn(pressed, payload, action.action_id, value),
+          await actOn(pressed, payload, action.action_id, value),
         );
       });
       return ok("accepted");
     }
-    const pressed = await presser();
+    const pressed = await pressedFor(agentId, app, input);
     if (pressed === null) return ok("refused:no_bot_token");
     const { viewId } = await deps.slack.openView(pressed.botToken, {
       triggerId: payload.trigger_id,

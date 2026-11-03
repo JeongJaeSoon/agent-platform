@@ -572,6 +572,11 @@ export function createFakeSlackWebApi(
       };
     },
 
+    "apps.manifest.export"(context) {
+      configToken(context);
+      return { manifest: appOf(context.params.app_id).manifest };
+    },
+
     "apps.manifest.delete"(context) {
       configToken(context);
       apps.delete(appOf(context.params.app_id).appId);

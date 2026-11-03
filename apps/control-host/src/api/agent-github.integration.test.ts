@@ -250,6 +250,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
   let workspaceId = "";
   let ownerId = "";
   let adminId = "";
+  let teamId = "";
   const cookies = { owner: "", admin: "", other: "" };
   let agentId = "";
   let versionId = "";
@@ -388,6 +389,18 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     await addMember("other@example.com");
     cookies.admin = await login("agent-admin@example.com");
     cookies.other = await login("other@example.com");
+    // The admin's own team, so the agents they make can name it. This app
+    // has no team routes.
+    teamId = crypto.randomUUID();
+    await db
+      .insert(schema.memberTeams)
+      .values({ id: teamId, workspaceId, name: "triage" });
+    await db.insert(schema.memberTeamMembers).values({
+      id: crypto.randomUUID(),
+      workspaceId,
+      teamId,
+      userId: adminId,
+    });
 
     const ceiling = await send(
       "PUT",
@@ -403,6 +416,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "triage",
       name: "triage",
+      managing_team_id: teamId,
       card,
     });
     expect(created.status).toBe(201);
@@ -630,6 +644,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     const other = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "other",
       name: "other",
+      managing_team_id: teamId,
       card,
     });
     const otherDetail = (await other.json()) as {
@@ -660,6 +675,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "no-repo",
       name: "no-repo",
+      managing_team_id: teamId,
       card,
     });
     expect(created.status).toBe(201);

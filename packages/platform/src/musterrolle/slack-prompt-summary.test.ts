@@ -73,6 +73,35 @@ describe("summarizeToolRequest", () => {
     expect([...(long ?? "")].length).toBeLessThanOrEqual(300);
   });
 
+  test("an excerpt keeps the content's own first lines, marks what it leaves out and stays within 300", () => {
+    const write = (text: string) =>
+      summarizeToolRequest("Write", { file_path: "a", content: text }, {}, "ko")
+        .excerpt;
+    // Indentation and leading blank lines are part of what gets written.
+    expect(write("    first\n    second")).toBe("    first\n    second");
+    expect(write("\n\n\nfourth")).toBe("\n\n\n…");
+    const full = write(
+      `${"a".repeat(100)}\n${"b".repeat(100)}\n${"c".repeat(98)}\nd`,
+    );
+    expect([...(full ?? "")].length).toBeLessThanOrEqual(300);
+    expect(full).toEndWith("…");
+    // A second edit is not hidden behind the first.
+    expect(
+      summarizeToolRequest(
+        "MultiEdit",
+        {
+          file_path: "a.ts",
+          edits: [
+            { old_string: "x", new_string: "safe" },
+            { old_string: "y", new_string: "dangerous second change" },
+          ],
+        },
+        {},
+        "ko",
+      ).excerpt,
+    ).toBe("safe\n…");
+  });
+
   test("built-in tools", () => {
     expect(
       ko("Bash", { command: "npm test", description: "Run the tests" }),
