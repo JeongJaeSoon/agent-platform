@@ -331,8 +331,9 @@ function Detail({
         <Alert variant="amber">
           <AlertTitle>이 버전에서 막힌 새 도구 1개</AlertTitle>
           <AlertDescription>
-            지원 카탈로그 {CATALOG}에 새로 생긴 AskUserQuestion는 이 버전에서
-            돌지 않습니다. 열려면 새 버전을 만들어 받아들입니다.{" "}
+            이 버전이 차단 여부를 정한 적 없는 도구라 돌지 않습니다:
+            AskUserQuestion. 열려면 지원 카탈로그 {CATALOG}로 새 버전을 만들어
+            받아들입니다.{" "}
             <a
               className="font-medium underline underline-offset-4"
               href="#new-version"

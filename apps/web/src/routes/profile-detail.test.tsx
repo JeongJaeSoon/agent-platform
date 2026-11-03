@@ -618,7 +618,7 @@ describe("프로필 상세의 도구", () => {
     const notice = await screen.findByText("이 버전에서 막힌 새 도구 1개");
     const alert = notice.closest("[data-slot=alert]") as HTMLElement;
     expect(alert.textContent).toContain(
-      `지원 카탈로그 ${CATALOG_ID}에 새로 생긴 WebSearch는 이 버전에서 돌지 않습니다.`,
+      `이 버전이 차단 여부를 정한 적 없는 도구라 돌지 않습니다: WebSearch. 열려면 지원 카탈로그 ${CATALOG_ID}로 새 버전을 만들어 받아들입니다.`,
     );
     expect(values("설정")).toMatchObject({
       "차단한 도구": "WriteWebFetch",

@@ -325,7 +325,7 @@ export const profilesKo = {
     "이 버전의 런타임 버전에는 지원 카탈로그가 없습니다. 도구 목록(허용목록)으로만 정한 버전이라 콘솔에서는 읽기만 합니다.",
   "profiles.tools.blockedNew": "이 버전에서 막힌 새 도구 {count}개",
   "profiles.tools.blockedNewText":
-    "지원 카탈로그 {catalog}에 새로 생긴 {tools}는 이 버전에서 돌지 않습니다. 열려면 새 버전을 만들어 받아들입니다.",
+    "이 버전이 차단 여부를 정한 적 없는 도구라 돌지 않습니다: {tools}. 열려면 지원 카탈로그 {catalog}로 새 버전을 만들어 받아들입니다.",
   "profiles.tools.makeVersion": "새 버전 만들기",
   "profiles.column.blocked": "차단",
   "profiles.blockedCount": "{count}개",
@@ -660,7 +660,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "No supported catalog lists this version's runtime version. It was set by a tool list (an allow list), so the console only reads it.",
   "profiles.tools.blockedNew": "{count} new tools blocked in this version",
   "profiles.tools.blockedNewText":
-    "{tools}, new in the supported catalog {catalog}, do not run in this version. To open them, make a new version and accept them.",
+    "These tools do not run in this version, which never decided on them: {tools}. To open them, make a new version on the supported catalog {catalog} and accept them.",
   "profiles.tools.makeVersion": "Make a new version",
   "profiles.column.blocked": "Blocked",
   "profiles.blockedCount": "{count}",
@@ -1004,7 +1004,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.tools.blockedNew":
     "このバージョンでブロックされた新しいツール {count} 個",
   "profiles.tools.blockedNewText":
-    "サポートするカタログ {catalog} に新しく加わった {tools} はこのバージョンでは動きません。開くには新しいバージョンを作って受け入れます。",
+    "このバージョンがブロックするかを決めたことのないツールなので動きません: {tools}。開くには、サポートするカタログ {catalog} で新しいバージョンを作って受け入れます。",
   "profiles.tools.makeVersion": "新しいバージョンを作る",
   "profiles.column.blocked": "ブロック",
   "profiles.blockedCount": "{count} 個",
