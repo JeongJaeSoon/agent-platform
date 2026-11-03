@@ -444,10 +444,12 @@ async function runScenario(options: RunOptions): Promise<{
     settingSources: ["project"],
     tools: allowlist,
   };
+  const abortController = new AbortController();
   const sdkOptions: Options = buildSdkOptions(
     config,
     { onPermission: async () => ({ behavior: "allow" }) },
     ledger,
+    abortController,
   );
   // The engine offers every catalog tool while the platform's allowlist holds
   // none of them: only the platform's own gates stand in the way.
@@ -467,16 +469,18 @@ async function runScenario(options: RunOptions): Promise<{
     message: `${MAIN_MARKER}: run the scripted calls`,
     uuid: crypto.randomUUID(),
   });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
-    consume,
-    new Promise((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("The harness run did not settle")),
-        100_000,
-      );
-    }),
-  ]).finally(() => clearTimeout(timer));
+  // A run that hangs is aborted and awaited, so the engine is gone before
+  // the server and workspace it uses are torn down.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abortController.abort();
+  }, 50_000);
+  await consume.catch((error: unknown) => {
+    if (!timedOut) throw error;
+  });
+  clearTimeout(timer);
+  if (timedOut) throw new Error("The harness run did not settle in 50s");
   lease?.release();
   const preparation = ledger.prepareCheckpoint();
   return {
@@ -690,12 +694,11 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
         }
       }, 120_000);
 
-      test(`${path}: with the engine offering a catalog tool the profile leaves out, the platform gates refuse it (${permissionMode})`, async () => {
-        const judgedRuns: Array<[RunOptions, Observed, Step[]]> = [];
-        // A run with Read left out judges the calls that need no read; a run
-        // with Read in judges the rest, which the engine would otherwise
-        // refuse on an unread file before any gate saw them.
-        for (const readAllowed of [false, true]) {
+      // A run with Read left out judges the calls that need no read; a run
+      // with Read in judges the rest, which the engine would otherwise refuse
+      // on an unread file before any gate saw them.
+      for (const readAllowed of [false, true]) {
+        test(`${path}: with the engine offering a catalog tool the profile leaves out, the platform gates refuse it (${permissionMode}, ${readAllowed ? "calls that need a read" : "calls that need none"})`, async () => {
           const options: RunOptions = {
             path,
             permissionMode,
@@ -705,14 +708,9 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
           const { observed, probes } = await runScenario(options);
           if (path === "subagent")
             expect(observed.post.has(AGENT_CALL)).toBe(true);
-          judgedRuns.push([
-            options,
-            observed,
-            probes.filter((step) => (step.needsRead === true) === readAllowed),
-          ]);
-        }
-        for (const [options, observed, probes] of judgedRuns)
-          for (const step of probes) {
+          for (const step of probes.filter(
+            (probe) => (probe.needsRead === true) === readAllowed,
+          )) {
             const judged = await judge(options, step, observed);
             if (path === "subagent" && MAIN_LOOP_ONLY.has(step.name)) {
               expect(judged.offered).toBe(false);
@@ -766,7 +764,8 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
               isError: true,
             });
           }
-      }, 120_000);
+        }, 120_000);
+      }
     }
 
     test(`${path}: a catalog tool asked to start under a checkpoint lease never runs`, async () => {

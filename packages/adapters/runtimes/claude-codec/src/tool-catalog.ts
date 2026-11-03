@@ -15,9 +15,11 @@ export type BuiltinTool = {
 /**
  * The built-in tools the platform supports on one engine build — not every
  * tool the engine ships. A tool is listed only once the engine harness
- * (`runtimes/claude/src/tool-catalog.integration.test.ts`) has shown that the
- * pinned build runs it through PreToolUse and the permission callback, on the
- * main loop and inside a subagent, and that a checkpoint lease stops it.
+ * (`runtimes/claude/src/tool-catalog.integration.test.ts`) has shown that, on
+ * the pinned build, it passes PreToolUse on the main loop and inside a
+ * subagent (where the engine offers it there at all), that the permission
+ * callback sees it wherever the engine asks one, that it does not run when
+ * the profile leaves it out, and that a held checkpoint lease stops it.
  */
 export type BuiltinToolCatalog = {
   /** The name the engine reports for a tool once renamed, keyed by its older names. */
