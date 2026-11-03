@@ -115,7 +115,7 @@ export const SLACK_LINK_USER_SCOPES = ["openid", "profile"] as const;
 /** The link app's words in Slack, kept together for copy review. */
 export const LINK_APP_COPY = {
   nameSuffix: " 계정 연결",
-  description: "agent-platform 콘솔에서 Slack 계정을 연결합니다.",
+  description: "Werft 콘솔에서 Slack 계정을 연결합니다.",
 } as const;
 
 /**
