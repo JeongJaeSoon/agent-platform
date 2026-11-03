@@ -74,7 +74,7 @@ const WORK_NAV: readonly NavEntry[] = [
 const WORKSPACE_NAV: readonly NavEntry[] = [
   {
     key: "profiles",
-    label: "실행 프로필",
+    label: "프로필",
     icon: SlidersHorizontal,
     hue: "teal",
   },

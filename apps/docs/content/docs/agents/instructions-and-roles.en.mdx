@@ -36,8 +36,8 @@ Earlier cards had "Role" (`role`) and "Instructions" (`instructions`) fields. Bo
 | Field | Required | Content |
 | --- | --- | --- |
 | `agent_instructions` | | Agent instructions. Up to 20,000 characters. Left out when empty |
-| `model` | Yes | Model name. Must be one of the models the run profile can run when you create a release |
-| `capabilities.tools` | Yes | List of tool names to use. They must be tools the run profile has. `null` means all of the profile's tools when the release is created |
+| `model` | Yes | Model name. Must be one of the models the profile can run when you create a release |
+| `capabilities.tools` | Yes | List of tool names to use. They must be tools the profile has. `null` means all of the profile's tools when the release is created |
 | `capabilities.mcp` | Yes | Only `null` is accepted for now |
 | `capabilities.forbidden` | | Tool names to forbid. The web console puts `[]` on a new card, and only shows and clears an existing value |
 | `capabilities.tool_policy` | | `allow`, `ask`, or `deny` per tool |
@@ -65,7 +65,7 @@ The worker adds these instructions to the model's system prompt, in this order.
 
 1. For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
 2. The agent instructions of the session's release.
-3. `CLAUDE.md` at the repository root. When the run profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
+3. `CLAUDE.md` at the repository root. When the profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
 
 <Callout type="warn">
 Name, description, and the card's `role`, `instructions`, `language`, and `rules` are not passed to the model. To set the answer language, write it in the agent instructions.
@@ -97,5 +97,5 @@ A new version does not change the active release. To use it, create a release fr
 
 ## Next steps
 
-- [Choose a run profile](/agents/run-profiles): The profile that releases and sessions use
+- [Choose a profile](/agents/run-profiles): The profile that releases and sessions use
 - [Permissions](/agents/permissions): Tool permissions and agent administrators

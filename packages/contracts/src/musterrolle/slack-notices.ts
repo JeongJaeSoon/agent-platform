@@ -21,7 +21,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
   repositoryRequired:
     "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없어 시작하지 못했어요(저장소를 고르지 않았거나 카탈로그에서 빠졌어요). 에이전트 관리자가 웹 콘솔에서 저장소를 골라 새 릴리스를 만들고 활성화해야 해요",
   profileUnavailable:
-    "이 에이전트의 릴리스가 쓰는 실행 프로필이 지금 카탈로그에 없거나, 바뀌었거나, 운영자가 차단해 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 프로필로 새 릴리스를 만들고 활성화해야 해요",
+    "이 에이전트의 릴리스가 쓰는 프로필이 지금 카탈로그에 없거나, 바뀌었거나, 운영자가 차단해 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 프로필로 새 릴리스를 만들고 활성화해야 해요",
   noActiveRelease:
     "이 에이전트는 아직 활성화된 릴리스가 없어요. 에이전트 관리자가 웹 콘솔에서 릴리스를 활성화해야 해요",
 } as const;
@@ -50,7 +50,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     repositoryRequired:
       "このエージェントのリリースで使えるリポジトリがないため、開始できませんでした(リポジトリが選ばれていないか、カタログから外れています)。エージェントの管理者がWebコンソールでリポジトリを選び、新しいリリースを作成して有効化する必要があります",
     profileUnavailable:
-      "このエージェントのリリースが使う実行プロファイルが、カタログにないか、変更されたか、運用担当者によってブロックされたため、開始できませんでした。エージェントの管理者がWebコンソールで使えるプロファイルの新しいリリースを作成して有効化する必要があります",
+      "このエージェントのリリースが使うプロファイルが、カタログにないか、変更されたか、運用担当者によってブロックされたため、開始できませんでした。エージェントの管理者がWebコンソールで使えるプロファイルの新しいリリースを作成して有効化する必要があります",
     noActiveRelease:
       "このエージェントにはまだ有効なリリースがありません。エージェントの管理者がWebコンソールでリリースを有効化する必要があります",
   },
@@ -69,7 +69,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     repositoryRequired:
       "The agent couldn't start because its release has no repository it can use (none was chosen, or it was removed from the catalog). An agent admin needs to choose a repository in the web console, then create and activate a new release",
     profileUnavailable:
-      "The agent couldn't start because its release's runtime profile is missing from the catalog, has changed, or was blocked by an operator. An agent admin needs to create and activate a new release with an available profile in the web console",
+      "The agent couldn't start because its release's profile is missing from the catalog, has changed, or was blocked by an operator. An agent admin needs to create and activate a new release with an available profile in the web console",
     noActiveRelease:
       "This agent has no active release yet. An agent admin needs to activate a release in the web console",
   },

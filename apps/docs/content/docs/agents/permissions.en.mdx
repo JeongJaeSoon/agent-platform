@@ -3,11 +3,11 @@ title: "Permissions"
 description: The tools an agent can use, human approval, and the people who administer an agent and its credential bindings
 ---
 
-An agent's permissions have three layers: the tools and permission mode set by the run profile, the permission requests that a person answers, and the people who administer the agent and connect credential names.
+An agent's permissions have three layers: the tools and permission mode set by the profile, the permission requests that a person answers, and the people who administer the agent and connect credential names.
 
-## Tools: set by the run profile
+## Tools: set by the profile
 
-A session uses only the tools in the run profile's `tools`. Tools outside it are denied without a permission request, and the model receives an error `tool_result`. The script below calls `WebFetch`, which the local profile does not have.
+A session uses only the tools in the profile's `tools`. Tools outside it are denied without a permission request, and the model receives an error `tool_result`. The script below calls `WebFetch`, which the local profile does not have.
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \

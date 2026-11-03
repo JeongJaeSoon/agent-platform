@@ -3,7 +3,7 @@ title: "開始"
 description: セッション作成リクエストのフィールド、レスポンス、Idempotency-Key、一覧・共有範囲・タイトル、エラー
 ---
 
-セッションは、実行プロファイル 1 つで動く会話である。プロファイルがリポジトリを使うなら、リポジトリも 1 つ選ぶ。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
+セッションは、プロファイル 1 つで動く会話である。プロファイルがリポジトリを使うなら、リポジトリも 1 つ選ぶ。セッションを作ると最初のメッセージがターン 1 として受け付けられ、scheduler がそのセッションの worker コンテナを起動する。scope は `sessions:write` である。SDK の例は [SDK のインストール](/getting-started/install#クライアントを作る)で作った `werft` クライアントを、HTTP API の例はサーバーのアドレス `API` とキー `KEY` のシェル変数を使う。
 
 <Callout>
 例の `GATE-SPEC {…}` メッセージは、[開発用サーバー](/run-server/dev-server)の fake モデルが読むスクリプトである。fake モデルはスクリプトどおりにツールを呼んで応答するので、出力はいつも同じになる。実際のモデルで起動したサーバーでは同じツール呼び出しと出力にはならないので、普段の指示を送る。
@@ -65,7 +65,7 @@ SID=$(echo "$created" | jq -r .session_id)
 
 | フィールド | 必須 | 内容 |
 | --- | --- | --- |
-| `profile_id` | `agent_release_id` がなければ必須 | 実行プロファイルの id([実行プロファイルを選ぶ](/agents/run-profiles)) |
+| `profile_id` | `agent_release_id` がなければ必須 | プロファイルの id([プロファイルを選ぶ](/agents/run-profiles)) |
 | `repository_id` | プロファイルによる | カタログ上のリポジトリ id。worker はこのリポジトリを clone する。プロファイルの `repository_mode` が `required` なら必須、`none` なら送らない([リポジトリなしのセッション](/sessions/without-repository)) |
 | `message` | はい | 最初のターンの入力。UTF-8 で 32,768 バイトまで |
 | `model` | | プロファイルが許可したモデルのうち 1 つ。省略するとデフォルトのモデル |

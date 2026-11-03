@@ -1284,12 +1284,14 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === trigger).toBe(true);
   });
 
-  test("새 release의 프로필은 출처별로 묶고, 새 release를 받지 않는 판은 고를 수 없으며 기본값도 되지 않는다", async () => {
+  test("새 release의 프로필은 프로필 화면의 이름·버전·모델·종류로 보이고, 새 release를 받지 않는 판은 고를 수 없으며 기본값도 되지 않는다", async () => {
+    // Its default model is not the card's, but it also runs the card's
+    // model, which is what the server checks.
     const operator = {
       id: "claude-coding-fast",
       source: "operator" as const,
       model: "claude-haiku-5",
-      models: ["claude-haiku-5"],
+      models: ["claude-haiku-5", "claude-sonnet-5"],
       tools: ["Read"],
       permission_mode: "default" as const,
       runtime_kind: "claude_agent_sdk" as const,
@@ -1330,38 +1332,30 @@ describe("에이전트 상세 탭", () => {
       "프로필",
     )) as HTMLSelectElement;
     expect(
-      [...select.querySelectorAll("optgroup")].map((group) => [
-        group.label,
-        [...group.querySelectorAll("option")].map((option) => [
-          option.value,
-          option.disabled,
-          option.textContent,
-        ]),
+      [...select.querySelectorAll("option")].map((option) => [
+        option.value,
+        option.disabled,
+        option.textContent,
       ]),
     ).toEqual([
       [
-        "설치 프로필",
-        [
-          [
-            "claude-coding-fast",
-            false,
-            expect.stringContaining("claude-coding-fast"),
-          ],
-        ],
+        "claude-coding-fast",
+        false,
+        "claude-coding-fast v1 · claude-haiku-5 (설치)",
       ],
       [
-        "워크스페이스 프로필",
-        [
-          ["ws_acme_strict_v1", true, expect.stringContaining("사용 중지됨")],
-          [
-            "ws_acme_strict_v2",
-            true,
-            expect.stringContaining("바탕 프로필 바뀜"),
-          ],
-        ],
+        "ws_acme_strict_v1",
+        true,
+        "strict v1 · claude-sonnet-5 (워크스페이스) · 사용 중지됨",
+      ],
+      [
+        "ws_acme_strict_v2",
+        true,
+        "strict v2 · claude-sonnet-5 (워크스페이스) · 바탕 프로필 바뀜",
       ],
     ]);
     expect(select.value).toBe("claude-coding-fast");
+    expect(within(dialog).queryByRole("status")).toBeNull();
   });
 });
 
