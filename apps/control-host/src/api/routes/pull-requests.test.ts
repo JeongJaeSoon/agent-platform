@@ -97,6 +97,9 @@ function app(
     getPullRequest: () => {
       throw new Error("not used");
     },
+    setPullRequestState: async () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       fail("comment");
       comments += 1;

@@ -107,6 +107,11 @@ export interface GitHubApi {
     edit: (body: string) => string,
     title?: string,
   ): Promise<void>;
+  /** Closes or reopens it; answers the pull request as GitHub left it. */
+  setPullRequestState(
+    number: number,
+    state: "open" | "closed",
+  ): Promise<ForgePullRequest>;
   upsertComment(
     number: number,
     marker: string,

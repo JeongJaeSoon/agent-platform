@@ -7,12 +7,15 @@ import {
   type OpenPullRequestResponse,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
+  type PullRequestState,
+  type SetPullRequestStateResponse,
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
-import { ForgeCredentialError } from "../ports/forge.ts";
+import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
+  GitHubCallError,
   type GitHubGate,
   GitHubGateError,
   type GitHubGrant,
@@ -449,6 +452,101 @@ export function createPullRequestService(deps: {
         },
       });
       return { pull_request: pullRequest, receipt_id: receiptId };
+    },
+
+    /**
+     * Closes or reopens the pull request recorded for this session's push
+     * request, under the same rules as `update`. Already in that state is
+     * an answer, not a refusal.
+     */
+    async setState(
+      actor: PushActor,
+      rawSessionId: string,
+      rawPushRequestId: string,
+      state: PullRequestState,
+    ): Promise<SetPullRequestStateResponse> {
+      const { sessionId, pushRequestId, receipt, refuse, submitter } =
+        await begin(
+          actor,
+          rawSessionId,
+          rawPushRequestId,
+          state === "closed" ? "close_pull_request" : "reopen_pull_request",
+        );
+      const source = await store.findSource(
+        actor.ownerId,
+        sessionId,
+        pushRequestId,
+      );
+      if (source === null) return await refuse("not_found");
+      const { pullRequest, fields } = await pullRequestOf(
+        actor.ownerId,
+        source,
+      );
+      if (pullRequest === null) return await refuse("no_pull_request", fields);
+      if (submitter && source.state !== "pushed") {
+        return await refuse("not_pushed", fields);
+      }
+      const { forge } = await forgeFor(actor, source, (refusal, extra) =>
+        refuse(refusal, { ...fields, ...extra }),
+      );
+      let before: ForgePullRequest;
+      try {
+        before = (await forge.getPullRequest(pullRequest.number)).pullRequest;
+      } catch (error) {
+        if (error instanceof GitHubCallError) {
+          return await refuse(
+            error.status === 404 ? "no_pull_request" : "forge_failed",
+            fields,
+          );
+        }
+        throw error;
+      }
+      if (before.head !== pullRequest.head) {
+        return await refuse("no_pull_request", fields);
+      }
+      if (before.mergedAt !== null) {
+        return await refuse("pull_request_merged", {
+          ...fields,
+          state: before.state,
+        });
+      }
+      let after = before.state;
+      if (before.state !== state) {
+        try {
+          after = (await forge.setPullRequestState(pullRequest.number, state))
+            .state;
+        } catch (error) {
+          // A reopen GitHub refuses (its branch is gone, or the branch has
+          // another open pull request) lands here too.
+          if (error instanceof ForgeCredentialError) {
+            return await refuse("forge_failed", {
+              ...fields,
+              state: before.state,
+            });
+          }
+          throw error;
+        }
+      }
+      const changed = after !== before.state;
+      const receiptId = await store.recordReceipt({
+        ...receipt,
+        pushRequestId: source.id,
+        result: {
+          ...EMPTY_RESULT,
+          ...fields,
+          push_request_id: source.id,
+          verdict: "allow",
+          created: false,
+          state: after,
+          changed,
+        },
+      });
+      return {
+        pull_request: pullRequest,
+        state: after,
+        changed,
+        receipt_id: receiptId,
+      };
     },
 
     async comment(

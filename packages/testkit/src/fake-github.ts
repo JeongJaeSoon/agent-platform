@@ -676,6 +676,23 @@ export async function startFakeGitHub(
       if (method === "PATCH" && typeof input.title === "string") {
         pull.title = input.title;
       }
+      if (
+        method === "PATCH" &&
+        (input.state === "open" || input.state === "closed")
+      ) {
+        // GitHub neither closes nor reopens a merged pull request.
+        if (pull.merged_at !== null) {
+          return Response.json(
+            { message: "Validation Failed" },
+            { status: 422 },
+          );
+        }
+        if (pull.state !== input.state) {
+          pull.state = input.state;
+          pull.closed_at =
+            input.state === "closed" ? now().toISOString() : null;
+        }
+      }
       return Response.json(pullJson(pull));
     }
     const comments = /^\/issues\/(\d+)\/comments$/.exec(rest);

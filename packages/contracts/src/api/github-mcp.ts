@@ -40,6 +40,12 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   comment_pull_request: commentPullRequestRequestSchema.extend({
     push_request_id: pushRequestIdSchema,
   }),
+  close_pull_request: z
+    .object({ push_request_id: pushRequestIdSchema })
+    .strict(),
+  reopen_pull_request: z
+    .object({ push_request_id: pushRequestIdSchema })
+    .strict(),
   dispatch_workflow: dispatchWorkflowRequestSchema,
   get_workflow_run: z.object({ run_id: runIdSchema }).strict(),
   rerun_workflow: rerunWorkflowRequestSchema.extend({ run_id: runIdSchema }),
@@ -63,6 +69,8 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
   open_pull_request: null,
   update_pull_request: null,
   comment_pull_request: null,
+  close_pull_request: null,
+  reopen_pull_request: null,
   dispatch_workflow: "actions",
   get_workflow_run: "actions",
   rerun_workflow: "actions",

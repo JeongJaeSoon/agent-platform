@@ -399,6 +399,17 @@ export function createGitHubConnection(
           );
         });
       },
+      async setPullRequestState(number, state) {
+        const { data } = await call("pull request state", () =>
+          client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+            ...target,
+            pull_number: number,
+            state,
+            headers,
+          }),
+        );
+        return pullRequestOf(data);
+      },
       async upsertComment(number, marker, body): Promise<ForgeComment> {
         const text = `${body}\n\n${marker}`;
         // Two first comments for one marker would both find none and both

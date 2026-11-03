@@ -50,12 +50,18 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     code: "GITHUB_REFUSED",
     message: "The GitHub gate refused the pull request",
   },
+  pull_request_merged: {
+    code: "PULL_REQUEST_MERGED",
+    message: "The pull request was merged; it cannot be closed or reopened",
+  },
 };
 
 export type PullRequestOperation =
   | "open_pull_request"
   | "update_pull_request"
-  | "comment_pull_request";
+  | "comment_pull_request"
+  | "close_pull_request"
+  | "reopen_pull_request";
 
 /** The push request a pull request is opened from, as stored. */
 export type PullRequestSource = {

@@ -90,7 +90,10 @@ export function verifyGitHubMcpGrant(
 
 export type GitHubMcpServices = {
   pushRequests: Pick<PushRequestService, "create">;
-  pullRequests: Pick<PullRequestService, "open" | "update" | "comment">;
+  pullRequests: Pick<
+    PullRequestService,
+    "open" | "update" | "comment" | "setState"
+  >;
   githubWork: Pick<
     GitHubWorkService,
     "dispatch" | "getRun" | "rerun" | "review"
@@ -107,6 +110,10 @@ const DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Change the title, the body or both of the pull request a pushed push request's branch has open. The body replaces yours; the platform's closing lines stay, naming this push request's commit.",
   comment_pull_request:
     "Comment on the pull request of a pushed push request; the same marker edits the same comment.",
+  close_pull_request:
+    "Close the pull request a pushed push request of this session has, without merging it; its branch stays, so reopen_pull_request can open it again. Closing a closed one changes nothing (`changed: false`); a merged one is refused.",
+  reopen_pull_request:
+    "Reopen the closed pull request a pushed push request of this session has. Reopening an open one changes nothing (`changed: false`); a merged one is refused, and GitHub refuses one whose branch already has another open pull request.",
   dispatch_workflow:
     "Dispatch an allow-listed workflow on a branch. Inputs go to GitHub only.",
   get_workflow_run: "Read a workflow run of this session's repository.",
@@ -442,6 +449,18 @@ async function run(
       return services.pullRequests.comment(actor, sessionId, push_request_id, {
         readBody: async () => body,
       });
+    }
+    case "close_pull_request":
+    case "reopen_pull_request": {
+      const { push_request_id } = args as z.infer<
+        (typeof GITHUB_MCP_TOOL_ARGUMENTS)["close_pull_request"]
+      >;
+      return services.pullRequests.setState(
+        actor,
+        sessionId,
+        push_request_id,
+        tool === "close_pull_request" ? "closed" : "open",
+      );
     }
     case "dispatch_workflow":
       return services.githubWork.dispatch(
