@@ -89,6 +89,17 @@ const named = (dialog: HTMLElement, name: string) => {
 const writes = <C extends { readonly method: string }>(calls: readonly C[]) =>
   calls.filter((call) => call.method !== "GET");
 
+/** No row action sits in a cell the narrow layout hides. */
+const expectNarrowActions = (table: HTMLElement) => {
+  const buttons = within(table).getAllByRole("button");
+  expect(buttons.length).toBeGreaterThan(0);
+  for (const button of buttons) {
+    expect(button.closest('[role="cell"]')?.className ?? "").not.toContain(
+      ":hidden",
+    );
+  }
+};
+
 describe("모델 연결", () => {
   const listed = [
     connection("anthropic", {
@@ -152,13 +163,7 @@ describe("모델 연결", () => {
   test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
     renderAt("/profiles", routes());
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    const buttons = within(table).getAllByRole("button");
-    expect(buttons.length).toBeGreaterThan(0);
-    for (const button of buttons) {
-      expect(button.closest('[role="cell"]')?.className ?? "").not.toContain(
-        ":hidden",
-      );
-    }
+    expectNarrowActions(table);
     const id = within(rowOf(table, "fresh")).getAllByRole("cell")[0];
     expect(id?.textContent).toContain("값 필요");
   });
@@ -329,6 +334,11 @@ describe("MCP 서버", () => {
     expect(within(rowOf(table, "search")).queryAllByRole("button")).toEqual([]);
   });
 
+  test("a narrow table keeps every row's actions", async () => {
+    renderAt("/settings/workspace/mcp-servers", routes());
+    expectNarrowActions(await screen.findByRole("table", { name: "MCP 서버" }));
+  });
+
   test("adding one and changing its workspaces send the slugs as a list", async () => {
     const { api } = renderAt("/settings/workspace/mcp-servers", {
       ...routes(),
@@ -493,6 +503,13 @@ describe("URL 저장소", () => {
     expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
       [`${REPOS}/docs-site`, { branch: "release" }],
     ]);
+  });
+
+  test("a narrow table keeps every row's actions", async () => {
+    renderAt("/settings/workspace/repositories", routes());
+    expectNarrowActions(
+      await screen.findByRole("table", { name: "URL 저장소" }),
+    );
   });
 
   test("a member gets the refusal screen and no read", async () => {
