@@ -530,15 +530,65 @@ describe("Slack interactions", () => {
     });
     const elapsed = performance.now() - started;
     expect(outcome).toMatchObject({ kind: "ok", result: "accepted" });
-    // Only the signing secret is awaited before the answer: the token (1s),
-    // the language (1s), the decision (4s) and the card (1s) come after it.
-    expect(elapsed).toBeLessThan(500);
+    // Only the signing secret and the token (1s) are awaited before the
+    // answer: the language (1s), the decision (4s) and the card (1s) after.
+    expect(elapsed).toBeLessThan(1500);
     expect(called("answer")).toEqual([]);
     expect(called("card")).toEqual([]);
     await drain();
     expect(called("answer")).toHaveLength(1);
     expect(called("card")).toHaveLength(1);
   }, 15_000);
+
+  test("a press whose presser's language cannot be read still decides, in the default language", async () => {
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      outbox: {
+        ...base.outbox,
+        readerLocale: async () => {
+          throw new Error("db down");
+        },
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    expect(
+      await service.receive({
+        agentId: AGENT,
+        rawBody: new TextEncoder().encode(body),
+        ...signed(body),
+      }),
+    ).toMatchObject({ kind: "ok", result: "accepted" });
+    await drain();
+    expect(called("answer")).toHaveLength(1);
+    expect(called("update")).toHaveLength(1);
+  });
+
+  test("a press whose bot token cannot be read fails before Slack is answered", async () => {
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      botToken: async () => {
+        throw new Error("secret store down");
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    await expect(
+      service.receive({
+        agentId: AGENT,
+        rawBody: new TextEncoder().encode(body),
+        ...signed(body),
+      }),
+    ).rejects.toThrow("secret store down");
+    await drain();
+    expect(called("answer")).toEqual([]);
+  });
 
   test("two presses of the same button decide once; the second sees it settled", async () => {
     const decided = new Map<string, unknown>();
