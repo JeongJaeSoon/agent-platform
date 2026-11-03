@@ -33,6 +33,7 @@ import {
 } from "@werft-ai/react";
 import {
   Alert,
+  AlertActions,
   AlertDescription,
   AlertTitle,
   Button,
@@ -43,12 +44,13 @@ import {
   FieldLabel,
   Input,
   NativeSelect,
+  NativeSelectOption,
   Skeleton,
   Stepper,
   Text,
   Textarea,
 } from "@werft-ai/ui";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useRef, useState } from "react";
 import { useWatch } from "react-hook-form";
 import type { z } from "zod";
 import {
@@ -72,6 +74,8 @@ import {
   toolsBlocked,
 } from "./agent-card-form.tsx";
 import { Notice } from "./auth-page.tsx";
+import { LoadFailure } from "./load-failure.tsx";
+import { useTeamChoices } from "./managing-team.tsx";
 import { ProfileOptions, pickable } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
@@ -93,12 +97,19 @@ type Steps = {
     versionId: string;
     releaseId: string;
   };
-  name: { flow: string; name?: string; slug?: string; description?: string };
+  name: {
+    flow: string;
+    name?: string;
+    slug?: string;
+    description?: string;
+    managing_team_id?: string;
+  };
   job: {
     flow: string;
     name: string;
     slug: string;
     description?: string;
+    managing_team_id?: string;
     card?: unknown;
   };
   release: {
@@ -190,6 +201,7 @@ interface SavedDraft {
   readonly name: string;
   readonly slug: string;
   readonly description: string;
+  readonly managingTeamId: string | null;
   readonly card: CardDraft;
 }
 
@@ -211,6 +223,8 @@ function readDraft(flow: string): SavedDraft | null {
       ...draft,
       description:
         typeof draft.description === "string" ? draft.description : "",
+      managingTeamId:
+        typeof draft.managingTeamId === "string" ? draft.managingTeamId : null,
       card: cardDraftOf(draft.card) ?? EMPTY_DRAFT,
     };
   } catch {
@@ -265,8 +279,12 @@ export function NewAgentFlow({
         guard: (data): data is Steps["name"] => ours(data, ["flow"]),
       },
       job: {
+        // A job step kept from before the team was asked for starts over,
+        // unless its agent is already saved.
         guard: (data): data is Steps["job"] =>
-          ours(data, ["flow", "name", "slug"]),
+          ours(data, ["flow", "name", "slug"]) &&
+          (hasText(data, ["managing_team_id"]) ||
+            readDraft((data as { flow: string }).flow) !== null),
       },
       release: {
         guard: (data): data is Steps["release"] =>
@@ -301,6 +319,13 @@ export function NewAgentFlow({
         "",
     },
   });
+  const [team, setTeam] = useState(
+    (typeof restored.managing_team_id === "string"
+      ? restored.managing_team_id
+      : undefined) ??
+      saved?.managingTeamId ??
+      "",
+  );
   // The first entry holds no context until written, so coming back to it
   // would start a new flow, apart from the draft this one saved.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once, on arrival
@@ -339,6 +364,7 @@ export function NewAgentFlow({
     name: "",
     slug: "",
     description: "",
+    managingTeamId: null,
     card: EMPTY_DRAFT,
   };
   const unsaved = useRef(false);
@@ -346,6 +372,7 @@ export function NewAgentFlow({
     identityInput.name !== kept.name ||
     identityInput.slug !== kept.slug ||
     identityInput.description !== kept.description ||
+    (saved === null && team !== "") ||
     canonical(cardInput) !== canonical(kept.card);
   const leaving = useBlocker({
     shouldBlockFn: ({ current, next }) =>
@@ -406,6 +433,10 @@ export function NewAgentFlow({
               slug: context.slug,
               name: context.name,
               ...(description === "" ? {} : { description }),
+              ...(typeof context.managing_team_id === "string" &&
+              context.managing_team_id !== ""
+                ? { managing_team_id: context.managing_team_id }
+                : {}),
               card: sent as unknown as ApiCard,
             },
           }),
@@ -415,9 +446,11 @@ export function NewAgentFlow({
       name: detail.agent.name,
       slug: detail.agent.slug,
       description: detail.agent.description ?? "",
+      managingTeamId: detail.agent.managing_team_id,
       card: input,
     };
     setSaved(draft);
+    setTeam(draft.managingTeamId ?? "");
     writeDraft(flow, draft);
     // The fields show what was saved, trimmed as the server keeps it.
     identity.reset({
@@ -449,7 +482,11 @@ export function NewAgentFlow({
             form={identity}
             locked={saved !== null}
             focus={moved}
-            onNext={(values) => history.push("job", values)}
+            team={team}
+            onTeamChange={setTeam}
+            onNext={(values) =>
+              history.push("job", { ...values, managing_team_id: team })
+            }
           />
         )}
         job={({ context, history }) => (
@@ -527,15 +564,55 @@ function NameStep({
   form,
   locked,
   focus,
+  team,
+  onTeamChange,
   onNext,
 }: {
   readonly form: StepForm<typeof agentIdentityStep>;
   readonly locked: boolean;
   readonly focus: boolean;
+  readonly team: string;
+  readonly onTeamChange: (teamId: string) => void;
   readonly onNext: (values: Omit<Steps["job"], "flow">) => void;
 }) {
   const { t } = useI18n();
   const { errors } = form.formState;
+  const { everywhere, choices, error, refetch } = useTeamChoices();
+  const [teamMissing, setTeamMissing] = useState(false);
+  const teamSelect = useId();
+  const only = choices?.length === 1 ? choices[0]?.id : undefined;
+  const stale =
+    !locked &&
+    team !== "" &&
+    choices !== undefined &&
+    !choices.some((choice) => choice.id === team);
+  useEffect(() => {
+    if (!locked && (team === "" || stale) && only !== undefined)
+      onTeamChange(only);
+    else if (stale) onTeamChange("");
+  }, [locked, team, stale, only, onTeamChange]);
+  if (error) return <LoadFailure error={error} onRetry={refetch} />;
+  if (!locked && choices === undefined)
+    return <Skeleton label={t("agents.flow.team")} />;
+  if (!locked && choices?.length === 0)
+    return (
+      <section className={AGENT_FORM}>
+        <StepHeading focus={focus}>{t("agents.flow.name")}</StepHeading>
+        <Alert variant="amber">
+          <AlertDescription>
+            {t(everywhere ? "agents.flow.noTeamAdmin" : "agents.flow.noTeam")}
+          </AlertDescription>
+          {everywhere ? (
+            <AlertActions>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/members/teams">{t("agents.flow.toTeams")}</Link>
+              </Button>
+            </AlertActions>
+          ) : null}
+        </Alert>
+      </section>
+    );
+  const savedTeam = choices?.find((choice) => choice.id === team)?.name;
   const name = form.register("name", {
     onChange: (event: { target: { value: string } }) => {
       // The identifier follows the name until someone types their own.
@@ -547,7 +624,14 @@ function NameStep({
     <form
       className={AGENT_FORM}
       noValidate
-      onSubmit={form.handleSubmit(onNext)}
+      onSubmit={form.handleSubmit((values) => {
+        if (!locked && team === "") {
+          setTeamMissing(true);
+          document.getElementById(teamSelect)?.focus();
+          return;
+        }
+        onNext(values);
+      })}
     >
       <StepHeading focus={focus}>{t("agents.flow.name")}</StepHeading>
       <Field>
@@ -576,6 +660,40 @@ function NameStep({
         />
         <FieldDescription>{t("agents.descriptionHint")}</FieldDescription>
         <FieldError>{errors.description?.message}</FieldError>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor={teamSelect}>{t("agents.flow.team")}</FieldLabel>
+        {locked ? (
+          <Text id={teamSelect}>
+            {team === "" ? t("managingTeam.unassigned") : (savedTeam ?? team)}
+          </Text>
+        ) : (
+          <NativeSelect
+            id={teamSelect}
+            required
+            aria-invalid={teamMissing && team === ""}
+            value={team}
+            onChange={(event) => {
+              onTeamChange(event.target.value);
+              setTeamMissing(false);
+            }}
+          >
+            <NativeSelectOption value="" disabled>
+              {t("managingTeam.pickPlaceholder")}
+            </NativeSelectOption>
+            {choices?.map((choice) => (
+              <NativeSelectOption key={choice.id} value={choice.id}>
+                {choice.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        )}
+        <FieldDescription>
+          {t(locked ? "agents.flow.teamLocked" : "agents.flow.teamHint")}
+        </FieldDescription>
+        <FieldError>
+          {teamMissing && team === "" ? t("agents.flow.teamRequired") : null}
+        </FieldError>
       </Field>
       <Alerts lines={formAlerts(errors, ["name", "slug", "description"])} />
       <div>

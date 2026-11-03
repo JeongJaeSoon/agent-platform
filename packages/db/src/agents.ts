@@ -18,6 +18,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  isNull,
   max,
   or,
   type SQL,
@@ -52,10 +53,16 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  memberTeams,
   receipts,
 } from "./schema.ts";
 
 type AgentRow = typeof agents.$inferSelect;
+
+/** The managing team's name beside an agents row; a deleted team keeps its name. */
+export const managingTeamName = sql<
+  string | null
+>`(select ${memberTeams.name} from ${memberTeams} where ${memberTeams.id} = ${agents.managingTeamId} and ${memberTeams.workspaceId} = ${agents.workspaceId})`;
 type VersionRow = typeof agentVersions.$inferSelect;
 type ReleaseRow = typeof agentReleases.$inferSelect;
 
@@ -93,7 +100,7 @@ export async function releaseSuperseded(
   return row !== undefined;
 }
 
-export function agentOf(row: AgentRow): Agent {
+export function agentOf(row: AgentRow, managingTeamName: string | null): Agent {
   return {
     id: row.id,
     workspace_id: row.workspaceId,
@@ -101,6 +108,7 @@ export function agentOf(row: AgentRow): Agent {
     name: row.name,
     description: row.description,
     managing_team_id: row.managingTeamId,
+    managing_team_name: row.managingTeamId === null ? null : managingTeamName,
     status: row.status as Agent["status"],
     active_release_id: row.activeReleaseId,
     activation_revision: row.activationRevision,
@@ -212,12 +220,13 @@ async function detailOf(
   workspaceId: string,
   agentId: string,
 ): Promise<AgentDetail | null> {
-  const [agent] = await db
-    .select()
+  const [row] = await db
+    .select({ agent: agents, teamName: managingTeamName })
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
     .limit(1);
-  if (!agent) return null;
+  if (!row) return null;
+  const { agent } = row;
   const versions = await db
     .select()
     .from(agentVersions)
@@ -225,7 +234,7 @@ async function detailOf(
     .orderBy(asc(agentVersions.versionNo));
   const releases = await readReleases(db, eq(agentReleases.agentId, agent.id));
   return {
-    agent: agentOf(agent),
+    agent: agentOf(agent, row.teamName),
     versions: versions.map(versionOf),
     releases,
     active_release:
@@ -340,6 +349,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       const rows = await db
         .select({
           agent: agents,
+          teamName: managingTeamName,
           cursorAt: sql<string>`${agents.createdAt}::text`,
         })
         .from(agents)
@@ -379,6 +389,9 @@ export function createPostgresAgentStore(db: Database): AgentStore {
                   ),
                   sql`exists (select 1 from ${agentReleases} where ${agentReleases.id} = ${agents.activeReleaseId} and ${agentReleases.agentId} = ${agents.id} and ${agentReleases.runtimeProfileId} = ${query.runtime_profile_id})`,
                 ),
+            query.managing_team === "unassigned"
+              ? isNull(agents.managingTeamId)
+              : undefined,
             cursor
               ? sql`(${agents.createdAt}, ${agents.id}) > (${cursor.created_at}::timestamptz, ${cursor.id}::uuid)`
               : undefined,
@@ -390,7 +403,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       return {
-        items: page.map((row) => agentOf(row.agent)),
+        items: page.map((row) => agentOf(row.agent, row.teamName)),
         next_cursor:
           rows.length > query.limit && last
             ? encodeCreatedAtCursor({
@@ -412,6 +425,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           )}))::int`,
           active: sql<number>`(count(*) filter (where ${agents.status} = 'active' and ${agents.activeReleaseId} is not null))::int`,
           draft: sql<number>`(count(*) filter (where ${agents.status} <> 'archived' and ${agents.activeReleaseId} is null))::int`,
+          unassigned: sql<number>`(count(*) filter (where ${agents.managingTeamId} is null))::int`,
         })
         .from(agents)
         .where(
@@ -431,6 +445,7 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         administered: row?.administered ?? 0,
         active: row?.active ?? 0,
         draft: row?.draft ?? 0,
+        unassigned: row?.unassigned ?? 0,
       };
     },
 

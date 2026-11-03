@@ -73,11 +73,18 @@ export function requireVerified(actor: PushActor) {
  */
 export function mayDecidePush(
   principal: Principal,
+  /** The person the caller was resolved to, if any. */
+  actorUserId: string | null = null,
 ): "missing_scope" | "unverified_principal" | null {
   if (!(principal.scopes as readonly string[]).includes("sessions:approve")) {
     return "missing_scope";
   }
-  return DECIDER_KINDS.has(principal.kind) ? null : "unverified_principal";
+  if (DECIDER_KINDS.has(principal.kind)) return null;
+  // A Slack installation decides only as the person its linked account
+  // names, whom the policy judges as it would on the web.
+  return principal.kind === "installation" && actorUserId !== null
+    ? null
+    : "unverified_principal";
 }
 
 function refused(refusal: PushRefusal, receiptId: string | null): never {
@@ -275,7 +282,10 @@ export function createPushRequestService(deps: {
             },
           }),
         );
-      const refusal = mayDecidePush(actor.principal);
+      const refusal = mayDecidePush(
+        actor.principal,
+        actor.caller.actor?.userId ?? null,
+      );
       if (refusal !== null) await refuseDecision(refusal);
       try {
         await requireSession(actor, "session.approve", sessionId);

@@ -3,15 +3,15 @@
 # The public listener only; the authorizer Service is never routed. Only the
 # api's public paths (apps/control-host/src/api/app.ts): /internal is the
 # workers' gateway, which they reach through the egress proxy.
-# /v1 already covers /v1/slack/events; it is listed on its own so an
-# internet-facing entrance for Slack can copy that one rule.
+# /v1 already covers /v1/slack/events and /v1/slack/interactions; they are
+# listed on their own so an internet-facing entrance for Slack can copy them.
 {{- /*
 The web console at "/" is a Prefix that would also match /internal, so a
 /internal rule ahead of it answers 404 from the ALB itself
 (alb.ingress.kubernetes.io/actions.*). The AWS Load Balancer Controller
 ranks a longer Prefix ahead of a shorter one, so /internal wins over "/".
 */}}
-{{- $paths := list (list "/v1" "Prefix") (list "/v1/slack/events" "Prefix") (list "/docs" "Prefix") (list "/healthz" "Exact") (list "/readyz" "Exact") }}
+{{- $paths := list (list "/v1" "Prefix") (list "/v1/slack/events" "Prefix") (list "/v1/slack/interactions" "Prefix") (list "/docs" "Prefix") (list "/healthz" "Exact") (list "/readyz" "Exact") }}
 {{- $blockInternal := "block-internal" }}
 {{- $annotations := deepCopy (.Values.ingress.annotations | default dict) }}
 {{- if .Values.ingress.console.enabled }}

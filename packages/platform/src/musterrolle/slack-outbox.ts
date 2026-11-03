@@ -12,6 +12,7 @@ import type {
   SlackOutboxLost,
   SlackOutboxSettle,
   SlackOutboxStore,
+  SlackPendingPrompt,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
 } from "../ports/slack-outbox-store.ts";
@@ -22,7 +23,9 @@ import {
   type SlackSendResponse,
 } from "./slack-config-api.ts";
 import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
+import { markdownToSlackMrkdwn } from "./slack-mrkdwn.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";
+import { slackPromptMessage } from "./slack-prompts.ts";
 import {
   classifySlackSendResult,
   SLACK_SEND_MAX_ATTEMPTS,
@@ -39,16 +42,12 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
   Record<
     UserLocale,
     Readonly<
-      Record<
-        "emptyReply" | "needsInput" | "uncertain" | "link" | "web" | "api",
-        string
-      >
+      Record<"emptyReply" | "uncertain" | "link" | "web" | "api", string>
     >
   >
 > = {
   ko: {
     emptyReply: "답변을 마쳤어요. 내용은 웹에서 확인해 주세요",
-    needsInput: "웹에서 답변이 필요한 요청을 확인해 주세요",
     uncertain: "답을 보냈는지 확인하지 못했어요. 웹에서 확인해 주세요",
     link: "웹에서 열기",
     web: "웹 콘솔",
@@ -56,7 +55,6 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
   },
   ja: {
     emptyReply: "回答が完了しました。内容はWebで確認してください",
-    needsInput: "回答が必要なリクエストをWebで確認してください",
     uncertain: "回答を送信できたか確認できませんでした。Webで確認してください",
     link: "Webで開く",
     web: "Webコンソール",
@@ -64,7 +62,6 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
   },
   en: {
     emptyReply: "The answer is done. See it on the web",
-    needsInput: "A request is waiting for an answer. Check it on the web",
     uncertain: "We couldn't confirm the answer was sent. Check it on the web",
     link: "Open on the web",
     web: "Web console",
@@ -132,9 +129,15 @@ export function slackTurnDedupeKey(
   sessionLinkId: string,
   turnId: number,
 ): string {
-  const prefix =
-    state === "completed" ? "reply" : state === "failed" ? "failure" : "input";
-  return `${prefix}:${sessionLinkId}:${turnId}`;
+  return `${state === "completed" ? "reply" : "failure"}:${sessionLinkId}:${turnId}`;
+}
+
+export function slackPromptDedupeKey(
+  kind: SlackPendingPrompt["prompt"]["kind"],
+  sessionLinkId: string,
+  requestId: string,
+): string {
+  return `${kind === "push" ? "push" : "prompt"}:${sessionLinkId}:${requestId}`;
 }
 
 /**
@@ -164,8 +167,8 @@ function isSafeLink(url: string): boolean {
 }
 
 /**
- * What goes to Slack: the body with every control escaped, cut to fit with
- * its link kept whole after it.
+ * What goes to Slack: the body's Markdown as mrkdwn with every control
+ * escaped, cut to fit with its link kept whole after it.
  */
 export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
   const link =
@@ -179,7 +182,8 @@ export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
         ? {}
         : { userIds: body.mention_user_ids }),
     });
-  const text = escaped(body.text);
+  // Converted before the cut: the loop below re-escapes pieces of this text.
+  const text = escaped(markdownToSlackMrkdwn(body.text));
   const room = SLACK_TEXT_MAX - link.length - 1;
   if (text.length <= room + 1) return text + link;
   let piece = text;
@@ -239,7 +243,7 @@ function sessionUrl(consoleOrigin: string | null, sessionId: string) {
     : new URL(`/sessions/${sessionId}`, consoleOrigin).toString();
 }
 
-/** Enqueues the reply, failure or input notice of turns that lack one. */
+/** Enqueues the reply or failure notice of turns that lack one. */
 export async function enqueueSlackTurnAnswers(deps: {
   outbox: Pick<SlackOutboxStore, "unansweredTurns" | "enqueue">;
   consoleOrigin: string | null;
@@ -253,20 +257,13 @@ export async function enqueueSlackTurnAnswers(deps: {
       turn.state === "completed"
         ? finalReplyText(turn.events) ||
           SLACK_OUTBOX_MESSAGES[locale].emptyReply
-        : turn.state === "failed"
-          ? SLACK_NOTICE_MESSAGES[locale].failed
-          : SLACK_OUTBOX_MESSAGES[locale].needsInput;
+        : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,
       agentId: turn.agentId,
       slackAppId: turn.slackAppId,
       installationId: turn.installationId,
-      kind:
-        turn.state === "completed"
-          ? "reply"
-          : turn.state === "failed"
-            ? "failure_notice"
-            : "input_notice",
+      kind: turn.state === "completed" ? "reply" : "failure_notice",
       channelId: turn.channelId,
       threadTs: turn.threadTs,
       slackUserId: null,
@@ -287,6 +284,51 @@ export async function enqueueSlackTurnAnswers(deps: {
     });
   }
   return turns.length;
+}
+
+export async function enqueueSlackPrompts(deps: {
+  outbox: Pick<SlackOutboxStore, "unpromptedRequests" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  const pending = await deps.outbox.unpromptedRequests(deps.limit);
+  for (const row of pending) {
+    const locale = row.locale ?? DEFAULT_USER_LOCALE;
+    const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
+    const message = slackPromptMessage(
+      { ...row.prompt, sessionId: row.sessionId },
+      {
+        locale,
+        requesterSlackUserId: row.requesterSlackUserId,
+        ...(link_url === undefined ? {} : { linkUrl: link_url }),
+      },
+    );
+    await deps.outbox.enqueue({
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      slackAppId: row.slackAppId,
+      installationId: row.installationId,
+      kind: "input_notice",
+      channelId: row.channelId,
+      threadTs: row.threadTs,
+      slackUserId: null,
+      sessionId: row.sessionId,
+      body: {
+        text: message.text,
+        locale,
+        blocks: message.blocks,
+        ...(row.requesterSlackUserId === null
+          ? {}
+          : { mention_user_ids: [row.requesterSlackUserId] }),
+      },
+      dedupeKey: slackPromptDedupeKey(
+        row.prompt.kind,
+        row.sessionLinkId,
+        row.prompt.requestId,
+      ),
+    });
+  }
+  return pending.length;
 }
 
 export type SlackOutboxDrain = {
@@ -441,7 +483,12 @@ export async function drainSlackOutbox(deps: {
     };
     const sender = claim.body.sender;
     if (claim.kind !== "instruction" || sender === undefined) {
-      return deps.slack.postMessage(botToken, target);
+      return deps.slack.postMessage(
+        botToken,
+        claim.body.blocks === undefined
+          ? target
+          : { ...target, blocks: claim.body.blocks },
+      );
     }
     const response = await deps.slack.postMessage(botToken, {
       ...target,
@@ -486,6 +533,11 @@ export async function drainSlackOutbox(deps: {
     limit: deps.batchSize,
   });
   drain.enqueued += await enqueueSlackTurnAnswers({
+    outbox: deps.outbox,
+    consoleOrigin: deps.consoleOrigin,
+    limit: deps.batchSize,
+  });
+  drain.enqueued += await enqueueSlackPrompts({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,

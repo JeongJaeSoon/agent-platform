@@ -52,7 +52,7 @@ async function run(args: string[], env: Record<string, string> = {}) {
 }
 
 describe("scripts/slack-funnel.sh", () => {
-  test("on maps only the events path to the local API, shows the status, then checks public DNS", async () => {
+  test("on maps only the events and interactions paths to the local API, shows the status, then checks public DNS", async () => {
     expect(
       await run(["on"], {
         PORT: "4310",
@@ -64,6 +64,7 @@ describe("scripts/slack-funnel.sh", () => {
       stderr: "",
       calls: [
         "funnel --bg --https=443 --set-path=/v1/slack/events http://127.0.0.1:4310/v1/slack/events",
+        "funnel --bg --https=443 --set-path=/v1/slack/interactions http://127.0.0.1:4310/v1/slack/interactions",
         "funnel status",
         "status --json --peers=false",
         "curl https://dns.google/resolve?name=box.tail1234.ts.net&type=A",
@@ -97,6 +98,7 @@ describe("scripts/slack-funnel.sh", () => {
     const env = { SLACK_FUNNEL_HTTPS_PORT: "8443" };
     expect((await run(["off"], env)).calls).toEqual([
       "funnel --https=8443 --set-path=/v1/slack/events off",
+      "funnel --https=8443 --set-path=/v1/slack/interactions off",
       "funnel status",
     ]);
   });

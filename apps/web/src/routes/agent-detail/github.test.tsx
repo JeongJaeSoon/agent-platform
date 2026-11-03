@@ -592,6 +592,11 @@ describe("에이전트 GitHub 탭", () => {
       expect(switchNamed(id).disabled).toBe(false);
     }
 
+    // The first save starts with push approval off, like the server's
+    // legacy_defaults for a release that has a repository.
+    expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
+      "false",
+    );
     await user.click(switchNamed("push 전 사람 승인"));
     await screen.findByText("릴리스에 넣지 않은 변경 1건");
     await screen.findByText("저장소를 하나 이상 고르면 저장할 수 있습니다.");
@@ -599,9 +604,10 @@ describe("에이전트 GitHub 탭", () => {
       name: "새 릴리스로 저장",
     }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
+    await user.click(switchNamed("push 전 사람 승인"));
 
     await user.click(switchNamed("werft-sandbox"));
-    await screen.findByText("릴리스에 넣지 않은 변경 2건");
+    await screen.findByText("릴리스에 넣지 않은 변경 1건");
     expect(
       screen.queryByText("저장소를 하나 이상 고르면 저장할 수 있습니다.") ===
         null,

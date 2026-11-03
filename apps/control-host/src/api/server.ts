@@ -32,6 +32,7 @@ import {
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresPullRequests,
+  createPostgresPushFollowUpStore,
   createPostgresPushRequests,
   createPostgresRepositoryAttachments,
   createPostgresSecretStore,
@@ -113,6 +114,7 @@ import {
   createSlackEventsFinalize,
   createSlackEventsService,
   createSlackInstallService,
+  createSlackInteractionService,
   createSlackLinkAppService,
   createSlackSecretService,
   createSlackSigningSecrets,
@@ -131,6 +133,7 @@ import {
   profileCatalog,
   resolveAgentRelease,
   SessionServiceError,
+  slackBotToken,
   unrunnableProfiles,
   WORKSPACE_PROFILE_REFRESH_MS,
   withConsoleRepositories,
@@ -238,6 +241,7 @@ import { registerSlackBindingRoutes } from "./routes/slack-bindings.ts";
 import { registerSlackChannelRoutes } from "./routes/slack-channels.ts";
 import { registerSlackEventRoutes } from "./routes/slack-events.ts";
 import { registerSlackInstallRoutes } from "./routes/slack-install.ts";
+import { registerSlackInteractionRoutes } from "./routes/slack-interactions.ts";
 import { registerSlackSecretRoutes } from "./routes/slack-secrets.ts";
 import { registerTeamRoutes } from "./routes/teams.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
@@ -1098,6 +1102,32 @@ const auth = {
   ),
   logger,
 };
+const slackInteractions = createSlackInteractionService({
+  signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
+  authorization,
+  agents: slackIdentityStore,
+  links: createPostgresLinkedAccountStore(db),
+  bindings: surfaceBindingStore,
+  pending: pendingRequests,
+  pushes: pushRequests,
+  sessions,
+  followUps: createPostgresPushFollowUpStore(db),
+  slack: slackBotApi,
+  botToken: async (workspaceId, slackAppId) =>
+    secretKey === null
+      ? null
+      : slackBotToken(
+          createPostgresSecretStore(db, secretKey),
+          workspaceId,
+          slackAppId,
+        ),
+  outbox: createPostgresSlackOutboxStore(db),
+  connectUrl:
+    consoleOrigin === null
+      ? ""
+      : new URL("/settings/linked-accounts", consoleOrigin).toString(),
+  logger,
+});
 const probePool = createProbePool(databaseUrl, logger);
 const app = createApiApp({
   ...(authMode === undefined ? {} : { authMode }),
@@ -1109,6 +1139,11 @@ const app = createApiApp({
     registerPublicAuthRoutes(router, auth);
     registerSlackEventRoutes(router, {
       events: slackEvents,
+      limiter: createSlackEventsLimiter(),
+      logger,
+    });
+    registerSlackInteractionRoutes(router, {
+      interactions: slackInteractions,
       limiter: createSlackEventsLimiter(),
       logger,
     });

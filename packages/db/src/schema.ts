@@ -2195,6 +2195,20 @@ export const pushContinuations = pgTable("push_continuations", {
     .references(() => turns.id, { onDelete: "set null" }),
 });
 
+// A Slack push approval's follow-up turn, held while the session had a turn
+// running: that turn may open the pull request itself, so the next turn end
+// queues the follow-up only if no pull request is recorded by then, and
+// deletes the row either way.
+export const pushFollowUps = pgTable("push_follow_ups", {
+  pushRequestId: uuid("push_request_id")
+    .primaryKey()
+    .references((): AnyPgColumn => pushRequests.id, { onDelete: "cascade" }),
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  message: text().notNull(),
+});
+
 // A session result the platform may push to `agent/<session-id>` once a human
 // approves it. The commit is pinned when the request is made, so what is
 // approved is what is pushed, however far the session moves on.

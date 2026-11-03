@@ -46,6 +46,7 @@ function agent(id: string, name: string): Agent {
     name,
     description: null,
     managing_team_id: null,
+    managing_team_name: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,

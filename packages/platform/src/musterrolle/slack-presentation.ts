@@ -17,7 +17,7 @@ export type SlackMentionPolicy = {
   maskedLinks?: "keep" | "expand";
 };
 
-function isSafeUrl(value: string): boolean {
+export function isSafeUrl(value: string): boolean {
   if (/[<>|\s]/.test(value)) return false;
   try {
     const protocol = new URL(value).protocol.toLowerCase();
@@ -59,8 +59,12 @@ function trustedControl(
     );
   }
 
-  // A date control carries its own fallback text and notifies nobody.
-  if (control.startsWith("!date^") && control.includes("|")) return true;
+  // A date notifies nobody, but its optional `^link` part would put the date
+  // over a destination no policy sees, so only timestamp, format and fallback
+  // pass.
+  if (control.startsWith("!date^")) {
+    return /^!date\^\d+\^[^^|]+\|[^^|]+$/.test(control);
+  }
 
   const destination = control.split("|", 1)[0] ?? "";
   return isSafeUrl(destination);
@@ -99,7 +103,7 @@ function escapeCode(value: string): string {
   return escapeAmpersands(value).replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function mapCodeAndText(
+export function mapCodeAndText(
   value: string,
   text: (part: string) => string,
   code: (part: string) => string,

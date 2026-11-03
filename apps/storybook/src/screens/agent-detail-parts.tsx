@@ -143,6 +143,7 @@ export const RELEASED: DetailFixture = {
     // Copied from the earlier card's role when descriptions came in.
     description: "결제 문의 담당",
     managing_team_id: null,
+    managing_team_name: null,
     status: "active",
     active_release_id: RELEASE.id,
     activation_revision: 1,
@@ -246,10 +247,12 @@ function ReasonButton({
 export function AgentPage({
   detail,
   tab,
+  notice,
   children,
 }: {
   readonly detail: DetailFixture;
   readonly tab: AgentTab;
+  readonly notice?: ReactNode;
   readonly children: ReactNode;
 }) {
   const { agent } = detail;
@@ -302,6 +305,7 @@ export function AgentPage({
         </div>
       }
     >
+      {notice}
       <Tabs value={tab} className="min-w-0 gap-[var(--ap-space-block)]">
         <div className="border-b">
           <TabsList variant="line" aria-label="에이전트 상세">
@@ -805,7 +809,13 @@ function Value({
 }
 
 /** overview.tsx CardSummary: the card in words, and as sent. */
-export function CardSummary({ detail }: { readonly detail: DetailFixture }) {
+export function CardSummary({
+  detail,
+  manages = true,
+}: {
+  readonly detail: DetailFixture;
+  readonly manages?: boolean;
+}) {
   const version = activeVersion(detail) ?? latestVersion(detail);
   const card = version?.card;
   const live =
@@ -840,9 +850,11 @@ export function CardSummary({ detail }: { readonly detail: DetailFixture }) {
                 v{version.version_no}
               </Badge>
             ) : null}
-            <Button type="button" variant="outline" size="sm">
-              상세 설정 편집
-            </Button>
+            {manages ? (
+              <Button type="button" variant="outline" size="sm">
+                상세 설정 편집
+              </Button>
+            ) : null}
           </div>
         </div>
         {card ? (

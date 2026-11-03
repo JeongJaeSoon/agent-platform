@@ -14,6 +14,7 @@ export * from "./slack-bindings.ts";
 export * from "./slack-channels.ts";
 export * from "./slack-events.ts";
 export * from "./slack-install.ts";
+export * from "./slack-interactions.ts";
 export * from "./slack-notices.ts";
 export * from "./slack-secrets.ts";
 export * from "./takeovers.ts";

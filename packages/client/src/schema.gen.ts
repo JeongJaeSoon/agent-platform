@@ -2224,7 +2224,7 @@ export interface paths {
         };
         /**
          * The workspace's agents
-         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, and `ids` the agents named (at most 100; an id of no agent in the workspace is left out); both narrow the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
+         * @description Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), and `managing_team=unassigned` the agents with no managing team; each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.
          *
          *     **Scope:** `sessions:write` (API key or cookie session).
          */
@@ -2252,7 +2252,7 @@ export interface paths {
         };
         /**
          * How many agents the workspace has, by state, and how many the caller administers
-         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
+         * @description `all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, `draft` how many are not `archived` and have none yet, and `unassigned` how many have no managing team, whatever their state. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2763,6 +2763,28 @@ export interface paths {
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
         post: operations["receiveSlackEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/slack/interactions/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Slack's interactivity request URL for one agent's app
+         * @description Called by Slack, not by people: each agent app's interactivity points here, beside its events route (Finalize registers both when SLACK_EVENTS_PUBLIC_URL is set). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app's signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack's JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{"ok": true}`; a submitted question modal answers `{"response_action": "clear"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).
+         *
+         *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
+         */
+        post: operations["receiveSlackInteraction"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3793,6 +3815,11 @@ export interface components {
             ids?: string;
             /** @description Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them. */
             runtime_profile_id?: string;
+            /**
+             * @description `unassigned` keeps the agents with no managing team (`managing_team_id` null), the ones made before managing teams.
+             * @constant
+             */
+            managing_team?: "unassigned";
         };
         ListApiKeysQuery: {
             cursor?: string;
@@ -4312,6 +4339,9 @@ export interface components {
         } & {
             [key: string]: unknown;
         });
+        SlackInteractionForm: {
+            payload: string;
+        };
         CreateAgentRequest: {
             slug: string;
             name: string;
@@ -7060,6 +7090,19 @@ export interface components {
             /** @constant */
             ok: true;
         };
+        SlackInteractionResponse: {
+            /** @constant */
+            ok: true;
+        } | {
+            /** @constant */
+            response_action: "clear";
+        } | {
+            /** @constant */
+            response_action: "errors";
+            errors: {
+                [key: string]: string;
+            };
+        };
         PasswordResetResponse: {
             /** Format: uuid */
             user_id: string;
@@ -7483,6 +7526,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -7521,6 +7565,8 @@ export interface components {
                 active: number;
                 /** @description How many of `all` are not `archived` and have no `active_release_id` yet. */
                 draft: number;
+                /** @description How many of `all` have no managing team: what `managing_team=unassigned` lists. */
+                unassigned: number;
             };
         };
         ListProfilesResponse: {
@@ -7845,6 +7891,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -8280,6 +8327,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -8302,6 +8350,7 @@ export interface components {
                 name: string;
                 description: string | null;
                 managing_team_id: string | null;
+                managing_team_name: string | null;
                 /** @enum {string} */
                 status: "active" | "paused" | "archived";
                 active_release_id: string | null;
@@ -23829,6 +23878,7 @@ export interface operations {
                 q?: string;
                 ids?: string;
                 runtime_profile_id?: string;
+                managing_team?: "unassigned";
             };
             header?: never;
             path?: never;
@@ -23853,6 +23903,7 @@ export interface operations {
                      *           "name": "Finance analyst",
                      *           "description": "Reads the quarterly reports and flags outliers.",
                      *           "managing_team_id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *           "managing_team_name": "Finance",
                      *           "status": "active",
                      *           "active_release_id": null,
                      *           "activation_revision": -1,
@@ -24103,7 +24154,8 @@ export interface operations {
                      *         "all": 128,
                      *         "administered": 3,
                      *         "active": 97,
-                     *         "draft": 24
+                     *         "draft": 24,
+                     *         "unassigned": 5
                      *       }
                      *     }
                      */
@@ -27919,6 +27971,136 @@ export interface operations {
             };
         };
     };
+    receiveSlackInteraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "payload": "{\"type\":\"block_actions\",\"api_app_id\":\"A0B1C2D3E4F\",\"team\":{\"id\":\"T0A1B2C3D\"},\"user\":{\"id\":\"U0PERSON1\"},\"channel\":{\"id\":\"C0CHANNEL1\"},\"message\":{\"ts\":\"1761300000.000200\",\"thread_ts\":\"1761300000.000100\"},\"trigger_id\":\"1761300000.1234.abcdef\",\"actions\":[{\"action_id\":\"permission.allow\",\"value\":\"{\\\"s\\\":\\\"019a0000-0000-7000-8000-0000000000d1\\\",\\\"r\\\":\\\"toolu_01\\\"}\"}]}"
+                 *     }
+                 */
+                "application/x-www-form-urlencoded": components["schemas"]["SlackInteractionForm"];
+            };
+        };
+        responses: {
+            /** @description `{"ok": true}` for a button press, `{"response_action": "clear"}` or `{"response_action": "errors", ...}` for a submitted modal. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SlackInteractionResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: The submitted credentials were rejected. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            /** @description - `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry. */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "RATE_LIMITED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
     listApiKeys: {
         parameters: {
             query?: {
@@ -29873,6 +30055,7 @@ export interface operations {
                      *         "name": "Finance analyst",
                      *         "description": "Reads the quarterly reports and flags outliers.",
                      *         "managing_team_id": "019a0000-0000-7000-8000-00000000b0a1",
+                     *         "managing_team_name": "Finance",
                      *         "status": "active",
                      *         "active_release_id": null,
                      *         "activation_revision": -1,

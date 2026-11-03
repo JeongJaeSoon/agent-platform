@@ -7,6 +7,7 @@ import {
   SLACK_OUTBOX_MESSAGES,
   SLACK_TEXT_MAX,
   slackOutboxText,
+  slackPromptDedupeKey,
   slackTurnDedupeKey,
 } from "./slack-outbox.ts";
 
@@ -134,6 +135,46 @@ describe("slackOutboxText", () => {
     ).toBe("웹에서 승인 (https://evil.example/login)");
   });
 
+  test("writes Markdown as mrkdwn, still expanding links and escaping mentions", () => {
+    expect(
+      slackOutboxText({
+        text: "- **브랜치:** `<@U2>`\n[웹에서 승인](https://evil.example/login) [<@U2>](https://a.test)",
+      }),
+    ).toBe(
+      "• *브랜치:* `&lt;@U2&gt;`\n웹에서 승인 (https://evil.example/login) &lt;@U2&gt; (https://a.test)",
+    );
+  });
+
+  test.each([
+    [
+      "<!date^1793600000^{date}^https://evil.example/login|웹에서 승인>",
+      "&lt;!date^1793600000^{date}^https://evil.example/login|웹에서 승인&gt;",
+    ],
+    [
+      "<!here> <!subteam^S1|@oncall>",
+      "&lt;!here&gt; &lt;!subteam^S1|@oncall&gt;",
+    ],
+    ["<@U1> <#C1|general>", "&lt;@U1&gt; &lt;#C1|general&gt;"],
+    [
+      "<https://evil.example|웹에서 승인>",
+      "웹에서 승인 (https://evil.example)",
+    ],
+    [
+      "[웹에서 승인](https://evil.example)",
+      "웹에서 승인 (https://evil.example)",
+    ],
+    [
+      "<!date^1793600000^{date_short}|2026-11-02>",
+      "<!date^1793600000^{date_short}|2026-11-02>",
+    ],
+    [
+      "<!date^1793600000^{date}&#94;https://evil.example|x>",
+      "<!date^1793600000^{date}&amp;#94;https://evil.example|x>",
+    ],
+  ])("a model's %s reaches Slack as %s", (text, posted) => {
+    expect(slackOutboxText({ text })).toBe(posted);
+  });
+
   test("lets through only the mentions the body names", () => {
     expect(
       slackOutboxText({
@@ -196,5 +237,10 @@ describe("slackOutboxText", () => {
 test("one dedupe key per turn and kind", () => {
   expect(slackTurnDedupeKey("completed", "l1", 2)).toBe("reply:l1:2");
   expect(slackTurnDedupeKey("failed", "l1", 2)).toBe("failure:l1:2");
-  expect(slackTurnDedupeKey("needs_input", "l1", 2)).toBe("input:l1:2");
+});
+
+test("one dedupe key per request and thread, the request id last and whole", () => {
+  expect(slackPromptDedupeKey("permission", "l1", "r:1")).toBe("prompt:l1:r:1");
+  expect(slackPromptDedupeKey("question", "l1", "r2")).toBe("prompt:l1:r2");
+  expect(slackPromptDedupeKey("push", "l1", "p1")).toBe("push:l1:p1");
 });

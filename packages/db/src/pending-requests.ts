@@ -26,6 +26,7 @@ import {
   max,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import { contextCoverage, contextGap } from "./context-gap.ts";
@@ -180,6 +181,38 @@ export function actionableOfTurn(db: Database) {
         actionable(STATEMENT_NOW),
       ),
     );
+}
+
+/**
+ * The one request the outer statement names, while a client can still
+ * answer it.
+ */
+export function actionableRequest(
+  db: Database,
+  requestId: SQL,
+  sessionId: SQL,
+) {
+  return db
+    .select({ one: sql`1` })
+    .from(pendingRequests)
+    .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+    .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+    .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+    .where(
+      and(
+        sql`${pendingRequests.requestId} = ${requestId}`,
+        sql`${pendingRequests.sessionId} = ${sessionId}`,
+        actionable(STATEMENT_NOW),
+      ),
+    );
+}
+
+/**
+ * What a client can answer now, for a statement that joins the request's
+ * session, attempt and turn itself.
+ */
+export function actionableNow() {
+  return actionable(STATEMENT_NOW);
 }
 
 export function isInFlight(status: string): boolean {
@@ -572,6 +605,40 @@ export function createPostgresPendingRequests(
   db: Database,
 ): PendingRequestStore {
   return {
+    async requestOutcome(ownerId, sessionId, requestId) {
+      const [row] = await db
+        .select({
+          kind: pendingRequests.kind,
+          answer: pendingRequests.answer,
+          open: sql<boolean>`EXISTS (${actionableRequest(
+            db,
+            sql`${requestId}`,
+            sql`${sessionId}::uuid`,
+          )})`,
+        })
+        .from(pendingRequests)
+        .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+        .where(
+          and(
+            eq(pendingRequests.requestId, requestId),
+            eq(pendingRequests.sessionId, sessionId),
+            eq(sessions.ownerId, ownerId),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+      const kind = row.kind === "permission" ? "permission" : "question";
+      if (row.open) return { state: "open", kind };
+      if (row.answer === null) return { state: "closed", kind };
+      if (kind === "question") return { state: "answered", kind };
+      const decision = (row.answer as { decision?: unknown }).decision;
+      return {
+        state: "answered",
+        kind,
+        decision: decision === "allow" ? "allow" : "deny",
+      };
+    },
+
     async listOpen(ownerId, sessionId) {
       const [session] = await db
         .select({ id: sessions.id })

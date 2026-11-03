@@ -33,6 +33,7 @@ import { agentAdminsQuery, agentQuery } from "../api/queries.ts";
 import { useI18n } from "../i18n/i18n.tsx";
 import { credentialBindingsQuery } from "../routes/agent-detail/credentials.tsx";
 import { AgentStateBadge } from "./agent-state.tsx";
+import { ManagingTeamName } from "./managing-team.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
 import { useSeen } from "./seen.ts";
 import { SlackActionLink } from "./slack-action-link.tsx";
@@ -40,13 +41,15 @@ import { SlackActionLink } from "./slack-action-link.tsx";
 /** The design's cards: what each agent is and what it still needs. */
 export function AgentCards({
   agents,
+  summarized = false,
 }: {
   readonly agents: readonly AgentListItem[];
+  readonly summarized?: boolean;
 }) {
   return (
     <ul className="m-0 grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-2 xl:grid-cols-3">
       {agents.map((agent) => (
-        <AgentCardItem key={agent.id} agent={agent} />
+        <AgentCardItem key={agent.id} agent={agent} summarized={summarized} />
       ))}
     </ul>
   );
@@ -66,20 +69,35 @@ function ready<T>(data: T): Part<T> {
   return { data, isError: false, isPending: false };
 }
 
-function AgentCardItem({ agent }: { readonly agent: AgentListItem }) {
+function AgentCardItem({
+  agent,
+  summarized,
+}: {
+  readonly agent: AgentListItem;
+  readonly summarized: boolean;
+}) {
   const summary = agent.summary;
-  if (!summary) return <ReadingCard agent={agent} />;
+  if (!summary)
+    return summarized ? (
+      <li className="flex">
+        <AgentCard agent={agent} />
+      </li>
+    ) : (
+      <ReadingCard agent={agent} />
+    );
   return (
     <li className="flex">
       <AgentCard
         agent={agent}
-        facts={ready({
-          version: summary.version,
-          runtime_profile_id: summary.runtime_profile_id,
-          release_label: summary.release_label,
-        })}
-        bound={ready(summary.bound_credential_refs)}
-        admins={ready(summary.admins)}
+        settings={{
+          facts: ready({
+            version: summary.version,
+            runtime_profile_id: summary.runtime_profile_id,
+            release_label: summary.release_label,
+          }),
+          bound: ready(summary.bound_credential_refs),
+          admins: ready(summary.admins),
+        }}
       />
     </li>
   );
@@ -120,7 +138,7 @@ function ReadingCard({ agent }: { readonly agent: Agent }) {
   });
   return (
     <li ref={ref} className="flex">
-      <AgentCard agent={agent} facts={facts} bound={bound} admins={admins} />
+      <AgentCard agent={agent} settings={{ facts, bound, admins }} />
     </li>
   );
 }
@@ -161,19 +179,20 @@ function adminNames(view: AgentAdminsView) {
   ];
 }
 
-function AgentCard({
-  agent,
-  facts,
-  bound,
-  admins,
-}: {
-  readonly agent: AgentListItem;
+interface Settings {
   readonly facts: Part<Facts>;
   readonly bound: Part<readonly string[]>;
   readonly admins: Part<readonly string[]>;
+}
+
+function AgentCard({
+  agent,
+  settings,
+}: {
+  readonly agent: AgentListItem;
+  readonly settings?: Settings;
 }) {
-  const { t, locale } = useI18n();
-  const version = facts.data?.version;
+  const { t } = useI18n();
 
   return (
     <Card className={cn("w-full", OPENS_ROW)} data-agent={agent.slug}>
@@ -213,68 +232,40 @@ function AgentCard({
         <div className="h-[2lh] text-control">
           {agent.description !== null ? (
             <Description text={agent.description} />
-          ) : (
+          ) : settings ? (
             // A card's earlier role stands in until the agent has a description.
-            <Detail query={facts} lines={2}>
-              {version?.role ? <Description text={version.role} /> : null}
+            <Detail query={settings.facts} lines={2}>
+              {settings.facts.data?.version?.role ? (
+                <Description text={settings.facts.data.version.role} />
+              ) : null}
             </Detail>
-          )}
+          ) : null}
         </div>
         <dl className="m-0 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-2 text-control">
-          <Fact term={t("agents.cards.release")}>
-            <Detail query={facts}>
-              {facts.data ? (
-                facts.data.release_label ? (
-                  formatTimestamp(releasedAt(facts.data.release_label), locale)
-                ) : (
-                  <Dash label={t("agents.cards.notReleased")} />
-                )
-              ) : null}
-            </Detail>
+          <Fact term={t("agents.column.team")}>
+            <ManagingTeamName agent={agent} />
           </Fact>
-          <Fact term={t("agents.cards.profile")}>
-            <Detail query={facts}>
-              {facts.data
-                ? (facts.data.runtime_profile_id ?? (
-                    <Dash label={t("agent.panel.none")} />
-                  ))
-                : null}
-            </Detail>
-          </Fact>
-          <Fact term={t("agents.cards.mcp")}>
-            <Detail query={facts}>
-              {facts.data ? (
-                <Names
-                  names={version?.mcp_servers ?? []}
-                  none={t("agent.panel.none")}
-                />
-              ) : null}
-            </Detail>
-          </Fact>
-          <Fact term={t("agents.cards.credentials")}>
-            {/* What the card asks for and what is bound: both must answer. */}
-            <Detail query={[facts, bound]}>
-              {bound.data && version ? (
-                <CredentialNeed
-                  refs={version.credential_refs}
-                  bound={bound.data}
-                />
-              ) : null}
-            </Detail>
-          </Fact>
+          {settings ? <SettingFacts settings={settings} /> : null}
         </dl>
+        {settings ? null : (
+          <Text variant="meta">{t("agents.cards.infoOnly")}</Text>
+        )}
         <SlackActionLink agent={agent} />
       </CardContent>
       <CardFooter className="justify-between gap-3 border-t pt-4 text-control">
         <span className="min-w-0 truncate text-muted-foreground">
-          {t("agents.cards.admins")}:{" "}
-          <Detail query={admins} inline>
-            {admins.data
-              ? admins.data.length === 0
-                ? t("agent.panel.none")
-                : admins.data.join(", ")
-              : null}
-          </Detail>
+          {settings ? (
+            <>
+              {t("agents.cards.admins")}:{" "}
+              <Detail query={settings.admins} inline>
+                {settings.admins.data
+                  ? settings.admins.data.length === 0
+                    ? t("agent.panel.none")
+                    : settings.admins.data.join(", ")
+                  : null}
+              </Detail>
+            </>
+          ) : null}
         </span>
         {/* The card's name link opens it; this only says so, once. */}
         <span
@@ -289,6 +280,53 @@ function AgentCard({
         </span>
       </CardFooter>
     </Card>
+  );
+}
+
+function SettingFacts({ settings }: { readonly settings: Settings }) {
+  const { t, locale } = useI18n();
+  const { facts, bound } = settings;
+  const version = facts.data?.version;
+  return (
+    <>
+      <Fact term={t("agents.cards.release")}>
+        <Detail query={facts}>
+          {facts.data ? (
+            facts.data.release_label ? (
+              formatTimestamp(releasedAt(facts.data.release_label), locale)
+            ) : (
+              <Dash label={t("agents.cards.notReleased")} />
+            )
+          ) : null}
+        </Detail>
+      </Fact>
+      <Fact term={t("agents.cards.profile")}>
+        <Detail query={facts}>
+          {facts.data
+            ? (facts.data.runtime_profile_id ?? (
+                <Dash label={t("agent.panel.none")} />
+              ))
+            : null}
+        </Detail>
+      </Fact>
+      <Fact term={t("agents.cards.mcp")}>
+        <Detail query={facts}>
+          {facts.data ? (
+            <Names
+              names={version?.mcp_servers ?? []}
+              none={t("agent.panel.none")}
+            />
+          ) : null}
+        </Detail>
+      </Fact>
+      <Fact term={t("agents.cards.credentials")}>
+        <Detail query={[facts, bound]}>
+          {bound.data && version ? (
+            <CredentialNeed refs={version.credential_refs} bound={bound.data} />
+          ) : null}
+        </Detail>
+      </Fact>
+    </>
   );
 }
 

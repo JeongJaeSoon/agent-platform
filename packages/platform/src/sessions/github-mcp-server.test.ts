@@ -440,17 +440,18 @@ describe("request_push before the session's first checkpoint", () => {
     expect(h.control.marks).toEqual([
       { sessionId: grant.sessionId, turnId: 7 },
     ]);
-    expect(answer).toMatchObject({
-      isError: true,
-      body: {
-        code: "PUSH_SOURCE_MISSING",
-        details: { refusal: "no_checkpoint", receipt_id: "receipt-push" },
-        continuation: "after_turn",
-      },
+    // A deferral, not an error: read as one, the model told the user the
+    // push was rejected.
+    expect(answer.isError).toBeUndefined();
+    expect(answer.body).toMatchObject({
+      status: "deferred",
+      continuation: "after_turn",
+      details: { refusal: "no_checkpoint", receipt_id: "receipt-push" },
     });
-    expect((answer.body as { message: string }).message).toContain(
-      "follow-up turn",
-    );
+    expect(answer.body).not.toHaveProperty("code");
+    const { message } = answer.body as { message: string };
+    expect(message).toContain("follow-up turn");
+    expect(message).toContain("not refused");
   });
 
   test("an unmarked turn, or any other refusal, says nothing of a follow-up", async () => {
@@ -458,6 +459,10 @@ describe("request_push before the session's first checkpoint", () => {
     h.control.pushRefusal = "no_checkpoint";
     h.control.marked = false;
     const unmarked = payload(await h.call("request_push", {}));
+    expect(unmarked).toMatchObject({
+      isError: true,
+      body: { code: "PUSH_SOURCE_MISSING" },
+    });
     expect(unmarked.body).not.toHaveProperty("continuation");
     h.control.pushRefusal = "request_open";
     const open = payload(await h.call("request_push", {}));

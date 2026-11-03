@@ -8,7 +8,10 @@ import {
   type Caller,
   deciderKeyOf,
 } from "../musterrolle/policy.ts";
-import type { PendingRequestStore } from "../ports/pending-requests.ts";
+import type {
+  PendingRequestOutcome,
+  PendingRequestStore,
+} from "../ports/pending-requests.ts";
 import {
   idempotencyConflict,
   payloadHash,
@@ -56,6 +59,18 @@ export function createPendingRequestService(deps: {
         )
         .catch(() => null);
       return { items, answerable: answer?.outcome === "allow" };
+    },
+
+    async outcome(
+      actor: Caller,
+      sessionId: string,
+      requestId: string,
+    ): Promise<PendingRequestOutcome | null> {
+      await requirePermitted(authorization, actor, "session.read", {
+        kind: "session",
+        id: sessionId,
+      });
+      return store.requestOutcome(actor.ownerId, sessionId, requestId);
     },
 
     async answer(

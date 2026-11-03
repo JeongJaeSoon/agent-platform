@@ -131,9 +131,9 @@ function draftOf(
   const mode =
     template && modes.includes(template.permission_mode)
       ? template.permission_mode
-      : modes.includes("default")
-        ? "default"
-        : (modes[0] ?? "default");
+      : ((["auto", "default"] as const).find((item) => modes.includes(item)) ??
+        modes[0] ??
+        "default");
   const connection = template?.installation?.connection_id;
   return {
     name,

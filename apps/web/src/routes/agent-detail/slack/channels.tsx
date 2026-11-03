@@ -26,6 +26,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
@@ -164,8 +165,9 @@ export function SlackChannels({
     const timer = setTimeout(() => setQuery(input.trim()), 300);
     return () => clearTimeout(timer);
   }, [input]);
+  const manages = useManagesAgent();
   const bindings = useSlackBindings(agentId);
-  const channels = useSlackChannels(agentId, query);
+  const channels = useSlackChannels(agentId, query, manages);
   const update = useMutation({
     onMutate: () => setNotice(""),
     mutationFn: ({ body }: BindingChange) =>
@@ -257,7 +259,7 @@ export function SlackChannels({
               {t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
             </Heading>
             {/* Until the bindings load, it is not known which step this is. */}
-            {bindings.isPending ? null : (
+            {bindings.isPending || !manages ? null : (
               <div className="flex flex-wrap justify-end gap-2">
                 <Button
                   type="button"
@@ -360,19 +362,25 @@ export function SlackChannels({
                       ) : undefined
                     }
                     actions={
-                      <span className="flex items-center gap-2">
-                        <Text as="span" aria-hidden="true">
-                          {t("slack.inUse")}
+                      manages ? (
+                        <span className="flex items-center gap-2">
+                          <Text as="span" aria-hidden="true">
+                            {t("slack.inUse")}
+                          </Text>
+                          <Switch
+                            aria-label={t("slack.inUseOf", { channel: name })}
+                            checked={row.mode !== "off"}
+                            aria-disabled={update.isPending}
+                            onCheckedChange={(checked) =>
+                              change(row, checked ? "on" : "off")
+                            }
+                          />
+                        </span>
+                      ) : (
+                        <Text as="span" variant="sub">
+                          {t(row.mode !== "off" ? "slack.on" : "slack.off")}
                         </Text>
-                        <Switch
-                          aria-label={t("slack.inUseOf", { channel: name })}
-                          checked={row.mode !== "off"}
-                          aria-disabled={update.isPending}
-                          onCheckedChange={(checked) =>
-                            change(row, checked ? "on" : "off")
-                          }
-                        />
-                      </span>
+                      )
                     }
                   />
                 );

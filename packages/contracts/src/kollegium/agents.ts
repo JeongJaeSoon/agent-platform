@@ -204,6 +204,11 @@ export const agentSchema = z
      * it. Null only on agents made before managing teams.
      */
     managing_team_id: z.uuid().nullable(),
+    /**
+     * The managing team's name, for whoever reads the row, team member or
+     * not. Null exactly when `managing_team_id` is.
+     */
+    managing_team_name: z.string().min(1).nullable(),
     status: agentStatusSchema,
     active_release_id: agentReleaseIdSchema.nullable(),
     activation_revision: activationRevisionSchema,
@@ -552,6 +557,10 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
     description:
       "Keeps the agents whose active release runs on this runtime profile. An agent with no active release is left out, and so is one whose settings the caller does not read: the profile is one of them.",
   }),
+  managing_team: z.literal("unassigned").optional().meta({
+    description:
+      "`unassigned` keeps the agents with no managing team (`managing_team_id` null), the ones made before managing teams.",
+  }),
 });
 export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
 const agentCountSchema = z.number().int().nonnegative();
@@ -573,6 +582,10 @@ export const countAgentsResponseSchema = z.object({
       draft: agentCountSchema.meta({
         description:
           "How many of `all` are not `archived` and have no `active_release_id` yet.",
+      }),
+      unassigned: agentCountSchema.meta({
+        description:
+          "How many of `all` have no managing team: what `managing_team=unassigned` lists.",
       }),
     })
     .strict(),

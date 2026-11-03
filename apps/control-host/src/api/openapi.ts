@@ -238,6 +238,9 @@ import {
   slackEventsResponseSchema,
   slackGuestRequestSchema,
   slackGuestResponseSchema,
+  slackInteractionFormSchema,
+  slackInteractionResponseSchema,
+  slackInteractionsParamsSchema,
   slackLinkCallbackRequestSchema,
   slackLinkCallbackResponseSchema,
   slackSecretSummarySchema,
@@ -384,6 +387,7 @@ const requestComponents = {
   CreateSlackAppRequest: createSlackAppRequestSchema,
   CompleteSlackInstallRequest: completeSlackInstallRequestSchema,
   SlackEventEnvelope: slackEventEnvelopeSchema,
+  SlackInteractionForm: slackInteractionFormSchema,
   CreateAgentRequest: createAgentRequestSchema,
   UpdateAgentRequest: updateAgentRequestSchema,
   CreateAgentReleaseRequest: createAgentReleaseRequestSchema,
@@ -501,6 +505,7 @@ const responseComponents = {
   StartSlackInstallResponse: startSlackInstallResponseSchema,
   CompleteSlackInstallResponse: completeSlackInstallResponseSchema,
   SlackEventsResponse: slackEventsResponseSchema,
+  SlackInteractionResponse: slackInteractionResponseSchema,
   PasswordResetResponse: passwordResetResponseSchema,
   AuthMeResponse: authMeResponseSchema,
   UpdateAuthMeRequest: updateAuthMeRequestSchema,
@@ -696,6 +701,7 @@ export type RouteDeclaration = {
   csrf?: "always";
   query?: ComponentName;
   body?: ComponentName;
+  form?: true;
   // Parsed with the body schema by openapi.test.ts.
   requestExample?: unknown;
   success:
@@ -1004,6 +1010,7 @@ const EXAMPLE_AGENT = {
   name: "Finance analyst",
   description: "Reads the quarterly reports and flags outliers.",
   managing_team_id: EXAMPLE_TEAM_ID,
+  managing_team_name: "Finance",
   status: "active",
   active_release_id: null,
   activation_revision: -1,
@@ -4505,7 +4512,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The workspace's agents",
     description:
-      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, and `ids` the agents named (at most 100; an id of no agent in the workspace is left out); both narrow the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
+      "Lists the workspace's agents oldest `created_at` first, `limit` per page (default 50, at most 100). Pass `next_cursor` back as `cursor` for the next page; it is null on the last one. A cursor that does not decode to a position in that order answers 400; a cursor only positions the read, so one from another workspace shows nothing of it. Every member of the workspace lists it, each agent's row being its information (name, slug, description, managing team id and name, status, active release id). `include=summary` adds to each item a `summary` of what a card shows (the version people talk to, its runtime profile, live credential bindings, admins, and how many of the agent's sessions the caller can see are `needs_input` and `running`, as `GET /v1/sessions` shows them), read for the whole page at once, only on the agents whose settings the caller reads (`GET /v1/agents/{id}`); the other items come without it. Without `include` the items are as before. `q` keeps the agents whose name or slug contains it, ignoring case, `ids` the agents named (at most 100; an id of no agent in the workspace is left out), and `managing_team=unassigned` the agents with no managing team; each narrows the same order, so the cursor works as before. An agent key that holds `sessions:write` gets its own agent alone, on one page, so it can find the `active_release_id` to send as `agent_release_id` to `POST /v1/sessions`; it is refused `include=summary`, `q` and `ids` keep its agent only when it matches them, and every other API key is refused.",
     // A key needs sessions:write here, the right to start a session on the
     // agent it finds; a person's role holds it.
     scope: "write",
@@ -4530,13 +4537,21 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "How many agents the workspace has, by state, and how many the caller administers",
     description:
-      "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, and `draft` how many are not `archived` and have none yet. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.",
+      "`all` is how many agents GET /v1/agents lists read to the last page; `administered` is how many of them the caller administers now, directly or through a team they are a live member of; `active` is how many are `active` with an `active_release_id`, `draft` how many are not `archived` and have none yet, and `unassigned` how many have no managing team, whatever their state. Answered for the same callers as the list, over the same agents: every member counts what the list shows them. API keys are refused. It changes nothing.",
     auth: "session",
     success: {
       status: 200,
       schema: "CountAgentsResponse",
       description: "The counts.",
-      example: { counts: { all: 128, administered: 3, active: 97, draft: 24 } },
+      example: {
+        counts: {
+          all: 128,
+          administered: 3,
+          active: 97,
+          draft: 24,
+          unassigned: 5,
+        },
+      },
     },
     errors: [401, 403, 503],
   },
@@ -5240,6 +5255,47 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "SlackEventsResponse",
       description:
         '`{"challenge": ...}` for a url_verification, `{"ok": true}` for everything else that was signed.',
+      example: { ok: true },
+    },
+    errors: [400, 401, 413, 429, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/slack/interactions/{agent_id}",
+    operationId: "receiveSlackInteraction",
+    tag: "Agents",
+    summary: "Slack's interactivity request URL for one agent's app",
+    description:
+      'Called by Slack, not by people: each agent app\'s interactivity points here, beside its events route (Finalize registers both when SLACK_EVENTS_PUBLIC_URL is set). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app\'s signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack\'s JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{"ok": true}`; a submitted question modal answers `{"response_action": "clear"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).',
+    auth: "public",
+    body: "SlackInteractionForm",
+    form: true,
+    requestExample: {
+      payload: JSON.stringify({
+        type: "block_actions",
+        api_app_id: EXAMPLE_SLACK_APP.app_id,
+        team: { id: "T0A1B2C3D" },
+        user: { id: "U0PERSON1" },
+        channel: { id: "C0CHANNEL1" },
+        message: { ts: "1761300000.000200", thread_ts: "1761300000.000100" },
+        trigger_id: "1761300000.1234.abcdef",
+        actions: [
+          {
+            action_id: "permission.allow",
+            value: JSON.stringify({
+              s: "019a0000-0000-7000-8000-0000000000d1",
+              r: "toolu_01",
+            }),
+          },
+        ],
+      }),
+    },
+    success: {
+      status: 200,
+      schema: "SlackInteractionResponse",
+      description:
+        '`{"ok": true}` for a button press, `{"response_action": "clear"}` or `{"response_action": "errors", ...}` for a submitted modal.',
       example: { ok: true },
     },
     errors: [400, 401, 413, 429, 503],
@@ -6841,6 +6897,9 @@ function paramsSchemaFor(path: string): z.ZodObject {
   if (path.startsWith("/v1/linked-accounts/{id}"))
     return linkedAccountParamsSchema;
   if (path === "/v1/slack/events/{agent_id}") return slackEventsParamsSchema;
+  if (path === "/v1/slack/interactions/{agent_id}") {
+    return slackInteractionsParamsSchema;
+  }
   if (path === "/v1/usage/tools/{name}/calls") {
     return usageToolCallsParamsSchema;
   }
@@ -7015,7 +7074,16 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
           request: {
             body: {
               required: true,
-              content: jsonContent(route.body, route.requestExample),
+              content: route.form
+                ? {
+                    "application/x-www-form-urlencoded": {
+                      schema: ref(route.body),
+                      ...(route.requestExample === undefined
+                        ? {}
+                        : { example: route.requestExample }),
+                    },
+                  }
+                : jsonContent(route.body, route.requestExample),
             },
           },
         }

@@ -145,7 +145,11 @@ function agentCountsFrom(
     const response = await read(list, "/v1/agents");
     if (!response.ok) return response;
     const { items } = (await response.json()) as {
-      items: { status: string; active_release_id: string | null }[];
+      items: {
+        status: string;
+        active_release_id: string | null;
+        managing_team_id?: string | null;
+      }[];
     };
     const mine = administered
       ? await read(administered, "/v1/administered-agents")
@@ -162,6 +166,8 @@ function agentCountsFrom(
         draft: items.filter(
           (a) => a.status !== "archived" && a.active_release_id === null,
         ).length,
+        unassigned: items.filter((a) => (a.managing_team_id ?? null) === null)
+          .length,
       },
     });
   };

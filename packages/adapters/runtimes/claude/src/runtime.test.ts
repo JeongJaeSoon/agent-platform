@@ -594,6 +594,16 @@ describe("Claude SDK adapter options", () => {
     for (const section of Object.values(PLATFORM_AUTO_MODE)) {
       expect(section[0]).toBe("$defaults");
     }
+    // Rules name actions; only the environment maps tools to them.
+    for (const rule of [
+      ...PLATFORM_AUTO_MODE.allow,
+      ...PLATFORM_AUTO_MODE.soft_deny,
+    ]) {
+      expect(rule).not.toMatch(/mcp__|request_push|_pull_request/);
+    }
+    expect(PLATFORM_AUTO_MODE.environment.join(" ")).toContain(
+      "`request_push` pushes",
+    );
     for (const permissionMode of [
       "default",
       "acceptEdits",

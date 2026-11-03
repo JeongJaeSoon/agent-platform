@@ -406,6 +406,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack/install/start",
         "/v1/slack/events/{agent_id}",
         "/v1/slack/install/complete",
+        "/v1/slack/interactions/{agent_id}",
         "/v1/api-keys",
         "/v1/api-keys/{id}",
         "/v1/agents/{id}/admins",

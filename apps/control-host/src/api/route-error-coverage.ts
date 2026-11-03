@@ -244,6 +244,9 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/slack/install/complete",
   ],
   "routes/slack-events.test.ts": ["POST /v1/slack/events/{agent_id}"],
+  "routes/slack-interactions.test.ts": [
+    "POST /v1/slack/interactions/{agent_id}",
+  ],
   "routes/achievements.test.ts": [
     "GET /v1/achievement-categories",
     "POST /v1/achievement-categories",

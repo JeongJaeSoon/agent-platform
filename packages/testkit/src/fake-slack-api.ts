@@ -84,6 +84,12 @@ export type FakeSlackWebApi = {
   statuses: { channelId: string; threadTs: string; status: string }[];
   /** Every message chat.postMessage and chat.postEphemeral accepted. */
   messages: FakeSlackMessage[];
+  /** Every chat.update accepted, in order, with its blocks parsed. */
+  updates: { channelId: string; ts: string; text: string; blocks: unknown }[];
+  /** Every views.open accepted, in order. */
+  views: { triggerId: string; view: unknown }[];
+  /** Every views.update accepted, in order. */
+  viewUpdates: { viewId: string; view: unknown }[];
   /** A send method named here answers ok:true without a ts, then forgets. */
   missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
@@ -158,6 +164,9 @@ export function createFakeSlackWebApi(
   const codes = new Map<string, { appId: string; redirectUri: string }>();
   const apps = new Map<string, FakeSlackApp>();
   const calls: FakeSlackCall[] = [];
+  const updates: FakeSlackWebApi["updates"] = [];
+  const views: FakeSlackWebApi["views"] = [];
+  const viewUpdates: FakeSlackWebApi["viewUpdates"] = [];
   /** The scopes each pending code's authorize URL asked for. */
   const scopesOf = new Map<string, string>();
   const installAnswer: Record<string, unknown> = {};
@@ -418,6 +427,38 @@ export function createFakeSlackWebApi(
       return { message_ts: ts };
     },
 
+    "chat.update"(context) {
+      installedBot(context);
+      const { channel, ts, text, blocks } = context.params;
+      if (!channel || !ts) throw new SlackError("message_not_found");
+      updates.push({
+        channelId: channel,
+        ts,
+        text: text ?? "",
+        blocks: blocks === undefined ? undefined : JSON.parse(blocks),
+      });
+      return { channel, ts };
+    },
+
+    "views.open"(context) {
+      installedBot(context);
+      const { trigger_id, view } = context.params;
+      if (!trigger_id || !view) throw new SlackError("invalid_arguments");
+      views.push({ triggerId: trigger_id, view: JSON.parse(view) });
+      return { view: { id: `V${views.length}` } };
+    },
+
+    "views.update"(context) {
+      installedBot(context);
+      const { view_id, view } = context.params;
+      if (!view_id || !view) throw new SlackError("invalid_arguments");
+      if (!/^V\d+$/.test(view_id) || Number(view_id.slice(1)) > views.length) {
+        throw new SlackError("not_found");
+      }
+      viewUpdates.push({ viewId: view_id, view: JSON.parse(view) });
+      return { view: { id: view_id } };
+    },
+
     // Slack's archive link; the fake keeps no threads, so a reply's link
     // lacks the `thread_ts` and `cid` Slack adds.
     "chat.getPermalink"(context) {
@@ -612,6 +653,9 @@ export function createFakeSlackWebApi(
   return {
     apps,
     calls,
+    updates,
+    viewUpdates,
+    views,
     conversations,
     seedChannels,
     rateLimit(method, retryAfterSeconds, times = 1, after = 0) {
@@ -741,6 +785,59 @@ export function createFakeSlackWebApi(
       }
       if (url.pathname === "/fake/messages" && request.method === "GET") {
         return Response.json({ ok: true, messages });
+      }
+      if (url.pathname === "/fake/updates" && request.method === "GET") {
+        return Response.json({ ok: true, updates, views, viewUpdates });
+      }
+      // For curl on the local stack: posts {payload} as Slack's signed
+      // interactivity form, stamped with the app's id.
+      if (url.pathname === "/fake/interactions" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          url?: unknown;
+          app_id?: unknown;
+          payload?: unknown;
+        } | null;
+        if (
+          input === null ||
+          typeof input.url !== "string" ||
+          !/^https?:\/\//.test(input.url) ||
+          typeof input.app_id !== "string" ||
+          !apps.has(input.app_id) ||
+          typeof input.payload !== "object" ||
+          input.payload === null
+        ) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        const app = appOf(input.app_id);
+        const body = `payload=${encodeURIComponent(
+          JSON.stringify({ ...input.payload, api_app_id: app.appId }),
+        )}`;
+        const response = await fetch(input.url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            ...signSlackRequest(
+              app.signingSecret,
+              body,
+              Math.floor(Date.now() / 1000),
+            ),
+          },
+          body,
+          signal: AbortSignal.timeout(10_000),
+        });
+        const text = await response.text();
+        let answer: unknown = text;
+        try {
+          answer = JSON.parse(text);
+        } catch {}
+        return Response.json({
+          ok: true,
+          status: response.status,
+          body: answer,
+        });
       }
       // For curl on the local stack: {method} answers its next send with
       // ok:true and no ts.
