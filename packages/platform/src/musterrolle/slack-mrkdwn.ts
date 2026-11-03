@@ -48,45 +48,48 @@ function keeper(): Kept {
   };
 }
 
-const ENDS_IN_URL = /\bhttps?:\/\/\S+$/;
-
 /** GitHub's `` spans; Slack would read them as empty code pairs. */
 function keepDoubleBacktickSpans(text: string, kept: Kept): string {
   // The inner text cannot cross another `` run, so each search stops there.
-  return text.replace(/(?<!`)``(?!`)(?:[^`\n]|`(?!`))+?``(?!`)/g, (span) => {
-    const inner = span.slice(2, -2);
-    // A URL needs a span Slack reads as code for guardCodeUrls to protect it.
-    return kept.keep(
-      !inner.includes("`") && ENDS_IN_URL.test(inner) ? `\`${inner}\`` : span,
-    );
-  });
+  return text.replace(/(?<!`)``(?!`)(?:[^`\n]|`(?!`))+?``(?!`)/g, (span) =>
+    kept.keep(span),
+  );
 }
+
+const ENDS_IN_URL = /\bhttps?:\/\/\S+$/i;
+const CONTROL = /<[^<>\n]+>/g;
 
 /**
  * Slack finds URLs itself and reads one on to the next space, past a closing
  * backtick or fence, so a URL that ends the code is cut off from what follows.
  */
 function guardCodeUrls(text: string): string {
+  // A link destination may hold backticks that are not code.
+  const controls = keeper();
+  const masked = text.replace(CONTROL, (control) => controls.keep(control));
   let position = 0;
-  return mapCodeAndText(
-    text,
-    (part) => {
-      position += part.length;
-      return part;
-    },
-    (code) => {
-      position += code.length;
-      if (code.startsWith("```")) {
-        const body = code.slice(0, -3);
-        return ENDS_IN_URL.test(body) ? `${body}\n\`\`\`` : code;
-      }
-      const next = text[position];
-      return next !== undefined &&
-        !/[\s\p{P}​]/u.test(next) &&
-        ENDS_IN_URL.test(code.slice(1, -1))
-        ? `${code}${ZWSP}`
-        : code;
-    },
+  return controls.restore(
+    mapCodeAndText(
+      masked,
+      (part) => {
+        position += part.length;
+        return part;
+      },
+      (code) => {
+        position += code.length;
+        if (code.startsWith("```")) {
+          const body = code.slice(0, -3);
+          return ENDS_IN_URL.test(body) ? `${body}\n\`\`\`` : code;
+        }
+        const next = masked[position];
+        return next !== undefined &&
+          next !== ZWSP &&
+          !/[\s\p{P}]/u.test(next) &&
+          ENDS_IN_URL.test(code.slice(1, -1))
+          ? `${code}${ZWSP}`
+          : code;
+      },
+    ),
   );
 }
 
@@ -137,7 +140,6 @@ function keepTildeFences(text: string, kept: Kept): string {
 
 const LINK =
   /!?\[([^[\]\n]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"\n]*")?\)/g;
-const CONTROL = /<[^<>\n]+>/g;
 const BARE_URL = /\bhttps?:\/\/[^\s<>]+/g;
 
 /** Trailing punctuation belongs to the sentence, a `)` only when unbalanced. */
@@ -179,6 +181,14 @@ function marks(text: string, mode: Inline["marks"]): string {
 
 function inline(text: string, kept: Kept, mode: Inline): string {
   const linked = text
+    // Here, not where `` spans are kept, so one inside a fence stays as written.
+    // A URL needs a span Slack reads as code for guardCodeUrls to protect it.
+    .replace(/\d+/g, (token) => {
+      const inner = /^``([^`]+)``$/.exec(kept.get(token) ?? "")?.[1];
+      return inner !== undefined && ENDS_IN_URL.test(inner)
+        ? kept.keep(`\`${inner}\``)
+        : token;
+    })
     .replace(LINK, (_whole, label: string, url: string) => {
       const shown = marks(label, mode.marks);
       // Slack refuses a link whose label holds a control or code.

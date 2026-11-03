@@ -357,5 +357,29 @@ describe("markdownToSlackMrkdwn", () => {
         expect(markdownToSlackMrkdwn(input)).toBe(expected);
       });
     }
+
+    test("a double-backtick span inside a fence keeps its backticks", () => {
+      expect(markdownToSlackMrkdwn("```md\n``https://a.test/x``\n```")).toBe(
+        "```\n``https://a.test/x``\n```",
+      );
+      expect(markdownToSlackMrkdwn("~~~\n``https://a.test/x``\n~~~")).toBe(
+        "```\n``https://a.test/x``\n```",
+      );
+    });
+
+    test("backticks inside a link destination are not code", () => {
+      expect(
+        markdownToSlackMrkdwn("[x](https://a.test/```https://b.test```)"),
+      ).toBe("<https://a.test/```https://b.test```|x>");
+      expect(
+        markdownToSlackMrkdwn("[x](https://a.test/`https://b.test`)"),
+      ).toBe("<https://a.test/`https://b.test`|x>");
+    });
+
+    test("an upper-case scheme is a URL too", () => {
+      expect(markdownToSlackMrkdwn("`HTTPS://a.test/x`이고")).toBe(
+        `\`HTTPS://a.test/x\`${ZW}이고`,
+      );
+    });
   });
 });
