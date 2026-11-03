@@ -801,6 +801,49 @@ describe("워크스페이스 설정", () => {
     ).toBe(true);
   });
 
+  test("메뉴의 토큰 삭제 확인을 취소하면 포커스가 그 메뉴 버튼으로 돌아간다", async () => {
+    renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () => json(200, REGISTERED_TOKEN),
+    });
+    const user = await setupUser();
+    await tokenMenu(user, `${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog") === null).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        document.activeElement === screen.getByRole("button", TOKEN_MENU),
+      ).toBe(true),
+    );
+  });
+
+  test("등록된 토큰을 다시 읽다 실패해도 실패와 함께 토큰 삭제 메뉴를 남긴다", async () => {
+    let fail = false;
+    const { services } = renderAt("/settings/workspace/slack", {
+      "GET /v1/auth/me": () => json(200, me()),
+      [`GET ${TOKEN}`]: () =>
+        fail
+          ? apiError(503, "BACKEND_UNAVAILABLE", "The secret store is off")
+          : json(200, REGISTERED_TOKEN),
+    });
+    await screen.findByRole("button", TOKEN_MENU);
+    fail = true;
+    await services.queryClient.refetchQueries();
+    expect(
+      await screen.findByText(
+        "비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요.",
+      ),
+    ).toBeDefined();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", TOKEN_MENU));
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual([`${TOKEN_MENU.name.replace(/ 메뉴$/, "")} 삭제`]);
+  });
+
   test("다시 등록해야 하는 토큰은 행 아래에 이유를 말하고, 등록 버튼과 삭제만 있는 메뉴를 둔다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
@@ -1080,7 +1123,7 @@ describe("워크스페이스 설정", () => {
     ).toBeDefined();
   });
 
-  test("저장된 토큰을 사용할 수 없고 앱도 없으면 재등록만 묻는다", async () => {
+  test("저장된 토큰을 사용할 수 없고 앱도 없으면 시작 상자 대신 재등록 버튼과 삭제 메뉴를 둔다", async () => {
     renderAt("/settings/workspace/slack", {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${TOKEN}`]: () =>
@@ -1097,7 +1140,8 @@ describe("워크스페이스 설정", () => {
     expect(
       screen.queryByRole("region", { name: "자동으로 만든 Slack 앱" }),
     ).toBeNull();
-    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
+    expect(screen.queryByText(START)).toBeNull();
+    expect(within(section).getByRole("button", TOKEN_MENU)).toBeDefined();
   });
 
   test("앱 목록을 읽는 동안에는 토큰 칸만 기다리고 게스트·앱 목록을 먼저 그리지 않는다", async () => {

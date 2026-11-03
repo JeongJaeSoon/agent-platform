@@ -320,6 +320,15 @@ function SlackCard({
         ? t("workspace.slackCount", { count: apps.data.items.length })
         : " ";
 
+  const onEdit = (menu: HTMLButtonElement | null) => {
+    menuRef.current = menu;
+    setEditing(true);
+  };
+  const onDelete = (menu: HTMLButtonElement | null) => {
+    menuRef.current = menu;
+    setDeleting(true);
+  };
+
   const body = !canManage ? null : start ? (
     <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
       <Text weight="medium">{t("workspace.slackEmpty")}</Text>
@@ -348,32 +357,41 @@ function SlackCard({
               <Skeleton width="50%" />
             </RowListItem>
           ) : token.isError ? (
-            <RowListItem>
-              {storeOff(token.error) ? (
-                <ErrorState
-                  title={t("status.loadFailed")}
-                  message={t("workspace.tokenStoreUnavailable")}
-                />
-              ) : (
-                <LoadFailure
-                  error={token.error}
-                  onRetry={() => void token.refetch()}
-                />
-              )}
-            </RowListItem>
+            <>
+              <RowListItem>
+                {storeOff(token.error) ? (
+                  <ErrorState
+                    title={t("status.loadFailed")}
+                    message={t("workspace.tokenStoreUnavailable")}
+                  />
+                ) : (
+                  <LoadFailure
+                    error={token.error}
+                    onRetry={() => void token.refetch()}
+                  />
+                )}
+              </RowListItem>
+              {/* A token read before the failure can still be deleted. */}
+              {summary?.configured ? (
+                <RowListItem>
+                  <Text as="span" weight="medium" className="flex-1" truncate>
+                    {t("workspace.token")}
+                  </Text>
+                  <TokenMenu
+                    active={false}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                  />
+                </RowListItem>
+              ) : null}
+            </>
           ) : (
             <TokenRow
               summary={summary}
               editing={editing}
               actionRef={actionRef}
-              onEdit={(menu) => {
-                menuRef.current = menu;
-                setEditing(true);
-              }}
-              onDelete={(menu) => {
-                menuRef.current = menu;
-                setDeleting(true);
-              }}
+              onEdit={onEdit}
+              onDelete={onDelete}
               form={form}
               locale={locale}
             />
@@ -469,20 +487,7 @@ function TokenRow({
           </Button>
         )}
         {summary?.configured ? (
-          <RowMenu label={t("workspace.tokenMenu")}>
-            {(close) => (
-              <>
-                {active ? (
-                  <RowMenuItem onSelect={() => onEdit(close())}>
-                    {t("workspace.tokenReplace")}
-                  </RowMenuItem>
-                ) : null}
-                <RowMenuItem tone="danger" onSelect={() => onDelete(close())}>
-                  {t("workspace.tokenDelete")}
-                </RowMenuItem>
-              </>
-            )}
-          </RowMenu>
+          <TokenMenu active={active} onEdit={onEdit} onDelete={onDelete} />
         ) : null}
       </div>
       {summary?.state === "needs_reentry" ? (
@@ -492,6 +497,35 @@ function TokenRow({
       ) : null}
       {form}
     </RowListItem>
+  );
+}
+
+/** Replace (a working token only) and delete, behind the row's ⋯. */
+function TokenMenu({
+  active,
+  onEdit,
+  onDelete,
+}: {
+  readonly active: boolean;
+  readonly onEdit: (menu: HTMLButtonElement | null) => void;
+  readonly onDelete: (menu: HTMLButtonElement | null) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <RowMenu label={t("workspace.tokenMenu")}>
+      {(close) => (
+        <>
+          {active ? (
+            <RowMenuItem onSelect={() => onEdit(close())}>
+              {t("workspace.tokenReplace")}
+            </RowMenuItem>
+          ) : null}
+          <RowMenuItem tone="danger" onSelect={() => onDelete(close())}>
+            {t("workspace.tokenDelete")}
+          </RowMenuItem>
+        </>
+      )}
+    </RowMenu>
   );
 }
 
