@@ -61,7 +61,10 @@ const credentialRefFields = {
   secret_id: z.string().min(1).optional(),
   stored: z
     .string()
-    .regex(storedRefPattern, "must be connection:, repository: or mcp: and an id")
+    .regex(
+      storedRefPattern,
+      "must be connection:, repository: or mcp: and an id",
+    )
     .optional(),
 };
 function namesOneRef(auth: {
@@ -514,7 +517,8 @@ export type CatalogProfile = {
 
 export type CatalogMcpServerConfig = z.infer<typeof catalogMcpServerSchema>;
 export type CatalogMcpServer = Omit<CatalogMcpServerConfig, "auth"> & {
-  auth: { kind: "bearer"; value: string; ref: CredentialRef } };
+  auth: { kind: "bearer"; value: string; ref: CredentialRef };
+};
 
 export type SessionCatalog = {
   profiles: Record<string, CatalogProfile>;

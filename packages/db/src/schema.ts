@@ -4310,9 +4310,8 @@ export const catalogRepositories = pgTable(
     // The entry's `auth` as repositories.yaml spelled it; null for none and
     // for the console's App.
     auth: jsonb().$type<Record<string, unknown>>(),
-    credentialSource: text(
-      "credential_source",
-    ).$type<SettingsCredentialSource>(),
+    credentialSource:
+      text("credential_source").$type<SettingsCredentialSource>(),
     appRole: text("app_role").notNull().default("author"),
     source: text().notNull(),
     version: integer().notNull().default(1),

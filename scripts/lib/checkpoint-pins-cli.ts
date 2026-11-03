@@ -15,8 +15,8 @@
 
 import * as schema from "@werft-ai/db";
 import {
-  createPostgresCheckpointStore,
   createPostgresCatalogRepositoryStore,
+  createPostgresCheckpointStore,
   createPostgresInstallationProfileStore,
   createPostgresInstallationSettingsStore,
   createPostgresWorkspaceProfileStore,

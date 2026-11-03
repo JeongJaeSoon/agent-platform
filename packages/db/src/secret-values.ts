@@ -330,7 +330,7 @@ export function createPostgresSecretStore(
   key: SecretKey,
 ): SecretStore {
   return {
-    describe: (slot) => describeSecret(db, workspaceSlot(slot)),
+    describe: async (slot) => describeSecret(db, workspaceSlot(slot)),
 
     async get(slot) {
       const [row] = await db
@@ -340,7 +340,7 @@ export function createPostgresSecretStore(
       return row ? openRow(key, row) : null;
     },
 
-    put(named, value, options) {
+    async put(named, value, options) {
       const slot = workspaceSlot(named);
       return db.transaction(async (tx): Promise<PutSecretResult> => {
         const audit = options?.audit;
@@ -380,7 +380,7 @@ export function createPostgresSecretStore(
       });
     },
 
-    delete(named, options) {
+    async delete(named, options) {
       const slot = workspaceSlot(named);
       return db.transaction(async (tx) => {
         const audit = options?.audit;

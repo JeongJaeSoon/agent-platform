@@ -323,9 +323,7 @@ export async function loadProfileSources(options: {
     materialize: (id, definition, settings) => {
       const profile = resolveSessionCatalog(
         { profiles: { [id]: definition }, repositories: {} },
-        settings === undefined
-          ? lookup
-          : (ref) => settings(ref) ?? lookup(ref),
+        settings === undefined ? lookup : (ref) => settings(ref) ?? lookup(ref),
       ).profiles[id];
       if (!profile) throw new Error(`profile ${id} did not resolve`);
       return profile;
@@ -470,10 +468,7 @@ export async function loadSecretKey(options: {
     }
   }
   if (!value) throw new CatalogCredentialError(at, ref);
-  return SecretKey.fromHex(
-    value,
-    `${at} (${value_env ?? secret_id})`,
-  );
+  return SecretKey.fromHex(value, `${at} (${value_env ?? secret_id})`);
 }
 
 const profilesIn =

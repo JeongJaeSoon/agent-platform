@@ -28,6 +28,7 @@ import {
   resolveSessionCatalog,
   SecretKey,
   type SessionCatalogConfig,
+  sessionCatalogConfigSchema,
   settingsSnapshot,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -76,11 +77,11 @@ const lookup = (ref: CredentialRef) =>
 // The operator's files as an installation has them today.
 const MAIN: CatalogProfileConfig["provider"] = {
   kind: "litellm",
-  endpoint: "https://litellm.example.invalid",
+  endpoint: "http://10.0.0.5:4000",
   billing: "none",
   auth: { kind: "bearer", value_env: "PROVIDER_KEY" },
 };
-const FILE: SessionCatalogConfig = {
+const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
   profiles: {
     coding: {
       runtime_kind: "claude_agent_sdk",
@@ -130,7 +131,7 @@ const FILE: SessionCatalogConfig = {
       workspaces: ["acme"],
     },
   },
-};
+});
 const CONNECTIONS = { main: MAIN };
 
 const CARD: AgentCard = agentCardSchema.parse({
@@ -149,7 +150,10 @@ const CARD: AgentCard = agentCardSchema.parse({
 /** The catalog a registry over `db` serves, `file` the operator's files. */
 async function catalogOver(
   db: NodePgDatabase<typeof schema>,
-  file: { connections: Record<string, typeof MAIN>; config: SessionCatalogConfig },
+  file: {
+    connections: Record<string, typeof MAIN>;
+    config: SessionCatalogConfig;
+  },
 ) {
   const resolvedFile = resolveSessionCatalog(
     { ...file.config, profiles: {} },
@@ -158,7 +162,9 @@ async function catalogOver(
   const store = createPostgresInstallationSettingsStore(db, KEY);
   const registry = createProfileRegistry<CatalogProfile>({
     workspaces: { listAll: async () => [] },
-    installations: { listAll: async () => catalogRows(FILE.profiles, FILE.repositories) },
+    installations: {
+      listAll: async () => catalogRows(FILE.profiles, FILE.repositories),
+    },
     repositories: createPostgresCatalogRepositoryStore(db),
     settings: {
       read: async () =>
@@ -192,8 +198,15 @@ async function catalogOver(
 /** What a running installation pins: hashes only, no value. */
 function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
   const profile = catalog.profiles.coding;
-  if (!profile) throw new Error("coding does not run");
-  const repositories = catalog.repositories as Record<string, CatalogRepository>;
+  if (!profile) {
+    throw new Error(
+      `coding does not run: ${catalog.installation.get("coding")?.state}`,
+    );
+  }
+  const repositories = catalog.repositories as Record<
+    string,
+    CatalogRepository
+  >;
   const content = resolveReleaseContent(
     CARD,
     "coding",
@@ -337,7 +350,11 @@ integration("installation settings", () => {
     const store = createPostgresInstallationSettingsStore(db, KEY);
     const [workspace] = await db
       .insert(workspaces)
-      .values({ id: randomUUID(), slug: `ws-${randomUUID().slice(0, 8)}`, name: "ws" })
+      .values({
+        id: randomUUID(),
+        slug: `ws-${randomUUID().slice(0, 8)}`,
+        name: "ws",
+      })
       .onConflictDoNothing()
       .returning({ id: workspaces.id });
     expect(workspace).toBeDefined();
@@ -390,6 +407,24 @@ integration("installation settings", () => {
       ),
     ).toContain("connection:console_main");
 
+    // Rotating the value moves no pin and no generation, so a running
+    // session's claim and release checks still match.
+    await store.putStoredValue(
+      { kind: "connection", id: "console_main" },
+      "a-rotated-stored-key",
+      null,
+    );
+    const rotated = await store.read({ openStored: true });
+    expect(rotated.stored.get("connection:console_main")).toBe(
+      "a-rotated-stored-key",
+    );
+    expect(rotated.generation).toBe(opened.generation);
+    const rotatedSnapshot = settingsSnapshot(rotated, () => undefined);
+    expect(rotatedSnapshot.connections).toEqual(snapshot.connections);
+    expect(rotatedSnapshot.lookup({ stored: "connection:console_main" })).toBe(
+      "a-rotated-stored-key",
+    );
+
     // No workspace route reaches it.
     const secrets = createPostgresSecretStore(db, KEY);
     const slot = {
@@ -417,7 +452,9 @@ integration("installation settings", () => {
         origin: "console",
       })
       .catch((error: Error) => {
-        refused = String((error as { cause?: Error }).cause?.message ?? error.message);
+        refused = String(
+          (error as { cause?: Error }).cause?.message ?? error.message,
+        );
       });
     expect(refused).toContain("provider_connections_console_stored_check");
   });
@@ -442,7 +479,9 @@ integration("installation settings", () => {
 const MIGRATIONS = join(import.meta.dir, "../migrations");
 
 async function migrationsThrough(lastTag: string): Promise<string> {
-  const folder = await mkdtemp(join(tmpdir(), "installation-settings-migrations-"));
+  const folder = await mkdtemp(
+    join(tmpdir(), "installation-settings-migrations-"),
+  );
   await mkdir(join(folder, "meta"));
   const journal: { entries: Array<{ tag: string }> } = JSON.parse(
     await readFile(join(MIGRATIONS, "meta/_journal.json"), "utf8"),
@@ -460,65 +499,76 @@ async function migrationsThrough(lastTag: string): Promise<string> {
   return folder;
 }
 
-integration("installation settings migration over an installation's rows", () => {
-  test("the console App's rows stay what they were, and the image from before still writes", async () => {
-    const database = await createTempDatabase({
-      migrate: false,
-      prefix: "installation_settings_expand_it",
-    });
-    const pool = new Pool({ connectionString: database.url, max: 2 });
-    const db = drizzle(pool, { schema });
-    const before = await migrationsThrough("0224_push_follow_ups");
-    try {
-      await migrate(db, { migrationsFolder: before });
-      await pool.query(
-        `INSERT INTO catalog_repositories (id, owner, name, url, branch, profiles, source)
+integration(
+  "installation settings migration over an installation's rows",
+  () => {
+    test("the console App's rows stay what they were, and the image from before still writes", async () => {
+      const database = await createTempDatabase({
+        migrate: false,
+        prefix: "installation_settings_expand_it",
+      });
+      const pool = new Pool({ connectionString: database.url, max: 2 });
+      const db = drizzle(pool, { schema });
+      const before = await migrationsThrough("0224_push_follow_ups");
+      try {
+        await migrate(db, { migrationsFolder: before });
+        await pool.query(
+          `INSERT INTO catalog_repositories (id, owner, name, url, branch, profiles, source)
          VALUES ('app', 'team', 'app', 'https://github.com/team/app.git', 'main', '["coding"]', 'seed')`,
-      );
-      const store = createPostgresCatalogRepositoryStore(db);
-      await migrate(db, { migrationsFolder: MIGRATIONS });
-      const rows = await store.readCatalog();
-      expect(rows?.map(({ id, profiles, url }) => ({ id, profiles, url }))).toEqual([
-        { id: "app", profiles: ["coding"], url: "https://github.com/team/app.git" },
-      ]);
-      expect(
-        (
-          await pool.query(
-            "SELECT auth_kind, auth, credential_source FROM catalog_repositories",
-          )
-        ).rows,
-      ).toEqual([{ auth_kind: "github_app", auth: null, credential_source: null }]);
-      expect(
-        (await pool.query("SELECT generation FROM settings_generation")).rows,
-      ).toEqual([{ generation: "0" }]);
+        );
+        const store = createPostgresCatalogRepositoryStore(db);
+        await migrate(db, { migrationsFolder: MIGRATIONS });
+        const rows = await store.readCatalog();
+        expect(
+          rows?.map(({ id, profiles, url }) => ({ id, profiles, url })),
+        ).toEqual([
+          {
+            id: "app",
+            profiles: ["coding"],
+            url: "https://github.com/team/app.git",
+          },
+        ]);
+        expect(
+          (
+            await pool.query(
+              "SELECT auth_kind, auth, credential_source FROM catalog_repositories",
+            )
+          ).rows,
+        ).toEqual([
+          { auth_kind: "github_app", auth: null, credential_source: null },
+        ]);
+        expect(
+          (await pool.query("SELECT generation FROM settings_generation")).rows,
+        ).toEqual([{ generation: "0" }]);
 
-      // The image from before names none of the new columns.
-      await pool.query(
-        `INSERT INTO catalog_repositories (id, github_repository_id, owner, name, url, branch, source)
-         VALUES ('picked', 42, 'team', 'picked', 'https://github.com/team/picked.git', 'main', 'selection')`,
-      );
-      expect((await store.readCatalog())?.map(({ id }) => id)).toEqual([
-        "app",
-        "picked",
-      ]);
-      expect(
-        (await pool.query("SELECT generation FROM settings_generation")).rows,
-      ).toEqual([{ generation: "1" }]);
-      // Still one row per GitHub repository name among the App's.
-      let refused = "accepted";
-      await pool
-        .query(
+        // The image from before names none of the new columns.
+        await pool.query(
           `INSERT INTO catalog_repositories (id, github_repository_id, owner, name, url, branch, source)
+         VALUES ('picked', 42, 'team', 'picked', 'https://github.com/team/picked.git', 'main', 'selection')`,
+        );
+        expect((await store.readCatalog())?.map(({ id }) => id)).toEqual([
+          "app",
+          "picked",
+        ]);
+        expect(
+          (await pool.query("SELECT generation FROM settings_generation")).rows,
+        ).toEqual([{ generation: "1" }]);
+        // Still one row per GitHub repository name among the App's.
+        let refused = "accepted";
+        await pool
+          .query(
+            `INSERT INTO catalog_repositories (id, github_repository_id, owner, name, url, branch, source)
            VALUES ('dup', 43, 'Team', 'App', 'https://github.com/team/app.git', 'main', 'selection')`,
-        )
-        .catch((error: Error) => {
-          refused = error.message;
-        });
-      expect(refused).toContain("catalog_repositories_full_name_key");
-    } finally {
-      await pool.end();
-      await database.drop();
-      await rm(before, { recursive: true, force: true });
-    }
-  }, 60_000);
-});
+          )
+          .catch((error: Error) => {
+            refused = error.message;
+          });
+        expect(refused).toContain("catalog_repositories_full_name_key");
+      } finally {
+        await pool.end();
+        await database.drop();
+        await rm(before, { recursive: true, force: true });
+      }
+    }, 60_000);
+  },
+);
