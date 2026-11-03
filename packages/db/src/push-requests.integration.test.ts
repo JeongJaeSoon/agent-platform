@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { PushRequest, ReceiptActor } from "@werft-ai/contracts";
 import type {
   DecidePushRequestInput,
+  PushRequestDisplayReader,
   PushRequestStore,
   PushWriteResult,
 } from "@werft-ai/platform";
@@ -13,9 +14,17 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresPushRequests } from "./push-requests.ts";
+import {
+  createPostgresPushRequests,
+  toolSummaryContext,
+} from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { pushRequests, receipts, sessions } from "./schema.ts";
+import {
+  catalogRepositories,
+  pushRequests,
+  receipts,
+  sessions,
+} from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -50,7 +59,7 @@ integration("postgres push requests", () => {
   let database: TempDatabase;
   let pool: Pool;
   let db: NodePgDatabase<typeof schema>;
-  let store: PushRequestStore;
+  let store: PushRequestStore & PushRequestDisplayReader;
 
   beforeAll(async () => {
     database = await createTempDatabase({ prefix: "push_requests_it" });
@@ -164,6 +173,99 @@ integration("postgres push requests", () => {
     expect(await store.list(OWNER, sessionId)).toHaveLength(1);
     expect(await store.list("someone-else", sessionId)).toBeNull();
     expect(await store.get("someone-else", sessionId, request.id)).toBeNull();
+  });
+
+  test("displayOf names the catalog repository and who decided, to its owner only", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId, "k-display"));
+    // No catalog row yet: the id stands in for the name.
+    expect(await store.displayOf(OWNER, sessionId, request.id)).toEqual({
+      repositoryId: "sample-app",
+      repositoryName: null,
+      targetBranch: `agent/${sessionId}`,
+      gitCommit: COMMIT,
+      state: "requested",
+      decidedByUserId: null,
+      createdAt: expect.any(String),
+    });
+    await db
+      .insert(catalogRepositories)
+      .values({
+        id: "sample-app",
+        owner: "JeongJaeSoon",
+        name: "werft-sandbox",
+        url: "https://github.com/JeongJaeSoon/werft-sandbox.git",
+        branch: "main",
+        source: "seed",
+      })
+      .onConflictDoNothing();
+    written(await decide(sessionId, request.id, { idempotencyKey: "k-dd" }));
+    expect(await store.displayOf(OWNER, sessionId, request.id)).toMatchObject({
+      repositoryName: "JeongJaeSoon/werft-sandbox",
+      state: "approved",
+      decidedByUserId: APPROVER.actor_user_id,
+    });
+    expect(await store.displayOf("someone-else", sessionId, request.id)).toBe(
+      null,
+    );
+    expect(await store.displayOf(OWNER, sessionId, "not-a-uuid")).toBeNull();
+  });
+
+  test("a GitHub tool's summary reads the push row, the session's repository and the catalog", async () => {
+    const sessionId = await session();
+    const request = written(await create(sessionId, "k-context"));
+    await db
+      .insert(catalogRepositories)
+      .values({
+        id: "sample-app",
+        owner: "JeongJaeSoon",
+        name: "werft-sandbox",
+        url: "https://github.com/JeongJaeSoon/werft-sandbox.git",
+        branch: "main",
+        source: "seed",
+      })
+      .onConflictDoNothing();
+    const name = "JeongJaeSoon/werft-sandbox";
+    expect(
+      await toolSummaryContext(
+        db,
+        sessionId,
+        "mcp__github__open_pull_request",
+        {
+          push_request_id: request.id,
+        },
+      ),
+    ).toEqual({ repository: name, branch: `agent/${sessionId}` });
+    expect(
+      await toolSummaryContext(db, sessionId, "mcp__github__request_push", {
+        branch: "docs",
+      }),
+    ).toEqual({ repository: name, branch: `agent/${sessionId}-docs` });
+    expect(
+      await toolSummaryContext(
+        db,
+        sessionId,
+        "mcp__github__attach_repository",
+        {
+          repository_id: "not-in-catalog",
+        },
+      ),
+    ).toEqual({ repository: "not-in-catalog" });
+    // Another session's push row, a bad input, or another tool: nothing.
+    const other = await session();
+    expect(
+      await toolSummaryContext(db, other, "mcp__github__open_pull_request", {
+        push_request_id: request.id,
+      }),
+    ).toEqual({});
+    expect(
+      await toolSummaryContext(db, sessionId, "mcp__github__request_push", {
+        branch: "../x",
+      }),
+    ).toEqual({});
+    expect(
+      await toolSummaryContext(db, sessionId, "Bash", { command: "ls" }),
+    ).toEqual({});
   });
 
   test("concurrent creates on one session open one request", async () => {

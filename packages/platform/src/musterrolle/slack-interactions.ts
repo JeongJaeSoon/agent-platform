@@ -51,10 +51,9 @@ import {
   type SlackPromptResult,
   slackNoticeView,
   slackOptionAnswer,
-  slackPromptMessage,
   slackQuestionAnswers,
   slackQuestionView,
-  slackSettledBlocks,
+  slackSettledCard,
 } from "./slack-prompts.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -93,7 +92,7 @@ export type SlackInteractionDeps = {
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
-  outbox: Pick<SlackOutboxStore, "readerLocale">;
+  outbox: Pick<SlackOutboxStore, "readerLocale" | "promptCard">;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
   logger: SlackInboxLogger;
@@ -191,18 +190,33 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   const notice = (pressed: Pressed, message: SlackNoticeMessage) =>
     tell(pressed, SLACK_NOTICE_MESSAGES[pressed.locale][message]);
 
+  /**
+   * Redraws a card from its request as stored, in the language it was
+   * posted in, so whoever pressed and whatever the message held, the
+   * settled card is the same.
+   */
   async function settle(
     pressed: Pressed,
     ts: string,
-    asked: unknown[],
-    result: SlackPromptResult,
-    by: string | null,
+    value: SlackInteractionValue,
   ) {
-    const card = slackSettledBlocks(asked, result, {
-      locale: pressed.locale,
-      slackUserId: by,
-    });
     try {
+      const posted = await deps.outbox.promptCard({
+        sessionId: value.s,
+        requestId: value.r,
+        channelId: pressed.channelId,
+        slackTs: ts,
+      });
+      if (posted === null) {
+        deps.logger.warn("Slack card to update not found", {
+          agent_id: pressed.agentId,
+          session_id: value.s,
+          request_id: value.r,
+        });
+        return;
+      }
+      const card = slackSettledCard(posted);
+      if (card === null) return;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
         ts,
@@ -302,7 +316,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     body:
       | { kind: "permission"; decision: "allow" | "deny" }
       | { kind: "question"; answers: QuestionAnswer[] },
-    card: (result: SlackPromptResult, by: string | null) => Promise<void>,
+    card: () => Promise<void>,
   ): Promise<string> {
     try {
       await deps.pending.answer(caller, value.s, {
@@ -328,17 +342,10 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await notice(pressed, "failed");
         return "failed";
       }
-      await card(now, null);
+      await card();
       return "already";
     }
-    await card(
-      body.kind === "question"
-        ? "answered"
-        : body.decision === "allow"
-          ? "allowed"
-          : "denied",
-      pressed.userId,
-    );
+    await card();
     return "answered";
   }
 
@@ -346,7 +353,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     { caller, pressed }: Allowed,
     value: SlackInteractionValue,
     decision: PushDecision,
-    card: (result: SlackPromptResult, by: string | null) => Promise<void>,
+    card: () => Promise<void>,
   ): Promise<string> {
     if (caller.subject.principal === null) return "refused";
     const actor: PushActor = {
@@ -373,14 +380,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     };
     const request = await read();
     if (request === null || request.state !== "requested") {
-      await card(
-        request === null
-          ? "closed"
-          : request.state === "rejected"
-            ? "rejected"
-            : "approved",
-        null,
-      );
+      await card();
       return "already";
     }
     try {
@@ -392,7 +392,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (!(error instanceof SessionServiceError)) throw error;
       const now = await stateOf();
       if (now !== "open") {
-        await card(now, null);
+        await card();
         return "already";
       }
       const refusal = (error.details as { refusal?: unknown } | undefined)
@@ -470,10 +470,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (!queued) {
       await tell(pressed, SLACK_PROMPT_MESSAGES[pressed.locale].followUpFailed);
     }
-    await card(
-      decision === "approve" ? "approved" : "rejected",
-      pressed.userId,
-    );
+    await card();
     return decision === "approve" ? "approved" : "rejected";
   }
 
@@ -549,16 +546,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
 
   const cardOf =
     (pressed: Pressed, payload: SlackBlockActionsPayload) =>
-    (result: SlackPromptResult, by: string | null) =>
-      settle(
-        pressed,
-        payload.message.ts,
-        Array.isArray(payload.message.blocks)
-          ? (payload.message.blocks as unknown[])
-          : [],
-        result,
-        by,
-      );
+    (value: SlackInteractionValue) =>
+    () =>
+      settle(pressed, payload.message.ts, value);
 
   async function fillView(
     pressed: Pressed,
@@ -587,7 +577,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (questions === null) {
         const state = await standing(admitted.caller, value);
         const result = state === "open" ? "closed" : state;
-        await cardOf(pressed, payload)(result, null);
+        await cardOf(pressed, payload)(value)();
         await show(copy.already[result]);
         return ok("already");
       }
@@ -624,7 +614,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     try {
       const admitted = await admit(pressed, value.s);
       if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
-      const card = cardOf(pressed, payload);
+      const card = cardOf(pressed, payload)(value);
       // Option buttons share a block, where Slack wants each id once.
       const kind = actionId.startsWith(
         `${SLACK_INTERACTION_ACTIONS.questionOption}:`,
@@ -658,7 +648,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
               await notice(pressed, "failed");
               return ok("failed");
             }
-            await card(state, null);
+            await card();
             return ok("already");
           }
           return ok(
@@ -747,17 +737,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           errors: parsed.errors,
         });
       }
-      // The card as it was asked, rebuilt: a modal carries no message.
-      const asked = slackPromptMessage(
-        {
-          kind: "question",
-          sessionId: value.s,
-          requestId: value.r,
-          questions,
-          expiresAt: now().toISOString(),
-        },
-        { locale: pressed.locale, requesterSlackUserId: null },
-      ).blocks;
       return async () => {
         try {
           handled(
@@ -767,8 +746,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
                 admitted,
                 value,
                 { kind: "question", answers: parsed.answers },
-                (outcome, by) =>
-                  settle(pressed, metadata.m, asked, outcome, by),
+                () => settle(pressed, metadata.m, value),
               ),
             ),
           );

@@ -317,6 +317,7 @@ export async function enqueueSlackPrompts(deps: {
         text: message.text,
         locale,
         blocks: message.blocks,
+        ...(link_url === undefined ? {} : { link_url }),
         ...(row.requesterSlackUserId === null
           ? {}
           : { mention_user_ids: [row.requesterSlackUserId] }),
@@ -614,7 +615,11 @@ export async function drainSlackOutbox(deps: {
         continue;
       }
 
-      const text = slackOutboxText(claim.body);
+      // A card's text is slackCardText's, escaped and linked already.
+      const text =
+        claim.kind === "input_notice" && claim.body.blocks !== undefined
+          ? claim.body.text
+          : slackOutboxText(claim.body);
       let outcome: SlackOutboxSettle;
       try {
         const response =

@@ -328,6 +328,116 @@ integration("pending requests and answers on PostgreSQL", () => {
     ).toBe("NOT_FOUND");
   });
 
+  test("displayOf gives a card the chosen options and whether one was typed, never the typed text, to its owner only", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const store = createPostgresPendingRequests(db);
+    const typed = "the staging password is in the vault";
+    const asked = await register(worker, {
+      kind: "question",
+      questions: [
+        {
+          question_id: "q0",
+          prompt: "Which environment?",
+          options: [
+            { option_id: "q0o0", label: "staging" },
+            { option_id: "q0o1", label: "production" },
+          ],
+          multi_select: false,
+          allow_free_text: true,
+        },
+      ],
+    });
+    const tool = await register(worker, permission("rm -rf build"), HASH_B);
+
+    expect(
+      await store.displayOf(owner.ownerId, sessionId, tool.requestId),
+    ).toMatchObject({
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "rm -rf build" },
+      context: {},
+      state: "open",
+      decision: null,
+      decidedByUserId: null,
+      closedReason: null,
+    });
+
+    await answer(owner, sessionId, {
+      request_id: asked.requestId,
+      kind: "question",
+      answers: [
+        {
+          question_id: "q0",
+          selected_option_ids: ["q0o1"],
+          free_text: typed,
+        },
+      ],
+    });
+    await answer(owner, sessionId, {
+      request_id: tool.requestId,
+      kind: "permission",
+      decision: "deny",
+    });
+
+    const question = await store.displayOf(
+      owner.ownerId,
+      sessionId,
+      asked.requestId,
+    );
+    expect(question).toMatchObject({
+      kind: "question",
+      state: "answered",
+      answers: [
+        { question_id: "q0", selected_option_ids: ["q0o1"], typed: true },
+      ],
+      // A test caller names no person, so no one is named as the decider.
+      decidedByUserId: null,
+    });
+    expect(JSON.stringify(question)).not.toContain(typed);
+    expect(
+      await store.displayOf(owner.ownerId, sessionId, tool.requestId),
+    ).toMatchObject({ state: "answered", decision: "deny" });
+
+    expect(
+      await store.displayOf("someone-else", sessionId, asked.requestId),
+    ).toBeNull();
+    expect(
+      await store.displayOf(owner.ownerId, sessionId, "req_unknown"),
+    ).toBeNull();
+    expect(
+      await store.displayOf(owner.ownerId, "not-a-uuid", asked.requestId),
+    ).toBeNull();
+  });
+
+  test("displayOf says why an unanswered request closed: expired, or with its session", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const store = createPostgresPendingRequests(db);
+    const lapsed = await register(worker, permission("a"));
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(pendingRequests.requestId, lapsed.requestId));
+    expect(
+      await store.displayOf(owner.ownerId, sessionId, lapsed.requestId),
+    ).toMatchObject({ state: "closed", closedReason: "expired" });
+
+    const withdrawn = await register(worker, permission("b"), HASH_B);
+    await db
+      .update(pendingRequests)
+      .set({ resolvedAt: new Date() })
+      .where(eq(pendingRequests.requestId, withdrawn.requestId));
+    expect(
+      await store.displayOf(owner.ownerId, sessionId, withdrawn.requestId),
+    ).toMatchObject({ state: "closed", closedReason: "stale" });
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed" })
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await store.displayOf(owner.ownerId, sessionId, withdrawn.requestId),
+    ).toMatchObject({ state: "closed", closedReason: "session_closed" });
+  });
+
   test("an answer is stored, handed to its attempt, and succeeds once the worker says it landed", async () => {
     const { owner, sessionId, worker } = await runningSession();
     const { requestId } = await register(worker, permission());

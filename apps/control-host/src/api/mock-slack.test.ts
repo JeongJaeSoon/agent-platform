@@ -1,5 +1,11 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { createSlackBotApi, verifySlackSignature } from "@werft-ai/platform";
+import {
+  createSlackBotApi,
+  SlackApiError,
+  slackPromptMessage,
+  slackSettledCard,
+  verifySlackSignature,
+} from "@werft-ai/platform";
 import {
   createFakeSlackWebApi,
   startFakeSlackApi,
@@ -446,5 +452,129 @@ describe("fake Slack interactivity, for a local stack", () => {
         })
       ).status,
     ).toBe(400);
+  });
+});
+
+describe("fake Slack takes a card with a folded container and its one-line settled form", () => {
+  const slack = startFakeSlackApi({ teamId: "T0X" });
+  const bot = "fake-card-bot";
+  slack.apps.set("A0CARD", {
+    appId: "A0CARD",
+    clientId: "4.4",
+    clientSecret: crypto.randomUUID(),
+    signingSecret: crypto.randomUUID(),
+    manifest: {},
+    botTokens: [bot],
+  });
+  const api = createSlackBotApi({ apiUrl: slack.url });
+  const root = slack.url.replace(/\/api$/, "");
+  afterAll(() => slack.stop());
+
+  const card = slackPromptMessage(
+    {
+      kind: "permission",
+      sessionId: "019a0000-0000-7000-8000-0000000000a5",
+      requestId: "toolu_1",
+      tool: "Bash",
+      input: { command: "npm test" },
+      context: {},
+      expiresAt: "2026-11-03T00:00:00Z",
+    },
+    {
+      locale: "ko",
+      requesterSlackUserId: "U0ASKER",
+      linkUrl: "https://console.example/sessions/x",
+    },
+  );
+
+  test("a card with a container posts; a nested container or too many blocks is invalid_blocks", async () => {
+    const posted = await api.postMessage(bot, {
+      channelId: "C0X",
+      threadTs: "1.1",
+      text: card.text,
+      blocks: card.blocks,
+    });
+    expect(posted.body).toMatchObject({ ok: true });
+    const nested = await api.postMessage(bot, {
+      channelId: "C0X",
+      threadTs: "1.1",
+      text: "x",
+      blocks: [
+        {
+          type: "container",
+          child_blocks: [{ type: "container", child_blocks: [] }],
+        },
+      ],
+    });
+    expect(nested.body).toEqual({ ok: false, error: "invalid_blocks" });
+    const many = await api.postMessage(bot, {
+      channelId: "C0X",
+      threadTs: "1.1",
+      text: "x",
+      blocks: Array.from({ length: 51 }, () => ({ type: "divider" })),
+    });
+    expect(many.body).toEqual({ ok: false, error: "invalid_blocks" });
+  });
+
+  test("/fake/updates shows the settled card as one context line", async () => {
+    const settled = slackSettledCard({
+      locale: "ko",
+      linkUrl: "https://console.example/sessions/x",
+      deciderSlackUserId: "U0DECIDER",
+      display: {
+        kind: "permission",
+        tool: "Bash",
+        input: { command: "npm test" },
+        context: {},
+        state: "answered",
+        decision: "allow",
+        decidedByUserId: "019a0000-0000-7000-8000-000000000101",
+        closedReason: null,
+        createdAt: "2026-11-03T00:00:00Z",
+        expiresAt: "2026-11-03T01:00:00Z",
+      },
+    });
+    if (settled === null) throw new Error("expected a settled card");
+    await api.updateMessage(bot, { channelId: "C0X", ts: "1.2", ...settled });
+    expect(await (await fetch(`${root}/fake/updates`)).json()).toEqual({
+      ok: true,
+      updates: [
+        {
+          channelId: "C0X",
+          ts: "1.2",
+          text: "<@U0DECIDER> 허용됨\n명령 실행: npm test\n<https://console.example/sessions/x|웹에서 열기>",
+          blocks: [
+            {
+              type: "context",
+              elements: [
+                {
+                  type: "mrkdwn",
+                  text: ":white_check_mark: *허용됨* · <@U0DECIDER>",
+                },
+                {
+                  type: "plain_text",
+                  text: "명령 실행: npm test",
+                  emoji: false,
+                },
+                {
+                  type: "mrkdwn",
+                  text: "<https://console.example/sessions/x|웹에서 열기>",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      viewUpdates: [],
+      views: [],
+    });
+    await expect(
+      api.updateMessage(bot, {
+        channelId: "C0X",
+        ts: "1.3",
+        text: "x",
+        blocks: Array.from({ length: 51 }, () => ({ type: "divider" })),
+      }),
+    ).rejects.toBeInstanceOf(SlackApiError);
   });
 });

@@ -145,6 +145,39 @@ class SlackError extends Error {
   }
 }
 
+// Slack's limits on a message's blocks: 50 in all, a collapsible container
+// counted with its children, at most 10 of them and never a container.
+const MESSAGE_BLOCKS_MAX = 50;
+const CONTAINER_CHILDREN_MAX = 10;
+
+/** Throws `invalid_blocks` for blocks Slack would refuse to post. */
+function checkBlocks(raw: string | undefined): void {
+  if (raw === undefined) return;
+  let blocks: unknown;
+  try {
+    blocks = JSON.parse(raw);
+  } catch {
+    throw new SlackError("invalid_blocks");
+  }
+  if (!Array.isArray(blocks)) throw new SlackError("invalid_blocks");
+  let count = 0;
+  for (const block of blocks as { type?: unknown; child_blocks?: unknown }[]) {
+    count += 1;
+    if (block?.type !== "container") continue;
+    const children = block.child_blocks;
+    if (
+      !Array.isArray(children) ||
+      children.length === 0 ||
+      children.length > CONTAINER_CHILDREN_MAX ||
+      children.some((child) => child?.type === "container")
+    ) {
+      throw new SlackError("invalid_blocks");
+    }
+    count += children.length;
+  }
+  if (count > MESSAGE_BLOCKS_MAX) throw new SlackError("invalid_blocks");
+}
+
 const hex = (bytes: number) => randomBytes(bytes).toString("hex");
 
 export function createFakeSlackWebApi(
@@ -187,6 +220,7 @@ export function createFakeSlackWebApi(
     const { channel, thread_ts, text, user: _, ...options } = context.params;
     if (!channel) throw new SlackError("channel_not_found");
     if (!text) throw new SlackError("no_text");
+    checkBlocks(options.blocks);
     messageCounter += 1;
     const ts = `${Math.floor(Date.now() / 1000)}.${String(messageCounter).padStart(6, "0")}`;
     messages.push({
@@ -431,6 +465,7 @@ export function createFakeSlackWebApi(
       installedBot(context);
       const { channel, ts, text, blocks } = context.params;
       if (!channel || !ts) throw new SlackError("message_not_found");
+      checkBlocks(blocks);
       updates.push({
         channelId: channel,
         ts,

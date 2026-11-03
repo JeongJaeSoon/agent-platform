@@ -1260,6 +1260,29 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
     expect(card.options.blocks).toContain("rich_text_preformatted");
     expect(card.text).not.toContain("<!here>");
+    const cardOf = () =>
+      createPostgresSlackOutboxStore(db).promptCard({
+        sessionId,
+        requestId: "toolu:1",
+        channelId: card.channelId,
+        slackTs: card.ts,
+      });
+    const open = await cardOf();
+    expect(open).toMatchObject({
+      locale: "ko",
+      deciderSlackUserId: null,
+      display: { kind: "permission", tool: "Bash", state: "open" },
+    });
+    expect(open?.linkUrl).toStartWith(CONSOLE);
+    expect(card.text).toContain(open?.linkUrl ?? "missing");
+    expect(
+      await createPostgresSlackOutboxStore(db).promptCard({
+        sessionId,
+        requestId: "toolu:1",
+        channelId: card.channelId,
+        slackTs: "1.000000",
+      }),
+    ).toBeNull();
     expect((await rows()).map((row) => [row.kind, row.dedupeKey])).toEqual([
       [
         "input_notice",
