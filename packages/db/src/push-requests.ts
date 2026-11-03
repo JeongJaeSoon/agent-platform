@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   agentGitHubSchema,
+  GITHUB_MCP_TOOL_ARGUMENTS,
+  type GitHubMcpTool,
   OPEN_PUSH_REQUEST_STATES,
   type PushDecider,
   type PushReceiptResult,
@@ -13,10 +15,12 @@ import {
   PUSH_REFUSAL_ERRORS,
   type PushJob,
   type PushRefusalRecord,
+  type PushRequestDisplayReader,
   type PushRequestStore,
   type PushWriteResult,
+  type ToolSummaryContext,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import {
   findIdempotent,
   type IdempotencyScope,
@@ -26,6 +30,7 @@ import type { Database } from "./queries.ts";
 import {
   agentReleases,
   agents,
+  catalogRepositories,
   idempotencyKeys,
   pushRequests,
   receipts,
@@ -33,6 +38,98 @@ import {
 } from "./schema.ts";
 
 type Row = typeof pushRequests.$inferSelect;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const GITHUB_TOOL = "mcp__github__";
+
+/** The catalog's owner/name for a repository id, null without a row. */
+export const catalogName = (repositoryId: SQL) => sql<string | null>`(
+  SELECT c.owner || '/' || c.name FROM ${catalogRepositories} c
+  WHERE c.id = ${repositoryId}
+)`;
+
+async function repositoryName(
+  db: Database,
+  repositoryId: string,
+): Promise<string> {
+  const [row] = await db
+    .select({
+      owner: catalogRepositories.owner,
+      name: catalogRepositories.name,
+    })
+    .from(catalogRepositories)
+    .where(eq(catalogRepositories.id, repositoryId))
+    .limit(1);
+  return row ? `${row.owner}/${row.name}` : repositoryId;
+}
+
+/**
+ * What a GitHub tool's input points at, read from the platform's rows: a
+ * push request's repository and branch, or the repository an id names (the
+ * id itself when the catalog has no row for it). Empty for any other tool,
+ * an input that does not parse, or a push request of another session.
+ */
+export async function toolSummaryContext(
+  db: Database,
+  sessionId: string,
+  tool: string,
+  input: unknown,
+): Promise<ToolSummaryContext> {
+  const name = tool.startsWith(GITHUB_TOOL)
+    ? tool.slice(GITHUB_TOOL.length)
+    : "";
+  if (!Object.hasOwn(GITHUB_MCP_TOOL_ARGUMENTS, name)) return {};
+  const parsed =
+    GITHUB_MCP_TOOL_ARGUMENTS[name as GitHubMcpTool].safeParse(input);
+  if (!parsed.success) return {};
+  const args = parsed.data as {
+    push_request_id?: string;
+    repository_id?: string;
+    branch?: string;
+  };
+  if (args.push_request_id !== undefined) {
+    if (!UUID.test(args.push_request_id) || !UUID.test(sessionId)) return {};
+    const [row] = await db
+      .select({
+        repositoryId: pushRequests.repositoryId,
+        repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
+        targetBranch: pushRequests.targetBranch,
+      })
+      .from(pushRequests)
+      .where(
+        and(
+          eq(pushRequests.id, args.push_request_id.toLowerCase()),
+          eq(pushRequests.sessionId, sessionId.toLowerCase()),
+        ),
+      )
+      .limit(1);
+    return row
+      ? {
+          repository: row.repositoryName ?? row.repositoryId,
+          branch: row.targetBranch,
+        }
+      : {};
+  }
+  if (name === "attach_repository" && args.repository_id !== undefined) {
+    return { repository: await repositoryName(db, args.repository_id) };
+  }
+  if (name !== "request_push" || !UUID.test(sessionId)) return {};
+  let repositoryId = args.repository_id ?? null;
+  if (repositoryId === null) {
+    const [session] = await db
+      .select({ repositoryId: sessions.repositoryId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId.toLowerCase()))
+      .limit(1);
+    repositoryId = session?.repositoryId ?? null;
+  }
+  return {
+    ...(repositoryId === null
+      ? {}
+      : { repository: await repositoryName(db, repositoryId) }),
+    branch: pushBranchFor(sessionId.toLowerCase(), args.branch),
+  };
+}
 
 function publicPushRequest(row: Row): PushRequest {
   return {
@@ -126,7 +223,9 @@ async function replayCreate(
   return row ? { outcome: "replayed", request: publicPushRequest(row) } : null;
 }
 
-export function createPostgresPushRequests(db: Database): PushRequestStore {
+export function createPostgresPushRequests(
+  db: Database,
+): PushRequestStore & PushRequestDisplayReader {
   return {
     async findSession(ownerId, sessionId) {
       const [row] = await db
@@ -353,6 +452,41 @@ export function createPostgresPushRequests(db: Database): PushRequestStore {
         )
         .limit(1);
       return row ? publicPushRequest(row) : null;
+    },
+
+    async displayOf(ownerId, sessionId, pushRequestId) {
+      if (!UUID.test(sessionId) || !UUID.test(pushRequestId)) return null;
+      const [row] = await db
+        .select({
+          repositoryId: pushRequests.repositoryId,
+          repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
+          targetBranch: pushRequests.targetBranch,
+          gitCommit: pushRequests.gitCommit,
+          state: pushRequests.state,
+          decidedBy: pushRequests.decidedBy,
+          createdAt: pushRequests.createdAt,
+        })
+        .from(pushRequests)
+        .where(
+          and(
+            eq(pushRequests.id, pushRequestId.toLowerCase()),
+            eq(pushRequests.sessionId, sessionId.toLowerCase()),
+            eq(pushRequests.ownerId, ownerId),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+      const decider = (row.decidedBy as { actor_user_id?: unknown } | null)
+        ?.actor_user_id;
+      return {
+        repositoryId: row.repositoryId,
+        repositoryName: row.repositoryName,
+        targetBranch: row.targetBranch,
+        gitCommit: row.gitCommit,
+        state: row.state as PushRequestState,
+        decidedByUserId: typeof decider === "string" ? decider : null,
+        createdAt: row.createdAt.toISOString(),
+      };
     },
 
     decide(input): Promise<PushWriteResult> {

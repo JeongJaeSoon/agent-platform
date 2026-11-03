@@ -2,6 +2,7 @@ import type {
   DeciderKey,
   ParkDeclinedRequest,
   ParkedDelivery,
+  PendingQuestion,
   PendingRequest,
   PendingSettlement,
   PostSessionAnswerRequest,
@@ -47,6 +48,53 @@ export type PendingRequestOutcome =
   | { state: "open" | "closed"; kind: "permission" | "question" }
   | { state: "answered"; kind: "question" }
   | { state: "answered"; kind: "permission"; decision: "allow" | "deny" };
+
+/**
+ * What a tool's input points at, read from the platform's own rows: the
+ * repository's catalog name and the branch. A GitHub tool's input carries
+ * only ids, so a card has nothing readable to show without it.
+ */
+export type ToolSummaryContext = { repository?: string; branch?: string };
+
+/**
+ * A request as a card shows it, settled or not. The input is the stored
+ * one, already redacted for display. A typed answer is never here: only
+ * whether there was one, since the card is read by the whole thread.
+ */
+export type PendingRequestDisplay = (
+  | {
+      kind: "permission";
+      tool: string;
+      input: unknown;
+      context: ToolSummaryContext;
+    }
+  | {
+      kind: "question";
+      questions: PendingQuestion[];
+      answers: {
+        question_id: string;
+        selected_option_ids: string[];
+        typed: boolean;
+      }[];
+    }
+) & {
+  state: "open" | "answered" | "closed";
+  decision: "allow" | "deny" | null;
+  decidedByUserId: string | null;
+  /** Why a request no one answered closed. */
+  closedReason: "expired" | "session_closed" | "stale" | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export interface PendingRequestDisplayReader {
+  /** The request for display; null outside the owner's sessions. */
+  displayOf(
+    ownerId: string,
+    sessionId: string,
+    requestId: string,
+  ): Promise<PendingRequestDisplay | null>;
+}
 
 /** The public half: what clients see and how they answer it. */
 export interface PendingRequestStore {

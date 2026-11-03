@@ -8,6 +8,7 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { LinkedSubject } from "../ports/linked-account-store.ts";
+import type { SlackPromptCard } from "../ports/slack-outbox-store.ts";
 import { SessionServiceError } from "../sessions/session-service.ts";
 import { createAuthorizationPolicy, type IdentityReader } from "./policy.ts";
 import {
@@ -58,6 +59,8 @@ let results: string[];
 let userDelayMs: number;
 let hold: "now" | "held" | "pull_request" | Error;
 let viewUpdateError: Error | null;
+// null: derived from the request id; undefined: no card row found.
+let posted: SlackPromptCard["display"] | null | undefined;
 
 beforeEach(() => {
   calls = [];
@@ -73,7 +76,60 @@ beforeEach(() => {
   results = [];
   userDelayMs = 0;
   hold = "now";
+  posted = null;
 });
+
+const OTHER_USER = "019a0000-0000-7000-8000-000000000102";
+
+const toolDisplay = () =>
+  displayFor("toolu_1") as Extract<
+    SlackPromptCard["display"],
+    { kind: "permission" }
+  >;
+
+/**
+ * The request as the database holds it once the press landed: what the
+ * presser decided, by them; a push as `pushState` says, else approved.
+ */
+function displayFor(requestId: string): SlackPromptCard["display"] {
+  const base = {
+    decidedByUserId: USER,
+    closedReason: null,
+    createdAt: NOW.toISOString(),
+    expiresAt: NOW.toISOString(),
+  };
+  if (requestId.startsWith("push")) {
+    return {
+      kind: "push",
+      repositoryId: "repo-1",
+      repositoryName: "JeongJaeSoon/werft-sandbox",
+      targetBranch: "agent/x",
+      gitCommit: "a".repeat(40),
+      state: pushState === "rejected" ? "rejected" : "approved",
+      decidedByUserId: pushState === "rejected" ? OTHER_USER : USER,
+      createdAt: NOW.toISOString(),
+    };
+  }
+  if (requestId.startsWith("q")) {
+    return {
+      ...base,
+      kind: "question",
+      questions: [question],
+      answers: [{ question_id: "q-1", selected_option_ids: [], typed: true }],
+      state: "answered",
+      decision: null,
+    };
+  }
+  return {
+    ...base,
+    kind: "permission",
+    tool: "Bash",
+    input: { command: "ls" },
+    context: {},
+    state: "answered",
+    decision: "allow",
+  };
+}
 
 const record =
   (method: string, result: unknown = undefined) =>
@@ -249,7 +305,21 @@ function deps(): SlackInteractionDeps {
       postEphemeral: record("ephemeral") as never,
     },
     botToken: async () => "xoxb-fixture",
-    outbox: { readerLocale: async () => "en" },
+    outbox: {
+      promptCard: async (input) => {
+        calls.push({ method: "card", args: [input] });
+        if (posted === undefined) return null;
+        const display = posted ?? displayFor(input.requestId);
+        return {
+          // The card's language, not the presser's ("en"): it was posted so.
+          locale: "ja",
+          linkUrl: "https://console.example/sessions/x",
+          deciderSlackUserId: display.decidedByUserId === USER ? LINKED : null,
+          display,
+        };
+      },
+      readerLocale: async () => "en",
+    },
     connectUrl: "https://app.example/settings/linked-accounts",
     logger: {
       warn() {},
@@ -287,6 +357,7 @@ const asked = slackPromptMessage(
     requestId: "toolu_1",
     tool: "Bash",
     input: { command: "ls" },
+    context: {},
     expiresAt: NOW.toISOString(),
   },
   { locale: "en", requesterSlackUserId: null },
@@ -367,13 +438,192 @@ describe("Slack interactions", () => {
       idempotencyKey: `slack:toolu_1:${LINKED}`,
       body: { request_id: "toolu_1", kind: "permission", decision: "allow" },
     });
+    // Redrawn from the stored request, not from the pressed message.
+    expect(called("card")[0]?.args[0]).toEqual({
+      sessionId: SESSION,
+      requestId: "toolu_1",
+      channelId: CHANNEL,
+      slackTs: CARD_TS,
+    });
     const update = called("update")[0]?.args[1] as {
       ts: string;
-      blocks: { type: string }[];
+      blocks: { type: string; elements: { text: string }[] }[];
     };
     expect(update.ts).toBe(CARD_TS);
-    expect(update.blocks.some((b) => b.type === "actions")).toBe(false);
+    expect(update.blocks).toHaveLength(1);
+    expect(update.blocks[0]?.type).toBe("context");
+    // The presser reads English; the card was posted in Japanese.
+    expect(update.blocks[0]?.elements.map((e) => e.text)).toEqual([
+      // This press settled it, so the line names Slack's path, no "Web".
+      `:white_check_mark: <@${LINKED}>さんが許可しました`,
+      "コマンド実行: ls",
+      "<https://console.example/sessions/x|Webで開く>",
+    ]);
     expect(settledText()).toContain(`<@${LINKED}>`);
+    expect(settledText()).toContain("許可しました");
+  });
+
+  test("a card no outbox row posted is left as it is", async () => {
+    posted = undefined;
+    const outcome = await send(
+      press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+        s: SESSION,
+        r: "toolu_1",
+      }),
+    );
+    expect(outcome).toMatchObject({ result: "answered" });
+    expect(called("card")).toHaveLength(1);
+    expect(called("update")).toEqual([]);
+  });
+
+  test("a request still open after the press keeps its buttons", async () => {
+    posted = { ...toolDisplay(), state: "open", decision: null };
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+        s: SESSION,
+        r: "toolu_1",
+      }),
+    );
+    expect(called("update")).toEqual([]);
+  });
+
+  test("Slack is answered within three seconds when the token, language, decision and card reads take longer", async () => {
+    const slow = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      pending: {
+        ...base.pending,
+        answer: async (...args) => {
+          calls.push({ method: "answer", args });
+          await slow(4000);
+          return undefined as never;
+        },
+      },
+      botToken: async () => {
+        calls.push({ method: "token", args: [] });
+        await slow(1000);
+        return "xoxb-fixture";
+      },
+      outbox: {
+        ...base.outbox,
+        readerLocale: async () => {
+          await slow(1000);
+          return "en";
+        },
+        promptCard: async (input) => {
+          calls.push({ method: "card", args: [input] });
+          await slow(1000);
+          return null;
+        },
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    const started = performance.now();
+    const outcome = await service.receive({
+      agentId: AGENT,
+      rawBody: new TextEncoder().encode(body),
+      ...signed(body),
+    });
+    const elapsed = performance.now() - started;
+    expect(outcome).toMatchObject({ kind: "ok", result: "accepted" });
+    // Only the signing secret and the token (1s) are awaited before the
+    // answer: the language (1s), the decision (4s) and the card (1s) after.
+    expect(elapsed).toBeLessThan(1500);
+    expect(called("answer")).toEqual([]);
+    expect(called("card")).toEqual([]);
+    await drain();
+    expect(called("answer")).toHaveLength(1);
+    expect(called("card")).toHaveLength(1);
+  }, 15_000);
+
+  test("a press whose presser's language cannot be read still decides, in the default language", async () => {
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      outbox: {
+        ...base.outbox,
+        readerLocale: async () => {
+          throw new Error("db down");
+        },
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    expect(
+      await service.receive({
+        agentId: AGENT,
+        rawBody: new TextEncoder().encode(body),
+        ...signed(body),
+      }),
+    ).toMatchObject({ kind: "ok", result: "accepted" });
+    await drain();
+    expect(called("answer")).toHaveLength(1);
+    expect(called("update")).toHaveLength(1);
+  });
+
+  test("a press whose bot token cannot be read fails before Slack is answered", async () => {
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      botToken: async () => {
+        throw new Error("secret store down");
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    await expect(
+      service.receive({
+        agentId: AGENT,
+        rawBody: new TextEncoder().encode(body),
+        ...signed(body),
+      }),
+    ).rejects.toThrow("secret store down");
+    await drain();
+    expect(called("answer")).toEqual([]);
+  });
+
+  test("two presses of the same button decide once; the second sees it settled", async () => {
+    const decided = new Map<string, unknown>();
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      pending: {
+        ...base.pending,
+        // As the store does: one decision per idempotency key, replayed.
+        answer: async (...args) => {
+          calls.push({ method: "answer", args });
+          const key = (args[2] as { idempotencyKey: string }).idempotencyKey;
+          if (!decided.has(key)) decided.set(key, args[2]);
+          return undefined as never;
+        },
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    for (const _ of [1, 2]) {
+      expect(
+        await service.receive({
+          agentId: AGENT,
+          rawBody: new TextEncoder().encode(body),
+          ...signed(body),
+        }),
+      ).toMatchObject({ kind: "ok", result: "accepted" });
+    }
+    await drain();
+    expect(called("answer")).toHaveLength(2);
+    expect(decided.size).toBe(1);
+    expect(called("update")).toHaveLength(2);
+    expect(settledText()).toContain("許可しました");
   });
 
   test("Slack is answered before a press's work runs", async () => {
@@ -436,6 +686,11 @@ describe("Slack interactions", () => {
   test("a press on a request someone already answered shows its result and answers nothing new", async () => {
     answerError = new SessionServiceError("REQUEST_STALE", "answered");
     outcome = { state: "answered", kind: "permission", decision: "deny" };
+    posted = {
+      ...toolDisplay(),
+      decision: "deny",
+      decidedByUserId: OTHER_USER,
+    };
     const result = await send(
       press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
         s: SESSION,
@@ -445,7 +700,10 @@ describe("Slack interactions", () => {
     expect(result).toMatchObject({ result: "already" });
     expect(called("answer")).toHaveLength(1);
     expect(settledText()).not.toContain(`<@${LINKED}>`);
-    expect(settledText()).toBeTruthy();
+    // Decided elsewhere by someone with no Slack account here: the press
+    // does not know the path, so the line names neither.
+    expect(settledText()).toContain("拒否済み");
+    expect(settledText()).not.toContain("Webで拒否");
     expect(called("ephemeral")).toEqual([]);
   });
 
@@ -622,7 +880,21 @@ describe("Slack interactions", () => {
         ],
       },
     });
-    expect((called("update")[0]?.args[1] as { ts: string }).ts).toBe(CARD_TS);
+    const update = called("update")[0]?.args[1] as {
+      ts: string;
+      text: string;
+      blocks: unknown[];
+    };
+    expect(update.ts).toBe(CARD_TS);
+    expect(called("card")[0]?.args[0]).toMatchObject({
+      requestId: "q_1",
+      slackTs: CARD_TS,
+    });
+    // The typed answer was the presser's to see; the thread sees that one was given.
+    expect(JSON.stringify(update)).not.toContain("MySQL");
+    expect(JSON.stringify(update.blocks)).toContain(
+      "Which database?: 直接入力した回答",
+    );
   });
 
   test("an empty or forged modal answer keeps the modal open with an error", async () => {

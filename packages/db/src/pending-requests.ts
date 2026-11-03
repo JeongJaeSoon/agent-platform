@@ -13,6 +13,7 @@ import {
 import type {
   AnswerRequestInput,
   AnswerRequestResult,
+  PendingRequestDisplayReader,
   PendingRequestStore,
 } from "@werft-ai/platform";
 import {
@@ -41,6 +42,7 @@ import {
 } from "./control-shared.ts";
 import { DB_NOW, dbNow } from "./db-clock.ts";
 import { closeParkedGroup, continuationMessage } from "./parked-group.ts";
+import { toolSummaryContext } from "./push-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   keyReaches,
@@ -601,9 +603,18 @@ function answerMismatch(
   return questionAnswerMismatch(questions, answer.answers);
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A request closed while its session stood here was closed with it.
+const SESSION_ENDED_STATES: ReadonlySet<string> = new Set([
+  "stopping",
+  "stopped",
+  "closing",
+  "closed",
+]);
+
 export function createPostgresPendingRequests(
   db: Database,
-): PendingRequestStore {
+): PendingRequestStore & PendingRequestDisplayReader {
   return {
     async requestOutcome(ownerId, sessionId, requestId) {
       const [row] = await db
@@ -637,6 +648,116 @@ export function createPostgresPendingRequests(
         kind,
         decision: decision === "allow" ? "allow" : "deny",
       };
+    },
+
+    async displayOf(ownerId, sessionId, requestId) {
+      if (!UUID.test(sessionId)) return null;
+      const [row] = await db
+        .select({
+          payload: pendingRequests.payload,
+          answer: pendingRequests.answer,
+          answeredBy: pendingRequests.answeredBy,
+          createdAt: pendingRequests.createdAt,
+          expiresAt: pendingRequests.expiresAt,
+          expired: sql<boolean>`${pendingRequests.expiresAt} <= ${DB_NOW}`,
+          admissionState: sessions.admissionState,
+          open: sql<boolean>`EXISTS (${actionableRequest(
+            db,
+            sql`${requestId}`,
+            sql`${sessionId}::uuid`,
+          )})`,
+        })
+        .from(pendingRequests)
+        .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+        .where(
+          and(
+            eq(pendingRequests.requestId, requestId),
+            eq(pendingRequests.sessionId, sessionId),
+            eq(sessions.ownerId, ownerId),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+      const payload = row.payload as {
+        kind?: string;
+        tool?: unknown;
+        input?: unknown;
+        questions?: unknown;
+      };
+      const answer = row.answer as {
+        decision?: unknown;
+        answers?: {
+          question_id?: unknown;
+          selected_option_ids?: unknown;
+          free_text?: unknown;
+        }[];
+      } | null;
+      const state = row.open
+        ? ("open" as const)
+        : answer === null
+          ? ("closed" as const)
+          : ("answered" as const);
+      const decider = (row.answeredBy as { actor_user_id?: unknown } | null)
+        ?.actor_user_id;
+      const base = {
+        state,
+        decision:
+          state === "answered" && payload.kind === "permission"
+            ? answer?.decision === "allow"
+              ? ("allow" as const)
+              : ("deny" as const)
+            : null,
+        decidedByUserId:
+          state === "answered" && typeof decider === "string" ? decider : null,
+        closedReason:
+          state !== "closed"
+            ? null
+            : row.expired
+              ? ("expired" as const)
+              : SESSION_ENDED_STATES.has(row.admissionState)
+                ? ("session_closed" as const)
+                : ("stale" as const),
+        createdAt: row.createdAt.toISOString(),
+        expiresAt: row.expiresAt.toISOString(),
+      };
+      if (payload.kind === "permission" && typeof payload.tool === "string") {
+        const input = payload.input ?? null;
+        return {
+          ...base,
+          kind: "permission",
+          tool: payload.tool,
+          input,
+          context: await toolSummaryContext(db, sessionId, payload.tool, input),
+        };
+      }
+      const questions = pendingQuestionSchema
+        .array()
+        .safeParse(payload.questions);
+      if (!questions.success) return null;
+      // Only whether a typed answer was given: its text stays off the card.
+      const answers =
+        state === "answered" && Array.isArray(answer?.answers)
+          ? answer.answers.flatMap((item) =>
+              typeof item?.question_id === "string"
+                ? [
+                    {
+                      question_id: item.question_id,
+                      selected_option_ids: Array.isArray(
+                        item.selected_option_ids,
+                      )
+                        ? item.selected_option_ids.filter(
+                            (id): id is string => typeof id === "string",
+                          )
+                        : [],
+                      typed:
+                        typeof item.free_text === "string" &&
+                        item.free_text !== "",
+                    },
+                  ]
+                : [],
+            )
+          : [];
+      return { ...base, kind: "question", questions: questions.data, answers };
     },
 
     async listOpen(ownerId, sessionId) {
