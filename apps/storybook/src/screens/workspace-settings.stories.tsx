@@ -14,9 +14,6 @@ import {
   Code,
   ConfirmDialog,
   cn,
-  DangerZone,
-  DangerZoneRow,
-  EmptyState,
   ErrorState,
   Field,
   FieldContent,
@@ -32,15 +29,20 @@ import {
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  Heading,
+  IconTile,
   Input,
   Link,
   linkVariants,
   Page,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   RadioGroup,
   RadioGroupItem,
   RelativeTime,
-  RowAction,
   RowLines,
+  RowList,
   RowListItem,
   SecretField,
   SettingRow,
@@ -53,7 +55,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
-import { Lock } from "lucide-react";
+import { Ellipsis, Hash, Lock } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type FormEvent,
@@ -207,6 +209,9 @@ const SLACK_APPS: readonly MadeApp[] = [
 ];
 
 const SECTIONS = "flex flex-col gap-10";
+// workspace-settings.tsx SETTINGS_CARD.
+const CARD = "flex flex-col gap-4 rounded-card border bg-card p-4";
+const TOKEN_NAME = "App Configuration Token";
 // The server's ceiling (workspace-settings.tsx AUDIT_RETENTION_MAX_DAYS).
 const AUDIT_RETENTION_MAX_DAYS = 3650;
 const ICON = "size-3.5 shrink-0";
@@ -663,15 +668,23 @@ function SlackGuest({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const [enabled, setEnabled] = useState(SETTINGS.slack_guest_enabled);
+  const titleId = useId();
   const hintId = useId();
   const reasonId = useId();
   const reason = viewer === "member" ? manageReason(viewer) : undefined;
   return (
-    <SettingsSection
-      title="Slack 게스트"
-      description="켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수 없습니다. 소유자나 관리자가 바꿀 수 있습니다."
-      descriptionId={hintId}
-      rows={
+    <section aria-labelledby={titleId} className={CARD}>
+      <div className="flex flex-col gap-1">
+        <Heading id={titleId} level={2}>
+          Slack 게스트
+        </Heading>
+        <Text variant="sub" id={hintId}>
+          켜도 게스트는 먼저 웹에서 자기 Slack 계정을 연결해야 합니다. Slack
+          Connect로 들어온 다른 조직 사람은 켜져 있어도 에이전트를 쓸 수
+          없습니다. 소유자나 관리자가 바꿀 수 있습니다.
+        </Text>
+      </div>
+      <RowList variant="joined">
         <SettingRow
           title="Slack 게스트도 에이전트를 쓸 수 있게 하기"
           meta={
@@ -710,8 +723,8 @@ function SlackGuest({
             />
           }
         />
-      }
-    />
+      </RowList>
+    </section>
   );
 }
 
@@ -816,9 +829,6 @@ function TokenBadge({
 
 /** routes/workspace-slack.tsx tokenLine, in the ko catalog's words. */
 function tokenLine(summary: SlackConfigTokenSummary): string | undefined {
-  if (summary.state === "needs_reentry") {
-    return "저장된 토큰을 사용할 수 없습니다. 새 토큰을 등록해 주세요. 등록할 때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속 동작합니다.";
-  }
   if (summary.state === "unset") {
     return "이미 만든 앱은 계속 동작합니다. 새 앱을 만들려면 토큰을 등록하세요.";
   }
@@ -960,40 +970,89 @@ const APP_COLUMNS = [
   "minmax(0,1fr) 120px 64px",
 ] as const;
 
-function SlackApps({
-  viewer,
-  apps,
-}: {
-  readonly viewer: Role;
-  readonly apps: readonly MadeApp[];
-}) {
-  const canManage = viewer !== "member";
+function SlackApps({ apps }: { readonly apps: readonly MadeApp[] }) {
+  const titleId = useId();
   return (
-    <SettingsSection
+    <section
       id={SLACK_APPS_ANCHOR}
-      title="자동으로 만든 Slack 앱"
-      description="여기서는 앱의 상태만 봅니다. 에이전트 앱의 설치, 연결 해제, 삭제는 그 에이전트의 Slack 탭에서 합니다."
-      rows={
-        canManage ? undefined : (
-          <SettingRow title="앱 목록" description={manageReason(viewer)} />
-        )
-      }
+      aria-labelledby={titleId}
+      className="flex flex-col gap-2"
     >
-      {!canManage ? null : apps.length === 0 ? (
-        <EmptyState
-          size="sm"
-          title="이 콘솔이 만든 Slack 앱이 아직 없습니다."
-        />
+      <Heading id={titleId} level={3}>
+        자동으로 만든 Slack 앱
+      </Heading>
+      {apps.length === 0 ? (
+        <Text variant="sub" className="rounded-card border border-dashed p-4">
+          이 콘솔이 만든 Slack 앱이 아직 없습니다.
+        </Text>
       ) : (
         <AppTable items={apps} />
       )}
-    </SettingsSection>
+      <Text variant="meta">
+        여기서는 앱의 상태만 봅니다. 에이전트 앱의 설치, 연결 해제, 삭제는 그
+        에이전트의 Slack 탭에서 합니다.
+      </Text>
+    </section>
+  );
+}
+
+/** components/row-menu.tsx RowMenu: the ⋯ button and its items. */
+function TokenMenu({
+  active,
+  onReplace,
+  onDelete,
+}: {
+  readonly active: boolean;
+  readonly onReplace: () => void;
+  readonly onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const item = (text: string, danger: boolean, onSelect: () => void) => (
+    <Button
+      type="button"
+      variant="ghost"
+      role="menuitem"
+      className={cn(
+        "w-full justify-start font-normal",
+        danger && "text-(color:--ap-tone-danger-fg)",
+      )}
+      onClick={() => {
+        setOpen(false);
+        onSelect();
+      }}
+    >
+      {text}
+    </Button>
+  );
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`${TOKEN_NAME} 메뉴`}
+          aria-haspopup="menu"
+        >
+          <Ellipsis aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        role="menu"
+        aria-label={`${TOKEN_NAME} 메뉴`}
+        align="end"
+        className="flex min-w-44 flex-col gap-0.5 p-1"
+      >
+        {active ? item("토큰 교체", false, onReplace) : null}
+        {item(`${TOKEN_NAME} 삭제`, true, onDelete)}
+      </PopoverContent>
+    </Popover>
   );
 }
 
 function SlackPage({
   viewer,
-  token: initialToken,
+  token: firstRead,
   appsEmpty,
   editing: initialEditing,
   guestSaving,
@@ -1005,8 +1064,10 @@ function SlackPage({
   readonly guestSaving: boolean;
 }) {
   const canManage = viewer !== "member";
+  const titleId = useId();
+  const tokenTitleId = useId();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [read, setRead] = useState<TokenRead>(initialToken);
+  const [read, setRead] = useState<TokenRead>(firstRead);
   const [editing, setEditing] = useState(initialEditing && canManage);
   const [deleting, setDeleting] = useState(false);
   const apps = appsEmpty ? [] : SLACK_APPS;
@@ -1035,99 +1096,120 @@ function SlackPage({
     />
   ) : null;
 
-  const rows = !canManage ? (
-    <SettingRow
-      title="App Configuration Token"
-      description={manageReason(viewer)}
-    />
-  ) : read === "loading" ? (
-    <RowListItem>
-      <Skeleton width="50%" />
-    </RowListItem>
-  ) : read === "storeOff" || summary === undefined ? (
-    <RowListItem>
-      <ErrorState
-        title="불러오지 못했습니다"
-        message="비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요."
-      />
-    </RowListItem>
+  const status = !canManage
+    ? manageReason(viewer)
+    : start
+      ? "연결 없음"
+      : `앱 ${apps.length}개`;
+
+  const tokenRow =
+    read === "loading" ? (
+      <RowListItem>
+        <Skeleton width="50%" />
+      </RowListItem>
+    ) : read === "storeOff" || summary === undefined ? (
+      <RowListItem>
+        <ErrorState
+          title="불러오지 못했습니다"
+          message="비밀 저장소를 사용할 수 없습니다. 관리자에게 저장소 설정을 확인해 달라고 요청하세요."
+        />
+      </RowListItem>
+    ) : (
+      <RowListItem className="flex-col flex-nowrap items-stretch gap-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Text as="span" weight="medium" truncate>
+              {TOKEN_NAME}
+            </Text>
+            <Text variant="meta">{tokenLine(summary)}</Text>
+          </div>
+          <TokenBadge summary={summary} />
+          {summary.state === "active" || editing ? null : (
+            <Button type="button" size="sm" onClick={() => setEditing(true)}>
+              {summary.state === "needs_reentry" ? "토큰 재등록" : "토큰 등록"}
+            </Button>
+          )}
+          {summary.configured ? (
+            <TokenMenu
+              active={summary.state === "active"}
+              onReplace={() => setEditing(true)}
+              onDelete={() => setDeleting(true)}
+            />
+          ) : null}
+        </div>
+        {summary.state === "needs_reentry" ? (
+          <Text className="text-(color:--ap-tone-danger-fg)">
+            저장된 토큰을 사용할 수 없습니다. 새 토큰을 등록해 주세요. 등록할
+            때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속
+            동작합니다.
+          </Text>
+        ) : null}
+        {form}
+      </RowListItem>
+    );
+
+  const body = !canManage ? null : start ? (
+    <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
+      <Text weight="medium">아직 등록된 토큰이 없습니다</Text>
+      <Text variant="sub">
+        Slack에서 {TOKEN_NAME}을 만들어 등록하세요. 등록하면 에이전트의 Slack
+        탭에서 그 에이전트의 앱을 만들고 설치할 수 있습니다.
+      </Text>
+      {form ?? (
+        <Button type="button" onClick={() => setEditing(true)}>
+          토큰 등록
+        </Button>
+      )}
+    </div>
   ) : (
     <>
-      <SettingRow
-        title="App Configuration Token"
-        badge={<TokenBadge summary={summary} />}
-        description={tokenLine(summary)}
-        actions={
-          editing ? undefined : (
-            <RowAction
-              variant={summary.state === "active" ? "outline" : "default"}
-              onClick={() => setEditing(true)}
-            >
-              {summary.state === "active"
-                ? "토큰 교체"
-                : summary.state === "needs_reentry"
-                  ? "토큰 재등록"
-                  : "토큰 등록"}
-            </RowAction>
-          )
-        }
-      />
-      {form ? <RowListItem>{form}</RowListItem> : null}
-    </>
-  );
-  const after = tokenOnly ? null : (
-    <>
-      {canManage ? guest : null}
-      <SlackApps viewer={viewer} apps={apps} />
+      <section aria-labelledby={tokenTitleId} className="flex flex-col gap-2">
+        <Heading id={tokenTitleId} level={3}>
+          Slack 앱 생성
+        </Heading>
+        <RowList variant="joined" aria-labelledby={tokenTitleId}>
+          {tokenRow}
+        </RowList>
+        {summary?.updated_at ? (
+          <Text variant="meta">
+            마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은
+            시각입니다.
+          </Text>
+        ) : null}
+      </section>
+      {tokenOnly ? null : <SlackApps apps={apps} />}
     </>
   );
 
   return (
     <Page
       title="Slack 연결 설정"
-      description="소유자와 관리자만 바꿀 수 있습니다."
+      description="에이전트를 Slack에서 쓸 수 있게 이 콘솔이 Slack 앱을 만들 때 쓰는 연결입니다. 에이전트마다 앱 설치와 채널은 에이전트의 Slack 탭에서 정합니다."
     >
       <div className={SECTIONS}>
         <OutcomeLine outcome={outcome} />
         {canManage ? null : guest}
-        {start ? (
-          <SettingsSection
-            title="Slack 연결하기"
-            description="에이전트를 Slack에서 쓰려면 먼저 Slack의 App Configuration Token을 등록하세요. 등록하면 이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다."
-            rows={form ? <RowListItem>{form}</RowListItem> : undefined}
-            foot={
-              form ? undefined : (
-                <Button type="button" onClick={() => setEditing(true)}>
-                  토큰 등록
-                </Button>
-              )
-            }
-          />
-        ) : (
-          <>
-            <SettingsSection
-              title="Slack 앱 생성"
-              description="이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만들 때 쓰는 토큰입니다. 마지막 토큰 확인은 등록이나 자동 갱신 때 Slack이 토큰을 받은 시각입니다."
-              rows={rows}
-            />
-            {after}
-            {canManage && summary?.configured && after ? (
-              <DangerZone title="위험 구역">
-                <DangerZoneRow
-                  title="App Configuration Token 삭제"
-                  description="새 Slack 앱을 만들 수 없게 됩니다. 이미 만든 앱과 설치, 게스트 설정은 그대로입니다."
-                  actionLabel="삭제"
-                  actionName="App Configuration Token 삭제"
-                  onAction={() => setDeleting(true)}
-                />
-              </DangerZone>
-            ) : null}
-          </>
-        )}
+        <section aria-labelledby={titleId} className={CARD}>
+          <div className="flex items-center gap-3">
+            <IconTile icon={Hash} hue="slate" size="two-line" />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <Heading id={titleId} level={2}>
+                Slack
+              </Heading>
+              <Text variant="sub">{status}</Text>
+            </div>
+          </div>
+          <Text variant="sub">
+            이 콘솔이 계정 연결 앱과 에이전트마다 쓸 Slack 앱을 만듭니다. 앱을
+            만들려면 Slack의 {TOKEN_NAME}이 있어야 합니다.
+          </Text>
+          {body}
+        </section>
+        {canManage && !tokenOnly ? guest : null}
         <ConfirmDialog
           open={deleting}
           onOpenChange={setDeleting}
-          title="App Configuration Token을 삭제할까요?"
+          title={`${TOKEN_NAME}을 삭제할까요?`}
           consequence="새 Slack 앱을 만들 수 없게 됩니다. 이미 만든 앱과 설치, 게스트 설정은 그대로입니다."
           target={summary?.last4 ? `••••${summary.last4}` : undefined}
           confirmLabel="삭제"
@@ -1138,7 +1220,7 @@ function SlackPage({
             setRead("unset");
             setOutcome({
               kind: "notice",
-              text: "App Configuration Token을 삭제했습니다.",
+              text: `${TOKEN_NAME}을 삭제했습니다.`,
             });
           }}
         />
