@@ -88,14 +88,14 @@ The platform adds a tail to the end of the PR body: the session id and commit, t
 
 ## Attaching a repository mid-session
 
-While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval, and a person approves pushes to an attached repository even for an agent with push approval off. The agent sees which repositories it can attach with `list_repositories` (its own `primary`, attached ones `attached`, `pending` or `failed`, and attachable ones `available`).
+While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval, and a person approves pushes to an attached repository even for an agent with push approval off. The agent sees which repositories it can attach with `list_repositories` (its own `primary`, attached ones `attached`, `pending` or `failed`, and attachable ones `available`). A session keeps the release it started with, so a repository added only to a later active release is listed apart as `allowed_in_newer_release`, and `attach_repository` refuses it with `allowed_in_newer_release` instead of `repository_not_allowed`. It does not need to be allowed again: a new session (in Slack, a new thread) can attach it.
 
 A session created without `attached_repository_ids` starts with no repository attached besides its own. Put the repositories it needs from the start in that list; the agent attaches the rest when it needs them.
 
 - The attached repository becomes a git remote named `repository_id` in the workspace, with its default branch fetched to `<repository_id>/<branch>`. The agent never sees a token.
 - Attaching the same repository again changes nothing and succeeds. While the fetch is running the tool answers `pending`; call it again to read the outcome.
 - The fetch is limited to 300 seconds and 2 GiB. Past either, the attachment fails with the reason in `failure` (`fetch_timeout`, `fetch_too_large`).
-- Each attachment leaves an `attach_repository` [receipt](/approvals/receipt): who asked and from which attempt, the repository, the release, the commit fetched, and the refusal reason (`repository_not_allowed`).
+- Each attachment leaves an `attach_repository` [receipt](/approvals/receipt): who asked and from which attempt, the repository, the release, the commit fetched, and the refusal reason (`repository_not_allowed` or `allowed_in_newer_release`).
 - When the session restarts on another worker (a restore), the attached repositories' remotes are added again. A CLAUDE.md in an attached repository is not read as instructions.
 
 ## Link your GitHub account

@@ -105,7 +105,16 @@ export function memoryAttachmentStore(
   }> = [];
   let next = 0;
   const list = attached === null ? null : [...attached];
+  /** The agent's active release; null leaves none, as with no agent. */
+  const agent: {
+    active: Awaited<ReturnType<RepositoryAttachmentStore["activeRelease"]>>;
+    activeReads: number;
+  } = { active: null, activeReads: 0 };
   const store: RepositoryAttachmentStore = {
+    async activeRelease() {
+      agent.activeReads += 1;
+      return agent.active;
+    },
     async request(input) {
       if (!openAttempts.has(input.attemptId)) {
         return { outcome: "attempt_ended" };
@@ -192,5 +201,5 @@ export function memoryAttachmentStore(
       }
     },
   };
-  return Object.assign(store, { rows, receipts, attached: () => list });
+  return Object.assign(store, { rows, receipts, agent, attached: () => list });
 }
