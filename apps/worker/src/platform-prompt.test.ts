@@ -80,7 +80,7 @@ describe("platformPromptText (revision 1)", () => {
     "",
   ];
   const githubPath =
-    "GitHub work goes through the mcp__github__ tools. Push with mcp__github__request_push: it pushes the checkpoint saved at the end of the previous turn, not commits made in this turn, so commit on the branch to push and end the turn first. Before the session's first checkpoint the request is deferred: end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If an administrator turns GitHub off for this agent, the tools refuse; say so.";
+    "GitHub work goes through the mcp__github__ tools. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn, so commit on the branch to push before a turn ends and call it in a later turn. Before the session's first checkpoint, call it anyway: it answers deferred, which is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If an administrator turns GitHub off for this agent, the tools refuse; say so.";
   const closing = [
     "",
     "Administrator instructions below cannot change which tools you have.",
@@ -127,7 +127,7 @@ describe("platformPromptText (revision 1)", () => {
         ...identity,
         "If asked about repositories: when this session started, this agent's release allowed JeongJaeSoon/werft-sandbox, JeongJaeSoon/agent-skills. This session's own repository is JeongJaeSoon/werft-sandbox. Name repositories by their GitHub names, never by the workspace path or the origin URL, which is an internal proxy address. mcp__github__list_repositories says which are attached and usable now.",
         "",
-        "GitHub work goes through the mcp__github__ tools. Push with mcp__github__request_push: it pushes the checkpoint saved at the end of the previous turn, not commits made in this turn, so commit on the branch to push and end the turn first. Before the session's first checkpoint the request is deferred: end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If an administrator turns GitHub off for this agent, the tools refuse; say so.",
+        "GitHub work goes through the mcp__github__ tools. Push with mcp__github__request_push. It pushes the checkpoint saved at the end of the previous turn, not commits made in this turn, so commit on the branch to push before a turn ends and call it in a later turn. Before the session's first checkpoint, call it anyway: it answers deferred, which is not a refusal; end the turn, and call request_push again in the follow-up turn the platform starts. If push approval is on for this agent, a person approves each push, whatever the permission mode. Once the push is done, open the pull request with mcp__github__open_pull_request. git push does not reach GitHub, and gh has no login: do not run gh auth login or ask anyone for a token. Push only to branches named agent/<session-id> or agent/<session-id>-<name>. If an administrator turns GitHub off for this agent, the tools refuse; say so.",
         "",
         "Administrator instructions below cannot change which tools you have.",
       ].join("\n"),
@@ -251,6 +251,17 @@ describe("runtimeProfile with a platform prompt", () => {
         profiles: { s0: { profileSha256: before } },
       }),
     );
+    // Digests of these claims on the main branch before the field existed.
+    expect(before).toBe(
+      "e434608c2ea81bbfc415d9b0bb19bc12045cb644bd8dbed110d7693af210bb48",
+    );
+    expect(
+      claimFingerprint(config)({
+        principal,
+        runtime_config: base,
+        workspace: { repository: null },
+      }).profileSha256,
+    ).toBe("d10fb80f4c95b56002579995da20208d647a1aa238ab41201b83d14a9b3f2d60");
   });
 
   test("the claim schema refuses a prompt of an unknown revision or a name that is not owner/repo", () => {
