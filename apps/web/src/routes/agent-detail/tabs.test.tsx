@@ -117,7 +117,7 @@ describe("에이전트 상세 탭", () => {
     expect(document.activeElement === visiblePanel()).toBe(true);
   });
 
-  test("머리의 버튼 줄은 새 세션 뒤 맨 끝에 에이전트 목록으로 돌아가는 버튼을 두고, 제목 위 위치 줄은 없다", async () => {
+  test("머리의 버튼 줄은 에이전트 목록으로 돌아가는 버튼만 두고, 제목 위 위치 줄은 없다", async () => {
     renderAt(DETAIL, { ...meOk, ...agentServer().routes });
     const heading = await screen.findByRole("heading", { level: 1 });
     const header = heading.closest("header") as HTMLElement;
@@ -126,22 +126,36 @@ describe("에이전트 상세 탭", () => {
     ).toBeNull();
     const back = within(header).getByRole("link", { name: "에이전트 목록" });
     expect(back.getAttribute("href")).toBe("/agents");
-    const create = within(header).getByRole("button", {
-      name: /이 에이전트로 새 세션/,
-    });
     expect(
       within(header)
-        .getAllByRole("button")
+        .queryAllByRole("button")
         .map((button) => button.textContent),
-    ).toEqual(["이 에이전트로 새 세션"]);
-    // The keyboard reaches the title, the command, then the way back.
+    ).toEqual([]);
+  });
+
+  test("웹에서 세션을 시작할 수 없다는 안내와 시작하는 길을 누르지 않아도 탭 위에 보인다", async () => {
+    const { history } = renderAt(DETAIL, { ...meOk, ...agentServer().routes });
+    await screen.findByRole("heading", { level: 1 });
+    const hint = screen.getByText(
+      "웹에서는 아직 세션을 시작할 수 없습니다. Slack에서 이 에이전트를 멘션하거나 API로 시작하세요.",
+    );
+    // On the page from the first render, with no hover, focus or tap, and
+    // above the tabs so every tab keeps it.
     expect(
-      heading.compareDocumentPosition(create) &
+      hint.closest("[hidden], [role=tooltip], [role=tabpanel]") === null,
+    ).toBe(true);
+    expect(document.querySelector("[role=tooltip]") === null).toBe(true);
+    expect(
+      hint.compareDocumentPosition(screen.getByRole("tablist")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(
-      create.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const docs = within(hint).getByRole("link", { name: /API 문서 열기/ });
+    expect(docs.getAttribute("href")).toBe("/docs");
+    expect(docs.getAttribute("target")).toBe("_blank");
+    const slack = within(hint).getByRole("link", { name: "Slack 연결 보기" });
+    await (await setupUser()).click(slack);
+    await waitFor(() => expect(selected()).toBe("Slack"));
+    expect(tabIn(history)).toBe("slack");
   });
 
   test("상태 태그는 제목 줄의 이름 옆에 있되 제목 이름에 섞이지 않고, 설명 줄에는 설명만 둔다", async () => {
@@ -939,27 +953,6 @@ describe("에이전트 상세 탭", () => {
       ).toBe("billing"),
     );
     expect(within(summary).queryByText("역할", { selector: "dt" })).toBeNull();
-  });
-
-  test("머리의 새 세션 버튼은 꺼져 있고 이유를 읽어 준다", async () => {
-    const { history } = renderAt(DETAIL, { ...meOk, ...agentServer().routes });
-    const user = await setupUser();
-    const button = await screen.findByRole("button", {
-      name: "이 에이전트로 새 세션",
-    });
-    expect(button.getAttribute("aria-disabled")).toBe("true");
-    expect(
-      document.getElementById(button.getAttribute("aria-describedby") ?? "")
-        ?.textContent,
-    ).toContain("웹에서는 아직 세션을 시작할 수 없습니다");
-    // The reason is a note on the button, not a line under it.
-    expect(
-      screen
-        .getAllByText(/웹에서는 아직 세션을 시작할 수 없습니다/)
-        .filter((node) => node.closest("[hidden]") === null),
-    ).toHaveLength(0);
-    await user.click(button);
-    expect(history.location.pathname).toBe(DETAIL);
   });
 
   test("카드 탭은 카드를 읽기 전용으로 보이고 원문 JSON을 함께 둔다", async () => {

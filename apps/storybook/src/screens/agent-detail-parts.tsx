@@ -32,6 +32,7 @@ import {
   GridTableRow,
   Heading,
   KeyValueList,
+  Link,
   MoreLink,
   NativeSelect,
   NativeSelectOption,
@@ -48,9 +49,6 @@ import {
   TabsList,
   TabsTrigger,
   Text,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft, Check, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -219,30 +217,6 @@ function AgentStateBadge({
   );
 }
 
-/** auth/reason-button.tsx ReasonButton: inert, saying why on hover or focus. */
-function ReasonButton({
-  reason,
-  children,
-}: {
-  readonly reason: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild={true}>
-        <button
-          type="button"
-          aria-disabled={true}
-          className={cn(buttonVariants(), "aria-disabled:cursor-not-allowed")}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{reason}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 /** The agent page: its head, the six tabs, and the open tab's panel. */
 export function AgentPage({
   detail,
@@ -289,9 +263,6 @@ export function AgentPage({
       }
       actions={
         <div className="flex flex-1 flex-wrap items-start gap-2">
-          <ReasonButton reason="웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.">
-            이 에이전트로 새 세션
-          </ReasonButton>
           <a
             href="#agents"
             className={buttonVariants({
@@ -305,6 +276,17 @@ export function AgentPage({
         </div>
       }
     >
+      <Text
+        variant="sub"
+        className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+      >
+        웹에서는 아직 세션을 시작할 수 없습니다. Slack에서 이 에이전트를
+        멘션하거나 API로 시작하세요.
+        <Link href="#slack">Slack 연결 보기</Link>
+        <Link href="#docs" target="_blank" newTabLabel="(새 탭에서 열림)">
+          API 문서 열기
+        </Link>
+      </Text>
       {notice}
       <Tabs value={tab} className="min-w-0 gap-[var(--ap-space-block)]">
         <div className="border-b">

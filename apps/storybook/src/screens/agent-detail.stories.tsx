@@ -154,8 +154,12 @@ export const AgentDetail: Story = {
       "Slack",
       "GitHub",
     ]);
-    const start = canvas.getByRole("button", { name: "이 에이전트로 새 세션" });
-    await expect(start).toHaveAttribute("aria-disabled", "true");
+    await expect(
+      canvas.queryByRole("button", { name: "이 에이전트로 새 세션" }),
+    ).toBeNull();
+    await expect(
+      canvas.getByText(/웹에서는 아직 세션을 시작할 수 없습니다/),
+    ).toBeVisible();
   },
 };
 export const AgentDetailMemberDraft: Story = {

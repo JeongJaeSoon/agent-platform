@@ -27,6 +27,8 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Text,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -36,7 +38,6 @@ import {
   queryKeysOf,
 } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
-import { ReasonButton } from "../auth/reason-button.tsx";
 import {
   ManagesAgentProvider,
   useAgentAccess,
@@ -613,14 +614,7 @@ function AgentView({
         ) : undefined
       }
       actions={
-        // The way back ends the row, the command before it.
         <div className="flex flex-1 flex-wrap items-start gap-2">
-          <ReasonButton
-            className={buttonVariants()}
-            reason={t("sessionList.newUnavailable")}
-          >
-            {t("agent.newSession")}
-          </ReasonButton>
           <Link
             to="/agents"
             className={buttonVariants({
@@ -634,6 +628,32 @@ function AgentView({
         </div>
       }
     >
+      {/* The web cannot start a session (94S-1324), so instead of an
+          always-inert button the page names the ways that can. */}
+      <Text
+        variant="sub"
+        className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+      >
+        {t("agent.newSessionHint")}
+        <TextLink asChild={true}>
+          <Link
+            to="/agents/$id"
+            params={{ id: agent.id }}
+            search={{ tab: "slack" }}
+            replace={true}
+          >
+            {t("agent.newSessionSlack")}
+          </Link>
+        </TextLink>
+        {/* Served by the API itself, outside the console's router. */}
+        <TextLink
+          href="/docs"
+          target="_blank"
+          newTabLabel={t("apiKeys.docsNewTab")}
+        >
+          {t("apiKeys.docsLink")}
+        </TextLink>
+      </Text>
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       {access === "read" ? (
         <Alert>

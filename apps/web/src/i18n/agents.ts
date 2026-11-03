@@ -254,7 +254,9 @@ export const agentsKo = {
   "agent.overview.newerVersion":
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
-  "agent.newSession": "이 에이전트로 새 세션",
+  "agent.newSessionHint":
+    "웹에서는 아직 세션을 시작할 수 없습니다. Slack에서 이 에이전트를 멘션하거나 API로 시작하세요.",
+  "agent.newSessionSlack": "Slack 연결 보기",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -631,7 +633,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.overview.newerVersion":
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
-  "agent.newSession": "New session with this agent",
+  "agent.newSessionHint":
+    "Sessions cannot be started from the web yet. Mention this agent in Slack or start one through the API.",
+  "agent.newSessionSlack": "View the Slack connection",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -1002,7 +1006,9 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.overview.newerVersion":
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
-  "agent.newSession": "このエージェントで新しいセッション",
+  "agent.newSessionHint":
+    "Webからはまだセッションを開始できません。Slackでこのエージェントにメンションするか、APIから開始してください。",
+  "agent.newSessionSlack": "Slack連携を見る",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",
