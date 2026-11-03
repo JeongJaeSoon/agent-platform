@@ -1,10 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { unwrap } from "@werft-ai/client";
-import type {
-  InstallationProfileOptionsResponse,
-  ProfileSummary,
-} from "@werft-ai/contracts";
+import type { ProfileSummary } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
@@ -25,7 +21,7 @@ import {
   Skeleton,
 } from "@werft-ai/ui";
 import { useId } from "react";
-import { profilesQuery, scopedKey } from "../api/queries.ts";
+import { profilesQuery } from "../api/queries.ts";
 import {
   permissionReason,
   useHasPermission,
@@ -41,6 +37,7 @@ import {
   type EditorStart,
   ProfileEditor,
 } from "./profile-editor.tsx";
+import { installationOptionsQuery } from "./profile-tools.tsx";
 import { nextVersionId, profileName } from "./profiles.tsx";
 
 export type ProfileKind = "workspace" | "installation";
@@ -91,13 +88,8 @@ export function ProfileNewScreen() {
       ? "installation"
       : "workspace";
   const options = useQuery({
-    queryKey: scopedKey(client, "installation-profile-options"),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/installation-profiles/options"),
-      ) as Promise<InstallationProfileOptionsResponse>,
+    ...installationOptionsQuery(client),
     enabled: kind === "installation",
-    retry: false,
   });
   const kindId = useId();
 
@@ -233,6 +225,14 @@ export function ProfileNewScreen() {
           start={start}
           operators={operators}
           nextId={(name) => nextVersionId(workspace, items, name)}
+          latest={(name) =>
+            items
+              .filter((item) => item.workspace?.name === name)
+              .sort(
+                (a, b) =>
+                  (b.workspace?.version ?? 0) - (a.workspace?.version ?? 0),
+              )[0]
+          }
           onCancel={() =>
             void navigate(
               from

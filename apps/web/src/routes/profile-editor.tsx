@@ -37,6 +37,20 @@ import { queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { ProfileOptions, pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import {
+  DenyChecklist,
+  reasonOf,
+  toolField,
+  toolRefusalKey,
+} from "./profile-tools.tsx";
+import {
+  askAgain,
+  blockedOf,
+  denyRequest,
+  NO_PICKS,
+  type ToolPicks,
+  workspaceTools,
+} from "./profile-tools-model.ts";
 
 export type EditorStart =
   | { readonly mode: "new"; readonly base: ProfileSummary }
@@ -46,20 +60,19 @@ export type EditorStart =
       readonly base: ProfileSummary;
     };
 
-// This form still saves an allow list.
 type Draft = Omit<
   CreateWorkspaceProfileRequest,
   "name" | "tools" | "deny" | "accept_added_tools"
 > & {
   readonly name: string;
-  readonly tools: string[];
+  readonly tools: ToolPicks;
 };
 
 const EDITOR_FIELDS = [
   "base_profile_id",
   "models",
   "model",
-  "tools",
+  "deny",
   "permission_mode",
 ] as const;
 type EditorField = (typeof EDITOR_FIELDS)[number];
@@ -73,7 +86,7 @@ const draftOf = (
   base_profile_id: base.id,
   model: derived.model,
   models: [...derived.models],
-  tools: [...derived.tools],
+  tools: NO_PICKS,
   permission_mode: derived.permission_mode,
 });
 
@@ -95,6 +108,7 @@ export function ProfileEditor({
   start,
   operators,
   nextId,
+  latest,
   onSaved,
   onCancel,
 }: {
@@ -102,6 +116,8 @@ export function ProfileEditor({
   readonly operators: readonly ProfileSummary[];
   /** The id a save under `name` would get. */
   readonly nextId: (name: string) => string;
+  /** The latest version under `name`, which the server weighs new tools against. */
+  readonly latest: (name: string) => ProfileSummary | undefined;
   readonly onSaved: (id: string) => void;
   readonly onCancel: () => void;
 }) {
@@ -133,6 +149,19 @@ export function ProfileEditor({
   const nameError = name.success ? undefined : t("profiles.editor.nameInvalid");
   const modelsError =
     draft.models.length === 0 ? t("profiles.editor.modelsEmpty") : undefined;
+  const previous = name.success ? latest(name.data) : undefined;
+  const tools = base
+    ? workspaceTools(
+        base,
+        start.mode === "new" ? undefined : start.from,
+        previous,
+      )
+    : null;
+  const choice = tools === null ? null : denyRequest(tools, draft.tools);
+  const toolsError =
+    choice !== null && "unaccepted" in choice
+      ? t("profiles.tools.unaccepted", { tools: choice.unaccepted.join(", ") })
+      : undefined;
 
   const save = useMutation<
     WorkspaceProfileChangeResponse,
@@ -148,7 +177,18 @@ export function ProfileEditor({
       });
       onSaved(profile.id);
     },
-    onError: (failure) => setError(saveRefusal(failure)),
+    onError: (failure) => {
+      if (
+        reasonOf(failure) === "added_tool_not_accepted" &&
+        tools !== null &&
+        previous !== undefined
+      )
+        setDraft((now) => ({
+          ...now,
+          tools: askAgain(tools, now.tools, previous),
+        }));
+      setError(saveRefusal(failure));
+    },
   });
 
   function saveRefusal(failure: ApiError): {
@@ -163,7 +203,10 @@ export function ProfileEditor({
       typeof details.field === "string"
         ? details.field.split(".")[0]
         : undefined;
-    const field = EDITOR_FIELDS.find((item) => item === path) ?? null;
+    const field =
+      EDITOR_FIELDS.find((item) => item === toolField(path)) ?? null;
+    const toolRefusal = toolRefusalKey(details.reason_code);
+    if (toolRefusal) return { field: "deny", text: t(toolRefusal) };
     if (details.reason_code === "unknown_base")
       return { field, text: t("profiles.error.unknownBase") };
     if (details.reason_code === "widens_base")
@@ -183,7 +226,9 @@ export function ProfileEditor({
       ? !fixed
       : field === "model"
         ? draft.models.length > 1
-        : choices !== undefined;
+        : field === "deny"
+          ? tools !== null
+          : choices !== undefined;
   const beside = (field: EditorField) =>
     error?.field === field && drawn(field) ? error.text : undefined;
   const banner =
@@ -194,7 +239,7 @@ export function ProfileEditor({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
-    if (save.isPending || !name.success || modelsError) return;
+    if (save.isPending || !name.success || modelsError || toolsError) return;
     // A refetch can take the base out of service under the open form.
     if (!base || !pickable(base)) {
       setError({
@@ -203,16 +248,24 @@ export function ProfileEditor({
       });
       return;
     }
+    if (choice === null || "unaccepted" in choice) {
+      setError({ field: null, text: t("profiles.tools.baseNoCatalog") });
+      return;
+    }
     // The operator catalog has no such caps; the request does.
     const request = workspaceProfileStep.safeParse({
-      ...draft,
       name: name.data,
+      base_profile_id: draft.base_profile_id,
+      model: draft.model,
+      models: draft.models,
+      permission_mode: draft.permission_mode,
+      ...choice,
     });
     if (!request.success) {
       const tooMany = request.error.issues.some(
         (issue) =>
           issue.path.length === 1 &&
-          (issue.path[0] === "models" || issue.path[0] === "tools"),
+          (issue.path[0] === "models" || issue.path[0] === "deny"),
       );
       setError({
         field: null,
@@ -341,34 +394,22 @@ export function ProfileEditor({
             </Field>
           ) : null}
 
-          <FieldSet className="gap-3">
-            <FieldLegend variant="label" className="mb-2">
-              {t("profiles.editor.tools")}
-            </FieldLegend>
-            <FieldDescription className="nth-last-2:mt-0">
-              {choices.tools.length === 0
-                ? t("profiles.noTools")
-                : t("profiles.editor.toolsHint")}
-            </FieldDescription>
-            {choices.tools.map((tool) => (
-              <Field key={tool} orientation="horizontal">
-                <Checkbox
-                  checked={draft.tools.includes(tool)}
-                  disabled={save.isPending}
-                  onCheckedChange={(checked) =>
-                    setDraft({
-                      ...draft,
-                      tools: toggle(draft.tools, tool, checked === true),
-                    })
-                  }
-                />
-                <FieldContent>
-                  <FieldLabel className="font-mono">{tool}</FieldLabel>
-                </FieldContent>
-              </Field>
-            ))}
-            <FieldError>{beside("tools")}</FieldError>
-          </FieldSet>
+          {tools === null ? (
+            <Alert variant="amber">
+              <AlertDescription>
+                {t("profiles.tools.baseNoCatalog")}
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <DenyChecklist
+              model={tools}
+              picks={draft.tools}
+              onPicks={(picks) => setDraft({ ...draft, tools: picks })}
+              disabled={save.isPending}
+              previousId={previous?.id}
+              error={(submitted ? toolsError : undefined) ?? beside("deny")}
+            />
+          )}
 
           <Field className="w-auto max-w-full">
             <FieldLabel>{t("profiles.editor.permissionMode")}</FieldLabel>
@@ -446,10 +487,19 @@ export function ProfileEditor({
             after: draft.model,
           },
           {
-            id: "tools",
-            label: t("profiles.editor.tools"),
-            before: join(before?.tools ?? [], t("profiles.noTools")),
-            after: join(draft.tools, t("profiles.noTools")),
+            id: "deny",
+            label: t("profiles.tools.blocked"),
+            before:
+              before?.deny == null
+                ? ""
+                : join(before.deny, t("profiles.tools.noneBlocked")),
+            after:
+              tools === null
+                ? ""
+                : join(
+                    blockedOf(tools, draft.tools),
+                    t("profiles.tools.noneBlocked"),
+                  ),
           },
           {
             id: "mode",
@@ -564,7 +614,7 @@ function BaseSummary({ base }: { readonly base: ProfileSummary }) {
           },
           {
             id: "tools",
-            label: t("profiles.editor.tools"),
+            label: t("profiles.tools.running"),
             value:
               base.tools.length === 0 ? (
                 t("profiles.noTools")

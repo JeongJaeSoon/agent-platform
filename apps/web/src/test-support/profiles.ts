@@ -10,6 +10,35 @@ import { USER_ID } from "./fake-api.ts";
 
 export const RECEIPT_ID = "00000000-0000-4000-8000-000000000001";
 
+export const CATALOG_ID = "claude_agent_sdk@0.3.270+claude-code@2.1.270";
+
+/** A trimmed copy of the pinned catalog: one tool per boundary at least. */
+export const CATALOG_TOOLS = [
+  { name: "Read", boundary: "local" },
+  { name: "Edit", boundary: "local" },
+  { name: "Write", boundary: "local" },
+  { name: "Bash", boundary: "local" },
+  { name: "WebFetch", boundary: "egress" },
+  { name: "WebSearch", boundary: "provider" },
+] as const;
+
+/** What GET /v1/profiles lists as `deny` for `tools` on the catalog's version. */
+export const denyFor = (tools: readonly string[]): string[] =>
+  CATALOG_TOOLS.map((tool) => tool.name).filter(
+    (name) => !tools.includes(name),
+  );
+
+/** `deny` as the listing works it out: from the catalog, unless given. */
+const withDeny = (profile: ProfileSummary): ProfileSummary => ({
+  ...profile,
+  deny:
+    profile.deny !== undefined
+      ? profile.deny
+      : profile.runtime_version === "0.3.270"
+        ? denyFor(profile.tools)
+        : null,
+});
+
 type Installation = NonNullable<ProfileSummary["installation"]>;
 
 /** A ceiling imported from profiles.yaml: its id is its name. */
@@ -18,7 +47,7 @@ export function imported(
   narrowed: Partial<ProfileSummary> = {},
   state: InstallationProfileState = "usable",
 ): ProfileSummary {
-  return {
+  return withDeny({
     id,
     source: "operator",
     model: "claude-sonnet-5",
@@ -45,7 +74,7 @@ export function imported(
       retired_by: null,
       retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
     },
-  };
+  });
 }
 
 /** Version `n` of the console ceiling `name`, `op_<name>_v<n>`. */
@@ -83,8 +112,8 @@ export function version(
   narrowed: Partial<ProfileSummary> = {},
   base = "coding-claude",
 ): ProfileSummary {
-  const { installation: _, ...over } = imported(base);
-  return {
+  const { installation: _, deny: _deny, ...over } = imported(base);
+  return withDeny({
     ...over,
     id: `ws_acme_strict_v${n}`,
     source: "workspace",
@@ -102,7 +131,7 @@ export function version(
       retired_by: state === "retired" ? USER_ID : null,
       retired_at: state === "retired" ? "2026-10-27T01:00:00.000Z" : null,
     },
-  };
+  });
 }
 
 export const OPTIONS: InstallationProfileOptionsResponse = {
@@ -123,6 +152,13 @@ export const OPTIONS: InstallationProfileOptionsResponse = {
     },
   ],
   repositories: [{ id: "docs" }, { id: "platform" }],
+  // One entry per version spelling, as the server lists a catalog.
+  tool_catalogs: ["0.3.270", "2.1.270"].map((runtime_version) => ({
+    id: CATALOG_ID,
+    runtime_kind: "claude_agent_sdk" as const,
+    runtime_version,
+    tools: CATALOG_TOOLS.map((tool) => ({ ...tool })),
+  })),
   unattended_allowed: false,
 };
 

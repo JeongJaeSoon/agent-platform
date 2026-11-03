@@ -86,7 +86,6 @@ export const profilesKo = {
   "profiles.editor.engineModel": "엔진 · 모델",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "권한 모드",
-  "profiles.editor.tools": "도구",
   "profiles.editor.narrowTitle": "이 워크스페이스에서 쓸 값",
   "profiles.editor.autoRulesNote":
     "auto 규칙(환경·허용·soft deny·hard deny, 모든 셸 명령 분류)은 여기서 고치지 않습니다. 따로 정하는 화면은 다음 단계에 생깁니다.",
@@ -98,7 +97,6 @@ export const profilesKo = {
   "profiles.editor.modelsHint":
     "세션이 고를 수 있는 모델입니다. 바탕 프로필에 있는 모델만 고릅니다.",
   "profiles.editor.defaultModel": "기본 모델",
-  "profiles.editor.toolsHint": "바탕 프로필에 있는 도구만 켤 수 있습니다.",
   "profiles.editor.modeHint":
     "바탕 프로필과 같거나 사람이 더 많이 확인하는 모드만 고를 수 있습니다.",
   "profiles.editor.autoClosed":
@@ -162,8 +160,6 @@ export const profilesKo = {
     "한 줄에 모델 하나씩 적습니다. 세션은 이 가운데에서 모델을 고릅니다.",
   "profiles.ceiling.titleModel": "제목 모델",
   "profiles.ceiling.titleModelHint": "비우면 기본 모델이 세션 제목을 짓습니다.",
-  "profiles.ceiling.toolsHint":
-    "한 줄에 도구 하나씩 적습니다. 비우면 도구 없이 돕니다.",
   "profiles.ceiling.bypassClosed":
     "이 설치는 PLATFORM_ALLOW_UNATTENDED_PERMISSIONS가 꺼져 있어 bypassPermissions를 고를 수 없습니다.",
   "profiles.ceiling.claudeMd": "저장소의 CLAUDE.md 읽기",
@@ -281,6 +277,56 @@ export const profilesKo = {
   "profiles.detail.agents.agent": "에이전트",
   "profiles.detail.agents.release": "활성 릴리스",
   "profiles.detail.agents.open": "{name}의 릴리스 보기",
+  "profiles.tools.legend": "차단할 내장 도구",
+  "profiles.tools.hint":
+    "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구만 다룹니다. MCP 도구는 에이전트의 MCP 설정이 정합니다.",
+  "profiles.tools.unlimited":
+    "아무것도 체크하지 않으면 제한 없음입니다. 다만 플랫폼이 지원하는 내장 도구 카탈로그({catalog}) 안에서입니다.",
+  "profiles.tools.providerNote":
+    "provider 쪽 도구는 모델 공급자 쪽에서 돌아 외부 접속 proxy가 막지 못합니다. 첫 버전은 이 도구를 차단한 채 시작합니다.",
+  "profiles.tools.boundary.local": "worker 안",
+  "profiles.tools.boundary.egress": "외부 접속",
+  "profiles.tools.boundary.provider": "provider 쪽",
+  "profiles.tools.new": "새 도구",
+  "profiles.tools.fixed": "바탕 프로필이 막은 도구입니다.",
+  "profiles.tools.diff.legend": "카탈로그 차이",
+  "profiles.tools.diff.text":
+    "{id}에 없던 도구는 차단한 채 시작합니다. 열려면 받아들이기를 체크하고 위 목록에서 체크를 풉니다.",
+  "profiles.tools.diff.accept": "{tool} 실행을 받아들이기",
+  "profiles.tools.diff.stillBlocked": "지금은 차단돼 있습니다.",
+  "profiles.tools.diff.opens": "이 버전에서 돕니다.",
+  "profiles.tools.diff.removed": "지원이 끝난 도구:",
+  "profiles.tools.unaccepted":
+    "이전 버전에 없던 도구 {tools}를 열려면 받아들이기를 체크하거나 다시 차단하세요.",
+  "profiles.tools.asked":
+    "이전 버전이 다루지 않은 도구를 열려고 합니다. 아래 카탈로그 차이에서 받아들이거나 다시 차단하세요.",
+  "profiles.tools.noCatalog":
+    "런타임 버전 {version}에는 지원 카탈로그가 없어 차단목록을 저장할 수 없습니다. 지원하는 버전: {versions}",
+  "profiles.tools.noCatalogs":
+    "이 설치에는 지원 카탈로그가 없어 차단목록을 저장할 수 없습니다.",
+  "profiles.tools.baseNoCatalog":
+    "바탕 프로필의 런타임 버전에는 지원 카탈로그가 없어 이 프로필을 차단목록으로 저장할 수 없습니다.",
+  "profiles.tools.error.mcpTool":
+    "MCP 도구는 프로필에서 막을 수 없습니다. 내장 도구만 고르세요.",
+  "profiles.tools.error.toolPattern":
+    "패턴은 받지 않습니다. 내장 도구 이름 하나를 고르세요.",
+  "profiles.tools.error.unknownTool":
+    "이 런타임 버전의 지원 카탈로그에 없는 도구가 있습니다. 목록을 다시 불러오세요.",
+  "profiles.tools.error.noToolCatalog":
+    "이 런타임 버전에는 지원 카탈로그가 없어 차단목록을 저장할 수 없습니다.",
+  "profiles.tools.error.baseDenies":
+    "바탕 프로필이 막은 도구는 풀 수 없습니다. 목록을 다시 불러오세요.",
+  "profiles.tools.blocked": "차단한 도구",
+  "profiles.tools.running": "실행하는 도구",
+  "profiles.tools.noneBlocked": "차단 없음",
+  "profiles.tools.allowList":
+    "이 버전의 런타임 버전에는 지원 카탈로그가 없습니다. 도구 목록(허용목록)으로만 정한 버전이라 콘솔에서는 읽기만 합니다.",
+  "profiles.tools.blockedNew": "이 버전에서 막힌 새 도구 {count}개",
+  "profiles.tools.blockedNewText":
+    "지원 카탈로그 {catalog}에 새로 생긴 {tools}는 이 버전에서 돌지 않습니다. 열려면 새 버전을 만들어 받아들입니다.",
+  "profiles.tools.makeVersion": "새 버전 만들기",
+  "profiles.column.blocked": "차단",
+  "profiles.blockedCount": "{count}개",
 };
 
 export const profilesEn: Record<keyof typeof profilesKo, string> = {
@@ -370,7 +416,6 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.engineModel": "Engine · model",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "Permission mode",
-  "profiles.editor.tools": "Tools",
   "profiles.editor.narrowTitle": "Values for this workspace",
   "profiles.editor.autoRulesNote":
     "Auto rules (environment, allow, soft deny, hard deny, classifying every shell command) are not edited here. A screen for them comes in a later stage.",
@@ -382,8 +427,6 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.modelsHint":
     "The models a session may pick. Only the base profile's models are offered.",
   "profiles.editor.defaultModel": "Default model",
-  "profiles.editor.toolsHint":
-    "Only the base profile's tools can be turned on.",
   "profiles.editor.modeHint":
     "Choose the base profile's permission mode or a mode that requires more human review.",
   "profiles.editor.autoClosed":
@@ -449,8 +492,6 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.titleModel": "Title model",
   "profiles.ceiling.titleModelHint":
     "Left empty, the default model names sessions.",
-  "profiles.ceiling.toolsHint":
-    "One tool per line. Left empty, it runs with no tools.",
   "profiles.ceiling.bypassClosed":
     "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS is off on this installation, so bypassPermissions cannot be picked.",
   "profiles.ceiling.claudeMd": "Read the repository's CLAUDE.md",
@@ -569,6 +610,56 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.agents.agent": "Agent",
   "profiles.detail.agents.release": "Active release",
   "profiles.detail.agents.open": "Open the release of {name}",
+  "profiles.tools.legend": "Built-in tools to block",
+  "profiles.tools.hint":
+    "A ticked tool does not run in this profile's sessions. Only built-in tools are listed here; an agent's MCP settings decide its MCP tools.",
+  "profiles.tools.unlimited":
+    "With nothing ticked there is no limit, within the built-in tool catalog the platform supports ({catalog}).",
+  "profiles.tools.providerNote":
+    "Provider-side tools run at the model provider, where the egress proxy cannot stop them. A first version starts with them blocked.",
+  "profiles.tools.boundary.local": "In worker",
+  "profiles.tools.boundary.egress": "Egress",
+  "profiles.tools.boundary.provider": "Provider side",
+  "profiles.tools.new": "New tool",
+  "profiles.tools.fixed": "The base profile blocks this tool.",
+  "profiles.tools.diff.legend": "Catalog changes",
+  "profiles.tools.diff.text":
+    "Tools {id} did not have start blocked. To open one, tick its accept box and clear it in the list above.",
+  "profiles.tools.diff.accept": "Accept running {tool}",
+  "profiles.tools.diff.stillBlocked": "Blocked for now.",
+  "profiles.tools.diff.opens": "Runs in this version.",
+  "profiles.tools.diff.removed": "No longer supported:",
+  "profiles.tools.unaccepted":
+    "To open {tools}, which the previous version did not have, tick accept or block it again.",
+  "profiles.tools.asked":
+    "This opens tools the previous version never weighed. Accept them under Catalog changes, or block them again.",
+  "profiles.tools.noCatalog":
+    "No supported catalog lists runtime version {version}, so a block list cannot be saved on it. Supported versions: {versions}",
+  "profiles.tools.noCatalogs":
+    "This installation has no supported catalog, so a block list cannot be saved.",
+  "profiles.tools.baseNoCatalog":
+    "No supported catalog lists the base profile's runtime version, so this profile cannot be saved as a block list.",
+  "profiles.tools.error.mcpTool":
+    "A profile cannot block MCP tools. Pick built-in tools only.",
+  "profiles.tools.error.toolPattern":
+    "Patterns are not taken. Pick a whole built-in tool.",
+  "profiles.tools.error.unknownTool":
+    "A tool is not in this runtime version's supported catalog. Reload the list.",
+  "profiles.tools.error.noToolCatalog":
+    "No supported catalog lists this runtime version, so a block list cannot be saved on it.",
+  "profiles.tools.error.baseDenies":
+    "A tool the base profile blocks cannot be opened. Reload the list.",
+  "profiles.tools.blocked": "Blocked tools",
+  "profiles.tools.running": "Tools that run",
+  "profiles.tools.noneBlocked": "None blocked",
+  "profiles.tools.allowList":
+    "No supported catalog lists this version's runtime version. It was set by a tool list (an allow list), so the console only reads it.",
+  "profiles.tools.blockedNew": "{count} new tools blocked in this version",
+  "profiles.tools.blockedNewText":
+    "{tools}, new in the supported catalog {catalog}, do not run in this version. To open them, make a new version and accept them.",
+  "profiles.tools.makeVersion": "Make a new version",
+  "profiles.column.blocked": "Blocked",
+  "profiles.blockedCount": "{count}",
 };
 
 export const profilesJa: Record<keyof typeof profilesKo, string> = {
@@ -659,7 +750,6 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.engineModel": "エンジン・モデル",
   "profiles.editor.engineModelValue": "Claude Agent SDK {version} · {model}",
   "profiles.editor.permissionMode": "権限モード",
-  "profiles.editor.tools": "ツール",
   "profiles.editor.narrowTitle": "このワークスペースで使う値",
   "profiles.editor.autoRulesNote":
     "auto ルール(環境・許可・soft deny・hard deny、すべてのシェルコマンドの分類)はここでは変更しません。設定する画面は次の段階でできます。",
@@ -671,8 +761,6 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.editor.modelsHint":
     "セッションが選べるモデルです。ベースプロファイルにあるモデルだけを選べます。",
   "profiles.editor.defaultModel": "既定のモデル",
-  "profiles.editor.toolsHint":
-    "ベースプロファイルにあるツールだけをオンにできます。",
   "profiles.editor.modeHint":
     "ベースプロファイルと同じか、人がより多く確認するモードだけを選べます。",
   "profiles.editor.autoClosed":
@@ -739,8 +827,6 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.ceiling.titleModel": "タイトルのモデル",
   "profiles.ceiling.titleModelHint":
     "空にすると既定のモデルがセッションのタイトルを付けます。",
-  "profiles.ceiling.toolsHint":
-    "1 行に 1 つのツールを書きます。空にするとツールなしで動きます。",
   "profiles.ceiling.bypassClosed":
     "このインストールでは PLATFORM_ALLOW_UNATTENDED_PERMISSIONS が無効なので bypassPermissions は選べません。",
   "profiles.ceiling.claudeMd": "リポジトリの CLAUDE.md を読む",
@@ -865,4 +951,55 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.agents.agent": "エージェント",
   "profiles.detail.agents.release": "有効なリリース",
   "profiles.detail.agents.open": "{name}のリリースを表示",
+  "profiles.tools.legend": "ブロックする組み込みツール",
+  "profiles.tools.hint":
+    "チェックしたツールはこのプロファイルのセッションで動きません。扱うのは組み込みツールだけです。MCP ツールはエージェントの MCP 設定が決めます。",
+  "profiles.tools.unlimited":
+    "何もチェックしなければ制限なしです。ただし、プラットフォームがサポートする組み込みツールのカタログ（{catalog}）の範囲内です。",
+  "profiles.tools.providerNote":
+    "provider 側のツールはモデル提供元で動くため、外部接続 proxy では止められません。最初のバージョンはこれらをブロックした状態で始まります。",
+  "profiles.tools.boundary.local": "worker 内",
+  "profiles.tools.boundary.egress": "外部接続",
+  "profiles.tools.boundary.provider": "provider 側",
+  "profiles.tools.new": "新しいツール",
+  "profiles.tools.fixed": "ベースのプロファイルがブロックしているツールです。",
+  "profiles.tools.diff.legend": "カタログの違い",
+  "profiles.tools.diff.text":
+    "{id} になかったツールはブロックした状態で始まります。開くには受け入れにチェックし、上の一覧でチェックを外します。",
+  "profiles.tools.diff.accept": "{tool} の実行を受け入れる",
+  "profiles.tools.diff.stillBlocked": "今はブロックされています。",
+  "profiles.tools.diff.opens": "このバージョンで動きます。",
+  "profiles.tools.diff.removed": "サポートが終わったツール:",
+  "profiles.tools.unaccepted":
+    "前のバージョンになかったツール {tools} を開くには、受け入れにチェックするか、もう一度ブロックしてください。",
+  "profiles.tools.asked":
+    "前のバージョンが扱っていなかったツールを開こうとしています。下のカタログの違いで受け入れるか、もう一度ブロックしてください。",
+  "profiles.tools.noCatalog":
+    "ランタイムバージョン {version} にはサポートするカタログがないため、ブロックリストを保存できません。サポートするバージョン: {versions}",
+  "profiles.tools.noCatalogs":
+    "このインストールにはサポートするカタログがないため、ブロックリストを保存できません。",
+  "profiles.tools.baseNoCatalog":
+    "ベースのプロファイルのランタイムバージョンにはサポートするカタログがないため、このプロファイルをブロックリストとして保存できません。",
+  "profiles.tools.error.mcpTool":
+    "MCP ツールはプロファイルでブロックできません。組み込みツールだけを選んでください。",
+  "profiles.tools.error.toolPattern":
+    "パターンは受け付けません。組み込みツールの名前を一つ選んでください。",
+  "profiles.tools.error.unknownTool":
+    "このランタイムバージョンのサポートするカタログにないツールがあります。一覧を読み込み直してください。",
+  "profiles.tools.error.noToolCatalog":
+    "このランタイムバージョンにはサポートするカタログがないため、ブロックリストを保存できません。",
+  "profiles.tools.error.baseDenies":
+    "ベースのプロファイルがブロックしたツールは開けません。一覧を読み込み直してください。",
+  "profiles.tools.blocked": "ブロックしたツール",
+  "profiles.tools.running": "実行するツール",
+  "profiles.tools.noneBlocked": "ブロックなし",
+  "profiles.tools.allowList":
+    "このバージョンのランタイムバージョンにはサポートするカタログがありません。ツール一覧（許可リスト）だけで決めたバージョンなので、コンソールでは読むだけです。",
+  "profiles.tools.blockedNew":
+    "このバージョンでブロックされた新しいツール {count} 個",
+  "profiles.tools.blockedNewText":
+    "サポートするカタログ {catalog} に新しく加わった {tools} はこのバージョンでは動きません。開くには新しいバージョンを作って受け入れます。",
+  "profiles.tools.makeVersion": "新しいバージョンを作る",
+  "profiles.column.blocked": "ブロック",
+  "profiles.blockedCount": "{count} 個",
 };

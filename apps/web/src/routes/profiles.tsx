@@ -37,10 +37,10 @@ import {
 } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
-// Name, version, kind, base, default model, permission mode, state; a phone
-// keeps the name and the state, and the name cell says the kind.
+// Name, version, kind, base, default model, permission mode, blocked tools,
+// state; a phone keeps the name and the state, and the name cell says the kind.
 const COLUMNS = [
-  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 152px",
+  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 72px 152px",
   "minmax(0,1fr) 128px",
 ] as const;
 
@@ -255,6 +255,9 @@ export function ProfilesScreen() {
                 <GridTableColumnHeader hideNarrow>
                   {t("profiles.editor.permissionMode")}
                 </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.column.blocked")}
+                </GridTableColumnHeader>
                 <GridTableColumnHeader>
                   {t("profiles.column.state")}
                 </GridTableColumnHeader>
@@ -369,6 +372,13 @@ function ProfileRow({
       </GridTableCell>
       <GridTableCell hideNarrow>
         <Code>{profile.permission_mode}</Code>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <Text as="span" variant="meta">
+          {profile.deny == null
+            ? "—"
+            : t("profiles.blockedCount", { count: profile.deny.length })}
+        </Text>
       </GridTableCell>
       <GridTableCell>
         <Badge variant={STATE_BADGE[state]}>
