@@ -1018,6 +1018,11 @@ const workers = createWorkerGateway({
     store: sessionAttribution,
     consoleOrigin,
     appBotUserId: createAppBotUsers({ logger }),
+    commitPin: {
+      resolver: githubResolver,
+      onFailed: (failure) =>
+        logger.warn("Commit author pin not made at claim", failure),
+    },
   },
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>

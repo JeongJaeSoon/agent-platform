@@ -140,7 +140,10 @@ COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE
 # hook is one dispatcher that runs the repository's own hook of that name
 # too, since core.hooksPath stops git looking in .git/hooks. System scope
 # again, so the worker's own git (GIT_CONFIG_NOSYSTEM) runs none of them.
+# werft-trailers.sh beside it is the message fix the hook and the platform's
+# other commit tools source; git runs no file by that name as a hook.
 COPY --chmod=0755 apps/worker/git-hooks/werft-hook /usr/local/share/werft/git-hooks/werft-hook
+COPY --chmod=0644 apps/worker/git-hooks/werft-trailers.sh /usr/local/share/werft/git-hooks/werft-trailers.sh
 RUN cd /usr/local/share/werft/git-hooks \
   && for hook in applypatch-msg pre-applypatch post-applypatch pre-commit \
     pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase \

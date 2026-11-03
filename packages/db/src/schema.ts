@@ -704,8 +704,9 @@ export const catalogRepositoryGitHubApps = pgTable(
       onDelete: "set null",
     }),
     appId: bigint("app_id", { mode: "number" }).notNull(),
+    /** `claim`: made by a claim for its commit author (decision D11). */
     pinnedBy: text("pinned_by")
-      .$type<"selection" | "first_mint" | "admin">()
+      .$type<"selection" | "first_mint" | "admin" | "claim">()
       .notNull(),
     /** No foreign key: the row outlives the account. */
     updatedBy: uuid("updated_by"),
@@ -724,7 +725,7 @@ export const catalogRepositoryGitHubApps = pgTable(
     ),
     check(
       "catalog_repository_github_apps_pinned_by_check",
-      sql`${table.pinnedBy} IN ('selection', 'first_mint', 'admin')`,
+      sql`${table.pinnedBy} IN ('selection', 'first_mint', 'admin', 'claim')`,
     ),
   ],
 );

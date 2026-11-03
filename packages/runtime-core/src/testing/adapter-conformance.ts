@@ -5,10 +5,15 @@
  * through the harness.
  */
 import { deepStrictEqual } from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   PERMISSION_MODE_VALUES,
   type PermissionMode,
 } from "@werft-ai/contracts";
+import { type GitEnvironment, gitEnvironment } from "../git-environment.ts";
 
 export type AdapterConformanceHarness = {
   /**
@@ -19,6 +24,15 @@ export type AdapterConformanceHarness = {
   engineSignature(permissionMode: PermissionMode): {
     commit: string | undefined;
     pr: string | undefined;
+  };
+  /**
+   * How a run started with `gitEnvironment` launches the engine: the
+   * environment its process gets, and everything else the adapter passes
+   * (arguments, options) as one value the check searches.
+   */
+  engineLaunch(gitEnvironment: GitEnvironment): {
+    environment: Readonly<Record<string, string | undefined>>;
+    rest: unknown;
   };
 };
 
@@ -37,6 +51,58 @@ export const ADAPTER_CONFORMANCE: readonly AdapterConformanceItem[] = [
           { permissionMode, ...harness.engineSignature(permissionMode) },
           { permissionMode, commit: "", pr: "" },
         );
+      }
+    },
+  },
+  {
+    name: "2. gitEnvironment reaches the engine's git at command line level and on no command line",
+    check(harness) {
+      const root = mkdtempSync(join(tmpdir(), "conformance-git-"));
+      try {
+        const hooks = join(root, "platform-hooks");
+        const name = "Conformance[bot]";
+        const launch = harness.engineLaunch(
+          gitEnvironment([
+            { key: "core.hooksPath", value: hooks },
+            { key: "user.name", value: name },
+          ]) as GitEnvironment,
+        );
+        const git = (...args: string[]) => {
+          const run = spawnSync("git", args, {
+            cwd: root,
+            encoding: "utf8",
+            env: {
+              ...launch.environment,
+              PATH: launch.environment.PATH ?? process.env.PATH,
+              GIT_CONFIG_NOSYSTEM: "1",
+              GIT_CONFIG_GLOBAL: join(root, "no-global"),
+            },
+          });
+          if (run.status !== 0)
+            throw new Error(`git ${args.join(" ")}: ${run.stderr}`);
+          return run.stdout.trimEnd();
+        };
+        git("init", "-q");
+        // What husky writes; the engine's setting has to outrank it.
+        git("config", "core.hooksPath", ".husky");
+        git("config", "user.name", "Local");
+        deepStrictEqual(
+          [
+            git("config", "--show-origin", "--get", "core.hooksPath"),
+            git("config", "--show-origin", "--get", "user.name"),
+          ],
+          [`command line:\t${hooks}`, `command line:\t${name}`],
+        );
+        const rest = JSON.stringify(launch.rest) ?? "";
+        deepStrictEqual(
+          {
+            hooksPathElsewhere: rest.includes(hooks),
+            nameElsewhere: rest.includes(name),
+          },
+          { hooksPathElsewhere: false, nameElsewhere: false },
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
       }
     },
   },
