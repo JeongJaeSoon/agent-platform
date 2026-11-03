@@ -27,6 +27,10 @@ import { markdownToSlackMrkdwn } from "./slack-mrkdwn.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";
 import { slackPromptMessage } from "./slack-prompts.ts";
 import {
+  reconcileSlackThreadStatuses,
+  writeSlackThreadStatuses,
+} from "./slack-session-status.ts";
+import {
   classifySlackSendResult,
   SLACK_SEND_MAX_ATTEMPTS,
 } from "./slack-send-result.ts";
@@ -340,6 +344,8 @@ export type SlackOutboxDrain = {
   failed: number;
   uncertain: number;
   lost: number;
+  /** Thread statuses sent. */
+  statuses: number;
 };
 
 function settleFor(
@@ -414,6 +420,7 @@ export async function drainSlackOutbox(deps: {
     failed: 0,
     uncertain: 0,
     lost: 0,
+    statuses: 0,
   };
   // A reply Slack may or may not hold: the thread hears so, once.
   const noticeUncertain = async (row: SlackOutboxLost) => {
@@ -435,30 +442,6 @@ export async function drainSlackOutbox(deps: {
         link_url === undefined ? { text, locale } : { text, locale, link_url },
       dedupeKey: `uncertain:${row.id}`,
     });
-  };
-  // The turn is over from the thread's side: clear "is thinking".
-  const clearThreadStatus = async (
-    botToken: string,
-    row: Pick<SlackOutboxEntry, "channelId" | "threadTs">,
-    ids: Record<string, unknown>,
-  ) => {
-    try {
-      await deps.slack.setStatus(botToken, {
-        channelId: row.channelId,
-        threadTs: row.threadTs,
-        status: "active",
-      });
-    } catch (error) {
-      deps.logger.warn("Slack setStatus after the answer failed", {
-        ...ids,
-        error:
-          error instanceof SlackApiError
-            ? error.code
-            : error instanceof Error
-              ? error.message
-              : String(error),
-      });
-    }
   };
   // An instruction goes under its sender's name and profile image. An app
   // installed before chat:write.customize may be refused the name; Slack
@@ -511,9 +494,6 @@ export async function drainSlackOutbox(deps: {
         : slackOutboxText({ ...claim.body, text: named + claim.body.text }),
     });
   };
-  // A lost reply's notice clears the status once sent; a lost notice has
-  // nothing after it to do so.
-  const lostNotices: SlackOutboxLost[] = [];
   for (const lost of await deps.outbox.expireSending()) {
     drain.uncertain += 1;
     deps.logger.warn("Slack send outlived its lease; marked uncertain", {
@@ -521,7 +501,6 @@ export async function drainSlackOutbox(deps: {
       kind: lost.kind,
       channel_id: lost.channelId,
     });
-    if (lost.kind === "failure_notice") lostNotices.push(lost);
   }
   for (const closed of await deps.outbox.closeUnaddressed()) {
     drain.failed += 1;
@@ -553,14 +532,6 @@ export async function drainSlackOutbox(deps: {
     limit: deps.batchSize,
   });
   if (deps.botToken === null) return drain;
-  for (const lost of lostNotices) {
-    const botToken = await deps
-      .botToken(lost.workspaceId, lost.slackAppId)
-      .catch(() => null);
-    if (botToken !== null) {
-      await clearThreadStatus(botToken, lost, { id: lost.id, kind: lost.kind });
-    }
-  }
 
   while (now() < deps.deadline) {
     const batch = await deps.outbox.claim({
@@ -652,16 +623,29 @@ export async function drainSlackOutbox(deps: {
       if (settled && outcome.status === "uncertain") {
         await noticeUncertain(claim);
       }
-      if (
-        settled &&
-        outcome.status !== "pending" &&
-        claim.kind !== "notice" &&
-        claim.kind !== "instruction" &&
-        claim.kind !== "input_notice" &&
-        claim.kind !== "welcome"
-      ) {
-        await clearThreadStatus(botToken, claim, ids);
-      }
+    }
+  }
+  // Last, so a status follows the posts of this pass; its failures only
+  // delay the statuses.
+  const threadStatus = deps.outbox.threadStatus;
+  if (threadStatus !== undefined) {
+    const botToken = deps.botToken;
+    try {
+      await reconcileSlackThreadStatuses({ store: threadStatus });
+      const statuses = await writeSlackThreadStatuses({
+        store: threadStatus,
+        slack: deps.slack,
+        botToken,
+        logger: deps.logger,
+        batchSize: deps.batchSize,
+        deadline: deps.deadline,
+        now,
+      });
+      drain.statuses = statuses.sent;
+    } catch (error) {
+      deps.logger.warn("Slack status step failed; going on", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   return drain;

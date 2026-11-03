@@ -1767,7 +1767,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(
       logged.some(
         (record) =>
-          record.message === "Slack setStatus after the answer failed",
+          record.message === "Slack status not shown" &&
+          record.level === "info",
       ),
     ).toBe(true);
   });
