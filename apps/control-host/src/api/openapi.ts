@@ -701,7 +701,6 @@ export type RouteDeclaration = {
   csrf?: "always";
   query?: ComponentName;
   body?: ComponentName;
-  // The body goes as a form (application/x-www-form-urlencoded), not JSON.
   form?: true;
   // Parsed with the body schema by openapi.test.ts.
   requestExample?: unknown;

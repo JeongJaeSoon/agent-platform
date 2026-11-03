@@ -24,7 +24,6 @@ export type AgentAppManifestInput = {
   eventsUrl?: string;
 };
 
-/** The agent's buttons and modals answer beside its events. */
 export function slackInteractionsUrlOf(eventsUrl: string): string {
   return eventsUrl.replace(/\/v1\/slack\/events\//, "/v1/slack/interactions/");
 }

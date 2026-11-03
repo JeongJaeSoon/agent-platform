@@ -1132,7 +1132,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       s: sessionId,
       r: "toolu:1",
     });
-    // The model's text goes as plain text, never as a mention.
     expect(card.options.blocks).toContain("rich_text_preformatted");
     expect(card.text).not.toContain("<!here>");
     expect((await rows()).map((row) => [row.kind, row.dedupeKey])).toEqual([
@@ -1146,7 +1145,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       "active",
     );
 
-    // A second request of the same turn is a card of its own.
     await ask("toolu:2", {
       kind: "question",
       questions: [
@@ -1168,7 +1166,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       actionsOf(posted()[1] ?? card).map((button) => button.action_id),
     ).toEqual(["question.option", "question.option"]);
 
-    // Answered on the web while its card waited: the card is not sent.
     await ask("toolu:3", { kind: "permission", tool: "Read", input: null });
     await outboxPass({ botToken: null });
     await db
@@ -1265,7 +1262,6 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
     expect(JSON.stringify(blocks)).toContain(`agent/${sessionId}`);
 
-    // Decided elsewhere while a second card would wait: nothing more goes.
     const later = await push("requested", "-later");
     await outboxPass({ botToken: null });
     await decide(later);

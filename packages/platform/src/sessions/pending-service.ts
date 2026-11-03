@@ -61,7 +61,6 @@ export function createPendingRequestService(deps: {
       return { items, answerable: answer?.outcome === "allow" };
     },
 
-    /** Where one request stands, for a card pressed after it settled. */
     async outcome(
       actor: Caller,
       sessionId: string,

@@ -58,8 +58,7 @@ import {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * What the session reads once a push it asked for is decided in Slack. The
- * push itself runs in the background, so the model is told how to wait.
+ * What the session reads once a push it asked for is decided in Slack.
  */
 export function slackPushFollowUp(
   decision: PushDecision,
@@ -90,7 +89,6 @@ export type SlackInteractionDeps = {
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView">> &
     Pick<SlackBotSender, "postEphemeral">;
-  /** The app's bot token from the secret store; null when it has none. */
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   outbox: Pick<SlackOutboxStore, "readerLocale">;
   /** The web page where a person links their Slack account. */
@@ -103,8 +101,7 @@ export type SlackInteractionDeps = {
 const OK: SlackInteractionResponse = { ok: true };
 const CLEAR: SlackInteractionResponse = { response_action: "clear" };
 
-/** Codes that mean the request is no longer there to answer. */
-const GONE = new Set([
+const REQUEST_GONE_CODES = new Set([
   "REQUEST_EXPIRED",
   "REQUEST_STALE",
   "NOT_FOUND",
@@ -195,7 +192,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
   }
 
-  /** Who pressed, what they may do here, and the caller they act as. */
   async function admit(
     agentId: string,
     app: { workspaceId: string; slackAppId: string; appId: string },
@@ -261,7 +257,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     return request?.kind === "question" ? request.questions : null;
   }
 
-  /** How a request that could not be answered now stands. */
   async function standing(
     caller: Caller,
     value: SlackInteractionValue,
@@ -273,7 +268,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     return outcome.decision === "allow" ? "allowed" : "denied";
   }
 
-  /** Answers a permission or question; the card says how it went. */
   async function answer(
     { caller, pressed }: Allowed,
     value: SlackInteractionValue,
@@ -293,7 +287,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await notice(pressed, "noApproveRight");
         return "refused";
       }
-      const now = GONE.has(error.code) ? await standing(caller, value) : "open";
+      const now = REQUEST_GONE_CODES.has(error.code) ? await standing(caller, value) : "open";
       if (now === "open") {
         deps.logger.warn("Slack answer not taken", {
           agent_id: pressed.agentId,
@@ -380,7 +374,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       decision === "approve" ? "approved" : "rejected",
       pressed.userId,
     );
-    // The session asked and moved on; this turn tells it what came of it.
     try {
       await deps.sessions.appendMessage(caller, value.s, {
         idempotencyKey: `slack-push:${value.r}`,
@@ -631,7 +624,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         }
         return onSubmit(agentId, target, submit.data);
       }
-      // A block_actions or view_submission that failed its own schema.
       if (
         parsed.data.type === "block_actions" ||
         parsed.data.type === "view_submission"

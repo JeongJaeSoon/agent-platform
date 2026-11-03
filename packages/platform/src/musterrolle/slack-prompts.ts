@@ -199,7 +199,6 @@ const MODAL_TITLE_MAX = 24;
 const INPUT_PREVIEW_MAX = 2500;
 const OPTIONS_MAX = 100;
 const QUESTIONS_MAX = 10;
-/** A question goes as buttons when it is this simple; else in a modal. */
 const OPTION_BUTTONS_MAX = 5;
 
 const SLACK_ID = /^[A-Z0-9]{1,64}$/;
@@ -255,7 +254,6 @@ function button(
   };
 }
 
-/** A single question with a few options: one press answers it. */
 function answersByButton(questions: PendingQuestion[]): boolean {
   const [only] = questions;
   return (
@@ -297,7 +295,6 @@ export function slackPromptMessage(
   prompt: SlackPrompt,
   options: {
     locale: UserLocale;
-    /** Whoever asked for the turn; mentioned so they are told. */
     requesterSlackUserId: string | null;
     linkUrl?: string;
   },

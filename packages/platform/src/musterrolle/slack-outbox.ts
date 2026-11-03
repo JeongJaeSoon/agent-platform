@@ -132,10 +132,6 @@ export function slackTurnDedupeKey(
   return `${state === "completed" ? "reply" : "failure"}:${sessionLinkId}:${turnId}`;
 }
 
-/**
- * One outbox row per request and thread. The request id goes last and
- * whole: it may hold a colon, so the store reads it past the fixed prefix.
- */
 export function slackPromptDedupeKey(
   kind: SlackPendingPrompt["prompt"]["kind"],
   sessionLinkId: string,
@@ -290,7 +286,6 @@ export async function enqueueSlackTurnAnswers(deps: {
   return turns.length;
 }
 
-/** Enqueues the card of each request a linked thread has not been shown. */
 export async function enqueueSlackPrompts(deps: {
   outbox: Pick<SlackOutboxStore, "unpromptedRequests" | "enqueue">;
   consoleOrigin: string | null;

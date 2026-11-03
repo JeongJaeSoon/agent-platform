@@ -475,7 +475,6 @@ export function createPostgresSlackOutboxStore(
         threadTs: sessionLinks.threadId,
         locale: starterLocale,
       };
-      // A link that still shows this thread its session in full.
       const live = and(
         isNull(sessionLinks.revokedAt),
         eq(sessionLinks.muted, false),

@@ -185,7 +185,7 @@ export function actionableOfTurn(db: Database) {
 
 /**
  * The one request the outer statement names, while a client can still
- * answer it: what a Slack card for it waits on.
+ * answer it.
  */
 export function actionableRequest(
   db: Database,
