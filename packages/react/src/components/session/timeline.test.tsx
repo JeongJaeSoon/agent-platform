@@ -64,6 +64,17 @@ const result = (
     { tool_result: { tool_call_id: id, is_error: isError, text: "out" } },
     { toolCallId: id, ...options },
   );
+const permission = (id: string, options?: Parameters<typeof entry>[2]) =>
+  entry(
+    "question",
+    {
+      kind: "permission",
+      tool: "Bash",
+      tool_use_id: id,
+      input: { command: "ls" },
+    },
+    { toolCallId: id, ...options },
+  );
 const status = (phase: string, options?: Parameters<typeof entry>[2]) =>
   entry("status", { phase }, options);
 
@@ -304,6 +315,108 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(row?.querySelector(".text-destructive")?.textContent).toContain(
       "session.event.toolResult.error",
     );
+  });
+
+  test("호출 → 권한 요청 → 결과로 저장된 순서를 호출 행 안에서 그 순서대로 그린다", () => {
+    // R2's repro: the result arrives after the request that let the call run.
+    render(
+      <Timeline
+        entries={[
+          call("c1", { at: 0 }),
+          permission("c1", { at: 1 }),
+          result("c1", false, { at: 30 }),
+        ]}
+        formatMessage={formatMessage}
+        messages={MESSAGES}
+        now={START}
+      />,
+    );
+    expect(rows()).toHaveLength(1);
+    const text = rows()[0]?.textContent ?? "";
+    const at = (part: string) => text.indexOf(part);
+    expect(at("session.event.kind.toolUse")).toBeGreaterThanOrEqual(0);
+    expect(at("session.event.kind.permission")).toBeGreaterThan(
+      at("session.event.kind.toolUse"),
+    );
+    expect(at("session.event.toolResult.unknown")).toBeGreaterThan(
+      at("session.event.kind.permission"),
+    );
+    const request = rows()[0]?.querySelector("[data-slot='timeline-request']");
+    expect(
+      request?.querySelector('[role="img"]')?.getAttribute("aria-label"),
+    ).toBe("kind:request");
+    // It only repeats the call's own line, so it is not said twice.
+    expect(text.split("Bash").length - 1).toBe(1);
+  });
+
+  test("질문 요청도 그 호출 행 안에 선택지·답변 슬롯과 함께 그린다", () => {
+    const asked: TimelineEntry = {
+      ...entry(
+        "question",
+        {
+          kind: "question",
+          input: { questions: [{ prompt: "Deploy where first?" }] },
+        },
+        { toolCallId: "c1", at: 1 },
+      ),
+      requestId: "req_1",
+      options: ["Staging", "Production"],
+    };
+    const { rerender } = render(
+      <Timeline
+        entries={[call("c1"), asked]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, options: "options" }}
+        now={START}
+      />,
+    );
+    expect(rows()).toHaveLength(1);
+    const [row] = rows();
+    expect(row?.textContent).toContain("session.event.kind.question");
+    expect(row?.textContent).toContain("Deploy where first?");
+    expect(row?.querySelector("ul[aria-label='options']")?.textContent).toBe(
+      "StagingProduction",
+    );
+    rerender(
+      <Timeline
+        entries={[call("c1"), asked]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, options: "options" }}
+        request={(id) => <form aria-label={`answer ${id}`} />}
+        now={START}
+      />,
+    );
+    expect(
+      rows()[0]?.querySelector("form[aria-label='answer req_1']"),
+    ).toBeTruthy();
+  });
+
+  test("요청이 결과 사이에 끼어도 결과가 온 호출은 실행 중도 대기도 아니다", () => {
+    const { rerender } = render(
+      <Timeline
+        entries={[call("c1"), permission("c1")]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, waiting: "waiting" }}
+        held={new Set(["c1"])}
+        now={START}
+      />,
+    );
+    expect(rows()[0]?.textContent).toContain("waiting");
+    rerender(
+      <Timeline
+        entries={[call("c1"), permission("c1"), result("c1")]}
+        formatMessage={formatMessage}
+        messages={{ ...MESSAGES, waiting: "waiting" }}
+        now={START}
+      />,
+    );
+    const [row] = rows();
+    expect(rows()).toHaveLength(1);
+    expect(row?.textContent).not.toContain("running");
+    expect(row?.textContent).not.toContain("waiting");
+    expect(
+      row?.querySelector('[role="img"] svg')?.getAttribute("class"),
+    ).not.toContain("animate-spin");
   });
 
   test("대기 요청은 amber 원에 이름이 있고 라벨 글자로도 보인다", () => {
