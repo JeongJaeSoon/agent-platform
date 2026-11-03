@@ -493,7 +493,8 @@ type TabProps = {
 // A savable release without a repository starts from none picked.
 const NO_REPOSITORY_DEFAULTS: AgentGitHub = {
   repositories: [],
-  push_approval: true,
+  // github.tsx NO_REPOSITORY_DEFAULTS (owner decision d123).
+  push_approval: false,
   features: {
     review: false,
     actions: false,
@@ -515,7 +516,13 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
   const settings = draft ?? base;
   const readOnly = !data.enabled || data.unsavable !== null || base === null;
   const pending = base && draft ? pendingCount(base, draft) : 0;
-  const noRepository = draft !== undefined && draft.repositories.length === 0;
+  // github.tsx firstSave: the defaults alone are worth a save.
+  const firstSave = !readOnly && data.github === null;
+  const noRepository =
+    (draft !== undefined || firstSave) && settings?.repositories.length === 0;
+  const pendingTitle = firstSave
+    ? "GitHub 설정을 아직 저장하지 않았습니다"
+    : `릴리스에 넣지 않은 변경 ${pending}건`;
   const version = RELEASED.versions.find(
     (v) => v.id === RELEASE.version_id,
   )?.version_no;
@@ -541,7 +548,12 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
                 push 전 승인
               </Text>
               <Text as="span">
-                {base ? (base.push_approval ? "켜짐" : "꺼짐") : "—"}
+                {base
+                  ? // github.tsx: a release without settings still asks a person.
+                    data.github === null || base.push_approval
+                    ? "켜짐"
+                    : "꺼짐"
+                  : "—"}
               </Text>
             </Text>
             {release ? (
@@ -555,13 +567,9 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
           </RowListItem>
         </RowList>
       </section>
-      {pending > 0 ? (
-        <Alert
-          variant="blue"
-          role="region"
-          aria-label={`릴리스에 넣지 않은 변경 ${pending}건`}
-        >
-          <AlertTitle>릴리스에 넣지 않은 변경 {pending}건</AlertTitle>
+      {pending > 0 || firstSave ? (
+        <Alert variant="blue" role="region" aria-label={pendingTitle}>
+          <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
             저장하면 지금 카드 버전 v{version}과 실행 프로필{" "}
             {RELEASE.runtime_profile_id}로 새 릴리스를 만들고 활성화합니다. 그
@@ -579,9 +587,11 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
             <Button type="button" size="sm" disabled={noRepository}>
               새 릴리스로 저장
             </Button>
-            <Button type="button" size="sm" variant="ghost">
-              되돌리기
-            </Button>
+            {draft !== undefined ? (
+              <Button type="button" size="sm" variant="ghost">
+                되돌리기
+              </Button>
+            ) : null}
           </AlertActions>
         </Alert>
       ) : null}
@@ -1107,6 +1117,17 @@ export const AgentGitHubLegacy: Story = {
       },
     },
   },
+  play: async ({ canvas }) => {
+    await expect(
+      await canvas.findByRole("region", {
+        name: "GitHub 설정을 아직 저장하지 않았습니다",
+      }),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "새 릴리스로 저장" }),
+    ).toBeEnabled();
+    await expect(canvas.queryByRole("button", { name: "되돌리기" })).toBeNull();
+  },
 };
 const NO_REPOSITORY_DATA: AgentGitHubResponse = {
   ...DATA,
@@ -1123,7 +1144,7 @@ export const AgentGitHubNoRepositoryUnpicked: Story = {
   name: "저장소 없는 릴리스: 저장소를 고르기 전",
   args: {
     data: NO_REPOSITORY_DATA,
-    draft: { ...NO_REPOSITORY_DEFAULTS, push_approval: false },
+    draft: { ...NO_REPOSITORY_DEFAULTS, push_approval: true },
     activity: [],
   },
   play: async ({ canvas }) => {
