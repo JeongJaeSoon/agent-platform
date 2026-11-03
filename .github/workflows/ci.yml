@@ -55,8 +55,10 @@ jobs:
     # LTS image on its own schedule, which lands as an unrelated CI break in
     # whatever PR is open that day.
     runs-on: ubuntu-24.04
-    # Ceiling just above the slowest part: the old single job's worst was 6m.
-    timeout-minutes: 6
+    # Catches a hung bun test, not a slow runner: on 2026-11-03 the slowest
+    # part ran 4m15s to 6m12s when it passed and hit the old 6m ceiling in 11
+    # of 50 jobs. 9m leaves about 45% over the worst sample.
+    timeout-minutes: 9
     strategy:
       # Each part's failures are its own; a cancelled part would hide them
       # until the next push.
