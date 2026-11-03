@@ -80,6 +80,7 @@ describe("agent app manifest", () => {
       redirectUrl: REDIRECT,
     });
     expect(Object.keys(manifest.settings)).not.toContain("event_subscriptions");
+    expect(Object.keys(manifest.settings)).not.toContain("interactivity");
     expect(Object.keys(manifest.oauth_config.scopes)).toEqual(["bot"]);
   });
 
@@ -95,6 +96,10 @@ describe("agent app manifest", () => {
       event_subscriptions: {
         request_url: `https://agents.example.ts.net/v1/slack/events/${AGENT}`,
         bot_events: [...SLACK_AGENT_BOT_EVENTS],
+      },
+      interactivity: {
+        is_enabled: true,
+        request_url: `https://agents.example.ts.net/v1/slack/interactions/${AGENT}`,
       },
     });
   });

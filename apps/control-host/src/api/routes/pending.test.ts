@@ -29,6 +29,7 @@ function app(overrides: Partial<PendingRequestStore> = {}) {
       recordSelfApproval: async () => {
         throw new Error("not reached");
       },
+      requestOutcome: async () => null,
       ...overrides,
     },
   });

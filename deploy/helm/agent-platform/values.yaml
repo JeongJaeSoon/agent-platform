@@ -181,7 +181,7 @@ api:
   # /v1/slack/events/<agent_id> under. Unset, an install leaves the app without
   # an event subscription (events_url_unset). The Ingress here is in-house
   # only, so that origin is a separate internet-facing entrance routing just
-  # /v1/slack/events (docs/operator/api-server.md).
+  # /v1/slack/events and /v1/slack/interactions (docs/operator/api-server.md).
   #   extraEnv:
   #     SLACK_EVENTS_PUBLIC_URL: https://slack-events.example.com
   extraEnv: {}

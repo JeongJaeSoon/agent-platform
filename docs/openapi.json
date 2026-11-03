@@ -2502,6 +2502,19 @@
           }
         ]
       },
+      "SlackInteractionForm": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "additionalProperties": false
+      },
       "CreateAgentRequest": {
         "type": "object",
         "properties": {
@@ -16448,6 +16461,59 @@
             },
             "required": [
               "ok"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SlackInteractionResponse": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "ok"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "response_action": {
+                "type": "string",
+                "const": "clear"
+              }
+            },
+            "required": [
+              "response_action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "response_action": {
+                "type": "string",
+                "const": "errors"
+              },
+              "errors": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "response_action",
+              "errors"
             ],
             "additionalProperties": false
           }
@@ -65518,6 +65584,281 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/SlackEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: The submitted credentials were rejected.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "- `RATE_LIMITED`: Too many requests; wait for `Retry-After` and retry.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "RATE_LIMITED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/slack/interactions/{agent_id}": {
+      "post": {
+        "operationId": "receiveSlackInteraction",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Slack's interactivity request URL for one agent's app",
+        "description": "Called by Slack, not by people: each agent app's interactivity points here, beside its events route (Finalize registers both when SLACK_EVENTS_PUBLIC_URL is set). It takes the buttons and the modal of the messages the agent posts in a thread when its session waits on a person: allow or deny a tool permission, answer a question, approve or reject a push request. The form body is read up to 256 KiB (413 above that) and checked as events are: the `v0` signature over the raw bytes with the app's signing secret and the timestamp within 300 seconds, else the same 401. The `payload` field is Slack's JSON. Each press is judged for the Slack user who pressed it, through their linked account, as the same `session.approve` decision the web makes; a refusal, or a request already answered, is told to that person alone and nothing is answered twice. A request settled here updates its message in place with who settled it and how. A `block_actions` press answers `{\"ok\": true}`; a submitted question modal answers `{\"response_action\": \"clear\"}`, or `errors` naming the blocks to fix. Rate limited per agent and overall before any database read (429).\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "payload": "{\"type\":\"block_actions\",\"api_app_id\":\"A0B1C2D3E4F\",\"team\":{\"id\":\"T0A1B2C3D\"},\"user\":{\"id\":\"U0PERSON1\"},\"channel\":{\"id\":\"C0CHANNEL1\"},\"message\":{\"ts\":\"1761300000.000200\",\"thread_ts\":\"1761300000.000100\"},\"trigger_id\":\"1761300000.1234.abcdef\",\"actions\":[{\"action_id\":\"permission.allow\",\"value\":\"{\\\"s\\\":\\\"019a0000-0000-7000-8000-0000000000d1\\\",\\\"r\\\":\\\"toolu_01\\\"}\"}]}"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/SlackInteractionForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "`{\"ok\": true}` for a button press, `{\"response_action\": \"clear\"}` or `{\"response_action\": \"errors\", ...}` for a submitted modal.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "ok": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInteractionResponse"
                 }
               }
             }

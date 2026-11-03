@@ -17,7 +17,10 @@ import type {
   PushRequestStore,
 } from "../ports/push-requests.ts";
 import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
-import { createPushRequestService } from "./push-request-service.ts";
+import {
+  createPushRequestService,
+  mayDecidePush,
+} from "./push-request-service.ts";
 import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -108,6 +111,27 @@ describe("push request decisions", () => {
     ]);
     expect(bodyRead).toBe(false);
     expect(decided).toEqual([]);
+  });
+
+  test("a Slack installation decides only as the linked person it names", () => {
+    const installation: Principal = {
+      kind: "installation",
+      id: "inst-1",
+      owner_id: "owner-a",
+      workspace_id: "9d2c4e61-8a3b-4f70-b1e5-6c0a7d3f2b98",
+      scopes: ["sessions:approve"],
+    };
+    expect(mayDecidePush(installation)).toBe("unverified_principal");
+    expect(mayDecidePush(installation, null)).toBe("unverified_principal");
+    expect(
+      mayDecidePush(installation, "7c1e1a52-3c11-4a8c-9e0f-0a1b2c3d4e5f"),
+    ).toBeNull();
+    expect(
+      mayDecidePush(
+        { ...installation, scopes: [] },
+        "7c1e1a52-3c11-4a8c-9e0f-0a1b2c3d4e5f",
+      ),
+    ).toBe("missing_scope");
   });
 
   test("an uppercase session id reads the checkpoint and records receipts under the stored id", async () => {

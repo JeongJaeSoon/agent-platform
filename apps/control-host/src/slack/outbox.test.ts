@@ -35,6 +35,8 @@ import {
   linkedAccounts,
   memberships,
   pendingRequests,
+  pushRequests,
+  receipts,
   registerSlackInstallation,
   sessionLinks,
   sessions,
@@ -503,6 +505,107 @@ const rows = () => db.select().from(slackOutbox).orderBy(asc(slackOutbox.seq));
 const posted = () =>
   slack.messages.filter((message) => message.method === "chat.postMessage");
 
+type PlanNode = {
+  "Node Type": string;
+  "Relation Name"?: string;
+  Alias?: string;
+  "Index Cond"?: string;
+  Plans?: PlanNode[];
+};
+
+const reads = (node: PlanNode, relation: string): boolean =>
+  node["Relation Name"] === relation ||
+  (node.Plans ?? []).some((child) => reads(child, relation));
+
+// The pass's own turns scan (alias `turns`; subplans use ot/st) either
+// fetches by id, or is the inner side of a nested loop whose outer side has
+// already read session_links and is bounded to that row's session by its
+// index: probed once per live link, never per session or whole.
+function turnsReadPerLink(plan: PlanNode, linkedOuter = false): boolean {
+  if (plan["Relation Name"] === "turns" && plan.Alias === "turns") {
+    const cond = plan["Index Cond"] ?? "";
+    return (
+      /\bid = ANY \(/.test(cond) ||
+      (linkedOuter && /\bsession_id = /.test(cond))
+    );
+  }
+  const children = plan.Plans ?? [];
+  if (children.length === 0) return true;
+  return children.every((child, index) =>
+    turnsReadPerLink(
+      child,
+      linkedOuter ||
+        (plan["Node Type"] === "Nested Loop" &&
+          index > 0 &&
+          reads(children[0] as PlanNode, "session_links")),
+    ),
+  );
+}
+
+describe("the outbox plan check", () => {
+  const turnsBySession: PlanNode = {
+    "Node Type": "Index Scan",
+    "Relation Name": "turns",
+    Alias: "turns",
+    "Index Cond": "(session_id = sessions.id)",
+  };
+  const sessionsScan: PlanNode = {
+    "Node Type": "Index Only Scan",
+    "Relation Name": "sessions",
+    Alias: "sessions",
+  };
+  const linksScan: PlanNode = {
+    "Node Type": "Index Scan",
+    "Relation Name": "session_links",
+    Alias: "session_links",
+  };
+
+  test("accepts turns probed under the live links", () => {
+    expect(
+      turnsReadPerLink({
+        "Node Type": "Nested Loop",
+        Plans: [
+          { "Node Type": "Nested Loop", Plans: [sessionsScan, linksScan] },
+          turnsBySession,
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("refuses a whole turns index read under the links and filtered after", () => {
+    expect(
+      turnsReadPerLink({
+        "Node Type": "Nested Loop",
+        Plans: [
+          linksScan,
+          {
+            "Node Type": "Materialize",
+            Plans: [
+              {
+                "Node Type": "Index Scan",
+                "Relation Name": "turns",
+                Alias: "turns",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  test("refuses turns read for every session before the links are checked", () => {
+    expect(
+      turnsReadPerLink({
+        "Node Type": "Nested Loop",
+        Plans: [
+          { "Node Type": "Nested Loop", Plans: [sessionsScan, turnsBySession] },
+          linksScan,
+        ],
+      }),
+    ).toBe(false);
+  });
+});
+
 describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
   useDatabase(engine);
 
@@ -754,7 +857,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outbox.unansweredTurns(10);
     await outbox.unpostedInstructions(10);
     await outbox.untoldUncertain(10);
-    const explain = async (captured: string | undefined) => {
+    const explainAs = async (captured: string | undefined, format: string) => {
       const { query, params } = JSON.parse(captured ?? "{}");
       const client = await (
         db as unknown as { $client: Pool }
@@ -763,23 +866,26 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         // Tables this small would be read whole; ask which index it would use.
         await client.query("SET enable_seqscan = off");
         const { rows } = await client.query(
-          `EXPLAIN (COSTS OFF) ${query}`,
+          `EXPLAIN (COSTS OFF, FORMAT ${format}) ${query}`,
           params,
         );
-        return rows.map((row) => row["QUERY PLAN"]).join("\n");
+        return rows;
       } finally {
         client.release(true);
       }
     };
+    const explain = async (captured: string | undefined) =>
+      (await explainAs(captured, "TEXT"))
+        .map((row) => row["QUERY PLAN"])
+        .join("\n");
     // Answers, then instructions.
     for (const captured of plans.slice(0, 2)) {
       const turnsPlan = await explain(captured);
       // The open turns found per link are fetched by id, or by the link's
       // session with the ids as a filter: the turns row width alone tips the
       // planner between the two. Neither reads turns outside linked sessions.
-      expect(turnsPlan).toMatch(
-        /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = session_links\.session_id\)\s+Filter: \(.*\(id = ANY \(/,
-      );
+      const [{ "QUERY PLAN": json }] = await explainAs(captured, "JSON");
+      expect(turnsReadPerLink(json[0].Plan)).toBe(true);
       expect(turnsPlan).not.toMatch(
         /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
       );
@@ -1064,7 +1170,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
   });
 
-  test("a turn waiting on an approval says so once, while a client can still answer", async () => {
+  test("each request a turn waits on gets its own card once, with the buttons that settle it", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
@@ -1092,40 +1198,179 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass();
     expect(posted()).toEqual([]);
 
-    await db.insert(pendingRequests).values({
-      requestId: `req-${attemptId}`,
-      sessionId,
-      turnId: turn?.id ?? 0,
-      attemptId,
+    const ask = (requestId: string, payload: Record<string, unknown>) =>
+      db.insert(pendingRequests).values({
+        requestId,
+        sessionId,
+        turnId: turn?.id ?? 0,
+        attemptId,
+        kind: payload.kind as string,
+        payload,
+        inputHash: "h",
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    await ask("toolu:1", {
       kind: "permission",
-      payload: { kind: "permission", tool: "Bash", input: null },
-      inputHash: "h",
-      expiresAt: new Date(Date.now() + 60_000),
+      tool: "Bash",
+      input: { command: "echo <@U0ALL> <!here>" },
     });
     await outboxPass();
     await outboxPass();
-    expect(posted().map((message) => message.text)).toEqual([
-      `${SLACK_OUTBOX_MESSAGES.ko.needsInput}\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+    const actionsOf = (message: { options: Record<string, string> }) =>
+      (
+        JSON.parse(message.options.blocks ?? "[]") as {
+          type: string;
+          elements?: { action_id?: string; value?: string }[];
+        }[]
+      )
+        .filter((block) => block.type === "actions")
+        .flatMap((block) => block.elements ?? []);
+    expect(posted()).toHaveLength(1);
+    const [card] = posted();
+    if (!card) throw new Error("no card");
+    expect(actionsOf(card).map((button) => button.action_id)).toEqual([
+      "permission.allow",
+      "permission.deny",
     ]);
-    expect((await rows()).map((row) => row.kind)).toEqual(["input_notice"]);
+    expect(JSON.parse(actionsOf(card)[0]?.value ?? "{}")).toEqual({
+      s: sessionId,
+      r: "toolu:1",
+    });
+    expect(card.options.blocks).toContain("rich_text_preformatted");
+    expect(card.text).not.toContain("<!here>");
+    expect((await rows()).map((row) => [row.kind, row.dedupeKey])).toEqual([
+      [
+        "input_notice",
+        `prompt:${(await db.select().from(sessionLinks))[0]?.id}:toolu:1`,
+      ],
+    ]);
     // The turn is still going: its status line stays.
     expect(slack.statuses.map((status) => status.status)).not.toContain(
       "active",
     );
 
-    // Answered on the web while a second notice waited: it is not sent.
-    await db
-      .update(turns)
-      .set({ sequence: 2 })
-      .where(eq(turns.id, turn?.id ?? 0));
+    await ask("toolu:2", {
+      kind: "question",
+      questions: [
+        {
+          question_id: "q1",
+          prompt: "Which branch?",
+          options: [
+            { option_id: "main", label: "main" },
+            { option_id: "dev", label: "dev" },
+          ],
+          multi_select: false,
+          allow_free_text: false,
+        },
+      ],
+    });
+    await outboxPass();
+    expect(posted()).toHaveLength(2);
+    expect(
+      actionsOf(posted()[1] ?? card).map((button) => button.action_id),
+    ).toEqual(["question.option:0", "question.option:1"]);
+
+    await ask("toolu:3", { kind: "permission", tool: "Read", input: null });
     await outboxPass({ botToken: null });
-    await db.delete(pendingRequests);
+    await db
+      .update(pendingRequests)
+      .set({ resolvedAt: new Date() })
+      .where(eq(pendingRequests.requestId, "toolu:3"));
     expect(await outboxPass()).toMatchObject({ failed: 1, claimed: 0 });
-    expect(posted()).toHaveLength(1);
-    expect((await rows()).map((row) => [row.kind, row.errorCode])).toEqual([
-      ["input_notice", null],
-      ["input_notice", "not_addressed"],
+    expect(posted()).toHaveLength(2);
+    expect(
+      (await rows()).map((row) => [
+        row.dedupeKey.split(":").at(-1),
+        row.errorCode,
+      ]),
+    ).toEqual([
+      ["1", null],
+      ["2", null],
+      ["3", "not_addressed"],
     ]);
+  });
+
+  test("a push request waiting for its decision gets one card, and none once decided", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const push = async (state: string, branch = "") => {
+      const receiptId = randomUUID();
+      await db.insert(receipts).values({
+        id: receiptId,
+        ownerId: session.ownerId,
+        operation: "request_push",
+        targetRef: { kind: "session", id: sessionId },
+      });
+      const id = randomUUID();
+      await db.insert(pushRequests).values({
+        id,
+        ownerId: session.ownerId,
+        sessionId,
+        repositoryId: "sandbox",
+        checkpointRevision: 1,
+        gitCommit: "a".repeat(40),
+        targetBranch: `agent/${sessionId}${branch}`,
+        state,
+        requestedBy: {
+          principal: { kind: "installation", id: "i" },
+          actor_user_id: null,
+          agent_id: null,
+        },
+        requestReceiptId: receiptId,
+        ...(state === "requested"
+          ? {}
+          : {
+              decidedAt: new Date(),
+              decidedBy: { kind: "policy" },
+              decisionReceiptId: receiptId,
+            }),
+      });
+      return { id, receiptId };
+    };
+    const decide = (pushed: { id: string; receiptId: string }) =>
+      db
+        .update(pushRequests)
+        .set({
+          state: "rejected",
+          decidedAt: new Date(),
+          decidedBy: { kind: "policy" },
+          decisionReceiptId: pushed.receiptId,
+        })
+        .where(eq(pushRequests.id, pushed.id));
+    const waiting = await push("requested");
+    await push("pushed");
+    await outboxPass();
+    await outboxPass();
+    expect(posted()).toHaveLength(1);
+    const blocks = JSON.parse(posted()[0]?.options.blocks ?? "[]") as {
+      type: string;
+      elements?: { action_id?: string; value?: string }[];
+      text?: { text?: string };
+    }[];
+    const buttons = blocks.flatMap((block) =>
+      block.type === "actions" ? (block.elements ?? []) : [],
+    );
+    expect(buttons.map((button) => button.action_id)).toEqual([
+      "push.approve",
+      "push.reject",
+    ]);
+    expect(JSON.parse(buttons[0]?.value ?? "{}")).toEqual({
+      s: sessionId,
+      r: waiting.id,
+    });
+    expect(JSON.stringify(blocks)).toContain(`agent/${sessionId}`);
+
+    const later = await push("requested", "-later");
+    await outboxPass({ botToken: null });
+    await decide(later);
+    expect(await outboxPass()).toMatchObject({ failed: 1 });
+    expect(posted()).toHaveLength(1);
   });
 
   test("a send Slack took but whose answer cannot be read is never resent", async () => {
