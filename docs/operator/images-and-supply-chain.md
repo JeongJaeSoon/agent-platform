@@ -38,7 +38,7 @@ system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에�
 
 ### worker 안의 GitHub CLI
 
-worker 이미지에는 GitHub CLI(`gh`, `/usr/local/bin/gh`)가 있다. 세션 안에서 `gh` 명령이 없어 헤매지 않게 하려는 것이고, GitHub에 닿는 경로를 늘리지 않는다. 이미지에 GitHub 로그인이나 token이 없고, `api.github.com`은 egress proxy의 기본 목록 어디에도 없다. 그래서 `gh --version`·`gh help`처럼 네트워크를 쓰지 않는 명령만 되고, GitHub를 부르는 명령은 읽기든 쓰기든 실패한다. 로그인이 없으면 `gh`가 요청 전에 `gh auth login` 안내와 함께 exit 4로 끝나고, 세션이 `GH_TOKEN`을 넣어도 proxy가 `api.github.com:443` CONNECT를 `destination is not allowlisted`로 거부해 `Forbidden`으로 끝난다(2026-11-03 fake model 세션에서 확인). GitHub 쓰기는 지금처럼 내장 `github` MCP 서버로만 간다. 버전은 worker Dockerfile의 `GH_VERSION`과 arch별 sha256(릴리스의 checksums 파일 값)으로 고정하고, 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 손으로 올린다. 바이너리 하나가 이미지를 약 38MB 늘린다.
+worker 이미지에는 GitHub CLI(`gh`, `/usr/local/bin/gh`)가 있다. 세션 안에서 `gh` 명령이 없어 헤매지 않게 하려는 것이고, GitHub에 닿는 경로를 늘리지 않는다. 이미지에 GitHub 로그인이나 token이 없고, `api.github.com`은 egress proxy의 기본 목록 어디에도 없다. 그래서 출하 이미지와 기본 egress 설정에서는 `gh --version`·`gh help`처럼 네트워크를 쓰지 않는 명령만 되고, GitHub를 부르는 명령은 읽기든 쓰기든 실패한다. 로그인이 없으면 `gh`가 요청 전에 `gh auth login` 안내와 함께 exit 4로 끝나고, 세션이 `GH_TOKEN`을 넣어도 proxy가 `api.github.com:443` CONNECT를 `destination is not allowlisted`로 거부해 `Forbidden`으로 끝난다(2026-11-03 fake model 세션에서 확인). 운영자가 `EGRESS_ALLOWLIST`에 `api.github.com:443`을 더하면 이 차단은 사라진다. 그때는 세션이 스스로 가진 token으로 `gh`가 GitHub API를 부를 수 있고, 플랫폼의 push 승인·브랜치 제한은 그 호출에 걸리지 않는다. GitHub 쓰기를 내장 `github` MCP 서버로만 보내려면 이 host를 목록에 넣지 않는다. 버전은 worker Dockerfile의 `GH_VERSION`과 arch별 sha256(릴리스의 checksums 파일 값)으로 고정하고, 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 손으로 올린다. 바이너리 하나가 이미지를 약 38MB 늘린다.
 
 ### worker 안의 패키지 도구
 
