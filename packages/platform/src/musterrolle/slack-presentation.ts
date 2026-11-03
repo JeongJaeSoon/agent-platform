@@ -59,8 +59,12 @@ function trustedControl(
     );
   }
 
-  // A date control carries its own fallback text and notifies nobody.
-  if (control.startsWith("!date^") && control.includes("|")) return true;
+  // A date notifies nobody, but its optional `^link` part would put the date
+  // over a destination no policy sees, so only timestamp, format and fallback
+  // pass.
+  if (control.startsWith("!date^")) {
+    return /^!date\^\d+\^[^^|]+\|[^^|]+$/.test(control);
+  }
 
   const destination = control.split("|", 1)[0] ?? "";
   return isSafeUrl(destination);
