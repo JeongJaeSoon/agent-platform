@@ -7,7 +7,7 @@ An agent's permissions have three layers: the tools and permission mode set by t
 
 ## Tools: set by the profile
 
-A session uses only the tools in the profile's `tools`. Tools outside it are denied without a permission request, and the model receives an error `tool_result`. The script below calls `WebFetch`, which the local profile does not have.
+A session uses only the tools in the profile's `tools`. The built-in tools the profile blocks (`deny`) are not in `tools`. Tools outside it are denied without a permission request, and the model receives an error `tool_result`. What a profile blocks is in [Choose a profile](/agents/run-profiles#tool-deny-list). The script below calls `WebFetch`, which the local profile blocks (the local profile's `deny` is `["NotebookEdit","WebFetch","WebSearch"]`).
 
 ```bash
 created=$(curl -sS "$API/v1/sessions" \
@@ -32,11 +32,24 @@ curl: (28) Operation timed out after 5006 milliseconds with 4482 bytes received
 
 `curl: (28)` is `--max-time` cutting the stream.
 
-A session created from a release is narrower still: it uses only the tools pinned to that release. That list is the card's `capabilities.tools` (all of the profile's tools at release time when `null`) minus `forbidden`, and the release response's `effective_tools.tools` shows it. If the card lists only `Read`, the session uses only `Read`, and other built-in tools are denied as above. A session created without a release uses all of the profile's tools.
+A session created from a release is narrower still: it uses only the tools pinned to that release. That list is the card's `capabilities.tools` (every tool the profile does not block at release time when `null`) minus `forbidden`, and the release response's `effective_tools.tools` shows it. If the card lists only `Read`, the session uses only `Read`, and other built-in tools are denied as above. A session created without a release uses all of the profile's tools.
+
+Two places block tools, with different reach.
+
+| | Profile `deny` | Card `capabilities.forbidden` |
+| --- | --- | --- |
+| Who sets it | The owner for an operator profile, owners and admins for a workspace profile | The agent's admins |
+| Where it applies | Every session and release on that profile version | Sessions created from that agent's releases |
+| Names it takes | Built-in tool names only | Tool names |
+| A change takes effect | In a new profile version, from the releases and sessions made on it | From a new release |
+
+A card cannot open a tool its profile blocks. Naming one in the card's `capabilities.tools` is refused when the release is made.
 
 <Callout type="warn">
 Previously the card's `tools` and `forbidden` were pinned to the release but not applied to execution. Now even a session already running on a release created before that is narrowed to the release's tools. This applies when the session's execution environment starts again (the next message after the environment has stopped following 30 minutes without input since the last turn ended, or a resume after a pause). The built-in tool values in the card's `tool_policy` (`allow`, `ask`, `deny`) are pinned to the release but are not applied to execution yet. Whether a tool asks before it runs is set by the permission mode below.
 </Callout>
+
+In a card's `tool_policy`, the default for built-in tools is `allow` and the default for MCP tools is `ask`. What makes a built-in tool ask a person before it runs is the permission mode, not this value. To keep a built-in tool from running at all, block it with the profile's `deny` or the card's `forbidden`.
 
 ## Permission mode
 

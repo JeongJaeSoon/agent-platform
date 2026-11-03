@@ -104,9 +104,9 @@ export const agentsKo = {
   "agentCard.modelHint":
     "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
   "agentCard.tools": "쓸 수 있는 도구",
-  "agentCard.toolsAll": "릴리스할 때 프로필이 허용하는 도구 전부",
+  "agentCard.toolsAll": "릴리스할 때 프로필이 막지 않은 도구 전부",
   "agentCard.toolsAllHint":
-    "릴리스를 만들 때 그 프로필의 도구로 정해집니다. 프로필에 나중에 더한 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만 씁니다.",
+    "릴리스를 만들 때 그 프로필이 막지 않은 도구로 정해집니다. 프로필 새 버전에서 막기를 푼 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만 씁니다.",
   "agentCard.previewProfile": "프로필",
   "agentCard.previewProfileHint":
     "이 프로필의 도구에서 고르고, 새 릴리스도 이 프로필로 만듭니다. 카드에는 저장하지 않습니다.",
@@ -482,9 +482,9 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.modelHint":
     "It must be exactly the model of the profile you pick when releasing",
   "agentCard.tools": "Tools it may use",
-  "agentCard.toolsAll": "Every tool the profile allows at release",
+  "agentCard.toolsAll": "Every tool the profile does not block at release",
   "agentCard.toolsAllHint":
-    "The tools are fixed from the profile when a release is made. Tools added to the profile later come in with a new release. Turn this off to use only the tools checked below.",
+    "The tools are fixed when a release is made: every tool its profile does not block. A tool unblocked in a new profile version comes in with a new release. Turn this off to use only the tools checked below.",
   "agentCard.previewProfile": "Profile",
   "agentCard.previewProfileHint":
     "You choose from this profile's tools, and a new release uses this profile. It is not saved on the card.",
@@ -851,9 +851,10 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.modelHint":
     "リリース時に選ぶプロファイルのモデルと完全に一致している必要があります",
   "agentCard.tools": "使用できるツール",
-  "agentCard.toolsAll": "リリース時にプロファイルで許可されたすべてのツール",
+  "agentCard.toolsAll":
+    "リリース時にプロファイルがブロックしていないすべてのツール",
   "agentCard.toolsAllHint":
-    "リリースを作成するときにそのプロファイルのツールに固定されます。後からプロファイルに追加したツールは新しいリリースから入ります。オフにすると、下でチェックしたツールだけを使います。",
+    "リリースを作成するときに、そのプロファイルがブロックしていないツールに固定されます。プロファイルの新しいバージョンでブロックを外したツールは、新しいリリースから入ります。オフにすると、下でチェックしたツールだけを使います。",
   "agentCard.previewProfile": "プロファイル",
   "agentCard.previewProfileHint":
     "このプロファイルのツールから選び、新しいリリースもこのプロファイルで作ります。カードには保存しません。",

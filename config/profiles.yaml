@@ -36,6 +36,8 @@
 # (docs/real-claude.md); without it the API does not start. Workers only
 # ever hold an egress token for it. config/fake-model is the catalog for
 # running without a key (infra/compose.fake-model.yml).
+#
+# `tools` lists are allowlists on purpose: a new installation's intended narrow default.
 profiles:
   claude-coding-real:
     runtime_kind: claude_agent_sdk

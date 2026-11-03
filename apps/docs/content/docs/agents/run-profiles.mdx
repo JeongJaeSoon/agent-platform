@@ -30,7 +30,7 @@ general claude-sonnet-5 none
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
-  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, runtime_kind, runtime_version, billing, repository_mode}'
+  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, deny, runtime_kind, runtime_version, billing, repository_mode}'
 ```
 
 ```text
@@ -45,6 +45,11 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
     "Grep",
     "Bash",
     "AskUserQuestion"
+  ],
+  "deny": [
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch"
   ],
   "runtime_kind": "claude_agent_sdk",
   "runtime_version": "0.3.270",
@@ -62,6 +67,7 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
 | --- | --- |
 | `model` | 기본 모델 |
 | `tools` | 세션에서 쓸 수 있는 도구. 밖의 도구는 실행되지 않는다([권한](/agents/permissions)) |
+| `deny` | 이 프로필이 막는 내장 도구. 이 설치가 그 runtime 버전에서 지원하는 내장 도구 중 `tools`에 없는 것이다. 지원 목록이 없는 버전이면 `null`([도구 차단목록](#도구-차단목록)) |
 | `billing` | `metered`면 비용을 세션 상한에 센다. `none`이면 비용을 세지 않는다 |
 | `repository_mode` | `required`(저장소 필수), `optional`, `none`(저장소 없음) |
 
@@ -127,6 +133,49 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 카탈로그에 없는 프로필, 그 저장소에서 돌 수 없는 프로필, 프로필이 허용하지 않는 모델은 422다.
 
 에이전트 release를 만들 때는 `runtime_profile_id`로 고른다. 카드의 `model`이 그 프로필이 실행할 수 있는 모델 중 하나이고, 카드의 도구가 모두 프로필에 있어야 한다([만들기](/agents/create#릴리스-만들기)).
+
+## 도구 차단목록
+
+프로필 버전은 쓸 도구를 늘어놓는 대신 막을 내장 도구만 `deny`에 적을 수 있다. 운영자 프로필이면 서버는 버전을 저장할 때 이 설치가 그 runtime 버전에서 지원하는 내장 도구 중 `deny`에 없는 것을 `tools`로 저장한다. 워크스페이스 프로필은 아래처럼 바탕의 도구 안에서 계산한다. 세션과 release는 저장된 `tools`만 본다.
+
+- **제한 없음은 지원 목록 안에서다.** 운영자 프로필의 `deny: []`는 지원 목록의 내장 도구를 모두 연다. 엔진에 들어 있어도 이 설치가 지원하지 않는 도구는 열리지 않는다. 지원 목록과 도구마다의 실행 위치(`boundary`)는 owner가 `GET /v1/installation-profiles/options`의 `tool_catalogs`로 본다.
+- **실행 위치.** `local`은 worker 안에서, `egress`는 플랫폼의 외부 접속 프록시를 거쳐 밖으로, `provider`는 모델 provider 쪽에서 돈다. provider 쪽 도구(`WebSearch`)는 외부 접속 프록시가 막지 못하고 프로필의 차단만 막는다. 그래서 새 이름의 첫 버전은 provider 쪽 도구를 `deny`에 넣고 시작하기를 권한다. API는 `deny`에 적은 것만 막으므로 `deny: []`는 `WebSearch`도 연다.
+- **새로 생긴 도구는 막힌 채 이어진다.** 버전은 저장할 때의 지원 목록으로 `tools`를 고정하고, 기존 버전·release·세션은 새 도구를 얻지 않는다. 엔진을 올리면 runtime 버전이 바뀌어 새 프로필 버전을 만들게 된다. 이때 이전 버전(운영자 프로필은 `previous_id`, 워크스페이스 프로필은 같은 이름의 최신 버전)이 따져 보지 않은 도구가 새 `tools`에 들어가려면 `accept_added_tools`에 적어야 한다. 그런 도구가 `deny`에도 `accept_added_tools`에도 없으면 `400`(`reason_code: added_tool_not_accepted`)이다. 이전 버전을 `tools`로 만들었으면 그 목록 밖의 도구가 모두 여기에 든다.
+- **내장 도구 이름만 받는다.** `deny`와 `accept_added_tools`에는 지원 목록의 이름만 적는다. MCP 도구(`mcp__`로 시작)는 `400`(`mcp_tool`), `Bash(rm:*)` 같은 패턴은 `400`(`tool_pattern`), 목록에 없는 이름은 `400`(`unknown_tool`)이다. MCP 도구는 에이전트 카드의 MCP 설정이 정한다.
+- **`tools`와 `deny` 중 하나.** 요청은 둘 중 정확히 하나를 보낸다. 둘 다 보내거나 둘 다 빼면 `400`이다. `accept_added_tools`는 `deny`와 함께만 보낸다. `tools`로 보내면 지금처럼 그 목록 그대로 저장한다. 지원 목록이 없는 runtime 버전은 `tools`만 받고 `deny`는 `400`(`no_tool_catalog`)이다.
+- **워크스페이스 프로필은 바탕을 넘지 않는다.** `tools`는 바탕 프로필의 `tools` 중 지원 목록에 있는 도구에서 `deny`를 뺀 것이다. 그래서 `deny: []`도 바탕이 쓰지 않는 도구는 열지 않는다. 바탕이 `deny`로 만든 버전이고 지원 목록이 같으면, 바탕이 막은 도구를 `deny`에서 빼는 요청은 `400`(`base_denies`)이다.
+- **기존 버전은 그대로다.** `tools`로 만든 버전도 목록의 `deny`에는 지원 목록에서 `tools`를 뺀 것으로 보인다. 기본 카탈로그(빈 DB를 채우는 `profiles.yaml`)는 일부러 `tools` 목록으로 둔다. 새 설치는 좁게 시작하고, 넓히려면 `deny`로 새 버전을 만든다.
+
+아래 예제는 [만들기](/agents/create#로그인)의 `WEB` 헤더로 owner가 부른다. 먼저 지원 목록에서 worker 밖으로 나가는 도구를 본다.
+
+```bash
+curl -sS "$API/v1/installation-profiles/options" "${WEB[@]}" \
+  | jq -c '.tool_catalogs[0].tools | map(select(.boundary != "local"))'
+```
+
+```text
+[{"name":"WebFetch","boundary":"egress"},{"name":"WebSearch","boundary":"provider"}]
+```
+
+로컬 프로필 다음 버전을 `WebSearch`만 막아 만든다. 로컬 프로필은 `tools`로 만든 버전이라 `NotebookEdit`·`WebFetch`는 따져 본 적이 없는 도구다.
+
+```bash
+next=$(jq -nc '{name: "coding-local", previous_id: "claude-coding-local",
+  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.270",
+  model: "claude-sonnet-5", models: ["claude-sonnet-5"], permission_mode: "default",
+  repository_ids: ["sample-app"], deny: ["WebSearch"]}')
+curl -sS "$API/v1/installation-profiles" "${WEB[@]}" -d "$next" | jq -c '.error.details'
+curl -sS "$API/v1/installation-profiles" "${WEB[@]}" \
+  -d "$(echo "$next" | jq -c '.accept_added_tools = ["NotebookEdit", "WebFetch"]')" \
+  | jq -c '.profile | {id, tools, deny}'
+```
+
+```text
+{"reason_code":"added_tool_not_accepted","field":"accept_added_tools"}
+{"id":"op_coding-local_v1","tools":["Read","Edit","Write","Glob","Grep","NotebookEdit","Bash","AskUserQuestion","WebFetch"],"deny":["WebSearch"]}
+```
+
+레퍼런스: [`POST /v1/installation-profiles`](/reference/http-api/agents/createInstallationProfile)
 
 ## 진행 중인 세션의 프로필 바꾸기
 
