@@ -2750,7 +2750,7 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     expect(updated()).toHaveLength(1);
   });
 
-  test("expiry and a closed session each settle a card no one pressed", async () => {
+  test("expiry settles a card no one pressed", async () => {
     const first = await cardThread();
     await db
       .update(pendingRequests)
@@ -2760,6 +2760,23 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
       ":hourglass: *만료됨* |",
     );
     expect(first.card.ts).toBe(updated()[0]?.ts ?? "");
+  });
+
+  test("a closed session settles a card no one pressed", async () => {
+    const first = await cardThread();
+    // What close-control writes: the session closed, its requests resolved.
+    await db.update(sessions).set({ admissionState: "closed" });
+    await db.update(pendingRequests).set({ resolvedAt: new Date() });
+    await outboxPass();
+    expect(updated()).toHaveLength(1);
+    expect(first.card.ts).toBe(updated()[0]?.ts ?? "");
+    expect(lines(updated()[0]?.blocks ?? [])[0]).toContain(
+      "*더 이상 답할 수 없어요*",
+    );
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "closed",
+      settleState: "settled",
+    });
   });
 
   test("a card posted before the settle columns, whose request since expired, settles on the first pass", async () => {
