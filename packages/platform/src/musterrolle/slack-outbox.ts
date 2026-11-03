@@ -73,8 +73,8 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
 const SLACK_USERNAME_MAX = 80;
 
 /**
- * Who an instruction came from, as its first line and its `username`: the
- * first line still says so in an app that cannot set the name.
+ * Who an instruction came from, as its `username`; an app that cannot set
+ * the name puts it on the text's first line instead.
  */
 export function slackInstructionSender(
   channel: SlackUnpostedInstruction["channel"],
@@ -111,7 +111,7 @@ export async function enqueueSlackInstructions(deps: {
       slackUserId: null,
       sessionId: turn.sessionId,
       body: {
-        text: `${username}\n${turn.message}`,
+        text: turn.message,
         sender:
           turn.senderSlackUserId === null
             ? { username }
@@ -317,6 +317,7 @@ export async function enqueueSlackPrompts(deps: {
         text: message.text,
         locale,
         blocks: message.blocks,
+        ...(link_url === undefined ? {} : { link_url }),
         ...(row.requesterSlackUserId === null
           ? {}
           : { mention_user_ids: [row.requesterSlackUserId] }),
@@ -499,7 +500,16 @@ export async function drainSlackOutbox(deps: {
       typeof response.body === "object" &&
       response.body !== null &&
       (response.body as { error?: unknown }).error === "missing_scope";
-    return refused ? deps.slack.postMessage(botToken, target) : response;
+    if (!refused) return response;
+    // Posted as the app, the sender's name moves into the text; a row queued
+    // before the name left the text has it there already.
+    const named = `${sender.username}\n`;
+    return deps.slack.postMessage(botToken, {
+      ...target,
+      text: claim.body.text.startsWith(named)
+        ? text
+        : slackOutboxText({ ...claim.body, text: named + claim.body.text }),
+    });
   };
   // A lost reply's notice clears the status once sent; a lost notice has
   // nothing after it to do so.
@@ -614,7 +624,11 @@ export async function drainSlackOutbox(deps: {
         continue;
       }
 
-      const text = slackOutboxText(claim.body);
+      // A card's text is slackCardText's, escaped and linked already.
+      const text =
+        claim.kind === "input_notice" && claim.body.blocks !== undefined
+          ? claim.body.text
+          : slackOutboxText(claim.body);
       let outcome: SlackOutboxSettle;
       try {
         const response =

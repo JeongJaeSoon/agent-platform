@@ -31,6 +31,10 @@ export const SECTION_LABEL = {
   danger: "slack.danger",
 } as const;
 export const SLACK_WARNING_KEY = {
+  config_token_issuer_changed: {
+    title: "slack.issuerChanged.title",
+    body: "slack.issuerChanged.body",
+  },
   repository_required: {
     title: "slack.repositoryRequired.title",
     body: "slack.repositoryRequired.body",
@@ -63,6 +67,7 @@ export function slackReason(error: unknown, t: Translate): string | undefined {
   if (code === "CONFIG_TOKEN_INVALID" || code === "SLACK_LINK_NOT_CONFIGURED")
     return t("slack.error.config");
   if (code === "SLACK_APP_CREATING") return t("slack.error.creating");
+  if (code === "SLACK_APP_GONE") return t("slack.error.gone");
   if (code === "AGENT_NOT_ACTIVE") return t("slack.activateFirst");
   if (code === "SLACK_NOT_INSTALLED") return t("slack.error.notInstalled");
   if (code === "SLACK_INSTALL_DENIED") return t("slack.error.denied");

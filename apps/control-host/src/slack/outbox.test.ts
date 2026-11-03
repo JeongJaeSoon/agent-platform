@@ -260,9 +260,14 @@ async function agentInSlack() {
     }),
     credentials: createPostgresCredentialBindingStore(db),
   });
+  const managingTeamId = randomUUID();
+  await db
+    .insert(schema.memberTeams)
+    .values({ id: managingTeamId, workspaceId, name: "notes" });
   const created = await agentsService.createAgent(owner, {
     slug: "notes",
     name: "Notes",
+    managing_team_id: managingTeamId,
     card: agentCardRequestSchema.parse({
       role: "r",
       instructions: "i",
@@ -944,7 +949,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ).toEqual([
       {
         threadTs: THREAD,
-        text: "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
+        // The name shows once, as the sender, not again in the text.
+        text: "Add a test, &lt;!here&gt;",
         username: "owner (웹 콘솔)",
         icon_url: "https://avatars.example/owner.png",
       },
@@ -955,6 +961,13 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         icon_url: undefined,
       },
     ]);
+    // As mock Slack serves it: the sender's name once, in the whole message.
+    const served = (
+      (await (
+        await fetch(`${slack.url.replace(/\/api$/, "")}/fake/messages`)
+      ).json()) as { messages: { text: string; options: object }[] }
+    ).messages[1];
+    expect(JSON.stringify(served).split("owner (웹 콘솔)")).toHaveLength(2);
     // Turn 1 came from Slack: it is already in the thread.
     expect(
       (await rows()).map(({ kind, dedupeKey }) => [kind, dedupeKey]),
@@ -983,7 +996,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .slice(1)
         .map(({ text, options }) => [text.split("\n")[0], options.username]),
     ).toEqual([
-      ["API", "API"],
+      ["Run the checks", "API"],
       [expect.stringMatching(/^Checks pass\./), undefined],
     ]);
   });
@@ -1046,7 +1059,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       posted()
         .slice(1)
         .map(({ text }) => text.split("\n")[0]),
-    ).toEqual(["owner (웹 콘솔)", "Second done."]);
+    ).toEqual(["Second", "Second done."]);
   });
 
   test("an app refused the sender's name posts the instruction once as itself", async () => {
@@ -1071,6 +1084,46 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     expect(rest).toEqual([]);
     expect(instruction?.text).toBe("owner (웹 콘솔)\nAdd a test");
     expect(instruction?.options.username).toBeUndefined();
+  });
+
+  test("a row queued with the name in its text keeps it once, sent as the sender or as the app", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    await askFrom(sessionId, 2, "web", "Add a test, <!here>", true);
+    await outboxPass({ botToken: null });
+    const [queued] = await db
+      .select()
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "instruction"));
+    if (!queued) throw new Error("no instruction row");
+    expect(queued.status).toBe("pending");
+    // How rows were queued before the name left the text.
+    await db
+      .update(slackOutbox)
+      .set({
+        body: {
+          ...(queued.body as Record<string, unknown>),
+          text: "owner (웹 콘솔)\nAdd a test, <!here>",
+        },
+        nextAttemptAt: new Date(),
+      })
+      .where(eq(slackOutbox.id, queued.id));
+    await fetch(`${slack.url.replace(/\/api$/, "")}/fake/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        method: "chat.postMessage",
+        status: 200,
+        body: { ok: false, error: "missing_scope" },
+      }),
+    });
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(posted()[1]?.text).toBe(
+      "owner (웹 콘솔)\nAdd a test, &lt;!here&gt;",
+    );
+    expect(posted()[1]?.options.username).toBeUndefined();
   });
 
   test("a long answer is cut to Slack's limit with its link kept whole", async () => {
@@ -1116,9 +1169,10 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass();
     expect(posted().map((message) => message.text)).toEqual([
       `We couldn't process the request right now. Try again shortly\n\n<${CONSOLE}/sessions/${sessionId}|Open on the web>`,
-      "owner (Web console)\nTry again",
-      "owner (Webコンソール)\nOnce more",
+      "Try again",
+      "Once more",
     ]);
+    expect(posted()[2]?.options.username).toBe("owner (Webコンソール)");
     expect(posted()[1]?.options.username).toBe("owner (Web console)");
 
     const [row] = await rows();
@@ -1260,6 +1314,29 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
     expect(card.options.blocks).toContain("rich_text_preformatted");
     expect(card.text).not.toContain("<!here>");
+    const cardOf = () =>
+      createPostgresSlackOutboxStore(db).promptCard({
+        sessionId,
+        requestId: "toolu:1",
+        channelId: card.channelId,
+        slackTs: card.ts,
+      });
+    const open = await cardOf();
+    expect(open).toMatchObject({
+      locale: "ko",
+      deciderSlackUserId: null,
+      display: { kind: "permission", tool: "Bash", state: "open" },
+    });
+    expect(open?.linkUrl).toStartWith(CONSOLE);
+    expect(card.text).toContain(open?.linkUrl ?? "missing");
+    expect(
+      await createPostgresSlackOutboxStore(db).promptCard({
+        sessionId,
+        requestId: "toolu:1",
+        channelId: card.channelId,
+        slackTs: "1.000000",
+      }),
+    ).toBeNull();
     expect((await rows()).map((row) => [row.kind, row.dedupeKey])).toEqual([
       [
         "input_notice",

@@ -518,6 +518,21 @@ describe("the agent Slack app API", () => {
         user_id: "U0OTHER",
       },
     ]);
+    // The app made before the paste is one the new issuer may not manage.
+    const older = await call("GET", appPath(AGENT), {
+      cookie: cookieFor("owner"),
+    });
+    expect(getSlackAppResponseSchema.parse(older.json).warnings).toEqual([
+      {
+        code: "config_token_issuer_changed",
+        previous_user_id: "U0ISSUER",
+        user_id: "U0OTHER",
+      },
+    ]);
+    const newer = await call("GET", appPath(NEXT_AGENT), {
+      cookie: cookieFor("owner"),
+    });
+    expect(getSlackAppResponseSchema.parse(newer.json).warnings).toEqual([]);
     slack.state.userId = "U0ISSUER";
   });
 });

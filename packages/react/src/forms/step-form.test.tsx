@@ -151,8 +151,10 @@ describe("a step form", () => {
       tools: [],
       forbidden: [],
     });
+    // The wizard's team picker supplies the managing team beside the step.
+    const managing_team_id = "019a0000-0000-7000-8000-0000000000c9";
     const view = identity((values) =>
-      post("/v1/agents", { body: { ...values, card } }),
+      post("/v1/agents", { body: { ...values, managing_team_id, card } }),
     );
     await fill(view, { slug: "  refunds ", name: " Refunds " });
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
@@ -160,6 +162,7 @@ describe("a step form", () => {
       slug: "refunds",
       name: "Refunds",
       description: "",
+      managing_team_id,
       card,
     });
     expect(alerts(view)).toEqual([]);

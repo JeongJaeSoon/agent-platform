@@ -36,6 +36,10 @@ worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=Werft`, `u
 
 system 설정은 git 설정 중 우선순위가 가장 낮아서, 세션 안에서 정한 값이 있으면 그쪽이 이긴다. 세션의 작성자를 바꾸려면 workspace 저장소에 `git config user.name`·`git config user.email`을 쓴다. `git commit --author`는 author만 바꾸고 committer는 그대로 둔다. `git config --global`은 tmpfs HOME에 쓰이므로 worker가 바뀌면 사라진다. 저장소 설정도 checkpoint에서 복원한 worker에서는 사라진다. 복원이 workspace를 비우고 저장소를 새로 만들기 때문이다. 그때부터는 다시 기본 작성자로 commit된다. 카탈로그나 설치 설정으로 기본값을 바꾸는 기능은 두지 않았다. 사용자별 작성자를 기본값으로 쓰려면 사용자 주소를 worker에 넘겨야 하므로 제품 결정이 먼저다. 이미지 smoke(`.github/scripts/image-smoke.sh`)가 빈 저장소에서 commit해 이 작성자를 확인하고, e2e(`tests/e2e/alpha-path.e2e.ts`)가 실제 Claude Code의 Bash 도구로 같은 것을 확인한다.
 
+### worker 안의 GitHub CLI
+
+worker 이미지에는 GitHub CLI(`gh`, `/usr/local/bin/gh`)가 있다. 세션 안에서 `gh` 명령이 없어 헤매지 않게 하려는 것이고, GitHub에 닿는 경로를 늘리지 않는다. 이미지에 GitHub 로그인이나 token이 없고, `api.github.com`은 egress proxy의 기본 목록 어디에도 없다. 그래서 출하 이미지와 기본 egress 설정에서는 `gh --version`·`gh help`처럼 네트워크를 쓰지 않는 명령만 되고, GitHub를 부르는 명령은 읽기든 쓰기든 실패한다. 로그인이 없으면 `gh`가 요청 전에 `gh auth login` 안내와 함께 exit 4로 끝나고, 세션이 `GH_TOKEN`을 넣어도 proxy가 `api.github.com:443` CONNECT를 `destination is not allowlisted`로 거부해 `Forbidden`으로 끝난다(2026-11-03 fake model 세션에서 확인). 운영자가 `EGRESS_ALLOWLIST`에 `api.github.com:443`을 더하면 이 차단은 사라진다. 그때는 세션이 스스로 가진 token으로 `gh`가 GitHub API를 부를 수 있고, 플랫폼의 push 승인·브랜치 제한은 그 호출에 걸리지 않는다. GitHub 쓰기를 내장 `github` MCP 서버로만 보내려면 이 host를 목록에 넣지 않는다. 버전은 worker Dockerfile의 `GH_VERSION`과 arch별 sha256(릴리스의 checksums 파일 값)으로 고정하고, 매일의 Debian 보안 갱신으로 따라 올라가지 않으므로 손으로 올린다. 바이너리 하나가 이미지를 약 38MB 늘린다.
+
 ### worker 안의 패키지 도구
 
 출하 worker 이미지에는 Bun(Node 호환 shim 포함)과 engine만 있다. npm·pnpm·yarn·Ruby·Bundler·Go는 없다. 세션에서 이 도구로 의존 패키지를 설치하려면 운영자가 `WORKER_IMAGE`를 이 이미지에서 파생한 이미지로 바꾼다. 파생 이미지는 `/workspace` 외의 `VOLUME`을 선언하지 않아야 하고(실행 기반 문서의 이미지 계약), engine·SDK·CLI 조합을 바꾸지 않아야 한다. 레지스트리 접근은 이미지와 상관없이 egress proxy의 `packages` route로만 된다([실행 기반 § egress](execution.md)). worker가 claim 때 HOME에 npm·Bundler·Go user 설정을 쓰므로 파생 이미지에 레지스트리 설정을 넣을 필요는 없다.

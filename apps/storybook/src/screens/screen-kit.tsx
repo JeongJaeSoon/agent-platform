@@ -417,7 +417,7 @@ export function ScreenShell({
               Acme
             </Text>
             <Text as="span" variant="sub">
-              {" · "}Agent Platform
+              {" · "}Werft
             </Text>
           </Text>
         </div>

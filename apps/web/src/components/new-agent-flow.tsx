@@ -433,10 +433,8 @@ export function NewAgentFlow({
               slug: context.slug,
               name: context.name,
               ...(description === "" ? {} : { description }),
-              ...(typeof context.managing_team_id === "string" &&
-              context.managing_team_id !== ""
-                ? { managing_team_id: context.managing_team_id }
-                : {}),
+              // The job guard lets no unsaved flow here without a team.
+              managing_team_id: context.managing_team_id ?? "",
               card: sent as unknown as ApiCard,
             },
           }),

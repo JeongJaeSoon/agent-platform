@@ -132,6 +132,25 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     );
   }
 
+  /** A live team holding `members` as plain members. */
+  async function team(workspaceId: string, ...members: Caller[]) {
+    const teamId = randomUUID();
+    await db.insert(schema.memberTeams).values({
+      id: teamId,
+      workspaceId,
+      name: `team-${teamId.slice(0, 8)}`,
+    });
+    for (const member of members) {
+      await db.insert(schema.memberTeamMembers).values({
+        id: randomUUID(),
+        workspaceId,
+        teamId,
+        userId: member.actor?.userId ?? "",
+      });
+    }
+    return teamId;
+  }
+
   function acting(caller: Caller): ActingOwner {
     const userId = caller.actor?.userId;
     if (!userId) throw new Error("no person");
@@ -171,11 +190,13 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const mine = await service.createAgent(member, {
       slug: "mine",
       name: "mine",
+      managing_team_id: await team(workspaceId, member),
       card: CARD,
     });
     const theirs = await service.createAgent(owner, {
       slug: "theirs",
       name: "theirs",
+      managing_team_id: await team(workspaceId),
       card: CARD,
     });
     expect(
@@ -255,11 +276,13 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const agent = await agentsService().createAgent(owner, {
       slug: "bot",
       name: "bot",
+      managing_team_id: await team(workspaceId),
       card: CARD,
     });
     const foreign = await agentsService().createAgent(foreignOwner, {
       slug: "bot",
       name: "bot",
+      managing_team_id: await team(elsewhere),
       card: CARD,
     });
     const row = (
@@ -314,11 +337,13 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const agent = await agentsService().createAgent(member, {
       slug: "bot",
       name: "bot",
+      managing_team_id: await team(workspaceId, member),
       card: CARD,
     });
     const other = await agentsService().createAgent(owner, {
       slug: "other",
       name: "other",
+      managing_team_id: await team(workspaceId),
       card: CARD,
     });
     const store = createPostgresWorkspaceKeyStore(db);
@@ -519,11 +544,13 @@ integration("agent admins, the admin role and agent keys on PostgreSQL", () => {
     const agent = await agentsService().createAgent(owner, {
       slug: "bot",
       name: "bot",
+      managing_team_id: await team(workspaceId),
       card: CARD,
     });
     const other = await agentsService().createAgent(owner, {
       slug: "other",
       name: "other",
+      managing_team_id: await team(workspaceId),
       card: CARD,
     });
     const store = createPostgresWorkspaceKeyStore(db);

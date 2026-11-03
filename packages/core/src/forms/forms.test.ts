@@ -251,15 +251,19 @@ test("the steps join into requests the contract accepts", () => {
     name: "R ",
     description: "",
   });
+  // The first step's team picker adds the managing team.
+  const managing_team_id = "019a0000-0000-7000-8000-0000000000c9";
   expect(
     createAgentRequestSchema.safeParse({
       ...identity,
+      managing_team_id,
       card: agentCardStep(BASE).parse(DRAFT),
     }).success,
   ).toBe(true);
   expect(
     createAgentRequestSchema.safeParse({
       ...identity,
+      managing_team_id,
       card: agentCardStep().parse({ ...DRAFT, agentInstructions: "Be brief." }),
     }).success,
   ).toBe(true);

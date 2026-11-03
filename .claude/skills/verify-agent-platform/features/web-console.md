@@ -40,7 +40,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' "$VERIFY_API/assets/missing.js"   # 40
 ```sh
 B=.claude/skills/verify-agent-platform/scripts/browser.mjs
 node $B <run id> start                   # started headless Chrome pid N
-node $B <run id> open /                  # /login?redirect=%2F | Agent Platform
+node $B <run id> open /                  # /login?redirect=%2F | Werft
 node $B <run id> login owner             # web-user.mjs가 만든 users/owner로 /login 폼을 채운다 → "login owner -> /"
 W=1280 THEME=light node $B <run id> shot home-1280-light   # evidence/home-1280-light.png, scrollWidth/innerWidth=1280/1280
 W=390 THEME=dark node $B <run id> shot home-390-dark       # 390px, 다크. scrollWidth가 390이면 넘침 없음

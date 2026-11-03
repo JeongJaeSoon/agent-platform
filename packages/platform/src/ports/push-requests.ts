@@ -203,6 +203,29 @@ export type PushOutcome =
       remoteRef?: string;
     };
 
+/**
+ * A push request as a card shows it. `repositoryName`: the catalog's
+ * owner/name, null when the catalog has no row for the id.
+ */
+export type PushRequestDisplay = {
+  repositoryId: string;
+  repositoryName: string | null;
+  targetBranch: string;
+  gitCommit: string;
+  state: PushRequest["state"];
+  decidedByUserId: string | null;
+  createdAt: string;
+};
+
+export interface PushRequestDisplayReader {
+  /** The request for display; null outside the owner's sessions. */
+  displayOf(
+    ownerId: string,
+    sessionId: string,
+    pushRequestId: string,
+  ): Promise<PushRequestDisplay | null>;
+}
+
 export interface PushRequestStore {
   /** null when the session is not visible to the owner. */
   findSession(

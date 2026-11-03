@@ -195,6 +195,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     );
   }
 
+  async function liveTeam(workspaceId: string) {
+    const teamId = randomUUID();
+    await db.insert(memberTeams).values({
+      id: teamId,
+      workspaceId,
+      name: `team-${teamId.slice(0, 8)}`,
+    });
+    return teamId;
+  }
+
   async function newAgent(
     agents: AgentService,
     owner: Caller,
@@ -203,6 +213,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
     return agents.createAgent(owner, {
       slug: `agent-${randomUUID().slice(0, 8)}`,
       name: "재무 분석가",
+      managing_team_id: await liveTeam(owner.ownerId),
       card,
     });
   }
@@ -1025,6 +1036,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       slug: `agent-${randomUUID().slice(0, 8)}`,
       name: "재무 분석가",
       description: "분기 보고서를 읽는다",
+      managing_team_id: await liveTeam(workspaceId),
       card: cardWith("v1"),
     });
     expect(created.agent.description).toBe("분기 보고서를 읽는다");
@@ -2001,6 +2013,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         agentsService.createAgent(serviceKey(workspaceId), {
           slug: "by-someone-else",
           name: "x",
+          managing_team_id: created.agent.managing_team_id ?? "",
           card: cardWith("x"),
         }),
       ),
@@ -2010,6 +2023,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         agentsService.createAgent(owner, {
           slug: created.agent.slug,
           name: "duplicate",
+          managing_team_id: created.agent.managing_team_id ?? "",
           card: cardWith("dup"),
         }),
       ),
@@ -2030,6 +2044,10 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         workspaceId,
         slug: "late",
         name: "late",
+        managingTeam: {
+          id: await liveTeam(workspaceId),
+          managerRoles: ["owner", "admin"],
+        },
         card: cardWith("late"),
         contentSha256: "a".repeat(64),
         createdBy: owner.actor?.userId as string,

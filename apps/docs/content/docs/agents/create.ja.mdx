@@ -45,11 +45,15 @@ curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: 
 
 ### 作成
 
+エージェントには担当チームが必ず必要である。owner・admin は `GET /v1/teams` のどのチームでも、それ以外の人は `GET /v1/my-teams` に出る自分のチームを選ぶ。以下では owner としてチームを一つ作って使う(同じ名前のチームがすでにあると 409 なので、そのチームの `id` を使う)。
+
 ```bash
+TEAM=$(curl -sS "$API/v1/teams" "${WEB[@]}" -d '{"name": "Research"}' | jq -r .team.id)
 agent=$(curl -sS "$API/v1/agents" "${WEB[@]}" -d '{
   "slug": "research-bot",
   "name": "Research Bot",
   "description": "リポジトリを読んで質問に答える",
+  "managing_team_id": "'"$TEAM"'",
   "card": {
     "agent_instructions": "Answer briefly. Cite file paths.",
     "model": "claude-sonnet-5",
@@ -71,7 +75,9 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 同じワークスペースに同じ slug があると 409 `ALREADY_EXISTS` になる。作成しただけでは何も有効化されない。
 
-リクエストの `managing_team_id` にチーム ID を入れると、そのチームが担当チームになる。owner・admin でなければ、自分が所属するチームしか指定できない。レスポンスの `agent.managing_team_name` はそのチームの名前で、担当チームがなければ `managing_team_id` とともに `null` である。
+`managing_team_id` に入れたチームが担当チームになる。省くと 400 `BAD_REQUEST` で、`error.details.issues` に `{"path": "managing_team_id", "message": "managing_team_id is required"}` が入る。owner・admin が存在しないチームを入れると 404 である。それ以外の人が自分の所属しないチームを入れると、存在しないチームでも 403(`details.reason_code: team_not_allowed`)である。そのため、所属するチームのない member はエージェントを作成できない。レスポンスの `agent.managing_team_name` はそのチームの名前である。
+
+担当チームが必須になる前に作ったエージェントは、担当チームが空のことがある。そうしたエージェントもこれまでどおり読み、編集し、実行できる。一覧とレスポンスでは `managing_team_id` と `managing_team_name` が `null` で、`PUT /v1/agents/{id}/managing-team` で担当チームを決める。
 
 ### リリースの作成
 
@@ -130,7 +136,7 @@ curl -sS "$API/v1/agents/counts" "${WEB[@]}" | jq -c
 
 ```text
 {"n":1,"next_cursor":null}
-{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":1}}
+{"counts":{"all":1,"administered":1,"active":1,"draft":0,"unassigned":0}}
 ```
 
 一覧は古いエージェントから `limit` 件ずつ(既定 50、最大 100)返る。レスポンスの `next_cursor` を `cursor` として送ると次のページになり、最後のページでは `null` である。`cursor` なしで呼ぶと最初のページだけが返る。`q`(最大 200 文字)を渡すと名前か識別子にその文字列を含むエージェントだけが大文字小文字を区別せずに返り、`ids` にエージェント ID をカンマでつないで(最大 100 件)渡すとそのエージェントだけが返る。`runtime_profile_id` を渡すと、有効な release がその実行プロファイルで動くエージェントだけが返り、有効な release のないエージェントは除かれる。いずれも同じ `cursor` で次のページを読む。`GET /v1/agents/counts` は、一覧を最後まで読んだときの件数(`all`)、そのうち自分が直接またはチームで管理している件数(`administered`)、有効な release で動いている件数(`active`)、アーカイブされていないがまだ有効な release のない下書きの件数(`draft`)、担当チームのない件数(`unassigned`)を返す。一覧に `managing_team=unassigned` を渡すと、担当チームのないエージェントだけが返る。どちらも一覧と同じ権限が必要で、API キーは拒否される。
