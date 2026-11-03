@@ -68,7 +68,7 @@ export const sessionListEn: Record<keyof typeof sessionListKo, string> = {
   "session.share.team": "Named teams: {count}",
   "session.share.workspace": "Workspace",
   "session.share.workspaceLimited":
-    "Workspace (people outside the managing team cannot see it, by workspace setting)",
+    "Workspace (people outside the responsible team cannot see it, by workspace setting)",
   "session.share.failed": "Could not read who this session is shared with.",
 };
 

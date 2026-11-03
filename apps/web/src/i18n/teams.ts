@@ -79,7 +79,7 @@ export const teamsKo = {
 export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.title": "Teams",
   "teams.intro":
-    "A team is a group of people. When it is an agent's managing team, its leads manage that agent and its members see the agent's settings and use it. Make a team an agent admin, and everyone on it can manage that agent.",
+    "A team is a group of people. When it is an agent's responsible team, its leads manage that agent and its members see the agent's settings and use it. Make a team an agent admin, and everyone on it can manage that agent.",
   "teams.name": "Team name",
   "teams.create": "Create team",
   "teams.createDescription":
@@ -103,7 +103,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.renamed": "Renamed the team to {name}.",
   "teams.delete": "Delete team",
   "teams.deleteHint":
-    "Deleting a team also removes it from every agent it administers. While the team is an agent's managing team, give that agent another managing team first.",
+    "Deleting a team also removes it from every agent it administers. While the team is an agent's responsible team, give that agent another responsible team first.",
   "teams.deleteTitle": "Delete the {name} team?",
   "teams.deleteConsequence":
     "Its members stay in the workspace, but can no longer manage agents through this team.",
@@ -141,7 +141,7 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.role.lead": "Team lead",
   "teams.role.member": "Member",
   "teams.role.lead.help":
-    "Manages the agents this team is the managing team of.",
+    "Manages the agents this team is the responsible team of.",
   "teams.role.member.help":
     "Sees the settings of the agents this team manages and uses them, without managing them.",
   "teams.changeRole": "Change role",
@@ -149,9 +149,9 @@ export const teamsEn: Record<keyof typeof teamsKo, string> = {
   "teams.roleTitle": "Change team role",
   "teams.roleChanged": "Changed {name}'s team role to {role}.",
   "teams.deleteManages":
-    "The team was not deleted: it is the managing team of the agents below. Give each of them another managing team first.",
+    "The team was not deleted: it is the responsible team of the agents below. Give each of them another responsible team first.",
   "teams.deleteManagesCount":
-    "The team was not deleted: it is the managing team of {count} agents. Give each of them another managing team first.",
+    "The team was not deleted: it is the responsible team of {count} agents. Give each of them another responsible team first.",
   "teams.deleteManagesList": "Agents this team manages",
   "teams.deleteManagesMore": "{count} more",
 };

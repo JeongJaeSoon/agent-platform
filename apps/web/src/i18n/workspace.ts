@@ -181,12 +181,14 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.guestValueOff": "Slack guests cannot use agents.",
   "workspace.access": "Agent access",
   "workspace.accessHint":
-    "Sets how far members outside an agent's managing team go with the agent and its sessions. It does not apply to owners, admins, the agent's admins or its managing team's members.",
-  "workspace.accessAgent": "Agent access for members outside the managing team",
-  "workspace.accessAgentFoot": "Applies to agents without a managing team too.",
+    "Sets how far members outside an agent's responsible team go with the agent and its sessions. It does not apply to owners, admins, the agent's admins or its responsible team's members.",
+  "workspace.accessAgent":
+    "Agent access for members outside the responsible team",
+  "workspace.accessAgentFoot":
+    "Applies to agents without a responsible team too.",
   "workspace.accessAgent.use": "View and run",
   "workspace.accessAgent.use.help":
-    "They see the agent's details (name, description, managing team) and start sessions with it. They do not see its settings.",
+    "They see the agent's details (name, description, responsible team) and start sessions with it. They do not see its settings.",
   "workspace.accessAgent.view": "View only",
   "workspace.accessAgent.view.help":
     "They see the agent's details but cannot start sessions with it.",
@@ -195,10 +197,10 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
     "The agent is not in their agent list, and they cannot start sessions with it.",
   "workspace.accessSessions": "Workspace-shared sessions",
   "workspace.accessSessionsFoot":
-    "Applies only to sessions of agents with a managing team. A change applies to existing sessions at once.",
-  "workspace.accessSessions.managing_team": "Managing team only",
+    "Applies only to sessions of agents with a responsible team. A change applies to existing sessions at once.",
+  "workspace.accessSessions.managing_team": "Responsible team only",
   "workspace.accessSessions.managing_team.help":
-    "Sessions shared with the workspace are seen only by owners, admins, the agent's admins and its managing team's members. Members outside the managing team see their own sessions and those shared with them by name or team.",
+    "Sessions shared with the workspace are seen only by owners, admins, the agent's admins and its responsible team's members. Members outside the responsible team see their own sessions and those shared with them by name or team.",
   "workspace.accessSessions.workspace": "Every member",
   "workspace.accessSessions.workspace.help":
     "Sessions shared with the workspace are seen by every member.",

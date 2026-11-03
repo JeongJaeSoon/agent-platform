@@ -121,7 +121,7 @@ export const slackEn = {
   "slack.channelConnect": "Connect {channel}",
   "slack.connectedChannels": "Connected channels",
   "slack.channelsAudience":
-    "Everyone in a connected channel reads the replies, including people outside the managing team.",
+    "Everyone in a connected channel reads the replies, including people outside the responsible team.",
   "slack.noConnectedChannels": "No connected channels",
   "slack.addChannelHint":
     "Choose Add channel to select where this agent responds.",

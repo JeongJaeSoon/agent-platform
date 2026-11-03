@@ -69,6 +69,8 @@ The person who creates an agent becomes that agent's administrator. An administr
 
 An agent can have one responsible team. The responsible team's leads (`lead`) administer the agent; its members (`member`) do not. Unless you are an owner or admin, you can choose only a team you belong to. A team that is responsible for an agent cannot be deleted until that agent is archived or moved to another team.
 
+Team roles show on the console's team screen. The member table's **Team role** column tells a **Team lead** (`lead`) from a **Member** (`member`), and **Your teams** shows your own role. Owners and admins pick a role with **Change role** on a member's row and **Save** it (`PATCH /v1/teams/{team_id}/members/{user_id}` `{"role"}`). Deleting a team that is responsible for agents leaves the team in place, and the console names those agents with links (`409 TEAM_MANAGES_AGENTS`). Give each of them another responsible team first.
+
 Who sees what of an agent:
 
 | Who | Information (name, slug, description, responsible team, status, active release) | Reading settings (card, releases, administrators, credential connections, GitHub, Slack) | Changing settings |
@@ -110,6 +112,8 @@ curl -sS -X PATCH "$API/v1/workspaces/$WID/agent-access" "${WEB[@]}" \
 ```
 
 `WID` is `workspace.id` from `GET /v1/auth/me`.
+
+In the console, change them under **Agent access** in **Workspace settings**. **Agent access for members outside the responsible team** is **View and run** (`use`), **View only** (`view`) or **Hidden** (`none`); **Workspace-shared sessions** is **Responsible team only** (`managing_team`) or **Every member** (`workspace`). Only the changed values are sent, and after a save the screen reads `GET /v1/auth/me` again. Members who are not owners or admins see the current values without the choices.
 
 <Callout>
 Before, every member saw `workspace`-shared sessions. The default is now `managing_team`, so the sessions of an agent with a responsible team are seen only by those inside it right away. To see them as before, set `agent_outsider_session_visibility` to `workspace`.
