@@ -19,9 +19,12 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
   FormActions,
   formatTimestamp,
   GridTable,
@@ -33,6 +36,8 @@ import {
   Link,
   linkVariants,
   Page,
+  RadioGroup,
+  RadioGroupItem,
   RelativeTime,
   RowAction,
   RowLines,
@@ -377,6 +382,169 @@ function ReadOnlySettings() {
   );
 }
 
+type AccessKey = "agent_outsider_access" | "agent_outsider_session_visibility";
+
+// routes/workspace-settings.tsx AGENT_ACCESS: the contract's values in order.
+const AGENT_ACCESS: Record<
+  AccessKey,
+  {
+    readonly legend: string;
+    readonly foot: string;
+    readonly choices: readonly {
+      readonly value: string;
+      readonly label: string;
+      readonly help: string;
+    }[];
+  }
+> = {
+  agent_outsider_access: {
+    legend: "담당 팀 밖 구성원의 에이전트 접근",
+    foot: "담당 팀이 없는 에이전트에도 적용됩니다.",
+    choices: [
+      {
+        value: "use",
+        label: "보고 실행",
+        help: "에이전트 정보(이름·설명·담당 팀)를 보고 세션을 시작합니다. 설정은 보지 못합니다.",
+      },
+      {
+        value: "view",
+        label: "보기만",
+        help: "에이전트 정보를 보지만 세션을 시작하지 못합니다.",
+      },
+      {
+        value: "none",
+        label: "숨김",
+        help: "에이전트 목록에 보이지 않고 세션도 시작하지 못합니다.",
+      },
+    ],
+  },
+  agent_outsider_session_visibility: {
+    legend: "워크스페이스 공개 세션",
+    foot: "담당 팀이 있는 에이전트의 세션에만 적용됩니다. 바꾸면 이미 있는 세션에도 바로 적용됩니다.",
+    choices: [
+      {
+        value: "managing_team",
+        label: "담당 팀 안에만",
+        help: "공유 범위가 워크스페이스인 세션을 소유자·관리자, 에이전트 관리자, 담당 팀 구성원만 봅니다. 담당 팀 밖 구성원은 자기 세션과 이름·팀으로 공유받은 세션만 봅니다.",
+      },
+      {
+        value: "workspace",
+        label: "모든 구성원",
+        help: "공유 범위가 워크스페이스인 세션을 모든 구성원이 봅니다.",
+      },
+    ],
+  },
+};
+const ACCESS_KEYS = Object.keys(AGENT_ACCESS) as AccessKey[];
+// The defaults GET /v1/auth/me reads when neither key was ever saved.
+const ACCESS_DEFAULT: Record<AccessKey, string> = {
+  agent_outsider_access: "use",
+  agent_outsider_session_visibility: "managing_team",
+};
+const ACCESS_HINT =
+  "담당 팀 밖 구성원이 에이전트와 그 세션을 어디까지 다루는지 정합니다. 소유자·관리자, 에이전트 관리자, 담당 팀 구성원에게는 적용되지 않습니다.";
+
+function AgentAccess({
+  onOutcome,
+}: {
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const [draft, setDraft] = useState<Partial<Record<AccessKey, string>>>({});
+  const changed = ACCESS_KEYS.some(
+    (key) => draft[key] !== undefined && draft[key] !== ACCESS_DEFAULT[key],
+  );
+  return (
+    <SettingsSection
+      title="에이전트 접근"
+      description={ACCESS_HINT}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onOutcome({
+          kind: "notice",
+          text: "에이전트 접근 설정을 저장했습니다.",
+        });
+      }}
+      foot={
+        <ReasonButton
+          type="submit"
+          className={buttonVariants({ size: "sm" })}
+          reason={undefined}
+          disabled={!changed}
+        >
+          저장
+        </ReasonButton>
+      }
+    >
+      {ACCESS_KEYS.map((key) => (
+        <AgentAccessChoice
+          key={key}
+          setting={key}
+          value={draft[key] ?? ACCESS_DEFAULT[key]}
+          onChange={(value) =>
+            setDraft((picked) => ({ ...picked, [key]: value }))
+          }
+        />
+      ))}
+    </SettingsSection>
+  );
+}
+
+function AgentAccessChoice({
+  setting,
+  value,
+  onChange,
+}: {
+  readonly setting: AccessKey;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  const legendId = useId();
+  const footId = useId();
+  const text = AGENT_ACCESS[setting];
+  return (
+    <FieldSet>
+      <FieldLegend id={legendId} variant="label">
+        {text.legend}
+      </FieldLegend>
+      <RadioGroup
+        value={value}
+        onValueChange={onChange}
+        aria-labelledby={legendId}
+        aria-describedby={footId}
+      >
+        {text.choices.map((choice) => (
+          <Field
+            key={choice.value}
+            orientation="horizontal"
+            className="items-start"
+          >
+            <RadioGroupItem value={choice.value} />
+            <FieldContent className="gap-1">
+              <FieldLabel>{choice.label}</FieldLabel>
+              <FieldDescription>{choice.help}</FieldDescription>
+            </FieldContent>
+          </Field>
+        ))}
+      </RadioGroup>
+      <FieldDescription id={footId}>{text.foot}</FieldDescription>
+    </FieldSet>
+  );
+}
+
+function AgentAccessValues() {
+  return (
+    <SettingsSection title="에이전트 접근" description={ACCESS_HINT}>
+      {ACCESS_KEYS.map((key) => {
+        const { legend, choices } = AGENT_ACCESS[key];
+        const chosen = choices.find(
+          (choice) => choice.value === ACCESS_DEFAULT[key],
+        );
+        return <div key={key}>{`${legend}: ${chosen?.label ?? ""}`}</div>;
+      })}
+    </SettingsSection>
+  );
+}
+
 function AuditRetention({
   viewer,
   onOutcome,
@@ -470,9 +638,15 @@ function GeneralPage({
         <Basics />
         <AllowedModels models={models} />
         {editable ? (
-          <AuditRetention viewer={viewer} onOutcome={setOutcome} />
+          <>
+            <AgentAccess onOutcome={setOutcome} />
+            <AuditRetention viewer={viewer} onOutcome={setOutcome} />
+          </>
         ) : (
-          <ReadOnlySettings />
+          <>
+            <AgentAccessValues />
+            <ReadOnlySettings />
+          </>
         )}
       </div>
     </Page>

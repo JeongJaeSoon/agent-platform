@@ -7,6 +7,7 @@ import type {
   MemberVerdict,
   MemberView as Person,
   TeamDetail as TeamDetailView,
+  TeamMemberRole,
   TeamView,
   WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -86,6 +87,22 @@ const ROLE_LABEL: Record<WorkspaceRole, string> = {
   member: "구성원",
 };
 const ROLES: readonly WorkspaceRole[] = ["owner", "admin", "member"];
+const TEAM_ROLE: Record<
+  TeamMemberRole,
+  { readonly label: string; readonly help: string }
+> = {
+  lead: {
+    label: "팀 관리자",
+    help: "이 팀이 담당 팀인 에이전트를 관리합니다.",
+  },
+  member: {
+    label: "구성원",
+    help: "이 팀이 담당 팀인 에이전트의 설정을 보고 사용합니다. 관리하지는 않습니다.",
+  },
+};
+const TEAM_ROLES: readonly TeamMemberRole[] = ["lead", "member"];
+// The names GET /v1/agents?ids= reads back for a refused delete's agent_ids.
+const MANAGED_AGENTS = ["결제 문의 봇", "정산 리포트"] as const;
 const ROLE_HELP: Record<WorkspaceRole, string> = {
   owner: "워크스페이스 설정과 소유자까지 모두 바꿉니다.",
   admin: "구성원·팀·초대를 관리합니다.",
@@ -929,8 +946,9 @@ function TeamsIntro({ children }: { readonly children: ReactNode }) {
   return (
     <div className="flex flex-col gap-[var(--ap-space-section)]">
       <Text className={`${MUTED} text-sm`}>
-        팀은 사람 묶음입니다. 팀을 에이전트 관리자로 지정하면 팀의 구성원 모두가
-        그 에이전트를 관리합니다.
+        팀은 사람 묶음입니다. 에이전트의 담당 팀이 되면 팀 관리자는 그
+        에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 팀을 에이전트
+        관리자로 지정하면 팀의 구성원 모두가 그 에이전트를 관리합니다.
       </Text>
       {children}
     </div>
@@ -1003,13 +1021,20 @@ function MyTeams({ teams }: { readonly teams: ListMyTeamsResponse["items"] }) {
         ) : (
           <>
             <Text className={`${MUTED} text-sm`}>
-              소유자나 관리자가 넣은 팀입니다. 팀이 에이전트 관리자로 지정되면
-              그 에이전트를 관리합니다.
+              소유자나 관리자가 넣은 팀입니다. 팀이 담당 팀인 에이전트는 팀
+              관리자가 관리하고 구성원은 설정을 보고 사용합니다. 팀이 에이전트
+              관리자로 지정되면 구성원 모두가 그 에이전트를 관리합니다.
             </Text>
             <RowList>
               {teams.map((team) => (
                 <RowListItem key={team.id} className={OPENS_ROW}>
                   <TeamRowLink name={team.name} />
+                  <Badge
+                    variant={team.role === "lead" ? "blue" : "gray"}
+                    className="ml-auto shrink-0"
+                  >
+                    {TEAM_ROLE[team.role].label}
+                  </Badge>
                 </RowListItem>
               ))}
             </RowList>
@@ -1027,11 +1052,17 @@ function TeamPage({
   manages,
   initialDelete = false,
   initialAdd = false,
+  initialRole,
+  manages409 = false,
 }: {
   readonly team: TeamDetailView;
   readonly manages: boolean;
   readonly initialDelete?: boolean;
   readonly initialAdd?: boolean;
+  /** Whose 팀 역할 바꾸기 dialog starts open. */
+  readonly initialRole?: string | undefined;
+  /** The delete was refused: the team manages agents (409). */
+  readonly manages409?: boolean;
 }) {
   const [deleting, setDeleting] = useState(initialDelete);
   const [name, setName] = useState(team.name);
@@ -1074,13 +1105,37 @@ function TeamPage({
           </form>
         </Section>
       ) : null}
-      <TeamMembers team={team} manages={manages} initialAdd={initialAdd} />
+      <TeamMembers
+        team={team}
+        manages={manages}
+        initialAdd={initialAdd}
+        initialRole={initialRole}
+      />
       {manages ? (
         <>
+          {manages409 ? (
+            <Alert variant="red" role="alert">
+              <AlertDescription>
+                이 팀이 담당 팀인 에이전트가 있어 삭제하지 못했습니다. 아래
+                에이전트의 담당 팀을 먼저 바꾸세요.
+              </AlertDescription>
+              <ul
+                aria-label="이 팀이 담당 팀인 에이전트"
+                className="m-0 mt-2 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-control"
+              >
+                {MANAGED_AGENTS.map((agent) => (
+                  <li key={agent}>
+                    <TextLink href="#agent">{agent}</TextLink>
+                  </li>
+                ))}
+                <li>그 밖에 1개</li>
+              </ul>
+            </Alert>
+          ) : null}
           <DangerZone title="위험 구역" titleAs="h3">
             <DangerZoneRow
               title="팀 삭제"
-              description="팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다."
+              description="팀을 삭제하면 이 팀이 관리자로 있던 에이전트에서도 빠집니다. 이 팀이 담당 팀인 에이전트가 있으면 그 에이전트의 담당 팀을 먼저 바꿔야 삭제할 수 있습니다."
               actionLabel="팀 삭제"
               onAction={() => setDeleting(true)}
             />
@@ -1105,16 +1160,19 @@ function TeamMembers({
   team,
   manages,
   initialAdd,
+  initialRole,
 }: {
   readonly team: TeamDetailView;
   readonly manages: boolean;
   readonly initialAdd: boolean;
+  readonly initialRole: string | undefined;
 }) {
   const [query, setQuery] = useState("");
   const [removing, setRemoving] = useState<
     TeamDetailView["members"][number] | null
   >(null);
-  // Managers read the roles of the team's people; its own members do not.
+  // Managers read the workspace roles of the team's people; its own members
+  // do not. The team role comes with the team.
   const roles = manages
     ? new Map(PEOPLE.map((person) => [person.user_id, person.role]))
     : undefined;
@@ -1124,15 +1182,16 @@ function TeamMembers({
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
+    "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "var(--ap-row-action-min-width)",
+    manages && "max-content",
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    roles && "72px",
-    manages && "var(--ap-row-action-min-width)",
+    "max-content",
+    manages && "max-content",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1178,7 +1237,12 @@ function TeamMembers({
             >
               <GridTableHeader>
                 <GridTableColumnHeader>구성원</GridTableColumnHeader>
-                {roles && <GridTableColumnHeader>역할</GridTableColumnHeader>}
+                {roles && (
+                  <GridTableColumnHeader hideNarrow={true}>
+                    워크스페이스 역할
+                  </GridTableColumnHeader>
+                )}
+                <GridTableColumnHeader>팀 역할</GridTableColumnHeader>
                 <GridTableColumnHeader hideNarrow={true}>
                   추가한 날
                 </GridTableColumnHeader>
@@ -1215,7 +1279,7 @@ function TeamMembers({
                       </div>
                     </GridTableCell>
                     {roles && (
-                      <GridTableCell>
+                      <GridTableCell hideNarrow={true}>
                         {role && (
                           <Badge variant={role === "member" ? "gray" : "blue"}>
                             {ROLE_LABEL[role]}
@@ -1223,6 +1287,11 @@ function TeamMembers({
                         )}
                       </GridTableCell>
                     )}
+                    <GridTableCell>
+                      <Badge variant={member.role === "lead" ? "blue" : "gray"}>
+                        {TEAM_ROLE[member.role].label}
+                      </Badge>
+                    </GridTableCell>
                     <GridTableCell
                       hideNarrow={true}
                       className="text-caption text-muted-foreground tabular-nums"
@@ -1231,6 +1300,10 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell align="end">
+                        <TeamRoleDialog
+                          member={member}
+                          initialOpen={initialRole === member.user_id}
+                        />
                         <RowAction
                           variant="danger"
                           aria-label={`${name}님을 팀에서 빼기`}
@@ -1260,6 +1333,77 @@ function TeamMembers({
         onConfirm={() => setRemoving(null)}
       />
     </Section>
+  );
+}
+
+function TeamRoleDialog({
+  member,
+  initialOpen,
+}: {
+  readonly member: TeamDetailView["members"][number];
+  readonly initialOpen: boolean;
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  const [picked, setPicked] = useState<TeamMemberRole | null>(null);
+  const chosen = picked ?? member.role;
+  const legendId = useId();
+  const name = member.display_name ?? member.email;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setPicked(null);
+        setOpen(next);
+      }}
+    >
+      <DialogTrigger asChild>
+        <RowAction aria-label={`${name}님의 팀 역할 바꾸기`}>
+          역할 바꾸기
+        </RowAction>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>팀 역할 바꾸기</DialogTitle>
+          <DialogDescription>
+            {member.display_name === null
+              ? member.email
+              : `${member.display_name} · ${member.email}`}
+          </DialogDescription>
+        </DialogHeader>
+        <FieldSet>
+          <FieldLegend id={legendId} variant="label">
+            팀 역할
+          </FieldLegend>
+          <RadioGroup
+            value={chosen}
+            onValueChange={(value) => setPicked(value as TeamMemberRole)}
+            aria-labelledby={legendId}
+          >
+            {TEAM_ROLES.map((value) => (
+              <Field key={value} orientation="horizontal">
+                <RadioGroupItem value={value} />
+                <FieldLabel>{TEAM_ROLE[value].label}</FieldLabel>
+                <FieldDescription>{TEAM_ROLE[value].help}</FieldDescription>
+              </Field>
+            ))}
+          </RadioGroup>
+        </FieldSet>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              취소
+            </Button>
+          </DialogClose>
+          <Button
+            type="button"
+            disabled={chosen === member.role}
+            onClick={() => setOpen(false)}
+          >
+            저장
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1409,7 +1553,9 @@ type Screen =
   | "team"
   | "team-empty"
   | "team-delete"
+  | "team-delete-manages"
   | "team-add"
+  | "team-role"
   | "team-as-member"
   | "invites"
   | "invites-empty"
@@ -1502,6 +1648,8 @@ function MembersScreen({ screen }: { readonly screen: Screen }) {
         manages={manager !== null}
         initialDelete={screen === "team-delete"}
         initialAdd={screen === "team-add"}
+        initialRole={screen === "team-role" ? ID.minji : undefined}
+        manages409={screen === "team-delete-manages"}
       />
     );
   } else if (manager) {
@@ -1609,6 +1757,19 @@ export const TeamDetailAsMember: Story = {
   args: { screen: "team-as-member" },
 };
 export const TeamDelete: Story = { args: { screen: "team-delete" } };
+export const TeamDeleteManagesAgents: Story = {
+  name: "Team delete refused (managing team, 409)",
+  args: { screen: "team-delete-manages" },
+};
+export const TeamRoleChange: Story = {
+  name: "Team detail (팀 역할 바꾸기)",
+  args: { screen: "team-role" },
+};
+export const TeamDetailMobile: Story = {
+  name: "Team detail (390px)",
+  args: { screen: "team" },
+  globals: MOBILE,
+};
 export const TeamAddMembers: Story = {
   name: "Team detail (구성원 추가)",
   args: { screen: "team-add" },
