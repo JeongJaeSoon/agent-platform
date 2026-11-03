@@ -22,6 +22,7 @@ import {
   type SlackSendResponse,
 } from "./slack-config-api.ts";
 import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
+import { markdownToSlackMrkdwn } from "./slack-mrkdwn.ts";
 import { escapeSlackControls } from "./slack-presentation.ts";
 import {
   classifySlackSendResult,
@@ -164,8 +165,8 @@ function isSafeLink(url: string): boolean {
 }
 
 /**
- * What goes to Slack: the body with every control escaped, cut to fit with
- * its link kept whole after it.
+ * What goes to Slack: the body's Markdown as mrkdwn with every control
+ * escaped, cut to fit with its link kept whole after it.
  */
 export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
   const link =
@@ -179,7 +180,8 @@ export function slackOutboxText(body: SlackOutboxEntry["body"]): string {
         ? {}
         : { userIds: body.mention_user_ids }),
     });
-  const text = escaped(body.text);
+  // Converted before the cut: the loop below re-escapes pieces of this text.
+  const text = escaped(markdownToSlackMrkdwn(body.text));
   const room = SLACK_TEXT_MAX - link.length - 1;
   if (text.length <= room + 1) return text + link;
   let piece = text;
