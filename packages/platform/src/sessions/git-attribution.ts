@@ -224,10 +224,6 @@ const TAIL_SHAPES: readonly TailShape[] = [
 const TAIL_CO_AUTHOR =
   /^Co-authored-by: ([A-Za-z0-9-]+) <[1-9][0-9]*\+([A-Za-z0-9-]+)@users\.noreply\.github\.com>$/;
 
-// A code span opens and closes on backtick runs of the same length
-// (CommonMark), so ``` `` <!-- ` `` ``` is code, not a comment.
-const CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
-
 const QUOTING_ELEMENT =
   /<(\/?)(details|pre|div|table|blockquote|section|textarea|script|style)\b[^>]*>/gi;
 
@@ -260,28 +256,47 @@ function fitsShape(lines: readonly string[], shape: TailShape): boolean {
 }
 
 /**
- * Whether `line`, starting outside a comment, ends inside one, and its text
- * outside comments (where elements still count).
+ * One line read left to right: whether it ends inside an HTML comment, given
+ * whether it starts in one, and its text outside comments and code spans,
+ * where elements still count. Inside a comment a backtick is text; a code
+ * span closes only on a backtick run of its own length (CommonMark). Each cut
+ * leaves a space, so pieces either side never join into a tag.
  */
-function scanComments(line: string): { inComment: boolean; outside: string } {
+function scanLine(
+  line: string,
+  inComment: boolean,
+): { inComment: boolean; outside: string } {
   let outside = "";
-  let rest = line;
-  let inside = false;
-  while (rest !== "") {
+  let at = 0;
+  let inside = inComment;
+  while (at < line.length) {
     if (inside) {
-      const close = rest.indexOf("-->");
+      const close = line.indexOf("-->", at);
       if (close === -1) return { inComment: true, outside };
-      rest = rest.slice(close + 3);
+      at = close + 3;
       inside = false;
-    } else {
-      const open = rest.indexOf("<!--");
-      if (open === -1) return { inComment: false, outside: outside + rest };
-      outside += rest.slice(0, open);
-      rest = rest.slice(open + 4);
-      inside = true;
+      outside += " ";
+      continue;
     }
+    const next = /<!--|`+/g;
+    next.lastIndex = at;
+    const found = next.exec(line);
+    if (found === null) break;
+    outside += line.slice(at, found.index);
+    at = found.index + found[0].length;
+    if (found[0] === "<!--") {
+      inside = true;
+      continue;
+    }
+    const run = found[0];
+    const closing = new RegExp(`(?<!\`)${run}(?!\`)`, "g");
+    closing.lastIndex = at;
+    const end = closing.exec(line);
+    // An unmatched run is literal backticks.
+    if (end !== null) at = end.index + run.length;
+    outside += " ";
   }
-  return { inComment: inside, outside };
+  return { inComment: inside, outside: outside + line.slice(at) };
 }
 
 /**
@@ -346,14 +361,8 @@ export function withPullRequestTail(body: string, tail: string): string {
         continue;
       }
     }
-    // What follows a comment's end on its line still counts.
-    let text = line;
-    if (inComment) {
-      const close = line.indexOf("-->");
-      if (close === -1) continue;
-      inComment = false;
-      text = line.slice(close + 3);
-    } else {
+    // A line that starts in a comment opens no fence.
+    if (!inComment) {
       const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
       const marks = run?.[1] ?? "";
       const after = run?.[2] ?? "";
@@ -373,7 +382,7 @@ export function withPullRequestTail(body: string, tail: string): string {
         continue;
       }
     }
-    const scanned = scanComments(text.replace(CODE_SPAN, ""));
+    const scanned = scanLine(line, inComment);
     inComment = scanned.inComment;
     for (const [, close, name] of scanned.outside.matchAll(QUOTING_ELEMENT)) {
       const tag = (name ?? "").toLowerCase();

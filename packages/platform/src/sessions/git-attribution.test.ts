@@ -219,11 +219,20 @@ describe("the folded pull request tail", () => {
     );
   });
 
-  test("an element opened after a comment's end on its line still quotes", () => {
-    const example = `<!-- note\n--> <details>\n<summary>Example</summary>\n\n${render({ commit: "0".repeat(40) })}\n</details>`;
-    expect(withPullRequestTail(example, render())).toBe(
-      `${example}\n\n${render()}`,
-    );
+  test("comments and code spans are read in order, so an element around a tail still quotes", () => {
+    const pasted = render({ commit: "0".repeat(40) });
+    for (const example of [
+      // An element after a comment's end on its line.
+      `<!-- note\n--> <details>\n<summary>Example</summary>\n\n${pasted}\n</details>`,
+      // A comment cut out of a tag does not close the element.
+      `<details>\n<summary>Examples</summary>\n\n</det<!-- note -->ails>\n\n${pasted}\n</details>`,
+      // A backtick inside a comment opens no code span.
+      `<!-- \` --> <details>\`\n<!-- divider -->\n\n${pasted}\n</details>`,
+    ]) {
+      expect(withPullRequestTail(example, render())).toBe(
+        `${example}\n\n${render()}`,
+      );
+    }
   });
 
   test("an old-shape tail is replaced by exactly one folded tail", () => {
