@@ -367,13 +367,18 @@ describe("markdownToSlackMrkdwn", () => {
       );
     });
 
-    test("backticks inside a link destination are not code", () => {
-      expect(
-        markdownToSlackMrkdwn("[x](https://a.test/```https://b.test```)"),
-      ).toBe("<https://a.test/```https://b.test```|x>");
-      expect(
-        markdownToSlackMrkdwn("[x](https://a.test/`https://b.test`)"),
-      ).toBe("<https://a.test/`https://b.test`|x>");
+    // escapeSlackControls reads the span as code and escapes the `<` in it.
+    test("code is found where escaping finds it, even across a <", () => {
+      expect(markdownToSlackMrkdwn("`<https://a.test`이고>")).toBe(
+        `\`<https://a.test\`${ZW}이고>`,
+      );
+    });
+
+    test("a long span with a URL early on stays linear", () => {
+      const span = `\`${"https://a.test/".repeat(16_000)} \`이고`;
+      const started = performance.now();
+      expect(markdownToSlackMrkdwn(span)).toBe(span);
+      expect(performance.now() - started).toBeLessThan(200);
     });
 
     test("an upper-case scheme is a URL too", () => {
