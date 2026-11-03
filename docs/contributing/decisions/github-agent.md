@@ -17,7 +17,7 @@
 - **사람의 외부 계정.** `linked_accounts`는 provider를 일반화한 테이블이지만 값은 `slack` 하나다(`schema.ts:720-783`, CHECK는 `766-769`, `packages/contracts/src/musterrolle/linked-accounts.ts:14`). 화면은 `/settings/linked-accounts`다(`apps/web/src/router.tsx:240-243`).
 - **세션을 시작한 사람.** turn 1의 `actor_id`가 시작자이고, 없으면 `sessions.created_by_user_id`다(`packages/db/src/session-shares.ts:68-71`). turn의 actor는 그 요청 principal 뒤의 사람이다(`packages/db/src/postgres-unit-of-work.ts:452`). 웹 cookie, 개인 API key(`api_keys.kind = 'personal'`, 만든 사람 필수 `schema.ts:2351-2357`), 연결된 Slack 사용자는 사람으로 풀린다. 에이전트 key와 operator key는 사람이 없다.
 - **commit 작성자.** worker 이미지의 system git 설정이 `Werft <noreply@werft.invalid>`다(`apps/worker/Dockerfile:53-58`). Co-authored-by는 코드에 없다.
-- **PR과 세션.** 브랜치 `agent/<session-id>`. PR 본문 꼬리는 "Opened by agent-platform from session …, commit …"이다(`pull-request-service.ts:204`). 이미 열린 PR을 다시 쓸 때는 꼬리를 고치지 않는다(`pull-request-service.ts:192-196`).
+- **PR과 세션.** 브랜치 `agent/<session-id>`. PR 본문 꼬리는 "Opened by Werft from session …, commit …"이다(`pull-request-service.ts:204`). 이미 열린 PR을 다시 쓸 때는 꼬리를 고치지 않는다(`pull-request-service.ts:192-196`).
 - **감사.** receipt operation 목록은 `packages/contracts/src/api/receipt.ts:25-111`이다. GitHub 쪽은 `request_push`·`decide_push`·`push`·`open_pull_request`·`comment_pull_request`·`set_github_app`·`delete_github_app`이 있다. receipt의 `agent_id`는 늘 null이다(`policy.ts:43-50`).
 
 ## 1. 실제 허용은 교집합이다
