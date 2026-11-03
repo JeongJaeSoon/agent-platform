@@ -373,10 +373,6 @@ export function withConsoleRepositories(
   return merged;
 }
 
-/**
- * The sources with the settings' connections beside the file's, the file
- * keeping an id both hold until its loader goes (S4).
- */
 function withSettings<P extends CatalogProfileView>(
   sources: SnapshotSources<P>,
   settings: SettingsSnapshot | null,
@@ -555,7 +551,6 @@ export function profileCatalog<
       }
       return merged;
     },
-    // The file's server keeps an id both hold until its loader goes (S4).
     get mcp_servers() {
       const settings = registry.settings;
       if (settings === null) return base.mcp_servers;

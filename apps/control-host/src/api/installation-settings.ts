@@ -43,7 +43,6 @@ export function settingsSource(options: {
   };
 }
 
-/** One warning per change in what the settings leave out. */
 export function leftOutReporter(
   warn: (message: string, fields: Record<string, unknown>) => void,
 ): (snapshot: SettingsSnapshot) => void {

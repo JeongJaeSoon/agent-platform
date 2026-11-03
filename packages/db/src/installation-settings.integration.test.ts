@@ -74,7 +74,6 @@ const lookup = (ref: CredentialRef) =>
       ? VALUES[ref.secret_id]
       : undefined;
 
-// The operator's files as an installation has them today.
 const MAIN: CatalogProfileConfig["provider"] = {
   kind: "litellm",
   endpoint: "http://10.0.0.5:4000",
@@ -147,7 +146,6 @@ const CARD: AgentCard = agentCardSchema.parse({
   },
 });
 
-/** The catalog a registry over `db` serves, `file` the operator's files. */
 async function catalogOver(
   db: NodePgDatabase<typeof schema>,
   file: {
@@ -195,7 +193,6 @@ async function catalogOver(
   );
 }
 
-/** What a running installation pins: hashes only, no value. */
 function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
   const profile = catalog.profiles.coding;
   if (!profile) {
@@ -236,7 +233,6 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
   };
 }
 
-// As the import (S2) brings each file entry: the entry's JSON unchanged.
 async function importFile(db: NodePgDatabase<typeof schema>) {
   await db.insert(providerConnections).values({
     id: "main",
@@ -311,7 +307,6 @@ integration("installation settings", () => {
     expect(Object.values(before.bindings)).not.toContain(null);
 
     await importFile(db);
-    // The files gone: only the rows can give the same pins.
     const after = pins(
       await catalogOver(db, {
         connections: {},
@@ -319,7 +314,6 @@ integration("installation settings", () => {
       }),
     );
     expect(after).toEqual(before);
-    // And with both, the file keeps its ids and nothing moves either.
     expect(
       pins(await catalogOver(db, { connections: CONNECTIONS, config: FILE })),
     ).toEqual(before);
@@ -345,7 +339,7 @@ integration("installation settings", () => {
     expect(Object.keys(catalog.mcp_servers ?? {})).toEqual(["docs"]);
   });
 
-  test("a stored value resolves for its own row only, and only when opened", async () => {
+  test("a stored value opens for its own row only, rotates without moving a pin, and no workspace route reaches it", async () => {
     await clear();
     const store = createPostgresInstallationSettingsStore(db, KEY);
     const [workspace] = await db
@@ -370,7 +364,6 @@ integration("installation settings", () => {
         origin: "console",
       },
       {
-        // Names another row's value: never resolved through it.
         id: "borrower",
         definition: {
           kind: "anthropic",
@@ -407,8 +400,6 @@ integration("installation settings", () => {
       ),
     ).toContain("connection:console_main");
 
-    // Rotating the value moves no pin and no generation, so a running
-    // session's claim and release checks still match.
     await store.putStoredValue(
       { kind: "connection", id: "console_main" },
       "a-rotated-stored-key",
@@ -425,7 +416,6 @@ integration("installation settings", () => {
       "a-rotated-stored-key",
     );
 
-    // No workspace route reaches it.
     const secrets = createPostgresSecretStore(db, KEY);
     const slot = {
       workspaceId: workspace?.id ?? "",
@@ -541,7 +531,6 @@ integration(
           (await pool.query("SELECT generation FROM settings_generation")).rows,
         ).toEqual([{ generation: "0" }]);
 
-        // The image from before names none of the new columns.
         await pool.query(
           `INSERT INTO catalog_repositories (id, github_repository_id, owner, name, url, branch, source)
          VALUES ('picked', 42, 'team', 'picked', 'https://github.com/team/picked.git', 'main', 'selection')`,
@@ -553,7 +542,6 @@ integration(
         expect(
           (await pool.query("SELECT generation FROM settings_generation")).rows,
         ).toEqual([{ generation: "1" }]);
-        // Still one row per GitHub repository name among the App's.
         let refused = "accepted";
         await pool
           .query(

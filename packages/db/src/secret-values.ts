@@ -154,7 +154,6 @@ function openRow(key: SecretKey, row: Row): string {
   });
 }
 
-/** The values of `purpose` under these owners, opened, by owner ref. */
 export async function openSecretsOf(
   db: Database,
   key: SecretKey,

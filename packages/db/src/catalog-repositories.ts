@@ -36,9 +36,7 @@ function rowOf(row: Row): CatalogRepositoryRow {
   };
 }
 
-// What this store reads and writes; the other kinds carry their own
-// credential and are the installation settings' (installation-settings.ts).
-const appRows = eq(catalogRepositories.authKind, "github_app");
+const githubAppRows = eq(catalogRepositories.authKind, "github_app");
 
 // The seed and every console write take it, so an id is decided by one
 // writer at a time.
@@ -97,7 +95,7 @@ export function createPostgresCatalogRepositoryStore(
     const rows = await db
       .select()
       .from(catalogRepositories)
-      .where(and(isNull(catalogRepositories.removedAt), appRows))
+      .where(and(isNull(catalogRepositories.removedAt), githubAppRows))
       .orderBy(asc(catalogRepositories.id));
     return rows.map(rowOf);
   };
@@ -112,7 +110,7 @@ export function createPostgresCatalogRepositoryStore(
           const rows = await tx
             .select()
             .from(catalogRepositories)
-            .where(appRows)
+            .where(githubAppRows)
             .orderBy(asc(catalogRepositories.id));
           if (rows.length === 0) return null;
           return rows.filter((row) => row.removedAt === null).map(rowOf);
@@ -127,7 +125,7 @@ export function createPostgresCatalogRepositoryStore(
         const [any] = await tx
           .select({ id: catalogRepositories.id })
           .from(catalogRepositories)
-          .where(appRows)
+          .where(githubAppRows)
           .limit(1);
         if (any) return [];
         const entries = await input.entries();
@@ -184,7 +182,10 @@ export function createPostgresCatalogRepositoryStore(
         ) {
           return { outcome: "outranked" as const };
         }
-        const active = and(isNull(catalogRepositories.removedAt), appRows);
+        const active = and(
+          isNull(catalogRepositories.removedAt),
+          githubAppRows,
+        );
         const sameName = sql`lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})`;
         const [byId] = await tx
           .select()
@@ -351,7 +352,7 @@ export function createPostgresCatalogRepositoryStore(
             and(
               eq(catalogRepositories.id, input.id),
               isNull(catalogRepositories.removedAt),
-              appRows,
+              githubAppRows,
             ),
           )
           .limit(1);

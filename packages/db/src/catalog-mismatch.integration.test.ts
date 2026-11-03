@@ -675,8 +675,6 @@ integration("claim against a catalog that dropped the pair", () => {
       return row.generation;
     }
 
-    // The pair may need a connection, repository or MCP server written since
-    // this host's read; once it has read that generation, it decides.
     test("installation settings written after this host's read", async () => {
       const session = await queuedSession(MOVED_TO);
       const launch = await reserved(session.session_id);

@@ -167,8 +167,6 @@ export function slackProfileCatalog(
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
       repositories: createPostgresCatalogRepositoryStore(db),
-      // The api's settings with no value opened: this role only checks
-      // what a session would name.
       settings: {
         read: async () =>
           settingsView(

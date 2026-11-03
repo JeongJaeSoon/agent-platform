@@ -189,7 +189,6 @@ function setup(
   options: {
     allowUnattended?: boolean;
     rows?: InstallationProfileRecord[];
-    /** connections.yaml's; `{ main: MAIN }` when absent. */
     fileConnections?: Connections;
     settings?: InstallationSettings;
   } = {},

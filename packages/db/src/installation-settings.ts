@@ -27,8 +27,6 @@ const PURPOSE = "settings_credential";
 type RepositoryRow = typeof catalogRepositories.$inferSelect;
 type McpRow = typeof mcpServers.$inferSelect;
 
-// The entry repositories.yaml would give for the row, so its binding hash
-// is the one the file's entry gave.
 function repositoryConfigOf(row: RepositoryRow): unknown {
   return {
     url: row.url,
@@ -47,10 +45,6 @@ function mcpConfigOf(row: McpRow): unknown {
   };
 }
 
-/**
- * The `stored` reference a row's credential names, when it is that row's
- * own and agrees with `credential_source`; false when it does not.
- */
 function ownStoredRef(
   kind: StoredOwnerKind,
   id: string,
@@ -70,9 +64,7 @@ async function generationIn(tx: Database): Promise<number> {
   return row?.generation ?? 0;
 }
 
-// The table wants a workspace; an installation has one
-// (settings-replace-file-catalog.md §2).
-async function installationWorkspace(tx: Database): Promise<string | null> {
+async function secretOwnerWorkspace(tx: Database): Promise<string | null> {
   const [workspace] = await tx
     .select({ id: workspaces.id })
     .from(workspaces)
@@ -176,7 +168,7 @@ export function createPostgresInstallationSettingsStore(
           }
           let stored = new Map<string, string>();
           if (options?.openStored && key !== null && refs.length > 0) {
-            const workspaceId = await installationWorkspace(tx);
+            const workspaceId = await secretOwnerWorkspace(tx);
             if (workspaceId !== null) {
               stored = await openSecretsOf(
                 tx,
@@ -207,7 +199,7 @@ export function createPostgresInstallationSettingsStore(
         );
       }
       return db.transaction(async (tx) => {
-        const workspaceId = await installationWorkspace(tx);
+        const workspaceId = await secretOwnerWorkspace(tx);
         if (workspaceId === null) {
           throw new Error("no workspace yet to keep a stored value under");
         }

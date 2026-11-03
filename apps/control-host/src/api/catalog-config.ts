@@ -298,9 +298,7 @@ export async function loadProfileSources(options: {
     }
     if (value) secrets.set(ref.secret_id, value);
   }
-  // A file names no stored value: only the database holds those, each for
-  // its own row.
-  const lookup = (ref: CredentialRef) =>
+  const fileLookup = (ref: CredentialRef) =>
     "value_env" in ref
       ? options.env[ref.value_env]
       : "secret_id" in ref
@@ -312,9 +310,12 @@ export async function loadProfileSources(options: {
     { profiles: {}, repositories: {} },
     connections,
   )) {
-    resolveCredential(path, ref, lookup);
+    resolveCredential(path, ref, fileLookup);
   }
-  const resolved = resolveSessionCatalog({ ...config, profiles: {} }, lookup);
+  const resolved = resolveSessionCatalog(
+    { ...config, profiles: {} },
+    fileLookup,
+  );
   const sources: SnapshotSources<CatalogProfile> = {
     connections,
     repositoryIdsOf: catalogRepositoryIds(config.repositories),
@@ -323,7 +324,9 @@ export async function loadProfileSources(options: {
     materialize: (id, definition, settings) => {
       const profile = resolveSessionCatalog(
         { profiles: { [id]: definition }, repositories: {} },
-        settings === undefined ? lookup : (ref) => settings(ref) ?? lookup(ref),
+        settings === undefined
+          ? fileLookup
+          : (ref) => settings(ref) ?? fileLookup(ref),
       ).profiles[id];
       if (!profile) throw new Error(`profile ${id} did not resolve`);
       return profile;
