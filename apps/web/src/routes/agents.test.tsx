@@ -3038,6 +3038,36 @@ describe("새 에이전트: 브라우저 history", () => {
     ).toBe(CARD.model);
   });
 
+  test("담당 팀을 묻기 전에 남겨 둔 하는 일 단계는 새로고침 뒤 처음부터 연다", async () => {
+    const { api, reload } = openInBrowser("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await waitFor(() => expect(stepsInState()).toContain("job"));
+    const state = window.history.state as Record<string, unknown>;
+    const histories = state["new-agent.histories"] as {
+      context: Record<string, unknown>;
+    }[];
+    window.history.replaceState(
+      {
+        ...state,
+        "new-agent.histories": histories.map(
+          ({ context: { managing_team_id: _, ...context }, ...entry }) => ({
+            ...entry,
+            context,
+          }),
+        ),
+      },
+      "",
+    );
+
+    reload();
+    await atStep("이름");
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
   test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {
     openInBrowser("/agents", { ...meOk, ...agentServer().routes });
     const user = await setupUser();

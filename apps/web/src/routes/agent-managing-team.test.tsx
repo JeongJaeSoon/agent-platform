@@ -192,6 +192,36 @@ describe("담당 팀 구성원과 바깥 구성원", () => {
     ).toBeNull();
   });
 
+  test("개인 관리자는 내 팀 목록을 못 읽어도 설정을 고칠 수 있다", async () => {
+    const server = await managedServer();
+    renderAt(`${DETAIL}?tab=card`, {
+      ...meAs(memberMe()),
+      ...server.routes,
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(
+          200,
+          adminsOf({
+            users: [
+              {
+                user_id: USER_ID,
+                email: "member@example.com",
+                display_name: "Member",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+          }),
+        ),
+      "GET /v1/my-teams": () => apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    expect(
+      await screen.findByRole("button", {
+        name: "상세 설정 편집",
+        hidden: true,
+      }),
+    ).toBeDefined();
+  });
+
   test("바깥 구성원은 상세 대신 이름·담당 팀과 안내를 본다", async () => {
     const server = await managedServer();
     const { api } = renderAt(DETAIL, {

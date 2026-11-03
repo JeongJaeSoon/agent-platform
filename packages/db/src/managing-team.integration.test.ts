@@ -600,6 +600,28 @@ integration("the managing team on PostgreSQL", () => {
     expect((await store.count(workspaceId, reader(outsider, "none"))).all).toBe(
       0,
     );
+    // The unassigned agent is counted and found only where it is read.
+    const unassigned = async (who: Caller, outsideAccess: "use" | "none") => ({
+      count: (await store.count(workspaceId, reader(who, outsideAccess)))
+        .unassigned,
+      ids: (
+        await store.list(
+          workspaceId,
+          { limit: 50, managing_team: "unassigned" },
+          reader(who, outsideAccess),
+        )
+      ).items.map((a) => a.id),
+    });
+    expect(await unassigned(outsider, "use")).toEqual({
+      count: 1,
+      ids: [other],
+    });
+    expect(await unassigned(outsider, "none")).toEqual({ count: 0, ids: [] });
+    expect(await unassigned(member, "none")).toEqual({ count: 0, ids: [] });
+    expect(await unassigned(owner, "none")).toEqual({
+      count: 1,
+      ids: [other],
+    });
 
     expect(await cards(owner)).toEqual([...both].sort());
     expect(await cards(member)).toEqual([agentId]);

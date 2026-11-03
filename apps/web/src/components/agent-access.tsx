@@ -30,13 +30,20 @@ export function useAgentAccess(agent: Agent): AgentAccess {
   });
   const mine = useQuery({ ...myTeamsQuery(client), enabled: !everywhere });
   if (everywhere) return "manage";
-  if (admins.isError || mine.isError) return "read";
-  if (!admins.data || !mine.data || me === undefined) return "pending";
-  const roles = new Map(mine.data.items.map((team) => [team.id, team.role]));
+  if (me === undefined) return "pending";
+  // Each ground stands alone, so one read failing does not hide another
+  // that already shows the viewer manages.
+  const roles = mine.data
+    ? new Map(mine.data.items.map((team) => [team.id, team.role]))
+    : undefined;
   const manages =
-    admins.data.users.some((user) => user.user_id === me) ||
-    admins.data.teams.some((team) => roles.has(team.team_id)) ||
+    admins.data?.users.some((user) => user.user_id === me) ||
+    (roles !== undefined &&
+      admins.data?.teams.some((team) => roles.has(team.team_id))) ||
     (agent.managing_team_id !== null &&
-      roles.get(agent.managing_team_id) === "lead");
-  return manages ? "manage" : "read";
+      roles?.get(agent.managing_team_id) === "lead");
+  if (manages) return "manage";
+  if (admins.isError || mine.isError) return "read";
+  if (!admins.data || !mine.data) return "pending";
+  return "read";
 }

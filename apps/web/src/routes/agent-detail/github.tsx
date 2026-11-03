@@ -654,7 +654,7 @@ function GitHubSettings({
           </RowListItem>
         </RowList>
       </section>
-      {pending > 0 || saveFailure ? (
+      {manages && (pending > 0 || saveFailure) ? (
         <Alert
           variant={saveFailure ? "red" : "blue"}
           role="region"

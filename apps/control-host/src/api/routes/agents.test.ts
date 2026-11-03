@@ -434,6 +434,29 @@ describe("GET /v1/agents", () => {
       const page = await service("agent").listAgents(key, query);
       expect(page.items, JSON.stringify(query)).toHaveLength(kept);
     }
+    const teamed = createAgentService({
+      authorization: policy,
+      store: store({
+        get: async () => ({
+          ...detail,
+          agent: {
+            ...detail.agent,
+            managing_team_id: "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b",
+            managing_team_name: "Finance",
+          },
+        }),
+      }),
+      catalog: { profiles: {}, repositories: {} },
+      credentials: { unboundRefs: async () => [] },
+      keys: stored("agent"),
+    });
+    for (const [query, kept] of [
+      [{ limit: 50 }, 1],
+      [{ limit: 50, managing_team: "unassigned" }, 0],
+    ] as const) {
+      const page = await teamed.listAgents(key, query);
+      expect(page.items, JSON.stringify(query)).toHaveLength(kept);
+    }
     asked.length = 1;
     // Even a policy that allows everything never hears of a personal key.
     for (const [kind, query] of [

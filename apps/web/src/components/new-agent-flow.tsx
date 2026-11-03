@@ -279,8 +279,12 @@ export function NewAgentFlow({
         guard: (data): data is Steps["name"] => ours(data, ["flow"]),
       },
       job: {
+        // A job step kept from before the team was asked for starts over,
+        // unless its agent is already saved.
         guard: (data): data is Steps["job"] =>
-          ours(data, ["flow", "name", "slug"]),
+          ours(data, ["flow", "name", "slug"]) &&
+          (hasText(data, ["managing_team_id"]) ||
+            readDraft((data as { flow: string }).flow) !== null),
       },
       release: {
         guard: (data): data is Steps["release"] =>
@@ -577,9 +581,16 @@ function NameStep({
   const [teamMissing, setTeamMissing] = useState(false);
   const teamSelect = useId();
   const only = choices?.length === 1 ? choices[0]?.id : undefined;
+  const stale =
+    !locked &&
+    team !== "" &&
+    choices !== undefined &&
+    !choices.some((choice) => choice.id === team);
   useEffect(() => {
-    if (!locked && team === "" && only !== undefined) onTeamChange(only);
-  }, [locked, team, only, onTeamChange]);
+    if (!locked && (team === "" || stale) && only !== undefined)
+      onTeamChange(only);
+    else if (stale) onTeamChange("");
+  }, [locked, team, stale, only, onTeamChange]);
   if (error) return <LoadFailure error={error} onRetry={refetch} />;
   if (!locked && choices === undefined)
     return <Skeleton label={t("agents.flow.team")} />;
