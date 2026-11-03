@@ -367,6 +367,9 @@ describe("Timeline 도구 호출과 결과", () => {
     const [row, duplicate, alone] = rows();
     expect(rows()).toHaveLength(3);
     const text = row?.textContent ?? "";
+    expect(
+      text.indexOf("session.event.toolResult.unknown"),
+    ).toBeGreaterThanOrEqual(0);
     expect(text.indexOf("session.event.kind.permission")).toBeGreaterThan(
       text.indexOf("session.event.toolResult.unknown"),
     );
