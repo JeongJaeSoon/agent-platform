@@ -8,7 +8,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { administers, liveMember } from "./administers.ts";
-import { agentOf } from "./agents.ts";
+import { agentOf, managingTeamName } from "./agents.ts";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
@@ -231,9 +231,12 @@ async function setManagingTeam(
 }
 
 async function agentRow(tx: Database, agentId: string) {
-  const [row] = await tx.select().from(agents).where(eq(agents.id, agentId));
+  const [row] = await tx
+    .select({ agent: agents, teamName: managingTeamName })
+    .from(agents)
+    .where(eq(agents.id, agentId));
   if (!row) throw new Error(`agent ${agentId} vanished under its lock`);
-  return agentOf(row);
+  return agentOf(row.agent, row.teamName);
 }
 
 async function listAdmins(
@@ -452,7 +455,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
     async listAdministered(workspaceId, userId, limit) {
       if (!UUID.test(workspaceId) || !UUID.test(userId)) return [];
       const rows = await db
-        .select()
+        .select({ agent: agents, teamName: managingTeamName })
         .from(agents)
         .where(
           and(
@@ -463,7 +466,7 @@ export function createPostgresAgentAdminStore(db: Database): AgentAdminStore {
         )
         .orderBy(asc(agents.createdAt), asc(agents.id))
         .limit(limit);
-      return rows.map(agentOf);
+      return rows.map((row) => agentOf(row.agent, row.teamName));
     },
   };
 }

@@ -45,6 +45,7 @@ import {
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { useManagesAgent } from "./agent-access.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import type { Outcome } from "./outcome.tsx";
 import { OPENS_ROW, ROW_LINK } from "./row-link.ts";
@@ -69,12 +70,6 @@ function avatarTone(id: string): 1 | 2 | 3 | 4 {
   return ((sum % 4) + 1) as 1 | 2 | 3 | 4;
 }
 
-/**
- * Who administers an agent: people and teams (design 4.1). Owners and admins
- * hold the right on every agent; anyone else only on the agents they already
- * administer, which /v1/administered-agents answers without leaving a refused
- * decision behind. The list itself is the probe for everyone else.
- */
 /** contracts TEAM_LIST_LIMIT: a list this long may have left agents out. */
 export const ADMINISTERED_LIST_LIMIT = 200;
 
@@ -86,42 +81,13 @@ export function AgentAdmins({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
-  const role = useRole();
-  const everywhere = useHasPermission("agent.admin.manage");
-  const administered = useQuery({
-    ...administeredAgentsQuery(client),
-    enabled: !everywhere,
-  });
-  const items = administered.data?.items;
-  // A full list may have cut this agent off; then the admin list itself
-  // answers, at the cost of a refused decision row if it is not theirs.
-  const mine =
-    everywhere ||
-    (items !== undefined &&
-      (items.some((agent) => agent.id === agentId) ||
-        items.length >= ADMINISTERED_LIST_LIMIT));
-
   return (
     <Section
       title={t("agentAdmins.title")}
       description={t("agentAdmins.intro")}
     >
       <div className={SECTION_BODY}>
-        {mine ? (
-          <AdminList agentId={agentId} onOutcome={onOutcome} />
-        ) : administered.isPending && !everywhere ? (
-          <StatusScreen kind="loading" />
-        ) : administered.error ? (
-          <LoadFailure
-            error={administered.error}
-            onRetry={() => void administered.refetch()}
-          />
-        ) : (
-          <Text variant="meta">
-            {permissionReason(t, "agent.admin.manage", role)}
-          </Text>
-        )}
+        <AdminList agentId={agentId} onOutcome={onOutcome} />
       </div>
     </Section>
   );
@@ -134,6 +100,7 @@ function AdminList({
   readonly agentId: string;
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
+  const manages = useManagesAgent();
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
@@ -312,17 +279,18 @@ function AdminList({
       date: `${parts.get("month")}/${parts.get("day")}`,
     });
   };
-  const removeButton = (kind: AgentAdminKind, id: string, name: string) => (
-    <RowAction
-      variant="danger"
-      className="ml-auto"
-      disabled={change.isPending}
-      aria-label={t("agentAdmins.removeFor", { name })}
-      onClick={() => setRemoving({ kind, id, name })}
-    >
-      {t("agentAdmins.remove")}
-    </RowAction>
-  );
+  const removeButton = (kind: AgentAdminKind, id: string, name: string) =>
+    manages ? (
+      <RowAction
+        variant="danger"
+        className="ml-auto"
+        disabled={change.isPending}
+        aria-label={t("agentAdmins.removeFor", { name })}
+        onClick={() => setRemoving({ kind, id, name })}
+      >
+        {t("agentAdmins.remove")}
+      </RowAction>
+    ) : null;
 
   return (
     <div className="overflow-hidden rounded-card border bg-card">
@@ -391,72 +359,74 @@ function AdminList({
           ))}
         </RowList>
       )}
-      <form
-        className="flex flex-wrap items-center gap-2 border-t px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
-        onPointerEnter={() => setPicking(true)}
-        onFocus={() => setPicking(true)}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (picked) change.mutate({ add: true, ...picked });
-        }}
-      >
-        <label className="sr-only" htmlFor={pickerId}>
-          {t("agentAdmins.pick")}
-        </label>
-        <div className="w-60 max-w-full min-w-0 flex-1 sm:flex-none">
-          <Combobox
-            id={pickerId}
-            aria-describedby={partial ? hintId : undefined}
-            options={options}
-            value={picked ? `${picked.kind}:${picked.id}` : null}
-            inputValue={text}
-            onInputValueChange={(next) => {
-              setText(next);
-              setPicked((current) =>
-                current && current.name !== next ? null : current,
-              );
-            }}
-            maxLength={SEARCH_MAX}
-            // Closed only without the right to list either; a failed search
-            // stays editable, and the next text asks again.
-            disabled={!listsMembers && !listsTeams}
-            filter="none"
-            onQueryChange={setTerm}
-            debounceMs={SEARCH_SETTLE_MS}
-            hasMore={members.hasNextPage || teams.hasNextPage}
-            onLoadMore={() => {
-              if (members.hasNextPage) void members.fetchNextPage();
-              if (teams.hasNextPage) void teams.fetchNextPage();
-            }}
-            onValueChange={(value, option) => {
-              const [kind, id] = value.split(":") as [AgentAdminKind, string];
-              setPicked({ kind, id, name: option.label });
-            }}
-            placeholder={t("agentAdmins.pickPlaceholder")}
-            loading={members.isFetching || teams.isFetching}
-            loadingMessage={t("agentAdmins.pickLoading")}
-            emptyMessage={t(
-              nothingLeft ? "agentAdmins.nothingLeft" : "agentAdmins.pickEmpty",
-            )}
-            resultCountMessage={(count) =>
-              t("agentAdmins.pickCount", { count })
-            }
-          />
-        </div>
-        <ReasonButton
-          type="submit"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-          reason={addReason}
-          disabled={!picked || change.isPending}
+      {manages ? (
+        <form
+          className="flex flex-wrap items-center gap-2 border-t px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+          onPointerEnter={() => setPicking(true)}
+          onFocus={() => setPicking(true)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (picked) change.mutate({ add: true, ...picked });
+          }}
         >
-          {t("agentAdmins.add")}
-        </ReasonButton>
-        {partial ? (
-          <Text id={hintId} variant="meta" className="basis-full">
-            {partial}
-          </Text>
-        ) : null}
-      </form>
+          <label className="sr-only" htmlFor={pickerId}>
+            {t("agentAdmins.pick")}
+          </label>
+          <div className="w-60 max-w-full min-w-0 flex-1 sm:flex-none">
+            <Combobox
+              id={pickerId}
+              aria-describedby={partial ? hintId : undefined}
+              options={options}
+              value={picked ? `${picked.kind}:${picked.id}` : null}
+              inputValue={text}
+              onInputValueChange={(next) => {
+                setText(next);
+                setPicked((current) =>
+                  current && current.name !== next ? null : current,
+                );
+              }}
+              maxLength={SEARCH_MAX}
+              disabled={!listsMembers && !listsTeams}
+              filter="none"
+              onQueryChange={setTerm}
+              debounceMs={SEARCH_SETTLE_MS}
+              hasMore={members.hasNextPage || teams.hasNextPage}
+              onLoadMore={() => {
+                if (members.hasNextPage) void members.fetchNextPage();
+                if (teams.hasNextPage) void teams.fetchNextPage();
+              }}
+              onValueChange={(value, option) => {
+                const [kind, id] = value.split(":") as [AgentAdminKind, string];
+                setPicked({ kind, id, name: option.label });
+              }}
+              placeholder={t("agentAdmins.pickPlaceholder")}
+              loading={members.isFetching || teams.isFetching}
+              loadingMessage={t("agentAdmins.pickLoading")}
+              emptyMessage={t(
+                nothingLeft
+                  ? "agentAdmins.nothingLeft"
+                  : "agentAdmins.pickEmpty",
+              )}
+              resultCountMessage={(count) =>
+                t("agentAdmins.pickCount", { count })
+              }
+            />
+          </div>
+          <ReasonButton
+            type="submit"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            reason={addReason}
+            disabled={!picked || change.isPending}
+          >
+            {t("agentAdmins.add")}
+          </ReasonButton>
+          {partial ? (
+            <Text id={hintId} variant="meta" className="basis-full">
+              {partial}
+            </Text>
+          ) : null}
+        </form>
+      ) : null}
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => {

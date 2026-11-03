@@ -337,6 +337,44 @@ export const agentsKo = {
     "직접 또는 팀을 통해 관리자로 지정된 에이전트입니다. 열어서 카드와 관리자를 관리합니다.",
   "agentAdmins.mine.empty": "아직 관리자로 지정된 에이전트가 없습니다.",
   "agentAdmins.mine.truncated": "처음 {count}개만 보입니다.",
+
+  "managingTeam.title": "담당 팀",
+  "managingTeam.intro":
+    "이 팀의 팀 관리자는 이 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
+  "managingTeam.unassigned": "담당 팀 미지정",
+  "managingTeam.unassignedHint":
+    "이 에이전트는 담당 팀이 없습니다. 담당 팀을 정하면 그 팀의 팀 관리자가 이 에이전트를 관리합니다.",
+  "managingTeam.noLead": "이 담당 팀에는 팀 관리자가 없습니다.",
+  "managingTeam.pick": "담당 팀으로 정할 팀",
+  "managingTeam.pickPlaceholder": "팀 고르기",
+  "managingTeam.change": "바꾸기",
+  "managingTeam.assign": "지정",
+  "managingTeam.saving": "저장하는 중…",
+  "managingTeam.recommend": "관리자 팀 {name}을(를) 담당 팀으로",
+  "managingTeam.audience":
+    "담당 팀을 정하면 팀 밖 사람은 이 에이전트의 세션 가운데 자기 세션과 공유받은 것만 봅니다(워크스페이스 설정).",
+  "managingTeam.saved": "담당 팀을 {name}(으)로 정했습니다.",
+  "managingTeam.notAllowed": "내가 속한 팀만 담당 팀으로 정할 수 있습니다.",
+  "managingTeam.noChoices": "담당 팀으로 고를 수 있는 다른 팀이 없습니다.",
+  "agents.column.team": "담당 팀",
+  "agents.tabs.unassigned": "담당 팀 미지정",
+  "agents.unassignedEmpty": "담당 팀이 없는 에이전트가 없습니다.",
+  "agents.cards.infoOnly": "설정은 담당 팀과 관리자만 봅니다.",
+  "agent.readOnly":
+    "담당 팀 구성원은 이 에이전트의 설정을 볼 수만 있습니다. 바꾸는 것은 팀 관리자와 에이전트 관리자입니다.",
+  "agent.outsider.body":
+    "이 에이전트의 설정은 담당 팀 구성원과 관리자만 봅니다.",
+  "agents.flow.team": "담당 팀",
+  "agents.flow.teamHint":
+    "이 팀의 팀 관리자가 에이전트를 관리하고, 구성원은 설정을 보고 사용합니다.",
+  "agents.flow.teamRequired": "담당 팀을 고르세요.",
+  "agents.flow.teamLocked": "만든 뒤에는 관리자 탭에서 바꿉니다.",
+  "agents.flow.noTeam":
+    "속한 팀이 없어 에이전트를 만들 수 없습니다. 워크스페이스 관리자에게 팀에 넣어 달라고 요청하세요.",
+  "agents.flow.noTeamAdmin":
+    "팀이 없어 에이전트를 만들 수 없습니다. 팀 화면에서 먼저 팀을 만드세요.",
+  "agents.flow.toTeams": "팀으로",
+  "slack.notConnectedReadOnly": "이 에이전트는 Slack에 연결되지 않았습니다.",
 };
 
 export const agentsEn: Record<keyof typeof agentsKo, string> = {
@@ -673,6 +711,45 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "You were named their admin directly or through a team. Open one to manage its card and admins.",
   "agentAdmins.mine.empty": "You are not named an admin of any agent yet.",
   "agentAdmins.mine.truncated": "Showing the first {count}.",
+
+  "managingTeam.title": "Responsible team",
+  "managingTeam.intro":
+    "This team's leads manage this agent; its members see its settings and use it.",
+  "managingTeam.unassigned": "No responsible team",
+  "managingTeam.unassignedHint":
+    "This agent has no responsible team. Once it has one, that team's leads manage it.",
+  "managingTeam.noLead": "This responsible team has no team lead.",
+  "managingTeam.pick": "Team to make the responsible team",
+  "managingTeam.pickPlaceholder": "Pick a team",
+  "managingTeam.change": "Change",
+  "managingTeam.assign": "Assign",
+  "managingTeam.saving": "Saving…",
+  "managingTeam.recommend": "Make admin team {name} the responsible team",
+  "managingTeam.audience":
+    "With a responsible team, people outside it see only their own sessions of this agent and the ones shared with them (workspace setting).",
+  "managingTeam.saved": "The responsible team is now {name}.",
+  "managingTeam.notAllowed": "You can only pick a team you are in.",
+  "managingTeam.noChoices": "There is no other team you can pick.",
+  "agents.column.team": "Responsible team",
+  "agents.tabs.unassigned": "No responsible team",
+  "agents.unassignedEmpty": "Every agent has a responsible team.",
+  "agents.cards.infoOnly":
+    "Only its responsible team and admins see its settings.",
+  "agent.readOnly":
+    "As a member of the responsible team you can see this agent's settings but not change them. Team leads and the agent's admins change them.",
+  "agent.outsider.body":
+    "Only the responsible team's members and the agent's admins see its settings.",
+  "agents.flow.team": "Responsible team",
+  "agents.flow.teamHint":
+    "This team's leads manage the agent; its members see its settings and use it.",
+  "agents.flow.teamRequired": "Pick a responsible team.",
+  "agents.flow.teamLocked": "Once made, change it on the Admins tab.",
+  "agents.flow.noTeam":
+    "You are in no team, so you cannot make an agent. Ask a workspace admin to add you to a team.",
+  "agents.flow.noTeamAdmin":
+    "There are no teams, so no agent can be made. Make a team on the Teams screen first.",
+  "agents.flow.toTeams": "Go to Teams",
+  "slack.notConnectedReadOnly": "This agent is not connected to Slack.",
 };
 
 export const agentsJa: Record<keyof typeof agentsKo, string> = {
@@ -1017,4 +1094,42 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.column.updated": "更新",
   "agent.back": "エージェント一覧",
   "agent.panel.none": "なし",
+
+  "managingTeam.title": "担当チーム",
+  "managingTeam.intro":
+    "このチームのチーム管理者がこのエージェントを管理し、メンバーは設定を見て使います。",
+  "managingTeam.unassigned": "担当チーム未設定",
+  "managingTeam.unassignedHint":
+    "このエージェントには担当チームがありません。担当チームを決めると、そのチームのチーム管理者がこのエージェントを管理します。",
+  "managingTeam.noLead": "この担当チームにはチーム管理者がいません。",
+  "managingTeam.pick": "担当チームにするチーム",
+  "managingTeam.pickPlaceholder": "チームを選ぶ",
+  "managingTeam.change": "変更",
+  "managingTeam.assign": "設定",
+  "managingTeam.saving": "保存中…",
+  "managingTeam.recommend": "管理者チーム「{name}」を担当チームにする",
+  "managingTeam.audience":
+    "担当チームを決めると、チーム外の人はこのエージェントのセッションのうち自分のセッションと共有されたものだけを見ます（ワークスペース設定）。",
+  "managingTeam.saved": "担当チームを「{name}」にしました。",
+  "managingTeam.notAllowed": "自分が所属するチームだけを担当チームにできます。",
+  "managingTeam.noChoices": "担当チームに選べるほかのチームがありません。",
+  "agents.column.team": "担当チーム",
+  "agents.tabs.unassigned": "担当チーム未設定",
+  "agents.unassignedEmpty": "担当チームのないエージェントはありません。",
+  "agents.cards.infoOnly": "設定は担当チームと管理者だけが見られます。",
+  "agent.readOnly":
+    "担当チームのメンバーはこのエージェントの設定を見るだけです。変更するのはチーム管理者とエージェント管理者です。",
+  "agent.outsider.body":
+    "このエージェントの設定は担当チームのメンバーと管理者だけが見られます。",
+  "agents.flow.team": "担当チーム",
+  "agents.flow.teamHint":
+    "このチームのチーム管理者がエージェントを管理し、メンバーは設定を見て使います。",
+  "agents.flow.teamRequired": "担当チームを選んでください。",
+  "agents.flow.teamLocked": "作成後は管理者タブで変更します。",
+  "agents.flow.noTeam":
+    "所属するチームがないため、エージェントを作成できません。ワークスペース管理者にチームへの追加を依頼してください。",
+  "agents.flow.noTeamAdmin":
+    "チームがないため、エージェントを作成できません。先にチーム画面でチームを作成してください。",
+  "agents.flow.toTeams": "チームへ",
+  "slack.notConnectedReadOnly": "このエージェントはSlackに接続されていません。",
 };

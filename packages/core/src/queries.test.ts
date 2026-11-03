@@ -219,6 +219,10 @@ test("an agent page asks for one page with summaries, the search going with it, 
   await found.queryFn({
     pageParam: "cursor-2",
   } as Parameters<typeof found.queryFn>[0]);
+  const unassigned = queries.agentPagesQuery(client, undefined, true);
+  await unassigned.queryFn({
+    pageParam: null,
+  } as Parameters<typeof unassigned.queryFn>[0]);
   const named = queries.agentSummariesQuery(client, ["id-2", "id-1"]);
   await named.queryFn({} as Parameters<typeof named.queryFn>[0]);
   expect(calls).toEqual([
@@ -228,6 +232,14 @@ test("an agent page asks for one page with summaries, the search going with it, 
       {
         params: {
           query: { include: "summary", q: "notes", cursor: "cursor-2" },
+        },
+      },
+    ],
+    [
+      "/v1/agents",
+      {
+        params: {
+          query: { include: "summary", managing_team: "unassigned" },
         },
       },
     ],

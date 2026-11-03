@@ -39,6 +39,7 @@ import {
 } from "@werft-ai/ui";
 import { Plus } from "lucide-react";
 import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
+import { useManagesAgent } from "../../components/agent-access.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import {
@@ -308,6 +309,7 @@ function EnabledRow({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
+  const manages = useManagesAgent();
   const [confirming, setConfirming] = useState(false);
   const update = useMutation({
     mutationFn: (next: boolean) =>
@@ -343,16 +345,18 @@ function EnabledRow({
             </Text>
           }
           control={
-            <Switch
-              aria-label={t("agentGitHub.enabled")}
-              checked={enabled}
-              aria-disabled={update.isPending}
-              onCheckedChange={(checked) => {
-                if (update.isPending) return;
-                if (checked) update.mutate(true);
-                else setConfirming(true);
-              }}
-            />
+            manages ? (
+              <Switch
+                aria-label={t("agentGitHub.enabled")}
+                checked={enabled}
+                aria-disabled={update.isPending}
+                onCheckedChange={(checked) => {
+                  if (update.isPending) return;
+                  if (checked) update.mutate(true);
+                  else setConfirming(true);
+                }}
+              />
+            ) : undefined
           }
         />
       </RowList>
@@ -467,6 +471,7 @@ function GitHubSettings({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
+  const manages = useManagesAgent();
   const [draft, setDraft] = useState<Draft | null>(null);
   // A draft keeps what it was made from, so a refetch after someone else
   // activates cannot turn it into an overwrite of their release.
@@ -553,6 +558,7 @@ function GitHubSettings({
   const settling =
     draft === null && data.active_release_id !== (release?.id ?? null);
   const readOnly =
+    !manages ||
     !data.enabled ||
     data.unsavable !== null ||
     base === null ||
@@ -648,7 +654,7 @@ function GitHubSettings({
           </RowListItem>
         </RowList>
       </section>
-      {pending > 0 || saveFailure ? (
+      {manages && (pending > 0 || saveFailure) ? (
         <Alert
           variant={saveFailure ? "red" : "blue"}
           role="region"
@@ -807,25 +813,27 @@ function GitHubSettings({
                   })}
                 </RowList>
               )}
-              <AppRepositoryPicker
-                agentId={agentId}
-                chosen={settings.repositories}
-                disabled={readOnly}
-                onPicked={async (catalogId, name) => {
-                  edit((current) =>
-                    current.repositories.includes(catalogId)
-                      ? current
-                      : {
-                          ...current,
-                          repositories: [...current.repositories, catalogId],
-                        },
-                  );
-                  notify(t("agentGitHub.picked", { name }));
-                  await cache.invalidateQueries({
-                    queryKey: githubKey(client, agentId),
-                  });
-                }}
-              />
+              {manages ? (
+                <AppRepositoryPicker
+                  agentId={agentId}
+                  chosen={settings.repositories}
+                  disabled={readOnly}
+                  onPicked={async (catalogId, name) => {
+                    edit((current) =>
+                      current.repositories.includes(catalogId)
+                        ? current
+                        : {
+                            ...current,
+                            repositories: [...current.repositories, catalogId],
+                          },
+                    );
+                    notify(t("agentGitHub.picked", { name }));
+                    await cache.invalidateQueries({
+                      queryKey: githubKey(client, agentId),
+                    });
+                  }}
+                />
+              ) : null}
               <Text as="span" variant="meta">
                 {t("agentGitHub.repositoriesFoot")}
               </Text>
@@ -1003,37 +1011,41 @@ function GitHubSettings({
                             : t("agentGitHub.refPattern", { ref: entry.ref })
                         }
                         actions={
-                          <RowAction
-                            disabled={readOnly}
-                            aria-label={t("agentGitHub.removeLabel", {
-                              workflow: entry.workflow,
-                            })}
-                            onClick={() =>
-                              edit((current) => ({
-                                ...current,
-                                actions_allow: current.actions_allow.filter(
-                                  (held) => !sameEntry(held, entry),
-                                ),
-                              }))
-                            }
-                          >
-                            {t("agentGitHub.remove")}
-                          </RowAction>
+                          manages ? (
+                            <RowAction
+                              disabled={readOnly}
+                              aria-label={t("agentGitHub.removeLabel", {
+                                workflow: entry.workflow,
+                              })}
+                              onClick={() =>
+                                edit((current) => ({
+                                  ...current,
+                                  actions_allow: current.actions_allow.filter(
+                                    (held) => !sameEntry(held, entry),
+                                  ),
+                                }))
+                              }
+                            >
+                              {t("agentGitHub.remove")}
+                            </RowAction>
+                          ) : undefined
                         }
                       />
                     ))}
                   </RowList>
                 )}
-                <AllowAdd
-                  entries={settings.actions_allow}
-                  disabled={readOnly}
-                  onAdd={(entry) =>
-                    edit((current) => ({
-                      ...current,
-                      actions_allow: [...current.actions_allow, entry],
-                    }))
-                  }
-                />
+                {manages ? (
+                  <AllowAdd
+                    entries={settings.actions_allow}
+                    disabled={readOnly}
+                    onAdd={(entry) =>
+                      edit((current) => ({
+                        ...current,
+                        actions_allow: [...current.actions_allow, entry],
+                      }))
+                    }
+                  />
+                ) : null}
                 <Alert>
                   <AlertDescription>
                     {t("agentGitHub.allowlistNote")}

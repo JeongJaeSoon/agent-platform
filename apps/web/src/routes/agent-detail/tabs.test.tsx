@@ -1030,14 +1030,15 @@ describe("에이전트 상세 탭", () => {
     }
   });
 
-  test("관리하지 않는 구성원에게 관리자 탭은 이유만 보이고 편집 행동이 없다", async () => {
+  test("관리하지 않는 구성원에게 관리자 탭은 담당 팀과 관리자 목록만 보이고 편집 행동이 없다", async () => {
     renderAt(`${DETAIL}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
-      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
     });
     const panel = await screen.findByRole("tabpanel");
-    await within(panel).findByText(/에이전트 관리자 지정/);
+    await within(panel).findByText("담당 팀 미지정");
+    await within(panel).findByText(/에이전트 관리자는/);
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(within(panel).queryByRole("combobox")).toBeNull();
   });

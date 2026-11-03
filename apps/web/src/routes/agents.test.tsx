@@ -15,7 +15,12 @@ import {
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import type { Locale } from "../i18n/i18n.tsx";
-import { AGENT_ID, agentServer, CARD } from "../test-support/fake-agents.ts";
+import {
+  AGENT_ID,
+  agentServer,
+  CARD,
+  TEAM_ID,
+} from "../test-support/fake-agents.ts";
 
 const DESCRIPTION = "결제 문의 담당";
 /** What an earlier card held: never applied, shown to be copied in. */
@@ -264,13 +269,17 @@ describe("에이전트 목록", () => {
         .map((head) => [head.textContent, head.dataset.hideNarrow ?? null]),
     ).toEqual([
       ["에이전트", null],
+      ["담당 팀", "true"],
       ["상태", null],
       ["수정", "true"],
     ]);
     const row = (
       await within(table).findByRole("link", { name: "결제 담당" })
     ).closest("[role=row]") as HTMLElement;
-    const [agentCell, , updatedCell] = within(row).getAllByRole("cell");
+    const [agentCell, teamCell, , updatedCell] =
+      within(row).getAllByRole("cell");
+    expect(teamCell?.dataset.hideNarrow).toBe("true");
+    expect(teamCell?.textContent).toBe("담당 팀 미지정");
     const updatedAt = server.detail().agent.updated_at;
     expect(updatedCell?.dataset.hideNarrow).toBe("true");
     expect(updatedCell?.querySelector("time")?.getAttribute("datetime")).toBe(
@@ -529,6 +538,26 @@ describe("에이전트 카드", () => {
     };
   }
 
+  async function openAdministered(routes: Parameters<typeof renderAt>[1]) {
+    const list = routes["GET /v1/agents"];
+    if (!list) throw new Error("routes list agents");
+    const rendered = renderAt("/agents", {
+      ...meOk,
+      ...routes,
+      "GET /v1/administered-agents": async (request) => {
+        const { items } = (await (await list(request)).json()) as {
+          items: unknown[];
+        };
+        return json(200, { items });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: /^관리하는 에이전트/ }),
+    );
+    return rendered;
+  }
+
   const cardFor = async (name: string) =>
     (await screen.findByRole("link", { name })).closest(
       "[data-slot=card]",
@@ -538,7 +567,7 @@ describe("에이전트 카드", () => {
       ?.nextElementSibling?.textContent;
 
   test("배포 판·설명·실행 프로필·MCP·자격 증명·담당을 카드에 모은다", async () => {
-    renderAt("/agents", { ...meOk, ...releasedServer() });
+    await openAdministered(releasedServer());
     const card = await cardFor("결제 담당");
     await waitFor(() =>
       expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
@@ -561,14 +590,14 @@ describe("에이전트 카드", () => {
   });
 
   test("API에 없는 답변 대기·스킬 줄은 두지 않고, 카드는 이름 하나로 열린다", async () => {
-    renderAt("/agents", { ...meOk, ...releasedServer() });
+    await openAdministered(releasedServer());
     const card = await cardFor("결제 담당");
     await waitFor(() =>
       expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
     );
     expect(
       [...card.querySelectorAll("dt")].map((dt) => dt.textContent),
-    ).toEqual(["릴리스", "실행 프로필", "MCP", "자격 증명"]);
+    ).toEqual(["담당 팀", "릴리스", "실행 프로필", "MCP", "자격 증명"]);
     expect(card.textContent).not.toContain("미계측");
     expect(
       within(card)
@@ -579,7 +608,7 @@ describe("에이전트 카드", () => {
 
   test("긴 MCP 이름은 칩 안에서 잘리고 전체 이름은 title로 남는다", async () => {
     const long = `mcp-${"x".repeat(28)}`;
-    renderAt("/agents", { ...meOk, ...releasedServer([long]) });
+    await openAdministered(releasedServer([long]));
     const card = await cardFor("결제 담당");
     await waitFor(() =>
       expect(fact(card, "릴리스")).toBe("2026. 10. 11. 10:00"),
@@ -622,8 +651,7 @@ describe("에이전트 카드", () => {
   test("추가 정보를 못 불러와도 카드는 이름·상태와 상세 링크를 지킨다", async () => {
     const server = agentServer();
     const refuse = () => apiError(503, "UNAVAILABLE", "down");
-    renderAt("/agents", {
-      ...meOk,
+    await openAdministered({
       ...server.routes,
       [`GET /v1/agents/${AGENT_ID}`]: refuse,
       [`GET /v1/agents/${AGENT_ID}/admins`]: refuse,
@@ -646,8 +674,7 @@ describe("에이전트 카드", () => {
 
   test("카드 내용을 못 불러와도 설명은 에이전트 행에서 보이고, 자격 증명 칸은 그렇다고 적는다", async () => {
     const routes = releasedServer();
-    renderAt("/agents", {
-      ...meOk,
+    await openAdministered({
       ...routes,
       [`GET /v1/agents/${AGENT_ID}`]: () =>
         apiError(503, "UNAVAILABLE", "down"),
@@ -658,8 +685,7 @@ describe("에이전트 카드", () => {
   });
 
   test("카드 내용이 늦으면 자격 증명 칸은 연결 목록이 먼저 와도 기다린다", async () => {
-    renderAt("/agents", {
-      ...meOk,
+    await openAdministered({
       ...releasedServer(),
       [`GET /v1/agents/${AGENT_ID}`]: () => new Promise<Response>(() => {}),
     });
@@ -694,8 +720,7 @@ describe("에이전트 카드", () => {
       const agents = items(14);
       const first = new Set(agents.slice(0, 6).map((agent) => agent.slug));
       viewport.show((element) => first.has(slugOf(element) ?? ""));
-      const { api } = renderAt("/agents", {
-        ...meOk,
+      const { api } = await openAdministered({
         "GET /v1/agents": () => json(200, { items: agents, next_cursor: null }),
       });
       const late = await cardFor("에이전트 13");
@@ -776,7 +801,7 @@ describe("에이전트 카드", () => {
     });
 
     test("창이나 네트워크로 돌아와도 이미 불러온 카드를 다시 부르지 않는다", async () => {
-      const { api } = renderAt("/agents", { ...meOk, ...releasedServer() });
+      const { api } = await openAdministered(releasedServer());
       const card = await cardFor("결제 담당");
       await waitFor(() => expect(card.textContent).toContain("관리자: Owner"));
       await waitFor(() => expect(detailCalls(api).length).toBe(3));
@@ -939,7 +964,13 @@ describe("에이전트 목록 탭과 보기", () => {
       "GET /v1/administered-agents": () => json(200, { items }),
       "GET /v1/agents/counts": () =>
         json(200, {
-          counts: { all: 1, administered: 250, active: 0, draft: 1 },
+          counts: {
+            all: 1,
+            administered: 250,
+            active: 0,
+            draft: 1,
+            unassigned: 0,
+          },
         }),
     });
     await showList(await setupUser(), "관리하는 에이전트 250");
@@ -1095,6 +1126,7 @@ describe("찾을 수 없는 에이전트", () => {
       renderAt("/agents/missing", {
         "GET /v1/auth/me": () => json(200, who),
         "GET /v1/agents/missing": () => apiError(status, code, message),
+        "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       });
       expect(
         await screen.findByRole("heading", {
@@ -1141,7 +1173,7 @@ describe("새 에이전트", () => {
     });
     const user = await setupUser();
     await atStep("이름");
-    await user.type(screen.getByLabelText("이름"), "결제 담당");
+    await user.type(await screen.findByLabelText("이름"), "결제 담당");
     await user.type(screen.getByLabelText("식별자"), "billing");
     expect(
       screen.getByText(
@@ -1203,6 +1235,7 @@ describe("새 에이전트", () => {
       slug: "billing",
       name: "결제 담당",
       description: DESCRIPTION,
+      managing_team_id: TEAM_ID,
       card: {
         ...CARD,
         capabilities: { tools: ["Read", "Edit"], mcp: null, forbidden: [] },
@@ -1266,7 +1299,7 @@ describe("새 에이전트", () => {
     });
     const user = await setupUser();
     await atStep("이름");
-    await user.type(screen.getByLabelText("이름"), "결제 담당");
+    await user.type(await screen.findByLabelText("이름"), "결제 담당");
     await user.type(screen.getByLabelText("식별자"), "billing");
     await user.click(screen.getByRole("button", { name: "다음" }));
     await atStep("하는 일");
@@ -3003,6 +3036,36 @@ describe("새 에이전트: 브라우저 history", () => {
     expect(
       ((await screen.findByLabelText("모델")) as HTMLSelectElement).value,
     ).toBe(CARD.model);
+  });
+
+  test("담당 팀을 묻기 전에 남겨 둔 하는 일 단계는 새로고침 뒤 처음부터 연다", async () => {
+    const { api, reload } = openInBrowser("/agents/new", {
+      ...meOk,
+      ...agentServer().routes,
+    });
+    const user = await setupUser();
+    await toJobStep(user);
+    await waitFor(() => expect(stepsInState()).toContain("job"));
+    const state = window.history.state as Record<string, unknown>;
+    const histories = state["new-agent.histories"] as {
+      context: Record<string, unknown>;
+    }[];
+    window.history.replaceState(
+      {
+        ...state,
+        "new-agent.histories": histories.map(
+          ({ context: { managing_team_id: _, ...context }, ...entry }) => ({
+            ...entry,
+            context,
+          }),
+        ),
+      },
+      "",
+    );
+
+    reload();
+    await atStep("이름");
+    expect(api.calls.some((c) => c.method === "POST")).toBe(false);
   });
 
   test("저장하지 않은 입력이 있으면 흐름을 떠나기 전에 묻고, 단계 사이 이동은 묻지 않는다", async () => {

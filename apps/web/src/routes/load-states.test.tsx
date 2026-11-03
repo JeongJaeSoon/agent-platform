@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
+import { AGENT_ID, agentServer, TEAM } from "../test-support/fake-agents.ts";
 import { apiError, json, me, memberPage } from "../test-support/fake-api.ts";
 import { appHarness, type Routes } from "../test-support/render-app.tsx";
 
@@ -69,7 +69,7 @@ const RETRY_CASES: ReadonlyArray<{
     failingKey: "GET /v1/agents/counts",
     answer: () =>
       json(200, {
-        counts: { all: 0, administered: 0, active: 0, draft: 0 },
+        counts: { all: 0, administered: 0, active: 0, draft: 0, unassigned: 0 },
       }),
     after: /아직 에이전트가 없습니다/,
   },
@@ -193,7 +193,10 @@ describe("불러오기 실패", () => {
 
 describe("주소 이름 형식", () => {
   test("/agents/new: 형식이 틀린 식별자는 허용 형식을 알리고 다음으로 넘기지 않는다", async () => {
-    renderAt("/agents/new", meOk);
+    renderAt("/agents/new", {
+      ...meOk,
+      "GET /v1/teams": () => json(200, { items: [TEAM], next_cursor: null }),
+    });
     const user = await setupUser();
     await user.type(await screen.findByLabelText("이름"), "결제");
     const input = screen.getByLabelText("식별자");

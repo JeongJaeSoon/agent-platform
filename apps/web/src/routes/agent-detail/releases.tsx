@@ -52,6 +52,7 @@ import {
   queryKeysOf,
 } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
+import { useManagesAgent } from "../../components/agent-access.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
 import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
@@ -96,9 +97,10 @@ export function Releases({
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
+  const manages = useManagesAgent();
   const latest = latestVersion(detail);
   const versionId = picked ?? latest?.id ?? "";
-  const profiles = useQuery(profilesQuery(client));
+  const profiles = useQuery({ ...profilesQuery(client), enabled: manages });
   const [chosen, setProfile] = useState(
     detail.releases.at(-1)?.runtime_profile_id ?? "",
   );
@@ -199,106 +201,112 @@ export function Releases({
     <Section
       title={t("agent.releases.title")}
       actions={
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={release.isPending}
+        manages ? (
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={release.isPending}
+              >
+                <Plus aria-hidden="true" />
+                {release.isPending
+                  ? t("agent.releases.creating")
+                  : t("agent.releases.new")}
+              </Button>
+            </DialogTrigger>
+            <DialogContent
+              className="sm:max-w-[32.5rem]"
+              // The result line below the table takes the keyboard instead.
+              onCloseAutoFocus={(event) => {
+                if (submitted.current) event.preventDefault();
+                submitted.current = false;
+              }}
             >
-              <Plus aria-hidden="true" />
-              {release.isPending
-                ? t("agent.releases.creating")
-                : t("agent.releases.new")}
-            </Button>
-          </DialogTrigger>
-          <DialogContent
-            className="sm:max-w-[32.5rem]"
-            // The result line below the table takes the keyboard instead.
-            onCloseAutoFocus={(event) => {
-              if (submitted.current) event.preventDefault();
-              submitted.current = false;
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>{t("agent.releases.new")}</DialogTitle>
-              <DialogDescription>{t("agent.releases.intro")}</DialogDescription>
-            </DialogHeader>
-            <form className="flex flex-col gap-4" onSubmit={submit}>
-              <VersionSelect
-                label={t("agent.releases.version")}
-                versions={[...detail.versions].sort(
-                  (a, b) => b.version_no - a.version_no,
-                )}
-                value={versionId}
-                onChange={onPick}
-              />
-              {profiles.isPending ? (
-                <Skeleton label={t("agent.releases.profilesLoading")} />
-              ) : profiles.error ? (
-                <FieldError>
-                  {t("agent.releases.profilesFailed", {
-                    reason: t(errorKey((profiles.error as ApiError).code)),
-                  })}
-                </FieldError>
-              ) : (
-                <ProfileSelect
-                  label={t("agent.releases.profile")}
-                  hint={t("agent.releases.profileHint")}
-                  profiles={items}
-                  cardModel={cardModel}
-                  value={profile}
-                  onChange={setProfile}
+              <DialogHeader>
+                <DialogTitle>{t("agent.releases.new")}</DialogTitle>
+                <DialogDescription>
+                  {t("agent.releases.intro")}
+                </DialogDescription>
+              </DialogHeader>
+              <form className="flex flex-col gap-4" onSubmit={submit}>
+                <VersionSelect
+                  label={t("agent.releases.version")}
+                  versions={[...detail.versions].sort(
+                    (a, b) => b.version_no - a.version_no,
+                  )}
+                  value={versionId}
+                  onChange={onPick}
                 />
-              )}
-              {repositoryMode === undefined ||
-              repositoryMode === "none" ? null : repositories.length === 0 &&
-                repositoryMode === "required" ? (
-                <FieldError>{t("agent.releases.repositoryMissing")}</FieldError>
-              ) : (
-                <RepositorySelect
-                  label={t("agent.releases.repository")}
-                  hint={t("agent.releases.repositoryHint")}
-                  repositories={repositories}
-                  optional={repositoryMode === "optional"}
-                  value={repository}
-                  onChange={setRepository}
-                />
-              )}
-              {mismatch ? (
-                <Alert asChild variant="amber">
-                  <output>
-                    {t("agent.releases.modelMismatch", {
-                      card: cardModel,
-                      profile: profileModel,
+                {profiles.isPending ? (
+                  <Skeleton label={t("agent.releases.profilesLoading")} />
+                ) : profiles.error ? (
+                  <FieldError>
+                    {t("agent.releases.profilesFailed", {
+                      reason: t(errorKey((profiles.error as ApiError).code)),
                     })}
-                  </output>
-                </Alert>
-              ) : null}
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">
-                    {t("common.cancel")}
+                  </FieldError>
+                ) : (
+                  <ProfileSelect
+                    label={t("agent.releases.profile")}
+                    hint={t("agent.releases.profileHint")}
+                    profiles={items}
+                    cardModel={cardModel}
+                    value={profile}
+                    onChange={setProfile}
+                  />
+                )}
+                {repositoryMode === undefined ||
+                repositoryMode === "none" ? null : repositories.length === 0 &&
+                  repositoryMode === "required" ? (
+                  <FieldError>
+                    {t("agent.releases.repositoryMissing")}
+                  </FieldError>
+                ) : (
+                  <RepositorySelect
+                    label={t("agent.releases.repository")}
+                    hint={t("agent.releases.repositoryHint")}
+                    repositories={repositories}
+                    optional={repositoryMode === "optional"}
+                    value={repository}
+                    onChange={setRepository}
+                  />
+                )}
+                {mismatch ? (
+                  <Alert asChild variant="amber">
+                    <output>
+                      {t("agent.releases.modelMismatch", {
+                        card: cardModel,
+                        profile: profileModel,
+                      })}
+                    </output>
+                  </Alert>
+                ) : null}
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button type="button" variant="outline">
+                      {t("common.cancel")}
+                    </Button>
+                  </DialogClose>
+                  <Button
+                    type="submit"
+                    disabled={
+                      release.isPending ||
+                      versionId === "" ||
+                      profile === "" ||
+                      (repositoryMode === "required" && repository === "")
+                    }
+                  >
+                    {release.isPending
+                      ? t("agent.releases.creating")
+                      : t("agent.releases.create")}
                   </Button>
-                </DialogClose>
-                <Button
-                  type="submit"
-                  disabled={
-                    release.isPending ||
-                    versionId === "" ||
-                    profile === "" ||
-                    (repositoryMode === "required" && repository === "")
-                  }
-                >
-                  {release.isPending
-                    ? t("agent.releases.creating")
-                    : t("agent.releases.create")}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        ) : undefined
       }
     >
       <div className={SECTION_BODY}>
@@ -491,7 +499,7 @@ export function Releases({
                   </GridTableCell>
                   <GridTableCell hideNarrow>{note}</GridTableCell>
                   <GridTableCell align="end">
-                    {active ? null : (
+                    {active || !manages ? null : (
                       <RowAction
                         disabled={activating !== undefined}
                         aria-label={t("agent.releases.activateFor", {

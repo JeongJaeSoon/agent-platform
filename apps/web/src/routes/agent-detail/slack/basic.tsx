@@ -3,6 +3,7 @@ import { unwrap } from "@werft-ai/client";
 import { useAgentPlatform } from "@werft-ai/react";
 import { FieldError, SettingRow, Switch, Text } from "@werft-ai/ui";
 import { useState } from "react";
+import { useManagesAgent } from "../../../components/agent-access.tsx";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
 import type { Notify } from "../toast.tsx";
@@ -13,6 +14,7 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
+  const manages = useManagesAgent();
   const key = [...slackKey(client, agentId), "bindings"];
   const bindings = useSlackBindings(agentId);
   const dm = bindings.data?.items.find((row) => row.surface_kind === "dm");
@@ -62,7 +64,7 @@ export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
         </>
       }
       control={
-        lost ? null : (
+        lost || !manages ? null : (
           <Switch
             aria-label={t("slack.dmSetting")}
             checked={dmOn(dm)}
@@ -87,6 +89,7 @@ export function SlackMentionOnly({
   const { t } = useI18n();
   const { client } = useAgentPlatform();
   const cache = useQueryClient();
+  const manages = useManagesAgent();
   const settings = useSlackSettings(agentId);
   const update = useMutation({
     onMutate: async () => {
@@ -154,7 +157,7 @@ export function SlackMentionOnly({
         ) : undefined
       }
       control={
-        lost ? null : (
+        lost || !manages ? null : (
           <Switch
             aria-label={t("slack.mentionOnly")}
             checked={settings.data?.mention_only ?? false}

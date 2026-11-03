@@ -8,7 +8,6 @@ import {
   teamDetailSchema,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { ADMINISTERED_LIST_LIMIT } from "../components/agent-admins.tsx";
 import { AGENT_ID, agentServer } from "../test-support/fake-agents.ts";
 import {
   apiError,
@@ -24,6 +23,10 @@ import {
 import { appHarness } from "../test-support/render-app.tsx";
 
 const { act, renderAt, screen, waitFor, within } = await appHarness();
+// After the DOM exists, like every module that loads Radix.
+const { ADMINISTERED_LIST_LIMIT } = await import(
+  "../components/agent-admins.tsx"
+);
 
 const TEAM_ID = "9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b";
 const MATE_ID = "2c7e1d4a-5b6f-4a8e-9d0c-1e2f3a4b5c6d";
@@ -51,7 +54,10 @@ const people = new Map([owner, mate].map((m) => [m.user_id, m]));
 const said = () => screen.getAllByRole("status").map((s) => s.textContent);
 
 const optionTexts = () =>
-  screen.queryAllByRole("option").map((o) => o.textContent);
+  screen
+    .queryAllByRole("option")
+    .filter((o) => o.tagName !== "OPTION")
+    .map((o) => o.textContent);
 
 /** Types into a server-searched picker and takes the one match once the search settles. */
 async function pick(
@@ -1218,14 +1224,13 @@ describe("에이전트 관리자", () => {
     expect(dialog.textContent).not.toContain("나 자신을 빼면");
   });
 
-  test("관리 목록이 상한까지 차 있으면 이 에이전트의 관리자 목록에 직접 묻는다", async () => {
+  test("관리 목록 상한은 서버의 상한과 같다", () => {
     expect(ADMINISTERED_LIST_LIMIT).toBe(TEAM_LIST_LIMIT);
+  });
+
+  test("관리자 목록이 길어도 관리 여부는 이 에이전트의 관리자 목록으로 정한다", async () => {
     const agentsApi = agentServer();
-    const agent = (
-      (await (
-        await agentsApi.routes[`GET /v1/agents/${AGENT_ID}`]()
-      ).json()) as { agent: { id: string } }
-    ).agent;
+    const agent = agentsApi.detail().agent;
     const others = Array.from({ length: TEAM_LIST_LIMIT }, () => ({
       ...agent,
       id: crypto.randomUUID(),
@@ -1234,27 +1239,39 @@ describe("에이전트 관리자", () => {
       ...agentsApi.routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: others }),
-      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(
+          200,
+          admins({
+            users: [
+              ...admins().users,
+              {
+                user_id: USER_ID,
+                email: "owner@example.com",
+                display_name: "Owner",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+          }),
+        ),
     });
     expect(
       await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
     ).toBeDefined();
   });
 
-  test("관리 여부를 묻지 못하면 권한 문구가 아니라 실패를 보인다", async () => {
+  test("관리 여부를 묻지 못하면 목록만 읽고 권한 문구는 없다", async () => {
     renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
-      "GET /v1/administered-agents": () =>
-        apiError(500, "INTERNAL", "Internal error"),
+      "GET /v1/my-teams": () => apiError(500, "INTERNAL", "Internal error"),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
     });
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(
-      "처리하지 못했습니다 — 잠시 뒤 다시 시도하세요.",
-    );
+    expect(await screen.findByText("Mate")).toBeDefined();
     expect(
-      within(alert).getByRole("button", { name: "다시 시도" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
+    ).toBeNull();
     expect(
       screen.queryByText(
         "에이전트 관리자 지정 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
@@ -1278,18 +1295,23 @@ describe("에이전트 관리자", () => {
     ).toBeTruthy();
   });
 
-  test("관리하지 않는 구성원은 이유만 보고, 관리자 목록을 묻지 않는다", async () => {
+  test("관리하지 않는 담당 팀 구성원은 관리자 목록을 읽기만 한다", async () => {
     const { api } = renderAt(`/agents/${AGENT_ID}?tab=admins`, {
       ...agentServer().routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
-      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/my-teams": () => json(200, { items: [], next_cursor: null }),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
     });
+    expect(await screen.findByText("Mate")).toBeDefined();
     expect(
-      await screen.findByText(
-        "에이전트 관리자 지정 권한이 있어야 할 수 있습니다. 지금 역할: 구성원.",
-      ),
-    ).toBeDefined();
-    expect(api.calls.some((c) => c.path.endsWith("/admins"))).toBe(false);
+      screen.queryByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: "관리자로 추가할 사람이나 팀" }),
+    ).toBeNull();
+    expect(
+      api.calls.some((c) => c.path === "/v1/members" || c.path === "/v1/teams"),
+    ).toBe(false);
   });
 
   test("자기 에이전트의 관리자인 구성원은 목록을 보고, 고르기는 이유와 함께 닫혀 있다", async () => {
@@ -1303,7 +1325,25 @@ describe("에이전트 관리자", () => {
       ...agentsApi.routes,
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/administered-agents": () => json(200, { items: [agent] }),
-      [`GET /v1/agents/${AGENT_ID}/admins`]: () => json(200, admins()),
+      "GET /v1/my-teams": () =>
+        json(200, {
+          items: [{ id: TEAM_ID, name: "결제팀", role: "member" }],
+          next_cursor: null,
+        }),
+      [`GET /v1/agents/${AGENT_ID}/admins`]: () =>
+        json(
+          200,
+          admins({
+            teams: [
+              {
+                team_id: TEAM_ID,
+                name: "결제팀",
+                created_by: USER_ID,
+                created_at: AT,
+              },
+            ],
+          }),
+        ),
     });
     expect(
       await screen.findByRole("button", { name: "Mate을(를) 관리자에서 빼기" }),

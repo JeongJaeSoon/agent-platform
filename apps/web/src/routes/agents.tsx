@@ -52,6 +52,7 @@ import {
   useAgentView,
 } from "../components/agent-view.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { ManagingTeamName } from "../components/managing-team.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
@@ -160,11 +161,6 @@ export function AgentsScreen() {
 
 const VIEW_ICON = { cards: LayoutGrid, table: List } as const;
 
-/**
- * The design's two lists, each shown as cards or as the table: every agent
- * a page at a time and searched on the server, or the ones the caller
- * administers, which the server caps and the page searches itself.
- */
 function AgentList({
   counts,
 }: {
@@ -176,12 +172,15 @@ function AgentList({
   const [view, setView] = useAgentView(
     principal?.kind === "user" ? principal.id : undefined,
   );
-  const [scope, setScope] = useState<"all" | "administered">("all");
+  const [scope, setScope] = useState<"all" | "unassigned" | "administered">(
+    "all",
+  );
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
+  const paged = scope !== "administered";
   const pages = useInfiniteQuery({
-    ...agentPagesQuery(client, q),
-    enabled: scope === "all",
+    ...agentPagesQuery(client, q, scope === "unassigned"),
+    enabled: paged,
   });
   const administered = useQuery(administeredAgentsQuery(client));
   // The server stops at this many, so a full page may have left some out.
@@ -194,12 +193,11 @@ function AgentList({
     setQuery("");
     search.current?.focus();
   };
-  const shown =
-    scope === "all"
-      ? pages.data?.pages.flatMap((page) => page.items)
-      : administered.data?.items.filter((agent) =>
-          matchesAgentQuery(agent, query),
-        );
+  const shown = paged
+    ? pages.data?.pages.flatMap((page) => page.items)
+    : administered.data?.items.filter((agent) =>
+        matchesAgentQuery(agent, query),
+      );
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
@@ -213,6 +211,14 @@ function AgentList({
             <SegmentedControlItem value="all" count={counts.all}>
               {t("agents.tabs.all")}
             </SegmentedControlItem>
+            {counts.unassigned > 0 || scope === "unassigned" ? (
+              <SegmentedControlItem
+                value="unassigned"
+                count={counts.unassigned}
+              >
+                {t("agents.tabs.unassigned")}
+              </SegmentedControlItem>
+            ) : null}
             <SegmentedControlItem
               value="administered"
               count={counts.administered}
@@ -250,9 +256,13 @@ function AgentList({
           ? ""
           : t("agents.shown", { count: shown.length })}
       </output>
-      {scope === "all" ? (
-        counts.all === 0 ? (
-          <EmptyState title={t("agents.empty")} />
+      {paged ? (
+        (scope === "all" ? counts.all : counts.unassigned) === 0 ? (
+          <EmptyState
+            title={t(
+              scope === "all" ? "agents.empty" : "agents.unassignedEmpty",
+            )}
+          />
         ) : pages.isPending ? (
           <StatusScreen kind="loading" />
         ) : pages.error && !shown?.length ? (
@@ -262,7 +272,12 @@ function AgentList({
           />
         ) : (
           <div className="flex flex-col gap-4">
-            <AgentsIn view={view} agents={shown ?? []} onClear={clear} />
+            <AgentsIn
+              view={view}
+              agents={shown ?? []}
+              onClear={clear}
+              summarized
+            />
             <PagedListFooter list={pages} />
           </div>
         )
@@ -308,11 +323,13 @@ function AgentsIn({
   view,
   agents,
   onClear,
+  summarized = false,
 }: {
   readonly view: AgentView;
   /** The list after the search. */
   readonly agents: readonly AgentListItem[];
   readonly onClear: () => void;
+  readonly summarized?: boolean;
 }) {
   const { t } = useI18n();
   if (agents.length === 0) {
@@ -329,7 +346,7 @@ function AgentsIn({
     );
   }
   return view === "cards" ? (
-    <AgentCards agents={agents} />
+    <AgentCards agents={agents} summarized={summarized} />
   ) : (
     <AgentTable agents={agents} />
   );
@@ -348,6 +365,9 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
       <GridTableHeader>
         <GridTableColumnHeader>
           {t("agents.column.agent")}
+        </GridTableColumnHeader>
+        <GridTableColumnHeader hideNarrow>
+          {t("agents.column.team")}
         </GridTableColumnHeader>
         <GridTableColumnHeader>
           {t("agents.column.state")}
@@ -396,8 +416,15 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
                     at: updated,
                   })}
                 </Text>
+                <span className="hidden [@container(width<480px)]:block">
+                  <span className="sr-only">{t("agents.column.team")} </span>
+                  <ManagingTeamName agent={agent} />
+                </span>
                 <SlackActionLink agent={agent} />
               </RowLines>
+            </GridTableCell>
+            <GridTableCell hideNarrow>
+              <ManagingTeamName agent={agent} />
             </GridTableCell>
             <GridTableCell>
               <AgentStateBadge agent={agent} />
@@ -416,9 +443,10 @@ function AgentTable({ agents }: { readonly agents: readonly AgentListItem[] }) {
   );
 }
 
-// Agent, state, updated; a phone keeps the agent and the state, and the
-// agent cell says when it changed.
-const COLUMNS = ["minmax(0,1fr) 104px 120px", "minmax(0,1fr) 104px"] as const;
+const COLUMNS = [
+  "minmax(0,1fr) minmax(0,200px) 104px 120px",
+  "minmax(0,1fr) 104px",
+] as const;
 
 export { agentState } from "../components/agent-state.tsx";
 

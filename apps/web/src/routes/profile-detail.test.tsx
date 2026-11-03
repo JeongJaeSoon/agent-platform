@@ -34,6 +34,7 @@ function agent(
     name,
     description: null,
     managing_team_id: null,
+    managing_team_name: null,
     status: "active",
     active_release_id: release,
     activation_revision: release === null ? -1 : 0,

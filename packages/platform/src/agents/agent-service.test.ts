@@ -82,6 +82,7 @@ const detail: AgentDetail = {
     name: "재무 분석가",
     description: null,
     managing_team_id: null,
+    managing_team_name: null,
     status: "active",
     active_release_id: null,
     activation_revision: -1,
@@ -100,7 +101,13 @@ function memoryStore(tools: string[] = ["Read"]) {
   let activations = 0;
   const store: AgentStore = {
     list: async () => ({ items: [detail.agent], next_cursor: null }),
-    count: async () => ({ all: 1, administered: 0, active: 1, draft: 0 }),
+    count: async () => ({
+      all: 1,
+      administered: 0,
+      active: 1,
+      draft: 0,
+      unassigned: 1,
+    }),
     summaries: async () => new Map(),
     get: async () => detail,
     findVersion: async () => ({
@@ -207,7 +214,7 @@ describe("agent service", () => {
       count: async (_workspace, reader) => {
         reached = true;
         readers.push(reader);
-        return { all: 0, administered: 0, active: 0, draft: 0 };
+        return { all: 0, administered: 0, active: 0, draft: 0, unassigned: 0 };
       },
     });
     const key = callerFor(
