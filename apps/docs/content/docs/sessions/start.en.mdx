@@ -3,7 +3,7 @@ title: "Start"
 description: The fields, response, Idempotency-Key, list, share scope, title, and errors of a session create request
 ---
 
-A session is a conversation that runs against one run profile. If the profile uses a repository, you pick one repository too. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+A session is a conversation that runs against one profile. If the profile uses a repository, you pick one repository too. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
 <Callout>
 The `GATE-SPEC {…}` messages in the examples are scripts for the fake model of the [development server](/run-server/dev-server). The fake model calls tools and answers exactly as the script says, so the output is always the same. A server started with a real model will not make the same tool calls or print the same output; send it ordinary instructions instead.
@@ -65,7 +65,7 @@ Reference: [`POST /v1/sessions`](/reference/http-api/sessions/createSession)
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `profile_id` | Yes, unless `agent_release_id` is set | The run profile id ([Choose a run profile](/agents/run-profiles)) |
+| `profile_id` | Yes, unless `agent_release_id` is set | The profile id ([Choose a profile](/agents/run-profiles)) |
 | `repository_id` | Depends on the profile | A repository id in the catalog. The worker clones this repository. Required when the profile's `repository_mode` is `required`; not sent when it is `none` ([Sessions without a repository](/sessions/without-repository)) |
 | `message` | Yes | The input of the first turn. Up to 32,768 UTF-8 bytes |
 | `model` | | One of the models the profile allows. If omitted, the default model |

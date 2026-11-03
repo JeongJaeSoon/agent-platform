@@ -21,7 +21,7 @@
 | 한국어 위험 작업 구역 | 위험 영역 / 위험 구역 | 위험 구역 | 같은 개념 통일 |
 | 한국어 릴리스 | 배포 판 / release / 배포 탭 | 릴리스 / 릴리스 탭 | 버전·프로필을 묶는 구성의 이름 통일 |
 | 영어 에이전트 관리자 | Owners | Admins | 워크스페이스 소유 역할과 구분 |
-| 영어 실행 프로필 | Run profiles / Runtime profiles | Runtime profiles | 내비게이션·제목 일치 |
+| 프로필 | 실행 프로필 / Run profiles / Runtime profiles / 実行プロファイル | 프로필 / Profiles / プロファイル | 내비게이션·제목·릴리스 일치 (94S-1306) |
 | 일본어 Idle | アイドル / 休止中 / 待機中 | 入力待ち | Queued의 待機中과 구분, 좁은 상태 열에서도 식별 가능 |
 | 영어 답변 대기 | Needs input / Needs answer / Waiting for an answer | Waiting for an answer | 운영 화면·에이전트 맵·세션의 같은 상태 통일 |
 | 일본어 운영자 | 運営者 / 運用者 | 運用担当者 | 설치를 관리하는 역할 통일 |

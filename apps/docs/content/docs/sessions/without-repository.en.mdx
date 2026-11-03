@@ -3,7 +3,7 @@ title: "Sessions without a repository"
 description: A session that runs in an empty workspace without cloning a repository
 ---
 
-The run profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session sends `repository_id`; if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
+The profile decides whether a repository is used. If the profile's `repository_mode` is `required`, every session sends `repository_id`; if it is `none`, it does not; if it is `optional`, either works. A session created without a repository starts in an empty workspace. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
 ## Check the profile
 
