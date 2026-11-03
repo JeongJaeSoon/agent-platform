@@ -505,6 +505,80 @@ const rows = () => db.select().from(slackOutbox).orderBy(asc(slackOutbox.seq));
 const posted = () =>
   slack.messages.filter((message) => message.method === "chat.postMessage");
 
+type PlanNode = {
+  "Node Type": string;
+  "Relation Name"?: string;
+  Alias?: string;
+  "Index Cond"?: string;
+  Plans?: PlanNode[];
+};
+
+const reads = (node: PlanNode, relation: string): boolean =>
+  node["Relation Name"] === relation ||
+  (node.Plans ?? []).some((child) => reads(child, relation));
+
+// The pass's own turns scan (alias `turns`; subplans use ot/st) either
+// fetches by id, or is the inner side of a nested loop whose outer side has
+// already read session_links: probed once per live link, never per session.
+function turnsReadPerLink(plan: PlanNode, linkedOuter = false): boolean {
+  if (plan["Relation Name"] === "turns" && plan.Alias === "turns")
+    return linkedOuter || /\bid = ANY \(/.test(plan["Index Cond"] ?? "");
+  const children = plan.Plans ?? [];
+  if (children.length === 0) return true;
+  return children.every((child, index) =>
+    turnsReadPerLink(
+      child,
+      linkedOuter ||
+        (plan["Node Type"] === "Nested Loop" &&
+          index > 0 &&
+          reads(children[0] as PlanNode, "session_links")),
+    ),
+  );
+}
+
+describe("the outbox plan check", () => {
+  const turnsBySession: PlanNode = {
+    "Node Type": "Index Scan",
+    "Relation Name": "turns",
+    Alias: "turns",
+    "Index Cond": "(session_id = sessions.id)",
+  };
+  const sessionsScan: PlanNode = {
+    "Node Type": "Index Only Scan",
+    "Relation Name": "sessions",
+    Alias: "sessions",
+  };
+  const linksScan: PlanNode = {
+    "Node Type": "Index Scan",
+    "Relation Name": "session_links",
+    Alias: "session_links",
+  };
+
+  test("accepts turns probed under the live links", () => {
+    expect(
+      turnsReadPerLink({
+        "Node Type": "Nested Loop",
+        Plans: [
+          { "Node Type": "Nested Loop", Plans: [sessionsScan, linksScan] },
+          turnsBySession,
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("refuses turns read for every session before the links are checked", () => {
+    expect(
+      turnsReadPerLink({
+        "Node Type": "Nested Loop",
+        Plans: [
+          { "Node Type": "Nested Loop", Plans: [sessionsScan, turnsBySession] },
+          linksScan,
+        ],
+      }),
+    ).toBe(false);
+  });
+});
+
 describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
   useDatabase(engine);
 
@@ -756,7 +830,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outbox.unansweredTurns(10);
     await outbox.unpostedInstructions(10);
     await outbox.untoldUncertain(10);
-    const explain = async (captured: string | undefined) => {
+    const explainAs = async (captured: string | undefined, format: string) => {
       const { query, params } = JSON.parse(captured ?? "{}");
       const client = await (
         db as unknown as { $client: Pool }
@@ -765,24 +839,26 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         // Tables this small would be read whole; ask which index it would use.
         await client.query("SET enable_seqscan = off");
         const { rows } = await client.query(
-          `EXPLAIN (COSTS OFF) ${query}`,
+          `EXPLAIN (COSTS OFF, FORMAT ${format}) ${query}`,
           params,
         );
-        return rows.map((row) => row["QUERY PLAN"]).join("\n");
+        return rows;
       } finally {
         client.release(true);
       }
     };
+    const explain = async (captured: string | undefined) =>
+      (await explainAs(captured, "TEXT"))
+        .map((row) => row["QUERY PLAN"])
+        .join("\n");
     // Answers, then instructions.
     for (const captured of plans.slice(0, 2)) {
       const turnsPlan = await explain(captured);
       // The open turns found per link are fetched by id, or by the link's
       // session with the ids as a filter: the turns row width alone tips the
-      // planner between the two, and it may name the session by either side
-      // of the link's join. Neither reads turns outside linked sessions.
-      expect(turnsPlan).toMatch(
-        /Index Cond: \(id = ANY \(|turns_session_sequence_uniq on turns\s+Index Cond: \(session_id = (?:session_links\.session_id|sessions\.id)\)\s+Filter: \(.*\(id = ANY \(/,
-      );
+      // planner between the two. Neither reads turns outside linked sessions.
+      const [{ "QUERY PLAN": json }] = await explainAs(captured, "JSON");
+      expect(turnsReadPerLink(json[0].Plan)).toBe(true);
       expect(turnsPlan).not.toMatch(
         /Seq Scan on turns|Index Scan using turns_pkey on turns\s+Filter/,
       );
