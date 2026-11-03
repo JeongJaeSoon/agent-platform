@@ -1504,50 +1504,11 @@ describe("WorkerGateway", () => {
         },
       },
     };
-    const issued: ClaimInput["egress"][] = [];
-    await createWorkerGateway({
-      work: work({
-        claimAtomic: async (input) => {
-          issued.push(input.egress);
-          return { outcome: "no_session" };
-        },
-      }),
-      catalog: {
-        ...withSeededInstallation({
-          profiles: { general },
-          repositories: {},
-        }),
-        mcp_servers: {
-          kept: {
-            url: "https://mcp.example.invalid/kept",
-            credential_ref: "kept",
-            auth: {
-              kind: "bearer",
-              value: "kept-token",
-              ref: { value_env: "KEPT_TOKEN" },
-            },
-            workspaces: [],
-          },
-        },
-      },
-      checkpoints: acceptAllCheckpoints,
-      options: {
-        sessionCostLimitUsd: 1_000,
-        sessionTokenLimit: null,
-        leaseTtlMs: 30_000,
-      },
-    })
-      .bootstrapClaim(
-        { kind: "bootstrap" },
-        {
-          execution_id: "e",
-          execution_generation: 1,
-          credential: { kind: "launch_nonce", nonce: "n" },
-        },
-      )
-      .catch(() => undefined);
-    const [egress] = issued;
-    if (!egress) throw new Error("claim was not asked to issue egress tokens");
+    const mcpOf = (server: string) => ({
+      releaseId: "rel-1",
+      server,
+      tools: [`mcp__${server}__search`],
+    });
     const session = (server: string) => ({
       id: "s-1",
       profileId: "general",
@@ -1555,8 +1516,81 @@ describe("WorkerGateway", () => {
       model: "claude-sonnet-5",
       repositoryMode: "none" as const,
       repositoryId: null,
-      mcp: { releaseId: "rel-1", server, tools: [`mcp__${server}__search`] },
+      mcp: mcpOf(server),
     });
+    const catalog = {
+      ...withSeededInstallation({
+        profiles: { general },
+        repositories: {},
+      }),
+      mcp_servers: {
+        kept: {
+          url: "https://mcp.example.invalid/kept",
+          credential_ref: "kept",
+          auth: {
+            kind: "bearer" as const,
+            value: "kept-token",
+            ref: { value_env: "KEPT_TOKEN" },
+          },
+          workspaces: [],
+        },
+      } as SessionCatalog["mcp_servers"],
+    };
+    const issued: ClaimInput["egress"][] = [];
+    let refreshMidClaim = false;
+    const gateway = createWorkerGateway({
+      work: work({
+        claimAtomic: async (input) => {
+          issued.push(input.egress);
+          if (!refreshMidClaim) return { outcome: "no_session" };
+          input.egress.bindingsOf(session("kept"));
+          // A registry refresh that drops the server lands mid-claim.
+          catalog.mcp_servers = {};
+          return {
+            outcome: "claimed",
+            binding: {
+              sessionId: scope.session_id,
+              attemptId: "att_1",
+              leaseEpoch: 1,
+              executionGeneration: 1,
+              authRevision: 0,
+              leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+              leaseRemainingMs: 29_950,
+              profileId: "general",
+              profileFingerprint: profileFingerprint(general),
+              model: "claude-sonnet-5",
+              unmetered: false,
+              ownerScope: "owner-a",
+              repository: null,
+              restore: null,
+              restoreProfiles: [],
+              costUsd: 0,
+              providerTokens: 0,
+              mcp: mcpOf("kept"),
+            },
+          };
+        },
+      }),
+      catalog,
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const claim = () =>
+      gateway.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: "e",
+          execution_generation: 1,
+          credential: { kind: "launch_nonce", nonce: "n" },
+        },
+      );
+    await claim().catch(() => undefined);
+    const [egress] = issued;
+    if (!egress) throw new Error("claim was not asked to issue egress tokens");
     expect(() => egress.bindingsOf(session("docs"))).toThrow(
       expect.objectContaining({
         status: 503,
@@ -1565,6 +1599,12 @@ describe("WorkerGateway", () => {
       }),
     );
     expect(egress.bindingsOf(session("kept")).mcp).toBeDefined();
+
+    refreshMidClaim = true;
+    const claimed = await claim();
+    expect(
+      claimed.runtime_config.mcp_servers?.map((server) => server.name),
+    ).toEqual(["kept"]);
   });
 
   test("a claim runs its release's tools and offers the profile's for restore, and the switched-off claim offers them back", async () => {

@@ -879,12 +879,15 @@ export function createWorkerGateway(deps: {
 
   // The catalog server the release names, then the built-in `github` when
   // the release carries GitHub settings.
-  function claimedMcp(session: {
-    mcp?: SessionMcp | null;
-    githubMcp?: SessionGitHubMcp | null;
-  }): ClaimedMcpServer[] {
+  function claimedMcp(
+    session: {
+      mcp?: SessionMcp | null;
+      githubMcp?: SessionGitHubMcp | null;
+    },
+    servers: typeof catalog.mcp_servers,
+  ): ClaimedMcpServer[] {
     const { mcp, githubMcp } = session;
-    const server = mcp ? own(catalog.mcp_servers ?? {}, mcp.server) : undefined;
+    const server = mcp ? own(servers ?? {}, mcp.server) : undefined;
     return [
       ...(mcp && server
         ? [
@@ -1049,6 +1052,7 @@ export function createWorkerGateway(deps: {
   // its entries exist here.
   function egressBindingsOf(
     session: Parameters<EgressIssue["bindingsOf"]>[0],
+    mcpServers: typeof catalog.mcp_servers,
   ): EgressBindings {
     const listed = session.profileId
       ? catalogProfile(catalog, session.profileId)
@@ -1066,10 +1070,7 @@ export function createWorkerGateway(deps: {
     // Thrown inside the claim's transaction, so nothing is bound and the
     // worker asks again, of a replica that has read or resolved the server.
     const server = session.mcp?.server;
-    if (
-      server !== undefined &&
-      own(catalog.mcp_servers ?? {}, server) === undefined
-    ) {
+    if (server !== undefined && own(mcpServers ?? {}, server) === undefined) {
       throw new WorkerGatewayError(
         503,
         "BACKEND_UNAVAILABLE",
@@ -1084,7 +1085,7 @@ export function createWorkerGateway(deps: {
     const object_store = sessionObjectPrefix(session.id);
     // One token serves both servers; it is held to the catalog server's
     // binding when there is one, as the remote route checks.
-    const [first] = claimedMcp(session);
+    const [first] = claimedMcp(session, mcpServers);
     const mcpBinding = {
       ...(first === undefined ? {} : { mcp: first.binding }),
       packages: PACKAGES_BINDING,
@@ -1372,6 +1373,9 @@ export function createWorkerGateway(deps: {
       const packagesToken = generateEgressToken("packages");
       await refreshForClaim();
       const claimable = claimCatalog();
+      // One read for the check, the token's binding and the response, so a
+      // refresh between them cannot drop a server the claim already bound.
+      const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
         catalogRevision: claimable.revision,
@@ -1403,7 +1407,7 @@ export function createWorkerGateway(deps: {
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
           packagesHash: hashWorkerToken(packagesToken),
-          bindingsOf: egressBindingsOf,
+          bindingsOf: (session) => egressBindingsOf(session, mcpServers),
         },
         leaseTtlMs,
         now: at,
@@ -1458,7 +1462,7 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const mcp = claimedMcp(binding);
+          const mcp = claimedMcp(binding, mcpServers);
           const { tool_configs: toolConfigs, ...resolvedProfile } =
             resolveProfile(
               binding.profileId,
