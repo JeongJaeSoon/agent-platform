@@ -33,6 +33,7 @@ import {
   Textarea,
 } from "@werft-ai/ui";
 import { useId, useState } from "react";
+import { expect } from "storybook/test";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
@@ -299,7 +300,7 @@ function KindPicker({ kind }: { readonly kind: "workspace" | "installation" }) {
   const legend = useId();
   return (
     <FieldSet className="gap-3">
-      <FieldLegend id={legend} variant="label" className="mb-0">
+      <FieldLegend id={legend} variant="label" className="mb-2">
         종류
       </FieldLegend>
       <RadioGroup value={kind} aria-labelledby={legend}>
@@ -407,7 +408,7 @@ function NewCeiling({ refused }: { readonly refused: boolean }) {
             </FieldDescription>
           </Field>
           <FieldSet className="gap-3">
-            <FieldLegend variant="label" className="mb-0">
+            <FieldLegend variant="label" className="mb-2">
               허용할 저장소
             </FieldLegend>
             <FieldDescription>
@@ -562,9 +563,31 @@ export const ProfileCeilingDetailAdmin: Story = {
   name: "Admin · ceiling detail (narrow only)",
   args: { view: "detail", role: "admin" },
 };
+/** From the bottom of a label to the top of whatever follows it. */
+const spaceBelow = (label: Element): number => {
+  const next = label.nextElementSibling;
+  if (next === null) throw new Error("nothing follows the label");
+  return (
+    next.getBoundingClientRect().top - label.getBoundingClientRect().bottom
+  );
+};
+
 export const ProfileNewCeiling: Story = {
   name: "Owner · new ceiling",
   args: { view: "newCeiling" },
+  // A fieldset's flex gap skips its rendered legend, so only the legend's
+  // own margin keeps the kind and repository labels off what they label.
+  play: async ({ canvasElement }) => {
+    // The name field: a label over its input.
+    const label = canvasElement.querySelector("form [data-slot=field-label]");
+    if (label === null) throw new Error("no name label");
+    const legends = canvasElement.querySelectorAll("[data-slot=field-legend]");
+    await expect(legends.length).toBe(2);
+    for (const legend of legends) {
+      await expect(spaceBelow(legend)).toBe(spaceBelow(label));
+    }
+    await expect(spaceBelow(label)).toBeGreaterThan(0);
+  },
 };
 export const ProfileNewCeilingRefused: Story = {
   name: "Owner · new ceiling refused",

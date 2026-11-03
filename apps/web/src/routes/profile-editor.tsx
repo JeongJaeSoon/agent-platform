@@ -289,7 +289,7 @@ export function ProfileEditor({
       {choices ? (
         <>
           <FieldSet className="gap-3">
-            <FieldLegend variant="label" className="mb-0">
+            <FieldLegend variant="label" className="mb-2">
               {t("profiles.editor.models")}
             </FieldLegend>
             <FieldDescription>
@@ -335,7 +335,7 @@ export function ProfileEditor({
           ) : null}
 
           <FieldSet className="gap-3">
-            <FieldLegend variant="label" className="mb-0">
+            <FieldLegend variant="label" className="mb-2">
               {t("profiles.editor.tools")}
             </FieldLegend>
             <FieldDescription>

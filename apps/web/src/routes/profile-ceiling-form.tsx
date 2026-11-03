@@ -613,7 +613,7 @@ export function CeilingForm({
 
       {draft.repository_mode === "none" ? null : (
         <FieldSet className="gap-3">
-          <FieldLegend variant="label" className="mb-0">
+          <FieldLegend variant="label" className="mb-2">
             {t("profiles.ceiling.repositories")}
           </FieldLegend>
           <FieldDescription>
