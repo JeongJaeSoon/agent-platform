@@ -562,7 +562,7 @@ export function createPostgresSlackCardSettleStore(
           UPDATE slack_outbox SET
             settle_next_at = greatest(settle_next_at, now() + ${ms(input.retryInMs)}),
             settle_attempts = settle_attempts + ${input.failed ? 1 : 0},
-            settle_error = ${input.error},
+            settle_error = coalesce(${input.error}::text, settle_error),
             ${CARD_RELEASED}
           WHERE ${cardFenced(fence)}
           RETURNING id`,

@@ -595,6 +595,16 @@ export async function settleSlackCards(deps: {
       pass.claimed += 1;
       const ids = { id: claim.id, channel_id: claim.channelId };
       try {
+        if (now() >= deps.deadline) {
+          // Out of time: hand the row back for the next pass.
+          await store.defer(claim, {
+            retryInMs: 0,
+            failed: false,
+            error: null,
+          });
+          pass.deferred += 1;
+          continue;
+        }
         const drawn = await drawCard(store, claim, deps.pushSource);
         if (drawn === null) {
           deps.logger.warn("Slack card's request is gone; left as it is", ids);

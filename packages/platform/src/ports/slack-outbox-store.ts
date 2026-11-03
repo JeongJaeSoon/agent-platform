@@ -421,7 +421,8 @@ export interface SlackCardSettleStore {
   /** Try again no sooner than `retryInMs`; `failed` counts an attempt. */
   defer(
     fence: SlackCardFence,
-    input: { retryInMs: number; failed: boolean; error: string },
+    /** A null `error` keeps the one recorded before. */
+    input: { retryInMs: number; failed: boolean; error: string | null },
   ): Promise<boolean>;
   /** Slack takes no more edits of it. */
   abandon(fence: SlackCardFence, error: string): Promise<boolean>;

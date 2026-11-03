@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
 import type {
+  SlackCardClaim,
   SlackCardSettleStore,
   SlackOpenPushCard,
   SlackOutboxEntry,
@@ -18,6 +19,55 @@ import {
 } from "./slack-outbox.ts";
 
 describe("settleSlackCards", () => {
+  test("a claim reached after the deadline goes back unsent, keeping its error", async () => {
+    const claim = (id: string) =>
+      ({
+        id,
+        claimToken: `token-${id}`,
+        workspaceId: "w",
+        slackAppId: "A",
+        sessionId: "s",
+        channelId: "C",
+        slackTs: `1.${id}`,
+        dedupeKey: `prompt:s:${id}`,
+        body: { text: "card" },
+        rendered: "open",
+        uncertainRev: 0,
+        uncertain: false,
+        inherited: false,
+        attempts: 0,
+      }) as SlackCardClaim;
+    const deferred: unknown[] = [];
+    let claims = 0;
+    const store = {
+      expireInflight: async () => 0,
+      markDue: async () => 0,
+      claim: async () => (claims++ === 0 ? [claim("1"), claim("2")] : []),
+      defer: async (fence, input) => {
+        deferred.push([fence.id, input]);
+        return true;
+      },
+    } as Partial<SlackCardSettleStore> as SlackCardSettleStore;
+    let clock = 0;
+    const sent: unknown[] = [];
+    const pass = await settleSlackCards({
+      store,
+      slack: { updateMessage: async (_token, input) => void sent.push(input) },
+      botToken: async () => "xoxb-test",
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      batchSize: 20,
+      deadline: 1000,
+      // The loop's own check passes; the clock then runs out mid-batch.
+      now: () => (clock++ === 0 ? 0 : 1000),
+    });
+    expect(sent).toEqual([]);
+    expect(deferred).toEqual([
+      ["1", { retryInMs: 0, failed: false, error: null }],
+      ["2", { retryInMs: 0, failed: false, error: null }],
+    ]);
+    expect(pass).toMatchObject({ claimed: 2, deferred: 2, sent: 0 });
+  });
+
   test("pages past push cards that stay reject-only, so a later one still gets its Reject-only card", async () => {
     const push = (seq: number, rendered: "open" | "reject_only") =>
       ({
