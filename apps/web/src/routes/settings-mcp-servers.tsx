@@ -30,9 +30,11 @@ import {
   credentialText,
   entryActions,
   FormDialog,
+  NarrowState,
   OriginBadge,
   type Outcome,
   OutcomeLine,
+  SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
   settingsMcpServersQuery,
@@ -41,10 +43,11 @@ import {
 } from "./settings-entries.tsx";
 
 // id and source, URL and tool names, credential, workspaces, state,
-// actions; a phone keeps the id and the state.
+// actions; a phone keeps the id (with the state and tool names) and the
+// actions.
 const COLUMNS = [
   "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) 128px 196px",
-  "minmax(0,1fr) 128px",
+  SETTINGS_NARROW_COLUMNS,
 ] as const;
 
 /** The tool names a server's tools get in a session (94S-1322 Z5 keys on it). */
@@ -123,10 +126,10 @@ export function McpServersScreen() {
               <GridTableColumnHeader hideNarrow>
                 {t("settings.mcp.workspaces")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -183,6 +186,14 @@ function McpRow({
         <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <OriginBadge origin={item.origin} />
+          <NarrowState state={item.state} />
+          <Text
+            as="span"
+            variant="meta"
+            className="wrap-anywhere [@container(min-width:861px)]:hidden"
+          >
+            <Code>{mcpToolNamespace(item.id)}</Code>
+          </Text>
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
@@ -206,10 +217,10 @@ function McpRow({
           {item.workspaces.join(", ")}
         </Text>
       </GridTableCell>
-      <GridTableCell>
+      <GridTableCell hideNarrow>
         <StateBadge state={item.state} />
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         {item.origin === "file" ? (
           <Text as="span" variant="meta">
             {t("settings.fileRow")}

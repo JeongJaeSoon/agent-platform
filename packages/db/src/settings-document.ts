@@ -647,6 +647,17 @@ function consoleWrites(
         if (held.removedAt !== null) {
           return { outcome: "conflict" as const, reason: "disabled" };
         }
+        // §2: an operator's reference is shown and disabled, nothing more.
+        if (
+          held.credentialSource !== null &&
+          !ownStoredOf("repository", id, {
+            entry: repositoryEntryOf(held),
+            credentialSource: held.credentialSource,
+            disabled: false,
+          })
+        ) {
+          return { outcome: "conflict" as const, reason: "not_stored" };
+        }
         const [row] = await tx
           .update(catalogRepositories)
           .set({

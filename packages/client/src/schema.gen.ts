@@ -3764,7 +3764,7 @@ export interface paths {
         head?: never;
         /**
          * Change a URL repository's default branch
-         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. A new version of the row with another default branch; its URL and credential never change. A removed one is 409 `disabled`. Writes a `set_repository_branch` receipt.
+         * @description Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes. A new version of the row with another default branch; its URL and credential never change. A removed one is 409 `disabled`; one whose token comes from the operator's deployment is 409 `not_stored`. Writes a `set_repository_branch` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */

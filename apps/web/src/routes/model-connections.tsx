@@ -37,9 +37,11 @@ import {
   credentialText,
   entryActions,
   FormDialog,
+  NarrowState,
   OriginBadge,
   type Outcome,
   OutcomeLine,
+  SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
   settingsConnectionsQuery,
@@ -48,10 +50,10 @@ import {
 } from "./settings-entries.tsx";
 
 // id and source, kind and endpoint, credential, profiles over it, state,
-// actions; a phone keeps the id and the state.
+// actions; a phone keeps the id (with the state) and the actions.
 const COLUMNS = [
   "minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,1fr) 112px 128px 196px",
-  "minmax(0,1fr) 128px",
+  SETTINGS_NARROW_COLUMNS,
 ] as const;
 
 /**
@@ -133,10 +135,10 @@ export function ModelConnections({
               <GridTableColumnHeader hideNarrow>
                 {t("settings.connections.ceilings")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -189,6 +191,7 @@ function ConnectionRow({
           <Code className="wrap-anywhere">{item.id}</Code>
           <div className="flex flex-wrap items-center gap-1">
             <OriginBadge origin={item.origin} />
+            <NarrowState state={item.state} />
             <Text as="span" variant="meta">
               {t(`settings.connections.authKind.${item.auth_kind}`)}
             </Text>
@@ -213,10 +216,10 @@ function ConnectionRow({
           {t("settings.connections.usedBy", { count: over })}
         </Text>
       </GridTableCell>
-      <GridTableCell>
+      <GridTableCell hideNarrow>
         <StateBadge state={item.state} />
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         {item.origin === "file" ? (
           <Text as="span" variant="meta">
             {t("settings.fileRow")}

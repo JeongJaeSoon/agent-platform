@@ -34,9 +34,11 @@ import {
   credentialText,
   entryActions,
   FormDialog,
+  NarrowState,
   OriginBadge,
   type Outcome,
   OutcomeLine,
+  SETTINGS_NARROW_COLUMNS,
   SecretInput,
   StateBadge,
   settingsRepositoriesQuery,
@@ -45,10 +47,10 @@ import {
 } from "./settings-entries.tsx";
 
 // id and source, URL and branch, credential, state, actions; a phone keeps
-// the id and the state.
+// the id (with the state) and the actions.
 const COLUMNS = [
   "minmax(0,1fr) minmax(0,1.8fr) minmax(0,1fr) 128px 196px",
-  "minmax(0,1fr) 128px",
+  SETTINGS_NARROW_COLUMNS,
 ] as const;
 
 type AuthChoice = "none" | "bearer" | "basic";
@@ -116,10 +118,10 @@ export function RepositoriesScreen() {
               <GridTableColumnHeader hideNarrow>
                 {t("settings.column.credential")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader>
+              <GridTableColumnHeader hideNarrow>
                 {t("settings.column.state")}
               </GridTableColumnHeader>
-              <GridTableColumnHeader hideNarrow>
+              <GridTableColumnHeader>
                 {t("settings.column.actions")}
               </GridTableColumnHeader>
             </GridTableHeader>
@@ -176,6 +178,7 @@ function RepositoryRow({
         <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <OriginBadge origin={item.origin} />
+          <NarrowState state={item.state} />
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
@@ -204,17 +207,17 @@ function RepositoryRow({
           )}
         </div>
       </GridTableCell>
-      <GridTableCell>
+      <GridTableCell hideNarrow>
         <StateBadge state={item.state} />
       </GridTableCell>
-      <GridTableCell hideNarrow>
+      <GridTableCell>
         {item.origin === "file" ? (
           <Text as="span" variant="meta">
             {t("settings.fileRow")}
           </Text>
         ) : (
           <div className="flex flex-wrap gap-1">
-            {actions.disable ? (
+            {actions.disable && item.credential.source !== "external" ? (
               <RowAction
                 disabled={busy}
                 aria-label={t("settings.repos.editBranchFor", { id: item.id })}

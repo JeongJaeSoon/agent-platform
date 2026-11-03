@@ -149,6 +149,20 @@ describe("모델 연결", () => {
     ).toBe("값 넣기");
   });
 
+  test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
+    renderAt("/profiles", routes());
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    const buttons = within(table).getAllByRole("button");
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button.closest('[role="cell"]')?.className ?? "").not.toContain(
+        ":hidden",
+      );
+    }
+    const id = within(rowOf(table, "fresh")).getAllByRole("cell")[0];
+    expect(id?.textContent).toContain("값 필요");
+  });
+
   test("adding one stores the key, says the address cannot change, and warns when its host is off the egress allowlist", async () => {
     const { api } = renderAt("/profiles", {
       ...routes(me(), ["api.anthropic.com:443"]),
@@ -392,6 +406,11 @@ describe("URL 저장소", () => {
             username: "bot",
             credential: { source: "stored", last4: "1234" },
           }),
+          repository("ops-repo", {
+            origin: "import",
+            auth_kind: "bearer",
+            credential: { source: "external", value_env: "OPS_REPO_TOKEN" },
+          }),
         ],
       }),
   });
@@ -456,6 +475,12 @@ describe("URL 저장소", () => {
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["docs-site 브랜치 바꾸기", "docs-site 사용 중지"]);
     expect(rowOf(table, "private").textContent).toContain("••••1234");
+    // An operator's token: view and disable only, the branch included.
+    expect(
+      within(rowOf(table, "ops-repo"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["ops-repo 사용 중지"]);
     await user.click(
       within(table).getByRole("button", { name: "docs-site 브랜치 바꾸기" }),
     );

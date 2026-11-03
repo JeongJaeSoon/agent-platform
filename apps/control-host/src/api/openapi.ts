@@ -6620,7 +6620,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "setSettingsRepository",
     tag: "Agents",
     summary: "Change a URL repository's default branch",
-    description: `${SETTINGS_MANAGERS} A new version of the row with another default branch; its URL and credential never change. A removed one is 409 \`disabled\`. Writes a \`set_repository_branch\` receipt.`,
+    description: `${SETTINGS_MANAGERS} A new version of the row with another default branch; its URL and credential never change. A removed one is 409 \`disabled\`; one whose token comes from the operator's deployment is 409 \`not_stored\`. Writes a \`set_repository_branch\` receipt.`,
     auth: "session",
     body: "SetSettingsRepositoryRequest",
     requestExample: { branch: "release" },

@@ -197,6 +197,30 @@ integration("settings console writes", () => {
     ).toEqual([]);
   });
 
+  test("two creates of one id at once: one row, one receipt, and the other refused", async () => {
+    const owner = await person("owner");
+    const outcomes = await Promise.all(
+      ["first-key-0001", "second-key-0002"].map((value) =>
+        store().create(add("connections", "raced", CONNECTION), value, owner),
+      ),
+    );
+    expect(outcomes.map((result) => result.outcome).sort()).toEqual([
+      "conflict",
+      "done",
+    ]);
+    expect(
+      await db
+        .select()
+        .from(providerConnections)
+        .where(eq(providerConnections.id, "raced")),
+    ).toHaveLength(1);
+    const made = (await receiptsOf("create_connection")).filter(
+      (row) =>
+        (row.result as { connection_id?: unknown }).connection_id === "raced",
+    );
+    expect(made).toHaveLength(1);
+  });
+
   test("an admin or member may not write a connection or MCP server; an admin may add a repository", async () => {
     for (const role of ["admin", "member"] as const) {
       const someone = await person(role);
@@ -279,6 +303,29 @@ integration("settings console writes", () => {
     expect(
       await store().setValue({ kind: "mcp", id: "nowhere" }, "v", owner),
     ).toEqual({ outcome: "not_found" });
+
+    // A repository read with an operator's token keeps its branch too.
+    await db.insert(catalogRepositories).values({
+      id: "operator-repo",
+      owner: "acme",
+      name: "op",
+      url: "https://git.example.invalid/acme/op.git",
+      branch: "main",
+      authKind: "bearer",
+      auth: { kind: "bearer", value_env: "REPO_TOKEN" },
+      credentialSource: "external",
+      source: "import",
+    });
+    const before = (await receiptsOf("set_repository_branch")).length;
+    expect(
+      await store().setRepositoryBranch("operator-repo", "release", owner),
+    ).toEqual({ outcome: "conflict", reason: "not_stored" });
+    const [still] = await db
+      .select()
+      .from(catalogRepositories)
+      .where(eq(catalogRepositories.id, "operator-repo"));
+    expect([still?.branch, still?.version]).toEqual(["main", 1]);
+    expect((await receiptsOf("set_repository_branch")).length).toBe(before);
   });
 
   test("a stored MCP server's value turns, its workspaces change in place, and a disabled row leaves the registry", async () => {

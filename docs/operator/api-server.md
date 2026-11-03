@@ -54,7 +54,7 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `c
   - **만들기.** 값은 항상 DB에 저장한다(`stored`). 바깥 참조(`value_env`·`secret_id`)는 받지 않는다. endpoint·URL·자격 증명 출처는 만든 뒤 바꿀 수 없으므로 바꾸려면 새 id로 만든다. 한 번 쓴 id(사용 중지한 것 포함)와 파일이 가진 id는 다시 쓸 수 없다(`409 REVISION_CONFLICT`, `reason_code: already_exists`·`file_entry`). 연결의 endpoint `host:port`가 proxy의 자격 증명 허용 목록(`EGRESS_CREDENTIAL_ALLOWLIST`·`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`, compose는 api에도 같은 값을 준다)에 없으면 화면이 경고만 한다. 저장은 되고, proxy가 그 목적지를 열지 않을 뿐이다. 저장소는 공개(인증 없음), bearer, basic(사용자 이름과 토큰)으로 더한다. GitHub App 저장소는 여기서 다루지 않는다.
   - **값 바꾸기.** 저장된 값만 바꾼다. 연결의 fingerprint와 binding은 그대로이고 도는 세션은 멈추지 않는다. 운영자 참조(`value_env`·`secret_id`) 행은 `409`(`reason_code: not_stored`)다.
   - **사용 중지.** 되돌릴 수 없다. 그 연결을 쓰는 상한은 `connection_missing`이 되고, id는 다시 쓸 수 없다. 운영자 참조 행도 사용 중지는 된다.
-  - **좁은 변경.** MCP 서버의 워크스페이스 목록(값을 DB에 둔 행만)과 저장소의 기본 브랜치(새 버전 행)만 바꾼다.
+  - **좁은 변경.** MCP 서버의 워크스페이스 목록과 저장소의 기본 브랜치(새 버전 행)만 바꾼다. 둘 다 운영자 참조 행에서는 `409 not_stored`다.
   API는 `GET|POST /v1/installation/settings/{connections|mcp-servers|repositories}`, `POST …/{id}/credential`, `POST …/{id}/disable`, `PATCH /v1/installation/settings/{mcp-servers|repositories}/{id}`다. 모두 로그인 세션만 받고 API 키는 `403`이다. 변경마다 receipt(`create_connection`·`create_mcp_server`·`set_settings_credential`·`disable_connection`·`disable_mcp_server`·`set_mcp_server_workspaces`, 저장소는 `add_repository`·`remove_repository`·`set_repository_branch`)가 남는다. MCP 서버 화면은 도구 목록 대신 서버의 도구 이름 공간 `mcp__<id>__*`만 보인다. 도구 단위 차단은 아직 없다.
 - **롤백 하한.** 가져오기가 GitHub App이 아닌 저장소 행(`auth_kind`가 `none`·`basic`·`bearer`·`github_app_explicit`)을 한 번이라도 쓴 DB는 migration 0225(commit `e1a26586`)보다 앞선 이미지로 되돌리지 않는다. 앞선 이미지는 `auth_kind`를 모르므로 그 행을 GitHub App 저장소로 읽는다.
 
