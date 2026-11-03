@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import type {
   ListPendingRequestsResponse,
   ListProfilesResponse,
@@ -3175,5 +3176,39 @@ describe("session share", () => {
         "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
       ),
     );
+  });
+
+  test("a read that fails after one that worked says so instead of the old scope", async () => {
+    let fail = false;
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [SHARE]: () =>
+        fail
+          ? apiError(500, "INTERNAL", "boom")
+          : json(200, share({ audience_limited: true })),
+    });
+    const block = await screen.findByRole("region", { name: "공유 범위" });
+    await waitFor(() =>
+      expect(block.textContent).toBe(
+        "공유 범위워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+      ),
+    );
+    const reads = () =>
+      api.calls.filter((c) => c.path === `/v1/sessions/${SESSION_ID}/share`)
+        .length;
+    const before = reads();
+    fail = true;
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    focusManager.setFocused(undefined);
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    await waitFor(() =>
+      expect(within(block).getByRole("alert").textContent).toBe(
+        "공유 범위를 확인하지 못했습니다.",
+      ),
+    );
+    expect(block.textContent).not.toContain("워크스페이스(");
   });
 });

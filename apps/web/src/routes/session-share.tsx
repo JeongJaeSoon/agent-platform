@@ -47,7 +47,8 @@ export function SessionShareBlock({ id }: { readonly id: string }) {
     return null;
   return (
     <Section titleAs="h3" title={t("session.share.title")}>
-      {share.data ? (
+      {/* A failed refetch keeps stale data; it must not pass as current. */}
+      {share.data && !share.isError ? (
         <Text as="div" className="text-body">
           {scopeText(t, share.data)}
         </Text>

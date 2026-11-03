@@ -4,6 +4,7 @@ import type {
   AgentAccessResponse,
   AgentAccessSettings,
   AuditRetentionRequest,
+  AuthMeResponse,
   SlackGuestRequest,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -485,8 +486,25 @@ function AgentAccess({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         }),
       ),
     onMutate: () => onOutcome(null),
-    onSuccess: async (_saved, sent) => {
+    onSuccess: async (saved, sent) => {
       onOutcome({ kind: "notice", text: t("workspace.accessSaved") });
+      // The saved values show even when the /me refetch below fails.
+      queryClient.setQueryData<AuthMeResponse>(queryKeys.me, (old) =>
+        old?.workspace
+          ? {
+              ...old,
+              workspace: {
+                ...old.workspace,
+                settings: {
+                  ...old.workspace.settings,
+                  agent_outsider_access: saved.agent_outsider_access,
+                  agent_outsider_session_visibility:
+                    saved.agent_outsider_session_visibility,
+                },
+              },
+            }
+          : old,
+      );
       // Keep a choice made while the save was in flight.
       setDraft((picked) => differing(picked, sent));
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });

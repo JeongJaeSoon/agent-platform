@@ -1307,24 +1307,34 @@ describe("워크스페이스 설정", () => {
     );
     await user.keyboard("{/ArrowDown}");
     expect(api.calls.some((c) => c.path === ACCESS)).toBe(false);
+    await user.click(
+      within(sessions).getByRole("radio", { name: "모든 구성원" }),
+    );
     await user.click(within(card).getByRole("button", { name: "저장" }));
     expect((await screen.findByRole("status")).textContent).toBe(
       "에이전트 접근 설정을 저장했습니다.",
     );
     expect(
       api.calls.filter((c) => c.path === ACCESS).map((c) => c.body),
-    ).toEqual([{ agent_outsider_access: "view" }]);
+    ).toEqual([
+      {
+        agent_outsider_access: "view",
+        agent_outsider_session_visibility: "workspace",
+      },
+    ]);
 
-    await user.click(
-      within(sessions).getByRole("radio", { name: "모든 구성원" }),
-    );
+    // Only the key changed since the last save goes out.
+    await user.click(within(agent).getByRole("radio", { name: "숨김" }));
     await user.click(within(card).getByRole("button", { name: "저장" }));
     await waitFor(() =>
       expect(
         api.calls.filter((c) => c.path === ACCESS).map((c) => c.body),
       ).toEqual([
-        { agent_outsider_access: "view" },
-        { agent_outsider_session_visibility: "workspace" },
+        {
+          agent_outsider_access: "view",
+          agent_outsider_session_visibility: "workspace",
+        },
+        { agent_outsider_access: "none" },
       ]),
     );
     // Read again from /me: the screen follows the server's values.
@@ -1340,9 +1350,51 @@ describe("워크스페이스 설정", () => {
     ).toBeGreaterThan(2);
     expect(
       within(agent)
-        .getByRole("radio", { name: "보기만" })
+        .getByRole("radio", { name: "숨김" })
         .getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  test("에이전트 접근을 저장한 뒤 /me 다시 읽기가 실패해도 저장한 값을 보인다", async () => {
+    let saved = false;
+    let failedMe = 0;
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => {
+        if (!saved) return json(200, adminMe());
+        failedMe += 1;
+        return apiError(500, "INTERNAL_ERROR", "me failed");
+      },
+      [`PATCH ${ACCESS}`]: () => {
+        saved = true;
+        return json(200, {
+          agent_outsider_access: "none",
+          agent_outsider_session_visibility: "managing_team",
+          receipt_id: RECEIPT_ID,
+        });
+      },
+    });
+    const card = await screen.findByRole("region", { name: "에이전트 접근" });
+    const user = await setupUser();
+    await user.click(within(card).getByRole("radio", { name: "숨김" }));
+    await user.click(within(card).getByRole("button", { name: "저장" }));
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "에이전트 접근 설정을 저장했습니다.",
+    );
+    await waitFor(() => expect(failedMe).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(screen.queryByRole("status")?.textContent).toBe(
+        "에이전트 접근 설정을 저장했습니다.",
+      ),
+    );
+    expect(
+      within(card)
+        .getByRole("radio", { name: "숨김" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      (within(card).getByRole("button", { name: "저장" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 
   test("에이전트 접근을 바꾸지 않았으면 저장이 꺼져 있다", async () => {
