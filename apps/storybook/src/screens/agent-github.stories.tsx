@@ -548,7 +548,12 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
                 push 전 승인
               </Text>
               <Text as="span">
-                {base ? (base.push_approval ? "켜짐" : "꺼짐") : "—"}
+                {base
+                  ? // github.tsx: a release without settings still asks a person.
+                    data.github === null || base.push_approval
+                    ? "켜짐"
+                    : "꺼짐"
+                  : "—"}
               </Text>
             </Text>
             {release ? (
