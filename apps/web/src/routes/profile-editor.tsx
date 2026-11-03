@@ -292,7 +292,9 @@ export function ProfileEditor({
             <FieldLegend variant="label" className="mb-2">
               {t("profiles.editor.models")}
             </FieldLegend>
-            <FieldDescription>
+            {/* One choice and no error make this the second-last child,
+                whose pull-up would undo the legend's margin. */}
+            <FieldDescription className="nth-last-2:mt-0">
               {t("profiles.editor.modelsHint")}
             </FieldDescription>
             {choices.models.map((model) => (
@@ -338,7 +340,7 @@ export function ProfileEditor({
             <FieldLegend variant="label" className="mb-2">
               {t("profiles.editor.tools")}
             </FieldLegend>
-            <FieldDescription>
+            <FieldDescription className="nth-last-2:mt-0">
               {choices.tools.length === 0
                 ? t("profiles.noTools")
                 : t("profiles.editor.toolsHint")}

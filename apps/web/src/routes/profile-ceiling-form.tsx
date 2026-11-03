@@ -616,7 +616,9 @@ export function CeilingForm({
           <FieldLegend variant="label" className="mb-2">
             {t("profiles.ceiling.repositories")}
           </FieldLegend>
-          <FieldDescription>
+          {/* With no repository listed this is the second-last child, whose
+              pull-up would undo the legend's margin. */}
+          <FieldDescription className="nth-last-2:mt-0">
             {options.repositories.length === 0
               ? t("profiles.ceiling.noRepositories")
               : t("profiles.ceiling.repositoriesHint")}
