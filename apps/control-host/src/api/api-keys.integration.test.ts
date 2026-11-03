@@ -9,7 +9,6 @@ import {
   createSessionResponseSchema,
   listAgentsResponseSchema,
   listApiKeysResponseSchema,
-  teamChangeResponseSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -241,21 +240,19 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
     return user.id;
   }
 
-  /** A team the owner makes, holding `members`. */
+  /** A team holding `members`, as rows: this app has no team routes. */
   async function team(name: string, ...members: string[]) {
-    const made = await send("POST", "/v1/teams", asCookie(cookies.owner), {
-      name,
-    });
-    expect(made.status).toBe(201);
-    const teamId = teamChangeResponseSchema.parse(await made.json()).team.id;
+    const teamId = crypto.randomUUID();
+    await db
+      .insert(schema.memberTeams)
+      .values({ id: teamId, workspaceId, name });
     for (const userId of members) {
-      const added = await send(
-        "POST",
-        `/v1/teams/${teamId}/members`,
-        asCookie(cookies.owner),
-        { user_id: userId },
-      );
-      expect(added.status).toBe(200);
+      await db.insert(schema.memberTeamMembers).values({
+        id: crypto.randomUUID(),
+        workspaceId,
+        teamId,
+        userId,
+      });
     }
     return teamId;
   }

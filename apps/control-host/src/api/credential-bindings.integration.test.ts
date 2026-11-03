@@ -14,7 +14,6 @@ import {
   listCredentialBindingsResponseSchema,
   revokeCredentialBindingResponseSchema,
   sessionCredentialUnboundDetailsSchema,
-  teamChangeResponseSchema,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -292,22 +291,18 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     await addMember("other@example.com");
     cookies.admin = await login("agent-admin@example.com");
     cookies.other = await login("other@example.com");
-    // The admin's own team, so the agent they make can name it.
-    const team = await send("POST", "/v1/teams", asCookie(cookies.owner), {
-      name: "minutes",
+    // The admin's own team, so the agent they make can name it. This app
+    // has no team routes.
+    const teamId = crypto.randomUUID();
+    await db
+      .insert(schema.memberTeams)
+      .values({ id: teamId, workspaceId, name: "minutes" });
+    await db.insert(schema.memberTeamMembers).values({
+      id: crypto.randomUUID(),
+      workspaceId,
+      teamId,
+      userId: adminId,
     });
-    expect(team.status).toBe(201);
-    const teamId = teamChangeResponseSchema.parse(await team.json()).team.id;
-    expect(
-      (
-        await send(
-          "POST",
-          `/v1/teams/${teamId}/members`,
-          asCookie(cookies.owner),
-          { user_id: adminId },
-        )
-      ).status,
-    ).toBe(200);
 
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "minutes",
