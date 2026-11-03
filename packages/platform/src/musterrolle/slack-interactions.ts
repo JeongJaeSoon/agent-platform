@@ -287,7 +287,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await notice(pressed, "noApproveRight");
         return "refused";
       }
-      const now = REQUEST_GONE_CODES.has(error.code) ? await standing(caller, value) : "open";
+      const now = REQUEST_GONE_CODES.has(error.code)
+        ? await standing(caller, value)
+        : "open";
       if (now === "open") {
         deps.logger.warn("Slack answer not taken", {
           agent_id: pressed.agentId,
