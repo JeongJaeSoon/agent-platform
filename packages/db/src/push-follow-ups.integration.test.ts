@@ -324,6 +324,12 @@ integration("push follow-ups on PostgreSQL", () => {
       },
       checkpoint: null,
     });
+    expect(
+      await db
+        .select({ state: sessions.admissionState })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId)),
+    ).toEqual([{ state: "recovery_required" }]);
     expect(await turnsOf(sessionId)).toHaveLength(1);
     expect(
       await db
