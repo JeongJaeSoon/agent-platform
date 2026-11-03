@@ -63,15 +63,18 @@ import {
   createSlackBotApi,
   drainSlackInbox,
   drainSlackOutbox,
+  type PushSource,
   reconcileSlackThreadStatuses,
   SecretKey,
   type SessionCatalogConfig,
+  SLACK_CARD_SETTLE_TIMING,
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_TEXT_MAX,
   SLACK_THREAD_STATUS_TIMING,
   SlackApiError,
   type SlackBotApi,
+  settleSlackCards,
   slackBotToken,
   slackConversationKey,
   writeSlackThreadStatuses,
@@ -2517,5 +2520,634 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
       .set({ revision: sql`${sessions.revision} + 1` })
       .where(eq(sessions.id, sessionId));
     expect((await statusRows())[0]?.dirtyRev).toBe(before);
+  });
+});
+
+describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
+  useDatabase(engine);
+  beforeEach(() => {
+    slack.updates.length = 0;
+  });
+  const W = SLACK_CARD_SETTLE_TIMING.windowMs;
+  const LEASE = SLACK_CARD_SETTLE_TIMING.leaseMs;
+  const GRACE = SLACK_CARD_SETTLE_TIMING.graceMs;
+  const api = createSlackBotApi({ apiUrl: slack.url });
+  const secrets = () => createPostgresSecretStore(db, key);
+
+  const cards = () => {
+    const found = createPostgresSlackOutboxStore(db).cards;
+    if (!found) throw new Error("no card store");
+    return found;
+  };
+  const settler = (
+    overrides: Partial<Parameters<typeof settleSlackCards>[0]> = {},
+  ) =>
+    settleSlackCards({
+      store: cards(),
+      slack: api,
+      botToken: (workspaceId, slackAppId) =>
+        slackBotToken(secrets(), workspaceId, slackAppId),
+      logger,
+      batchSize: 20,
+      deadline: Date.now() + 10_000,
+      ...overrides,
+    });
+  const cardRow = async () => {
+    const [row] = await db
+      .select()
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "input_notice"))
+      .orderBy(asc(slackOutbox.seq));
+    if (!row) throw new Error("no card row");
+    return row;
+  };
+  // Moves every clock the card rows hold back by `ms`, as if that long passed.
+  const elapse = (ms: number) =>
+    db.execute(sql`
+      UPDATE slack_outbox SET
+        settle_lease_expires_at = settle_lease_expires_at - make_interval(secs => ${ms / 1000}),
+        settle_inflight_at = settle_inflight_at - make_interval(secs => ${ms / 1000}),
+        settle_uncertain_latest_at = settle_uncertain_latest_at - make_interval(secs => ${ms / 1000}),
+        settle_next_at = settle_next_at - make_interval(secs => ${ms / 1000})`);
+  type Block = {
+    type: string;
+    text?: { text: string };
+    elements?: { type: string; text?: string; action_id?: string }[];
+  };
+  const updated = () =>
+    slack.updates.map((update) => ({
+      ts: update.ts,
+      text: update.text,
+      blocks: update.blocks as Block[],
+    }));
+  const lines = (blocks: Block[]) =>
+    blocks.map(
+      (block) =>
+        block.text?.text ??
+        block.elements
+          ?.map((element) =>
+            typeof element.text === "string" ? element.text : element.action_id,
+          )
+          .join(" | "),
+    );
+
+  /** A session waiting on `requestId`, its card posted. */
+  async function cardThread(
+    payload: Record<string, unknown> = {
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "npm test" },
+    },
+  ) {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const attemptId = `att-${randomUUID()}`;
+    await db.insert(attempts).values({
+      id: attemptId,
+      sessionId,
+      executionId: `exec-${attemptId}`,
+      leaseEpoch: session.leaseEpoch,
+      executionGeneration: session.executionGeneration,
+      authRevision: session.authRevision,
+      state: "running",
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    const [turn] = await db
+      .update(turns)
+      .set({ status: "needs_input", attemptId })
+      .where(eq(turns.sessionId, sessionId))
+      .returning({ id: turns.id, actorId: turns.actorId });
+    await db.insert(pendingRequests).values({
+      requestId: "toolu:1",
+      sessionId,
+      turnId: turn?.id ?? 0,
+      attemptId,
+      kind: payload.kind as string,
+      payload,
+      inputHash: "h",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await outboxPass();
+    await outboxPass();
+    const [card] = posted();
+    if (!card) throw new Error("no card posted");
+    return { fixture, sessionId, session, card, actorId: turn?.actorId ?? "" };
+  }
+
+  /** What the web answer path writes: the person, from the web surface. */
+  const answerOn = (
+    surface: "web" | "slack",
+    userId: string,
+    answer: Record<string, unknown>,
+  ) =>
+    db
+      .update(pendingRequests)
+      .set({
+        answer,
+        answeredAt: new Date(),
+        resolvedAt: new Date(),
+        answerSurface: surface,
+        answerDecisionId: randomUUID(),
+        answeredBy: {
+          principal:
+            surface === "web"
+              ? { kind: "user", id: userId }
+              : { kind: "installation", id: randomUUID() },
+          actor_user_id: userId,
+          agent_id: null,
+        },
+      })
+      .where(eq(pendingRequests.requestId, "toolu:1"));
+
+  test("a permission allowed on the web: the next pass turns its Slack card into one line, once", async () => {
+    const { card, actorId } = await cardThread();
+    // An open card is no target, however many passes run.
+    await outboxPass();
+    await outboxPass();
+    expect(updated()).toEqual([]);
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "open",
+      settleState: null,
+    });
+
+    await answerOn("web", actorId, { decision: "allow" });
+    expect(await outboxPass()).toMatchObject({ cards: 1 });
+    await outboxPass();
+    expect(updated()).toHaveLength(1);
+    const [update] = updated();
+    expect(update?.ts).toBe(card.ts);
+    expect(lines(update?.blocks ?? [])).toEqual([
+      `:white_check_mark: *웹에서 허용됨* · <@${PERSON}> | 명령 실행: npm test | <${CONSOLE}/sessions/${(await cardRow()).sessionId}|웹에서 열기>`,
+    ]);
+    expect(JSON.stringify(update?.blocks)).not.toContain("permission.allow");
+    expect(update?.text).toStartWith(`*웹에서 허용됨* · <@${PERSON}>`);
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "allowed",
+      settleState: "settled",
+    });
+  });
+
+  test("a question answered on the web keeps its text with `웹에서 <label> 선택됨 · who`; a typed answer shows only as 직접 입력", async () => {
+    const { actorId } = await cardThread({
+      kind: "question",
+      questions: [
+        {
+          question_id: "q1",
+          prompt: "README 한국어 PR을 어떤 방식으로 진행할까요?",
+          options: [
+            { option_id: "main", label: "main에서 새 브랜치 (Recommended)" },
+            { option_id: "here", label: "현재 브랜치에서 작업" },
+          ],
+          multi_select: false,
+          allow_free_text: true,
+        },
+      ],
+    });
+    await answerOn("web", actorId, {
+      answers: [
+        {
+          question_id: "q1",
+          selected_option_ids: ["main"],
+          free_text: "secret plan",
+        },
+      ],
+    });
+    await outboxPass();
+    const [update] = updated();
+    expect(lines(update?.blocks ?? [])).toEqual([
+      "README 한국어 PR을 어떤 방식으로 진행할까요?",
+      `:speech_balloon: | 웹에서 main에서 새 브랜치 (Recommended), 직접 입력 선택됨 | · <@${PERSON}> | <${CONSOLE}/sessions/${(await cardRow()).sessionId}|웹에서 열기>`,
+    ]);
+    expect(JSON.stringify(update)).not.toContain("secret plan");
+    expect(await cardRow()).toMatchObject({ settleRendered: "answered" });
+  });
+
+  test("an answer pressed in Slack draws the same card without 웹에서, and the drain leaves it", async () => {
+    const { card, actorId } = await cardThread();
+    await answerOn("slack", actorId, { decision: "deny" });
+    // The press path: mark its own card, draw it now.
+    expect(
+      await cards().markDueAt({ channelId: CHANNEL, slackTs: card.ts }),
+    ).toBe(true);
+    expect(
+      await settler({ only: { channelId: CHANNEL, slackTs: card.ts } }),
+    ).toMatchObject({ sent: 1 });
+    expect(lines(updated()[0]?.blocks ?? [])[0]).toStartWith(
+      `:no_entry_sign: *거부됨* · <@${PERSON}>`,
+    );
+    await outboxPass();
+    // Pressed again after it settled: drawn the same, so nothing is sent.
+    await cards().markDueAt({ channelId: CHANNEL, slackTs: card.ts });
+    expect(
+      await settler({ only: { channelId: CHANNEL, slackTs: card.ts } }),
+    ).toMatchObject({ sent: 0, skipped: 1 });
+    expect(updated()).toHaveLength(1);
+  });
+
+  test("expiry and a closed session each settle a card no one pressed", async () => {
+    const first = await cardThread();
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: new Date(Date.now() - 1000) });
+    await outboxPass();
+    expect(lines(updated()[0]?.blocks ?? [])[0]).toStartWith(
+      ":hourglass: *만료됨* |",
+    );
+    expect(first.card.ts).toBe(updated()[0]?.ts ?? "");
+  });
+
+  test("a card posted before the settle columns, whose request since expired, settles on the first pass", async () => {
+    await cardThread();
+    await db.update(slackOutbox).set({ settleRendered: null });
+    await db
+      .update(pendingRequests)
+      .set({ expiresAt: new Date(Date.now() - 1000) });
+    await outboxPass();
+    expect(updated()).toHaveLength(1);
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "expired",
+      settleState: "settled",
+    });
+  });
+
+  test("a request parked in recovery keeps its card's buttons", async () => {
+    await cardThread();
+    await db.update(pendingRequests).set({ parkedAt: new Date() });
+    await db.update(sessions).set({ admissionState: "recovery_required" });
+    await outboxPass();
+    await outboxPass();
+    expect(updated()).toEqual([]);
+  });
+
+  test("a push decided on the web, and one decided in Slack, each name their path", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    const [actor] = await db
+      .select({ id: turns.actorId })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId));
+    const push = async (branch: string) => {
+      const receiptId = randomUUID();
+      await db.insert(receipts).values({
+        id: receiptId,
+        ownerId: session.ownerId,
+        operation: "request_push",
+        targetRef: { kind: "session", id: sessionId },
+      });
+      const id = randomUUID();
+      await db.insert(pushRequests).values({
+        id,
+        ownerId: session.ownerId,
+        sessionId,
+        repositoryId: "sandbox",
+        checkpointRevision: 1,
+        gitCommit: "a".repeat(40),
+        targetBranch: `agent/${sessionId}-${branch}`,
+        requestedBy: {
+          principal: { kind: "installation", id: "i" },
+          actor_user_id: null,
+          agent_id: null,
+        },
+        requestReceiptId: receiptId,
+      });
+      return { id, receiptId };
+    };
+    const web = await push("web");
+    const pressed = await push("slack");
+    await outboxPass();
+    await outboxPass();
+    expect(posted()).toHaveLength(2);
+    for (const [pushed, principal] of [
+      [web, { kind: "user", id: actor?.id }],
+      [pressed, { kind: "installation", id: randomUUID() }],
+    ] as const) {
+      await db
+        .update(pushRequests)
+        .set({
+          state: "approved",
+          decidedAt: new Date(),
+          decidedBy: {
+            principal,
+            actor_user_id: actor?.id ?? null,
+            agent_id: null,
+          },
+          decisionReceiptId: pushed.receiptId,
+        })
+        .where(eq(pushRequests.id, pushed.id));
+    }
+    await outboxPass();
+    expect(
+      updated()
+        .map((update) => lines(update.blocks)[0]?.split(" | ")[0])
+        .sort(),
+    ).toEqual([
+      `:white_check_mark: *push 승인됨* · <@${PERSON}>`,
+      `:white_check_mark: *웹에서 push 승인됨* · <@${PERSON}>`,
+    ]);
+  });
+
+  test("a push the checkpoint moved past keeps only Reject; back on its commit, the buttons return; rejected, one line", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    if (!session) throw new Error("no session");
+    await db.update(sessions).set({ checkpointRevision: 1 });
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: session.ownerId,
+      operation: "request_push",
+      targetRef: { kind: "session", id: sessionId },
+    });
+    const pushId = randomUUID();
+    await db.insert(pushRequests).values({
+      id: pushId,
+      ownerId: session.ownerId,
+      sessionId,
+      repositoryId: "sandbox",
+      checkpointRevision: 1,
+      gitCommit: "a".repeat(40),
+      targetBranch: `agent/${sessionId}`,
+      requestedBy: {
+        principal: { kind: "installation", id: "i" },
+        actor_user_id: null,
+        agent_id: null,
+      },
+      requestReceiptId: receiptId,
+    });
+    await outboxPass();
+    await outboxPass();
+    const [card] = posted();
+    if (!card) throw new Error("no card");
+    let latest = "b".repeat(40);
+    const pushSource = {
+      readPushSource: async () => ({
+        status: "ready",
+        revision: 2,
+        gitCommit: latest,
+      }),
+    } as unknown as PushSource;
+    await db.update(sessions).set({ checkpointRevision: 2 });
+    // A source of the same commit at another revision is still approvable.
+    latest = "a".repeat(40);
+    await settler({ pushSource });
+    expect(updated()).toEqual([]);
+
+    latest = "b".repeat(40);
+    await settler({ pushSource });
+    expect(lines(updated()[0]?.blocks ?? [])).toEqual([
+      ":warning: *새 커밋이 생겨 이 push는 승인할 수 없어요* | sandbox ← aaaaaaa",
+      "push.reject",
+    ]);
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "reject_only",
+      settleState: null,
+    });
+
+    latest = "a".repeat(40);
+    await settler({ pushSource });
+    expect(updated()[1]?.blocks).toEqual(
+      JSON.parse(card.options.blocks ?? "[]"),
+    );
+    expect(await cardRow()).toMatchObject({ settleRendered: "open" });
+
+    await db
+      .update(pushRequests)
+      .set({
+        state: "rejected",
+        decidedAt: new Date(),
+        decidedBy: { kind: "policy" },
+        decisionReceiptId: receiptId,
+      })
+      .where(eq(pushRequests.id, pushId));
+    await settler({ pushSource });
+    expect(lines(updated()[2]?.blocks ?? [])[0]).toStartWith(
+      ":no_entry_sign: *push 거절됨*",
+    );
+    expect(await cardRow()).toMatchObject({ settleState: "settled" });
+  });
+
+  test("a turn's notice from before the cards ends as one handled line once its turn waits no more", async () => {
+    const { sessionId, actorId } = await cardThread();
+    const row = await cardRow();
+    const { id: _, seq: __, ...copy } = row;
+    await db.insert(slackOutbox).values({
+      ...copy,
+      id: randomUUID(),
+      dedupeKey: `input:${row.dedupeKey.split(":")[1]}:1`,
+      slackTs: "200.000200",
+      body: { text: "old notice", locale: "en", link_url: `${CONSOLE}/x` },
+    });
+    await answerOn("web", actorId, { decision: "allow" });
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.sessionId, sessionId));
+    await outboxPass();
+    const old = updated().find((update) => update.ts === "200.000200");
+    expect(lines(old?.blocks ?? [])).toEqual([
+      `:white_circle: *Handled* | <${CONSOLE}/x|Open on the web>`,
+    ]);
+  });
+
+  test("Slack errors: gone → abandoned, rate limit defers uncounted, refused blocks retried as text, five failures → abandoned", async () => {
+    const { actorId } = await cardThread();
+    await answerOn("web", actorId, { decision: "allow" });
+
+    slack.rateLimit("chat.update", 120);
+    expect(await settler()).toMatchObject({ deferred: 1, sent: 0 });
+    const limited = await cardRow();
+    expect(limited).toMatchObject({
+      settleState: "due",
+      settleAttempts: 0,
+      settleError: "ratelimited",
+    });
+    expect(limited.settleNextAt?.getTime() ?? 0).toBeGreaterThan(
+      Date.now() + 100_000,
+    );
+    // A new process reads the same wait.
+    expect(await settler()).toMatchObject({ claimed: 0 });
+    await elapse(130_000);
+
+    let calls = 0;
+    const refusing = (codes: string[]) => ({
+      updateMessage: async (
+        token: string,
+        input: Parameters<NonNullable<SlackBotApi["updateMessage"]>>[1],
+      ) => {
+        const code = codes[calls];
+        calls += 1;
+        if (code !== undefined) {
+          throw new SlackApiError("chat.update", code, true);
+        }
+        await api.updateMessage(token, input);
+      },
+    });
+    expect(
+      await settler({ slack: refusing(["invalid_blocks"]) }),
+    ).toMatchObject({ sent: 1 });
+    expect(updated().at(-1)?.blocks).toEqual([
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: updated().at(-1)?.text },
+      },
+    ]);
+    expect(await cardRow()).toMatchObject({ settleState: "settled" });
+
+    // Five failures in a row, then it is given up. (The card is put back to
+    // open, as if Slack still showed the buttons.)
+    const reopen = () =>
+      db
+        .update(slackOutbox)
+        .set({ settleState: "due", settleRendered: "open", settleAttempts: 0 });
+    await reopen();
+    calls = 0;
+    const failing = refusing(Array(10).fill("internal_error"));
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      expect(await settler({ slack: failing })).toMatchObject({ deferred: 1 });
+      expect(await cardRow()).toMatchObject({ settleAttempts: attempt });
+      await elapse(31 * 60_000);
+    }
+    expect(await settler({ slack: failing })).toMatchObject({ abandoned: 1 });
+
+    // Gone for good: abandoned at once, never claimed again.
+    await reopen();
+    calls = 0;
+    expect(
+      await settler({ slack: refusing(["message_not_found"]) }),
+    ).toMatchObject({ abandoned: 1 });
+    expect(await cardRow()).toMatchObject({
+      settleState: "abandoned",
+      settleError: "message_not_found",
+    });
+    expect(await settler()).toMatchObject({ claimed: 0 });
+  });
+
+  test("a press and a pass at once write the card once", async () => {
+    const { card, actorId } = await cardThread();
+    await answerOn("web", actorId, { decision: "allow" });
+    await cards().markDueAt({ channelId: CHANNEL, slackTs: card.ts });
+    const passes = await Promise.all([
+      settler(),
+      settler({ only: { channelId: CHANNEL, slackTs: card.ts } }),
+      settler(),
+    ]);
+    expect(passes.reduce((sum, pass) => sum + pass.sent, 0)).toBe(1);
+    expect(updated()).toHaveLength(1);
+  });
+
+  test("a held edit is not taken over before its lease and grace end; after, the current card goes again", async () => {
+    const { actorId } = await cardThread();
+    await answerOn("web", actorId, { decision: "allow" });
+    await cards().markDue();
+    const [claim] = await cards().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+    });
+    if (!claim) throw new Error("no claim");
+    expect(
+      await cards().claim({ limit: 1, leaseMs: LEASE, graceMs: GRACE }),
+    ).toEqual([]);
+    await elapse(LEASE + 1000);
+    expect(
+      await cards().claim({ limit: 1, leaseMs: LEASE, graceMs: GRACE }),
+    ).toEqual([]);
+    await elapse(GRACE);
+    // The first writer, late, finds its fence gone.
+    expect(await settler()).toMatchObject({ sent: 1 });
+    expect(await cards().beginSend(claim, 0)).toBeNull();
+    expect(updated()).toHaveLength(1);
+  });
+
+  test("a writer that died mid-edit leaves its card resent a window later, settled or not; a new uncertainty during the resend is kept", async () => {
+    const { actorId } = await cardThread();
+    await answerOn("web", actorId, { decision: "allow" });
+    expect(await settler()).toMatchObject({ sent: 1 });
+    // A writer that began an edit and died: its inflight mark outlives the lease.
+    await db.update(slackOutbox).set({ settleState: "due" });
+    const [claim] = await cards().claim({
+      limit: 1,
+      leaseMs: LEASE,
+      graceMs: GRACE,
+    });
+    if (!claim) throw new Error("no claim");
+    expect(await cards().beginSend(claim, 0)).not.toBeNull();
+    await elapse(LEASE + GRACE + 1000);
+    await settler();
+    expect(await cardRow()).toMatchObject({ settleUncertainRev: 1 });
+    expect((await cardRow()).settleUncertainLatestAt).not.toBeNull();
+    // Not before the window.
+    expect(updated()).toHaveLength(1);
+    await db.update(slackOutbox).set({ settleState: "settled" });
+    await elapse(W);
+
+    // The resend runs while another edit's outcome turns unknown.
+    const raced = {
+      updateMessage: async (
+        token: string,
+        input: Parameters<NonNullable<SlackBotApi["updateMessage"]>>[1],
+      ) => {
+        await api.updateMessage(token, input);
+        await cards().uncertain(
+          { id: claim.id, claimToken: randomUUID() },
+          new Date(),
+          W,
+        );
+      },
+    };
+    expect(await settler({ slack: raced })).toMatchObject({ sent: 1 });
+    expect(updated()).toHaveLength(2);
+    const after = await cardRow();
+    expect(after.settleUncertainRev).toBe(2);
+    expect(after.settleUncertainLatestAt).not.toBeNull();
+
+    // A clean resend a window after the latest clears it.
+    await elapse(W);
+    expect(await settler()).toMatchObject({ sent: 1 });
+    expect(await cardRow()).toMatchObject({
+      settleUncertainLatestAt: null,
+      settleState: "settled",
+    });
+    expect(await settler()).toMatchObject({ claimed: 0 });
+  });
+
+  test("timeouts in a row push the resend past the latest one", async () => {
+    const { actorId } = await cardThread();
+    await answerOn("web", actorId, { decision: "allow" });
+    const timeout = {
+      updateMessage: async () => {
+        throw new SlackApiError("chat.update", "timeout", false, {
+          failure: "timeout",
+        });
+      },
+    };
+    expect(await settler({ slack: timeout })).toMatchObject({ uncertain: 1 });
+    await elapse(240_000);
+    await db.update(slackOutbox).set({ settleNextAt: null });
+    expect(await settler({ slack: timeout })).toMatchObject({ uncertain: 1 });
+    const row = await cardRow();
+    expect(row.settleUncertainRev).toBe(2);
+    const waitMs =
+      (row.settleNextAt?.getTime() ?? 0) -
+      (row.settleUncertainLatestAt?.getTime() ?? 0);
+    expect(waitMs).toBeGreaterThanOrEqual(W - 1000);
+    expect(await settler()).toMatchObject({ claimed: 0 });
   });
 });

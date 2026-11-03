@@ -169,6 +169,10 @@ export type SlackPendingPrompt = SlackLinkedTurnTarget & {
  */
 export type SlackPromptCard = {
   locale: UserLocale;
+  /** Where a decided request was decided; null while none was. */
+  decidedVia: "slack" | "web" | null;
+  /** A push's checkpoint revisions, for `pushApprovability`. */
+  pushRevisions?: { session: number | null; request: number };
   linkUrl: string | null;
   deciderSlackUserId: string | null;
   display: PendingRequestDisplay | ({ kind: "push" } & PushRequestDisplay);
@@ -300,9 +304,126 @@ export interface SlackThreadStatusStore {
   reconciled(rows: { sessionLinkId: string; dirty: boolean }[]): Promise<void>;
 }
 
+/**
+ * What a posted card shows: its buttons (`open`), only Reject for a push
+ * that can no longer be approved (`reject_only`), or how it ended (`done`
+ * for a turn's notice from before the cards).
+ */
+export type SlackCardRendered =
+  | "open"
+  | "reject_only"
+  | "allowed"
+  | "denied"
+  | "answered"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "closed"
+  | "done";
+
+export type SlackCardFence = { id: string; claimToken: string };
+
+export type SlackCardClaim = SlackCardFence & {
+  workspaceId: string;
+  slackAppId: string;
+  sessionId: string | null;
+  channelId: string;
+  slackTs: string;
+  dedupeKey: string;
+  body: SlackOutboxBody;
+  rendered: SlackCardRendered | null;
+  uncertainRev: number;
+  /** An edit of unknown outcome is on record: it sends regardless. */
+  uncertain: boolean;
+  /** Taken over from a writer whose lease ran out: it sends regardless. */
+  inherited: boolean;
+  /** Failures so far, rate limits not counted. */
+  attempts: number;
+};
+
+/** A push card still showing a choice, for `pushApprovability`. */
+export type SlackOpenPushCard = {
+  id: string;
+  sessionId: string;
+  rendered: "open" | "reject_only";
+  sessionCheckpointRevision: number | null;
+  checkpointRevision: number;
+  gitCommit: string;
+};
+
+/**
+ * The `slack` role's redraws of posted cards (design slack-approval-ui §4).
+ * Every write after `claim` is fenced by its token except `uncertain`,
+ * which must land even when the lease is lost.
+ */
+export interface SlackCardSettleStore {
+  /**
+   * Marks `due` the sent cards whose request moved on from what they show:
+   * answered or closed (web, expiry, session close), a push decided, a
+   * turn's notice whose turn waits no more. Returns how many.
+   */
+  markDue(): Promise<number>;
+  /** Marks one card `due` (its press), unless abandoned. */
+  markDueAt(card: { channelId: string; slackTs: string }): Promise<boolean>;
+  /** Marks one card `due` by its row (a push whose approvability moved). */
+  markDueById(id: string): Promise<boolean>;
+  /** Push cards still showing a choice whose session has moved on since. */
+  openPushCards(limit: number): Promise<SlackOpenPushCard[]>;
+  /** Edits that outlived the lease and its grace become uncertain. */
+  expireInflight(input: { graceMs: number; windowMs: number }): Promise<number>;
+  /**
+   * `due` cards, and ones whose uncertain window passed, with no lease left
+   * (after its grace) and no `settle_next_at` ahead; `only` narrows to one.
+   */
+  claim(input: {
+    limit: number;
+    leaseMs: number;
+    graceMs: number;
+    only?: { channelId: string; slackTs: string };
+  }): Promise<SlackCardClaim[]>;
+  /** The card's request as stored now; null when it is gone. */
+  card(claim: SlackCardClaim): Promise<SlackPromptCard | null>;
+  /** True while the card is a turn's notice whose turn still waits. */
+  turnWaits(claim: SlackCardClaim): Promise<boolean>;
+  /** The edit's start, or null when the lease is lost or nearly over. */
+  beginSend(
+    fence: SlackCardFence,
+    minLeaseLeftMs: number,
+  ): Promise<Date | null>;
+  /**
+   * An edit that succeeded. An end state settles the row; the uncertainty
+   * clears only as in the thread status writer.
+   */
+  finish(
+    fence: SlackCardFence,
+    sent: {
+      rendered: SlackCardRendered;
+      uncertainRev: number;
+      windowMs: number;
+    },
+  ): Promise<boolean>;
+  /** Shows what it showed already: release the row as drawn. */
+  skip(fence: SlackCardFence): Promise<boolean>;
+  /** An edit whose outcome is unknown; lands without the lease. */
+  uncertain(
+    fence: SlackCardFence,
+    startedAt: Date,
+    windowMs: number,
+  ): Promise<void>;
+  /** Try again no sooner than `retryInMs`; `failed` counts an attempt. */
+  defer(
+    fence: SlackCardFence,
+    input: { retryInMs: number; failed: boolean; error: string },
+  ): Promise<boolean>;
+  /** Slack takes no more edits of it. */
+  abandon(fence: SlackCardFence, error: string): Promise<boolean>;
+}
+
 export interface SlackOutboxStore {
   /** Absent in stores without the thread status table. */
   threadStatus?: SlackThreadStatusStore;
+  /** Absent in stores without the card settle columns. */
+  cards?: SlackCardSettleStore;
   /**
    * `whileHome`: insert only while that binding is the agent's live home
    * and that release is active, checked under share locks so a home move
