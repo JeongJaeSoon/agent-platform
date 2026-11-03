@@ -3511,6 +3511,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/installation/settings/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's settings as one document, without a value
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape `connections.yaml`, `repositories.yaml` and `mcp-servers.yaml` gave it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings and what the operator's files hold are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["exportInstallationSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/installation/settings/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add the entries of a settings document the installation lacks
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. An entry bringing an env or Secrets Manager reference the installation does not hold yet is 400 `external_reference` (`details.entries`), nothing changed: only the operator's `settings import` CLI brings those in. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). Any entry the file catalog's rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["importInstallationSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/limits": {
         parameters: {
             query?: never;
@@ -6298,7 +6342,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "resolve_repository" | "set_agent_github" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "resolve_repository" | "set_agent_github" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -7204,7 +7248,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */
@@ -7885,6 +7929,42 @@ export interface components {
                 id: string;
             }[];
             unattended_allowed: boolean;
+        };
+        SettingsDocument: {
+            /** @constant */
+            version: 1;
+            connections: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            repositories: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            mcp_servers: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        ExportSettingsResponse: {
+            document: components["schemas"]["SettingsDocument"];
+            digest: string;
+        };
+        ImportSettingsQuery: {
+            /** @enum {string} */
+            dry_run?: "true" | "false";
+        };
+        ImportSettingsResponse: {
+            /** @enum {string} */
+            outcome: "applied" | "dry_run";
+            added: string[];
+            unchanged: string[];
+            inactive: string[];
+            needs_value: string[];
+            receipt_ids: string[];
         };
         AgentDetail: {
             agent: {
@@ -14678,7 +14758,8 @@ export interface operations {
                      *         "session.admin_list",
                      *         "usage.installation_read",
                      *         "usage.agent_read",
-                     *         "profile.installation.manage"
+                     *         "profile.installation.manage",
+                     *         "installation.settings.manage"
                      *       ]
                      *     }
                      */
@@ -33538,6 +33619,302 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    exportInstallationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document and its digest. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "document": {
+                     *         "version": 1,
+                     *         "connections": {
+                     *           "anthropic-main": {
+                     *             "kind": "anthropic",
+                     *             "endpoint": "https://api.anthropic.com",
+                     *             "auth": {
+                     *               "kind": "api_key",
+                     *               "value_env": "ANTHROPIC_API_KEY"
+                     *             }
+                     *           },
+                     *           "anthropic-console": {
+                     *             "kind": "anthropic",
+                     *             "endpoint": "https://api.anthropic.com",
+                     *             "auth": {
+                     *               "kind": "api_key",
+                     *               "stored": true,
+                     *               "last4": "x9Qa"
+                     *             }
+                     *           }
+                     *         },
+                     *         "repositories": {
+                     *           "docs-site": {
+                     *             "url": "https://github.com/acme/docs-site.git",
+                     *             "branch": "main",
+                     *             "auth": {
+                     *               "kind": "github_app"
+                     *             }
+                     *           }
+                     *         },
+                     *         "mcp_servers": {}
+                     *       },
+                     *       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ExportSettingsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    importInstallationSettings: {
+        parameters: {
+            query?: {
+                dry_run?: "true" | "false";
+            };
+            header?: {
+                /** @description Required with a cookie session: the literal `agent-platform-web`. */
+                "X-Requested-With"?: "agent-platform-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "version": 1,
+                 *       "connections": {
+                 *         "anthropic-main": {
+                 *           "kind": "anthropic",
+                 *           "endpoint": "https://api.anthropic.com",
+                 *           "auth": {
+                 *             "kind": "api_key",
+                 *             "value_env": "ANTHROPIC_API_KEY"
+                 *           }
+                 *         },
+                 *         "anthropic-console": {
+                 *           "kind": "anthropic",
+                 *           "endpoint": "https://api.anthropic.com",
+                 *           "auth": {
+                 *             "kind": "api_key",
+                 *             "stored": true,
+                 *             "last4": "x9Qa"
+                 *           }
+                 *         }
+                 *       },
+                 *       "repositories": {
+                 *         "docs-site": {
+                 *           "url": "https://github.com/acme/docs-site.git",
+                 *           "branch": "main",
+                 *           "auth": {
+                 *             "kind": "github_app"
+                 *           }
+                 *         }
+                 *       },
+                 *       "mcp_servers": {}
+                 *     }
+                 */
+                "application/json": components["schemas"]["SettingsDocument"];
+            };
+        };
+        responses: {
+            /** @description What was added, and what was there already. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "outcome": "applied",
+                     *       "added": [
+                     *         "connection:anthropic-console",
+                     *         "repository:docs-site"
+                     *       ],
+                     *       "unchanged": [
+                     *         "connection:anthropic-main"
+                     *       ],
+                     *       "inactive": [],
+                     *       "needs_value": [
+                     *         "connection:anthropic-console"
+                     *       ],
+                     *       "receipt_ids": [
+                     *         "019a0000-0000-7000-8000-0000000000f1",
+                     *         "019a0000-0000-7000-8000-0000000000f2"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ImportSettingsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
                         };
                     };
                 };

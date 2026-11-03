@@ -181,6 +181,12 @@ const TABLE: [
     onWorkspace,
     "oxxxxx",
   ],
+  [
+    "설치 설정 내보내기·가져오기",
+    "installation.settings.manage",
+    onWorkspace,
+    "oxxxxx",
+  ],
   ["팀 만들기·구성원 관리", "team.manage", onWorkspace, "ooxxxx"],
   ["모든 에이전트의 key 발급·폐기", "api_key.manage", onWorkspace, "ooxxxx"],
   ["그 에이전트의 key 발급·폐기", "api_key.manage", onAgentA, "ooxoxx"],

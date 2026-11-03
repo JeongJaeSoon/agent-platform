@@ -21,6 +21,7 @@ import {
   createProfileRegistry,
   deriveReleaseId,
   mcpBinding,
+  parseSettingsDocument,
   profileCatalog,
   profileFingerprint,
   repositoryBinding,
@@ -29,6 +30,7 @@ import {
   SecretKey,
   type SessionCatalogConfig,
   sessionCatalogConfigSchema,
+  settingsDocumentOf,
   settingsSnapshot,
   withConsoleRepositories,
 } from "@werft-ai/platform";
@@ -51,6 +53,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { createPostgresSecretStore } from "./secret-values.ts";
+import { createPostgresSettingsDocumentStore } from "./settings-document.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -97,6 +100,16 @@ const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
       url: "https://git.example.invalid/team/open.git",
       branch: "main",
       profiles: ["coding"],
+    },
+    nested: {
+      url: "https://git.example.invalid/group/sub/nested.git",
+      branch: "main",
+    },
+    app: {
+      url: "https://github.com/acme/app.git",
+      branch: "main",
+      profiles: ["coding"],
+      auth: { kind: "github_app" },
     },
     basic: {
       url: "https://git.example.invalid/team/basic.git",
@@ -233,47 +246,20 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
   };
 }
 
+// The operator's settings import (settings.ts) of what the files hold.
 async function importFile(db: NodePgDatabase<typeof schema>) {
-  await db.insert(providerConnections).values({
-    id: "main",
-    definition: MAIN,
-    credentialSource: "external",
-    origin: "import",
-  });
-  for (const [id, repository] of Object.entries(FILE.repositories)) {
-    const { auth } = repository;
-    const [owner, name] = new URL(repository.url).pathname
-      .replace(/^\//, "")
-      .replace(/\.git$/, "")
-      .split("/");
-    await db.insert(catalogRepositories).values({
-      id,
-      owner: owner ?? "",
-      name: name ?? "",
-      url: repository.url,
-      branch: repository.branch,
-      profiles: repository.profiles ?? null,
-      authKind:
-        auth === undefined
-          ? "none"
-          : auth.kind === "github_app"
-            ? "github_app_explicit"
-            : auth.kind,
-      auth: auth ?? null,
-      credentialSource: auth === undefined ? null : "external",
-      source: "import",
-    });
-  }
-  for (const [id, server] of Object.entries(FILE.mcp_servers ?? {})) {
-    await db.insert(mcpServers).values({
-      id,
-      url: server.url,
-      credentialRef: server.credential_ref,
-      auth: server.auth,
-      credentialSource: "external",
-      workspaces: server.workspaces,
-      origin: "import",
-    });
+  const result = await createPostgresSettingsDocumentStore(db).importEntries(
+    parseSettingsDocument(
+      settingsDocumentOf({
+        connections: CONNECTIONS,
+        repositories: FILE.repositories,
+        mcp_servers: FILE.mcp_servers ?? {},
+      }),
+    ),
+    { dryRun: false, allowExternal: true, actor: null },
+  );
+  if (result.outcome !== "applied") {
+    throw new Error(`import ${result.outcome}`);
   }
 }
 

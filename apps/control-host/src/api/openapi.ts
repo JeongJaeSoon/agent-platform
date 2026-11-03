@@ -80,6 +80,7 @@ import {
   deleteTeamResponseSchema,
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
+  exportSettingsResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   GITHUB_INSTALLATION_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
@@ -103,6 +104,8 @@ import {
   githubWorkflowRunSchema,
   googleLoginCallbackRequestSchema,
   healthResponseSchema,
+  importSettingsQuerySchema,
+  importSettingsResponseSchema,
   installationLimitsResponseSchema,
   installationProfileIdParamsSchema,
   installationProfileOptionsResponseSchema,
@@ -229,6 +232,7 @@ import {
   setSessionShareRequestSchema,
   setSessionShareResponseSchema,
   setTeamMemberRoleRequestSchema,
+  settingsDocumentSchema,
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
   slackAppSettingsSchema,
@@ -534,6 +538,10 @@ const responseComponents = {
   AchievementJudgeResponse: achievementJudgeResponseSchema,
   AchievementJudgeChangeResponse: achievementJudgeChangeResponseSchema,
   InstallationProfileOptionsResponse: installationProfileOptionsResponseSchema,
+  SettingsDocument: settingsDocumentSchema,
+  ExportSettingsResponse: exportSettingsResponseSchema,
+  ImportSettingsQuery: importSettingsQuerySchema,
+  ImportSettingsResponse: importSettingsResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -972,6 +980,30 @@ const ACHIEVEMENT_RULE_EXAMPLE = {
 const ACHIEVEMENT_JUDGE_EXAMPLE = EXAMPLE_WORKSPACE.settings.achievement_judge;
 const ACHIEVEMENT_MANAGERS =
   "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused.";
+
+const SETTINGS_DOCUMENT_EXAMPLE = {
+  version: 1,
+  connections: {
+    "anthropic-main": {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth: { kind: "api_key", value_env: "ANTHROPIC_API_KEY" },
+    },
+    "anthropic-console": {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth: { kind: "api_key", stored: true, last4: "x9Qa" },
+    },
+  },
+  repositories: {
+    "docs-site": {
+      url: "https://github.com/acme/docs-site.git",
+      branch: "main",
+      auth: { kind: "github_app" },
+    },
+  },
+  mcp_servers: {},
+};
 
 const INSTALLATION_PROFILE_EXAMPLE = {
   id: "op_coding_v2",
@@ -2647,6 +2679,7 @@ export const API_ROUTE_DECLARATIONS = [
           "usage.installation_read",
           "usage.agent_read",
           "profile.installation.manage",
+          "installation.settings.manage",
         ],
       },
     },
@@ -6231,6 +6264,58 @@ export const API_ROUTE_DECLARATIONS = [
       },
     },
     errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/installation/settings/export",
+    operationId: "exportInstallationSettings",
+    tag: "Agents",
+    summary: "The installation's settings as one document, without a value",
+    description:
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape `connections.yaml`, `repositories.yaml` and `mcp-servers.yaml` gave it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings and what the operator's files hold are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ExportSettingsResponse",
+      description: "The document and its digest.",
+      example: {
+        document: SETTINGS_DOCUMENT_EXAMPLE,
+        digest: `sha256:${"0".repeat(64)}`,
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/installation/settings/import",
+    operationId: "importInstallationSettings",
+    tag: "Agents",
+    summary: "Add the entries of a settings document the installation lacks",
+    description:
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. An entry bringing an env or Secrets Manager reference the installation does not hold yet is 400 `external_reference` (`details.entries`), nothing changed: only the operator's `settings import` CLI brings those in. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). Any entry the file catalog's rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.",
+    auth: "session",
+    query: "ImportSettingsQuery",
+    body: "SettingsDocument",
+    requestExample: SETTINGS_DOCUMENT_EXAMPLE,
+    success: {
+      status: 200,
+      schema: "ImportSettingsResponse",
+      description: "What was added, and what was there already.",
+      example: {
+        outcome: "applied",
+        added: ["connection:anthropic-console", "repository:docs-site"],
+        unchanged: ["connection:anthropic-main"],
+        inactive: [],
+        needs_value: ["connection:anthropic-console"],
+        receipt_ids: [
+          "019a0000-0000-7000-8000-0000000000f1",
+          "019a0000-0000-7000-8000-0000000000f2",
+        ],
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
     idempotent: false,
   },
   {

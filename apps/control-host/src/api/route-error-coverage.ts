@@ -104,6 +104,10 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation-profiles/{profile_id}/block",
     "POST /v1/installation-profiles/{profile_id}/unblock",
   ],
+  "routes/installation-settings.test.ts": [
+    "GET /v1/installation/settings/export",
+    "POST /v1/installation/settings/import",
+  ],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/members.test.ts": [
     "GET /v1/members",

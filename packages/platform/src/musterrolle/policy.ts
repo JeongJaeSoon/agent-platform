@@ -318,6 +318,7 @@ export const MANAGEMENT_ROLES: Partial<
   "usage.installation_read": ["owner"],
   "usage.agent_read": ["owner", "admin"],
   "profile.installation.manage": ["owner"],
+  "installation.settings.manage": ["owner"],
   "achievement_rule.manage": ["owner", "admin"],
   "achievement.review": ["owner", "admin"],
 };

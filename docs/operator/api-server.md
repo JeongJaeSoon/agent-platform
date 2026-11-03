@@ -42,6 +42,16 @@ API는 기동 시 `PLATFORM_CONFIG_DIR`(기본: 저장소의 `config/`)에서 `c
 - **`repositories.yaml`의 `profiles` 배열은 선택 항목이고 시드로만 읽는다.** 빈 DB에 시드할 때 각 상한의 `repository_ids`가 이 배열에서 정해진다. 그 뒤 허용은 DB의 `repository_ids`만 본다(아래). 배열을 남겨 두면 저장소 객체에 그대로 들어가 catalog revision이 바뀌지 않는다. 지우면 revision이 한 번 바뀐다.
 - `bun run profiles connections-from-yaml`은 `profiles.yaml`의 provider로 `connections.yaml` 내용을 stdout에 쓴다. 연결 파일이 없는 설치를 올리기 전에 이것으로 파일을 만든다. 옛 `bun run profiles import --check`는 없어졌다.
 
+### 설정 문서 가져오기·내보내기
+
+연결·저장소·MCP 서버는 파일 말고 DB 행(`provider_connections`, `catalog_repositories`, `mcp_servers`)으로도 둘 수 있다([설계](../contributing/decisions/settings-replace-file-catalog.md)). 레지스트리는 파일과 DB 행을 합쳐 읽고, 같은 id면 파일이 이긴다. 그래서 파일 카탈로그는 지금처럼 그대로 돈다. DB 행은 **설정 문서** 하나로 넣고 꺼낸다.
+
+- **형식.** `{"version": 1, "connections": {…}, "repositories": {…}, "mcp_servers": {…}}`. 항목 하나의 모양은 `connections.yaml`·`repositories.yaml`의 항목과 같다. 값을 DB에 두는 자격 증명은 `"auth": {"stored": true}`로 적고, 가져올 때 그 항목 자신의 참조(`connection:<id>` 등)가 된다. 내보내면 `{"stored": true, "last4": "…"}`로 나오고 값은 나오지 않는다. `profiles.yaml`(상한)과 `platform.yaml`은 문서에 들어가지 않는다. 상한은 지금처럼 빈 DB의 시드와 콘솔·`POST /v1/installation-profiles`로 다루고, 상한의 도구 목록도 문서에 옮기지 않는다.
+- **가져오기는 더하기만 한다.** 문서의 항목마다 새 행(`add`), DB와 같은 행(`unchanged`), 꺼진 행과 같은 id(`inactive`), 값이 아직 없는 stored 자격 증명(`needs_value`)으로 나눈다. 같은 id인데 내용이 다르거나 같은 GitHub 저장소(owner/name)를 다른 id로 적으면 `conflicts`이고, 그러면 아무것도 쓰지 않는다. 같은 문서를 다시 가져오면 모두 `unchanged`이고 `settings_generation`도 그대로다. 행을 고치거나 지우는 일은 하지 않는다.
+- **API.** `GET /v1/installation/settings/export`는 `{document, digest}`를 준다. `POST /v1/installation/settings/import?dry_run=true|false`는 문서를 body로 받는다. 둘 다 설치 owner의 로그인 세션만 부를 수 있다(`installation.settings.manage`). API 키와 admin·member는 `403`이다. 충돌은 `409 REVISION_CONFLICT`(`reason_code: settings_conflict`, 충돌 항목 목록), 깨진 문서는 `400 BAD_REQUEST`(`reason_code: invalid_document`)다. API는 `value_env`·`secret_id` 같은 바깥 참조를 새로 받지 않는다(`400 BAD_REQUEST`, `reason_code: external_reference`와 해당 항목 목록). 서버 프로세스 환경을 가리키는 참조는 운영자가 서버에서 CLI로만 넣는다. 더한 행마다 receipt(`import_connection`·`import_repository`·`import_mcp_server`)가 남는다. 워크스페이스가 아직 없으면 receipt는 남지 않는다.
+- **CLI.** compose 설치에서는 `bun run settings export > settings.json`(문서는 stdout, `digest sha256:…`는 stderr), `bun run settings import --document settings.json [--dry-run]`(`-`면 stdin), `bun run settings import --from-dir <설정 디렉터리> [--dry-run]`을 쓴다. `--from-dir`은 그 디렉터리의 `connections.yaml`·`repositories.yaml`·`mcp-servers.yaml`(있으면)을 문서로 바꿔 가져오고, 문서에 들어가지 않는 파일(`profiles.yaml`, `platform.yaml`)을 stderr에 적는다. CLI는 바깥 참조를 받는다. 거절되면(충돌·바깥 참조) 1로 끝난다.
+- **롤백 하한.** 가져오기가 GitHub App이 아닌 저장소 행(`auth_kind`가 `none`·`basic`·`bearer`·`github_app_explicit`)을 한 번이라도 쓴 DB는 migration 0225(commit `e1a26586`)보다 앞선 이미지로 되돌리지 않는다. 앞선 이미지는 `auth_kind`를 모르므로 그 행을 GitHub App 저장소로 읽는다.
+
 **배포(migration 0190).** 이 migration은 상한 행에 차단 칸(`blocked_at`·`blocked_by`)을 더하고, `profiles.yaml`에서 가져온 행(`origin = 'catalog'`)의 `repository_ids`를 NULL로 둔다. 새 API는 기동 때 시드와 같은 lock·transaction 안에서 NULL인 행만 `repositories.yaml` 배열로 한 번 채우고 `Profile repositories moved to the database`(id 목록)를 남긴다. 두 번 떠도 결과가 같다. 순서는 이렇다.
 
 1. 올리기 전에 모든 설정 디렉터리에 `connections.yaml`을 둔다(`connections-from-yaml`).

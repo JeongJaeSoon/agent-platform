@@ -96,6 +96,8 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   set_repository_github_app: "저장소 GitHub App 고정",
   remove_repository: "저장소 제거",
   import_repository: "저장소 가져오기",
+  import_connection: "모델 연결 가져오기",
+  import_mcp_server: "MCP 서버 가져오기",
   set_agent_github: "에이전트 GitHub 사용 변경",
   review_pull_request: "PR 리뷰",
   dispatch_workflow: "워크플로 실행",
