@@ -637,9 +637,9 @@ function AgentView({
         {t("agent.newSessionHint")}
         <TextLink asChild={true}>
           <Link
-            to="/agents/$id"
-            params={{ id: agent.id }}
-            search={{ tab: "slack" }}
+            from="/agents/$id"
+            to="."
+            search={(prev) => ({ ...prev, tab: "slack" as const })}
             replace={true}
           >
             {t("agent.newSessionSlack")}

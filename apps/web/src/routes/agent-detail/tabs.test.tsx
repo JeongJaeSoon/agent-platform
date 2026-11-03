@@ -149,7 +149,9 @@ describe("에이전트 상세 탭", () => {
       hint.compareDocumentPosition(screen.getByRole("tablist")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    const docs = within(hint).getByRole("link", { name: /API 문서 열기/ });
+    const docs = within(hint).getByRole("link", {
+      name: "API 문서 열기 (새 탭에서 열림)",
+    });
     expect(docs.getAttribute("href")).toBe("/docs");
     expect(docs.getAttribute("target")).toBe("_blank");
     const slack = within(hint).getByRole("link", { name: "Slack 연결 보기" });
