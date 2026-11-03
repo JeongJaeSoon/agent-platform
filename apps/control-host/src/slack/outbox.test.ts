@@ -2350,7 +2350,7 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     expect(shown()).toEqual(["active"]);
   });
 
-  test("a backlog of posts neither holds back the statuses nor runs more than one post past the deadline", async () => {
+  test("on a statuses-first pass a backlog of posts neither holds back the statuses nor runs more than one post past the deadline", async () => {
     const { sessionId } = await idleThread();
     for (const sequence of [2, 3]) {
       await askFrom(sessionId, sequence, "web", "more", true);
@@ -2369,6 +2369,7 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     await outboxPass({
       slack: slow,
       deadline: start + 12_000,
+      statusesFirst: true,
       now: () => clock,
     });
     expect(shown()).toEqual(["active"]);
@@ -2379,6 +2380,35 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
       sql`SELECT count(*)::int AS n FROM slack_outbox WHERE status = 'pending'`,
     )) as unknown as { rows: { n: number }[] };
     expect(rows[0]?.n).toBe(1);
+  });
+
+  test("a slow status that eats a short window leaves the posts to the next, posts-first pass", async () => {
+    await idleThread();
+    const start = Date.now();
+    let clock = start;
+    const slowStatus = {
+      ...api,
+      setStatus: (...args: Parameters<typeof api.setStatus>) => {
+        clock += 10_000;
+        return api.setStatus(...args);
+      },
+    };
+    const pass = (statusesFirst: boolean) =>
+      outboxPass({
+        slack: slowStatus,
+        deadline: clock + 3_000,
+        statusesFirst,
+        now: () => clock,
+      });
+    await pass(true);
+    expect(shown()).toEqual(["active"]);
+    expect(posted()).toHaveLength(0);
+    // Due again, so a statuses-first pass would spend the window once more.
+    await db.execute(
+      sql`UPDATE slack_thread_status SET dirty_rev = dirty_rev + 1, sent_status = NULL`,
+    );
+    await pass(false);
+    expect(posted()).toHaveLength(1);
   });
 
   test("a status row reached after the deadline is handed back, not sent late", async () => {
