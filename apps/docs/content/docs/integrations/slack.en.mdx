@@ -75,7 +75,7 @@ A tool permission card sums up what the agent wants to do in one line, such as `
 | Request | What the card offers |
 | --- | --- |
 | Tool permission | **Allow** and **Deny** |
-| Question | Option buttons for a single question with five options or fewer, plus **Type an answer** when free text is allowed. Otherwise **Answer** opens a form. More than 10 questions or more than 100 options in all do not fit a Slack form, so the card says "Please answer this request on the web" with an **Open on the web** button |
+| Question | Option buttons for a single question with five options or fewer, plus **Type an answer** when free text is allowed. Otherwise **Answer** opens a form. More than 10 questions, or more than 100 options in one question, do not fit a Slack form, so the card says "Please answer this request on the web" with an **Open on the web** button |
 | Push approval | Repository, branch and commit, with **Approve** (asks once more) and **Reject** |
 
 The person who presses must have their Slack account linked to a web account ([Link a Slack account](#link-a-slack-account)) and must be someone who may answer that session's requests on the web, judged by the same rules. An unlinked account gets the link page, and someone without the right gets a refusal; both are shown to that person only, and nothing is settled.
