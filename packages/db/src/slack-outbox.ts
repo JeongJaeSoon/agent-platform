@@ -54,6 +54,10 @@ import {
   turns,
   users,
 } from "./schema.ts";
+import {
+  createPostgresSlackThreadStatusStore,
+  touchSlackThreadStatus,
+} from "./slack-thread-status.ts";
 
 const t = slackOutbox;
 
@@ -185,6 +189,8 @@ export function createPostgresSlackOutboxStore(
   options: { neutralize?: NeutralizeEvent } = {},
 ): SlackOutboxStore {
   return {
+    threadStatus: createPostgresSlackThreadStatusStore(db),
+
     async enqueue(input, whileHome) {
       return db.transaction(async (tx) => {
         if (whileHome) {
@@ -871,7 +877,12 @@ export function createPostgresSlackOutboxStore(
           attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
         })
         .where(fenced(fence))
-        .returning({ id: t.id });
+        .returning({ id: t.id, sessionId: t.sessionId });
+      const [row] = rows;
+      // A post into the thread is a moment to show its status again soon.
+      if (outcome.status === "sent" && row?.sessionId) {
+        await touchSlackThreadStatus(db, row.sessionId);
+      }
       return rows.length > 0;
     },
   };

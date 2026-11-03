@@ -55,15 +55,6 @@ const CHANNEL_KIND_OF: Partial<Record<string, SurfaceChannelKind>> = {
   im: "dm",
 };
 
-/** Answers that mean the workspace has no progress line to show. */
-const SET_STATUS_SKIPPED = new Set([
-  "not_authorized",
-  "feature_disabled",
-  "thread_ts_required",
-]);
-
-export const SLACK_PROCESSING_STATUS = "processing";
-
 const RETRYABLE_SESSION_CODES = new Set([
   "RATE_LIMITED",
   "BACKEND_UNAVAILABLE",
@@ -349,9 +340,8 @@ export function createSlackSessionHandler(
           slackMessage,
         });
       }
-      // After the effects, so nothing slow sits between the lease's renewal
-      // and the session's write.
-      await setProcessing(botToken, event.channel, threadTs, ids);
+      // The turn's insert marks the thread's status due; the outbox pass
+      // that follows this one sends it.
     } catch (error) {
       if (
         !(error instanceof SessionServiceError) ||
@@ -437,28 +427,6 @@ export function createSlackSessionHandler(
       const code = error instanceof SlackApiError ? error.code : "error";
       deps.logger.warn("Slack permalink not given; going on", { ...ids, code });
       return null;
-    }
-  }
-
-  async function setProcessing(
-    botToken: string,
-    channelId: string,
-    threadTs: string,
-    ids: Record<string, unknown>,
-  ): Promise<void> {
-    try {
-      await deps.slack.setStatus(botToken, {
-        channelId,
-        threadTs,
-        status: SLACK_PROCESSING_STATUS,
-      });
-    } catch (error) {
-      const code = error instanceof SlackApiError ? error.code : "error";
-      if (SET_STATUS_SKIPPED.has(code)) {
-        deps.logger.info("Slack status not shown", { ...ids, code });
-      } else {
-        deps.logger.warn("Slack status failed; going on", { ...ids, code });
-      }
     }
   }
 }

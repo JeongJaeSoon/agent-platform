@@ -946,6 +946,13 @@
       "when": 1793720476185,
       "tag": "0225_installation_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1793733401698,
+      "tag": "0226_slack_thread_status",
+      "breakpoints": true
     }
   ]
 }
