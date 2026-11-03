@@ -10,6 +10,7 @@ import type {
   MemberView,
   TeamChangeResponse,
   TeamDetail,
+  TeamMemberRole,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
@@ -36,7 +37,10 @@ import {
   DialogTrigger,
   EmptyState,
   Field,
+  FieldDescription,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
   formatTimestamp,
   GridTable,
   GridTableCell,
@@ -45,6 +49,8 @@ import {
   GridTableRow,
   Heading,
   Input,
+  RadioGroup,
+  RadioGroupItem,
   RowAction,
   RowList,
   RowListItem,
@@ -55,6 +61,7 @@ import {
 import { ArrowLeft, ChevronRight, Plus, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
 import {
+  agentSummariesQuery,
   memberPagesQuery,
   memberSummariesQuery,
   queryKeysOf,
@@ -382,6 +389,8 @@ function TeamDangerZone({
   const navigate = useNavigate();
   const role = useRole();
   const [confirming, setConfirming] = useState(false);
+  // The agents the server named when it refused: this team manages them.
+  const [managed, setManaged] = useState<readonly string[] | null>(null);
 
   const remove = useMutation<unknown, ApiError>({
     mutationFn: () =>
@@ -390,7 +399,10 @@ function TeamDangerZone({
           params: { path: { team_id: team.id } },
         }),
       ),
-    onMutate: () => onOutcome(null),
+    onMutate: () => {
+      onOutcome(null);
+      setManaged(null);
+    },
     onSuccess: async () => {
       setConfirming(false);
       queryClient.removeQueries({
@@ -403,6 +415,11 @@ function TeamDangerZone({
     },
     onError: (error) => {
       setConfirming(false);
+      const ids = managedAgentIds(error);
+      if (ids) {
+        setManaged(ids);
+        return;
+      }
       onOutcome({
         kind: "error",
         text: refusalText(t, error, "team.manage", role),
@@ -412,6 +429,7 @@ function TeamDangerZone({
 
   return (
     <>
+      {managed && <ManagedAgents ids={managed} />}
       <DangerZone title={t("workspace.danger")} titleAs="h3">
         <DangerZoneRow
           title={t("teams.delete")}
@@ -433,6 +451,59 @@ function TeamDangerZone({
         onConfirm={() => remove.mutate()}
       />
     </>
+  );
+}
+
+function managedAgentIds(error: ApiError): readonly string[] | null {
+  if (error.code !== "TEAM_MANAGES_AGENTS") return null;
+  const ids = (error.details as { agent_ids?: unknown } | null)?.agent_ids;
+  return Array.isArray(ids)
+    ? ids.filter((id): id is string => typeof id === "string")
+    : [];
+}
+
+/** Why the team stayed: the agents it manages, each a way to move it. */
+function ManagedAgents({ ids }: { readonly ids: readonly string[] }) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const agents = useQuery({
+    ...agentSummariesQuery(client, ids),
+    enabled: ids.length > 0,
+  });
+  // Only the ones this caller still reads come back; the rest are counted.
+  const found = agents.data?.items ?? [];
+  const named = found.length > 0;
+  return (
+    <Alert variant="red" role="alert">
+      <AlertDescription>
+        {named
+          ? t("teams.deleteManages")
+          : t("teams.deleteManagesCount", { count: ids.length })}
+      </AlertDescription>
+      {named && (
+        <ul
+          aria-label={t("teams.deleteManagesList")}
+          className="m-0 mt-2 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-control"
+        >
+          {found.map((agent) => (
+            <li key={agent.id}>
+              <TextLink asChild>
+                <Link to="/agents/$id" params={{ id: agent.id }}>
+                  {agent.name}
+                </Link>
+              </TextLink>
+            </li>
+          ))}
+          {ids.length > found.length && (
+            <li>
+              {t("teams.deleteManagesMore", {
+                count: ids.length - found.length,
+              })}
+            </li>
+          )}
+        </ul>
+      )}
+    </Alert>
   );
 }
 
@@ -494,20 +565,21 @@ function TeamMembers({
   const shown = needle
     ? team.members.filter((member) => matches(member, needle))
     : team.members;
-  // Below 640px the date drops out; the name keeps what the role and the
-  // button leave.
+  // Below 640px the date and the workspace role drop out; the name keeps
+  // what the team role and the buttons leave.
   const columns = [
     "minmax(0,1fr)",
     roles && "112px",
+    "96px",
     "minmax(9.5rem,0.5fr)",
-    manages && "var(--ap-row-action-min-width)",
+    manages && "max-content",
   ]
     .filter(Boolean)
     .join(" ");
   const narrowColumns = [
     "minmax(0,1fr)",
-    roles && "72px",
-    manages && "var(--ap-row-action-min-width)",
+    "max-content",
+    manages && "max-content",
   ]
     .filter(Boolean)
     .join(" ");
@@ -575,10 +647,13 @@ function TeamMembers({
                   {t("members.column.name")}
                 </GridTableColumnHeader>
                 {roles && (
-                  <GridTableColumnHeader>
-                    {t("members.column.role")}
+                  <GridTableColumnHeader hideNarrow={true}>
+                    {t("teams.column.workspaceRole")}
                   </GridTableColumnHeader>
                 )}
+                <GridTableColumnHeader>
+                  {t("teams.column.teamRole")}
+                </GridTableColumnHeader>
                 <GridTableColumnHeader hideNarrow={true}>
                   {t("teams.column.addedAt")}
                 </GridTableColumnHeader>
@@ -615,7 +690,7 @@ function TeamMembers({
                       </span>
                     </GridTableCell>
                     {roles && (
-                      <GridTableCell>
+                      <GridTableCell hideNarrow={true}>
                         {memberRole && (
                           <Badge
                             variant={memberRole === "member" ? "gray" : "blue"}
@@ -625,6 +700,9 @@ function TeamMembers({
                         )}
                       </GridTableCell>
                     )}
+                    <GridTableCell>
+                      <TeamRoleBadge role={member.role} />
+                    </GridTableCell>
                     <GridTableCell
                       hideNarrow={true}
                       className="text-caption text-muted-foreground tabular-nums"
@@ -633,6 +711,11 @@ function TeamMembers({
                     </GridTableCell>
                     {manages && (
                       <GridTableCell align="end">
+                        <TeamRoleDialog
+                          team={team}
+                          member={member}
+                          onOutcome={onOutcome}
+                        />
                         <RowAction
                           variant="danger"
                           disabled={remove.isPending}
@@ -669,6 +752,134 @@ function TeamMembers({
         }}
       />
     </Section>
+  );
+}
+
+const TEAM_ROLES: readonly TeamMemberRole[] = ["lead", "member"];
+
+export function TeamRoleBadge({ role }: { readonly role: TeamMemberRole }) {
+  const { t } = useI18n();
+  return (
+    <Badge variant={role === "lead" ? "blue" : "gray"}>
+      {t(`teams.role.${role}`)}
+    </Badge>
+  );
+}
+
+/**
+ * A team member's role, picked here and saved with 저장: a lead administers
+ * every agent the team manages from the next request on (agent-rbac (d)).
+ */
+function TeamRoleDialog({
+  team,
+  member,
+  onOutcome,
+}: {
+  readonly team: TeamDetail;
+  readonly member: TeamMember;
+  readonly onOutcome: (outcome: Outcome | null) => void;
+}) {
+  const { t } = useI18n();
+  const { client } = useAgentPlatform();
+  const queryClient = useQueryClient();
+  const role = useRole();
+  const [open, setOpen] = useState(false);
+  // Until a role is picked the dialog follows the row, so a refetch that
+  // changed the role elsewhere is not saved back over.
+  const [picked, setPicked] = useState<TeamMemberRole | null>(null);
+  const chosen = picked ?? member.role;
+  const legendId = useId();
+  const name = member.display_name ?? member.email;
+
+  const save = useMutation<TeamChangeResponse, ApiError, TeamMemberRole>({
+    mutationFn: (next) =>
+      unwrap(
+        client.PATCH("/v1/teams/{team_id}/members/{user_id}", {
+          params: { path: { team_id: team.id, user_id: member.user_id } },
+          body: { role: next },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async (_result, next) => {
+      setOpen(false);
+      onOutcome({
+        kind: "notice",
+        text: t("teams.roleChanged", {
+          name,
+          role: t(`teams.role.${next}`),
+        }),
+      });
+      await refreshTeam(queryClient, client, team.id);
+    },
+    onError: (error) => {
+      setOpen(false);
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "team.manage", role),
+      });
+    },
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (save.isPending) return;
+        setPicked(null);
+        setOpen(next);
+      }}
+    >
+      <DialogTrigger asChild>
+        <RowAction aria-label={t("teams.changeRoleFor", { name })}>
+          {t("teams.changeRole")}
+        </RowAction>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("teams.roleTitle")}</DialogTitle>
+          <DialogDescription>
+            {member.display_name === null
+              ? member.email
+              : `${member.display_name} · ${member.email}`}
+          </DialogDescription>
+        </DialogHeader>
+        <FieldSet>
+          <FieldLegend id={legendId} variant="label">
+            {t("teams.column.teamRole")}
+          </FieldLegend>
+          <RadioGroup
+            value={chosen}
+            onValueChange={(value) => setPicked(value as TeamMemberRole)}
+            disabled={save.isPending}
+            aria-labelledby={legendId}
+          >
+            {TEAM_ROLES.map((value) => (
+              <Field key={value} orientation="horizontal">
+                <RadioGroupItem value={value} />
+                <FieldLabel>{t(`teams.role.${value}`)}</FieldLabel>
+                <FieldDescription>
+                  {t(`teams.role.${value}.help`)}
+                </FieldDescription>
+              </Field>
+            ))}
+          </RadioGroup>
+        </FieldSet>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              {t("common.cancel")}
+            </Button>
+          </DialogClose>
+          <Button
+            type="button"
+            disabled={save.isPending || chosen === member.role}
+            onClick={() => save.mutate(chosen)}
+          >
+            {t("members.edit.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

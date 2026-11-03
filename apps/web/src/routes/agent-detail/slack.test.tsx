@@ -240,6 +240,22 @@ describe("Slack management", () => {
     ).toBe(true);
   });
 
+  test("the channels section says every channel member reads the replies, managing team or not", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [] }),
+    });
+    const heading = await screen.findByRole("heading", {
+      name: "홈 채널 지정",
+    });
+    const section = heading.closest("section") as HTMLElement;
+    expect(
+      within(section).getByText(
+        "이 채널의 모든 사람이 답을 읽습니다. 담당 팀 밖 사람도 포함됩니다.",
+      ),
+    ).toBeDefined();
+  });
+
   test("offers no channel actions until the bindings say which step it is", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

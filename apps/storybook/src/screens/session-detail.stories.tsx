@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SessionDetail } from "@werft-ai/react/blocks";
-import { Button, EmptyState } from "@werft-ai/ui";
+import { Button, EmptyState, Section, Text } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 
 import { type FakeRoutes, json } from "../../.storybook/fake-client.ts";
@@ -42,13 +42,23 @@ const WRITE_REQUEST = {
   ],
 };
 
+// apps/web routes/session-share.tsx: GET /v1/sessions/{id}/share, read only.
+const SHARE_TEXT = {
+  workspace: "워크스페이스",
+  limited: "워크스페이스(담당 팀 밖 사람은 보지 못함, 워크스페이스 설정)",
+  private: "세션을 가진 사람만",
+} as const;
+
 function SessionDetailPage({
   locale,
   scoped = true,
+  share = "workspace",
 }: {
   readonly locale?: string | undefined;
   /** False: a key without the session scopes, every action disabled. */
   readonly scoped?: boolean | undefined;
+  /** The share the console reads: `limited` is `audience_limited: true`. */
+  readonly share?: keyof typeof SHARE_TEXT | undefined;
 }) {
   const host = hostFor({ globals: locale === undefined ? {} : { locale } });
   return (
@@ -61,6 +71,13 @@ function SessionDetailPage({
         id={SESSION.id}
         {...shared(host)}
         unavailable={scoped ? undefined : host.unavailable}
+        controls={() => (
+          <Section titleAs="h3" title="공유 범위">
+            <Text as="div" className="text-body">
+              {SHARE_TEXT[share]}
+            </Text>
+          </Section>
+        )}
         back={
           <Button asChild variant="outline">
             <a href="#sessions">
@@ -132,6 +149,23 @@ export const Member: Story = {
   parameters: {
     api: routes({ requests: { ...WRITE_REQUEST, answerable: false } }),
   },
+};
+
+/** Axis B is managing_team: the share line says who still cannot see it. */
+export const ShareLimited: Story = {
+  name: "공유 범위: 워크스페이스(담당 팀 밖 제외)",
+  args: { share: "limited" },
+};
+
+export const SharePrivate: Story = {
+  name: "공유 범위: 세션을 가진 사람만",
+  args: { share: "private" },
+};
+
+export const ShareLimitedMobileDark: Story = {
+  ...ShareLimited,
+  name: "공유 범위: 워크스페이스(담당 팀 밖 제외) (390px, dark)",
+  globals: { ...MOBILE, theme: "dark" },
 };
 
 /** The operations card when the key may neither answer nor control. */
