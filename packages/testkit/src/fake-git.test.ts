@@ -33,30 +33,45 @@ async function workdir(): Promise<string> {
   return dir;
 }
 
+type Ready = { msg: string; port: number; heads: Record<string, string> };
+
+async function withMain(
+  args: string[],
+  env: Record<string, string>,
+  body: (ready: Ready) => Promise<void>,
+): Promise<void> {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "run",
+      join(import.meta.dir, "fake-git-main.ts"),
+      ...args,
+    ],
+    {
+      env: { ...process.env, FAKE_GIT_PORT: "0", ...env },
+      stdout: "pipe",
+      stderr: "inherit",
+    },
+  );
+  try {
+    const reader = child.stdout.getReader();
+    const { value } = await reader.read();
+    reader.releaseLock();
+    const ready: Ready = JSON.parse(
+      new TextDecoder().decode(value).split("\n")[0] ?? "",
+    );
+    expect(ready.msg).toBe("Fake git listening");
+    await body(ready);
+  } finally {
+    child.kill();
+    await child.exited;
+  }
+}
+
 describe("fake-git-main.ts", () => {
   test("seeds the repositories named on the command line and serves them under /agent", async () => {
-    const child = Bun.spawn(
-      [
-        process.execPath,
-        "run",
-        join(import.meta.dir, "fake-git-main.ts"),
-        "sample-app",
-        "gate-app",
-      ],
-      {
-        env: { ...process.env, FAKE_GIT_PORT: "0" },
-        stdout: "pipe",
-        stderr: "inherit",
-      },
-    );
-    try {
-      const reader = child.stdout.getReader();
-      const { value } = await reader.read();
-      reader.releaseLock();
-      const ready = JSON.parse(
-        new TextDecoder().decode(value).split("\n")[0] ?? "",
-      );
-      expect(ready.msg).toBe("Fake git listening");
+    await withMain(["sample-app", "gate-app"], {}, async (ready) => {
+      expect(Object.keys(ready.heads)).toEqual(["sample-app", "gate-app"]);
       expect(ready.heads["sample-app"]).toBe(SAMPLE_APP_HEAD);
 
       const dir = await workdir();
@@ -83,10 +98,32 @@ describe("fake-git-main.ts", () => {
       expect(
         requests.map((r: { path: string }) => r.path.split("/")[2]),
       ).toContain("gate-app.git");
-    } finally {
-      child.kill();
-      await child.exited;
-    }
+    });
+  });
+
+  test("takes the owner and request limit from the environment", async () => {
+    await withMain(
+      ["solo-app"],
+      { FAKE_GIT_OWNER: "team", FAKE_GIT_REQUEST_LIMIT: "2" },
+      async (ready) => {
+        expect(Object.keys(ready.heads)).toEqual(["solo-app"]);
+        const origin = `http://127.0.0.1:${ready.port}`;
+        const dir = await workdir();
+        await runTestGit(
+          ["clone", "--quiet", `${origin}/team/solo-app.git`, "c"],
+          dir,
+        );
+        for (let i = 1; i <= 3; i++) {
+          await fetch(`${origin}/team/missing-${i}.git/info/refs`);
+        }
+
+        const requests = await (await fetch(`${origin}/requests`)).json();
+        expect(requests.map((r: { path: string }) => r.path)).toEqual([
+          "/team/missing-2.git/info/refs",
+          "/team/missing-3.git/info/refs",
+        ]);
+      },
+    );
   });
 });
 
@@ -124,6 +161,12 @@ describe("startFakeGit", () => {
     await expect(
       runTestGit(["push", "origin", "main"], work),
     ).rejects.toThrow();
+    const direct = await fetch(`${url}/git-receive-pack`, {
+      method: "POST",
+      headers: { "content-type": "application/x-git-receive-pack-request" },
+      body: "0000",
+    });
+    expect(direct.status).toBe(403);
 
     expect(
       git

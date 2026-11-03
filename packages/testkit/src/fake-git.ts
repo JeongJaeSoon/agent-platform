@@ -59,7 +59,8 @@ export async function startFakeGit(options: FakeGitOptions): Promise<FakeGit> {
   }
 
   const root = await mkdtemp(join(tmpdir(), "fake-git-"));
-  const heads: Record<string, string> = {};
+  // No prototype, so a repository named `__proto__` keeps its entry.
+  const heads: Record<string, string> = Object.create(null);
   try {
     for (const name of options.repositories) {
       const bare = await createServedRepository(
