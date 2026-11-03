@@ -2,6 +2,7 @@
 
 - 상태: 설계. 구현 PR GA-1~GA-7과 GA-4b가 이 문서를 계약으로 쓴다([9절](#9-구현-pr-분할)). 같은 역할에 App 여럿을 받는 일은 [결정 11](#결정-11-같은-역할에-app-여럿)이 계약이다.
 - 개정(2026-11-02): 오너 결정 다섯 건으로 "역할마다 App 하나"를 "역할마다 App 여럿, 저장소마다 고정된 연결"로 바꿨다. 바뀐 곳은 결정 1·5·9·10, 3절 게이트, 4절, 5절, 6절, 7절이고, 바뀐 곳마다 이전 결정과 바뀐 이유를 적었다.
+- 결정(2026-11-03): PR 템플릿과 co-author의 오너 결정 D1~D5를 확정했다. 작성자는 App bot, 요청한 사람은 Co-author다([결정 5의 PR 템플릿과 co-author 결정](#pr-템플릿과-co-author-결정)).
 - 기준 커밋: `origin/main` `cee8359b`. 아래 `파일:줄`은 [10절](#10-세션-성과물)을 빼고 모두 이 커밋 기준이다. 10절은 `3f4dd99d` 기준이다.
 - 오너 원문(2026-10-30): "github apps 에서는 기능별로 권한을 가진다고 봐야할거 같아 그리고 기본적으로는 pr 을 작성하고 변경하기위한 권한 까지만을 기본값으로 가지고 그 외에 승인이나, 액션 실행 이나 관리 등등 그리고 액션을 실행하고자 할경우에 어떤 액션까지 허용할것인지에 대한 권한 관리는 agent 설정에서 관리가능하도록 하는게 좋을거 같아", "agent 상세화면에 slack 탭이 잇는것처럼 github 도 별도 탭으로 나눠서 일단 애초에 github 를 사용할것인가 아닌가 를 제어할수 있도록 하고 github 의 상세 옵션을 제어할수 있도록 메뉴를 확장하는게 좋을거 같네", "추천대로 진행해줘"(결정 0~10 전부).
 - 리드 결정(2026-10-30, 이 설계 중 질문): GitHub 작업은 control-host의 서비스 한 곳에서 하고 입구는 둘이다. 세션 API와 세션 안의 내장 MCP 서버 `github`다. 내장 MCP는 구현 분할의 마지막 PR이다. 같은 에이전트가 연 PR의 리뷰 승인은 플랫폼이 막지 않는다([결정 1](#결정-1-리뷰-전용-app)).
@@ -106,6 +107,18 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 - **commit 작성자(2026-11-01, 오너 원문 "커밋 작성자가 Werft이고 Co-authored-by가 없는 것: 개선해줘").** 결정 1은 "플랫폼이 연 PR의 작성자는 작성용 App bot"이라 했지만 commit은 이미지 기본값 `Werft <noreply@werft.invalid>`로 남아 있었다. 세션 저장소가 콘솔의 작성용 App(`{ kind: github_app }` 한 줄)을 쓰면 claim의 새 칸 `git_author`가 그 App의 bot 계정 `<slug>[bot]`과 `<bot user id>+<slug>[bot]@users.noreply.github.com`을 싣는다. bot user id는 `GET /users/<slug>[bot]`의 `id`다(GitHub 공식 예: [actions/checkout](https://github.com/actions/checkout#push-a-commit-using-the-built-in-token) "The user email is `{user.id}+{user.login}@users.noreply.github.com`", [actions/create-github-app-token](https://github.com/actions/create-github-app-token#configure-git-cli-for-an-apps-bot-user)). `git` 안이 아니라 옆에 둔 것은 앞 이미지 worker의 `claimGitSchema`가 strict라 새 칸 하나로 claim 전체를 거절하기 때문이다. worker는 `$HOME/.werft/git-identity`에 `[user]`를 쓰고, 이미지의 system 설정이 기본값 뒤에서 `include.path=~/.werft/git-identity`로 읽는다. 값이 없거나 bot 형식이 아니면 파일을 지워 기본값으로 돌아간다. 카탈로그 App, PAT, GHES, Gitea 저장소와 checkpoint·workspace 내부 commit은 그대로다.
 - **콘솔 주소가 없을 때의 Agent-Session.** 위 "콘솔 주소" 항목과 달리, `git.session_url`이 null이면 worker가 `Agent-Session: <세션 id>`를 넣는다. PR 꼬리가 싣는 것과 같은 id다. `git`이 없는 앞 API의 claim에는 지금처럼 아무 트레일러도 넣지 않는다.
 - **세션 상세의 귀속 줄.** `GET /v1/sessions/{id}/github/attribution`(`session.read`)이 `{ trigger, attribution: "co_author" | "unlinked" | "app_only", login }`을 준다. 지금 연결 상태로 계산하므로 다음 claim의 commit부터의 귀속이다. 화면은 저장소가 있는 세션의 "결과물" 탭 위쪽에 한 줄로 보인다(GA-4b의 GitHub PR 영역이 같은 자리에 붙는다). 게이트 거절 이유는 리드 결정으로 GA-3에서 GA-4b로 옮겼다([GA-4b에서 정한 것](#ga-4b에서-정한-것)).
+
+#### PR 템플릿과 co-author 결정
+
+D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도구가 붙인다는 설계에서 오너가 고른 것이다. 에이전트는 내용만 넘기고, 템플릿·트레일러·작성자는 플랫폼 도구와 worker git 설정이 붙인다. 도구별 동작은 [에이전트 행동 도구 카탈로그 10절](agent-actions.md#10-오너-결정-d1d11)이 정본이다.
+
+- **D1 (a).** commit에 엔진 이름 `Co-Authored-By: Claude`를 넣지 않는다. 에이전트는 author인 App bot으로 드러나고, 어느 모델이 썼는지는 `Agent-Session`의 세션 기록으로 찾는다. 엔진 어댑터가 엔진 서명을 끄고, commit hook과 턴 끝 복구가 남은 줄을 지우고, push 직전 검증이 그래도 남은 줄을 거절한다.
+- **D2 (a).** 저장소에 PR 템플릿이 여럿이면 설정이 고른 것만 쓰고, 설정이 없으면 플랫폼 기본 틀을 쓴다. GitHub도 여럿 가운데 하나를 고르지 않으므로 플랫폼도 추측하지 않는다.
+- **D3 (b).** PR 꼬리와 `Agent-Session`의 세션 링크는 워크스페이스 설정 `session_link: url | id`로 정하고 기본은 url이다. 지금 동작은 그대로 두고, 공개 저장소를 다루는 워크스페이스는 콘솔 주소를 빼고 세션 id만 낼 수 있다. 모든 경로가 같은 값을 쓴다.
+- **D4 (a).** 에이전트가 구조화 필드 없이 `body`만 보내면 저장소 템플릿에 다시 배치하지 않고 그대로 쓴다(`verbatim`, 설정으로 `as_summary`). 기존 세션의 PR 모양이 갑자기 바뀌지 않게 하려는 것이다. 공통 정리, 엔진 서명 줄 제거, 꼬리는 그대로 적용한다.
+- **D5 (a).** 귀속이 틀린 commit(트레일러가 빠졌거나 author가 바뀐 것)은 worker가 턴 끝 checkpoint 직전에 고친다. 원격에 없는 commit만 다시 만들고, 고치지 못하면 `request_push`가 `attribution_mismatch`로 거절한다. 다시 만드는 것은 push 요청 전이므로 "승인 뒤 SHA를 바꾸지 않는다"는 위 규칙은 그대로다. 대신 에이전트가 기억하던 commit SHA가 다음 턴에 바뀔 수 있다.
+- **작성자와 Co-author.** PR과 commit 모두 작성자(author·committer)는 플랫폼 GitHub App bot이고, 요청한 사람은 `Co-authored-by`다. 요청한 사람은 세션 시작자가 아니라 그 commit이나 PR 호출이 일어난 턴의 요청자다. 요청자가 GitHub 계정을 연결하지 않았으면 이름을 어디에도 넣지 않고 `Agent-Session`만 남긴다. 에이전트 key·operator key·스케줄처럼 요청자가 없으면 App 단독이다. 자리별 값은 [호출자 매핑](agent-actions.md#7-호출자-매핑)에 있다. 위 "누가 들어가나"와 "미연결 안내"의 시작자 규칙은 이 규칙을 구현하는 단위(L15)가 머지될 때 고친다.
+- **D6~D11.** 도구 카탈로그가 도구 관점에서 다시 분류했다. D7·D9·D10은 플랫폼이 모델 대신 효과를 시작할지 묻는 질문이라 폐기했고, D6(첨부 저장소 push 기본 승인 없음)과 D11(commit bot의 App은 주 저장소의 고정 연결 App)은 도구 기본값이 됐고, D8은 (a)를 유지한다. 판정과 이유는 [도구 카탈로그 10절](agent-actions.md#10-오너-결정-d1d11)에 있다.
 
 ### 결정 6. push 전 사람 승인
 
