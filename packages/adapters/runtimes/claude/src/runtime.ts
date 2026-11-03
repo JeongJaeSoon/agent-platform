@@ -31,6 +31,11 @@ import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
 
+// The platform attributes commits and pull requests itself. Flag settings
+// outrank a repository's `.claude/settings.json`, so a project cannot turn
+// the engine's own signature back on.
+const ENGINE_ATTRIBUTION_OFF = { commit: "", pr: "", sessionUrl: false };
+
 // Not a person's refusal: the platform could not record that the
 // checkpoint this turn waits on no longer holds once the tool runs.
 const ADMISSION_GUARD_REFUSED =
@@ -242,9 +247,12 @@ export function buildSdkOptions(
           sessionStore: config.sessionStore,
           sessionStoreFlush: "eager" as const,
         }),
-    ...(config.permissionMode === "auto"
-      ? { settings: { autoMode: PLATFORM_AUTO_MODE } }
-      : {}),
+    settings: {
+      attribution: ENGINE_ATTRIBUTION_OFF,
+      ...(config.permissionMode === "auto"
+        ? { autoMode: PLATFORM_AUTO_MODE }
+        : {}),
+    },
     settingSources: config.settingSources ?? ["project"],
     strictMcpConfig: true,
     systemPrompt: {
