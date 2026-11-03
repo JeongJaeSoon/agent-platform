@@ -1923,7 +1923,7 @@ describe("Slack management", () => {
     await user.keyboard("{Enter}");
     expect(
       await screen.findByText(
-        "Slack에서 이 앱을 찾을 수 없습니다. 삭제됐거나 다른 Slack 사용자·워크스페이스에서 만든 앱입니다. 위험 구역에서 앱을 삭제한 뒤 다시 설치하면 새 앱이 만들어집니다.",
+        "Slack에 이 앱이 더 이상 없습니다. 위험 구역에서 앱을 삭제한 뒤 다시 설치하면 새 앱이 만들어집니다.",
       ),
     ).toBeDefined();
     expect(left).toEqual([]);

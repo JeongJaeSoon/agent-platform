@@ -146,7 +146,7 @@ const slackCallDetails = (error: SlackApiError) => ({
 const appGone = (app: SlackAppRecord) =>
   new SessionServiceError(
     "SLACK_APP_GONE",
-    "Slack no longer shows this agent's app to the config token's user: it was deleted, or made by another Slack user or team. Delete the app here and create it again",
+    "Slack no longer has this agent's app; delete it here and create it again",
     undefined,
     { slack_app_id: app.id, app_id: app.appId },
   );
@@ -292,9 +292,16 @@ export function createSlackInstallService(deps: {
       ) {
         throw unsettled("This agent's Slack app is being deleted");
       }
-      const teamId = (await tokens.describe(workspaceId)).issuer?.teamId;
+      const issuer = (await tokens.describe(workspaceId)).issuer;
+      const teamId = issuer?.teamId;
       if (!teamId) throw configTokenInvalid("not_set");
-      if (await slackLacksApp(tokens, workspaceId, app.appId)) {
+      // Another Slack user's token may be told an app it cannot manage is
+      // not there; GET /slack/app warns of that case instead.
+      if (
+        app.createdByTokenUser !== null &&
+        app.createdByTokenUser === issuer?.userId &&
+        (await slackLacksApp(tokens, workspaceId, app.appId))
+      ) {
         throw appGone(app);
       }
       const at = now();

@@ -48,6 +48,7 @@ const DELETING_AGENT = "019a0000-0000-7000-8000-0000000000c7";
 const OTHER_AGENT = "019a0000-0000-7000-8000-0000000000c8";
 const UNKNOWN_AGENT = "019a0000-0000-7000-8000-0000000000c9";
 const GONE_AGENT = "019a0000-0000-7000-8000-0000000000ca";
+const OTHERS_AGENT = "019a0000-0000-7000-8000-0000000000cb";
 const OWNER = "019a0000-0000-7000-8000-0000000000d1";
 const AGENT_ADMIN = "019a0000-0000-7000-8000-0000000000d2";
 const ORIGIN = "https://console.example.ts.net";
@@ -312,8 +313,12 @@ const setup = (async () => {
   seed(CREATING_AGENT, "creating");
   seed(DELETING_AGENT, "deleting");
   seed(OTHER_AGENT, "created", OTHER_WORKSPACE);
-  // Made by a Slack that no longer has it, as a mock Slack's app is.
+  // Made by this token's user, in a Slack that no longer has it.
   seed(GONE_AGENT, "created");
+  appOf(GONE_AGENT).createdByTokenUser = "U0ISSUER";
+  // Made by another Slack user, as a mock Slack's app is.
+  seed(OTHERS_AGENT, "created");
+  appOf(OTHERS_AGENT).createdByTokenUser = "U0MOCK";
 })();
 
 describe("starting an install", () => {
@@ -408,6 +413,36 @@ describe("starting an install", () => {
       method: "apps.manifest.export",
       appId: "A0SEEDca",
     });
+    for (const gone of ["invalid_app_id", "app_deleted"]) {
+      slack.state.next.export = async () => {
+        throw new SlackApiError("apps.manifest.export", gone, true);
+      };
+      const again = await call(startPath(GONE_AGENT), { cookie: owner() });
+      expect([again.status, code(again.json).code]).toEqual([
+        409,
+        "SLACK_APP_GONE",
+      ]);
+    }
+  });
+
+  test("an app another Slack user made is not checked with this token", async () => {
+    await setup;
+    const before = slack.state.calls.length;
+    const url = new URL(await start(OTHERS_AGENT, owner()));
+    handled.push(url.searchParams.get("state") ?? "");
+    expect(url.searchParams.get("client_id")).toBe("9000.cb");
+    expect(slack.state.calls.length).toBe(before);
+  });
+
+  test("an answer that does not say the app is gone still makes the link", async () => {
+    await setup;
+    for (const answer of ["no_permission", "ratelimited"]) {
+      slack.state.next.export = async () => {
+        throw new SlackApiError("apps.manifest.export", answer, true);
+      };
+      const url = new URL(await start(AGENT, owner()));
+      handled.push(url.searchParams.get("state") ?? "");
+    }
   });
 
   test("when Slack cannot say whether the app is there, the link is made", async () => {

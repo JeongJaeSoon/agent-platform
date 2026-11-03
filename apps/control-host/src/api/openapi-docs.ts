@@ -255,7 +255,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   SLACK_APP_CREATING:
     "The Slack app (the agent's, or the workspace's link app) is still being created. `error.details.uncertain: true` means Slack's answer was lost: check api.slack.com/apps for an app made at that time, delete it, then retry with `replace_uncertain: true`.",
   SLACK_APP_GONE:
-    "Slack no longer shows the agent's app to the App Configuration Token's user (`apps.manifest.export` answered that the app does not exist): it was deleted in Slack, or made by another Slack user or team, so Slack's consent screen would answer `Invalid client_id`. `error.details` names the `slack_app_id` and Slack's `app_id`. Delete the app with `DELETE /v1/workspaces/{id}/slack/apps/{app_id}` and create it again.",
+    "Slack no longer has the agent's app: asked with the App Configuration Token of the Slack user who made the app, `apps.manifest.export` answered that it does not exist (e.g. it was deleted in Slack). `error.details` names the `slack_app_id` and Slack's `app_id`. Delete the app with `DELETE /v1/workspaces/{id}/slack/apps/{app_id}` and create it again.",
   AGENT_NOT_ACTIVE: "The agent has no active release; activate one first.",
   SLACK_INSTALL_STATE_INVALID:
     "The install link's state cannot be used: `error.details.reason_code` is `not_found` (unknown or already spent), `expired`, or `workspace`, `actor`, `agent` or `app` (issued to another workspace, person or agent, or for an app the agent no longer has). Start the install again.",

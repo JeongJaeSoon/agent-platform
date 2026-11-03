@@ -35,7 +35,7 @@ export const slackEn = {
   "slack.error.expired":
     "The installation link expired or was already used. Install again from the Slack tab.",
   "slack.error.gone":
-    "Slack can't find this app: it was deleted, or made by another Slack user or workspace. Delete the app under Danger zone, then install again to create a new one.",
+    "Slack no longer has this app. Delete it under Danger zone, then install again to create a new one.",
   "slack.error.rejected":
     "The Slack app or workspace did not match. Start again from the Slack tab.",
   "slack.error.cursor":
@@ -77,7 +77,7 @@ export const slackEn = {
     "The active release's profile ({profile}) needs a repository for every session, and the release has none it can use (none was chosen, or it left the catalog). Slack mentions and DMs are refused and only a notice is left in the thread. You can still connect. Create a release with a repository on the Release tab and activate it.",
   "slack.issuerChanged.title": "Made by another Slack user",
   "slack.issuerChanged.body":
-    "Slack user {previous} made this app, but the App Configuration Token now belongs to {user}. That token may not be able to install or change the app. If installing fails, delete the app under Danger zone and install again.",
+    "Slack user {previous} made this app, but the App Configuration Token now belongs to {user}. That token may not be able to install or change the app. If installing fails, register {previous}'s token again or add {user} as a collaborator on the app. If the app was already deleted in Slack, delete it under Danger zone and install again.",
   "slack.profileUnavailable.title": "Sessions can't start from Slack",
   "slack.profileUnavailable.body":
     "The active release's profile ({profile}) is no longer in the catalog, changed after the release, or was blocked by the operator. Slack mentions and DMs are refused and only a notice is left in the thread. Create a release under a profile you can use on the Release tab and activate it.",
