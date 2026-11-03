@@ -100,7 +100,7 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(4);
     const section = screen
-      .getByRole("heading", { level: 2, name: "자동으로 만든 Slack 앱" })
+      .getByRole("heading", { level: 3, name: "자동으로 만든 Slack 앱" })
       .closest("section");
     expect(section?.id).toBe("slack-apps");
     expect(section?.contains(table)).toBe(true);
@@ -200,7 +200,7 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     ).toBeNull();
   });
 
-  test("앱 목록 절은 토큰 카드 아래, 위험 구역 위에 온다", async () => {
+  test("앱 목록 절은 Slack 카드 안 토큰 아래에 오고, 게스트 카드가 뒤따른다", async () => {
     harness.renderAt(SLACK, {
       "GET /v1/auth/me": () => json(200, me()),
       [`GET ${CONFIG}`]: () =>
@@ -214,14 +214,18 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
       [`GET ${APPS}`]: () => json(200, { items: [] }),
     });
     await screen.findByText(EMPTY);
-    const danger = await screen.findByRole("heading", { name: "위험 구역" });
-    const headings = screen
-      .getAllByRole("heading", { level: 2 })
-      .map((heading) => heading.textContent);
-    expect(headings.indexOf("자동으로 만든 Slack 앱")).toBe(
-      headings.indexOf(danger.textContent) - 1,
-    );
-    expect(headings.at(-1)).toBe("위험 구역");
+    const card = screen.getByRole("region", { name: "Slack" });
+    expect(
+      within(card)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Slack 앱 생성", "자동으로 만든 Slack 앱"]);
+    expect(
+      screen
+        .getAllByRole("heading", { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Slack", "Slack 게스트"]);
+    expect(screen.queryByRole("heading", { name: "위험 구역" })).toBeNull();
   });
 
   test("예전 주소는 Slack 연결 설정의 앱 목록 절로 보낸다", async () => {
@@ -286,9 +290,10 @@ describe("Slack 연결 설정의 자동으로 만든 Slack 앱", () => {
     expect(
       (await screen.findAllByText(/워크스페이스 설정 변경/)).length,
     ).toBeGreaterThan(0);
+    // The Slack card says why; the list it cannot read is not drawn.
     expect(
-      screen.getByRole("heading", { level: 2, name: "자동으로 만든 Slack 앱" }),
-    ).toBeTruthy();
+      screen.queryByRole("heading", { name: "자동으로 만든 Slack 앱" }),
+    ).toBeNull();
     expect(calls).toEqual([]);
   });
 });

@@ -14,8 +14,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
-  DangerZone,
-  DangerZoneRow,
+  cn,
   ErrorState,
   Field,
   FieldDescription,
@@ -23,19 +22,22 @@ import {
   FieldLabel,
   FormActions,
   formatTimestamp,
+  Heading,
+  IconTile,
   Input,
   Link,
-  RowAction,
+  RowList,
   RowListItem,
-  SettingRow,
-  SettingsSection,
   Skeleton,
   Steps,
+  Text,
 } from "@werft-ai/ui";
 import {
   type FormEvent,
   type ReactNode,
+  type RefObject,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -47,11 +49,14 @@ import {
   useMe,
   useRole,
 } from "../auth/guard.tsx";
+import { SlackMark } from "../components/brand-marks.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
+import { RowMenu, RowMenuItem } from "../components/row-menu.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   type OnOutcome,
+  SETTINGS_CARD,
   SlackGuest,
   WorkspacePage,
 } from "./workspace-settings.tsx";
@@ -80,9 +85,10 @@ function useConfigToken() {
 }
 
 /**
- * Workspace › Slack: the app-making token first, then who may use agents
- * from Slack and the apps the token made. Until a token works and no app
- * exists, nothing below it can take effect, so only the token is shown.
+ * Workspace › Slack, laid out like Workspace › GitHub: one Slack card (the
+ * app-making token, then the apps it made) and the guest card. Until a token
+ * works and no app exists, nothing else can take effect, so only the card's
+ * start is shown.
  */
 export function WorkspaceSlackScreen() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -102,20 +108,36 @@ export function WorkspaceSlackScreen() {
       <OutcomeLine outcome={outcome} />
       {/* Members can only read the guest setting; it leads for them. */}
       {canManage ? null : guest}
-      <ConfigToken
+      <SlackCard
         start={tokenOnly && token.data?.state === "unset"}
         deciding={deciding}
+        withApps={!tokenOnly && !deciding}
         onOutcome={setOutcome}
-        after={
-          tokenOnly || deciding ? null : (
-            <>
-              {canManage ? guest : null}
-              <SlackApps />
-            </>
-          )
-        }
       />
+      {canManage && !tokenOnly && !deciding ? guest : null}
     </WorkspacePage>
+  );
+}
+
+/**
+ * Back to the button that opened the form, else the menu, else the token's
+ * heading once neither is on the page any more.
+ */
+const focusFirst = (...refs: RefObject<HTMLElement | null>[]) =>
+  refs
+    .map((ref) => ref.current)
+    .find((element) => element?.isConnected)
+    ?.focus();
+
+/** Slack's mark in the tile's one colour, as GitHub's is on its card. */
+function TileMark({ className }: { readonly className?: string }) {
+  return (
+    <SlackMark
+      className={cn(
+        className,
+        "text-(--ap-color-tile-foreground) [&_path]:fill-current",
+      )}
+    />
   );
 }
 
@@ -123,19 +145,19 @@ export function WorkspaceSlackScreen() {
  * The token only reads as a state and who saved it when; the value never
  * comes back. Replacing it is the same PUT as setting it the first time.
  */
-function ConfigToken({
+function SlackCard({
   start,
   deciding,
+  withApps,
   onOutcome,
-  after,
 }: {
-  /** No token and no app yet: one card that starts the connection. */
+  /** No token and no app yet: the card holds only the way to start. */
   readonly start: boolean;
   /** Whether `start` applies is not known yet. */
   readonly deciding: boolean;
+  /** The apps the token made, under the token. */
+  readonly withApps: boolean;
   readonly onOutcome: OnOutcome;
-  /** Sections under the token card; its danger zone stays last on the page. */
-  readonly after?: ReactNode;
 }) {
   const { t, locale } = useI18n();
   const { client } = useAgentPlatform();
@@ -143,10 +165,17 @@ function ConfigToken({
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
+  const apps = useWorkspaceSlackApps();
+  const titleId = useId();
+  const tokenTitleId = useId();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // The visible register button, when the row has one.
   const actionRef = useRef<HTMLButtonElement>(null);
+  // The ⋯ button the form or the delete dialog was opened from.
+  const menuRef = useRef<HTMLButtonElement | null>(null);
+  const tokenHeadingRef = useRef<HTMLHeadingElement>(null);
   const wasEditing = useRef(false);
   // Saving or deleting can swap the button that held the focus for another.
   const focusOnState = useRef<"save" | "delete" | null>(null);
@@ -160,7 +189,7 @@ function ConfigToken({
       wasEditing.current &&
       document.activeElement === document.body
     )
-      actionRef.current?.focus();
+      focusFirst(actionRef, menuRef, tokenHeadingRef);
     wasEditing.current = editing;
   }, [editing]);
   useEffect(() => {
@@ -177,7 +206,7 @@ function ConfigToken({
         (after === "delete" &&
           at.closest('[role="dialog"], [role="alertdialog"]'))
       )
-        actionRef.current?.focus();
+        focusFirst(actionRef, menuRef, tokenHeadingRef);
     }
   }, [summary?.state]);
 
@@ -283,94 +312,95 @@ function ConfigToken({
     />
   ) : null;
 
-  if (start) {
-    return (
-      <SettingsSection
-        title={t("workspace.slackStart")}
-        description={t("workspace.slackStartHint")}
-        rows={form ? <RowListItem>{form}</RowListItem> : undefined}
-        foot={
-          form ? undefined : (
-            <Button
-              ref={actionRef}
-              type="button"
-              onClick={() => setEditing(true)}
-            >
-              {t("workspace.tokenAdd")}
-            </Button>
-          )
-        }
-      />
-    );
-  }
+  const status = !canManage
+    ? permissionReason(t, "workspace.manage", role)
+    : start
+      ? t("workspace.slackNone")
+      : apps.isSuccess
+        ? t("workspace.slackCount", { count: apps.data.items.length })
+        : " ";
 
-  const rows = !canManage ? (
-    <SettingRow
-      title={t("workspace.token")}
-      description={permissionReason(t, "workspace.manage", role)}
-    />
-  ) : token.isPending || deciding ? (
-    <RowListItem>
-      <Skeleton width="50%" />
-    </RowListItem>
-  ) : token.isError ? (
-    <RowListItem>
-      {storeOff(token.error) ? (
-        <ErrorState
-          title={t("status.loadFailed")}
-          message={t("workspace.tokenStoreUnavailable")}
-        />
-      ) : (
-        <LoadFailure error={token.error} onRetry={() => void token.refetch()} />
+  const body = !canManage ? null : start ? (
+    <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
+      <Text weight="medium">{t("workspace.slackEmpty")}</Text>
+      <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
+      {form ?? (
+        <Button ref={actionRef} type="button" onClick={() => setEditing(true)}>
+          {t("workspace.tokenAdd")}
+        </Button>
       )}
-    </RowListItem>
+    </div>
   ) : (
     <>
-      <SettingRow
-        title={t("workspace.token")}
-        badge={<TokenBadge summary={summary} />}
-        description={tokenLine(summary, t, locale)}
-        actions={
-          editing ? undefined : (
-            <RowAction
-              ref={actionRef}
-              variant={summary?.state === "active" ? "outline" : "default"}
-              onClick={() => setEditing(true)}
-            >
-              {t(
-                summary?.state === "active"
-                  ? "workspace.tokenReplace"
-                  : summary?.state === "needs_reentry"
-                    ? "workspace.tokenReenter"
-                    : "workspace.tokenAdd",
+      <section aria-labelledby={tokenTitleId} className="flex flex-col gap-2">
+        <Heading
+          id={tokenTitleId}
+          ref={tokenHeadingRef}
+          level={3}
+          tabIndex={-1}
+          className="focus-visible:outline-none"
+        >
+          {t("workspace.tokenSection")}
+        </Heading>
+        <RowList variant="joined" aria-labelledby={tokenTitleId}>
+          {token.isPending || deciding ? (
+            <RowListItem>
+              <Skeleton width="50%" />
+            </RowListItem>
+          ) : token.isError ? (
+            <RowListItem>
+              {storeOff(token.error) ? (
+                <ErrorState
+                  title={t("status.loadFailed")}
+                  message={t("workspace.tokenStoreUnavailable")}
+                />
+              ) : (
+                <LoadFailure
+                  error={token.error}
+                  onRetry={() => void token.refetch()}
+                />
               )}
-            </RowAction>
-          )
-        }
-      />
-      {form ? <RowListItem>{form}</RowListItem> : null}
+            </RowListItem>
+          ) : (
+            <TokenRow
+              summary={summary}
+              editing={editing}
+              actionRef={actionRef}
+              onEdit={(menu) => {
+                menuRef.current = menu;
+                setEditing(true);
+              }}
+              onDelete={(menu) => {
+                menuRef.current = menu;
+                setDeleting(true);
+              }}
+              form={form}
+              locale={locale}
+            />
+          )}
+        </RowList>
+        {/* Says what the row's "last token check" means; no token, no check. */}
+        {summary?.updated_at ? (
+          <Text variant="meta">{t("workspace.tokenHint")}</Text>
+        ) : null}
+      </section>
+      {withApps ? <SlackApps /> : null}
     </>
   );
 
   return (
-    <>
-      <SettingsSection
-        title={t("workspace.tokenSection")}
-        description={t("workspace.tokenHint")}
-        rows={rows}
-      />
-      {after}
-      {canManage && summary?.configured && after ? (
-        <DangerZone title={t("workspace.danger")}>
-          <DangerZoneRow
-            title={t("workspace.tokenDelete")}
-            description={t("workspace.tokenDeleteHint")}
-            actionLabel={t("workspace.delete")}
-            actionName={t("workspace.tokenDelete")}
-            onAction={() => setDeleting(true)}
-          />
-        </DangerZone>
-      ) : null}
+    <section aria-labelledby={titleId} className={SETTINGS_CARD}>
+      <div className="flex items-center gap-3">
+        <IconTile icon={TileMark} hue="slate" size="two-line" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Heading id={titleId} level={2}>
+            Slack
+          </Heading>
+          <Text variant="sub">{status}</Text>
+        </div>
+      </div>
+      <Text variant="sub">{t("workspace.slackCardHint")}</Text>
+      {body}
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
@@ -385,7 +415,83 @@ function ConfigToken({
           if (!remove.isPending) remove.mutate();
         }}
       />
-    </>
+    </section>
+  );
+}
+
+/**
+ * The token as one row of the card, like a GitHub App's: its details, the
+ * state on the right, then the ⋯ menu. A token that cannot make apps puts
+ * its register button where the menu would lead.
+ */
+function TokenRow({
+  summary,
+  editing,
+  actionRef,
+  onEdit,
+  onDelete,
+  form,
+  locale,
+}: {
+  readonly summary: SlackConfigTokenSummary | undefined;
+  readonly editing: boolean;
+  readonly actionRef: RefObject<HTMLButtonElement | null>;
+  readonly onEdit: (menu: HTMLButtonElement | null) => void;
+  readonly onDelete: (menu: HTMLButtonElement | null) => void;
+  readonly form: ReactNode;
+  readonly locale: ReturnType<typeof useI18n>["locale"];
+}) {
+  const { t } = useI18n();
+  const active = summary?.state === "active";
+  const line = tokenLine(summary, t, locale);
+  return (
+    <RowListItem className="flex-col flex-nowrap items-stretch gap-2">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Text as="span" weight="medium" truncate>
+            {t("workspace.token")}
+          </Text>
+          {line ? <Text variant="meta">{line}</Text> : null}
+        </div>
+        <TokenBadge summary={summary} />
+        {active || editing ? null : (
+          <Button
+            ref={actionRef}
+            type="button"
+            size="sm"
+            onClick={() => onEdit(null)}
+          >
+            {t(
+              summary?.state === "needs_reentry"
+                ? "workspace.tokenReenter"
+                : "workspace.tokenAdd",
+            )}
+          </Button>
+        )}
+        {summary?.configured ? (
+          <RowMenu label={t("workspace.tokenMenu")}>
+            {(close) => (
+              <>
+                {active ? (
+                  <RowMenuItem onSelect={() => onEdit(close())}>
+                    {t("workspace.tokenReplace")}
+                  </RowMenuItem>
+                ) : null}
+                <RowMenuItem tone="danger" onSelect={() => onDelete(close())}>
+                  {t("workspace.tokenDelete")}
+                </RowMenuItem>
+              </>
+            )}
+          </RowMenu>
+        ) : null}
+      </div>
+      {summary?.state === "needs_reentry" ? (
+        <Text className="text-(color:--ap-tone-danger-fg)">
+          {t("workspace.tokenNeedsReentryHint")}
+        </Text>
+      ) : null}
+      {form}
+    </RowListItem>
   );
 }
 
@@ -496,9 +602,6 @@ function tokenLine(
   t: ReturnType<typeof useI18n>["t"],
   locale: ReturnType<typeof useI18n>["locale"],
 ): string | undefined {
-  if (summary?.state === "needs_reentry") {
-    return t("workspace.tokenNeedsReentryHint");
-  }
   if (summary?.state === "unset") return t("workspace.tokenUnsetHint");
   if (!summary?.updated_at) return undefined;
   const at = formatTimestamp(summary.updated_at, locale);
