@@ -36,7 +36,7 @@ export const agentGitHubKo = {
     "GitHub 사용이 꺼져 있어 아래 설정은 읽기만 할 수 있습니다.",
   "agentGitHub.pending.title": "릴리스에 넣지 않은 변경 {count}건",
   "agentGitHub.pending.body":
-    "저장하면 지금 카드 버전 v{version}과 실행 프로필 {profile}로 새 릴리스를 만들고 활성화합니다. 그 뒤에 시작하는 세션부터 적용되고, 진행 중인 세션은 이전 릴리스 설정을 씁니다.",
+    "저장하면 지금 카드 버전 v{version}과 프로필 {profile}로 새 릴리스를 만들고 활성화합니다. 그 뒤에 시작하는 세션부터 적용되고, 진행 중인 세션은 이전 릴리스 설정을 씁니다.",
   "agentGitHub.pending.save": "새 릴리스로 저장",
   "agentGitHub.pending.saving": "저장하는 중…",
   "agentGitHub.pending.revert": "되돌리기",
@@ -50,12 +50,12 @@ export const agentGitHubKo = {
   "agentGitHub.stale":
     "다른 사람이 그 사이 에이전트를 활성화했습니다. 저장하지 않았습니다. 되돌린 뒤 지금 설정에서 다시 바꾸세요.",
   "agentGitHub.legacy":
-    "이 릴리스에는 아직 GitHub 설정이 없어 실행 프로필이 허용하는 모든 저장소를 씁니다. 아래 값은 처음 저장할 때의 기본값입니다.",
+    "이 릴리스에는 아직 GitHub 설정이 없어 프로필이 허용하는 모든 저장소를 씁니다. 아래 값은 처음 저장할 때의 기본값입니다.",
   "agentGitHub.unsavable.title": "GitHub 설정을 저장할 수 없습니다",
   "agentGitHub.unsavable.no_active_release":
     "활성 릴리스가 없습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 GitHub 설정을 정할 수 있습니다.",
   "agentGitHub.unsavable.repository_none":
-    "활성 릴리스의 실행 프로필은 저장소 없이 실행합니다. 저장소를 쓰는 실행 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
+    "활성 릴리스의 프로필은 저장소 없이 실행합니다. 저장소를 쓰는 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
   "agentGitHub.unsavable.app_required":
     "활성 릴리스의 저장소가 PAT로 연결되어 권한을 좁힐 수 없습니다. 운영자가 그 저장소를 GitHub App으로 옮기면 설정할 수 있습니다.",
   "agentGitHub.repositoriesHint":
@@ -68,7 +68,7 @@ export const agentGitHubKo = {
   "agentGitHub.repositoryUnused": "안 씀",
   "agentGitHub.repositoryRelease": "활성 릴리스의 저장소라 뺄 수 없습니다.",
   "agentGitHub.repositoryReason.repository_not_allowed":
-    "실행 프로필이 이 저장소를 허용하지 않습니다.",
+    "프로필이 이 저장소를 허용하지 않습니다.",
   "agentGitHub.repositoryReason.app_required":
     "PAT로 연결된 저장소라 권한을 좁힐 수 없습니다. GitHub App으로 옮겨야 고를 수 있습니다.",
   "agentGitHub.repositoriesFoot":
@@ -225,7 +225,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.offNote": "GitHub is off, so the settings below are read only.",
   "agentGitHub.pending.title": "{count} changes not in a release",
   "agentGitHub.pending.body":
-    "Saving makes a new release of card version v{version} with runtime profile {profile} and activates it. Sessions started after that use it; running sessions keep the earlier release's settings.",
+    "Saving makes a new release of card version v{version} with profile {profile} and activates it. Sessions started after that use it; running sessions keep the earlier release's settings.",
   "agentGitHub.pending.save": "Save as a new release",
   "agentGitHub.pending.saving": "Saving…",
   "agentGitHub.pending.revert": "Revert",
@@ -239,12 +239,12 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.stale":
     "Someone activated the agent meanwhile. Nothing was saved. Revert, then make your changes again on the current settings.",
   "agentGitHub.legacy":
-    "This release has no GitHub settings yet, so it uses every repository its runtime profile allows. The values below are what a first save starts from.",
+    "This release has no GitHub settings yet, so it uses every repository its profile allows. The values below are what a first save starts from.",
   "agentGitHub.unsavable.title": "GitHub settings cannot be saved",
   "agentGitHub.unsavable.no_active_release":
     "There is no active release. Make and activate one in the Release tab to set GitHub up.",
   "agentGitHub.unsavable.repository_none":
-    "The active release's runtime profile runs without a repository. Release under a runtime profile that uses one to set GitHub up.",
+    "The active release's profile runs without a repository. Release under a profile that uses one to set GitHub up.",
   "agentGitHub.unsavable.app_required":
     "The active release's repository connects with a PAT, which cannot be narrowed. It can be set up once the operator moves it to a GitHub App.",
   "agentGitHub.repositoriesHint":
@@ -256,7 +256,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoryUnused": "Not used",
   "agentGitHub.repositoryRelease": "The active release's repository; it stays.",
   "agentGitHub.repositoryReason.repository_not_allowed":
-    "The runtime profile does not allow this repository.",
+    "The profile does not allow this repository.",
   "agentGitHub.repositoryReason.app_required":
     "It connects with a PAT, which cannot be narrowed. Move it to a GitHub App to pick it.",
   "agentGitHub.repositoriesFoot":
@@ -416,7 +416,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.offNote": "GitHub がオフのため、以下の設定は読むだけです。",
   "agentGitHub.pending.title": "リリースに入れていない変更 {count} 件",
   "agentGitHub.pending.body":
-    "保存すると、いまのカードバージョン v{version} と実行プロファイル {profile} で新しいリリースを作り、有効にします。その後に始まるセッションから適用され、実行中のセッションは以前のリリースの設定を使います。",
+    "保存すると、いまのカードバージョン v{version} とプロファイル {profile} で新しいリリースを作り、有効にします。その後に始まるセッションから適用され、実行中のセッションは以前のリリースの設定を使います。",
   "agentGitHub.pending.save": "新しいリリースとして保存",
   "agentGitHub.pending.saving": "保存しています…",
   "agentGitHub.pending.revert": "元に戻す",
@@ -430,12 +430,12 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.stale":
     "その間に別の人がエージェントを有効にしました。保存していません。元に戻してから、今の設定で変更し直してください。",
   "agentGitHub.legacy":
-    "このリリースにはまだ GitHub の設定がないため、実行プロファイルが許可するすべてのリポジトリを使います。以下は初めて保存するときの既定値です。",
+    "このリリースにはまだ GitHub の設定がないため、プロファイルが許可するすべてのリポジトリを使います。以下は初めて保存するときの既定値です。",
   "agentGitHub.unsavable.title": "GitHub の設定を保存できません",
   "agentGitHub.unsavable.no_active_release":
     "有効なリリースがありません。リリースタブでリリースを作って有効にすると、GitHub を設定できます。",
   "agentGitHub.unsavable.repository_none":
-    "有効なリリースの実行プロファイルはリポジトリなしで実行します。リポジトリを使う実行プロファイルでリリースすると設定できます。",
+    "有効なリリースのプロファイルはリポジトリなしで実行します。リポジトリを使うプロファイルでリリースすると設定できます。",
   "agentGitHub.unsavable.app_required":
     "有効なリリースのリポジトリは PAT で接続されていて、権限を絞れません。運用者が GitHub App に移すと設定できます。",
   "agentGitHub.repositoriesHint":
@@ -449,7 +449,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoryRelease":
     "有効なリリースのリポジトリのため外せません。",
   "agentGitHub.repositoryReason.repository_not_allowed":
-    "実行プロファイルがこのリポジトリを許可していません。",
+    "プロファイルがこのリポジトリを許可していません。",
   "agentGitHub.repositoryReason.app_required":
     "PAT で接続されたリポジトリのため権限を絞れません。GitHub App に移すと選べます。",
   "agentGitHub.repositoriesFoot":

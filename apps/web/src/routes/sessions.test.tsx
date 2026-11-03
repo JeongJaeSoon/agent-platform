@@ -2342,7 +2342,7 @@ describe("session profile", () => {
     await user.keyboard("next step{Control>}{Enter}{/Control}");
     expect(
       await screen.findByText(
-        "운영자가 이 세션의 실행 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
+        "운영자가 이 세션의 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
       ),
     ).toBeTruthy();
   });

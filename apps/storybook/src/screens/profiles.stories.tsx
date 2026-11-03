@@ -28,11 +28,9 @@ import {
   RadioGroup,
   RadioGroupItem,
   Section,
-  SegmentedControl,
-  SegmentedControlItem,
   Textarea,
 } from "@werft-ai/ui";
-import { useId, useState } from "react";
+import { useId } from "react";
 
 import { MOBILE, ScreenShell } from "./screen-kit.tsx";
 
@@ -109,22 +107,16 @@ const COLUMNS = [
 function Crumbs({ current }: { readonly current: string }) {
   return (
     <PageBreadcrumb label="위치">
-      <PageBreadcrumbLink href="#profiles">실행 프로필</PageBreadcrumbLink>
+      <PageBreadcrumbLink href="#profiles">프로필</PageBreadcrumbLink>
       <PageBreadcrumbCurrent>{current}</PageBreadcrumbCurrent>
     </PageBreadcrumb>
   );
 }
 
 function List({ role }: { readonly role: Role }) {
-  const [filter, setFilter] = useState("all");
-  const rows = ROWS.filter(
-    (row) =>
-      filter === "all" ||
-      (filter === "installation") === (row.kind === "설치 프로필"),
-  );
   return (
     <Page
-      title="실행 프로필"
+      title="프로필"
       description="에이전트가 쓸 모델과 도구를 정합니다. 설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정하고, 워크스페이스 프로필은 설치 프로필 하나를 줄여 만듭니다."
       actions={
         <div className="flex flex-wrap gap-2">
@@ -136,25 +128,9 @@ function List({ role }: { readonly role: Role }) {
       }
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
-        <SegmentedControl
-          aria-label="프로필 종류"
-          size="toolbar"
-          value={filter}
-          onValueChange={setFilter}
-        >
-          <SegmentedControlItem value="all" count={4}>
-            전체
-          </SegmentedControlItem>
-          <SegmentedControlItem value="installation" count={3}>
-            설치 프로필
-          </SegmentedControlItem>
-          <SegmentedControlItem value="workspace" count={1}>
-            워크스페이스 프로필
-          </SegmentedControlItem>
-        </SegmentedControl>
         <div className="rounded-card border bg-card">
           <GridTable
-            aria-label="실행 프로필"
+            aria-label="프로필"
             columns={COLUMNS[0]}
             narrowAt={860}
             narrowColumns={COLUMNS[1]}
@@ -174,7 +150,7 @@ function List({ role }: { readonly role: Role }) {
               </GridTableColumnHeader>
               <GridTableColumnHeader>상태</GridTableColumnHeader>
             </GridTableHeader>
-            {rows.map((row) => (
+            {ROWS.map((row) => (
               <GridTableRow key={row.id}>
                 <GridTableCell>
                   <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
@@ -514,7 +490,7 @@ function ProfilesScreen({
   readonly role: Role;
 }) {
   return (
-    <ScreenShell current="profiles" crumb={["실행 프로필"]} role={role}>
+    <ScreenShell current="profiles" crumb={["프로필"]} role={role}>
       {view === "list" ? (
         <List role={role} />
       ) : view === "detail" ? (

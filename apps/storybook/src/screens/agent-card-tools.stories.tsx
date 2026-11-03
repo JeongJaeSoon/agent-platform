@@ -26,10 +26,12 @@ import { useState } from "react";
 const PROFILES = [
   {
     id: "claude-coding-local",
+    label: "claude-coding-local v1 · claude-sonnet-5 (설치)",
     tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "AskUserQuestion"],
   },
   {
     id: "general",
+    label: "general v1 · claude-sonnet-5 (설치)",
     tools: ["Read", "Write", "Edit", "Glob", "Grep", "AskUserQuestion"],
   },
 ] as const;
@@ -118,19 +120,20 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
       <FieldSet className="gap-3">
         <FieldLegend variant="label">쓸 수 있는 도구</FieldLegend>
         <Field>
-          <FieldLabel>도구를 보여 줄 프로필</FieldLabel>
+          <FieldLabel>프로필</FieldLabel>
           <NativeSelect
             value={previewId}
             onChange={(event) => setPreviewId(event.target.value)}
           >
             {PROFILES.map((profile) => (
               <NativeSelectOption key={profile.id} value={profile.id}>
-                {profile.id}
+                {profile.label}
               </NativeSelectOption>
             ))}
           </NativeSelect>
           <FieldDescription>
-            이 프로필의 도구 목록에서 고릅니다. 카드에는 저장하지 않습니다.
+            이 프로필의 도구에서 고르고, 새 릴리스도 이 프로필로 만듭니다.
+            카드에는 저장하지 않습니다.
           </FieldDescription>
         </Field>
         <Field orientation="horizontal">
