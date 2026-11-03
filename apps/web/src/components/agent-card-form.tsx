@@ -418,18 +418,25 @@ function ToolFields({
     previewId ?? ownPick,
     previewable,
   );
-  // A draft model change can resolve to another profile than the one shared;
-  // the shared value follows then, and only then: a pick made in the releases
-  // tab that this draft's model cannot show must stay.
+  // The shared value follows what the checklist resolves to when the draft
+  // model changes, or when the shared one can no longer be picked at all (a
+  // refetch dropped or retired it). A pick made in the releases tab that this
+  // draft's model cannot show stays.
   const resolved = preview?.id;
+  const usable = previewable ?? pickable;
+  const sharedGone =
+    previewId !== undefined &&
+    profiles.length > 0 &&
+    !profiles.some((profile) => profile.id === previewId && usable(profile));
   const modelSeen = useRef(draft.model);
   useEffect(() => {
-    if (modelSeen.current === draft.model) return;
+    const modelChanged = modelSeen.current !== draft.model;
     modelSeen.current = draft.model;
+    if (!modelChanged && !sharedGone) return;
     if (resolved !== undefined && resolved !== previewId) {
       onPreviewChange?.(resolved);
     }
-  }, [draft.model, resolved, previewId, onPreviewChange]);
+  }, [draft.model, sharedGone, resolved, previewId, onPreviewChange]);
   const offered = preview?.tools ?? [];
   const all = draft.toolsMode === "all";
   const outside = all

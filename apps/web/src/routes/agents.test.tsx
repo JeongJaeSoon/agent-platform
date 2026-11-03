@@ -2734,6 +2734,56 @@ describe("편집 중 다른 곳의 저장", () => {
     );
   });
 
+  test("모델을 바꾼 뒤 재조회로 공유 프로필이 빠지면 카드 편집과 새 release가 같은 대체 프로필로 간다", async () => {
+    const server = agentServer();
+    const listed = server.routes["GET /v1/profiles"] as () => Response;
+    let bothListed = true;
+    const { services } = renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": async () => {
+        const body = (await listed().json()) as { items: ProfileSummary[] };
+        const local = body.items.find(
+          (item) => item.id === PROFILE,
+        ) as ProfileSummary;
+        const runsBoth = (id: string): ProfileSummary => ({
+          ...local,
+          id,
+          model: "claude-haiku-5",
+          models: ["claude-haiku-5", CARD.model],
+        });
+        return json(200, {
+          items: [
+            local,
+            ...(bothListed ? [runsBoth("claude-coding-both")] : []),
+            runsBoth("claude-coding-backup"),
+          ],
+        });
+      },
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+    const cardProfile = (await within(card).findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    await user.selectOptions(
+      within(card).getByLabelText("모델"),
+      "claude-haiku-5",
+    );
+    await waitFor(() => expect(cardProfile.value).toBe("claude-coding-both"));
+
+    bothListed = false;
+    await services.queryClient.invalidateQueries();
+    await waitFor(() => expect(cardProfile.value).toBe("claude-coding-backup"));
+
+    await showTab(user, "릴리스");
+    const release = await openRelease(user);
+    expect(
+      ((await release.findByLabelText("프로필")) as HTMLSelectElement).value,
+    ).toBe("claude-coding-backup");
+  });
+
   test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });
