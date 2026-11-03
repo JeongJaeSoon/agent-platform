@@ -31,8 +31,9 @@ export interface TimelineEntry {
   /** presentTurnEvent's reading, with the tool call paired by the screen. */
   readonly presentation: TurnEventPresentation;
   /**
-   * The tool_use block's id, on the call and on its result alike; a result
-   * with the id of an earlier call is drawn inside that call's row.
+   * The tool_use block's id, on the call, its result and a request holding
+   * it back alike; those with the id of an earlier call are drawn inside
+   * that call's row, in the order they came.
    */
   readonly toolCallId?: string | undefined;
   /** A question or permission event's request, for the `request` slot. */
@@ -155,6 +156,12 @@ interface TimelineRow extends TimelineEntry {
   readonly key: string;
   /** The tool result paired with this call, drawn in the same row. */
   readonly result?: TimelineEntry | undefined;
+  /**
+   * The result and the requests that held this call back, in the order
+   * they came, drawn under the call: a permission granted before the call
+   * ran reads above its result.
+   */
+  readonly inner?: readonly TimelineEntry[] | undefined;
 }
 
 type TimelineItem =
@@ -181,7 +188,8 @@ function withCount(
   );
 }
 
-const resultKey = (row: TimelineRow): string => `${row.key}:result`;
+const innerKey = (row: TimelineRow, inner: TimelineEntry): string =>
+  `${row.key}:${inner.id}`;
 
 const isNoise = (row: TimelineEntry): boolean =>
   !row.presentation.error && NOISE_LABELS.has(row.presentation.label.key);
@@ -191,7 +199,7 @@ function timelineRows(
   showDebug: boolean,
 ): TimelineRow[] {
   const rows: TimelineRow[] = [];
-  const openCalls = new Map<string, number>();
+  const calls = new Map<string, number>();
   let ticks = 0;
   for (const entry of entries) {
     const { presentation } = entry;
@@ -215,18 +223,20 @@ function timelineRows(
     }
     ticks = 0;
     const callAt =
-      entry.toolCallId === undefined
-        ? undefined
-        : openCalls.get(entry.toolCallId);
+      entry.toolCallId === undefined ? undefined : calls.get(entry.toolCallId);
     const call = callAt === undefined ? undefined : rows[callAt];
-    if (
-      call &&
-      callAt !== undefined &&
-      presentation.label.key === "session.event.kind.toolResult"
-    ) {
-      rows[callAt] = { ...call, result: entry };
-      openCalls.delete(entry.toolCallId as string);
-      continue;
+    if (call && callAt !== undefined) {
+      const isResult =
+        presentation.label.key === "session.event.kind.toolResult" &&
+        call.result === undefined;
+      if (isResult || timelineKind(presentation) === "request") {
+        rows[callAt] = {
+          ...call,
+          ...(isResult ? { result: entry } : {}),
+          inner: [...(call.inner ?? []), entry],
+        };
+        continue;
+      }
     }
     // Nothing to say: a row here would be an empty card.
     if (presentation.summary.length === 0) continue;
@@ -234,7 +244,7 @@ function timelineRows(
       entry.toolCallId !== undefined &&
       presentation.label.key === "session.event.kind.toolUse"
     ) {
-      openCalls.set(entry.toolCallId, rows.length);
+      calls.set(entry.toolCallId, rows.length);
     }
     rows.push({ ...entry, key: entry.id });
   }
@@ -421,8 +431,8 @@ export function Timeline({
     for (const item of group.items) {
       if (!item.fold) {
         see(item.row.key, item.row.occurredAt);
-        if (item.row.result) {
-          see(resultKey(item.row), item.row.result.occurredAt);
+        for (const inner of item.row.inner ?? []) {
+          see(innerKey(item.row, inner), inner.occurredAt);
         }
         continue;
       }
@@ -472,7 +482,7 @@ export function Timeline({
                 messages={messages}
                 time={time}
                 shown={shown.has(row.key)}
-                resultShown={shown.has(resultKey(row))}
+                innerShown={(inner) => shown.has(innerKey(row, inner))}
                 first={first}
                 last={last}
                 request={request}
@@ -681,7 +691,7 @@ function EventItem({
   messages,
   time,
   shown,
-  resultShown,
+  innerShown,
   first,
   last,
   request,
@@ -690,11 +700,21 @@ function EventItem({
   readonly row: TimelineRow;
   readonly time: TimeContext;
   readonly shown: boolean;
-  readonly resultShown: boolean;
+  readonly innerShown: (inner: TimelineEntry) => boolean;
   readonly request: TimelineProps["request"];
   readonly held: TimelineProps["held"];
 }): JSX.Element {
   const { presentation, result } = row;
+  const callText = turnSummaryText(presentation.summary, formatMessage);
+  const innerStamp = (inner: TimelineEntry) =>
+    innerShown(inner) ? (
+      <>
+        {" "}
+        <Stamp at={inner.occurredAt} time={time} />
+      </>
+    ) : (
+      <HiddenStamp at={inner.occurredAt} time={time} />
+    );
   const error =
     presentation.error === true || result?.presentation.error === true;
   const kind = error ? "error" : timelineKind(presentation);
@@ -708,9 +728,6 @@ function EventItem({
     : running
       ? { text: messages.running, tone: "text-[var(--ap-tone-progress-fg)]" }
       : { text: messages.waiting, tone: "text-[var(--ap-tone-attention-fg)]" };
-  const slot =
-    row.requestId === undefined ? null : (request?.(row.requestId) ?? null);
-  const options = row.options ?? [];
   return (
     <li
       data-error={error || undefined}
@@ -733,41 +750,103 @@ function EventItem({
           ) : null}
         </div>
         <Summary entry={row} formatMessage={formatMessage} />
-        {result ? (
-          <Summary
-            entry={result}
-            formatMessage={formatMessage}
-            stamp={
-              resultShown ? (
-                <>
-                  {" "}
-                  <Stamp at={result.occurredAt} time={time} />
-                </>
-              ) : (
-                <HiddenStamp at={result.occurredAt} time={time} />
-              )
-            }
-          />
-        ) : null}
-        {slot ??
-          (options.length === 0 ? null : (
-            <ul
-              aria-label={messages.options}
-              className="m-0 flex list-none flex-wrap gap-1.5 p-0"
-            >
-              {options.map((option, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: labels may repeat; the position tells them apart
-                <li key={index} className="max-w-full">
-                  {/* A long option wraps inside the badge, never past the row. */}
-                  <Badge className="h-auto min-h-5 max-w-full whitespace-normal [overflow-wrap:anywhere]">
-                    {option}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          ))}
+        {(row.inner ?? []).map((inner) => {
+          const stamp = innerStamp(inner);
+          return timelineKind(inner.presentation) === "request" ? (
+            <InnerRequest
+              key={inner.id}
+              entry={inner}
+              callText={callText}
+              stamp={stamp}
+              formatMessage={formatMessage}
+              messages={messages}
+              request={request}
+            />
+          ) : (
+            <Summary
+              key={inner.id}
+              entry={inner}
+              formatMessage={formatMessage}
+              stamp={stamp}
+            />
+          );
+        })}
+        <RequestBody entry={row} messages={messages} request={request} />
       </div>
     </li>
+  );
+}
+
+/**
+ * A request inside the call it held back: its name and time between the
+ * call and its result, and its answer form while it waits.
+ */
+function InnerRequest({
+  entry,
+  callText,
+  stamp,
+  formatMessage,
+  messages,
+  request,
+}: {
+  readonly entry: TimelineEntry;
+  /** The call's own line: a request that only repeats it says nothing new. */
+  readonly callText: string;
+  readonly stamp: JSX.Element;
+  readonly formatMessage: FormatTurnMessage;
+  readonly messages: TimelineMessages;
+  readonly request: TimelineProps["request"];
+}): JSX.Element {
+  const { presentation } = entry;
+  const summary = turnSummaryText(presentation.summary, formatMessage);
+  return (
+    <div data-slot="timeline-request" className="flex min-w-0 flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2 text-control font-medium">
+        <KindIcon kind="request" messages={messages} small={true} />
+        <span className="min-w-0">
+          {formatMessage(presentation.label)}
+          {stamp}
+        </span>
+      </div>
+      {summary.length === 0 || summary === callText ? null : (
+        <Summary entry={entry} formatMessage={formatMessage} />
+      )}
+      <RequestBody entry={entry} messages={messages} request={request} />
+    </div>
+  );
+}
+
+/** A request's answer form, or a question's options when there is none. */
+function RequestBody({
+  entry,
+  messages,
+  request,
+}: {
+  readonly entry: TimelineEntry;
+  readonly messages: TimelineMessages;
+  readonly request: TimelineProps["request"];
+}): ReactNode {
+  const slot =
+    entry.requestId === undefined ? null : (request?.(entry.requestId) ?? null);
+  const options = entry.options ?? [];
+  return (
+    slot ??
+    (options.length === 0 ? null : (
+      <ul
+        aria-label={messages.options}
+        className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+      >
+        {options.map((option, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: labels may repeat; the position tells them apart
+          <li key={index} className="max-w-full">
+            {/* A long option wraps inside the badge, never past the row. */}
+            <Badge className="h-auto min-h-5 max-w-full whitespace-normal [overflow-wrap:anywhere]">
+              {option}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    ))
   );
 }
 

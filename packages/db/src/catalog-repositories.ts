@@ -6,6 +6,7 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { holdsRight, lockedRole } from "./api-keys.ts";
+import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
@@ -36,12 +37,16 @@ function rowOf(row: Row): CatalogRepositoryRow {
   };
 }
 
+const githubAppRows = eq(catalogRepositories.authKind, "github_app");
+
 // The seed and every console write take it, so an id is decided by one
 // writer at a time.
-const lockWrites = (tx: Database) =>
-  tx.execute(
+const lockWrites = async (tx: Database) => {
+  await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
   );
+  await lockSettingsGeneration(tx);
+};
 
 const managerOf = async (tx: Database, workspaceId: string, userId: string) => {
   // A demotion or disable committed after the policy's check wins.
@@ -93,7 +98,7 @@ export function createPostgresCatalogRepositoryStore(
     const rows = await db
       .select()
       .from(catalogRepositories)
-      .where(isNull(catalogRepositories.removedAt))
+      .where(and(isNull(catalogRepositories.removedAt), githubAppRows))
       .orderBy(asc(catalogRepositories.id));
     return rows.map(rowOf);
   };
@@ -108,6 +113,7 @@ export function createPostgresCatalogRepositoryStore(
           const rows = await tx
             .select()
             .from(catalogRepositories)
+            .where(githubAppRows)
             .orderBy(asc(catalogRepositories.id));
           if (rows.length === 0) return null;
           return rows.filter((row) => row.removedAt === null).map(rowOf);
@@ -122,6 +128,7 @@ export function createPostgresCatalogRepositoryStore(
         const [any] = await tx
           .select({ id: catalogRepositories.id })
           .from(catalogRepositories)
+          .where(githubAppRows)
           .limit(1);
         if (any) return [];
         const entries = await input.entries();
@@ -178,7 +185,10 @@ export function createPostgresCatalogRepositoryStore(
         ) {
           return { outcome: "outranked" as const };
         }
-        const active = isNull(catalogRepositories.removedAt);
+        const active = and(
+          isNull(catalogRepositories.removedAt),
+          githubAppRows,
+        );
         const sameName = sql`lower(${catalogRepositories.owner}) = lower(${input.owner}) AND lower(${catalogRepositories.name}) = lower(${input.name})`;
         const [byId] = await tx
           .select()
@@ -345,6 +355,7 @@ export function createPostgresCatalogRepositoryStore(
             and(
               eq(catalogRepositories.id, input.id),
               isNull(catalogRepositories.removedAt),
+              githubAppRows,
             ),
           )
           .limit(1);

@@ -188,7 +188,7 @@ async function settled(until: () => boolean) {
 }
 
 describe("deployment welcome", () => {
-  test("one row per release and home: same release, rollback and home moved back add none", async () => {
+  test("one row per home: same release, a new release, rollback and home moved back add none", async () => {
     const home = binding(HOME, "C0HOME", {
       home: true,
       membership: { state: "joined", error: null },
@@ -209,21 +209,23 @@ describe("deployment welcome", () => {
       channelId: "C0HOME",
     });
     expect(w.outbox.size).toBe(1);
-    // A changed definition is a new release.
-    await w.activate(R2.id);
-    expect(w.outbox.size).toBe(2);
-    // Back to the older release: nothing, announced before or not.
+    // A changed definition is a new release; the channel heard it already.
+    expect(await w.activate(R2.id)).toEqual({
+      status: "duplicate",
+      channelId: "C0HOME",
+    });
+    expect(w.outbox.size).toBe(1);
     expect(await w.activate(R1.id)).toEqual({ status: "rollback" });
-    expect(w.outbox.size).toBe(2);
+    expect(w.outbox.size).toBe(1);
 
-    // The home moves: the new channel hears the active release once.
+    // The home moves: the new channel hears once.
     await w.activate(R2.id);
     home.home = false;
     other.home = true;
     await w.welcome.welcome(WORKSPACE, AGENT, { ask: false });
     await w.welcome.welcome(WORKSPACE, AGENT, { ask: false });
-    expect(w.outbox.size).toBe(3);
-    // And moving it back finds that release announced there already.
+    expect(w.outbox.size).toBe(2);
+    // And moving it back finds the first channel welcomed already.
     other.home = false;
     home.home = true;
     expect(await w.welcome.welcome(WORKSPACE, AGENT, { ask: false })).toEqual({
@@ -232,9 +234,8 @@ describe("deployment welcome", () => {
     });
 
     expect([...w.outbox.keys()]).toEqual([
-      deploymentWelcomeKey(AGENT, R1.id, HOME),
-      deploymentWelcomeKey(AGENT, R2.id, HOME),
-      deploymentWelcomeKey(AGENT, R2.id, OTHER),
+      deploymentWelcomeKey(AGENT, HOME),
+      deploymentWelcomeKey(AGENT, OTHER),
     ]);
     const [first] = w.outbox.values();
     expect(first).toMatchObject({

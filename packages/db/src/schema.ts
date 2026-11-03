@@ -4271,10 +4271,22 @@ export const installationProfiles = pgTable(
   ],
 );
 
+/** `stored` is a value in `secret_values`; `external` names env or Secrets Manager. */
+export type SettingsCredentialSource = "stored" | "external";
+export type SettingsOrigin = "import" | "console";
+/** `github_app_explicit` names its own App, key and installation. */
+export type CatalogRepositoryAuthKind =
+  | "github_app"
+  | "none"
+  | "basic"
+  | "bearer"
+  | "github_app_explicit";
+
 /**
- * Repositories that use the console's GitHub App: seeded or console rows
- * from before, and rows an agent's pick resolved (decision
- * settings-replace-file-catalog.md §1.1). A row is never deleted, so a
+ * The catalog's repositories. `github_app` rows use the console's GitHub
+ * App: seeded or console rows from before, and rows an agent's pick
+ * resolved (decision settings-replace-file-catalog.md §1.1). The other
+ * kinds hold their own credential (§1). A row is never deleted, so a
  * catalog id never comes back meaning another repository.
  */
 export const catalogRepositories = pgTable(
@@ -4282,6 +4294,8 @@ export const catalogRepositories = pgTable(
   {
     id: text().primaryKey(),
     githubRepositoryId: bigint("github_repository_id", { mode: "number" }),
+    // For a kind other than github_app, the URL's last two path segments,
+    // or empty: only github_app rows are looked up by name.
     owner: text().notNull(),
     name: text().notNull(),
     url: text().notNull(),
@@ -4289,6 +4303,15 @@ export const catalogRepositories = pgTable(
     // A seeded row's yaml `profiles`, kept so its binding hash stays the
     // one sessions claimed under before the move.
     profiles: jsonb().$type<string[]>(),
+    authKind: text("auth_kind")
+      .$type<CatalogRepositoryAuthKind>()
+      .notNull()
+      .default("github_app"),
+    // The entry's `auth` as repositories.yaml spelled it; null for none and
+    // for the console's App.
+    auth: jsonb().$type<Record<string, unknown>>(),
+    credentialSource:
+      text("credential_source").$type<SettingsCredentialSource>(),
     appRole: text("app_role").notNull().default("author"),
     source: text().notNull(),
     version: integer().notNull().default(1),
@@ -4309,10 +4332,12 @@ export const catalogRepositories = pgTable(
       .where(sql`${table.removedAt} IS NULL`),
     uniqueIndex("catalog_repositories_full_name_key")
       .on(sql`lower(${table.owner})`, sql`lower(${table.name})`)
-      .where(sql`${table.removedAt} IS NULL`),
+      .where(
+        sql`${table.removedAt} IS NULL AND ${table.authKind} = 'github_app'`,
+      ),
     check(
       "catalog_repositories_source_check",
-      sql`${table.source} IN ('seed', 'console', 'selection')`,
+      sql`${table.source} IN ('seed', 'console', 'selection', 'import')`,
     ),
     check(
       "catalog_repositories_app_role_check",
@@ -4321,7 +4346,121 @@ export const catalogRepositories = pgTable(
     check("catalog_repositories_version_check", sql`${table.version} >= 1`),
     check(
       "catalog_repositories_console_id_check",
-      sql`${table.source} = 'seed' OR ${table.githubRepositoryId} IS NOT NULL`,
+      sql`${table.authKind} <> 'github_app' OR ${table.source} = 'seed' OR ${table.githubRepositoryId} IS NOT NULL`,
+    ),
+    check(
+      "catalog_repositories_auth_kind_check",
+      sql`${table.authKind} IN ('github_app', 'none', 'basic', 'bearer', 'github_app_explicit')`,
+    ),
+    check(
+      "catalog_repositories_credential_check",
+      sql`CASE ${table.authKind}
+        WHEN 'github_app' THEN ${table.auth} IS NULL AND ${table.credentialSource} IS NULL
+        WHEN 'none' THEN ${table.auth} IS NULL AND ${table.credentialSource} IS NULL
+        WHEN 'github_app_explicit' THEN ${table.auth} IS NOT NULL AND ${table.credentialSource} = 'external'
+        ELSE ${table.auth} IS NOT NULL AND ${table.credentialSource} IN ('stored', 'external')
+      END`,
     ),
   ],
+);
+
+/**
+ * LLM provider connections a ceiling runs against (decision
+ * settings-replace-file-catalog.md §1). A row never changes what it points
+ * at: another endpoint, kind, billing or credential source is a new id.
+ * Disabling is the only way to stop one.
+ */
+export const providerConnections = pgTable(
+  "provider_connections",
+  {
+    id: text().primaryKey(),
+    // connections.yaml's entry as parsed; a ceiling's `provider` runs only
+    // while it is the same JSON.
+    definition: jsonb().$type<Record<string, unknown>>().notNull(),
+    credentialSource: text("credential_source")
+      .$type<SettingsCredentialSource>()
+      .notNull(),
+    origin: text().$type<SettingsOrigin>().notNull(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "provider_connections_credential_source_check",
+      sql`${table.credentialSource} IN ('stored', 'external')`,
+    ),
+    check(
+      "provider_connections_origin_check",
+      sql`${table.origin} IN ('import', 'console')`,
+    ),
+    // The console never binds the deployment's credential reference to an
+    // endpoint (decision §2): only the operator's import brings `external`.
+    check(
+      "provider_connections_console_stored_check",
+      sql`${table.origin} <> 'console' OR ${table.credentialSource} = 'stored'`,
+    ),
+  ],
+);
+
+/**
+ * Remote MCP servers an agent card may name (§1). `url`, `credential_ref`
+ * and the credential go into a session's MCP binding or its route, so they
+ * never change; only the workspaces allowed to use one may.
+ */
+export const mcpServers = pgTable(
+  "mcp_servers",
+  {
+    id: text().primaryKey(),
+    url: text().notNull(),
+    credentialRef: text("credential_ref").notNull(),
+    // mcp-servers.yaml's `auth` as parsed.
+    auth: jsonb().$type<Record<string, unknown>>().notNull(),
+    credentialSource: text("credential_source")
+      .$type<SettingsCredentialSource>()
+      .notNull(),
+    // By slug, as the catalog matches them: an import may run before the
+    // workspace exists, and a slug never changes.
+    workspaces: jsonb().$type<string[]>().notNull(),
+    origin: text().$type<SettingsOrigin>().notNull(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledBy: uuid("disabled_by").references(() => users.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "mcp_servers_credential_source_check",
+      sql`${table.credentialSource} IN ('stored', 'external')`,
+    ),
+    check(
+      "mcp_servers_origin_check",
+      sql`${table.origin} IN ('import', 'console')`,
+    ),
+    check(
+      "mcp_servers_console_stored_check",
+      sql`${table.origin} <> 'console' OR ${table.credentialSource} = 'stored'`,
+    ),
+    check("mcp_servers_github_reserved_check", sql`${table.id} <> 'github'`),
+  ],
+);
+
+/**
+ * One row whose `generation` rises with every write to the installation's
+ * settings (a trigger on each settings table). A replica that read an older
+ * generation than a claim sees may not know a row the session was made
+ * with, so it leaves the session for a newer read instead of failing it.
+ */
+export const settingsGeneration = pgTable(
+  "settings_generation",
+  {
+    id: integer().primaryKey().default(1),
+    generation: bigint({ mode: "number" }).notNull().default(0),
+  },
+  (table) => [check("settings_generation_single_check", sql`${table.id} = 1`)],
 );

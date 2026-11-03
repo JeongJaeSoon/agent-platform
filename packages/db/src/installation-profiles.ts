@@ -9,13 +9,18 @@ import type {
 } from "@werft-ai/platform";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
+import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
 import { installationProfiles, receipts } from "./schema.ts";
 
 // Imports and console saves take the same lock, so a version number and an
 // id are decided by one writer at a time.
-const lockWrites = (tx: Database) =>
-  tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('profiles:import'))`);
+const lockWrites = async (tx: Database) => {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('profiles:import'))`,
+  );
+  await lockSettingsGeneration(tx);
+};
 
 async function actorOperates(tx: Database, actor: TeamActor) {
   const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
@@ -216,6 +221,7 @@ export function createPostgresInstallationProfileStore(
     async retire(input) {
       const { actor } = input;
       return db.transaction(async (tx) => {
+        await lockSettingsGeneration(tx);
         if (!(await actorOperates(tx, actor))) {
           return { outcome: "actor_inactive" as const };
         }
@@ -249,6 +255,7 @@ export function createPostgresInstallationProfileStore(
     async setBlocked(input) {
       const { actor } = input;
       return db.transaction(async (tx) => {
+        await lockSettingsGeneration(tx);
         if (!(await actorOperates(tx, actor))) {
           return { outcome: "actor_inactive" as const };
         }

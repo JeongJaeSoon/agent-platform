@@ -349,7 +349,7 @@ integration("the workspace's link app, made on the first Slack link", () => {
     expect(made?.manifest).toEqual({
       display_information: {
         name: "Acme 계정 연결",
-        description: "agent-platform 콘솔에서 Slack 계정을 연결합니다.",
+        description: "Werft 콘솔에서 Slack 계정을 연결합니다.",
       },
       oauth_config: {
         redirect_urls: [LINK_REDIRECT],

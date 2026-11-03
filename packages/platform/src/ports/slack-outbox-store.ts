@@ -1,4 +1,9 @@
 import type { PendingQuestion, UserLocale } from "@werft-ai/contracts";
+import type {
+  PendingRequestDisplay,
+  ToolSummaryContext,
+} from "./pending-requests.ts";
+import type { PushRequestDisplay } from "./push-requests.ts";
 
 /**
  * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
@@ -134,6 +139,7 @@ export type SlackPendingPrompt = SlackLinkedTurnTarget & {
         requestId: string;
         tool: string;
         input: unknown;
+        context: ToolSummaryContext;
         expiresAt: string;
       }
     | {
@@ -146,9 +152,22 @@ export type SlackPendingPrompt = SlackLinkedTurnTarget & {
         kind: "push";
         requestId: string;
         repositoryId: string;
+        repositoryName: string | null;
         targetBranch: string;
         gitCommit: string;
       };
+};
+
+/**
+ * What a posted card is redrawn from: its row's language and link, the
+ * request as the database holds it now, and the Slack account of whoever
+ * decided it in the card's workspace.
+ */
+export type SlackPromptCard = {
+  locale: UserLocale;
+  linkUrl: string | null;
+  deciderSlackUserId: string | null;
+  display: PendingRequestDisplay | ({ kind: "push" } & PushRequestDisplay);
 };
 
 export type SlackOutboxSettle =
@@ -191,6 +210,16 @@ export interface SlackOutboxStore {
    * so the answer never goes ahead of what it answers.
    */
   unansweredTurns(limit: number): Promise<SlackUnansweredTurn[]>;
+  /**
+   * The card posted as that message for that request, or null when no
+   * `input_notice` row of the session sent it.
+   */
+  promptCard(input: {
+    sessionId: string;
+    requestId: string;
+    channelId: string;
+    slackTs: string;
+  }): Promise<SlackPromptCard | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
   unpromptedRequests(limit: number): Promise<SlackPendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */

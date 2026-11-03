@@ -1,5 +1,5 @@
 export const commonKo = {
-  "common.appName": "Agent Platform",
+  "common.appName": "Werft",
   "common.retry": "다시 시도",
   "common.logout": "로그아웃",
   "common.loggingOut": "로그아웃하는 중…",
@@ -79,7 +79,7 @@ export const commonKo = {
 };
 
 export const commonEn: Record<keyof typeof commonKo, string> = {
-  "common.appName": "Agent Platform",
+  "common.appName": "Werft",
   "common.retry": "Try again",
   "common.logout": "Log out",
   "common.loggingOut": "Logging out…",
@@ -160,7 +160,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
 };
 
 export const commonJa: Record<keyof typeof commonKo, string> = {
-  "common.appName": "Agent Platform",
+  "common.appName": "Werft",
   "common.retry": "再試行",
   "common.logout": "ログアウト",
   "common.loggingOut": "ログアウト中…",

@@ -249,7 +249,8 @@ export function routeOf(
     }
     return null;
   }
-  // Only upload-pack, the read half: receive-pack (a push) has no route.
+  // Only upload-pack, the read half: receive-pack (a push) has no route, and
+  // its advertisement gets the push notice before this is asked.
   if (
     method === "GET" &&
     pathname === "/repository/info/refs" &&
@@ -297,6 +298,42 @@ export function routeOf(
       : null;
   }
   return null;
+}
+
+export const PUSH_NOTICE =
+  "git push does not reach GitHub here. Push and open pull requests with the platform's GitHub tools (mcp__github__request_push, mcp__github__open_pull_request). If this agent has no GitHub tools, an administrator turns GitHub on in the agent's GitHub tab.";
+
+/**
+ * A push's first request, the receive-pack advertisement, on any repository
+ * route. Push still has no route; this one request gets {@link pushNotice}.
+ */
+export function isPushAdvertisement(
+  method: string,
+  pathname: string,
+  search: string,
+): boolean {
+  if (method !== "GET" || search !== "?service=git-receive-pack") return false;
+  return (
+    pathname === "/repository/info/refs" ||
+    REPOSITORY_PATH.exec(pathname)?.[2] === "/info/refs"
+  );
+}
+
+/**
+ * One `ERR` pkt-line in place of the advertisement, which git prints as
+ * `fatal: remote error: <notice>`. The same for every caller, so it asks
+ * the authorizer nothing and tells nothing about the token or the session.
+ */
+export function pushNotice(): Response {
+  const line = new TextEncoder().encode(`ERR ${PUSH_NOTICE}\n`);
+  const length = (line.length + 4).toString(16).padStart(4, "0");
+  return new Response(new Blob([length, line]), {
+    status: 200,
+    headers: {
+      "content-type": "application/x-git-receive-pack-advertisement",
+      "cache-control": "no-cache",
+    },
+  });
 }
 
 /**
@@ -1697,6 +1734,9 @@ export function startCredentialProxy(
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/healthz") {
         return reply(200, "ok");
+      }
+      if (isPushAdvertisement(request.method, url.pathname, url.search)) {
+        return pushNotice();
       }
       const route = routeOf(request.method, url.pathname, url.search);
       if (route === null) return reply(404, "no such credential route");

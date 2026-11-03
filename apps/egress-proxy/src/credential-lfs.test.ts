@@ -550,7 +550,8 @@ describe("the LFS route", () => {
       headers: { authorization: `Bearer ${REPOSITORY_TOKEN}` },
       body: "0000",
     });
-    expect([advertise.status, push.status]).toEqual([404, 404]);
+    expect([advertise.status, push.status]).toEqual([200, 404]);
+    expect(await advertise.text()).toContain("ERR git push does not reach");
     expect(auth.asked).toHaveLength(0);
     expect(repo.seen).toHaveLength(0);
   });

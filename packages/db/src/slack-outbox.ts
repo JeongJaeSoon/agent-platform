@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_USER_LOCALE,
   pendingQuestionSchema,
   type SessionEventPayload,
   type UserLocale,
@@ -29,7 +30,13 @@ import {
   actionableNow,
   actionableOfTurn,
   actionableRequest,
+  createPostgresPendingRequests,
 } from "./pending-requests.ts";
+import {
+  catalogName,
+  createPostgresPushRequests,
+  toolSummaryContext,
+} from "./push-requests.ts";
 import type { Database } from "./queries.ts";
 import {
   agents,
@@ -139,6 +146,38 @@ const addressed = (db: Database, row: SQL) => sql`(
   ))
 )`;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A question request's card, or none when its stored questions are bad. */
+function questionPrompt({
+  requestId,
+  stored,
+  expiresAt,
+  ...row
+}: Omit<SlackPendingPrompt, "prompt"> & {
+  requestId: string;
+  stored: { kind?: string; questions?: unknown };
+  expiresAt: Date;
+}): SlackPendingPrompt[] {
+  const questions = pendingQuestionSchema
+    .array()
+    .min(1)
+    .safeParse(stored.questions);
+  return stored.kind === "question" && questions.success
+    ? [
+        {
+          ...row,
+          prompt: {
+            kind: "question",
+            requestId,
+            questions: questions.data,
+            expiresAt: expiresAt.toISOString(),
+          },
+        },
+      ]
+    : [];
+}
+
 export function createPostgresSlackOutboxStore(
   db: Database,
   // Fills the neutral fields of an event stored before they were written,
@@ -177,6 +216,33 @@ export function createPostgresSlackOutboxStore(
           // active again, and only a newer activation says it is a rollback.
           if (await releaseSuperseded(tx, input.agentId, whileHome.releaseId)) {
             return "not_home";
+          }
+          if (input.kind === "welcome") {
+            // The key covers one binding. A channel bound again after the
+            // install was disconnected has a new binding, and rows from
+            // before 94S-1298 keyed each release: the channel heard it all
+            // the same. Channel ids are only unique within a Slack team.
+            const team = tx
+              .select({ teamId: slackInstallations.teamId })
+              .from(slackInstallations)
+              .where(eq(slackInstallations.id, input.installationId));
+            const [heard] = await tx
+              .select({ id: t.id })
+              .from(t)
+              .innerJoin(
+                slackInstallations,
+                eq(slackInstallations.id, t.installationId),
+              )
+              .where(
+                and(
+                  eq(t.kind, "welcome"),
+                  eq(t.agentId, input.agentId),
+                  eq(t.channelId, input.channelId),
+                  inArray(slackInstallations.teamId, team),
+                ),
+              )
+              .limit(1);
+            if (heard) return "duplicate";
           }
         }
         const [row] = await tx
@@ -530,6 +596,7 @@ export function createPostgresSlackOutboxStore(
           requesterSlackUserId: linkedAccounts.externalUserId,
           requestId: pushRequests.id,
           repositoryId: pushRequests.repositoryId,
+          repositoryName: catalogName(sql`${pushRequests.repositoryId}`),
           targetBranch: pushRequests.targetBranch,
           gitCommit: pushRequests.gitCommit,
         })
@@ -557,56 +624,48 @@ export function createPostgresSlackOutboxStore(
         )
         .orderBy(asc(pushRequests.createdAt), asc(pushRequests.id))
         .limit(limit);
-      return [
-        ...asked.flatMap(
-          ({ requestId, payload, expiresAt, ...row }): SlackPendingPrompt[] => {
-            const stored = payload as {
-              kind?: string;
-              tool?: string;
-              input?: unknown;
-              questions?: unknown;
-            };
-            const expires = expiresAt.toISOString();
-            if (
-              stored.kind === "permission" &&
-              typeof stored.tool === "string"
-            ) {
-              return [
-                {
-                  ...row,
-                  prompt: {
-                    kind: "permission",
-                    requestId,
-                    tool: stored.tool,
-                    input: stored.input ?? null,
-                    expiresAt: expires,
-                  },
-                },
-              ];
-            }
-            const questions = pendingQuestionSchema
-              .array()
-              .min(1)
-              .safeParse(stored.questions);
-            return stored.kind === "question" && questions.success
-              ? [
-                  {
-                    ...row,
-                    prompt: {
-                      kind: "question",
-                      requestId,
-                      questions: questions.data,
-                      expiresAt: expires,
-                    },
-                  },
-                ]
-              : [];
+      const prompts: SlackPendingPrompt[][] = [];
+      // One at a time: most tools read nothing, a GitHub tool a row or two.
+      for (const { requestId, payload, expiresAt, ...row } of asked) {
+        const stored = payload as {
+          kind?: string;
+          tool?: string;
+          input?: unknown;
+          questions?: unknown;
+        };
+        if (stored.kind !== "permission" || typeof stored.tool !== "string") {
+          prompts.push(
+            questionPrompt({ requestId, stored, expiresAt, ...row }),
+          );
+          continue;
+        }
+        const input = stored.input ?? null;
+        prompts.push([
+          {
+            ...row,
+            prompt: {
+              kind: "permission",
+              requestId,
+              tool: stored.tool,
+              input,
+              context: await toolSummaryContext(
+                db,
+                row.sessionId,
+                stored.tool,
+                input,
+              ),
+              expiresAt: expiresAt.toISOString(),
+            },
           },
-        ),
+        ]);
+      }
+      return [
+        ...prompts.flat(),
         ...waiting.map(
           ({
             requestId,
             repositoryId,
+            repositoryName,
             targetBranch,
             gitCommit,
             ...row
@@ -616,12 +675,83 @@ export function createPostgresSlackOutboxStore(
               kind: "push",
               requestId,
               repositoryId,
+              repositoryName,
               targetBranch,
               gitCommit,
             },
           }),
         ),
       ];
+    },
+
+    async promptCard(input) {
+      if (!UUID.test(input.sessionId)) return null;
+      const [row] = await db
+        .select({
+          ownerId: sessions.ownerId,
+          workspaceId: t.workspaceId,
+          teamId: slackInstallations.teamId,
+          dedupeKey: t.dedupeKey,
+          body: t.body,
+        })
+        .from(t)
+        .innerJoin(sessions, eq(sessions.id, t.sessionId))
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, t.installationId),
+        )
+        .where(
+          and(
+            eq(t.sessionId, input.sessionId.toLowerCase()),
+            eq(t.kind, "input_notice"),
+            eq(t.channelId, input.channelId),
+            eq(t.slackTs, input.slackTs),
+          ),
+        )
+        .limit(1);
+      if (!row) return null;
+      // slackPromptDedupeKey: `<prefix>:<link id>:<request id>`.
+      const [prefix, , ...rest] = row.dedupeKey.split(":");
+      if (rest.join(":") !== input.requestId) return null;
+      const display =
+        prefix === "push"
+          ? await createPostgresPushRequests(db)
+              .displayOf(row.ownerId, input.sessionId, input.requestId)
+              .then((push) =>
+                push === null ? null : { kind: "push" as const, ...push },
+              )
+          : prefix === "prompt"
+            ? await createPostgresPendingRequests(db).displayOf(
+                row.ownerId,
+                input.sessionId,
+                input.requestId,
+              )
+            : null;
+      if (display === null) return null;
+      let deciderSlackUserId: string | null = null;
+      if (display.decidedByUserId !== null) {
+        const [linked] = await db
+          .select({ slackUserId: linkedAccounts.externalUserId })
+          .from(linkedAccounts)
+          .where(
+            and(
+              eq(linkedAccounts.workspaceId, row.workspaceId),
+              eq(linkedAccounts.userId, display.decidedByUserId),
+              eq(linkedAccounts.provider, "slack"),
+              eq(linkedAccounts.externalTenant, row.teamId),
+              eq(linkedAccounts.status, "active"),
+            ),
+          )
+          .limit(1);
+        deciderSlackUserId = linked?.slackUserId ?? null;
+      }
+      const body = row.body as { locale?: UserLocale; link_url?: string };
+      return {
+        locale: body.locale ?? DEFAULT_USER_LOCALE,
+        linkUrl: body.link_url ?? null,
+        deciderSlackUserId,
+        display,
+      };
     },
 
     async expireSending() {
