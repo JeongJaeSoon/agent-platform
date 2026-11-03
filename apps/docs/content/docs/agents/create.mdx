@@ -75,7 +75,7 @@ echo "$agent" | jq '{slug: .agent.slug, version: .versions[0].version_no, active
 
 같은 워크스페이스에 같은 slug가 있으면 409 `ALREADY_EXISTS`다. 만들기만으로는 아무것도 활성화되지 않는다.
 
-`managing_team_id`에 넣은 팀이 담당 팀이 된다. 빠지면 400 `BAD_REQUEST`이고 `error.details.issues`에 `{"path": "managing_team_id", "message": "managing_team_id is required"}`가 있다. 없는 팀이면 404, owner·admin이 아닌 사람이 자기가 속하지 않은 팀을 넣으면 403(`details.reason_code: team_not_allowed`)이다. 그래서 속한 팀이 없는 member는 에이전트를 만들 수 없다. 응답의 `agent.managing_team_name`은 그 팀의 이름이다.
+`managing_team_id`에 넣은 팀이 담당 팀이 된다. 빠지면 400 `BAD_REQUEST`이고 `error.details.issues`에 `{"path": "managing_team_id", "message": "managing_team_id is required"}`가 있다. owner·admin이 없는 팀을 넣으면 404다. 그 밖의 사람이 자기가 속하지 않은 팀을 넣으면, 없는 팀이어도 403(`details.reason_code: team_not_allowed`)이다. 그래서 속한 팀이 없는 member는 에이전트를 만들 수 없다. 응답의 `agent.managing_team_name`은 그 팀의 이름이다.
 
 담당 팀을 필수로 받기 전에 만든 에이전트는 담당 팀이 비어 있을 수 있다. 그런 에이전트도 지금처럼 읽고 고치고 실행한다. 목록과 응답에서는 `managing_team_id`와 `managing_team_name`이 `null`이고, `PUT /v1/agents/{id}/managing-team`으로 담당 팀을 정한다.
 
