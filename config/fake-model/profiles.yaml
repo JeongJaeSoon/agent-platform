@@ -9,6 +9,8 @@
 #
 # Its own id rather than claude-coding-real, so a session made here can
 # only run against the fake.
+#
+# `tools` lists are allowlists on purpose: a new installation's intended narrow default.
 profiles:
   claude-coding-local:
     runtime_kind: claude_agent_sdk

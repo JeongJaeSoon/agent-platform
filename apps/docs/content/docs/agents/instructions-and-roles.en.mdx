@@ -53,7 +53,7 @@ Name (1–120 characters) and description (0–2,000 characters) are fields of t
 In card editing (the "What it does" step of a new agent, and Edit settings on the agent's page), "Tools it may use" is a checklist of one profile's tools.
 
 - "Profile to choose tools from": pick one of the profiles that run the card's model. The new-agent flow lists first the profiles it can release without a repository, and picks the chosen one first in the release step. This value is not saved on the card.
-- With "Every tool the profile allows at release" on, `tools` is `null`. Turn it off and the checked tools are `tools`. Unchecking a tool is what forbids it.
+- With "Every tool the profile does not block at release" on, `tools` is `null`. Turn it off and the checked tools are `tools`. Unchecking a tool is what forbids it.
 - When saving, the `tool_policy.per_tool` entries of unchecked built-in tools are removed, because a release refuses a policy for a built-in tool it does not run. MCP tool policies stay.
 - A name in `tools` that the profile does not have shows checked as "Not in the profile" and can only be turned off.
 - Below the list is the number of profiles that allow every tool chosen. At 0, the card cannot be saved.

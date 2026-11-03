@@ -1204,7 +1204,7 @@ describe("새 에이전트", () => {
       PROFILE,
     );
     const all = screen.getByRole("switch", {
-      name: "릴리스할 때 프로필이 허용하는 도구 전부",
+      name: "릴리스할 때 프로필이 막지 않은 도구 전부",
     });
     expect(all.getAttribute("aria-checked")).toBe("true");
     const box = (name: string) =>

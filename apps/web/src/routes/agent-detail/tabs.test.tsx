@@ -310,7 +310,7 @@ describe("에이전트 상세 탭", () => {
     );
     expect(screen.queryByRole("textbox", { name: /도구/ })).toBeNull();
     const all = await screen.findByRole("switch", {
-      name: "릴리스할 때 프로필이 허용하는 도구 전부",
+      name: "릴리스할 때 프로필이 막지 않은 도구 전부",
     });
     expect(all.getAttribute("aria-checked")).toBe("false");
     const read = screen.getByRole("checkbox", { name: /^Read/ });
@@ -374,7 +374,7 @@ describe("에이전트 상세 탭", () => {
     );
     await user.click(
       await screen.findByRole("switch", {
-        name: "릴리스할 때 프로필이 허용하는 도구 전부",
+        name: "릴리스할 때 프로필이 막지 않은 도구 전부",
       }),
     );
     const read = screen.getByRole("checkbox", { name: /^Read/ });
@@ -981,7 +981,7 @@ describe("에이전트 상세 탭", () => {
     expect(value("식별자")).toBe("billing");
     expect(value("모델")).toBe("claude-sonnet-5");
     expect(value("쓸 수 있는 도구")).toBe(
-      "릴리스할 때 프로필이 허용하는 도구 전부",
+      "릴리스할 때 프로필이 막지 않은 도구 전부",
     );
     expect(within(summary).queryByRole("textbox")).toBeNull();
     const raw = screen
