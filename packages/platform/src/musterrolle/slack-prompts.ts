@@ -409,14 +409,30 @@ function slackDate(iso: string): string {
     : iso;
 }
 
+/**
+ * The raw input as a person reads it: an object's fields one by one, a
+ * string field's own line breaks kept rather than shown as `\n`.
+ */
 function inputPreview(input: unknown): string | null {
   if (input === null || input === undefined) return null;
   let text: string;
   try {
-    text =
-      typeof input === "string"
-        ? input
-        : (JSON.stringify(input, null, 2) ?? "");
+    if (typeof input === "string") {
+      text = input;
+    } else if (typeof input === "object" && !Array.isArray(input)) {
+      text = Object.entries(input)
+        .map(([key, value]) => {
+          if (typeof value !== "string") {
+            return `${key}: ${JSON.stringify(value, null, 2) ?? String(value)}`;
+          }
+          return value.includes("\n")
+            ? `${key}:\n${value}`
+            : `${key}: ${value}`;
+        })
+        .join("\n");
+    } else {
+      text = JSON.stringify(input, null, 2) ?? "";
+    }
   } catch {
     return null;
   }
@@ -548,15 +564,15 @@ export function slackPromptMessage(
   let line: string;
 
   if (prompt.kind === "permission") {
-    line = summaryLine(
-      summarizeToolRequest(
-        prompt.tool,
-        prompt.input,
-        prompt.context,
-        options.locale,
-      ),
+    const summary = summarizeToolRequest(
+      prompt.tool,
+      prompt.input,
+      prompt.context,
+      options.locale,
     );
+    line = summaryLine(summary);
     blocks.push({ type: "section", text: plain(line) });
+    if (summary.excerpt !== null) blocks.push(preformatted(summary.excerpt));
     const preview = inputPreview(prompt.input);
     if (preview !== null) {
       blocks.push(

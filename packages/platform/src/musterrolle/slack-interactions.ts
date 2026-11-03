@@ -523,30 +523,39 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     const [action] = payload.actions;
     const value = buttonValue(action?.value);
     if (action === undefined || value === null) return ok("ignored");
-    const pressed = await pressedFor(agentId, app, {
-      teamId: payload.team.id,
-      userId: payload.user.id,
-      channelId: payload.channel.id,
-      threadTs: payload.message.thread_ts ?? payload.message.ts,
-    });
-    if (pressed === null) return ok("refused:no_bot_token");
-    if (action.action_id === SLACK_INTERACTION_ACTIONS.questionOpen) {
-      const { viewId } = await deps.slack.openView(pressed.botToken, {
-        triggerId: payload.trigger_id,
-        view: slackNoticeView(
-          SLACK_PROMPT_MESSAGES[pressed.locale].loading,
-          pressed.locale,
-        ),
+    const presser = () =>
+      pressedFor(agentId, app, {
+        teamId: payload.team.id,
+        userId: payload.user.id,
+        channelId: payload.channel.id,
+        threadTs: payload.message.thread_ts ?? payload.message.ts,
       });
-      defer(async () =>
-        handled(agentId, await fillView(pressed, viewId, payload, value)),
-      );
-      return ok("view_opened");
+    // Only a form needs the token before the answer, to open its modal.
+    if (action.action_id !== SLACK_INTERACTION_ACTIONS.questionOpen) {
+      defer(async () => {
+        const pressed = await presser();
+        handled(
+          agentId,
+          pressed === null
+            ? ok("refused:no_bot_token")
+            : await actOn(pressed, payload, action.action_id, value),
+        );
+      });
+      return ok("accepted");
     }
+    const pressed = await presser();
+    if (pressed === null) return ok("refused:no_bot_token");
+    const { viewId } = await deps.slack.openView(pressed.botToken, {
+      triggerId: payload.trigger_id,
+      view: slackNoticeView(
+        SLACK_PROMPT_MESSAGES[pressed.locale].loading,
+        pressed.locale,
+      ),
+    });
     defer(async () =>
-      handled(agentId, await actOn(pressed, payload, action.action_id, value)),
+      handled(agentId, await fillView(pressed, viewId, payload, value)),
     );
-    return ok("accepted");
+    return ok("view_opened");
   }
 
   const cardOf =

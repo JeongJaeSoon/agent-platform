@@ -487,12 +487,21 @@ describe("Slack interactions", () => {
     expect(called("update")).toEqual([]);
   });
 
-  test("Slack is answered within three seconds when the token and language reads take two", async () => {
+  test("Slack is answered within three seconds when the token, language, decision and card reads take longer", async () => {
     const slow = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const base = deps();
     const service = createSlackInteractionService({
       ...base,
+      pending: {
+        ...base.pending,
+        answer: async (...args) => {
+          calls.push({ method: "answer", args });
+          await slow(4000);
+          return undefined as never;
+        },
+      },
       botToken: async () => {
+        calls.push({ method: "token", args: [] });
         await slow(1000);
         return "xoxb-fixture";
       },
@@ -504,7 +513,7 @@ describe("Slack interactions", () => {
         },
         promptCard: async (input) => {
           calls.push({ method: "card", args: [input] });
-          await slow(3000);
+          await slow(1000);
           return null;
         },
       },
@@ -521,10 +530,51 @@ describe("Slack interactions", () => {
     });
     const elapsed = performance.now() - started;
     expect(outcome).toMatchObject({ kind: "ok", result: "accepted" });
-    expect(elapsed).toBeLessThan(3000);
-    // The card's database reads run after the answer, never before it.
+    // Only the signing secret is awaited before the answer: the token (1s),
+    // the language (1s), the decision (4s) and the card (1s) come after it.
+    expect(elapsed).toBeLessThan(500);
+    expect(called("answer")).toEqual([]);
     expect(called("card")).toEqual([]);
-  }, 10_000);
+    await drain();
+    expect(called("answer")).toHaveLength(1);
+    expect(called("card")).toHaveLength(1);
+  }, 15_000);
+
+  test("two presses of the same button decide once; the second sees it settled", async () => {
+    const decided = new Map<string, unknown>();
+    const base = deps();
+    const service = createSlackInteractionService({
+      ...base,
+      pending: {
+        ...base.pending,
+        // As the store does: one decision per idempotency key, replayed.
+        answer: async (...args) => {
+          calls.push({ method: "answer", args });
+          const key = (args[2] as { idempotencyKey: string }).idempotencyKey;
+          if (!decided.has(key)) decided.set(key, args[2]);
+          return undefined as never;
+        },
+      },
+    });
+    const body = press(SLACK_INTERACTION_ACTIONS.permissionAllow, {
+      s: SESSION,
+      r: "toolu_1",
+    });
+    for (const _ of [1, 2]) {
+      expect(
+        await service.receive({
+          agentId: AGENT,
+          rawBody: new TextEncoder().encode(body),
+          ...signed(body),
+        }),
+      ).toMatchObject({ kind: "ok", result: "accepted" });
+    }
+    await drain();
+    expect(called("answer")).toHaveLength(2);
+    expect(decided.size).toBe(1);
+    expect(called("update")).toHaveLength(2);
+    expect(settledText()).toContain("許可しました");
+  });
 
   test("Slack is answered before a press's work runs", async () => {
     const service = createSlackInteractionService(deps());
