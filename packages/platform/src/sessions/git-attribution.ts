@@ -121,30 +121,45 @@ export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /agent-platform:pr-tail -->";
 export function pullRequestTail(input: {
   sessionId: string;
   sessionUrl: string | null;
+  /** `id` leaves the console link out; the session id is always there. */
+  sessionLink?: "url" | "id";
   commit: string;
   pushRequestId: string;
   record: SessionAttributionRecord | null;
+  /** The `Requested by` value, already formatted; no line when absent. */
+  requestedBy?: string | null;
 }): string {
   const { record } = input;
   const coAuthor = coAuthorOf(record);
+  // No `@` before the login: the tail must not notify the person.
   const starter =
     record === null
       ? "unknown"
       : coAuthor !== null
-        ? `GitHub account linked (@${coAuthor.name})`
+        ? `GitHub account linked (${coAuthor.name})`
         : record.starter === null
           ? "none (App only)"
           : "GitHub account not linked (App only)";
+  const link =
+    input.sessionUrl === null || input.sessionLink === "id"
+      ? ""
+      : ` · [session](<${input.sessionUrl}>)`;
   const lines = [
     "---",
     PULL_REQUEST_TAIL_MARKER,
-    `${TAIL_OPENING}\`${input.sessionId}\`, commit \`${input.commit}\`.`,
+    `Opened in a Werft session${link} · commit \`${input.commit.slice(0, 7)}\``,
     "",
-    ...(input.sessionUrl === null ? [] : [`- Session: ${input.sessionUrl}`]),
+    "<details><summary>Details</summary>",
+    "",
+    `- Session: \`${input.sessionId}\``,
     `- Agent: ${record?.agentId ? `\`${record.agentId}\`` : "none"}, release ${record?.agentReleaseId ? `\`${record.agentReleaseId}\`` : "none"}`,
     `- Push request: \`${input.pushRequestId}\``,
     `- Trigger: ${record?.trigger ?? "unknown"}`,
     `- Started by: ${starter}`,
+    ...(input.requestedBy ? [`- Requested by: ${input.requestedBy}`] : []),
+    "</details>",
+    // Kept in the body: a squash merge's default message is the body, and
+    // this line is what names the co-author there.
     ...(coAuthor === null
       ? []
       : ["", `Co-authored-by: ${coAuthor.name} <${coAuthor.email}>`]),
@@ -153,26 +168,59 @@ export function pullRequestTail(input: {
   return lines.join("\n");
 }
 
-const TAIL_OPENING = "Opened by Werft from session ";
+type TailShape = {
+  lines: readonly { line: RegExp; optional?: true }[];
+  /** The `Started by` line that names a linked login, captured. */
+  linked: RegExp;
+};
 
-// What pullRequestTail writes between the markers, in order; `optional` lines
-// may be missing. Anything else there (a line a person added) is theirs.
-const TAIL_SHAPE: readonly { line: RegExp; optional?: true }[] = [
-  // Pull requests opened before the rename still carry the old name.
+// What pullRequestTail writes between the markers, in order, now and before
+// the folded tail; `optional` lines may be missing. Anything else there (a
+// line a person added) is theirs.
+const TAIL_SHAPES: readonly TailShape[] = [
   {
-    line: /^Opened by (?:Werft|agent-platform) from session `[^`]+`, commit `[^`]+`\.$/,
+    lines: [
+      {
+        line: /^Opened in a Werft session(?: · \[session\]\(<\S+>\))? · commit `[0-9a-f]{7}`$/,
+      },
+      { line: /^$/ },
+      { line: /^<details><summary>Details<\/summary>$/ },
+      { line: /^$/ },
+      { line: /^- Session: `[^`]+`$/ },
+      { line: /^- Agent: (`[^`]+`|none), release (`[^`]+`|none)$/ },
+      { line: /^- Push request: `[^`]+`$/ },
+      { line: /^- Trigger: [a-z_]+$/ },
+      {
+        line: /^- Started by: (unknown|none \(App only\)|GitHub account not linked \(App only\)|GitHub account linked \([A-Za-z0-9-]+\))$/,
+      },
+      // Reserved for the turn's requester, in the values the action
+      // broker's caller mapping names; anything else there is a person's.
+      {
+        line: /^- Requested by: (?:[A-Za-z0-9-]+|a person without a linked GitHub account) \((?:Slack|web console|API key|platform)\)$|^- Requested by: none \(App only\)$/,
+        optional: true,
+      },
+      { line: /^<\/details>$/ },
+    ],
+    linked: /^- Started by: GitHub account linked \(([A-Za-z0-9-]+)\)$/,
   },
-  { line: /^$/ },
-  { line: /^- Session: \S+$/, optional: true },
-  { line: /^- Agent: (`[^`]+`|none), release (`[^`]+`|none)$/ },
-  { line: /^- Push request: `[^`]+`$/ },
-  { line: /^- Trigger: [a-z_]+$/ },
   {
-    line: /^- Started by: (unknown|none \(App only\)|GitHub account not linked \(App only\)|GitHub account linked \(@[A-Za-z0-9-]+\))$/,
+    lines: [
+      // Pull requests opened before the rename still carry the old name.
+      {
+        line: /^Opened by (?:Werft|agent-platform) from session `[^`]+`, commit `[^`]+`\.$/,
+      },
+      { line: /^$/ },
+      { line: /^- Session: \S+$/, optional: true },
+      { line: /^- Agent: (`[^`]+`|none), release (`[^`]+`|none)$/ },
+      { line: /^- Push request: `[^`]+`$/ },
+      { line: /^- Trigger: [a-z_]+$/ },
+      {
+        line: /^- Started by: (unknown|none \(App only\)|GitHub account not linked \(App only\)|GitHub account linked \(@[A-Za-z0-9-]+\))$/,
+      },
+    ],
+    linked: /^- Started by: GitHub account linked \(@([A-Za-z0-9-]+)\)$/,
   },
 ];
-const TAIL_LINKED =
-  /^- Started by: GitHub account linked \(@([A-Za-z0-9-]+)\)$/;
 const TAIL_CO_AUTHOR =
   /^Co-authored-by: ([A-Za-z0-9-]+) <[1-9][0-9]*\+([A-Za-z0-9-]+)@users\.noreply\.github\.com>$/;
 
@@ -182,15 +230,21 @@ const QUOTING_ELEMENT =
 /** Whether the lines between two markers are exactly a tail the platform wrote. */
 function isTailContent(content: readonly string[]): boolean {
   const lines = content.map((line) => line.trimEnd());
+  return TAIL_SHAPES.some((shape) => fitsShape(lines, shape));
+}
+
+function fitsShape(lines: readonly string[], shape: TailShape): boolean {
   let at = 0;
-  for (const { line, optional } of TAIL_SHAPE) {
+  let login: string | undefined;
+  for (const { line, optional } of shape.lines) {
     const next = lines[at];
-    if (next !== undefined && line.test(next)) at += 1;
-    else if (!optional) return false;
+    if (next !== undefined && line.test(next)) {
+      login ??= shape.linked.exec(next)?.[1];
+      at += 1;
+    } else if (!optional) return false;
   }
   // The platform writes Co-authored-by exactly when the starter is linked, for
   // that login; any other one is a person's.
-  const login = TAIL_LINKED.exec(lines[at - 1] ?? "")?.[1];
   if (login === undefined) return at === lines.length;
   const coAuthor = TAIL_CO_AUTHOR.exec(lines[at + 1] ?? "");
   return (
@@ -202,9 +256,54 @@ function isTailContent(content: readonly string[]): boolean {
 }
 
 /**
+ * One line read left to right: whether it ends inside an HTML comment, given
+ * whether it starts in one, and its text outside comments and code spans,
+ * where elements still count. Inside a comment a backtick is text; a code
+ * span closes only on a backtick run of its own length (CommonMark). Each cut
+ * leaves a space, so pieces either side never join into a tag.
+ */
+function scanLine(
+  line: string,
+  inComment: boolean,
+): { inComment: boolean; outside: string } {
+  let outside = "";
+  let at = 0;
+  let inside = inComment;
+  while (at < line.length) {
+    if (inside) {
+      const close = line.indexOf("-->", at);
+      if (close === -1) return { inComment: true, outside };
+      at = close + 3;
+      inside = false;
+      outside += " ";
+      continue;
+    }
+    const next = /<!--|`+/g;
+    next.lastIndex = at;
+    const found = next.exec(line);
+    if (found === null) break;
+    outside += line.slice(at, found.index);
+    at = found.index + found[0].length;
+    if (found[0] === "<!--") {
+      inside = true;
+      continue;
+    }
+    const run = found[0];
+    const closing = new RegExp(`(?<!\`)${run}(?!\`)`, "g");
+    closing.lastIndex = at;
+    const end = closing.exec(line);
+    // An unmatched run is literal backticks.
+    if (end !== null) at = end.index + run.length;
+    outside += " ";
+  }
+  return { inComment: inside, outside: outside + line.slice(at) };
+}
+
+/**
  * `body` with its tail replaced by `tail`. The tail is a start marker line
  * and the next end marker line, each alone and unindented on its line,
- * outside a fenced code block and an HTML element such as `<details>`, with
+ * outside a fenced code block, an HTML comment and an HTML element such as
+ * `<details>` (the tail's own `<details>` aside), with
  * only the platform's own lines between them; the last such pair is the one
  * replaced. Markers a person quotes are text. A body without such a pair
  * (from before the end marker, or one a person cut or edited) keeps all it
@@ -233,54 +332,71 @@ export function withPullRequestTail(body: string, tail: string): string {
   // HTML elements a person opened around Markdown (`<details>` around a
   // pasted example): markers inside them are quoted.
   const open: string[] = [];
-  let start = -1;
+  // An HTML comment a person left open (`<!-- draft` with no end) hides
+  // everything after it, a tail included.
+  let inComment = false;
   let pair: [number, number] | null = null;
-  for (const [at, line] of lines.entries()) {
-    const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    const marks = run?.[1] ?? "";
-    const after = run?.[2] ?? "";
-    if (fence !== null) {
-      if (
-        marks[0] === fence[0] &&
-        marks.length >= fence.length &&
-        after.trim() === ""
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at] ?? "";
+    if (
+      !inComment &&
+      fence === null &&
+      open.length === 0 &&
+      line.trimEnd() === PULL_REQUEST_TAIL_MARKER
+    ) {
+      // The tail holds its own `<details>`, so its lines are matched as a
+      // whole before the element scan below can count them as quoted.
+      // The platform writes its markers flush left; an indented one is
+      // quoted (an indented code block, a list item).
+      let end = at + 1;
+      while (
+        end < lines.length &&
+        lines[end]?.trimEnd() !== PULL_REQUEST_TAIL_END_MARKER
       ) {
-        fence = null;
+        end += 1;
       }
-      continue;
+      if (end < lines.length && isTailContent(lines.slice(at + 1, end))) {
+        pair = [at, end];
+        at = end;
+        continue;
+      }
     }
-    // A backtick fence's info string has no backtick; that line is inline code.
-    if (run && !(marks[0] === "`" && after.includes("`"))) {
-      fence = marks;
-      continue;
+    // A line that starts in a comment opens no fence.
+    if (!inComment) {
+      const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      const marks = run?.[1] ?? "";
+      const after = run?.[2] ?? "";
+      if (fence !== null) {
+        if (
+          marks[0] === fence[0] &&
+          marks.length >= fence.length &&
+          after.trim() === ""
+        ) {
+          fence = null;
+        }
+        continue;
+      }
+      // A backtick fence's info string has no backtick; that line is inline code.
+      if (run && !(marks[0] === "`" && after.includes("`"))) {
+        fence = marks;
+        continue;
+      }
     }
-    const outside = open.length === 0;
-    for (const [, close, name] of line
-      .replace(/`[^`]*`/g, "")
-      .matchAll(QUOTING_ELEMENT)) {
+    const scanned = scanLine(line, inComment);
+    inComment = scanned.inComment;
+    for (const [, close, name] of scanned.outside.matchAll(QUOTING_ELEMENT)) {
       const tag = (name ?? "").toLowerCase();
       if (close === "") open.push(tag);
       else if (open.lastIndexOf(tag) !== -1) {
         open.splice(open.lastIndexOf(tag), 1);
       }
     }
-    if (!outside || open.length > 0) {
-      start = -1;
-      continue;
-    }
-    // The platform writes its markers flush left; an indented one is quoted
-    // (an indented code block, a list item).
-    const text = line.trimEnd();
-    if (text === PULL_REQUEST_TAIL_MARKER) start = at;
-    else if (text === PULL_REQUEST_TAIL_END_MARKER && start !== -1) {
-      if (isTailContent(lines.slice(start + 1, at))) pair = [start, at];
-      start = -1;
-    }
   }
   if (pair === null) {
     // Closed first, or the tail lands inside the person's unclosed block and
     // is never found again: each refresh would add one more.
     const closing = [
+      ...(inComment ? ["-->"] : []),
       ...(fence === null ? [] : [fence]),
       ...open.reverse().map((tag) => `</${tag}>`),
     ];

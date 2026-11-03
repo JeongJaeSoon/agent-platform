@@ -20,15 +20,15 @@ export function slackWelcomeText(agentName: string): string {
 }
 
 /**
- * One welcome per release and home: the same definition again, a rollback
- * to a release already announced, or a home moved back all find it taken.
+ * One welcome per home binding: a new release, a rollback or a home moved
+ * back all find it taken. The store also refuses a channel that heard one
+ * under another binding or under a pre-94S-1298 per-release key.
  */
 export function deploymentWelcomeKey(
   agentId: string,
-  releaseId: string,
   homeBindingId: string,
 ): string {
-  return `deployment-welcome:${agentId.toLowerCase()}:${releaseId}:${homeBindingId.toLowerCase()}`;
+  return `deployment-welcome:${agentId.toLowerCase()}:${homeBindingId.toLowerCase()}`;
 }
 
 /** Every path that welcomes builds its row here. */
@@ -36,7 +36,6 @@ export function deploymentWelcome(input: {
   workspaceId: string;
   agentId: string;
   agentName: string;
-  releaseId: string;
   slackAppId: string;
   installationId: string;
   homeBindingId: string;
@@ -53,11 +52,7 @@ export function deploymentWelcome(input: {
     slackUserId: null,
     sessionId: null,
     body: { text: slackWelcomeText(input.agentName) },
-    dedupeKey: deploymentWelcomeKey(
-      input.agentId,
-      input.releaseId,
-      input.homeBindingId,
-    ),
+    dedupeKey: deploymentWelcomeKey(input.agentId, input.homeBindingId),
   };
 }
 
@@ -87,7 +82,7 @@ const WAITING_ON_SLACK = new Set<SlackWelcomeOutcome["status"]>([
 ]);
 
 /**
- * Finalize ②: the agent's home channel hears once per release. Joining a
+ * Finalize ②: each home channel of the agent hears once. Joining a
  * public home comes first; a private one waits for the invite.
  */
 export function createSlackWelcome(deps: {
@@ -176,7 +171,6 @@ export function createSlackWelcome(deps: {
         workspaceId,
         agentId,
         agentName: found.agentName,
-        releaseId: found.releaseId,
         slackAppId: app.id,
         installationId: home.installationId,
         homeBindingId: home.id,

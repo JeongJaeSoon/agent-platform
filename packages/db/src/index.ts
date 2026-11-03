@@ -71,6 +71,7 @@ export * from "./slack-inbound-events.ts";
 export * from "./slack-install-states.ts";
 export * from "./slack-installations.ts";
 export * from "./slack-outbox.ts";
+export * from "./slack-thread-status.ts";
 export * from "./surface-bindings.ts";
 export * from "./tool-calls.ts";
 export * from "./tool-calls-hist.ts";

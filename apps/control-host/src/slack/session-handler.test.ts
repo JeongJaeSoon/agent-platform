@@ -561,12 +561,13 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(allowed.map((row) => row.linkedAccountId)).toEqual(
       Array(4).fill(account?.id ?? ""),
     );
-    const processing = {
-      channelId: CHANNEL,
-      threadTs: "100.000100",
-      status: "processing",
-    };
-    expect(slack.statuses).toEqual([processing, processing]);
+    // The handler sends no status itself: each turn's insert marks the
+    // thread due for the outbox pass's status writer.
+    expect(slack.statuses).toEqual([]);
+    const { rows: due } = (await db.execute(
+      sql`SELECT session_link_id, dirty_rev > sent_rev AS due FROM slack_thread_status`,
+    )) as unknown as { rows: { session_link_id: string; due: boolean }[] };
+    expect(due).toEqual([{ session_link_id: link?.id ?? "", due: true }]);
     expect(notices).toEqual([]);
   });
 

@@ -3697,6 +3697,45 @@ export const slackOutbox = pgTable(
   ],
 );
 
+// The thread status the `slack` role last sent for a session link, and what
+// changed since (94S-1292). Writes that change a session's state raise
+// dirty_rev from triggers (migration 0225); one writer at a time, under the
+// lease, sends the status computed after the last change.
+export const slackThreadStatus = pgTable(
+  "slack_thread_status",
+  {
+    sessionLinkId: uuid("session_link_id")
+      .primaryKey()
+      .references(() => sessionLinks.id, { onDelete: "cascade" }),
+    dirtyRev: bigint("dirty_rev", { mode: "number" }).notNull().default(1),
+    sentRev: bigint("sent_rev", { mode: "number" }).notNull().default(0),
+    /** Null until a send succeeds; differs from every computed status. */
+    sentStatus: text("sent_status"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    nextAt: timestamp("next_at", { withTimezone: true }),
+    /** Set just before a send; left behind, its outcome is unknown. */
+    inflightAt: timestamp("inflight_at", { withTimezone: true }),
+    uncertainRev: integer("uncertain_rev").notNull().default(0),
+    uncertainLatestAt: timestamp("uncertain_latest_at", { withTimezone: true }),
+    reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+    disabledReason: text("disabled_reason"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "slack_thread_status_claim_check",
+      sql`(${table.claimToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`,
+    ),
+    check(
+      "slack_thread_status_disabled_check",
+      sql`(${table.disabledReason} IS NULL) = (${table.disabledAt} IS NULL)`,
+    ),
+    index("slack_thread_status_reconciled_idx").on(table.reconciledAt),
+  ],
+);
+
 // The name of a credential an agent may use, never its value (design 4.4,
 // D11). A row is revoked, not deleted, so a later session start sees the
 // binding is gone while the receipt keeps who bound it.
@@ -3803,6 +3842,9 @@ export const workspaceProfiles = pgTable(
     model: text().notNull(),
     models: jsonb().$type<string[]>().notNull(),
     tools: jsonb().$type<string[]>().notNull(),
+    // Like the ceiling's: outside the base fingerprint and the digests.
+    deny: jsonb().$type<string[]>(),
+    toolCatalogId: text("tool_catalog_id"),
     permissionMode: text("permission_mode").notNull(),
     createdBy: uuid("created_by")
       .notNull()
@@ -3836,6 +3878,10 @@ export const workspaceProfiles = pgTable(
     check(
       "workspace_profiles_retired_check",
       sql`(${table.retiredAt} IS NULL) = (${table.retiredBy} IS NULL)`,
+    ),
+    check(
+      "workspace_profiles_deny_check",
+      sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
     ),
   ],
 );
@@ -4220,6 +4266,12 @@ export const installationProfiles = pgTable(
     githubAppRepositories: text("github_app_repositories")
       .notNull()
       .default("listed"),
+    // The built-in tools blocked, as named in the tool catalog
+    // `tool_catalog_id`. Outside `definition` and the fingerprint: an
+    // image from before reads the definition strictly, and the digests
+    // follow `tools`. Null on a row made from an allow list.
+    deny: jsonb().$type<string[]>(),
+    toolCatalogId: text("tool_catalog_id"),
     previousId: text("previous_id"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -4267,6 +4319,10 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_github_app_repositories_check",
       sql`${table.githubAppRepositories} IN ('listed', 'installed')`,
+    ),
+    check(
+      "installation_profiles_deny_check",
+      sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
     ),
   ],
 );

@@ -259,7 +259,7 @@ export function ProfileNewScreen() {
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         {operates && search.mode === undefined ? (
           <FieldSet className="gap-3">
-            <FieldLegend id={kindId} variant="label" className="mb-0">
+            <FieldLegend id={kindId} variant="label" className="mb-2">
               {t("profiles.new.kind")}
             </FieldLegend>
             <RadioGroup

@@ -7626,6 +7626,8 @@ export interface components {
                 model: string;
                 models: string[];
                 tools: string[];
+                /** @description The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list. */
+                deny?: string[] | null;
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
                 /** @enum {string} */
@@ -7692,6 +7694,8 @@ export interface components {
                 model: string;
                 models: string[];
                 tools: string[];
+                /** @description The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list. */
+                deny?: string[] | null;
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
                 /** @enum {string} */
@@ -7927,6 +7931,18 @@ export interface components {
             }[];
             repositories: {
                 id: string;
+            }[];
+            /** @description The built-in tools this installation supports, per runtime version: what a profile's deny may name. A version not listed takes only `tools`. */
+            tool_catalogs?: {
+                id: string;
+                /** @enum {string} */
+                runtime_kind: "claude_agent_sdk" | "codex_app_server" | "pi_coding_agent";
+                runtime_version: string;
+                tools: {
+                    name: string;
+                    /** @enum {string} */
+                    boundary: "local" | "egress" | "provider";
+                }[];
             }[];
             unattended_allowed: boolean;
         };

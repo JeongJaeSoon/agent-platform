@@ -35,6 +35,7 @@ export const agentGitHubKo = {
   "agentGitHub.offNote":
     "GitHub 사용이 꺼져 있어 아래 설정은 읽기만 할 수 있습니다.",
   "agentGitHub.pending.title": "릴리스에 넣지 않은 변경 {count}건",
+  "agentGitHub.pending.firstTitle": "GitHub 설정을 아직 저장하지 않았습니다",
   "agentGitHub.pending.body":
     "저장하면 지금 카드 버전 v{version}과 실행 프로필 {profile}로 새 릴리스를 만들고 활성화합니다. 그 뒤에 시작하는 세션부터 적용되고, 진행 중인 세션은 이전 릴리스 설정을 씁니다.",
   "agentGitHub.pending.save": "새 릴리스로 저장",
@@ -224,6 +225,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.enabledOff": "GitHub is off.",
   "agentGitHub.offNote": "GitHub is off, so the settings below are read only.",
   "agentGitHub.pending.title": "{count} changes not in a release",
+  "agentGitHub.pending.firstTitle": "GitHub settings are not saved yet",
   "agentGitHub.pending.body":
     "Saving makes a new release of card version v{version} with runtime profile {profile} and activates it. Sessions started after that use it; running sessions keep the earlier release's settings.",
   "agentGitHub.pending.save": "Save as a new release",
@@ -415,6 +417,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.enabledOff": "GitHub をオフにしました。",
   "agentGitHub.offNote": "GitHub がオフのため、以下の設定は読むだけです。",
   "agentGitHub.pending.title": "リリースに入れていない変更 {count} 件",
+  "agentGitHub.pending.firstTitle": "GitHub 設定はまだ保存されていません",
   "agentGitHub.pending.body":
     "保存すると、いまのカードバージョン v{version} と実行プロファイル {profile} で新しいリリースを作り、有効にします。その後に始まるセッションから適用され、実行中のセッションは以前のリリースの設定を使います。",
   "agentGitHub.pending.save": "新しいリリースとして保存",
