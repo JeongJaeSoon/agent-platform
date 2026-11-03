@@ -54,6 +54,18 @@ const READABLE_CONFIG =
 const SECRET_KEY =
   /(^|_)(refs?|keys?|tokens?|secrets?|passwords?|passphrase|credentials?)$|[a-z](Refs?|Keys?|Tokens?|Secrets?|Passwords?|Credentials?)$/;
 
+const noFeatures = (features: Record<string, boolean> | undefined) =>
+  Object.fromEntries(Object.keys(features ?? {}).map((key) => [key, false]));
+
+/** Whether a key anywhere inside names a credential. */
+function holdsSecret(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(holdsSecret);
+  if (value === null || typeof value !== "object") return false;
+  return Object.entries(value).some(
+    ([key, nested]) => SECRET_KEY.test(key) || holdsSecret(nested),
+  );
+}
+
 const shown = (value: unknown): string =>
   typeof value === "string" ? value : JSON.stringify(value);
 
@@ -146,7 +158,11 @@ function leafChanges(
       return [];
     const field = { path: prefix === "" ? path : `${prefix}.${path}` };
     const last = path.split(".").at(-1) ?? "";
-    if (SECRET_KEY.test(last))
+    if (
+      SECRET_KEY.test(last) ||
+      holdsSecret(a.get(path)) ||
+      holdsSecret(b.get(path))
+    )
       return [{ area: "secrets", field, kind: "changed" }];
     if (!readable(path)) return [{ area, field, kind: "changed" }];
     return valueChange(area, field, a.get(path), b.get(path));
@@ -282,17 +298,19 @@ export function releaseChanges(
     ...leafChanges("settings", "", configA, configB, (path) =>
       READABLE_CONFIG.test(path),
     ),
+    // A release without the pin runs as one with every person approving
+    // each push and no optional permission (policyPinsSchema).
     ...valueChange(
       "settings",
       { key: "pushApproval" },
-      githubA?.push_approval,
-      githubB?.push_approval,
+      githubA?.push_approval ?? true,
+      githubB?.push_approval ?? true,
     ),
     ...leafChanges(
       "settings",
       "github.features",
-      githubA?.features,
-      githubB?.features,
+      githubA?.features ?? noFeatures(githubB?.features),
+      githubB?.features ?? noFeatures(githubA?.features),
       () => true,
     ),
     ...listChange(

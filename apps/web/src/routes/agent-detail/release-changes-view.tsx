@@ -61,6 +61,9 @@ const ABSENT: Record<string, MessageKey> = {
   defaultRepository: "agent.releases.repositoryNone",
 };
 
+// A badge keeps to one line by default; a long repository name must wrap.
+const WRAP = "h-auto min-h-5 max-w-full shrink whitespace-normal wrap-anywhere";
+
 const fieldKey = (change: ReleaseChange) =>
   "key" in change.field ? change.field.key : "";
 
@@ -148,12 +151,12 @@ export function ReleaseChangeList({
         return (
           <div className="flex min-w-0 flex-wrap gap-1">
             {change.added.map((item) => (
-              <Badge key={`+${item}`} variant="green" className="wrap-anywhere">
+              <Badge key={`+${item}`} variant="green" className={WRAP}>
                 {t("agent.releases.added", { item })}
               </Badge>
             ))}
             {change.removed.map((item) => (
-              <Badge key={`-${item}`} variant="red" className="wrap-anywhere">
+              <Badge key={`-${item}`} variant="red" className={WRAP}>
                 {t("agent.releases.removed", { item })}
               </Badge>
             ))}
@@ -179,8 +182,8 @@ export function ReleaseChangeList({
       case "text":
         return (
           <RevisionDiff
-            before={change.before.split("\n")}
-            after={change.after.split("\n")}
+            before={change.before}
+            after={change.after}
             beforeLabel={beforeLabel}
             afterLabel={afterLabel}
           />

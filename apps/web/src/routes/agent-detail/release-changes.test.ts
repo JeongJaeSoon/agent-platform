@@ -179,6 +179,48 @@ describe("releaseChanges", () => {
       expect(shown).not.toContain(value);
   });
 
+  test("a credential reference inside a list shows as changed, without the list", () => {
+    const withRef = (name: string) =>
+      release({
+        runtime_config_snapshot: {
+          model: "m",
+          project_settings: { integrations: [{ api_key_ref: `env:${name}` }] },
+        },
+      });
+    const changes = releaseChanges(
+      withRef("OLD_NAME"),
+      withRef("NEW_NAME"),
+      () => undefined,
+    );
+    expect(changes).toEqual([
+      {
+        area: "secrets",
+        field: { path: "project_settings.integrations" },
+        kind: "changed",
+      },
+    ]);
+  });
+
+  test("no GitHub pin compares as its defaults: an explicit default pin changes only the repositories", () => {
+    const { github: _dropped, ...unpinned } = before.policy_pins;
+    const defaults = release({
+      policy_pins: {
+        ...unpinned,
+        github: {
+          repositories: ["sample-app"],
+          push_approval: true,
+          features: { ...FEATURES, review: false },
+          actions_allow: [],
+        },
+      },
+    });
+    expect(
+      releaseChanges(release({ policy_pins: unpinned }), defaults, (id) =>
+        cards.get(id),
+      ).map((change) => change.field),
+    ).toEqual([{ key: "repositories" }]);
+  });
+
   test("a snapshot path the release builder does not write shows no value", () => {
     const changes = releaseChanges(
       release({ runtime_config_snapshot: { model: "m", region: "a-1" } }),

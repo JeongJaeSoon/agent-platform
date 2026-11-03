@@ -8,8 +8,9 @@ export type DiffLine = {
 
 /** Line diff by longest common subsequence; cards are small enough for O(n·m). */
 export function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split("\n");
-  const b = after.split("\n");
+  // An empty text has no lines, not one empty line.
+  const a = before === "" ? [] : before.split("\n");
+  const b = after === "" ? [] : after.split("\n");
   const width = b.length + 1;
   // lcs[i][j]: common lines between a[i..] and b[j..], flattened row-major.
   const lcs = new Int32Array((a.length + 1) * width);
@@ -53,6 +54,10 @@ const LINE = {
   removed: "block bg-[var(--ap-tone-danger-bg)] line-through",
 } as const;
 
+// Text as written; anything else as its JSON.
+const asText = (value: unknown) =>
+  typeof value === "string" ? value : JSON.stringify(value, null, 2);
+
 /** Two revisions of the same document, side by side as one annotated text. */
 export function RevisionDiff({
   before,
@@ -66,10 +71,7 @@ export function RevisionDiff({
   readonly afterLabel: string;
 }) {
   const { t } = useI18n();
-  const lines = diffLines(
-    JSON.stringify(before, null, 2),
-    JSON.stringify(after, null, 2),
-  );
+  const lines = diffLines(asText(before), asText(after));
   const changed = lines.some((line) => line.kind !== "same");
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-2">
