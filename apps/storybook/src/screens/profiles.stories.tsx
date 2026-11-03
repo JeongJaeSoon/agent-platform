@@ -612,7 +612,7 @@ const groupLabelsSitLikeFieldLabels =
 export const ProfileNewCeiling: Story = {
   name: "Owner · new ceiling",
   args: { view: "newCeiling" },
-  // 종류 and 허용할 저장소.
+  // The kind and allowed-repository groups.
   play: groupLabelsSitLikeFieldLabels(2),
 };
 export const ProfileNewCeilingRefused: Story = {
@@ -632,6 +632,6 @@ export const ProfileNewWorkspaceMobile: Story = {
   name: "Owner · new workspace profile (390px)",
   args: { view: "newWorkspace" },
   globals: MOBILE,
-  // 종류, and 모델 with its one choice.
+  // The kind group, and the model group with its one choice.
   play: groupLabelsSitLikeFieldLabels(2),
 };
