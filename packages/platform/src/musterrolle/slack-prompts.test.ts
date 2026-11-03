@@ -189,6 +189,45 @@ describe("Slack prompt cards", () => {
     expect(raw).not.toContain('"content"');
   });
 
+  test("an empty input still gets the folded raw input, showing it was empty", () => {
+    // E2E-1c: request_push({}) posted a card with no raw input at all.
+    const rawOf = (input: unknown) => {
+      const { blocks } = slackPromptMessage(
+        permission(input, { tool: "mcp__github__request_push" }),
+        { locale: "ko", requesterSlackUserId: null, linkUrl: LINK },
+      );
+      const container = blocks.find(
+        (block) => (block as { type: string }).type === "container",
+      ) as
+        | {
+            default_collapsed: boolean;
+            title: { text: string };
+            child_blocks: {
+              elements: { type: string; elements: { text: string }[] }[];
+            }[];
+          }
+        | undefined;
+      const pre = container?.child_blocks[0]?.elements[0];
+      return {
+        collapsed: container?.default_collapsed,
+        title: container?.title.text,
+        type: pre?.type,
+        text: pre?.elements[0]?.text,
+      };
+    };
+    expect(rawOf({})).toEqual({
+      collapsed: true,
+      title: "입력 원본 (mcp__github__request_push)",
+      type: "rich_text_preformatted",
+      text: "{}",
+    });
+    expect(rawOf("").text).toBe('""');
+    expect(rawOf(null).text).toBe("null");
+    expect(rawOf([]).text).toBe("[]");
+    // No JSON form at all: nothing to show, so no container.
+    expect(rawOf(undefined).text).toBeUndefined();
+  });
+
   test("a push card shows the catalog name, a 7-character commit and a shortened branch", () => {
     const branch = `agent/${SESSION}-a-rather-long-suffix`;
     const { blocks, text } = slackPromptMessage(

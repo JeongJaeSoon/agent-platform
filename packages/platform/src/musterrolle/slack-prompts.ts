@@ -411,13 +411,17 @@ function slackDate(iso: string): string {
 
 /**
  * The raw input as a person reads it: an object's fields one by one, a
- * string field's own line breaks kept rather than shown as `\n`.
+ * string field's own line breaks kept rather than shown as `\n`. An input
+ * with nothing to list (`{}`, `""`, `null`) shows as JSON, so the card says
+ * the input was empty; null only when there is no JSON form at all.
  */
 function inputPreview(input: unknown): string | null {
-  if (input === null || input === undefined) return null;
+  if (input === undefined) return null;
   let text: string;
   try {
-    if (typeof input === "string") {
+    if (input === null) {
+      text = "null";
+    } else if (typeof input === "string") {
       text = input;
     } else if (typeof input === "object" && !Array.isArray(input)) {
       text = Object.entries(input)
@@ -433,6 +437,7 @@ function inputPreview(input: unknown): string | null {
     } else {
       text = JSON.stringify(input, null, 2) ?? "";
     }
+    if (text === "") text = JSON.stringify(input) ?? "";
   } catch {
     return null;
   }
