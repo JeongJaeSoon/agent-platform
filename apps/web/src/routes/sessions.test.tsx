@@ -1543,12 +1543,14 @@ describe("session detail", () => {
     const scroller = list.closest(".overflow-y-auto") as HTMLElement;
     const boxes = scroller.querySelectorAll(".sr-only, .absolute");
     expect(boxes.length).toBeGreaterThan(0);
+    // Exact tokens: a breakpoint variant such as md:relative leaves 390px open.
+    const positioned = (el: Element) =>
+      ["relative", "absolute", "sticky", "fixed"].some((token) =>
+        el.classList.contains(token),
+      );
     for (const box of boxes) {
       let holder = box.parentElement;
-      while (
-        holder !== null &&
-        !/\b(relative|absolute|sticky|fixed)\b/.test(holder.className)
-      )
+      while (holder !== null && !positioned(holder))
         holder = holder.parentElement;
       expect(holder !== null && scroller.contains(holder)).toBe(true);
     }
