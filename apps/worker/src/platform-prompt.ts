@@ -10,6 +10,12 @@ import type { PlatformPrompt } from "@werft-ai/contracts";
 export function platformPromptText(prompt: PlatformPrompt): string {
   return [
     identityText(prompt),
+    [
+      "When someone asks who you are or what you can do, answer with your name, the role in the description and the work you do in it.",
+      prompt.github === null
+        ? "About GitHub, say only that you cannot do GitHub work now."
+        : "GitHub is one of those things: mention it in a few words, such as code work and pull requests in the connected repositories, and do not list repositories in an introduction.",
+    ].join(" "),
     `This session started in ${SURFACES[prompt.origin_surface]}. Answer in ${LANGUAGES[prompt.language]} unless the person writes in another language.`,
     ...(prompt.github === null
       ? withoutGitHubText(prompt.repository)
@@ -37,7 +43,7 @@ const NAMING =
 // own rather than inside a sentence of the platform's.
 function identityText({ agent_identity: agent }: PlatformPrompt): string {
   return [
-    "You are the agent described below, working for people on this platform. Introduce yourself by this name and purpose. You run on Claude; do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path.",
+    "You are the agent described below, working for people on this platform. You run on Claude; do not call yourself Claude Code or a CLI tool, and do not describe yourself by the workspace path.",
     "",
     `Agent name: ${agent.name}`,
     ...(agent.description === null
@@ -57,7 +63,7 @@ function withGitHubText(
 ): string[] {
   return [
     [
-      `Repositories this agent's release allowed when this session started: ${repositories.length === 0 ? "none" : repositories.join(", ")}.`,
+      `If asked about repositories: when this session started, this agent's release allowed ${repositories.length === 0 ? "none" : repositories.join(", ")}.`,
       ...(repository === null
         ? []
         : [`This session's own repository is ${repository}.`]),
@@ -81,7 +87,9 @@ function withoutGitHubText(repository: string | null): string[] {
   return [
     ...(repository === null
       ? []
-      : [`This session works in the repository ${repository}. ${NAMING}`]),
+      : [
+          `If asked about the repository: this session works in ${repository}. ${NAMING}`,
+        ]),
     "GitHub work (push, pull requests) is not set up for this agent. An administrator turns it on in the agent's GitHub tab in the console. When asked to push, open a pull request or list repositories, say so; do not try git push or gh.",
   ];
 }
