@@ -21,6 +21,7 @@ import {
 } from "@werft-ai/contracts";
 import type { AgentIdentityStore } from "../ports/agent-identity-store.ts";
 import type { LinkedAccountStore } from "../ports/linked-account-store.ts";
+import type { PushFollowUpStore } from "../ports/push-follow-ups.ts";
 import type { SlackOutboxStore } from "../ports/slack-outbox-store.ts";
 import type { SurfaceBindingStore } from "../ports/surface-binding-store.ts";
 import type { PendingRequestService } from "../sessions/pending-service.ts";
@@ -87,6 +88,7 @@ export type SlackInteractionDeps = {
   >;
   pushes: Pick<PushRequestService, "decide" | "get">;
   sessions: Pick<SessionService, "appendMessage">;
+  followUps: PushFollowUpStore;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
@@ -419,7 +421,30 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         mode: "enqueue" as const,
       },
     };
+    // A turn running now may open the pull request itself; a second turn
+    // asking for it only repeats the request and the reply.
     let queued = false;
+    if (decision === "approve") {
+      try {
+        const hold = await deps.followUps.hold({
+          sessionId: value.s,
+          pushRequestId: request.id,
+          message: followUp.body.message,
+        });
+        if (hold !== "now") {
+          queued = true;
+          deps.logger.info("Slack push follow-up turn not queued now", {
+            agent_id: pressed.agentId,
+            reason: hold,
+          });
+        }
+      } catch (error) {
+        deps.logger.warn("Slack push follow-up hold failed", {
+          agent_id: pressed.agentId,
+          code: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     for (
       let attempt = 1;
       !queued && attempt <= FOLLOW_UP_ATTEMPTS;

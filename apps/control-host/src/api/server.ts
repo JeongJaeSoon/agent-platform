@@ -32,6 +32,7 @@ import {
   createPostgresMemberStore,
   createPostgresPendingRequests,
   createPostgresPullRequests,
+  createPostgresPushFollowUpStore,
   createPostgresPushRequests,
   createPostgresRepositoryAttachments,
   createPostgresSecretStore,
@@ -1110,6 +1111,7 @@ const slackInteractions = createSlackInteractionService({
   pending: pendingRequests,
   pushes: pushRequests,
   sessions,
+  followUps: createPostgresPushFollowUpStore(db),
   slack: slackBotApi,
   botToken: async (workspaceId, slackAppId) =>
     secretKey === null

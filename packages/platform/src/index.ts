@@ -69,6 +69,7 @@ export * from "./ports/mcp-egress.ts";
 export * from "./ports/member-store.ts";
 export * from "./ports/pending-requests.ts";
 export * from "./ports/pull-requests.ts";
+export * from "./ports/push-follow-ups.ts";
 export * from "./ports/push-requests.ts";
 export * from "./ports/repository-attachments.ts";
 export * from "./ports/scheduler-store.ts";

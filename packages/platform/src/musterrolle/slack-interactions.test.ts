@@ -56,6 +56,7 @@ let getError: Error | null;
 let deferred: Promise<void>[];
 let results: string[];
 let userDelayMs: number;
+let hold: "now" | "held" | "pull_request" | Error;
 let viewUpdateError: Error | null;
 
 beforeEach(() => {
@@ -71,6 +72,7 @@ beforeEach(() => {
   deferred = [];
   results = [];
   userDelayMs = 0;
+  hold = "now";
 });
 
 const record =
@@ -225,6 +227,13 @@ function deps(): SlackInteractionDeps {
       },
     },
     sessions: { appendMessage: record("append") as never },
+    followUps: {
+      async hold(input) {
+        calls.push({ method: "hold", args: [input] });
+        if (hold instanceof Error) throw hold;
+        return hold;
+      },
+    },
     slack: {
       userInfo: async (_token, id) => {
         if (userDelayMs > 0)
@@ -676,6 +685,42 @@ describe("Slack interactions", () => {
       body: { mode: "enqueue" },
     });
     expect(settledText()).toContain(`<@${LINKED}>`);
+  });
+
+  test("an approval while a turn runs, or with the branch's pull request recorded, queues no turn now", async () => {
+    for (const answer of ["held", "pull_request"] as const) {
+      calls = [];
+      hold = answer;
+      const result = await send(
+        press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+          s: SESSION,
+          r: "push-1",
+        }),
+      );
+      expect(result).toMatchObject({ result: "approved" });
+      expect(called("hold")[0]?.args[0]).toMatchObject({
+        sessionId: SESSION,
+        pushRequestId: "push-1",
+        message: expect.stringContaining("approved push request push-1"),
+      });
+      expect(called("append")).toEqual([]);
+      expect(settledText()).toContain(`<@${LINKED}>`);
+    }
+  });
+
+  test("a hold that fails queues the turn now, and a rejection is never held", async () => {
+    hold = new Error("db down");
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
+    );
+    expect(called("append")).toHaveLength(1);
+    calls = [];
+    hold = "held";
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.pushReject, { s: SESSION, r: "push-1" }),
+    );
+    expect(called("hold")).toEqual([]);
+    expect(called("append")).toHaveLength(1);
   });
 
   test("a push already decided is not decided again and queues no turn", async () => {
