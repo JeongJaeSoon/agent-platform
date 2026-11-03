@@ -132,6 +132,7 @@ import {
   recordLostInputWait,
 } from "./pending-requests.ts";
 import { queuePushContinuation } from "./push-continuations.ts";
+import { queuePushFollowUps } from "./push-follow-ups.ts";
 import type { Database } from "./queries.ts";
 import {
   boundedReason,
@@ -2856,6 +2857,10 @@ export function createPostgresWorkerUnitOfWork(
             session: fenced.session,
             turnRowId: terminal.id,
           });
+        }
+        // A parked turn resumes later and may still open the pull request.
+        if (terminal !== undefined && parked.length === 0) {
+          await queuePushFollowUps(tx, { session: fenced.session });
         }
         // The Nth turn's end is when an every_n_turns judgment is due.
         await queueAchievementJudgment(tx, fence.sessionId, {

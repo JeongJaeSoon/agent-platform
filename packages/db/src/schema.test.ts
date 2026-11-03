@@ -114,6 +114,7 @@ describe("database schema", () => {
       "provider_usage_totals",
       "pull_requests",
       "push_continuations",
+      "push_follow_ups",
       "push_requests",
       "queue_messages",
       "receipts",
