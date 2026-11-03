@@ -2620,6 +2620,72 @@ describe("편집 중 다른 곳의 저장", () => {
     ).toBe(PROFILE);
   });
 
+  test("카드 편집에서 모델을 바꿔 다른 프로필이 되면 새 release도 그 프로필로 시작한다(저장된 버전을 돌릴 수 있을 때)", async () => {
+    const server = agentServer();
+    const listed = server.routes["GET /v1/profiles"] as () => Response;
+    renderAt(CARD_TAB, {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/profiles": async () => {
+        const body = (await listed().json()) as { items: ProfileSummary[] };
+        const byId = (id: string) =>
+          body.items.find((item) => item.id === id) as ProfileSummary;
+        // Sonnet resolves to local first, haiku to both first.
+        return json(200, {
+          items: [
+            byId(PROFILE),
+            {
+              ...byId(PROFILE),
+              id: "claude-coding-both",
+              model: "claude-haiku-5",
+              models: ["claude-haiku-5", CARD.model],
+            },
+            byId("claude-coding-fast"),
+          ],
+        });
+      },
+    });
+    const user = await setupUser();
+    await openCardEditor(user);
+    const card = screen.getByRole("tabpanel", { name: "상세 설정" });
+    const cardProfile = (await within(card).findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(cardProfile.value).toBe(PROFILE);
+    await user.selectOptions(
+      within(card).getByLabelText("모델"),
+      "claude-haiku-5",
+    );
+    await waitFor(() => expect(cardProfile.value).toBe("claude-coding-both"));
+
+    // The saved version names claude-sonnet-5, which this profile also runs.
+    await showTab(user, "릴리스");
+    let release = await openRelease(user);
+    expect(
+      ((await release.findByLabelText("프로필")) as HTMLSelectElement).value,
+    ).toBe("claude-coding-both");
+    await user.click(release.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // One that cannot run the saved version is shown last and not picked:
+    // the first that can is.
+    await showTab(user, "상세 설정");
+    await user.selectOptions(cardProfile, "claude-coding-fast");
+    await showTab(user, "릴리스");
+    release = await openRelease(user);
+    const releaseProfile = (await release.findByLabelText(
+      "프로필",
+    )) as HTMLSelectElement;
+    expect(releaseProfile.value).toBe(PROFILE);
+    const fast = Array.from(releaseProfile.options).find(
+      (option) => option.value === "claude-coding-fast",
+    );
+    expect(fast?.disabled).toBe(true);
+    expect(fast?.text).toBe(
+      "claude-coding-fast v1 · claude-haiku-5 (설치) · 카드 모델과 다름",
+    );
+  });
+
   test("모델과 profile 안내는 정확 일치 규칙을 말하고 내부 파일 이름을 보이지 않는다", async () => {
     const server = agentServer();
     renderAt(DETAIL, { ...meOk, ...server.routes });

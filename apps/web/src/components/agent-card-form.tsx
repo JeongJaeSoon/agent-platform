@@ -28,7 +28,7 @@ import {
   Switch,
   Textarea,
 } from "@werft-ai/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { components } from "../api/schema.gen.ts";
 import { errorKey, LOCALE_NAMES, useI18n } from "../i18n/i18n.tsx";
 import { builtinToolNote } from "../routes/operations-tool-notes.ts";
@@ -418,6 +418,14 @@ function ToolFields({
     previewId ?? ownPick,
     previewable,
   );
+  // A draft model change can resolve to another profile than the one shared;
+  // the shared value follows, so a new release starts from what is shown.
+  const resolved = preview?.id;
+  useEffect(() => {
+    if (resolved !== undefined && resolved !== previewId) {
+      onPreviewChange?.(resolved);
+    }
+  }, [resolved, previewId, onPreviewChange]);
   const offered = preview?.tools ?? [];
   const all = draft.toolsMode === "all";
   const outside = all

@@ -875,12 +875,13 @@ function ReleaseForm({
     name: "runtime_profile_id",
   });
   const picked = profiles.find((p) => p.id === chosen);
+  const stillOffered = picked !== undefined && offered(picked);
   const { setValue } = form;
-  // A refetch can retire the picked version under the open form.
+  // A refetch can retire, drop or narrow the picked one under the open form.
   useEffect(() => {
-    if (picked !== undefined && !releasable(picked) && chosen !== fallback)
+    if (!stillOffered && chosen !== fallback)
       setValue("runtime_profile_id", fallback);
-  }, [picked, chosen, fallback, setValue]);
+  }, [stillOffered, chosen, fallback, setValue]);
   const { errors, isSubmitting } = form.formState;
   const release = async ({
     runtime_profile_id,

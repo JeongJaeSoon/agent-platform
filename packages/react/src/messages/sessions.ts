@@ -420,7 +420,7 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.refused.RECOVERY_REQUIRED":
     "The session needs a recovery decision first.",
   "session.refused.PROFILE_BLOCKED":
-    "The operator blocked this session's run profile, so it takes no messages. Send again once it is unblocked.",
+    "The operator blocked this session's profile, so it takes no messages. Send again once it is unblocked.",
 
   "inbox.title": "Waiting for an answer",
   "inbox.count": "{count} sessions waiting for an answer",
