@@ -13,10 +13,22 @@ const REPO_DOC =
 
 // The captured text is `<ref>/<path>`. A ref may hold slashes (release/next),
 // so the path starts at the first top-level repository name after the ref.
+// Known limits, none used by a link in this repository: a ref that itself
+// contains a root name (release/docs) and a path with a parenthesis.
 const REPO_ROOTS = new Set(["docs", "examples", "packages", "apps"]);
 
+function decoded(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
 function repoPath(refAndPath: string): string {
-  const segments = decodeURIComponent(refAndPath).replace(/\/$/, "").split("/");
+  const segments = decoded(refAndPath)
+    .replace(/[/.,;:]+$/, "")
+    .split("/");
   const root = segments.findIndex((s, i) => i > 0 && REPO_ROOTS.has(s));
   return segments.slice(root === -1 ? 1 : root).join("/");
 }
