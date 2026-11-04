@@ -3,6 +3,7 @@ import type {
   CountSessionsQuery,
   CountSessionsResponse,
   CreateSessionResponse,
+  GitHubPolicySource,
   ListSessionsQuery,
   ListTurnsQuery,
   PermissionWaitRequest,
@@ -54,6 +55,8 @@ export type AcceptSessionInput = {
   repository: { id: string; url: string; branch: string } | "none" | null;
   // Already checked against the release; left out, the column stays null.
   attachedRepositoryIds?: string[];
+  /** Absent: `release`. */
+  githubPolicySource?: GitHubPolicySource;
   // The profile's fingerprint under the catalog that allowed the pair, which
   // every claim of the session is then held to. Left out, the row
   // is pinned by its first claim, as one from before the column is.
@@ -140,6 +143,7 @@ export type SessionDetailRecord = Omit<SessionDetail, "runtime"> & {
   // repository, `repository` for every other, a row from before the catalog
   // included. Not the profile's repository_mode, and never exposed.
   repository_mode: "repository" | "none";
+  github_policy_source: string;
   profile_fingerprint: string | null;
 };
 

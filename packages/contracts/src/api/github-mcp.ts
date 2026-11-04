@@ -15,6 +15,7 @@ import {
   createPushRequestRequestSchema,
   pushRequestIdSchema,
 } from "./push-request.ts";
+import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
 /**
  * The built-in MCP server a session's agent reaches GitHub through (design
@@ -180,6 +181,7 @@ export const attachRepositoryReceiptResultSchema = z.object({
   commit: z.string().nullable(),
   failure: repositoryAttachFailureSchema.nullable(),
   reason_code: z.string().nullable(),
+  ...githubPolicyReceiptFieldsSchema.shape,
 });
 
 /**
@@ -195,9 +197,16 @@ export function githubMcpTools(github: AgentGitHub): GitHubMcpTool[] {
   );
 }
 
+/**
+ * The tools an `agent` session always sees, whatever its settings say now:
+ * its runtime config, and so its checkpoint fingerprint, must not follow a
+ * change to them. Each call is judged instead.
+ */
+export const GITHUB_MCP_FIXED_TOOLS = Object.keys(
+  GITHUB_MCP_TOOL_FEATURES,
+) as GitHubMcpTool[];
+
 /** The engine's names for them: `mcp__github__<tool>`. */
-export function githubMcpToolNames(github: AgentGitHub): string[] {
-  return githubMcpTools(github).map(
-    (tool) => `${MCP_TOOL_PREFIX}${GITHUB_MCP_SERVER}__${tool}`,
-  );
+export function githubMcpToolNames(tools: readonly GitHubMcpTool[]): string[] {
+  return tools.map((tool) => `${MCP_TOOL_PREFIX}${GITHUB_MCP_SERVER}__${tool}`);
 }

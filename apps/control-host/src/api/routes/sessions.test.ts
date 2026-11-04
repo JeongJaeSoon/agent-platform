@@ -75,6 +75,8 @@ function app(
       resolveRelease: async () => {
         throw new Error("not reached");
       },
+      agentGitHubSettings: async () => null,
+      repositoryCeiling: async () => null,
     },
     inputs: {
       acceptInputAtomic: async () => {
@@ -1213,6 +1215,7 @@ describe("session titles (94S-804)", () => {
     repo_url: "https://example.invalid/app.git",
     branch: "main",
     repository_mode: "repository",
+    github_policy_source: "release",
     profile_fingerprint: null,
   };
   const accepted = {

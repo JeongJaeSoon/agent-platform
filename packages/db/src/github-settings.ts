@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
-  agentGitHubSchema,
+  type AgentGitHubSettingsRow,
+  type EffectiveGitHubPolicy,
+  effectiveGitHubPolicy,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   type GitHubFeatures,
   githubCeilingSchema,
+  newSessionGitHubPolicy,
+  type RepositoryCeiling,
+  repositoryCeilingOf,
 } from "@werft-ai/contracts";
 import type {
   GitHubGateStore,
@@ -16,6 +21,7 @@ import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import { lockedRole } from "./api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentGitHubSettings,
   agentReleases,
   agents,
   githubApps,
@@ -38,14 +44,109 @@ async function readSettings(db: Database, workspaceId: string) {
   const [row] = await db
     .select({
       ceiling: githubWorkspaceSettings.ceiling,
+      repositoryCeiling: githubWorkspaceSettings.repositoryCeiling,
       revision: githubWorkspaceSettings.revision,
     })
     .from(githubWorkspaceSettings)
     .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
     .limit(1);
   return row === undefined
-    ? { ceiling: GITHUB_CEILING_NONE, revision: 0 }
-    : { ceiling: ceilingOf(row.ceiling), revision: row.revision };
+    ? { ceiling: GITHUB_CEILING_NONE, repositoryCeiling: null, revision: 0 }
+    : {
+        ceiling: ceilingOf(row.ceiling),
+        repositoryCeiling: repositoryCeilingOf(row.repositoryCeiling),
+        revision: row.revision,
+      };
+}
+
+/**
+ * What `githubPolicyOfRow` reads off a session. The query joins
+ * `agentGitHubSettings` on the agent of the session's release.
+ */
+const agentPolicyColumns = {
+  releasePin: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+  settingsRepositories: agentGitHubSettings.repositories,
+  settingsPushApproval: agentGitHubSettings.pushApproval,
+  settingsFeatures: agentGitHubSettings.features,
+  settingsActionsAllow: agentGitHubSettings.actionsAllow,
+  settingsStartRepositoryId: agentGitHubSettings.startRepositoryId,
+  settingsRevision: agentGitHubSettings.revision,
+};
+
+export const githubPolicyColumns = {
+  githubPolicySource: sessions.githubPolicySource,
+  ...agentPolicyColumns,
+};
+
+export function agentGitHubSettingsRowOf(row: {
+  settingsRepositories: unknown;
+  settingsPushApproval: boolean | null;
+  settingsFeatures: unknown;
+  settingsActionsAllow: unknown;
+  settingsStartRepositoryId: string | null;
+  settingsRevision: number | null;
+}): AgentGitHubSettingsRow | null {
+  if (row.settingsRevision === null || row.settingsPushApproval === null) {
+    return null;
+  }
+  return {
+    repositories: row.settingsRepositories,
+    pushApproval: row.settingsPushApproval,
+    features: row.settingsFeatures,
+    actionsAllow: row.settingsActionsAllow,
+    startRepositoryId: row.settingsStartRepositoryId,
+    revision: row.settingsRevision,
+  };
+}
+
+export function githubPolicyOfRow(
+  row: Parameters<typeof agentGitHubSettingsRowOf>[0] & {
+    githubPolicySource: unknown;
+    releasePin: unknown;
+  },
+): EffectiveGitHubPolicy {
+  return effectiveGitHubPolicy({
+    source: row.githubPolicySource,
+    releasePin: row.releasePin,
+    agentRow: agentGitHubSettingsRowOf(row),
+  });
+}
+
+/** What `createSession` reads to pick a new session's policy. */
+export function newSessionGitHubReaders(db: Database) {
+  return {
+    agentGitHubSettings: (agentId: string) =>
+      agentGitHubSettingsOf(db, agentId),
+    repositoryCeiling: (workspaceId: string) =>
+      workspaceRepositoryCeiling(db, workspaceId),
+  };
+}
+
+export async function workspaceRepositoryCeiling(
+  db: Database,
+  workspaceId: string,
+): Promise<RepositoryCeiling | null> {
+  return (await readSettings(db, workspaceId)).repositoryCeiling;
+}
+
+/** The settings a new session of the agent would start under. */
+export async function agentGitHubSettingsOf(
+  db: Database,
+  agentId: string,
+): Promise<AgentGitHubSettingsRow | null> {
+  const [row] = await db
+    .select({
+      repositories: agentGitHubSettings.repositories,
+      pushApproval: agentGitHubSettings.pushApproval,
+      features: agentGitHubSettings.features,
+      actionsAllow: agentGitHubSettings.actionsAllow,
+      startRepositoryId: agentGitHubSettings.startRepositoryId,
+      revision: agentGitHubSettings.revision,
+    })
+    .from(agentGitHubSettings)
+    .where(eq(agentGitHubSettings.agentId, agentId))
+    .limit(1);
+  return row ?? null;
 }
 
 const sessionTarget = (sessionId: string) => ({
@@ -64,6 +165,7 @@ export function createPostgresGitHubGateStore(
       const [row] = await db
         .select({
           ownerId: sessions.ownerId,
+          sessionWorkspaceId: sessions.workspaceId,
           repositoryId: sessions.repositoryId,
           profileId: sessions.profileId,
           attachedRepositoryIds: sessions.attachedRepositoryIds,
@@ -77,22 +179,21 @@ export function createPostgresGitHubGateStore(
           workspaceId: agents.workspaceId,
           githubEnabled: agents.githubEnabled,
           releaseId: agentReleases.id,
-          github: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
+          ...githubPolicyColumns,
         })
         .from(sessions)
         .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
         .leftJoin(agents, eq(agents.id, agentReleases.agentId))
+        .leftJoin(
+          agentGitHubSettings,
+          eq(agentGitHubSettings.agentId, agents.id),
+        )
         .where(eq(sessions.id, sessionId))
         .limit(1);
       if (row === undefined) return null;
-      const github =
-        row.github === null || row.github === undefined
-          ? null
-          : agentGitHubSchema.safeParse(row.github);
-      const ceiling =
-        row.workspaceId === null
-          ? GITHUB_CEILING_NONE
-          : (await readSettings(db, row.workspaceId)).ceiling;
+      const workspaceId = row.workspaceId ?? row.sessionWorkspaceId;
+      const settings =
+        workspaceId === null ? null : await readSettings(db, workspaceId);
       return {
         ownerId: row.ownerId,
         sessionId,
@@ -114,19 +215,14 @@ export function createPostgresGitHubGateStore(
                 workspaceId: row.workspaceId,
                 githubEnabled: row.githubEnabled,
               },
-        release:
-          row.releaseId === null
-            ? null
-            : {
-                id: row.releaseId,
-                github:
-                  github === null
-                    ? null
-                    : github.success
-                      ? github.data
-                      : "invalid",
-              },
-        ceiling,
+        release: row.releaseId === null ? null : { id: row.releaseId },
+        policy: githubPolicyOfRow(row),
+        ceiling:
+          row.workspaceId === null || settings === null
+            ? GITHUB_CEILING_NONE
+            : settings.ceiling,
+        repositoryCeiling: settings?.repositoryCeiling ?? null,
+        ceilingRevision: settings?.revision ?? 0,
       };
     },
 
@@ -276,29 +372,41 @@ export function createPostgresGitHubSettingsStore(
   db: Database,
 ): GitHubSettingsStore {
   return {
-    get: (workspaceId) => readSettings(db, workspaceId),
+    async get(workspaceId) {
+      const { ceiling, revision } = await readSettings(db, workspaceId);
+      return { ceiling, revision };
+    },
 
     async agentsUsing(workspaceId) {
-      const feature = (name: keyof GitHubFeatures) =>
-        sql<number>`count(*) FILTER (WHERE ${agentReleases.policyPins} -> 'github' -> 'features' -> ${name} = 'true'::jsonb)::int`;
-      const [row] = await db
-        .select({
-          workflows: feature("workflows"),
-          actions: feature("actions"),
-          checks: feature("checks"),
-          issues: feature("issues"),
-          review: feature("review"),
-        })
+      const rows = await db
+        .select(agentPolicyColumns)
         .from(agents)
         .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
+        .leftJoin(
+          agentGitHubSettings,
+          eq(agentGitHubSettings.agentId, agents.id),
+        )
         .where(
           and(
             eq(agents.workspaceId, workspaceId),
             eq(agents.githubEnabled, true),
           ),
         );
+      const policies = rows.map(
+        (row) =>
+          newSessionGitHubPolicy(agentGitHubSettingsRowOf(row), row.releasePin)
+            .settings,
+      );
       return Object.fromEntries(
-        FEATURES.map((name) => [name, row?.[name] ?? 0]),
+        FEATURES.map((name) => [
+          name,
+          policies.filter(
+            (settings) =>
+              settings !== null &&
+              settings !== "invalid" &&
+              settings.features[name],
+          ).length,
+        ]),
       ) as Record<keyof GitHubFeatures, number>;
     },
 

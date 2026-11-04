@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
+  type EffectiveGitHubPolicy,
   GITHUB_CEILING_NONE,
+  GITHUB_POLICY_CLOSED,
   type GitHubAppRole,
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubRefusal,
+  type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import {
   ForgeCredentialError,
@@ -30,6 +33,7 @@ import {
   type GitHubWork,
   type RegisteredGitHubConnection,
 } from "../ports/github-gate.ts";
+import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
 import { createGitHubConnectionResolver } from "./github-connection-resolver.ts";
 import { createGitHubGate } from "./github-gate.ts";
@@ -168,6 +172,9 @@ function harness(
     repository?: { url: string; branch: string } | null;
     attached?: string[] | null;
     github?: AgentGitHub | "invalid" | null;
+    /** Beats `github`: a session under the agent's settings. */
+    policy?: EffectiveGitHubPolicy;
+    repositoryCeiling?: RepositoryCeiling | null;
     githubEnabled?: boolean;
     ceiling?: GitHubCeiling;
     author?: ReturnType<typeof fakeConnection> | null;
@@ -193,8 +200,10 @@ function harness(
       options.repositoryId === undefined ? "app" : options.repositoryId,
     attached: options.attached ?? null,
     github: options.github === undefined ? settings() : options.github,
+    policy: options.policy,
     githubEnabled: options.githubEnabled ?? true,
     ceiling: options.ceiling ?? GITHUB_CEILING_NONE,
+    repositoryCeiling: options.repositoryCeiling ?? null,
   };
   const pinned =
     state.repositoryId !== null &&
@@ -228,8 +237,11 @@ function harness(
               workspaceId: "owner-a",
               githubEnabled: state.githubEnabled,
             },
-            release: { id: "release-1", github: state.github },
+            release: { id: "release-1" },
+            policy: state.policy ?? releasePolicy(state.github),
             ceiling: state.ceiling,
+            repositoryCeiling: state.repositoryCeiling,
+            ceilingRevision: 0,
           },
     findDispatch: async (repositoryId, runId) =>
       (options.dispatches ?? []).find(
@@ -1062,6 +1074,209 @@ describe("another repository than the session's", () => {
       expect(await grant({ purpose: "actions_read" })).toMatchObject({
         context: { repositoryId: "app" },
       });
+    });
+  });
+});
+
+describe("a session under the agent's settings", () => {
+  const IN_CEILING: RepositoryCeiling = {
+    repository_ids: ["app", "selfhosted", "public"],
+    github_app_repositories: "listed",
+  };
+  const onList = settings({ repositories: ["app", "selfhosted", "public"] });
+  const WORKSPACE_PROFILE = {
+    ...CATALOG,
+    profiles: { default: {} as SessionCatalog["profiles"][string] },
+    installation: new Map<string, InstallationProfileEntry>([
+      [
+        "default",
+        {
+          id: "default",
+          origin: "catalog",
+          state: "usable",
+          repository_ids: ["app"],
+          repository_scope: "workspace",
+        },
+      ],
+    ]),
+  } satisfies SessionCatalog;
+
+  test("is granted on the list, in the ceiling; the receipt names the source", async () => {
+    const { grant, receipts } = harness({
+      policy: agentPolicy(onList, { revision: 7 }),
+      repositoryCeiling: IN_CEILING,
+    });
+    await grant({ purpose: "clone" });
+    expect(receipts.at(-1)?.result).toMatchObject({
+      policy_source: "agent",
+      agent_settings_revision: 7,
+      workspace_ceiling_revision: 0,
+    });
+  });
+
+  test("a release session's receipt names its source too", async () => {
+    const { grant, receipts } = harness();
+    await grant({ purpose: "clone" });
+    expect(receipts.at(-1)?.result).toMatchObject({
+      policy_source: "release",
+      agent_settings_revision: null,
+    });
+  });
+
+  test.each([
+    {
+      name: "off the agent's list",
+      policy: agentPolicy(settings({ repositories: ["selfhosted"] })),
+      ceiling: IN_CEILING,
+      reason: "repository_not_allowed",
+    },
+    {
+      name: "the closed policy of a missing row",
+      policy: agentPolicy(GITHUB_POLICY_CLOSED),
+      ceiling: IN_CEILING,
+      reason: "repository_not_allowed",
+    },
+    {
+      name: "no workspace ceiling",
+      policy: agentPolicy(onList),
+      ceiling: null,
+      reason: "repository_not_allowed",
+    },
+    {
+      name: "off the workspace ceiling",
+      policy: agentPolicy(onList),
+      ceiling: { ...IN_CEILING, repository_ids: ["public"] },
+      reason: "repository_not_allowed",
+    },
+    {
+      name: "a row this image cannot read",
+      policy: agentPolicy("invalid"),
+      ceiling: IN_CEILING,
+      reason: "github_settings_unsupported",
+    },
+  ])("is refused: $name", async ({ policy, ceiling, reason }) => {
+    const { grant, asked } = harness({
+      policy,
+      repositoryCeiling: ceiling as RepositoryCeiling | null,
+    });
+    expect((await refused(grant({ purpose: "clone" }))).reason).toBe(
+      reason as GitHubRefusal,
+    );
+    expect(asked).toEqual([]);
+  });
+
+  test.each(["selfhosted", "public"])(
+    "%s, off GitHub, is judged before its catalog credential",
+    async (repositoryId) => {
+      const off = harness({
+        repositoryId,
+        policy: agentPolicy(settings({ repositories: ["app"] })),
+        repositoryCeiling: IN_CEILING,
+      });
+      expect((await refused(off.grant({ purpose: "clone" }))).reason).toBe(
+        "repository_not_allowed",
+      );
+      const ceiling = harness({
+        repositoryId,
+        policy: agentPolicy(onList),
+        repositoryCeiling: null,
+      });
+      expect((await refused(ceiling.grant({ purpose: "clone" }))).reason).toBe(
+        "repository_not_allowed",
+      );
+      const allowed = harness({
+        repositoryId,
+        policy: agentPolicy(onList),
+        repositoryCeiling: IN_CEILING,
+      });
+      expect(await allowed.grant({ purpose: "clone" })).toBeNull();
+      // Unchanged for a session on its release.
+      const release = harness({ repositoryId, github: settings() });
+      expect(await release.grant({ purpose: "clone" })).toBeNull();
+    },
+  );
+
+  test("a PAT stays on the default work; only a feature needs an App", async () => {
+    const pat = () =>
+      harness({
+        author: fakeConnection("pat", { kind: "pat" }),
+        policy: agentPolicy(
+          settings({ ...onList, features: features({ actions: true }) }),
+        ),
+        repositoryCeiling: IN_CEILING,
+        ceiling: ALL_ON,
+      });
+    expect(await pat().grant({ purpose: "clone" })).toMatchObject({
+      permissions: { contents: "read" },
+    });
+    expect(
+      (
+        await refused(
+          pat().grant({
+            purpose: "dispatch",
+            workflow: { file: "ci.yml", ref: "main" },
+          }),
+        )
+      ).reason,
+    ).toBe("app_required");
+    // Unchanged for a session on its release.
+    const release = harness({
+      author: fakeConnection("pat", { kind: "pat" }),
+      github: settings(),
+    });
+    expect((await refused(release.grant({ purpose: "clone" }))).reason).toBe(
+      "app_required",
+    );
+  });
+
+  test("the agent's switch still holds", async () => {
+    const { grant } = harness({
+      policy: agentPolicy(onList),
+      repositoryCeiling: IN_CEILING,
+      githubEnabled: false,
+    });
+    expect((await refused(grant({ purpose: "clone" }))).reason).toBe(
+      "github_disabled",
+    );
+  });
+
+  test("another repository under a bad row is the row's refusal, not the list's", async () => {
+    const { grant } = harness({
+      policy: agentPolicy("invalid"),
+      repositoryCeiling: IN_CEILING,
+    });
+    expect(
+      (await refused(grant({ purpose: "clone", repositoryId: "public" })))
+        .reason,
+    ).toBe("github_settings_unsupported");
+  });
+
+  test("a release session on a workspace profile: the ceiling judges, the pin lists", async () => {
+    const inCeiling = harness({
+      catalog: WORKSPACE_PROFILE,
+      repositoryCeiling: IN_CEILING,
+    });
+    await inCeiling.grant({ purpose: "clone" });
+    const outside = harness({
+      catalog: WORKSPACE_PROFILE,
+      repositoryCeiling: { ...IN_CEILING, repository_ids: [] },
+    });
+    expect((await refused(outside.grant({ purpose: "clone" }))).reason).toBe(
+      "repository_not_allowed",
+    );
+    const none = harness({ catalog: WORKSPACE_PROFILE });
+    expect((await refused(none.grant({ purpose: "clone" }))).reason).toBe(
+      "repository_not_allowed",
+    );
+  });
+
+  test("the platform reading a recorded pull request answers to no ceiling", async () => {
+    const { grant } = harness({
+      policy: agentPolicy(GITHUB_POLICY_CLOSED),
+      repositoryCeiling: null,
+    });
+    expect(await grant({ purpose: "outcome_refresh" })).toMatchObject({
+      repo: { owner: "acme", name: "app" },
     });
   });
 });

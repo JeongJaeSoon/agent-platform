@@ -39,12 +39,16 @@ import {
 import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import { createGitHubGate } from "../sessions/github-gate.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import { releasePolicy } from "../testing/github-fakes.ts";
 import {
   type CheckpointProtocol,
   createWorkerGateway,
   hashWorkerToken,
   WorkerGatewayError,
 } from "./worker-gateway.ts";
+
+const withoutPolicyPairs = (pairs: ClaimInput["runnable"]) =>
+  pairs.filter((pair) => pair.policy !== true);
 
 const scope = {
   session_id: "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d",
@@ -709,7 +713,7 @@ describe("WorkerGateway", () => {
       },
       project_settings: { claude_md: true },
     };
-    const runnable: unknown[] = [];
+    const runnable: ClaimInput["runnable"][] = [];
     const issued: ClaimInput["egress"][] = [];
     const instance = createWorkerGateway({
       work: work({
@@ -779,7 +783,7 @@ describe("WorkerGateway", () => {
       url: "https://example.invalid/docs.git",
       branch: "trunk",
     };
-    expect(runnable).toEqual([
+    expect(runnable.map(withoutPolicyPairs) as unknown[]).toEqual([
       [
         ["claude-coding-v1", app] as const,
         ["other", app] as const,
@@ -839,6 +843,7 @@ describe("WorkerGateway", () => {
         profileFingerprint: null,
         model: null,
         repositoryMode: "repository",
+        githubPolicySource: "release",
         repositoryId: "sample-app",
       }),
     ).toEqual({
@@ -1404,6 +1409,7 @@ describe("WorkerGateway", () => {
         profileFingerprint: pinned,
         model: "claude-sonnet-5",
         repositoryMode: "none",
+        githubPolicySource: "release",
         repositoryId: null,
       }).provider,
     ).toBe(pinned);
@@ -1520,7 +1526,7 @@ describe("WorkerGateway", () => {
       "project_settings",
     );
     expect(bootstrapClaimResponseSchema.safeParse(claimed).success).toBe(true);
-    expect(runnable[0]).toEqual([
+    expect(withoutPolicyPairs(runnable[0] ?? [])).toEqual([
       ...["required", "optional"].flatMap((profileId) =>
         [0, 1].map(() =>
           expect.objectContaining({ profileId, repositoryId: "app" }),
@@ -1540,10 +1546,17 @@ describe("WorkerGateway", () => {
       })),
     ]);
     expect(
-      runnable[0]
-        ?.filter((pair) => pair.profileId === "general")
+      withoutPolicyPairs(runnable[0] ?? [])
+        .filter((pair) => pair.profileId === "general")
         .map((pair) => pair.model),
     ).toEqual(["claude-sonnet-5", "claude-opus-5-5", null, null]);
+    // Each profile also gets the pairs an `agent` session is claimed by,
+    // which no `release` session matches.
+    const policy = (runnable[0] ?? []).filter((pair) => pair.policy === true);
+    expect(new Set(policy.map((pair) => pair.profileId))).toEqual(
+      new Set(["required", "optional", "general"]),
+    );
+    expect(policy.every((pair) => pair.workspaceScoped === false)).toBe(true);
     const [egress] = issued;
     if (!egress) throw new Error("claim was not asked to issue egress tokens");
     expect(
@@ -1553,6 +1566,7 @@ describe("WorkerGateway", () => {
         profileFingerprint: profileFingerprint(general),
         model: "claude-sonnet-5",
         repositoryMode: "none",
+        githubPolicySource: "release",
         repositoryId: null,
       }),
     ).toEqual({
@@ -1561,6 +1575,19 @@ describe("WorkerGateway", () => {
       object_store: "sessions/s-1/",
       packages: "public",
     });
+    // Under the agent's settings the tools stay attached, so even a profile
+    // with no repository keeps the token for what the session attaches.
+    expect(
+      egress.bindingsOf({
+        id: "s-1",
+        profileId: "general",
+        profileFingerprint: profileFingerprint(general),
+        model: "claude-sonnet-5",
+        repositoryMode: "none",
+        githubPolicySource: "agent",
+        repositoryId: null,
+      }).repository,
+    ).toBe("attached-only");
     // An optional session without a repository still gets a repository
     // token, for the ones it attaches.
     expect(
@@ -1570,6 +1597,7 @@ describe("WorkerGateway", () => {
         profileFingerprint: profileFingerprint(optional),
         model: "claude-sonnet-5",
         repositoryMode: "none",
+        githubPolicySource: "release",
         repositoryId: null,
       }).repository,
     ).toBe("attached-only");
@@ -1603,6 +1631,7 @@ describe("WorkerGateway", () => {
         profileFingerprint: v1Opus,
         model: null,
         repositoryMode: "none",
+        githubPolicySource: "release",
         repositoryId: null,
       }).provider,
     ).toBe(v1Opus);
@@ -1666,6 +1695,7 @@ describe("WorkerGateway", () => {
       profileFingerprint: profileFingerprint(general),
       model: "claude-sonnet-5",
       repositoryMode: "none" as const,
+      githubPolicySource: "release",
       repositoryId: null,
       mcp: mcpOf(server),
     });
@@ -2823,6 +2853,7 @@ describe("authorizeEgress", () => {
     attemptId: "att_1",
     binding,
     profileId: "p",
+    githubPolicySource: "release",
     model: profile.model,
     costUsd,
     providerTokens: 0,
@@ -3071,8 +3102,9 @@ describe("authorizeEgress through a forge", () => {
   function gateway(
     repository: CatalogRepository,
     github?: GitHubGate,
-    others: { docs?: CatalogRepository } = {},
+    others: { docs?: CatalogRepository; source?: string } = {},
   ): ReturnType<typeof createWorkerGateway> {
+    const { source = "release", ...repositories } = others;
     return createWorkerGateway({
       work: work({
         authorizeEgressAtomic: async () => ({
@@ -3082,6 +3114,7 @@ describe("authorizeEgress through a forge", () => {
           binding: repositoryBinding("app", repository),
           profileId: "p",
           model: profile.model,
+          githubPolicySource: source,
           costUsd: 0,
           providerTokens: 0,
           repository: { id: "app", url: repository.url, branch: "main" },
@@ -3089,7 +3122,7 @@ describe("authorizeEgress through a forge", () => {
       }),
       catalog: withSeededInstallation({
         profiles: { p: profile },
-        repositories: { app: repository, ...others },
+        repositories: { app: repository, ...repositories },
       }),
       checkpoints: acceptAllCheckpoints,
       ...(github === undefined ? {} : { github }),
@@ -3124,6 +3157,7 @@ describe("authorizeEgress through a forge", () => {
             agentId: null,
             agentReleaseId: null,
             repositoryId: "app",
+            policy: {},
           },
         };
       },
@@ -3176,6 +3210,58 @@ describe("authorizeEgress through a forge", () => {
         });
       }
     }
+  });
+
+  test("the session's own repository off the profile's list: moved on a release, the gate's call on an agent's", async () => {
+    const offProfile: CatalogRepository = { ...app, profiles: ["elsewhere"] };
+    const github = gate(async () => ({
+      username: "x-access-token",
+      password: "from-gate",
+    }));
+    await expect(
+      gateway(offProfile, github).authorizeEgress({
+        token: "tok",
+        purpose: "repository",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(github.asked).toEqual([]);
+    await gateway(offProfile, github, { source: "agent" }).authorizeEgress({
+      token: "tok",
+      purpose: "repository",
+    });
+    expect(github.asked).toEqual([
+      { sessionId: scope.session_id, purpose: "clone" },
+    ]);
+  });
+
+  test("a stored source this image does not know reads as the agent's", async () => {
+    const offProfile: CatalogRepository = { ...app, profiles: ["elsewhere"] };
+    const github = gate(async () => ({
+      username: "x-access-token",
+      password: "from-gate",
+    }));
+    await gateway(offProfile, github, { source: "later" }).authorizeEgress({
+      token: "tok",
+      purpose: "repository",
+    });
+    expect(github.asked).toHaveLength(1);
+  });
+
+  test("with no gate, an agent's session has nothing to hold it to the workspace ceiling", async () => {
+    const offGitHub: CatalogRepository = {
+      ...pat,
+      url: "https://example.invalid/app.git",
+    };
+    await gateway(offGitHub).authorizeEgress({
+      token: "tok",
+      purpose: "repository",
+    });
+    await expect(
+      gateway(offGitHub, undefined, { source: "agent" }).authorizeEgress({
+        token: "tok",
+        purpose: "repository",
+      }),
+    ).rejects.toMatchObject({ status: 409 });
   });
 
   test("another repository's route asks the gate for that repository and goes to its url", async () => {
@@ -3454,6 +3540,7 @@ describe("egress and claim through the real GitHub gate", () => {
     attemptId: "att_1",
     profileId: "p",
     model: profile.model,
+    githubPolicySource: "release",
     costUsd: 0,
     providerTokens: 0,
     repository: { id: "app", url: onGitHub("app").url, branch: "main" },
@@ -3502,16 +3589,16 @@ describe("egress and claim through the real GitHub gate", () => {
             : { url: onGitHub("app").url, branch: "main" },
           startedBy: null,
           agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: true },
-          release: {
-            id: "release-1",
-            github: {
-              repositories: ["app", "docs", "tools"],
-              push_approval: true,
-              features: GITHUB_CEILING_NONE,
-              actions_allow: [],
-            },
-          },
+          release: { id: "release-1" },
+          policy: releasePolicy({
+            repositories: ["app", "docs", "tools"],
+            push_approval: true,
+            features: GITHUB_CEILING_NONE,
+            actions_allow: [],
+          }),
           ceiling: GITHUB_CEILING_NONE,
+          repositoryCeiling: null,
+          ceilingRevision: 0,
         }),
         findDispatch: async () => null,
         recordReceipt: async (receipt) => {
@@ -3537,6 +3624,7 @@ describe("egress and claim through the real GitHub gate", () => {
             model: null,
             repositoryMode: repositoryless ? "none" : "repository",
             repositoryId: repositoryless ? null : "app",
+            githubPolicySource: "release",
           }).repository;
           return {
             outcome: "claimed",

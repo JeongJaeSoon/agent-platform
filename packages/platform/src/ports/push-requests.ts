@@ -2,12 +2,15 @@ import type {
   AgentGitHub,
   ApiErrorCode,
   DeciderKey,
+  GitHubPolicyReceiptFields,
+  GitHubPolicySource,
   PushDecision,
   PushReasonCode,
   PushReceiptResult,
   PushRefusal,
   PushRequest,
   ReceiptActor,
+  RepositoryCeiling,
 } from "@werft-ai/contracts";
 import { GITHUB_SETTINGS_UNSUPPORTED } from "./github-settings.ts";
 
@@ -111,6 +114,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
     message:
       "The commit shares no history with the repository's default branch",
   },
+  approval_required: {
+    code: "FORBIDDEN",
+    message:
+      "The agent's settings no longer push without approval; the request waits for a person again",
+  },
 };
 
 export type PushOperation = "request_push" | "resolve_push";
@@ -118,7 +126,8 @@ export type PushOperation = "request_push" | "resolve_push";
 export type PushRefusalRecord = {
   ownerId: string;
   sessionId: string;
-  actor: ReceiptActor;
+  /** Null: no one acted, the policy's approval lapsed. */
+  actor: ReceiptActor | null;
   operation: PushOperation;
   refusal: PushRefusal;
   result: PushReceiptResult;
@@ -138,10 +147,20 @@ export type CreatePushRequestInput = {
   checkpointRevision: number;
   gitCommit: string;
   /**
-   * The release pushes without a person's approval: the request is approved
-   * in the same transaction, decided by that release's policy.
+   * The session's policy pushes without a person's approval: the request is
+   * approved in the same transaction, decided by that policy.
    */
-  approvedByRelease: string | null;
+  policyApproval: PushPolicyApproval | null;
+  /** The policy the request ran under, for its receipt. */
+  policyFields: GitHubPolicyReceiptFields;
+};
+
+/** The policy that approved a push on its own. */
+export type PushPolicyApproval = {
+  releaseId: string;
+  source: GitHubPolicySource;
+  /** The agent settings' revision; null on a `release` session. */
+  settingsRevision: number | null;
 };
 
 export type DecidePushRequestInput = {
@@ -236,12 +255,15 @@ export interface PushRequestStore {
     profileId: string | null;
     /** The session row's attached list; null leaves the release's whole. */
     attached: string[] | null;
-    /** The release's GitHub settings, for another repository's push. */
+    /** `effectiveGitHubPolicy`'s, for another repository's push. */
+    policySource: GitHubPolicySource;
     github: AgentGitHub | "invalid" | null;
+    repositoryCeiling: RepositoryCeiling | null;
     /** False without an agent, or with its GitHub switch off. */
     githubEnabled: boolean;
-    /** The release, when it pins `github.push_approval: false`. */
-    approvalOffRelease: string | null;
+    /** Set when the policy says `push_approval: false`, and only then. */
+    policyApproval: PushPolicyApproval | null;
+    policyFields: GitHubPolicyReceiptFields;
   } | null>;
   /** Writes the refusal receipt and returns its id. */
   recordRefusal(input: PushRefusalRecord): Promise<string>;
@@ -277,6 +299,11 @@ export interface PushRequestStore {
    * approved → pushing for the oldest approved request no one else holds,
    * or a `pushing` one whose lease ran out (its pusher died), or null. The
    * claimer owns the row for `leaseMs`.
+   *
+   * A policy's approval on an `agent` session is judged again here, in the
+   * claim's transaction: one the settings no longer give goes back to
+   * `requested`, with a receipt, for a person. Its attempts stay counted, so
+   * a pusher still alive from before cannot finish it after a new approval.
    */
   claimNextApproved(leaseMs: number): Promise<PushJob | null>;
   /**

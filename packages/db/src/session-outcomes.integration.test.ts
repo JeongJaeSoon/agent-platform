@@ -281,7 +281,8 @@ integration("postgres session outcomes and the outcome refresher", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: "c".repeat(40),
-      approvedByRelease: null,
+      policyApproval: null,
+      policyFields: {},
     });
     if (created.outcome !== "written") throw new Error("no push request");
     const url = `https://github.com/acme/${repo}/pull/5`;

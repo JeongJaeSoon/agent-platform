@@ -1,6 +1,7 @@
 import { REQUEST_BODY_MAX_BYTES } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
+  agentGitHubSettingsOf,
   backfillSessionModels,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
@@ -60,12 +61,13 @@ import {
   createPostgresWorkspaceKeyStore,
   createPostgresWorkspaceProfileStore,
   hasUncollectedCheckpoint,
+  newSessionGitHubReaders,
   slackAppKind,
+  workspaceRepositoryCeiling,
 } from "@werft-ai/db";
 import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
-  allowedRun,
   catalogRevision,
   composeSlackFinalize,
   createAchievementJudge,
@@ -136,6 +138,7 @@ import {
   NO_JUDGE_CONNECTIONS,
   platformPromptRevisionFromEnv,
   profileCatalog,
+  releaseStartable,
   resolveAgentRelease,
   SessionServiceError,
   slackBotToken,
@@ -567,7 +570,7 @@ const sessions = createSessionService({
     ...(archivedEvents === undefined ? {} : { archivedEvents }),
   }),
   catalog,
-  releases: agents,
+  releases: { ...agents, ...newSessionGitHubReaders(db) },
   promptRevision: platformPromptRevisionFromEnv(process.env),
   credentials: credentialBindings,
   limits,
@@ -684,13 +687,14 @@ const slackApps = createSlackAppService({
       throw error;
     }
     // Missing and dropped from the catalog take the same fix: a new release.
-    return allowedRun(
+    return releaseStartable(
       catalog,
-      release.runtime_profile_id,
-      release.repository_id,
-    ) === null
-      ? { code: "repository_required", profile_id: release.runtime_profile_id }
-      : null;
+      release,
+      await agentGitHubSettingsOf(db, agentId),
+      await workspaceRepositoryCeiling(db, workspaceId),
+    )
+      ? null
+      : { code: "repository_required", profile_id: release.runtime_profile_id };
   },
 });
 const slackEventsPublicUrl = slackEventsPublicUrlFrom(process.env);

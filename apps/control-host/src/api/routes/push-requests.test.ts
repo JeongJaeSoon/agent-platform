@@ -38,8 +38,11 @@ const COMMIT = "a".repeat(40);
 const NO_GITHUB = {
   profileId: null,
   attached: null,
+  policySource: "release" as const,
   github: null,
+  repositoryCeiling: null,
   githubEnabled: false,
+  policyFields: { policy_source: "release" as const },
 };
 const KEYS: Record<string, readonly SessionScope[]> = {
   csp_writer: ["sessions:read", "sessions:write"],
@@ -150,7 +153,7 @@ function app(
   const store: PushRequestStore = {
     findSession: async (ownerId, sessionId) =>
       ownerId === "owner-a" && sessionId === SESSION
-        ? { ...NO_GITHUB, repositoryId: "sample-app", approvalOffRelease: null }
+        ? { ...NO_GITHUB, repositoryId: "sample-app", policyApproval: null }
         : null,
     recordRefusal: async (input) => {
       seen.refusals.push(input);
@@ -286,7 +289,8 @@ describe("push request routes", () => {
         targetBranch: `agent/${SESSION}`,
         checkpointRevision: 2,
         gitCommit: COMMIT,
-        approvedByRelease: null,
+        policyApproval: null,
+        policyFields: { policy_source: "release" },
       },
     ]);
   });
@@ -326,9 +330,12 @@ describe("push request routes", () => {
       repositoryId: "sample-app",
       profileId: "default",
       attached: null,
+      policySource: "release" as const,
       github,
+      repositoryCeiling: null,
       githubEnabled: true,
-      approvalOffRelease: null,
+      policyApproval: null,
+      policyFields: {},
     };
 
     // The release does not list it: refused with a receipt, nothing created.
@@ -369,18 +376,22 @@ describe("push request routes", () => {
   });
 
   test("POST from a session whose release pushes without approval passes that release on", async () => {
-    const release = "019a0000-0000-7000-8000-0000000000f1";
+    const approval = {
+      releaseId: "019a0000-0000-7000-8000-0000000000f1",
+      source: "release" as const,
+      settingsRevision: null,
+    };
     const target = app({
       store: {
         findSession: async () => ({
           ...NO_GITHUB,
           repositoryId: "sample-app",
-          approvalOffRelease: release,
+          policyApproval: approval,
         }),
       },
     });
     expect((await post(target, "", {})).status).toBe(201);
-    expect(target.seen.created).toMatchObject([{ approvedByRelease: release }]);
+    expect(target.seen.created).toMatchObject([{ policyApproval: approval }]);
   });
 
   test("an agent key's request and its receipt name the agent, and a refusal's too", async () => {
@@ -420,7 +431,7 @@ describe("push request routes", () => {
             findSession: async () => ({
               ...NO_GITHUB,
               repositoryId: null,
-              approvalOffRelease: null,
+              policyApproval: null,
             }),
           },
         },
@@ -698,7 +709,7 @@ describe("a key approving the session it started (GA-8)", () => {
             ? {
                 ...NO_GITHUB,
                 repositoryId: "sample-app",
-                approvalOffRelease: null,
+                policyApproval: null,
               }
             : null,
       },
@@ -776,7 +787,7 @@ describe("push receipts name the person behind the credential", () => {
               ? {
                   ...NO_GITHUB,
                   repositoryId: "sample-app",
-                  approvalOffRelease: null,
+                  policyApproval: null,
                 }
               : null,
           get: async (ownerId) => (owners.has(ownerId) ? PINNED : null),

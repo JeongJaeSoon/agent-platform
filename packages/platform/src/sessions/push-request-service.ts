@@ -211,10 +211,11 @@ export function createPushRequestService(deps: {
           targetBranch: pushBranchFor(sessionId, body.branch),
           checkpointRevision: pinned.revision,
           gitCommit: pinned.gitCommit,
-          approvedByRelease:
+          policyApproval:
             repositoryId === session.repositoryId
-              ? session.approvalOffRelease
+              ? session.policyApproval
               : null,
+          policyFields: session.policyFields,
         }),
       );
     },

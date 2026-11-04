@@ -55,9 +55,11 @@ async function writeReceipt(
   });
 }
 
-function recordOf(
+export function recordOf(
   row: typeof installationProfiles.$inferSelect,
 ): InstallationProfileRecord {
+  const scope = row.repositoryScope;
+  const knownScope = scope === "profile" || scope === "workspace";
   return {
     id: row.id,
     name: row.name,
@@ -69,6 +71,7 @@ function recordOf(
     repository_ids: row.repositoryIds,
     github_app_repositories:
       row.githubAppRepositories === "installed" ? "installed" : "listed",
+    repository_scope: knownScope ? scope : "profile",
     deny: row.deny,
     tool_catalog_id: row.toolCatalogId,
     previous_id: row.previousId,
@@ -76,7 +79,9 @@ function recordOf(
     created_at: row.createdAt,
     retired_at: row.retiredAt,
     retired_by: row.retiredBy,
-    blocked_at: row.blockedAt,
+    // Neither ceiling can be said to judge a scope this image does not know
+    // (either could be the wider), so the profile does not run.
+    blocked_at: knownScope ? row.blockedAt : (row.blockedAt ?? row.createdAt),
     blocked_by: row.blockedBy,
   };
 }

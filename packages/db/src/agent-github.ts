@@ -3,6 +3,10 @@ import type { AgentGitHubStore } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { lockAgentToChange } from "./agents.ts";
 import { receiptActorOf } from "./control-shared.ts";
+import {
+  agentGitHubSettingsOf,
+  workspaceRepositoryCeiling,
+} from "./github-settings.ts";
 import { receiptFromRow } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { agentReleases, agents, receipts, sessions } from "./schema.ts";
@@ -24,6 +28,10 @@ const SESSION_OPERATIONS = [
 
 export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
   return {
+    settings: (agentId) => agentGitHubSettingsOf(db, agentId),
+    repositoryCeiling: (workspaceId) =>
+      workspaceRepositoryCeiling(db, workspaceId),
+
     async enabled(workspaceId, agentId) {
       const [row] = await db
         .select({ enabled: agents.githubEnabled })

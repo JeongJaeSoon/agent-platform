@@ -1,6 +1,7 @@
 import type {
   GitHubAppRepositories,
   PermissionMode,
+  RepositoryScope,
 } from "@werft-ai/contracts";
 import type { TeamActor } from "./team-store.ts";
 
@@ -26,6 +27,8 @@ export type InstallationProfileRecord = {
    */
   repository_ids: string[] | null;
   github_app_repositories: GitHubAppRepositories;
+  /** Which ceiling judges its repositories; absent reads as `profile`. */
+  repository_scope?: RepositoryScope;
   /**
    * The tools blocked when it was made with a deny, as named in the tool
    * catalog `tool_catalog_id`; null (or absent, before T1b) from an allow

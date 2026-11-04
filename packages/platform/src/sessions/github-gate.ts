@@ -6,6 +6,7 @@ import {
   githubAllowedBy,
   githubEffectiveFeatures,
   githubPermissionsFor,
+  githubPolicyReceiptFields,
 } from "@werft-ai/contracts";
 import {
   ForgeCredentialError,
@@ -24,10 +25,15 @@ import {
   type GitHubWork,
 } from "../ports/github-gate.ts";
 import {
+  additionalContextOf,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
-import type { SessionCatalog } from "./catalog.ts";
+import {
+  repositoryInCeiling,
+  type SessionCatalog,
+  usesWorkspaceCeiling,
+} from "./catalog.ts";
 import {
   createGitHubConnectionResolver,
   type GitHubConnectionResolver,
@@ -77,10 +83,15 @@ export function createGitHubGate(deps: {
       const repositoryId = own
         ? context.repositoryId
         : (work.repositoryId ?? null);
+      const policyFields = githubPolicyReceiptFields(
+        context.policy,
+        context.ceilingRevision,
+      );
       const fields: Record<string, unknown> = {
         session_id: context.sessionId,
         agent_id: context.agent?.id ?? null,
         agent_release_id: context.release?.id ?? null,
+        ...policyFields,
         repository_id: repositoryId,
         purpose: work.purpose,
         ...(work.workflow === undefined
@@ -168,19 +179,38 @@ export function createGitHubGate(deps: {
         }
         entry = listed;
       } else {
+        if (context.policy.settings === "invalid") {
+          return await refuse("github_settings_unsupported");
+        }
         const allowed = additionalRepositoryAllowed(
           catalog,
-          {
-            repositoryId: context.repositoryId,
-            profileId: context.profileId,
-            attached: context.attachedRepositoryIds,
-            github: context.release?.github ?? null,
-            githubEnabled: context.agent?.githubEnabled ?? false,
-          },
+          additionalContextOf(context),
           repositoryId,
         );
         if (allowed === null) return await refuse("repository_not_allowed");
         entry = allowed;
+      }
+      const { policy } = context;
+      const settings = policy.settings;
+      // Before any credential path: these limits hold on every host.
+      if (
+        !platformRead &&
+        usesWorkspaceCeiling(catalog, context.profileId, policy.source)
+      ) {
+        if (settings === "invalid") {
+          return await refuse("github_settings_unsupported");
+        }
+        if (
+          policy.source === "agent" &&
+          !settings?.repositories.includes(repositoryId)
+        ) {
+          return await refuse("repository_not_allowed");
+        }
+        if (
+          !repositoryInCeiling(catalog, context.repositoryCeiling, repositoryId)
+        ) {
+          return await refuse("repository_not_allowed");
+        }
       }
       const source = connections(repositoryId, "author");
       // A catalog App or a PAT; console connections are all on github.com.
@@ -192,7 +222,6 @@ export function createGitHubGate(deps: {
         return null;
       }
 
-      const settings = context.release?.github ?? null;
       if (settings === "invalid") {
         return await refuse("github_settings_unsupported");
       }
@@ -206,7 +235,13 @@ export function createGitHubGate(deps: {
         ) {
           return await refuse("repository_not_allowed");
         }
-        if (settings !== null && author?.kind === "pat") {
+        // Under the agent's settings a PAT stays on the default work; only a
+        // feature below needs an App.
+        if (
+          policy.source === "release" &&
+          settings !== null &&
+          author?.kind === "pat"
+        ) {
           return await refuse("app_required");
         }
       }
@@ -373,6 +408,7 @@ export function createGitHubGate(deps: {
           agentId: context.agent?.id ?? null,
           agentReleaseId: context.release?.id ?? null,
           repositoryId,
+          policy: policyFields,
         },
       };
     },
@@ -380,13 +416,7 @@ export function createGitHubGate(deps: {
     async additionalRepositories(sessionId: string): Promise<string[]> {
       const context = await store.context(sessionId);
       if (context === null) return [];
-      return additionalRepositoriesOf(catalog, {
-        repositoryId: context.repositoryId,
-        profileId: context.profileId,
-        attached: context.attachedRepositoryIds,
-        github: context.release?.github ?? null,
-        githubEnabled: context.agent?.githubEnabled ?? false,
-      })
+      return additionalRepositoriesOf(catalog, additionalContextOf(context))
         .filter(
           ({ id, repository }) =>
             connections(id, "author") !== null ||
