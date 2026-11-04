@@ -16,7 +16,7 @@
 | Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | `main` 머지마다 `0.1.0-main-<12>` |
 | SDK | npm [`@werft-ai/sdk`](https://www.npmjs.com/package/@werft-ai/sdk) | `latest` |
 
-`<12>`는 commit SHA의 앞 12자다. 첫 `v` 태그는 아직 없고, `main-<12>`는 릴리스가 아니다. 설치는 [셀프 호스팅](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/), 올리기는 [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/)를 읽는다. 바뀐 점과 운영자가 직접 해야 할 일은 [변경 기록](CHANGELOG.md)에 있다. 단일 서버(Docker Compose) 설치는 게시 이미지로 끝까지 실행해 확인하지 않았다.
+`<12>`는 commit SHA의 앞 12자다. 첫 `v` 태그는 아직 없고, `main-<12>`는 릴리스가 아니다. 설치는 [셀프 호스팅](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/), 올리기는 [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/)를 읽는다. 바뀐 점과 운영자가 직접 해야 할 일은 [변경 기록](CHANGELOG.md)에 있다. 단일 서버(Docker Compose) 설치는 게시 이미지로 끝까지 실행해 확인하지 않았다. Kubernetes 업그레이드 절차도 클러스터에서 실행해 확인하지 않았다.
 
 ## credential 경계
 

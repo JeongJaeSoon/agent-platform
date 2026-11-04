@@ -126,6 +126,11 @@ kubectl -n werft create configmap localstack-init \
   --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
 kubectl -n werft apply -f deploy/kind/deps.yaml
 SECRETS="$(mktemp -d)"
+```
+
+次のコマンド `read -rs` は、プロンプトなしで入力を待ちます。入力する値は `deploy/kind/deps.yaml` の `POSTGRES_PASSWORD` で、値をコマンドラインに書かないよう端末から読みます。Secret の値はすべてこの kind の試用専用です。実サーバーでは、手順2の方法で自分で作った値を使います。Secret を作った後は、変数と一時ディレクトリを削除します。
+
+```bash
 read -rs KIND_DB_PASSWORD
 { printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
 openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
@@ -134,11 +139,11 @@ printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
 printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
 printf unused > "$SECRETS/ANTHROPIC_API_KEY"
 kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
   --namespace werft -f deploy/kind/values.yaml --timeout 10m
 ```
-
-`read -rs` が尋ねる値は `deploy/kind/deps.yaml` の `POSTGRES_PASSWORD` です。値をコマンドラインに書かないよう、端末から読みます。上の Secret の値はすべてこの kind の試用専用です。実サーバーでは、手順2の方法で自分で作った値を使います。終わったら `$SECRETS` ディレクトリを削除します。
 
 続けて、手順4の rollout の確認と手順5の確認をそのまま行います。終わったら `kind delete cluster --name werft-try` でクラスターを削除します。
 

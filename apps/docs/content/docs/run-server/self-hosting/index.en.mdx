@@ -3,7 +3,7 @@ title: "Self-hosting"
 description: Choose how to install a Werft server that several people share
 ---
 
-This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. The page for your method lists the install steps up to `/readyz` returning 200. The Kubernetes page was run on kind with the published chart. The single-server page has not been run from start to finish.
+This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. The page for your method lists the install steps up to `/readyz` returning 200. The Kubernetes install was checked on kind with the published chart, but its DB Secret step was not the documented block as written, and the revised kind Secret block and the Kubernetes upgrade steps have not been run. The single-server page has not been run from start to finish.
 
 ## Choose an install method
 

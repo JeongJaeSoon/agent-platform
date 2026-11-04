@@ -11,11 +11,15 @@ There is no `v` tag yet. For now, upgrade to the chart `0.1.0-main-<12>` and the
 
 ## Kubernetes
 
-The published chart carries the new worker image but not the previous one, because the previous image differs per installation. An upgrade that changes the worker image stops with `refused` unless `images.workerPrevious` is the image deployed now, and an approval cannot get past that. So save the current image to a file and pass it along. Do not use `--reuse-values`: the old chart's values override the new chart's images.
+<Callout type="warn">
+UNVERIFIED. These Kubernetes upgrade steps are copied from the operator document and have not been run in this order on a cluster. CI does not test the new control-host with the previous worker image, so try them on a test install before a real server. If they differ, follow [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기).
+</Callout>
+
+These steps use `jq` too. The published chart carries the new worker image but not the previous one, because the previous image differs per installation. An upgrade that changes the worker image stops with `refused` unless `images.workerPrevious` is the image deployed now, and an approval cannot get past that. So save the current image to a file and pass it along. Do not use `--reuse-values`: the old chart's values override the new chart's images.
 
 ### 1. Pick the new version
 
-In the [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml), pick the commit of a `main` run that finished green and write the exact version. Versions from `main` have no order, so do not pick the latest with `--devel`.
+In the [Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml), pick the commit of a `main` run that finished green and write the exact version. Versions from `main` have no order, so do not pick the latest with `--devel`.
 
 ```bash
 VERSION=0.1.0-main-<12>
@@ -66,7 +70,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | `refused` | Stops. The picked sessions differ from the approved list, or `images.workerPrevious` is not the image deployed now. The second case cannot be approved |
 | `check_failed` | Stops. The database or the image combination could not be read |
 
-If the picked sessions may fail to resume, pass the `affected` list as `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` and run the same upgrade again. The approved list stays in the release values, so reset it to `[]` on each upgrade and read the list again. The verdict table and its exceptions are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
+If it is acceptable that the picked sessions do not resume, pass the `affected` list as `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` and run the same upgrade again. The approved list stays in the release values, so reset it to `[]` on each upgrade and read the list again. The verdict table and its exceptions are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
 
 ### 4. Check
 
@@ -82,7 +86,7 @@ curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
 kill "$PF"
 ```
 
-`{"status":"ready",…}` and `200` mean the upgrade is up.
+`{"status":"ready",…}` and `200` mean `/readyz` returned ready. Check separately that sessions resume.
 
 ### Roll back
 
@@ -94,12 +98,13 @@ kill "$PF"
 UNVERIFIED. The single-server install and upgrade have not been run end to end with the published images. What follows is the order from the operations runbook; it does not promise that it runs. If it differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드).
 </Callout>
 
-Rebuild `release.json` from the digests of the new tag, then call `upgrade`. It checks the current checkpoints against the new worker image and refuses with exit code 3 if any session is incompatible.
+Rebuild `release.json` from the digests of the new tag, check out the new source commit, then call `upgrade`. If the worker image changed, it checks the current checkpoints against the new image and refuses with exit code 3 if any session is incompatible. Follow the runbook for the approval steps.
 
 ```bash
+git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
 scripts/test-ops.sh upgrade release-new.json
 ```
 
 ## Renamed names and what operators do
 
-The metric names and the CSS names changed, and there are no aliases for the old names. An installation that already runs applies the Datadog definitions again and changes the queries of its Prometheus rules, following the mapping table in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md).
+The metric names and the CSS names changed, and there are no aliases for the old names. An installation that already runs applies the Datadog definitions again and changes the queries of its Prometheus rules, and renames any CSS names it overrode, as the section "운영자가 할 일" (what operators must do) in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) says.

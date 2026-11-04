@@ -6,16 +6,20 @@ description: 設置済みの Werft を新しい公開バージョンに上げ、
 設置済みの Werft を新しい公開バージョンに上げます。初めての設置は [Kubernetes の設置](/run-server/self-hosting/kubernetes) か [単一サーバーの設置](/run-server/self-hosting/single-server) を読んでください。
 
 <Callout type="warn">
-`v` タグはまだありません。今は `main` にマージされるたびに公開される chart `0.1.0-main-<12>` とイメージタグ `main-<12>` に上げます。これらはリリースではありません。最初の `v` タグができると、`VERSION` は `v` を除いたタグ(`v1.2.3` なら `1.2.3`)にし、コマンドは同じです。上げる前に、リポジトリの [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) で運営者が手で行うことを読んでください。
+`v` タグはまだありません。今は `main` にマージされるたびに公開される chart `0.1.0-main-<12>` とイメージタグ `main-<12>` に上げます。これらはリリースではありません。最初の `v` タグができると、`VERSION` は `v` を除いたタグ(`v1.2.3` なら `1.2.3`)にし、コマンドは同じです。上げる前に、リポジトリの [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) で運用担当者が手で行うことを読んでください。
 </Callout>
 
 ## Kubernetes
 
-公開 chart は新しい worker イメージを持ちますが、直前の worker イメージは持ちません。直前のイメージは設置ごとに違うからです。worker イメージが変わるアップグレードは、`images.workerPrevious` が今デプロイされているイメージでなければ `refused` で止まり、承認でも越えられません。そのため、今のイメージをファイルに保存して一緒に渡します。`--reuse-values` は使いません。古い chart の値が新しい chart のイメージを上書きします。
+<Callout type="warn">
+UNVERIFIED。この Kubernetes のアップグレード手順は運用ドキュメントのコマンドを移したもので、この順序のままクラスターで実行して確認していません。新しい control-host と直前の worker イメージの組み合わせは CI で検査していないため、実サーバーの前に試用環境で実行してください。内容が違う場合は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기) に従ってください。
+</Callout>
+
+この手順は `jq` も使います。公開 chart は新しい worker イメージを持ちますが、直前の worker イメージは持ちません。直前のイメージは設置ごとに違うからです。worker イメージが変わるアップグレードは、`images.workerPrevious` が今デプロイされているイメージでなければ `refused` で止まり、承認でも越えられません。そのため、今のイメージをファイルに保存して一緒に渡します。`--reuse-values` は使いません。古い chart の値が新しい chart のイメージを上書きします。
 
 ### 1. 新しいバージョンを決める
 
-[Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) で緑で終わった `main` の run の commit を選び、正確なバージョンを書きます。`main` のバージョン同士に順序の意味はないので、`--devel` で最新を選びません。
+[Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) で緑で終わった `main` の run の commit を選び、正確なバージョンを書きます。`main` のバージョン同士に順序の意味はないので、`--devel` で最新を選びません。
 
 ```bash
 VERSION=0.1.0-main-<12>
@@ -82,7 +86,7 @@ curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
 kill "$PF"
 ```
 
-`{"status":"ready",…}` と `200` が出れば上がっています。
+`{"status":"ready",…}` と `200` が出れば `/readyz` が ready を返しています。セッションが再開できるかは別に確認してください。
 
 ### 戻す
 
@@ -94,12 +98,13 @@ kill "$PF"
 UNVERIFIED。単一サーバーの設置とアップグレードは、公開イメージで最初から最後まで実行して確認していません。以下は運用 runbook の順序であり、実行を保証しません。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드) に従ってください。
 </Callout>
 
-新しいタグの digest で `release.json` を作り直し、`upgrade` を呼びます。新しい worker イメージで現在の checkpoint を検査し、互換性のないセッションがあれば終了コード 3 で拒否します。
+新しいタグの digest で `release.json` を作り直し、新しい source commit を checkout して `upgrade` を呼びます。worker イメージが変わっていれば新しいイメージで現在の checkpoint を検査し、互換性のないセッションがあれば終了コード 3 で拒否します。承認の手順は runbook に従ってください。
 
 ```bash
+git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
 scripts/test-ops.sh upgrade release-new.json
 ```
 
-## 変わった名前と運営者のすること
+## 変わった名前と運用担当者のすること
 
-指標名と CSS 名が変わりました。古い名前の別名はありません。すでに設置している環境は、[変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) の対応表に従って、Datadog の定義を新しく適用し、Prometheus ルールのクエリを変えます。
+指標名と CSS 名が変わりました。古い名前の別名はありません。すでに設置している環境は、[変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) の「운영자가 할 일」(運用担当者が行うこと)の節に従って、Datadog の定義を新しく適用し、Prometheus ルールのクエリと上書きした CSS 名を変えます。
