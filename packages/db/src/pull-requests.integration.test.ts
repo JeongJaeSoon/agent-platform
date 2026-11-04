@@ -17,8 +17,8 @@ import { Pool } from "pg";
 import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { createPostgresSessionOutcomes } from "./session-outcomes.ts";
 import { pullRequests, receipts, sessionOutcomes, sessions } from "./schema.ts";
+import { createPostgresSessionOutcomes } from "./session-outcomes.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
