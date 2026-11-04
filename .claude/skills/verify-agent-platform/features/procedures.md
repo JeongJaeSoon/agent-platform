@@ -779,6 +779,30 @@ ap_compose logs slack | grep -E 'Slack event claimed|Slack inbox pass'
 
 claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. 이 짧은 no-op handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. 현재 no-op이므로 Slack 메시지에서 세션 생성·승인·답장까지 기대하지 않는다. 이 흐름의 검증은 Slack 메시지 처리 기능 구현 후에 진행한다.
 
+## P-SLACK-REVOKED — 앱 제거 뒤 연결 해제와 재설치
+
+전제: P-SLACK-SETUP로 설치까지 끝난 run(active identity 한 행). `slack-event`의 `uninstall`은 지금 보낸 `app_uninstalled`, `uninstall-late`는 한 시간 전에 보낸 것이다(seq가 같으면 같은 event id, 즉 재전송).
+
+```sh
+# Actor: owner.
+ap_as owner
+Q="select i.status inst, a.status ident, a.revision, a.revoked_at is not null as revoked_at_set from agent_identities a join slack_installations i on i.id=a.installation_id where a.agent_id='$AID' order by a.created_at"
+node "$U" "$RUN" slack-event "$AID" uninstall C0VERIFY 1
+node "$U" "$RUN" slack-event "$AID" uninstall C0VERIFY 1          # 재전송
+ap_compose exec -T postgres psql -U postgres -d sessions -c "$Q"
+ap_web GET "/v1/agents/$AID/identities"
+node "$B" "$RUN" open "/agents/$AID?tab=slack"
+node "$U" "$RUN" slack-install owner "$AID"                       # 재설치
+node "$U" "$RUN" slack-event "$AID" uninstall-late C0VERIFY 2    # 재설치 뒤 늦게 온 옛 이벤트
+ap_compose exec -T postgres psql -U postgres -d sessions -c "$Q"
+# 이벤트 없는 제거: mock이 bot token을 token_revoked로 답하게 한다.
+ap_compose exec -T api bun -e "await fetch('http://mock-slack:4020/fake/revoked-tokens',{method:'POST',body:JSON.stringify({app_id:'<slack_app.app_id>'})})"
+ap_web GET "/v1/agents/$AID/slack-channels?ids=C0A"
+ap_compose exec -T postgres psql -U postgres -d sessions -c "$Q"
+```
+
+기대: 첫 이벤트 뒤 install `revoked`, identity `revoked`·revision 2·`revoked_at` 채움, 재전송은 변화 없음. 콘솔 Slack 탭 상단은 "재설치 필요". 재설치하면 새 active 행이 하나 더 생기고 상단이 "연결됨". 늦은 이벤트는 `processed`로 받되 새 행은 active 그대로. 이벤트 없는 제거는 channels가 409 `SLACK_NOT_INSTALLED`이고 같은 호출로 identity가 `revoked`가 된다. `invalid_auth`는 이 경로를 타지 않는다(상태 불변).
+
 Slack 연결 콜백 화면·연결 해제는 [musterrolle.md](musterrolle.md) c의 4와 [web-settings.md](web-settings.md) 4를 이어서 실행한다. 에이전트 신원 수동 연결/회수·Slack 채널 binding·처리 시점 권한 판정은 c·g의 진단 블록이다. 함수 직접 호출 결과와 HTTP inbound 증거를 구분한다.
 
 ## P-SLACK-MENTION-ONLY — 채널 사용과 에이전트 멘션 설정

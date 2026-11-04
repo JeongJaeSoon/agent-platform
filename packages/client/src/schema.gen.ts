@@ -2758,7 +2758,7 @@ export interface paths {
         put?: never;
         /**
          * Slack's Events API request URL for one agent's app
-         * @description Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).
+         * @description Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -3572,7 +3572,7 @@ export interface paths {
         put?: never;
         /**
          * Make a provider connection with a key typed in
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503. Writes a `create_connection` receipt.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503. An empty `endpoint` is stored as the kind's default from `endpoint_defaults`; a kind with none answers `400` `invalid_entry`. Writes a `create_connection` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -8291,6 +8291,9 @@ export interface components {
                 disabled_at: string | null;
             }[];
             credential_hosts: string[] | null;
+            endpoint_defaults: {
+                [key: string]: string;
+            };
         };
         ListSettingsMcpServersResponse: {
             items: {
@@ -8352,7 +8355,7 @@ export interface components {
             id: string;
             /** @enum {string} */
             kind: "anthropic" | "litellm";
-            endpoint: string;
+            endpoint?: string;
             /** @enum {string} */
             billing?: "per_token" | "none";
             /** @enum {string} */
@@ -34418,7 +34421,10 @@ export interface operations {
                      *       ],
                      *       "credential_hosts": [
                      *         "api.anthropic.com:443"
-                     *       ]
+                     *       ],
+                     *       "endpoint_defaults": {
+                     *         "anthropic": "https://api.anthropic.com"
+                     *       }
                      *     }
                      */
                     "application/json": components["schemas"]["ListSettingsConnectionsResponse"];

@@ -10,7 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
+import {
+  CONNECTION_ENDPOINT_DEFAULTS,
+  DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
+} from "@werft-ai/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
 import {
   SHUTDOWN_CLOSE_MS,
@@ -2327,4 +2330,32 @@ describe("compose layers", () => {
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
+});
+
+describe("a connection kind's default endpoint", () => {
+  // A kind that fills its endpoint in has to be reachable on a stock
+  // install: the egress proxy opens only a credential allowlist host.
+  const DEFAULTS = {
+    "infra/compose.core.yml":
+      /EGRESS_CREDENTIAL_ALLOWLIST:\s*\$\{[^:}]+:-([^}]+)\}/g,
+    ".env.example": /^EGRESS_CREDENTIAL_ALLOWLIST=(.+)$/gm,
+    "deploy/helm/agent-platform/values.yaml":
+      /credentialAllowlist:\s*"([^"]+)"/g,
+  };
+
+  for (const [file, pattern] of Object.entries(DEFAULTS)) {
+    test(`${file} lets the proxy open every default host`, () => {
+      const lists = [
+        ...readFileSync(join(root, file), "utf8").matchAll(pattern),
+      ];
+      expect(lists.length).toBeGreaterThan(0);
+      for (const [, list = ""] of lists) {
+        const hosts = list.split(",").map((host) => host.trim());
+        for (const endpoint of Object.values(CONNECTION_ENDPOINT_DEFAULTS)) {
+          const url = new URL(endpoint ?? "");
+          expect(hosts).toContain(`${url.hostname}:${url.port || "443"}`);
+        }
+      }
+    });
+  }
 });

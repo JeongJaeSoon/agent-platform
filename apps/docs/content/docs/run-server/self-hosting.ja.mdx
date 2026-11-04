@@ -4,7 +4,7 @@ description: 複数の人が使う Werft サーバーをインストールして
 ---
 
 <Callout type="warn">
-公式リリースはまだない。`v*` リリース、Helm chart パッケージ、npm の `@werft-ai/sdk` はない。アプリイメージは `main` へのマージごとに `ghcr.io/jeongjaesoon/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。このイメージを取得できない場合はリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、公開コードは今のところ `linux/amd64` イメージしか作らない。
+公式リリースはまだない。`v*` リリースと Helm chart パッケージはない。アプリイメージは `main` へのマージごとに `ghcr.io/jeongjaesoon/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。このイメージを取得できない場合はリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、公開コードは今のところ `linux/amd64` イメージしか作らない。
 </Callout>
 
 Werft サーバーを自分でインストールし、チームで共有する方法である。一人で試すだけのサーバーなら[開発用サーバーの実行](/run-server/dev-server)で足りる。インストールと運用のドキュメントの本文はリポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) にあり、韓国語で書かれている。このページはどこから読むかを案内する。
@@ -32,7 +32,7 @@ Werft サーバーを自分でインストールし、チームで共有する�
 
 ## サーバーに接続する
 
-SDK と HTTP API は、サーバーのアドレスと API キーでサーバーに接続する。TypeScript SDK は `baseUrl` (既定値は環境変数 `WERFT_BASE_URL`) と `apiKey` (`WERFT_API_KEY`) を受け取る。既定のサーバーはないため、サーバーのアドレスは必ず渡す。SDK はまだ npm にないため、[SDK のインストール](/getting-started/install)のとおりリポジトリからビルドしてインストールする。オプションの詳細は[クライアントの設定とエラー](/getting-started/client#クライアントのオプション)にある。
+SDK と HTTP API は、サーバーのアドレスと API キーでサーバーに接続する。TypeScript SDK は `baseUrl` (既定値は環境変数 `WERFT_BASE_URL`) と `apiKey` (`WERFT_API_KEY`) を受け取る。既定のサーバーはないため、サーバーのアドレスは必ず渡す。SDK は[SDK のインストール](/getting-started/install)のとおり npm からインストールする。オプションの詳細は[クライアントの設定とエラー](/getting-started/client#クライアントのオプション)にある。
 
 ## インストールと設定
 

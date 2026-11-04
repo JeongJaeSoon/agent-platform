@@ -5341,7 +5341,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Slack's Events API request URL for one agent's app",
     description:
-      "Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).",
+      "Called by Slack, not by people: each agent app's event subscription points here (Finalize registers it when SLACK_EVENTS_PUBLIC_URL is set). The body is read up to 256 KiB (413 above that), then checked in this order: the `v0` signature (`X-Slack-Signature`) over the raw bytes with the app's signing secret, the `X-Slack-Request-Timestamp` within 300 seconds, then the JSON. An unknown agent, an agent without a created app, an app without a signing secret, a wrong, missing or stale signature all answer the same 401. A signed `url_verification` answers its `challenge`. An `event_callback` is stored once per `(team_id, event_id)`, so Slack's retries (`X-Slack-Retry-Num`) answer 200 without a second row; one for another app or team than the agent's install, from a bot, or of a message subtype other than `thread_broadcast`, is stored as dropped with its reason. `app_uninstalled` and `tokens_revoked` mark the install revoked and revoke the agent's identity on it, so the console shows the app as needing a reinstall; a repeat or an event sent before a reinstall changes nothing. Any other envelope type answers 200 and is ignored. A failed write answers 5xx so Slack sends the event again. Rate limited per agent and overall before any database read (429).",
     auth: "public",
     body: "SlackEventEnvelope",
     requestExample: {
@@ -6417,6 +6417,7 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         items: [SETTINGS_CONNECTION_EXAMPLE],
         credential_hosts: ["api.anthropic.com:443"],
+        endpoint_defaults: { anthropic: "https://api.anthropic.com" },
       },
     },
     errors: [401, 403, 503],
@@ -6427,7 +6428,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "createSettingsConnection",
     tag: "Agents",
     summary: "Make a provider connection with a key typed in",
-    description: `${SETTINGS_OWNER} ${SETTINGS_CREATE} Writes a \`create_connection\` receipt.`,
+    description: `${SETTINGS_OWNER} ${SETTINGS_CREATE} An empty \`endpoint\` is stored as the kind's default from \`endpoint_defaults\`; a kind with none answers \`400\` \`invalid_entry\`. Writes a \`create_connection\` receipt.`,
     auth: "session",
     body: "CreateSettingsConnectionRequest",
     requestExample: {

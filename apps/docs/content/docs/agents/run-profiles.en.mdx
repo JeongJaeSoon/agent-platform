@@ -3,7 +3,7 @@ title: "Choose a profile"
 description: The profile that decides which model, tools, and permission mode a session runs with
 ---
 
-A profile decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles (installation profiles in the console) set the widest range every workspace on the installation can use. They live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation has no profiles. The installation owner adds a model connection on the console's Profiles screen and makes a profile with it. Connections live in the installation's database too.
+A profile decides how a session runs: the runtime and its version, the model, the tool list, the permission mode, the model provider, and whether it uses a repository. Operator profiles (installation profiles in the console) set the widest range every workspace on the installation can use. They live in the installation's database, and users choose one by id. Each profile's row also holds the repositories it can run against. A new installation has no profiles. The installation owner adds a model connection on the console's Profiles screen and makes a profile with it. Connections live in the installation's database too. The add-connection dialog fills in the official endpoint for the kind you pick (`https://api.anthropic.com` for anthropic). Change it only for a proxy or a compatible server; leaving it empty stores the same address. A kind with no official address (litellm) needs its endpoint typed in. An endpoint cannot be changed after the connection is made.
 
 ## List profiles
 
