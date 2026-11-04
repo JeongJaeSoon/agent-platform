@@ -286,8 +286,9 @@ function AddConnection({
     "connection",
     (
       client,
-      body: Omit<CreateSettingsConnectionRequest, "billing"> & {
+      body: Omit<CreateSettingsConnectionRequest, "billing" | "endpoint"> & {
         readonly billing: "none" | "per_token";
+        readonly endpoint?: string;
       },
     ) => unwrap(client.POST("/v1/installation/settings/connections", { body })),
     {
