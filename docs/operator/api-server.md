@@ -66,7 +66,7 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 2. 새 이미지로 올리면 migrate가 `settings import --from-dir /legacy-config --if-present`를 돌린다. 디렉터리가 없거나 비었으면 건너뛰고, 일부만 있거나 깨졌으면 실패해서 새 API가 뜨지 않는다. `profiles.yaml`은 `installation_profiles`가 빌 때만 넣고, `repository_ids`가 NULL인 행은 저장소 `profiles` 배열로 채운다. 채울 저장소가 없는 행은 stderr에 `note: no repository names these ceilings`로 적히고, 그 상한은 어떤 저장소에서도 돌지 않는다. 미리 보려면 같은 명령에 `--dry-run`을 붙인다.
 3. `platform.yaml`은 가져오지 않는다. master key는 올리기 전에 `PLATFORM_SECRET_KEY`로 옮긴다. 파일의 `secret_key`가 가리키던 값과 같은 값이어야 저장된 자격 증명을 읽는다. 이미 `PLATFORM_SECRET_KEY`를 쓰던 설치도 같은 값을 유지한다. master key 없이 돌던 설치는 새 키를 먼저 넣는다. 없으면 API와 slack 역할이 기동을 거부한다.
 4. `PLATFORM_CONFIG_DIR`을 지운다. 남겨 두면 API와 slack 역할이 기동을 거부한다.
-5. 가져온 뒤에는 파일과 `PLATFORM_LEGACY_CONFIG_DIR`을 지워도 된다. 다시 돌려도 더하기만 하므로, 같은 파일이면 모두 `unchanged`이고 고친 파일은 `conflicts`로 멈춘다. 그 뒤 변경은 콘솔에서 한다.
+5. 가져온 뒤에는 파일과 `PLATFORM_LEGACY_CONFIG_DIR`을 지워도 된다. 다시 돌려도 더하기만 하므로, 같은 파일이면 모두 `unchanged`이고 고친 파일은 `conflicts`로 멈춘다. 콘솔에서 브랜치를 바꾼 GitHub App 저장소만은 예외다. DB 행이 이미 정본이므로 파일과 달라도 멈추지 않고 그 행을 남기며, 결과의 `kept`와 stderr의 `note:`로 알린다. 그 뒤 변경은 콘솔에서 한다.
 
 같은 id를 이미 DB 행으로 둔 설치도 같다. 파일의 값이 행과 같으면 `unchanged`이고 fingerprint·binding·release id는 바뀌지 않는다.
 
@@ -80,11 +80,11 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
   - **차단은 예외다.** 상한이 차단돼 있으면 claim이 그 transaction 안에서 상한 행을 다시 읽고, 읽은 설정이 뒤처졌어도 세션을 실패시킨다. 차단은 모든 replica에 같은 DB 행이기 때문이다.
   - **판단 기록:** 쌍을 빼는 일이 보안 경계라면(그 저장소에서 더는 돌면 안 되는 경우) 상한을 차단한다. 차단은 다음 claim부터 모든 replica에 바로 듣는다.
 - 비공개 저장소는 `repositories.<id>.auth`에 로그인을 같은 방식의 참조로 적는다. `kind: basic`(`username` 필요) 또는 `kind: bearer`이고, `value_env`·`secret_id` 중 하나를 쓴다. worker는 이 값을 받지 않고 proxy의 저장소 route로 clone한다. 저장소 host가 무엇이든 같은 방식이다. GitHub는 아래 절을 따른다.
-- 두 자격 증명 모두 8바이트보다 짧으면 API가 기동을 거부한다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
+- 두 자격 증명 모두 8바이트보다 짧으면 쓰지 않는다. API는 그대로 뜨고 그 항목만 빠진다. proxy는 upstream 응답에 주입한 값이 되비치는지 검사하는데, 스트림 본문에서는 8바이트 이상인 값만 검사하기 때문이다.
 - endpoint·저장소 URL은 `http://`·`https://`만 받는다(worker가 밖으로 나가는 길은 HTTP(S) egress proxy뿐이다). 자격 증명(userinfo, query string)이 들어 있으면 거절한다.
 - profile마다 `sha256:` fingerprint(설정과 참조의 정규 JSON 해시, 값 제외)가 worker claim의 `profile_fingerprint`로 간다. 같은 참조 뒤의 값만 회전하면 fingerprint는 바뀌지 않는다.
 - 세션은 만들 때의 profile fingerprint를 저장하고, claim은 카탈로그의 같은 id가 그 fingerprint로 해시될 때만 세션을 묶는다. 설정을 바꾸려면 **새 profile id**를 등록하고 새 세션을 그 id로 만든다. 기존 id를 고치면 그 id로 만든 세션은 모두 위의 `CATALOG_MISMATCH`가 되고, 되돌리면 다시 돈다. 자격 증명 값은 claim 때 카탈로그에서 읽으므로 같은 참조 뒤의 값 회전(그리고 API 재기동)은 기존 세션을 막지 않는다. 이 컬럼 전에 만든 세션은 fingerprint가 비어 있고 다음 claim이 그때의 fingerprint로 고정한다.
-- fingerprint는 두 판이 있다. 지금 만드는 세션과 release는 **v2**를 적는다. v2는 `model`·`models`·`repository`를 빼고 해시하므로, 모델은 `sessions.model`(attempt·checkpoint 행에도 같은 값)이 정하고 저장소 모드는 세션의 `repository_mode`가 정한다. 0159 전에 만든 세션·checkpoint·release는 **v1**(고른 모델을 넣은 해시)을 그대로 갖고, claim·상세·restore·release 활성화는 v1 값도 그 모델의 v1과 같으면 받아들인다. 값을 다시 쓰지 않는다. API는 기동할 때 `model`이 빈 세션에 v1 지문이 가리키는 모델을 적고(`Session models backfilled` 로그), 찾지 못한 행은 null로 둔다. 저장소 binding(`repositoryBinding`)과 카탈로그 revision은 별도 버전이라 이 변경으로 값이 바뀌지 않으므로, 대기 중인 push·PR은 그대로 진행된다.
+- fingerprint는 두 판이 있다. 지금 만드는 세션과 release는 **v2**를 적는다. v2는 `model`·`models`·`repository`를 빼고 해시하므로, 모델은 `sessions.model`(attempt·checkpoint 행에도 같은 값)이 정하고 저장소 모드는 세션의 `repository_mode`가 정한다. 0159 전에 만든 세션·checkpoint·release는 **v1**(고른 모델을 넣은 해시)을 그대로 갖고, claim·상세·restore·release 활성화는 v1 값도 그 모델의 v1과 같으면 받아들인다. 값을 다시 쓰지 않는다. API는 기동할 때 `model`이 빈 세션에 v1 지문이 가리키는 모델을 적고(`Session models backfilled` 로그), 찾지 못한 행은 null로 둔다. 저장소 binding(`repositoryBinding`)은 별도 버전이라 이 변경으로 값이 바뀌지 않으므로, 대기 중인 push·PR은 그대로 진행된다.
 - 배포 순서: migration 0159(컬럼 추가만)를 먼저 적용하고 API를 올린다. worker 이미지는 바꿀 필요가 없다.
   - **옛 API와 섞어 돌리지 않는다.** 옛 API는 v2를 모른다. 새 API가 만든 세션을 claim하면 `CATALOG_MISMATCH`로 실패시키고, v2 provider token을 거절하고, v2 release의 활성화를 `PROFILE_DIGEST_MISMATCH`로 막는다. replica가 여럿이면 옛 replica를 모두 내린 뒤 새 replica를 올린다(helm: `kubectl scale deployment <api> --replicas=0` 뒤 `helm upgrade`). 그동안 API는 잠깐 멈춘다.
   - 업그레이드 전 세션은 v1 지문을 그대로 쓰고, 새 API가 그 세션에 주는 provider token도 v1이다. 그래서 옛 API에서도, 새 API에서도 claim되고 모델 호출이 통과한다.
@@ -176,7 +176,7 @@ github.com과 GitHub Enterprise Server(GHES)의 저장소도 다른 host와 같�
 API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토큰을 proxy의 저장소 route에 내준다. 토큰은 1시간짜리라 API가 갱신한다. App은 콘솔에서 등록한다. 한 워크스페이스에 작성용·리뷰 승인용 App을 여럿 둘 수 있고, 저장소마다 어느 App이 토큰을 발급할지 고정한다([github-agent.md 결정 11](../contributing/decisions/github-agent.md#결정-11-같은-역할에-app-여럿)).
 
 - **App 만들기:** 조직(또는 계정) Settings → Developer settings → GitHub Apps → New GitHub App. Webhook은 끈다(플랫폼은 webhook을 받지 않는다). Repository permissions는 **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read-only**(자동)다. clone은 Contents read만 쓰지만, push·PR(아래 절)이 같은 App을 쓰므로 처음부터 준다. 토큰을 발급할 때마다 그 요청이 쓰는 권한만 다시 좁히므로(아래) clone 토큰에는 쓰기 권한이 없다. 만든 뒤 페이지 위쪽의 **App ID**를 적어 두고, Private keys → Generate a private key로 PEM 파일을 받는다.
-- **콘솔에 등록:** owner나 admin이 설정 → 워크스페이스 → GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. master key 없이 띄운 API에서는 이 화면이 `503`이다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
+- **콘솔에 등록:** owner나 admin이 설정 → 워크스페이스 → GitHub에서 App ID를 넣고 PEM 파일을 고른다. API는 키가 RSA private key인지 보고(`400 invalid_private_key`), 그 키로 서명한 JWT로 `GET {api_base}/app`을 불러 GitHub가 받아 주는지 확인한 뒤에만 저장한다(`400 github_app_rejected`, GitHub가 답하지 않으면 `503 github_unreachable`). 키는 `PLATFORM_SECRET_KEY`(master key)로 암호화해 `secret_values`에 두고, App 이름·주소와 함께 `github_apps` 표에 남는다. 등록·교체·삭제는 `set_github_app`·`delete_github_app` receipt로 남고, 키는 응답·receipt·로그 어디에도 나오지 않는다. 내려받은 PEM 파일은 등록한 뒤 지운다. 같은 App의 키를 바꾸려면 GitHub에서 새 키를 만들고, 그 App 행의 ⋯ 메뉴 "새 키 등록"으로 같은 연결에 저장한 뒤, 새 키로 동작하는 것을 확인하고 GitHub에서 옛 키를 지운다. API는 10초마다 DB를 다시 읽으므로 다른 replica도 곧 새 키를 쓴다(등록한 replica는 바로).
 - **설치:** 화면의 **조직 추가**(App이 여럿이면 설치할 App을 고른다)로 GitHub의 설치 화면에 가서 저장소 owner를 고르고 **Only select repositories**로 쓸 저장소만 고른다. 콘솔에서 시작해 콘솔로 돌아온 설치는 연결한 사람을 남긴다. 화면은 App의 JWT로 GitHub에 물어 설치 표(계정 · 유형 · 저장소 · App · 연결한 사람 · 상태)를 보여 준다. installation id는 적지 않는다. API가 토큰을 받을 때 `GET /repos/{owner}/{repo}/installation`으로 찾는다.
 - **저장소:** 콘솔의 App을 쓰는 저장소는 등록하지 않는다. 에이전트 관리자가 에이전트의 GitHub 탭에서 App 설치에 들어 있는 저장소를 고르면 카탈로그 행이 생긴다. URL과 기본 브랜치는 GitHub에서 읽는다. owner나 admin은 설정 › GitHub 연결 설정 › **저장소 관리**에서 설치별 저장소를 보고, 행 메뉴로 기본 브랜치와 그 저장소를 맡을 App을 바꾼다. 바꾼 것은 `set_repository_branch`·`set_repository_github_app` receipt로 남는다. 저장소는 DB 표 `catalog_repositories`에 있고, 재배포나 재기동은 필요 없다(다른 replica는 10초 안에 읽는다). 결정 문서: [repository-catalog-db.md](../contributing/decisions/repository-catalog-db.md).
 - **설정 문서:** `settings import`로도 같은 행을 더한다(`import_repository` receipt). 항목은 이렇게 적는다. 바깥 참조가 있는 저장소(아래 키를 직접 적는 방식, basic·bearer)는 CLI로 가져오고, 콘솔에는 운영자 참조로 보여 값을 바꿀 수 없다.
@@ -316,6 +316,7 @@ profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`by
 docker compose -f infra/compose.yml up -d secrets
 AWS_ENDPOINT_URL_SECRETS_MANAGER=http://127.0.0.1:4567 AWS_REGION=ap-northeast-1 \
 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
+PLATFORM_SECRET_KEY="$(openssl rand -hex 32)" \
 AUTH_MODE=none PORT=3000 CHECKPOINT_OBJECT_STORE=disabled \
 EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=1073741824 \
 MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \

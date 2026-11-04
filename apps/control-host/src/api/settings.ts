@@ -222,6 +222,7 @@ export async function runSettingsCommand(
   const result = await stores.settings.importEntries(seed.entries, {
     dryRun: command.dryRun,
     allowExternal: true,
+    ...("dir" in source ? { databaseOwnsAppRepositories: true } : {}),
     actor: null,
   });
   if (result.outcome === "actor_inactive") {
@@ -233,6 +234,11 @@ export async function runSettingsCommand(
       `refused: nothing changed (conflicts: ${result.conflicts.join(", ") || "none"})`,
     );
     return false;
+  }
+  for (const ref of result.kept ?? []) {
+    output.err(
+      `note: ${ref} differs from the file; the database keeps its row`,
+    );
   }
   const profiles = await seedProfiles(stores.profiles, seed, command.dryRun);
   output.out(

@@ -261,6 +261,52 @@ describe("planSettingsImport", () => {
     expect(plan.add).toEqual([]);
   });
 
+  describe("a GitHub App repository the console moved to another branch", () => {
+    const app = (branch: string) => ({
+      url: "https://github.com/acme/app",
+      branch,
+      auth: { kind: "github_app" as const },
+    });
+    const incoming = { connections: {}, mcp_servers: {} };
+    const row = (entry: unknown) => ({
+      ...NONE,
+      repositories: new Map([
+        ["app", { entry, active: true, has_value: false }],
+      ]),
+    });
+
+    test("stays as the database has it when an old directory is imported", () => {
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: app("main") } },
+        row(app("develop")),
+        { allowExternal: true, databaseOwnsAppRepositories: true },
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.kept).toEqual(["repository:app"]);
+      expect(plan.add).toEqual([]);
+    });
+
+    test("is still a conflict from a settings document", () => {
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: app("main") } },
+        row(app("develop")),
+        { allowExternal: true },
+      );
+      expect(plan.conflicts).toEqual(["repository:app"]);
+      expect(plan.kept).toBeUndefined();
+    });
+
+    test("a repository of another auth kind is still a conflict", () => {
+      const { auth: _auth, ...bare } = app("main");
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: bare } },
+        row(app("develop")),
+        { allowExternal: true, databaseOwnsAppRepositories: true },
+      );
+      expect(plan.conflicts).toEqual(["repository:app"]);
+    });
+  });
+
   test("a GitHub repository another id holds, or a value left on a new stored id, is a conflict", () => {
     const existing: ExistingSettings = {
       ...NONE,

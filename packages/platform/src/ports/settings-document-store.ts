@@ -38,6 +38,8 @@ export interface SettingsDocumentStore {
     options: {
       dryRun: boolean;
       allowExternal: boolean;
+      /** An import of an old catalog directory: see `SettingsImportPlan.kept`. */
+      databaseOwnsAppRepositories?: boolean;
       actor: TeamActor | null;
     },
   ): Promise<SettingsImportResult>;

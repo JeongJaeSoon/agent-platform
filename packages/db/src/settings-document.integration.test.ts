@@ -276,6 +276,35 @@ integration("settings document import and export", () => {
     ]);
   });
 
+  test("an old directory leaves a GitHub App repository the console moved; a document still conflicts", async () => {
+    await clear();
+    await store().importEntries(entries(), operator);
+    await db
+      .update(catalogRepositories)
+      .set({ branch: "develop" })
+      .where(eq(catalogRepositories.id, "app"));
+
+    expect(await store().importEntries(entries(), operator)).toMatchObject({
+      outcome: "refused",
+      conflicts: ["repository:app"],
+    });
+    expect(
+      await store().importEntries(entries(), {
+        ...operator,
+        databaseOwnsAppRepositories: true,
+      }),
+    ).toMatchObject({
+      outcome: "applied",
+      conflicts: [],
+      kept: ["repository:app"],
+    });
+    const [row] = await db
+      .select({ branch: catalogRepositories.branch })
+      .from(catalogRepositories)
+      .where(eq(catalogRepositories.id, "app"));
+    expect(row?.branch).toBe("develop");
+  });
+
   test("one entry held otherwise stops the whole import, and names it", async () => {
     await clear();
     await store().importEntries(entries(), operator);

@@ -230,6 +230,7 @@ describe("settings CLI", () => {
     expect(options).toEqual({
       dryRun: false,
       allowExternal: true,
+      databaseOwnsAppRepositories: true,
       actor: null,
     });
     expect(err.some((line) => line.includes("platform.yaml"))).toBe(true);
@@ -239,6 +240,30 @@ describe("settings CLI", () => {
       fill: [],
       unfilled: [],
     });
+  });
+
+  test("a kept repository is named on stderr, and a document import keeps none", async () => {
+    const { store, asked } = fakeStore({
+      ...PLAN,
+      kept: ["repository:app"],
+      outcome: "applied",
+      receipt_ids: [],
+    });
+    const { store: profiles } = fakeProfiles();
+    const { output, err } = captured();
+    await runSettingsCommand(
+      {
+        command: "import",
+        source: { dir: oldCatalog, ifPresent: false },
+        dryRun: true,
+      },
+      { settings: store, profiles },
+      output,
+    );
+    expect(err).toContain(
+      "note: repository:app differs from the file; the database keeps its row",
+    );
+    expect(asked[0]?.[1]).toHaveProperty("databaseOwnsAppRepositories", true);
   });
 
   test("--if-present skips a missing or empty directory, and only that", async () => {

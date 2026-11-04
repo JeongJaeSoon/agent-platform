@@ -310,6 +310,12 @@ export type SettingsImportPlan = {
   conflicts: string[];
   /** New external references, where the caller may not bring one. */
   refused_external: string[];
+  /**
+   * From an old catalog directory: GitHub App repositories that differ from
+   * their row. The console already edited these rows while the files stood
+   * still, so the row stays and the difference is no conflict.
+   */
+  kept?: string[];
 };
 
 const withoutSeed = (entry: unknown) => {
@@ -329,7 +335,7 @@ const sameEntry = (a: unknown, b: unknown) =>
 export function planSettingsImport(
   incoming: SettingsEntries,
   existing: ExistingSettings,
-  rules: { allowExternal: boolean },
+  rules: { allowExternal: boolean; databaseOwnsAppRepositories?: boolean },
 ): SettingsImportPlan {
   const plan: SettingsImportPlan = {
     add: [],
@@ -356,7 +362,15 @@ export function planSettingsImport(
             ? sameEntry(withoutSeed(row.entry), withoutSeed(entry))
             : sameEntry(row.entry, entry);
         if (!same) {
-          plan.conflicts.push(ref);
+          const ownedByDatabase =
+            rules.databaseOwnsAppRepositories === true &&
+            kind === "repository" &&
+            repositoryAuthKindOf(entry as CatalogRepositoryConfig) ===
+              "github_app" &&
+            repositoryAuthKindOf(row.entry as CatalogRepositoryConfig) ===
+              "github_app";
+          if (ownedByDatabase) plan.kept = [...(plan.kept ?? []), ref];
+          else plan.conflicts.push(ref);
           continue;
         }
         if (!row.active) {
