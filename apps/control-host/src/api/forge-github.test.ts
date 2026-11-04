@@ -290,37 +290,14 @@ describe("connectionsOf", () => {
           ref: { value_env: "K" },
         },
       },
-      pat: {
-        ...base,
-        url: "https://github.com/acme/pat.git",
-        auth: {
-          kind: "basic",
-          username: "x-access-token",
-          value: "github_pat_fixture_value",
-          ref: { value_env: "P" },
-        },
-      },
     },
   };
 
-  test("an App has an author connection; the reviewer role and a missing repository have none", async () => {
+  test("an App has an author connection; the reviewer role and a missing repository have none", () => {
     const connections = connectionsOf(catalog);
     expect(connections("app", "author")).toMatchObject({
       kind: "fixed",
       connection: { kind: "app", appId: 101, githubCom: true },
-    });
-    const pat = connections("pat", "author");
-    expect(pat).toMatchObject({
-      kind: "fixed",
-      connection: { kind: "pat", appId: null, githubCom: true },
-    });
-    if (pat?.kind !== "fixed") throw new Error("a PAT is a fixed connection");
-    expect(await pat.connection.credential(repo, READ)).toEqual({
-      credential: {
-        username: "x-access-token",
-        password: "github_pat_fixture_value",
-      },
-      fresh: false,
     });
     expect(fixedOf(connections("app", "author"))).toBe(
       fixedOf(connections("app", "author")),

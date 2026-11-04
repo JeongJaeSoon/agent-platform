@@ -55,18 +55,6 @@ async function appForgeAt(port: number | undefined) {
   return connection.api(repo, credential);
 }
 
-/** A PAT connection's API against a stub server on `port`. */
-async function patForge(port: number | undefined) {
-  const connection = createGitHubConnection({
-    apiBase: `http://127.0.0.1:${port}`,
-    credentials: { kind: "token", username: "x", password: "pat-test" },
-    retryAfterBaseMs: 1,
-    paced: false,
-  });
-  const { credential } = await connection.credential(repo, PULLS);
-  return connection.api(repo, credential);
-}
-
 describe("GitHub pull requests", () => {
   test("opens a pull request with a token for that one repository and pull_requests:write, and finds it again", async () => {
     const tokensBefore = github.tokenRequests.length;

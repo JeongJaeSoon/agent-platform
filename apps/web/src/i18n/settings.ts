@@ -92,9 +92,6 @@ export const settingsKo = {
   "settings.mcp.editWorkspacesFor": "{id} 워크스페이스 바꾸기",
   "settings.mcp.editWorkspacesTitle": "{id}를 쓸 워크스페이스",
 
-  "settings.repos.auth.bearer": "Bearer 토큰",
-  "settings.repos.token": "토큰 값",
-
   "home.setup.connection": "모델 연결 추가하기",
   "home.setup.connectionHint":
     "프로필 화면의 모델 연결에서 엔드포인트와 키를 넣습니다.",
@@ -196,9 +193,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.mcp.editWorkspacesFor": "Change the workspaces of {id}",
   "settings.mcp.editWorkspacesTitle": "Workspaces that may use {id}",
 
-  "settings.repos.auth.bearer": "Bearer token",
-  "settings.repos.token": "Token",
-
   "home.setup.connection": "Add a model connection",
   "home.setup.connectionHint":
     "Enter an endpoint and a key under model connections on the profiles page.",
@@ -298,9 +292,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.mcp.editWorkspaces": "ワークスペースを変える",
   "settings.mcp.editWorkspacesFor": "{id} のワークスペースを変える",
   "settings.mcp.editWorkspacesTitle": "{id} を使えるワークスペース",
-
-  "settings.repos.auth.bearer": "Bearer トークン",
-  "settings.repos.token": "トークンの値",
 
   "home.setup.connection": "モデル接続を追加する",
   "home.setup.connectionHint":
