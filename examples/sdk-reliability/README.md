@@ -1,6 +1,6 @@
 # 재시도, Idempotency-Key, 오류
 
-`src/reliability.ts`는 SDK가 실패를 어떻게 다루는지 실제 서버에 대고 보여 준다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/reliability.ts`는 SDK가 실패를 어떻게 다루는지 실제 서버에 대고 보여 준다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 1. 같은 Idempotency-Key로 같은 세션 생성을 두 번 보내면 세션은 하나다. 같은 key에 다른 본문이면 409 `IDEMPOTENCY_CONFLICT`이고, 오류는 그 key를 싣는다.
 2. 서버가 메시지를 받은 뒤 응답만 사라지게 하는 `fetch`를 끼운다. SDK는 같은 key로 다시 보내고 서버는 첫 응답을 재생하므로 turn은 하나만 생긴다.

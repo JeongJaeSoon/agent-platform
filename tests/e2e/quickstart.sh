@@ -17,12 +17,12 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 document="${1:-docs/quickstart.md}"
 case "$document" in
-  docs/quickstart.md | docs/api-guide.md) ;;
+  docs/quickstart.md | apps/docs/content/docs/reference/api-guide.mdx) ;;
   *) echo "unsupported executable guide: $document" >&2; exit 1 ;;
 esac
 out="${QUICKSTART_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/quickstart.XXXXXX")}"
 mkdir -p "$out"
-script="$out/$(basename "$document" .md).sh"
+script="$out/$(basename "${document%.*}").sh"
 
 # Each block becomes: print it, then run it. The quoted heredoc prints the
 # block byte for byte; its tag cannot occur in the page.
