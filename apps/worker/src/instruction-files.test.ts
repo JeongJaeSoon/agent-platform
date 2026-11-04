@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -198,6 +199,32 @@ describe("placeInstructionFiles", () => {
       placeInstructionFiles({ root, text: "x\n", signal: stop.signal }),
     ).rejects.toThrow();
     expect(await exists("AGENTS.md")).toBe(false);
+  });
+
+  test("a stop after the exclude was written withdraws it, so a file added later is not taken for ours", async () => {
+    const excludePath = join(root, ".git", "info", "exclude");
+    const stopsOnceMarked = {
+      aborted: false,
+      addEventListener() {},
+      removeEventListener() {},
+      throwIfAborted() {
+        const text = readFileSync(excludePath, "utf8");
+        if (text.includes("agent-platform: instruction files")) {
+          throw new Error("stopped");
+        }
+      },
+    } as unknown as AbortSignal;
+    await mkdir(join(root, ".git", "info"), { recursive: true });
+    await writeFile(excludePath, "");
+
+    await expect(
+      placeInstructionFiles({ root, text: "x\n", signal: stopsOnceMarked }),
+    ).rejects.toThrow("stopped");
+
+    expect(await readFile(excludePath, "utf8")).toBe("");
+    await writeFile(join(root, "AGENTS.md"), "mine\n");
+    expect(await place()).toBe("kept");
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("mine\n");
   });
 
   test("leaves an untracked file it did not make", async () => {

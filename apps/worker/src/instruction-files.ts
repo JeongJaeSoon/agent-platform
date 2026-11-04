@@ -66,24 +66,36 @@ export async function placeInstructionFiles(input: {
   if (!agentsOurs || !linkOurs) return "kept";
 
   signal.throwIfAborted();
-  if (!marked) {
-    await mkdir(join(gitDir, "info"), { recursive: true });
-    await replaceFile(
-      gitDir,
-      exclude,
-      `${excludes}${excludes === "" || excludes.endsWith("\n") ? "" : "\n"}${EXCLUDE_MARKER}\n/${CANONICAL}\n/${LINK}\n`,
-    );
+  // The marker is the proof a file is ours. Until AGENTS.md is written it
+  // must not outlive a call that placed nothing, whether that call skipped
+  // or failed, or a file someone adds later would look ours.
+  const withdrawMarker = async () => {
+    if (!marked) await replaceFile(gitDir, exclude, excludes).catch(() => {});
+  };
+  try {
+    if (!marked) {
+      await mkdir(join(gitDir, "info"), { recursive: true });
+      await replaceFile(
+        gitDir,
+        exclude,
+        `${excludes}${excludes === "" || excludes.endsWith("\n") ? "" : "\n"}${EXCLUDE_MARKER}\n/${CANONICAL}\n/${LINK}\n`,
+      );
+    }
+    // The repository's own .gitignore can re-include a name (`!AGENTS.md`),
+    // and then the exclude would not keep the file out of a commit or capture.
+    if (!(await ignored(root, [CANONICAL, LINK], signal))) {
+      await withdrawMarker();
+      return "skipped";
+    }
+    signal.throwIfAborted();
+    await replaceFile(gitDir, join(root, CANONICAL), ensureNewline(input.text));
+  } catch (error) {
+    // AGENTS.md may or may not have landed; only an absent one is unplaced.
+    if (!(await lstat(join(root, CANONICAL)).catch(() => null))) {
+      await withdrawMarker();
+    }
+    throw error;
   }
-  // The repository's own .gitignore can re-include a name (`!AGENTS.md`),
-  // and then the exclude would not keep the file out of a commit or capture.
-  if (!(await ignored(root, [CANONICAL, LINK], signal))) {
-    // The marker is the proof a file is ours; without a placement it must
-    // not outlive this call, or a file someone adds later would look ours.
-    if (!marked) await replaceFile(gitDir, exclude, excludes);
-    return "skipped";
-  }
-  signal.throwIfAborted();
-  await replaceFile(gitDir, join(root, CANONICAL), ensureNewline(input.text));
   signal.throwIfAborted();
   if (link === null) {
     const staged = scratchPath(gitDir);
