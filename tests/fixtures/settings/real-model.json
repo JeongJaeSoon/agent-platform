@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "http://gitea:3000/agent/sample-app.git",
+      "branch": "main",
+      "profiles": ["claude-coding-real"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "claude-coding-real": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": [
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash",
+        "AskUserQuestion"
+      ],
+      "permission_mode": "auto",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}

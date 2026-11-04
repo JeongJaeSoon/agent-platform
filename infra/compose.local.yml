@@ -55,8 +55,8 @@ services:
   # workers reach that one through the egress proxy, and nothing on the
   # allowlist may answer for the provider keys the catalog references. Only
   # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER). Off by default:
-  # only config/fake-model reads a secret_id, so infra/compose.fake-model.yml
-  # turns it on.
+  # only the fake-model settings read a secret_id, so
+  # infra/compose.fake-model.yml turns it on.
   secrets:
     profiles: [fake-model]
     image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
@@ -78,9 +78,9 @@ services:
       retries: 12
       start_period: 5s
 
-  # The Messages API config/fake-model points at, so a stack runs sessions
-  # without an Anthropic account. Off by default: infra/compose.fake-model.yml
-  # turns it on with that catalog. Workers reach it through the proxy's
+  # The Messages API the fake-model settings point at, so a stack runs
+  # sessions without an Anthropic account. Off by default:
+  # infra/compose.fake-model.yml turns it on with them. Workers reach it through the proxy's
   # provider route (EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST).
   fake-messages:
     profiles: [fake-model]
@@ -97,7 +97,7 @@ services:
       retries: 12
       start_period: 5s
 
-  # The remote MCP server config/fake-model/mcp-servers.yaml names, behind
+  # The remote MCP server the fake-model settings name, behind
   # the service-account bearer the secrets service seeds. Workers reach it
   # only through the proxy's /mcp/fake route. Its control port (/calls)
   # reports call counts and bearer hashes, never a value.
@@ -119,9 +119,9 @@ services:
       retries: 12
       start_period: 5s
 
-  # The example catalog's git host: fake-git, read-only, and rebuilt on every
+  # The example settings' git host: fake-git, read-only, and rebuilt on every
   # start from the same fixed commits: the repository of
-  # config/repositories.yaml and the D2 gate's. It runs from the control-host
+  # tests/fixtures/settings and the D2 gate's. It runs from the control-host
   # image because that image has git, and has no `image:` for the reason
   # migrate below has none. `gitea` is only a name now, kept with the port: a
   # session record keeps the repo_url it started with, and the catalog must
@@ -149,14 +149,18 @@ services:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
+    environment:
+      SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-/settings/real-model.json}
+    volumes:
+      - ../tests/fixtures/settings:/settings:ro
 
   egress-proxy:
     build:
       context: ..
       dockerfile: apps/egress-proxy/Dockerfile
     environment:
-      # The local git host, config/fake-model's Messages API and remote MCP
-      # server, and the object store.
+      # The local git host, the fake-model settings' Messages API and remote
+      # MCP server, and the object store.
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
 
   # A developer's overrides (docs/contributing/development.md). Not the reconciler's: it
@@ -173,7 +177,11 @@ services:
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
-      # The provider key config/profiles.yaml reads, passed through by name
+      # The caller's master key: scripts/local.sh makes one and keeps it, so
+      # what the console stores survives `up`. The default is for the test
+      # harnesses, whose volumes hold nothing worth a key.
+      PLATFORM_SECRET_KEY: &local-secret-key ${PLATFORM_SECRET_KEY:-0000000000000000000000000000000000000000000000000000000000000001}
+      # The provider key the real-model settings read, passed through by name
       # from the caller's environment (scripts/local.sh exports it from the
       # ignored .env when the shell has none), so its value is in no tracked
       # file and no argument. The proxy puts it on each worker call.
@@ -195,6 +203,7 @@ services:
 
   slack:
     environment:
+      PLATFORM_SECRET_KEY: *local-secret-key
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
       SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
 

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "connections": {
+    "ollama": {
+      "kind": "anthropic",
+      "endpoint": "http://ollama.internal:11434",
+      "auth": { "kind": "api_key", "value_env": "LOCAL_OLLAMA_API_KEY" }
+    },
+    "litellm": {
+      "kind": "litellm",
+      "endpoint": "http://litellm:4000",
+      "auth": { "kind": "bearer", "value_env": "LITELLM_MASTER_KEY" }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "http://gitea:3000/agent/sample-app.git",
+      "branch": "main",
+      "profiles": ["local-ollama", "local-litellm"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "local-ollama": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "gemma4:26b-mlx",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "http://ollama.internal:11434",
+        "auth": { "kind": "api_key", "value_env": "LOCAL_OLLAMA_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    },
+    "local-litellm": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "gemma4-local",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "litellm",
+        "endpoint": "http://litellm:4000",
+        "auth": { "kind": "bearer", "value_env": "LITELLM_MASTER_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}

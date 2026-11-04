@@ -17,7 +17,6 @@ import {
   withLocalstackBucket,
 } from "@werft-ai/testkit";
 import {
-  catalogRevision,
   checkRender,
   decideUpgrade,
   notResumableOnPrevious,
@@ -26,6 +25,7 @@ import {
   probeRoundTrip,
   probeStore,
   type RenderedModel,
+  settingsDigest,
   upgradeImpact,
 } from "../scripts/lib/test-ops.ts";
 import {
@@ -289,6 +289,7 @@ case "$*" in
   version*) echo 28.0.4 ;;
   "compose version --short") echo 2.38.2 ;;
   *" config --format json") echo '${render}' ;;
+  *" --dry-run") echo '{"add":[]}' ;;
 esac
 exit 0
 `,
@@ -310,6 +311,18 @@ exit 0
         () => null,
       ),
     ).toBeNull();
+
+    // A row the document names and the database lacks stops the record.
+    await writeFile(
+      join(dir, "bin", "docker"),
+      (stubs.docker as string).replace('"add":[]', '"add":[{"id":"gone"}]'),
+      { mode: 0o755 },
+    );
+    const missing = await run(["upgrade", join(dir, "release.json")], env);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain(
+      "the database does not hold the settings document",
+    );
   });
 });
 
@@ -344,7 +357,7 @@ describe("release manifest", () => {
   test.each([
     ["source_commit", "main", "source_commit must be a full 40-hex commit"],
     ["source_commit", "0123456", "source_commit must be a full 40-hex commit"],
-    ["catalog_revision", "v3", "catalog_revision must be sha256:<64 hex>"],
+    ["settings_digest", "v3", "settings_digest must be sha256:<64 hex>"],
     ["tag", "v1", "manifest has unknown key tag"],
   ])("refuses %s = %p", async (key, value, message) => {
     const manifest = await base();
@@ -354,20 +367,17 @@ describe("release manifest", () => {
 });
 
 describe("rendered installation", () => {
-  let catalog: string;
+  let scratch: string;
+  let document: string;
 
   beforeEach(async () => {
-    catalog = await mkdtemp(join(tmpdir(), "test-ops-catalog-"));
-    await writeFile(join(catalog, "profiles.yaml"), "profiles: {}\n");
-    await mkdir(join(catalog, "more"));
-    await writeFile(
-      join(catalog, "more", "repositories.yaml"),
-      "repositories: {}\n",
-    );
+    scratch = await mkdtemp(join(tmpdir(), "test-ops-settings-"));
+    document = join(scratch, "installation.json");
+    await writeFile(document, '{"version":1}\n');
   });
 
   afterEach(async () => {
-    await rm(catalog, { force: true, recursive: true });
+    await rm(scratch, { force: true, recursive: true });
   });
 
   /** The real layers rendered as scripts/test-ops.sh renders them. */
@@ -404,7 +414,8 @@ describe("rendered installation", () => {
           AWS_ACCESS_KEY_ID: filler("i"),
           AWS_SECRET_ACCESS_KEY: filler("s"),
           ANTHROPIC_API_KEY: filler("k"),
-          PLATFORM_CATALOG_DIR: catalog,
+          PLATFORM_SETTINGS_DOCUMENT: document,
+          PLATFORM_SECRET_KEY: filler("m"),
           EXECUTION_WORKSPACE_QUOTA: "on",
           EXECUTION_INSTALLATION_ID: "test-ops",
           ...(store === "s3"
@@ -424,12 +435,12 @@ describe("rendered installation", () => {
   }
 
   test.each(["localstack", "s3"] as const)(
-    "the test-ops layers on %s pass, and the mounted catalog is what the manifest names",
+    "the test-ops layers on %s pass, and the mounted settings document is what the manifest names",
     async (store) => {
-      const revision = await catalogRevision(catalog);
+      const digest = await settingsDigest(document);
       expect(
-        await checkRender(render(store), { catalogRevision: revision, store }),
-      ).toBe(revision);
+        await checkRender(render(store), { settingsDigest: digest, store }),
+      ).toBe(digest);
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
@@ -447,14 +458,11 @@ describe("rendered installation", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  test("the catalog revision follows every file's path and bytes", async () => {
-    const before = await catalogRevision(catalog);
-    expect(await catalogRevision(catalog)).toBe(before);
-    await writeFile(
-      join(catalog, "more", "repositories.yaml"),
-      "repositories: {x: 1}\n",
-    );
-    expect(await catalogRevision(catalog)).not.toBe(before);
+  test("the settings digest follows the document's bytes", async () => {
+    const before = await settingsDigest(document);
+    expect(await settingsDigest(document)).toBe(before);
+    await writeFile(document, '{"version": 1}\n');
+    expect(await settingsDigest(document)).not.toBe(before);
   });
 
   test(
@@ -486,7 +494,7 @@ describe("rendered installation", () => {
         "gitea:3000,fake-messages:4010";
       env("api").AWS_ENDPOINT_URL = "http://localstack:4566";
       const found = await checkRender(model, {
-        catalogRevision: `sha256:${"0".repeat(64)}`,
+        settingsDigest: `sha256:${"0".repeat(64)}`,
         store: "s3",
       }).then(
         () => "",
@@ -547,12 +555,14 @@ describe("rendered installation", () => {
   );
 
   test(
-    "refuses the checkout's own catalog",
+    "refuses the checkout's own settings document",
     async () => {
       const model = render("localstack");
-      const volume = model.services?.api?.volumes?.[0];
-      if (volume === undefined) throw new Error("api mounts nothing");
-      volume.source = join(repoRoot, "config");
+      const volume = model.services?.migrate?.volumes?.find(
+        ({ target }) => target === "/settings/installation.json",
+      );
+      if (volume === undefined) throw new Error("migrate mounts no document");
+      volume.source = join(repoRoot, "tests/fixtures/settings/real-model.json");
       await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
         "is inside the checkout",
       );

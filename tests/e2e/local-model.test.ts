@@ -3,22 +3,21 @@ import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { providerUpstreamOf } from "@werft-ai/platform";
-import { loadSessionCatalog } from "../../apps/control-host/src/api/catalog-config.ts";
 import { egressProxyConfigFromEnv } from "../../apps/egress-proxy/src/config.ts";
 import {
   COMPOSE_RENDER_TIMEOUT_MS,
   LOCAL_LAYERS,
   layeredServices,
 } from "../compose-layers.ts";
+import { fixtureCatalog } from "./settings-fixture.ts";
 
 /**
  * The plumbing of `tests/e2e/run.sh --local-model`, without Docker or
- * Ollama: the catalog the API reads, the overlay that lets the egress proxy
- * reach both routes to the model, and the runner's stop when there is no
- * Ollama.
+ * Ollama: the settings migrate imports, the overlay that lets the egress
+ * proxy reach both routes to the model, and the runner's stop when there is
+ * no Ollama.
  */
 const ROOT = join(import.meta.dir, "../..");
-const CATALOG = join(ROOT, "config/local-model");
 const OVERLAY = "infra/compose.local-model.yml";
 const RUN = join(ROOT, "tests/e2e/run.sh");
 const KEYS = ["LOCAL_OLLAMA_API_KEY", "LITELLM_MASTER_KEY"] as const;
@@ -46,15 +45,9 @@ function defaults(...layers: Array<Service | undefined>) {
 }
 
 const catalog = () =>
-  loadSessionCatalog({
-    dir: CATALOG,
-    env: {
-      LOCAL_OLLAMA_API_KEY: "ollama-probe",
-      LITELLM_MASTER_KEY: "sk-probe",
-    },
-    readSecret: async () => {
-      throw new Error("the local-model catalog reads no secret");
-    },
+  fixtureCatalog("local-model", {
+    LOCAL_OLLAMA_API_KEY: "ollama-probe",
+    LITELLM_MASTER_KEY: "sk-probe",
   });
 
 describe("local-model catalog", () => {
@@ -84,15 +77,14 @@ describe("local-model catalog", () => {
 });
 
 describe("local-model compose overlay", () => {
-  test("the API reads config/local-model and alone holds the Ollama key", async () => {
+  test("migrate imports the local-model settings and the API alone holds the Ollama key", async () => {
     const services = await overlay();
-    const api = layeredServices<Service & { volumes?: string[] }>([
+    const { api, migrate } = layeredServices<Service>([
       ...LOCAL_LAYERS,
       OVERLAY,
-    ]).api;
-    expect(api?.volumes).toContain("../config:/app/config:ro");
-    expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe(
-      "/app/config/local-model",
+    ]);
+    expect(migrate?.environment?.SETTINGS_DOCUMENT).toBe(
+      "/settings/local-model.json",
     );
     expect(api?.environment?.ANTHROPIC_API_KEY).toBe("");
     for (const [name, service] of Object.entries(services)) {

@@ -52,8 +52,9 @@ images:
 #   AWS_ACCESS_KEY_ID,
 #   AWS_SECRET_ACCESS_KEY   api, checkpoint GC (the checkpoint object store),
 #                           only while objectStoreKeys is true
-#   PLATFORM_SECRET_KEY     api and slack, optional: the master key Slack
-#                           secrets are encrypted under (`openssl rand -hex 32`)
+#   PLATFORM_SECRET_KEY     api and slack, required: the master key stored
+#                           credentials are encrypted under
+#                           (`openssl rand -hex 32`)
 secrets:
   name: agent-platform
   # Hand the two AWS keys above to the api and the checkpoint GC. false
@@ -61,8 +62,8 @@ secrets:
   # credential chain instead: IRSA through serviceAccounts.api on EKS.
   objectStoreKeys: true
   # Further keys handed to the api alone, as environment variables of the
-  # same name: the credentials the catalog names by value_env. slack reads
-  # the catalog too, but never its credentials.
+  # same name: the credentials the settings name by value_env. slack reads
+  # the settings too, but never their credentials.
   catalogEnv: [ANTHROPIC_API_KEY]
   # Have the External Secrets Operator write the Secret above from a secret
   # store instead of creating it by hand. Needs the operator's CRDs.
@@ -85,45 +86,6 @@ serviceAccounts:
     annotations: {}
   scheduler:
     annotations: {}
-
-# The operator catalog, mounted at PLATFORM_CONFIG_DIR. Same schema as
-# config/connections.yaml, config/profiles.yaml and config/repositories.yaml;
-# an invalid catalog stops the api.
-catalog:
-  # Required: the api and slack do not start without connections.yaml. A
-  # ceiling runs only while its provider equals one entry here.
-  connections:
-    anthropic:
-      kind: anthropic
-      endpoint: https://api.anthropic.com
-      auth:
-        kind: api_key
-        value_env: ANTHROPIC_API_KEY
-  # Seeds an empty database only; once it holds ceilings, edit them in the
-  # console or POST /v1/installation-profiles.
-  profiles:
-    claude-coding-real:
-      runtime_kind: claude_agent_sdk
-      runtime_version: "0.3.270"
-      model: claude-sonnet-5
-      tools: [Read, Edit, Write, Glob, Grep, Bash, AskUserQuestion]
-      permission_mode: auto
-      provider:
-        kind: anthropic
-        endpoint: https://api.anthropic.com
-        auth:
-          kind: api_key
-          value_env: ANTHROPIC_API_KEY
-      project_settings:
-        claude_md: true
-  # At least one, or the api does not start. The example is the read-only git
-  # host of config/repositories.yaml, which this chart does not install
-  # (deploy/kind/deps-session.yaml does, for the kind checks); name your own.
-  repositories:
-    sample-app:
-      url: http://gitea:3000/agent/sample-app.git
-      branch: main
-      profiles: [claude-coding-real]
 
 config:
   logLevel: info

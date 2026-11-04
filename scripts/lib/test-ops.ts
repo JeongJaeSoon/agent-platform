@@ -2,8 +2,8 @@
  * The checks behind scripts/test-ops.sh
  *
  *   bun run scripts/lib/test-ops.ts manifest <release.json>
- *   bun run scripts/lib/test-ops.ts catalog-revision <dir>
- *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev>] < rendered.json
+ *   bun run scripts/lib/test-ops.ts settings-digest <file>
+ *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--settings-digest <digest>] < rendered.json
  *   bun run scripts/lib/test-ops.ts probe-store < rendered.json
  *   bun run scripts/lib/test-ops.ts upgrade-impact <verify-exit> <verify-output> <uncollected>
  *   bun run scripts/lib/test-ops.ts upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output>
@@ -17,8 +17,8 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import type { CheckpointObjectCollector } from "@werft-ai/platform";
 import type { CheckpointObjectStore } from "@werft-ai/runtime-core";
 import {
@@ -58,11 +58,14 @@ const OBJECT_STORE_MODES: readonly ObjectStoreMode[] = ["localstack", "s3"];
 const LOCALSTACK_BUCKET = "claude-sessions";
 const LOCALSTACK_ENDPOINT = "http://localstack:4566";
 
+/** Where infra/compose.test-ops.yml mounts the settings document in migrate. */
+const TEST_OPS_SETTINGS_DOCUMENT = "/settings/installation.json";
+
 /** RFC 3986 unreserved: survives inside the compose-built DATABASE_URL. */
 const URL_SAFE = /^[A-Za-z0-9._~-]+$/;
 
 export type ReleaseManifest = {
-  readonly catalogRevision: string;
+  readonly settingsDigest: string;
   readonly images: {
     readonly controlHost: string;
     readonly egressProxy: string;
@@ -100,7 +103,7 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
   const top = object(value, "manifest", [
     "source_commit",
     "images",
-    "catalog_revision",
+    "settings_digest",
   ]);
   const images = object(top.images, "images", [
     "control_host",
@@ -110,9 +113,9 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
   const image = (key: string) =>
     text(images[key], `images.${key}`, PINNED_IMAGE, "<name>@sha256:<64 hex>");
   const manifest = {
-    catalogRevision: text(
-      top.catalog_revision,
-      "catalog_revision",
+    settingsDigest: text(
+      top.settings_digest,
+      "settings_digest",
       /^sha256:[0-9a-f]{64}$/,
       "sha256:<64 hex>",
     ),
@@ -133,28 +136,15 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
 }
 
 /**
- * The catalog directory by content: sha256 over each regular file's path and
- * sha256, in path order. What the API mounts is what the manifest names.
+ * The settings document by its bytes: what migrate mounts is what the
+ * manifest names. It covers the seed's ceilings too, unlike the digest
+ * `settings export` prints.
  */
-export async function catalogRevision(dir: string): Promise<string> {
-  const entries: string[] = [];
-  const walk = async (at: string) => {
-    for (const entry of await readdir(at, { withFileTypes: true })) {
-      const path = join(at, entry.name);
-      if (entry.isDirectory()) await walk(path);
-      else if (entry.isFile()) {
-        const digest = createHash("sha256")
-          .update(await readFile(path))
-          .digest("hex");
-        entries.push(`${relative(dir, path)}\0${digest}\n`);
-      } else
-        throw new Error(`catalog ${path} is neither a file nor a directory`);
-    }
-  };
-  await walk(dir);
-  const hash = createHash("sha256");
-  for (const entry of entries.sort()) hash.update(entry);
-  return `sha256:${hash.digest("hex")}`;
+export async function settingsDigest(file: string): Promise<string> {
+  const digest = createHash("sha256")
+    .update(await readFile(file))
+    .digest("hex");
+  return `sha256:${digest}`;
 }
 
 type RenderedService = {
@@ -171,14 +161,14 @@ export type RenderedModel = { services?: Record<string, RenderedService> };
  * builds a local dependency, names an image by tag, publishes beyond
  * loopback, loosens the API's modes, builds a DSN a password breaks, points
  * the API at another object store than `store`, leaves workers without a
- * route to it, runs workspaces without quota, or mounts a catalog other than
- * the manifest's. Every problem is reported at once. Returns the mounted
- * catalog's revision.
+ * route to it, runs workspaces without quota, or mounts a settings document
+ * other than the manifest's. Every problem is reported at once. Returns the
+ * mounted document's digest.
  */
 export async function checkRender(
   model: RenderedModel,
   options: {
-    readonly catalogRevision?: string;
+    readonly settingsDigest?: string;
     readonly store: ObjectStoreMode;
   },
 ): Promise<string> {
@@ -267,28 +257,35 @@ export async function checkRender(
         `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names ${entry}, a local-only service`,
       );
 
-  let revision = "";
-  const catalog = services.api?.volumes?.find(
-    (volume) => volume.target === "/app/config",
+  if (!env("api", "PLATFORM_SECRET_KEY"))
+    problems.push("api has no PLATFORM_SECRET_KEY");
+
+  let digest = "";
+  const document = services.migrate?.volumes?.find(
+    (volume) => volume.target === TEST_OPS_SETTINGS_DOCUMENT,
   )?.source;
-  if (catalog === undefined)
-    problems.push("api mounts no catalog at /app/config");
-  else if (catalog === REPO_ROOT || catalog.startsWith(REPO_ROOT + sep))
-    problems.push(`catalog ${catalog} is inside the checkout; keep it outside`);
-  else if (!(await stat(catalog).catch(() => undefined))?.isDirectory())
-    problems.push(`catalog ${catalog} is not a directory`);
+  if (document === undefined)
+    problems.push(
+      `migrate mounts no document at ${TEST_OPS_SETTINGS_DOCUMENT}`,
+    );
+  else if (document.startsWith(REPO_ROOT + sep))
+    problems.push(
+      `settings document ${document} is inside the checkout; keep it outside`,
+    );
+  else if (!(await stat(document).catch(() => undefined))?.isFile())
+    problems.push(`settings document ${document} is not a file`);
   else {
-    revision = await catalogRevision(catalog);
+    digest = await settingsDigest(document);
     if (
-      options.catalogRevision !== undefined &&
-      options.catalogRevision !== revision
+      options.settingsDigest !== undefined &&
+      options.settingsDigest !== digest
     )
       problems.push(
-        `catalog ${catalog} is ${revision}, the manifest says ${options.catalogRevision}`,
+        `settings document ${document} is ${digest}, the manifest says ${options.settingsDigest}`,
       );
   }
   if (problems.length > 0) throw new Error(problems.join("\n"));
-  return revision;
+  return digest;
 }
 
 /**
@@ -532,30 +529,30 @@ async function main(argv: readonly string[]): Promise<number> {
           `API_IMAGE=${manifest.images.controlHost}`,
           `WORKER_IMAGE=${manifest.images.worker}`,
           `EGRESS_PROXY_IMAGE=${manifest.images.egressProxy}`,
-          `CATALOG_REVISION=${manifest.catalogRevision}`,
+          `SETTINGS_DIGEST=${manifest.settingsDigest}`,
         ].join("\n"),
       );
       return 0;
     }
-    case "catalog-revision": {
-      const [dir] = args;
-      if (!dir || args.length > 1) return usage();
-      console.log(await catalogRevision(dir));
+    case "settings-digest": {
+      const [file] = args;
+      if (!file || args.length > 1) return usage();
+      console.log(await settingsDigest(file));
       return 0;
     }
     case "check-render": {
-      const [storeFlag, store, revisionFlag, revision, ...rest] = args;
+      const [storeFlag, store, digestFlag, digest, ...rest] = args;
       if (
         storeFlag !== "--store" ||
         !OBJECT_STORE_MODES.includes(store as ObjectStoreMode) ||
         rest.length > 0 ||
-        (revisionFlag !== undefined &&
-          (revisionFlag !== "--catalog-revision" || revision === undefined))
+        (digestFlag !== undefined &&
+          (digestFlag !== "--settings-digest" || digest === undefined))
       )
         return usage();
       console.log(
         await checkRender(await stdinModel(), {
-          ...(revision === undefined ? {} : { catalogRevision: revision }),
+          ...(digest === undefined ? {} : { settingsDigest: digest }),
           store: store as ObjectStoreMode,
         }),
       );
@@ -652,7 +649,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | settings-digest <file> | check-render --store <localstack|s3> [--settings-digest <digest>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }

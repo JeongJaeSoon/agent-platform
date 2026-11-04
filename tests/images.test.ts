@@ -480,17 +480,17 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.environment).toBeUndefined();
     const served = gitHost?.command?.slice(3) ?? [];
 
-    const catalogs: Record<string, string> = {
-      "config/repositories.yaml": "sample-app",
-      "config/fake-model/repositories.yaml": "sample-app",
-      "config/fake-model-unattended/repositories.yaml": "sample-app",
-      "config/local-model/repositories.yaml": "sample-app",
-      ".claude/skills/verify-agent-platform/github-sandbox/repositories.yaml":
+    const documents: Record<string, string> = {
+      "tests/fixtures/settings/real-model.json": "sample-app",
+      "tests/fixtures/settings/fake-model.json": "sample-app",
+      "tests/fixtures/settings/fake-model-unattended.json": "sample-app",
+      "tests/fixtures/settings/local-model.json": "sample-app",
+      ".claude/skills/verify-agent-platform/github-sandbox/settings.json":
         "sample-app",
-      "scripts/d2-gate/config/repositories.yaml": "gate-app",
+      "scripts/d2-gate/settings.json": "gate-app",
     };
-    for (const [path, repository] of Object.entries(catalogs)) {
-      const { repositories } = Bun.YAML.parse(read(path)) as {
+    for (const [path, repository] of Object.entries(documents)) {
+      const { repositories } = JSON.parse(read(path)) as {
         repositories: Record<string, { url: string }>;
       };
       expect(repositories[repository]?.url).toBe(
@@ -563,12 +563,6 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         "{control_host_digest}#",
     );
 
-    const { catalog } = Bun.YAML.parse(
-      read("deploy/helm/agent-platform/values.yaml"),
-    ) as { catalog: { repositories: Record<string, { url: string }> } };
-    expect(catalog.repositories["sample-app"]?.url).toBe(
-      "http://gitea:3000/agent/sample-app.git",
-    );
     for (const model of ["fake", "real"]) {
       const { config } = Bun.YAML.parse(
         read(`deploy/kind/values-${model}-model.yaml`),
@@ -717,9 +711,6 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const { api, slack } = localStack();
     expect(slack?.build).toBeUndefined();
     expect(slack?.image).toBe(api?.image);
-    expect(slack?.environment?.PLATFORM_CONFIG_DIR).toBe(
-      api?.environment?.PLATFORM_CONFIG_DIR,
-    );
     // The developer's .env is the api's, HEARTBEAT_TTL_SEC and all.
     expect(slack?.env_file).toBeUndefined();
     for (const files of [LOCAL_LAYERS, [...LOCAL_LAYERS, FAKE_MODEL]])
@@ -1023,7 +1014,8 @@ describe("compose layers", () => {
     ...API_KEYS,
     S3_BUCKET: "test-ops-bucket",
     EXECUTION_INSTALLATION_ID: "test-ops",
-    PLATFORM_CATALOG_DIR: "/etc/agent-platform/catalog",
+    PLATFORM_SETTINGS_DOCUMENT: "/etc/agent-platform/settings.json",
+    PLATFORM_SECRET_KEY: "1".repeat(64),
     EXECUTION_WORKSPACE_QUOTA: "on",
     EGRESS_CREDENTIAL_ALLOWLIST:
       "api.anthropic.com:443,test-ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
@@ -1238,6 +1230,7 @@ describe("compose layers", () => {
         "environment",
         "depends_on",
         "healthcheck",
+        "volumes",
       ],
       [
         "AWS_ENDPOINT_URL",
@@ -1245,6 +1238,8 @@ describe("compose layers", () => {
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "ANTHROPIC_API_KEY",
+        "PLATFORM_SECRET_KEY",
+        "SETTINGS_DOCUMENT",
         "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS",
         "SESSION_PROMPT_REVISION",
         "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
@@ -1255,10 +1250,11 @@ describe("compose layers", () => {
       ["image", "environment", "volumes"],
       [
         "WORKER_IMAGE",
+        "SETTINGS_DOCUMENT",
         ...Object.keys(TEST_OPS_SECRETS),
         ...Object.keys(TEST_OPS_SETTINGS).filter(
           (name) =>
-            name !== "PLATFORM_CATALOG_DIR" &&
+            name !== "PLATFORM_SETTINGS_DOCUMENT" &&
             !S3_ONLY.includes(name) &&
             !LOCALSTACK_ONLY.includes(name),
         ),
@@ -1272,7 +1268,7 @@ describe("compose layers", () => {
     [
       FAKE_MODEL,
       ["environment", "depends_on"],
-      ["PLATFORM_CONFIG_DIR", "ANTHROPIC_API_KEY"],
+      ["ANTHROPIC_API_KEY", "SETTINGS_DOCUMENT"],
     ],
     [TEST_OPS_STORE_LAYERS.s3, ["environment"], S3_ONLY],
     [
@@ -1322,9 +1318,10 @@ describe("compose layers", () => {
     "%s requires values and sets none",
     (layer) => {
       for (const [name, service] of Object.entries(servicesOf(layer))) {
+        // The path inside the container; the host side is the required one.
         const values = Object.entries(
           (service.environment ?? {}) as Record<string, string>,
-        );
+        ).filter(([variable]) => variable !== "SETTINGS_DOCUMENT");
         if (typeof service.image === "string") values.push(["", service.image]);
         for (const [variable, value] of values)
           expect({ name, value }).toEqual({
@@ -1336,10 +1333,10 @@ describe("compose layers", () => {
         expect({ name, volumes: service.volumes }).toEqual({
           name,
           volumes:
-            (name === "api" || name === "slack") && layer === TEST_OPS_LAYERS[1]
+            name === "migrate" && layer === TEST_OPS_LAYERS[1]
               ? [
                   expect.stringMatching(
-                    /^\$\{PLATFORM_CATALOG_DIR:\?[^}]+\}:\/app\/config:ro$/,
+                    /^\$\{PLATFORM_SETTINGS_DOCUMENT:\?[^}]+\}:\/settings\/installation\.json:ro$/,
                   ),
                 ]
               : undefined,
@@ -1428,7 +1425,11 @@ describe("compose layers", () => {
         });
       }
       // Relative paths still resolve from infra/, as every overlay assumes.
-      expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
+      expect(
+        services.migrate?.volumes?.find(
+          (volume) => volume.target === "/settings",
+        )?.source,
+      ).toBe(join(root, "tests/fixtures/settings"));
       // The local S3 server and its encryption seed survive container replacement.
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
         "local-s3-data",
@@ -1581,8 +1582,7 @@ describe("compose layers", () => {
           TEST_OPS_SECRETS.EGRESS_AUTHORIZER_TOKEN,
         );
       // The keys reach the API and nothing else, but for the bucket key the
-      // maintenance jobs hold and delete objects with; the core's catalog
-      // mount is replaced, not added to.
+      // maintenance jobs hold and delete objects with.
       for (const [name, service] of Object.entries(services))
         for (const [variable, value] of Object.entries(API_KEYS))
           expect({
@@ -1595,10 +1595,13 @@ describe("compose layers", () => {
             value: holdsKey(name, variable) ? value : undefined,
           });
       expect(
-        services.api?.volumes?.map(
+        services.migrate?.volumes?.map(
           (volume) => `${volume.source}:${volume.target}`,
         ),
-      ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
+      ).toContain(
+        `${TEST_OPS_SETTINGS.PLATFORM_SETTINGS_DOCUMENT}:/settings/installation.json`,
+      );
+      expect(services.api?.volumes ?? []).toEqual([]);
       expect(services.api?.environment?.AWS_ENDPOINT_URL).toBeUndefined();
     },
     COMPOSE_RENDER_TIMEOUT_MS,
@@ -1635,7 +1638,7 @@ describe("compose layers", () => {
     [["compose.yaml", REAL_MODEL]],
     [[...LOCAL_LAYERS, "tests/e2e/compose.yml", REAL_MODEL]],
   ])(
-    "%p hands the key to the API alone, with the default catalog and the e2e limits",
+    "%p hands the key to the API alone, with the real-model settings and the e2e limits",
     (files) => {
       const probe = `key-probe-${crypto.randomUUID()}`;
       const { exitCode, stderr, model } = render(files, {
@@ -1645,14 +1648,13 @@ describe("compose layers", () => {
       const services = model?.services ?? {};
       const api = services.api;
       expect(api?.environment?.ANTHROPIC_API_KEY).toBe(probe);
-      expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe("/app/config");
-      // The default catalog reads no secret_id, so nothing waits on these.
+      expect(services.migrate?.environment?.SETTINGS_DOCUMENT).toBe(
+        "/settings/real-model.json",
+      );
+      // The real-model settings read no secret_id, so nothing waits on these.
       expect(services["fake-messages"]).toBeUndefined();
       expect(services.secrets).toBeUndefined();
       expect(Object.keys(api?.depends_on ?? {})).not.toContain("secrets");
-      expect(
-        api?.volumes?.find((volume) => volume.target === "/app/config")?.source,
-      ).toBe(join(root, "config"));
       for (const [name, service] of Object.entries(services)) {
         if (name !== "api")
           expect({
@@ -1745,9 +1747,6 @@ describe("compose layers", () => {
       expect(
         services.scheduler?.volumes?.map(({ target }) => target),
       ).toContain("/var/run/docker.sock");
-      expect(services.api?.volumes?.map(({ target }) => target)).toContain(
-        "/app/config",
-      );
       expect(Object.keys(services)).not.toContain("slack");
       expect(Object.keys(services)).not.toContain("maintenance");
 
@@ -1769,14 +1768,14 @@ describe("compose layers", () => {
   );
 
   // `scripts/local.sh up --fake-model` and the free runs: with no key the
-  // API reads the fake catalog and waits on the fake Messages API, whose
-  // checkout mount resolves to the repository from either project directory,
-  // and on the Secrets Manager holding that catalog's placeholder key.
+  // migrate imports the fake settings and the API waits on the fake Messages
+  // API, whose checkout mount resolves to the repository from either project
+  // directory, and on the Secrets Manager holding their placeholder key.
   test.each([
     [["compose.yaml", FAKE_MODEL]],
     [[...LOCAL_LAYERS, FAKE_MODEL, "tests/e2e/compose.yml"]],
   ])(
-    "%p runs the fake Messages API with the fake catalog, and no key",
+    "%p runs the fake Messages API with the fake settings, and no key",
     (files) => {
       const probe = `key-probe-${crypto.randomUUID()}`;
       const { exitCode, stderr, model } = render(files, {
@@ -1785,8 +1784,8 @@ describe("compose layers", () => {
       expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
       expect(JSON.stringify(model)).not.toContain(probe);
       const services = model?.services ?? {};
-      expect(services.api?.environment?.PLATFORM_CONFIG_DIR).toBe(
-        "/app/config/fake-model",
+      expect(services.migrate?.environment?.SETTINGS_DOCUMENT).toBe(
+        "/settings/fake-model.json",
       );
       for (const name of ["fake-messages", "secrets"])
         expect({ name, on: services.api?.depends_on?.[name] }).toMatchObject({
@@ -1891,11 +1890,7 @@ describe("compose layers", () => {
             set: service.environment?.[variable] !== undefined,
           }).toEqual({ name, variable, set: holdsKey(name, variable) });
       }
-      expect(
-        services.api?.volumes?.map(
-          (volume) => `${volume.source}:${volume.target}`,
-        ),
-      ).toEqual([`${TEST_OPS_SETTINGS.PLATFORM_CATALOG_DIR}:/app/config`]);
+      expect(services.api?.volumes ?? []).toEqual([]);
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

@@ -27,7 +27,7 @@
 #
 # Settings, besides up.sh's (CLUSTER_NAME, REGISTRY_PORT, CLUSTER_PROVIDER,
 # EXTRA_VALUES, the CI mirror):
-#   KIND_MODEL=fake      default: config/fake-model's catalog and fake
+#   KIND_MODEL=fake      default: the fake-model settings and fake
 #                        Messages API; no provider account, no cost
 #   KIND_MODEL=real      opt-in, paid: the chart's claude-coding-real profile
 #                        against api.anthropic.com, under a 1 USD session

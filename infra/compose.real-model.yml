@@ -1,6 +1,6 @@
 # The real model's limits, for `scripts/local.sh up` over compose.yaml and
-# `tests/e2e/run.sh --real-model` over infra/compose.yml, whose
-# catalog (config/) already runs the real Messages API with the caller's
+# `tests/e2e/run.sh --real-model` over infra/compose.yml, whose default
+# settings document already runs the real Messages API with the caller's
 # ANTHROPIC_API_KEY. They bound what one session can spend: the worker hands
 # the session's remaining budget to the SDK as maxBudgetUsd. The shell or the
 # project's .env can raise them. It names no path.

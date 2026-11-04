@@ -46,9 +46,9 @@ console.log(zombies);
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
   local image="$1" cid
-  # The image carries no config: without one mounted the API must refuse
-  # to start rather than run someone's example. connections.yaml is read
-  # first; profiles.yaml is only a seed for an empty database.
+  # Without the master key the API must refuse to start, and the same with
+  # a leftover PLATFORM_CONFIG_DIR, whose catalog it no longer reads.
+  local key=0000000000000000000000000000000000000000000000000000000000000001
   local refused status
   refused="$(timeout 60 docker run --rm --label "$smoke_label" \
     -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
@@ -59,48 +59,27 @@ api_init_smoke() {
     "$image" 2>&1)" && status=0 || status=$?
   # A pattern match, not `| grep -q`: under pipefail grep's early exit can
   # fail the printf with SIGPIPE.
-  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"connections.yaml is missing"* ]]; then
+  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"PLATFORM_SECRET_KEY is required"* ]]; then
     printf '%s\n' "$refused" >&2
-    echo "expected the API to refuse to start without a catalog (exit $status)" >&2
+    echo "expected the API to refuse to start without the master key (exit $status)" >&2
     exit 1
   fi
-  echo "without a catalog: exit $status"
-  # A minimal catalog whose credential comes from the environment, readable
-  # by the image's uid 1000.
-  config_dir="$(mktemp -d)"
-  cat >"$config_dir/connections.yaml" <<'YAML'
-connections:
-  smoke:
-    kind: anthropic
-    endpoint: https://api.anthropic.invalid
-    auth:
-      kind: api_key
-      value_env: SMOKE_PROVIDER_KEY
-YAML
-  cat >"$config_dir/profiles.yaml" <<'YAML'
-profiles:
-  smoke:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        value_env: SMOKE_PROVIDER_KEY
-YAML
-  cat >"$config_dir/repositories.yaml" <<'YAML'
-repositories:
-  smoke:
-    url: https://git.example.invalid/smoke.git
-    branch: main
-    profiles: [smoke]
-YAML
-  chmod 755 "$config_dir"
-  chmod 644 "$config_dir"/*.yaml
+  echo "without the master key: exit $status"
+  refused="$(timeout 60 docker run --rm --label "$smoke_label" \
+    -e DATABASE_URL=postgres://smoke:smoke@127.0.0.1:1/smoke \
+    -e CHECKPOINT_OBJECT_STORE=disabled \
+    -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
+    -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
+    -e SESSION_COST_LIMIT_USD=1 -e PROVIDER_MAX_RETRIES=0 \
+    -e "PLATFORM_SECRET_KEY=$key" \
+    -e PLATFORM_CONFIG_DIR=/config \
+    "$image" 2>&1)" && status=0 || status=$?
+  if [ "$status" = 0 ] || [ "$status" = 124 ] || [[ "$refused" != *"PLATFORM_CONFIG_DIR no longer read"* ]]; then
+    printf '%s\n' "$refused" >&2
+    echo "expected the API to refuse a leftover PLATFORM_CONFIG_DIR (exit $status)" >&2
+    exit 1
+  fi
+  echo "with PLATFORM_CONFIG_DIR: exit $status"
   # The default command, with a database that is never reached: the server
   # stays up (readiness answers 503) and nothing here needs it. The
   # installation limits have no code default.
@@ -110,9 +89,7 @@ YAML
     -e EXECUTION_SLOT_LIMIT=1 -e QUEUED_INPUT_LIMIT_PER_SESSION=1 \
     -e STORAGE_LIMIT_BYTES=1000000 -e MAX_TURN_SECONDS=60 \
     -e SESSION_COST_LIMIT_USD=1 -e PROVIDER_MAX_RETRIES=0 \
-    -e PLATFORM_CONFIG_DIR=/config \
-    -e SMOKE_PROVIDER_KEY=smoke-placeholder \
-    -v "$config_dir:/config:ro" \
+    -e "PLATFORM_SECRET_KEY=$key" \
     "$image")"
   sleep 3
   if [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != true ]; then

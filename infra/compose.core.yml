@@ -109,15 +109,31 @@ services:
   # dependencies: a bare Bun image over a read-only checkout needs a host
   # `bun install` first. No `image:` here: the local layer builds it, and the
   # test-ops layer names the released one.
+  # After the schema it imports an old file catalog, when one is mounted, and
+  # SETTINGS_DOCUMENT, when named. Both only add: a rerun changes nothing, and
+  # an id that differs fails the job with nothing written
+  # (docs/operator/api-server.md).
   migrate:
     logging: *logging
-    command: ["bun", "run", "--cwd", "packages/db", "db:migrate"]
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        bun run --cwd packages/db db:migrate
+        bun run apps/control-host/src/api/settings.ts import --from-dir /legacy-config --if-present
+        if [ -n "$$SETTINGS_DOCUMENT" ]; then
+          bun run apps/control-host/src/api/settings.ts import --document "$$SETTINGS_DOCUMENT"
+        fi
     environment:
       # Always the compose postgres, never an ambient DATABASE_URL: `up`
       # runs migrate, and a production DSN sitting in someone's shell or
       # env file must not get migrated by starting the local stack. An
       # external database is run against by the apps outside compose.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-dev}@postgres:5432/${POSTGRES_DB:-sessions}
+      SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-}
+    volumes:
+      - ${PLATFORM_LEGACY_CONFIG_DIR:-./legacy-config}:/legacy-config:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -158,7 +174,7 @@ services:
       # the git host without a token; test-ops LocalStack accepts any signature,
       # while local SeaweedFS still needs the route's session authorization.
       # fake-messages:4010 and fake-mcp:4020 are
-      # config/fake-model's Messages API and remote MCP server.
+      # the fake-model settings' Messages API and remote MCP server.
       # The four package hosts are the packages route's public registries
       # (npm, RubyGems, the Go module proxy and its checksum database);
       # dropping one closes that registry for every session.
@@ -281,10 +297,10 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
-      # The master key Slack secrets are encrypted under (64 hex characters,
-      # docs/operator/api-server.md), passed through by name from the
-      # caller's environment so its value is in no file. Unset leaves the
-      # secret store off. Never given to the worker or the scheduler.
+      # The master key stored credentials are encrypted under (64 hex
+      # characters, docs/operator/api-server.md), passed through by name from
+      # the caller's environment so its value is in no file. Unset stops the
+      # API. Never given to the worker or the scheduler.
       PLATFORM_SECRET_KEY:
       # Sign in with Slack, for linking a person's Slack account
       # (docs/operator/api-server.md). Unset REDIRECT_URI keeps linking off;
@@ -308,9 +324,6 @@ services:
       # turn: the proxy's credential listener, which meters it on the
       # session. Empty turns it off and sessions keep their first message.
       SESSION_TITLE_EGRESS_URL: ${SESSION_TITLE_EGRESS_URL-http://egress-proxy:3129}
-      # The operator catalog: config/ mounted below. The image
-      # carries none, so an API without a mounted catalog does not start.
-      PLATFORM_CONFIG_DIR: /app/config
       # Checkpoint object store: the same bucket the scheduler
       # hands each worker. The API reads manifests, transcripts and workspace
       # bundles back from it to verify a checkpoint before the session pointer
@@ -327,8 +340,6 @@ services:
       CHECKPOINT_OBJECT_PROTECTION: ${CHECKPOINT_OBJECT_PROTECTION:-locked}
       # Sized with mem_limit above.
       CHECKPOINT_GIT_MEMORY_MB: ${CHECKPOINT_GIT_MEMORY_MB:-1536}
-    volumes:
-      - ../config:/app/config:ro
     healthcheck:
       test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/readyz'); if (!r.ok) process.exit(1)"]
       interval: 5s
@@ -586,10 +597,7 @@ services:
       BUN_OPTIONS: *pass-loop-bun-options
       # Slack's outbound calls (94S-792) decrypt bot tokens here.
       PLATFORM_SECRET_KEY:
-      PLATFORM_CONFIG_DIR: /app/config
       AWS_REGION: ${AWS_REGION:-ap-northeast-1}
-    volumes:
-      - ../config:/app/config:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

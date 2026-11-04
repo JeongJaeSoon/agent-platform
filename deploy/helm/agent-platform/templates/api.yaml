@@ -13,8 +13,6 @@ spec:
     metadata:
       labels:
         {{- include "ap.labels" (dict "root" . "component" "api") | nindent 8 }}
-      annotations:
-        checksum/catalog: {{ include (print $.Template.BasePath "/catalog-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "ap.fullname" . }}-api
       automountServiceAccountToken: false
@@ -43,8 +41,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: PLATFORM_SECRET_KEY
-                  optional: true
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
+            # What the console checks a new connection's host against: the
+            # proxy's own lists.
+            - name: EGRESS_CREDENTIAL_ALLOWLIST
+              value: {{ .Values.config.egress.credentialAllowlist | quote }}
+            - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
+              value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
             {{- range $name, $value := .Values.config.limits }}
@@ -59,8 +62,6 @@ spec:
               value: "3000"
             - name: EGRESS_AUTHORIZER_PORT
               value: "3100"
-            - name: PLATFORM_CONFIG_DIR
-              value: /app/config
             - name: CHECKPOINT_GIT_MEMORY_MB
               value: {{ .Values.config.checkpoints.gitMemoryMb | quote }}
             {{- with .Values.config.aws.secretsManagerEndpointUrl }}
@@ -97,14 +98,8 @@ spec:
             {{- include "ap.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "ap.tmpMount" . | nindent 12 }}
-            - name: catalog
-              mountPath: /app/config
-              readOnly: true
       volumes:
         {{- include "ap.tmpVolume" . | nindent 8 }}
-        - name: catalog
-          configMap:
-            name: {{ include "ap.fullname" . }}-catalog
       {{- with .Values.api.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
