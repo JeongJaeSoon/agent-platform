@@ -114,8 +114,12 @@ describe("app Dockerfiles", () => {
       expect(source).toMatch(
         /^FROM deps AS pruned\nRUN --mount=type=bind,source=scripts\/image-prune\.sh,target=\/tmp\/image-prune\.sh \\\n {2}sh \/tmp\/image-prune\.sh --delete \/app$/m,
       );
-      expect(source).toContain("COPY --from=pruned --chown=1000:1000 /app /app");
-      expect(source).not.toContain("COPY --from=deps --chown=1000:1000 /app /app");
+      expect(source).toContain(
+        "COPY --from=pruned --chown=1000:1000 /app /app",
+      );
+      expect(source).not.toContain(
+        "COPY --from=deps --chown=1000:1000 /app /app",
+      );
     },
   );
 
