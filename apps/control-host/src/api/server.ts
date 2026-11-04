@@ -901,6 +901,15 @@ const repositoryAttachments = createRepositoryAttachmentService({
 });
 const githubMcp = createGitHubMcpServer({
   store: githubMcpStore,
+  // The same fields the egress authorizer logs for a failed call: no message,
+  // which can carry a connection string or GitHub's text.
+  onInternalError: (error, { tool, sessionId, requestId }) =>
+    logger.error("GitHub MCP call failed", {
+      session_id: sessionId,
+      tool,
+      request_id: requestId,
+      error: error instanceof Error ? error.name : "error",
+    }),
   services: (bound) => ({
     pushRequests: createPushRequestService({
       authorization: bound,

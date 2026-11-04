@@ -623,7 +623,7 @@ describe("tools/call", () => {
           },
         },
       }),
-      onInternalError: (error) => logged.push(error),
+      onInternalError: (error, context) => logged.push({ error, context }),
     });
     const answer = payload(
       await handle(
@@ -644,7 +644,18 @@ describe("tools/call", () => {
         refusal: { code: "internal_error", by: "platform", retryable: false },
       },
     });
-    expect(logged).toHaveLength(1);
+    // The composition logs only the error's name, from this context.
+    expect(logged).toEqual([
+      {
+        error: new Error("database unavailable: secret detail"),
+        context: {
+          tool: "list_repositories",
+          sessionId: SESSION,
+          requestId: "req-1",
+        },
+      },
+    ]);
+    expect(JSON.stringify(answer)).not.toContain("secret detail");
   });
 
   test("a fault in the continuation mark, or in the logger, is still an internal_error answer", async () => {
