@@ -36,8 +36,8 @@ description: 이름·설명과 에이전트 지시문의 차이, 카드 필드, 
 | 필드 | 필수 | 내용 |
 | --- | --- | --- |
 | `agent_instructions` | | 에이전트 지시문. 20,000자까지. 비면 넣지 않는다 |
-| `model` | 예 | 모델 이름. release를 만들 때 실행 프로필이 실행할 수 있는 모델 중 하나여야 한다 |
-| `capabilities.tools` | 예 | 쓸 도구 이름 목록. 실행 프로필에 있는 도구여야 한다. `null`이면 release를 만들 때 프로필의 도구 전부 |
+| `model` | 예 | 모델 이름. release를 만들 때 프로필이 실행할 수 있는 모델 중 하나여야 한다 |
+| `capabilities.tools` | 예 | 쓸 도구 이름 목록. 프로필에 있는 도구여야 한다. `null`이면 release를 만들 때 프로필의 도구 전부 |
 | `capabilities.mcp` | 예 | 지금은 `null`만 받는다 |
 | `capabilities.forbidden` | | 금지할 도구 이름. 웹 콘솔은 새 카드에 `[]`를 넣고, 기존 값은 보이고 지우기만 한다 |
 | `capabilities.tool_policy` | | 도구별 `allow`·`ask`·`deny` |
@@ -53,7 +53,7 @@ description: 이름·설명과 에이전트 지시문의 차이, 카드 필드, 
 카드 편집(새 에이전트의 "하는 일" 단계, 에이전트 상세의 상세 설정 편집)의 "쓸 수 있는 도구"는 프로필 하나의 도구 체크 목록이다.
 
 - "도구를 보여 줄 프로필": 카드 모델을 돌리는 프로필 중 하나를 고른다. 새 에이전트 흐름은 저장소 없이 release할 수 있는 프로필을 먼저 두고, 고른 프로필을 release 단계에서 먼저 골라 둔다. 이 값은 카드에 저장하지 않는다.
-- "릴리스할 때 프로필이 허용하는 도구 전부"를 켜 두면 `tools: null`이다. 끄면 체크한 도구가 `tools`다. 체크를 끄는 것이 금지다.
+- "릴리스할 때 프로필이 막지 않은 도구 전부"를 켜 두면 `tools: null`이다. 끄면 체크한 도구가 `tools`다. 체크를 끄는 것이 금지다.
 - 체크를 끈 내장 도구의 `tool_policy.per_tool` 항목은 저장할 때 지운다. release가 실행하지 않는 내장 도구의 정책을 거절하기 때문이다. MCP 도구 정책은 남는다.
 - `tools`에 프로필에 없는 이름이 있으면 "프로필에 없는 도구"로 체크된 채 보이고, 끌 수만 있다.
 - 목록 아래에 고른 도구를 모두 허용하는 프로필 수가 나온다. 0이면 저장할 수 없다.
@@ -65,7 +65,7 @@ worker가 모델의 시스템 프롬프트에 덧붙이는 지시는 이 순서�
 
 1. 저장소 없는 세션이면, 사람에게 줄 파일을 `out/`에 두라는 한 줄.
 2. 세션 release의 에이전트 지시문.
-3. 저장소 루트의 `CLAUDE.md`. 실행 프로필이 `project_settings.claude_md: true`일 때 커밋된 내용을 읽는다. 로컬 프로필 `claude-coding-local`은 켜져 있다.
+3. 저장소 루트의 `CLAUDE.md`. 프로필이 `project_settings.claude_md: true`일 때 커밋된 내용을 읽는다. 로컬 프로필 `claude-coding-local`은 켜져 있다.
 
 <Callout type="warn">
 이름·설명, 카드의 `role`·`instructions`·`language`·`rules`는 모델에 전달되지 않는다. 답변 언어를 정하려면 에이전트 지시문에 적는다.
@@ -97,5 +97,5 @@ curl -sS -X PATCH "$API/v1/agents/$AID" "${WEB[@]}" -d '{
 
 ## 다음 단계
 
-- [실행 프로필 고르기](/agents/run-profiles): release와 세션이 쓰는 프로필
+- [프로필 고르기](/agents/run-profiles): release와 세션이 쓰는 프로필
 - [권한](/agents/permissions): 도구 권한과 에이전트 관리자

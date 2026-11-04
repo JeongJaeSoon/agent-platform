@@ -1,19 +1,18 @@
 /** The run profiles screens (/profiles); every catalog spreads these in. */
 export const profilesKo = {
-  "nav.profiles": "실행 프로필",
-  "profiles.title": "실행 프로필",
+  "nav.profiles": "프로필",
+  "profiles.title": "프로필",
   "profiles.description":
     "에이전트가 쓸 모델과 도구를 정합니다. 설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정하고, 워크스페이스 프로필은 설치 프로필 하나를 줄여 만듭니다.",
   "profiles.create": "프로필 만들기",
   "profiles.createCeiling": "설치 프로필 만들기",
   "profiles.kind.installation": "설치 프로필",
   "profiles.kind.workspace": "워크스페이스 프로필",
-  "profiles.filter.label": "프로필 종류",
-  "profiles.filter.all": "전체",
-  "profiles.workspace.title": "워크스페이스 프로필",
+  "profiles.option": "{name} v{version} · {model} ({kind})",
+  "profiles.optionKind.installation": "설치",
+  "profiles.optionKind.workspace": "워크스페이스",
   "profiles.workspace.description":
     "수정하면 새 버전으로 저장됩니다. 이전 버전을 쓰던 에이전트는 그대로 동작합니다.",
-  "profiles.operator.title": "설치 프로필",
   "profiles.locked": "바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요",
   "profiles.count": "{count}개",
   "profiles.column.name": "이름",
@@ -31,7 +30,7 @@ export const profilesKo = {
   "profiles.noTools": "도구 없음",
   "profiles.on": "켬",
   "profiles.off": "끔",
-  "profiles.empty": "이 설치에 실행 프로필이 없습니다.",
+  "profiles.empty": "이 설치에 프로필이 없습니다.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "이전 버전 {count}개",
   "profiles.origin.catalog": "설치 설정 파일에서 가져옴",
@@ -72,9 +71,6 @@ export const profilesKo = {
   "profiles.newVersion": "새 버전",
   "profiles.remake": "다시 만들기",
   "profiles.retire": "사용 중지",
-  "profiles.emptyWorkspace.title": "아직 워크스페이스 프로필이 없습니다",
-  "profiles.emptyWorkspace.text":
-    "에이전트는 설치 프로필을 그대로 씁니다. 설치 프로필을 바탕으로 모델이나 도구를 줄인 프로필을 만들 수 있습니다.",
   "profiles.baseChanged.title": "{name}의 바탕 프로필이 바뀌었습니다",
   "profiles.baseChanged.text":
     "{base}가 바뀌었습니다. {id}로는 새 릴리스를 만들 수 없고, 이 버전을 쓰는 릴리스도 새 세션을 시작하지 못합니다. 다시 만들어 새 버전으로 옮기세요.",
@@ -240,7 +236,7 @@ export const profilesKo = {
   "profiles.detail.notFound.title": "프로필을 찾을 수 없습니다",
   "profiles.detail.notFound.text":
     "{id} 프로필이 없습니다. 주소가 잘못됐을 수 있습니다.",
-  "profiles.detail.back": "실행 프로필 목록으로",
+  "profiles.detail.back": "프로필 목록으로",
   "profiles.detail.workspaceDescription":
     "설치 프로필을 바탕으로 이 워크스페이스에서 만든 프로필입니다. 수정하면 새 버전으로 저장되고, 이 버전은 그대로 남습니다.",
   "profiles.detail.ceilingDescription":
@@ -288,20 +284,19 @@ export const profilesKo = {
 };
 
 export const profilesEn: Record<keyof typeof profilesKo, string> = {
-  "nav.profiles": "Runtime profiles",
-  "profiles.title": "Runtime profiles",
+  "nav.profiles": "Profiles",
+  "profiles.title": "Profiles",
   "profiles.description":
     "The models and tools an agent uses. An installation profile sets the widest range every workspace on this installation can use; a workspace profile narrows one installation profile.",
   "profiles.create": "Create profile",
   "profiles.createCeiling": "Create installation profile",
   "profiles.kind.installation": "Installation profile",
   "profiles.kind.workspace": "Workspace profile",
-  "profiles.filter.label": "Profile kind",
-  "profiles.filter.all": "All",
-  "profiles.workspace.title": "Workspace profiles",
+  "profiles.option": "{name} v{version} · {model} ({kind})",
+  "profiles.optionKind.installation": "installation",
+  "profiles.optionKind.workspace": "workspace",
   "profiles.workspace.description":
     "Editing saves a new version. Agents on an earlier version keep working as they are.",
-  "profiles.operator.title": "Installation profiles",
   "profiles.locked": "To change these, ask a workspace owner or admin",
   "profiles.count": "{count}",
   "profiles.column.name": "Name",
@@ -319,7 +314,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.noTools": "No tools",
   "profiles.on": "On",
   "profiles.off": "Off",
-  "profiles.empty": "This installation has no runtime profiles.",
+  "profiles.empty": "This installation has no profiles.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "Earlier versions ({count})",
   "profiles.origin.catalog": "Imported from the installation settings file",
@@ -360,9 +355,6 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.newVersion": "New version",
   "profiles.remake": "Recreate",
   "profiles.retire": "Turn off",
-  "profiles.emptyWorkspace.title": "No workspace profiles yet",
-  "profiles.emptyWorkspace.text":
-    "Agents use the installation profiles as they are. You can make a profile from one with fewer models or tools.",
   "profiles.baseChanged.title": "The base profile of {name} changed",
   "profiles.baseChanged.text":
     "{base} changed. No new release can use {id}, and releases that use it cannot start new sessions. Recreate it and move to the new version.",
@@ -532,7 +524,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.notFound.title": "Profile not found",
   "profiles.detail.notFound.text":
     "There is no profile {id}. The address may be wrong.",
-  "profiles.detail.back": "Back to runtime profiles",
+  "profiles.detail.back": "Back to profiles",
   "profiles.detail.workspaceDescription":
     "Made in this workspace from an installation profile. Editing saves a new version; this version stays as it is.",
   "profiles.detail.ceilingDescription":
@@ -580,20 +572,19 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
 };
 
 export const profilesJa: Record<keyof typeof profilesKo, string> = {
-  "nav.profiles": "実行プロファイル",
-  "profiles.title": "実行プロファイル",
+  "nav.profiles": "プロファイル",
+  "profiles.title": "プロファイル",
   "profiles.description":
     "エージェントが使うモデルとツールを決めます。インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはインストールのプロファイルを 1 つ絞って作ります。",
   "profiles.create": "プロファイルを作成",
   "profiles.createCeiling": "インストールのプロファイルを作成",
   "profiles.kind.installation": "インストールのプロファイル",
   "profiles.kind.workspace": "ワークスペースのプロファイル",
-  "profiles.filter.label": "プロファイルの種類",
-  "profiles.filter.all": "すべて",
-  "profiles.workspace.title": "ワークスペースのプロファイル",
+  "profiles.option": "{name} v{version} · {model}（{kind}）",
+  "profiles.optionKind.installation": "インストール",
+  "profiles.optionKind.workspace": "ワークスペース",
   "profiles.workspace.description":
     "編集すると新しいバージョンとして保存されます。前のバージョンを使っていたエージェントはそのまま動きます。",
-  "profiles.operator.title": "インストールのプロファイル",
   "profiles.locked":
     "変更するにはワークスペースのオーナーか管理者に依頼してください",
   "profiles.count": "{count} 件",
@@ -612,7 +603,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.noTools": "ツールなし",
   "profiles.on": "オン",
   "profiles.off": "オフ",
-  "profiles.empty": "このインストールには実行プロファイルがありません。",
+  "profiles.empty": "このインストールにはプロファイルがありません。",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "前のバージョン {count} 件",
   "profiles.origin.catalog": "インストール設定ファイルから取り込み",
@@ -653,10 +644,6 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.newVersion": "新しいバージョン",
   "profiles.remake": "作り直す",
   "profiles.retire": "使用停止",
-  "profiles.emptyWorkspace.title":
-    "ワークスペースのプロファイルはまだありません",
-  "profiles.emptyWorkspace.text":
-    "エージェントはインストールのプロファイルをそのまま使います。インストールのプロファイルをもとに、モデルやツールを減らしたプロファイルを作成できます。",
   "profiles.baseChanged.title": "{name} のベースプロファイルが変わりました",
   "profiles.baseChanged.text":
     "{base} が変わりました。{id} では新しいリリースを作成できず、このバージョンを使うリリースも新しいセッションを開始できません。作り直して新しいバージョンに移してください。",
@@ -831,7 +818,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.notFound.title": "プロファイルが見つかりません",
   "profiles.detail.notFound.text":
     "プロファイル {id} はありません。アドレスが誤っている可能性があります。",
-  "profiles.detail.back": "実行プロファイル一覧へ",
+  "profiles.detail.back": "プロファイル一覧へ",
   "profiles.detail.workspaceDescription":
     "インストールのプロファイルをもとにこのワークスペースで作ったプロファイルです。編集すると新しいバージョンとして保存され、このバージョンはそのまま残ります。",
   "profiles.detail.ceilingDescription":

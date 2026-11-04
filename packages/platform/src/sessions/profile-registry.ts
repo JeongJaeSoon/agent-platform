@@ -32,6 +32,7 @@ import {
   type WorkspaceProfiles,
 } from "./catalog.ts";
 import type { SettingsSnapshot } from "./installation-settings.ts";
+import type { ToolCatalogs } from "./profile-tools.ts";
 
 // One registry for every profile a process resolves
 // (docs/contributing/decisions/profile-db.md §2): the installation ceilings
@@ -495,6 +496,7 @@ export function profileCatalog<
     repositories: Record<string, R>;
     mcp_servers?: Record<string, CatalogMcpServer> | undefined;
     runtime_versions?: RuntimeVersions;
+    tool_catalogs?: ToolCatalogs;
   },
   registry: ProfileRegistry<P>,
   /**
@@ -517,6 +519,7 @@ export function profileCatalog<
   readonly unavailable_repositories?: ReadonlySet<string> | undefined;
   workspace_profiles: ProfileRegistry<P>;
   runtime_versions?: RuntimeVersions;
+  tool_catalogs?: ToolCatalogs;
 } {
   let mergedFrom: {
     rows: readonly CatalogRepositoryRow[] | null;
@@ -569,6 +572,9 @@ export function profileCatalog<
     ...(base.runtime_versions === undefined
       ? {}
       : { runtime_versions: base.runtime_versions }),
+    ...(base.tool_catalogs === undefined
+      ? {}
+      : { tool_catalogs: base.tool_catalogs }),
     workspace_profiles: registry,
   };
 }

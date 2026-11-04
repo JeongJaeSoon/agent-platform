@@ -1,3 +1,9 @@
+import {
+  carriedDeny,
+  denyOf,
+  type ToolCatalogView,
+  toolsUnder,
+} from "./profile-tools.ts";
 import type { PERMISSION_MODE_VALUES } from "./session.ts";
 
 type PermissionMode = (typeof PERMISSION_MODE_VALUES)[number];
@@ -8,6 +14,11 @@ export type DerivedFields = {
   readonly models: readonly string[];
   readonly tools: readonly string[];
   readonly permission_mode: PermissionMode;
+  /**
+   * The built-in tools it blocks, base's included, when worked out against
+   * a tool catalog. Never read by `refusal` or `apply`: those follow `tools`.
+   */
+  readonly deny?: readonly string[] | null | undefined;
 };
 
 /** What a policy reads of a base: an operator profile, in the catalog or listed. */
@@ -19,7 +30,7 @@ export type DerivationBase = {
 };
 
 export type DerivationRefusal = {
-  readonly field: keyof DerivedFields;
+  readonly field: Exclude<keyof DerivedFields, "deny">;
   readonly message: string;
 };
 
@@ -30,15 +41,37 @@ export type DerivationRefusal = {
  */
 export interface ProfileDerivationPolicy {
   readonly kind: string;
-  /** The values a new version starts from: `auto` where the base allows it. */
-  initial(base: DerivationBase): DerivedFields;
-  /** An earlier version's values, kept where the base still allows them. */
-  carry(previous: DerivedFields, base: DerivationBase): DerivedFields;
-  /** What each field may take over this base. */
-  choices(base: DerivationBase): {
+  /**
+   * The values a new version starts from: `auto` where the base allows it.
+   * Given the base's tool catalog, also its `deny` (what the base blocks)
+   * and the `tools` a save of that deny stores.
+   */
+  initial(base: DerivationBase, catalog?: ToolCatalogView): DerivedFields;
+  /**
+   * An earlier version's values, kept where the base still allows them.
+   * Given the base's tool catalog, also its `deny`: the earlier version's,
+   * the base's, and every tool the earlier version never weighed.
+   */
+  carry(
+    previous: DerivedFields,
+    base: DerivationBase,
+    catalog?: ToolCatalogView,
+  ): DerivedFields;
+  /**
+   * What each field may take over this base. Given the base's tool catalog,
+   * also what `deny` may name and what it must keep (`fixed`, the base's).
+   */
+  choices(
+    base: DerivationBase,
+    catalog?: ToolCatalogView,
+  ): {
     readonly models: readonly string[];
     readonly tools: readonly string[];
     readonly permission_modes: readonly PermissionMode[];
+    readonly deny?: {
+      readonly names: readonly string[];
+      readonly fixed: readonly string[];
+    };
   };
   /** Why `derived` leaves what the base allows, naming the field, or null. */
   refusal(
@@ -78,39 +111,75 @@ const offeredModels = (base: DerivationBase): string[] => [
   ...new Set([base.model, ...(base.models ?? [])]),
 ];
 
+/** The base's own deny joins the previous version's: a version only adds blocks. */
+function versionDeny(
+  previous: DerivedFields,
+  base: DerivationBase,
+  catalog: ToolCatalogView,
+): string[] {
+  const blocked = new Set([
+    ...denyOf(catalog, base.tools),
+    ...carriedDeny(catalog, previous),
+  ]);
+  return catalog.tools
+    .map((tool) => tool.name)
+    .filter((name) => blocked.has(name));
+}
+
 /** Every value is the base's or narrower: fewer models and tools, a stricter mode. */
 export const narrowOnlyPolicy: ProfileDerivationPolicy = {
   kind: "narrow",
-  initial: (base) => ({
-    model: base.model,
-    models: [base.model],
-    tools: [...base.tools],
-    permission_mode: NARROWER_PERMISSION_MODES[base.permission_mode].includes(
-      "auto",
-    )
-      ? "auto"
-      : base.permission_mode,
-  }),
-  carry(previous, base) {
+  initial(base, catalog) {
+    const deny = catalog === undefined ? [] : denyOf(catalog, base.tools);
+    return {
+      model: base.model,
+      models: [base.model],
+      tools:
+        catalog === undefined
+          ? [...base.tools]
+          : toolsUnder(catalog, deny, base.tools),
+      permission_mode: NARROWER_PERMISSION_MODES[base.permission_mode].includes(
+        "auto",
+      )
+        ? "auto"
+        : base.permission_mode,
+      ...(catalog === undefined ? {} : { deny }),
+    };
+  },
+  carry(previous, base, catalog) {
     const offered = offeredModels(base);
     const models = previous.models.filter((model) => offered.includes(model));
+    const deny =
+      catalog === undefined ? [] : versionDeny(previous, base, catalog);
     return {
       model: models.includes(previous.model)
         ? previous.model
         : (models[0] ?? base.model),
       models: models.length > 0 ? models : [base.model],
-      tools: previous.tools.filter((tool) => base.tools.includes(tool)),
+      tools:
+        catalog === undefined
+          ? previous.tools.filter((tool) => base.tools.includes(tool))
+          : toolsUnder(catalog, deny, base.tools),
       permission_mode: NARROWER_PERMISSION_MODES[base.permission_mode].includes(
         previous.permission_mode,
       )
         ? previous.permission_mode
         : base.permission_mode,
+      ...(catalog === undefined ? {} : { deny }),
     };
   },
-  choices: (base) => ({
+  choices: (base, catalog) => ({
     models: offeredModels(base),
     tools: base.tools,
     permission_modes: NARROWER_PERMISSION_MODES[base.permission_mode],
+    ...(catalog === undefined
+      ? {}
+      : {
+          deny: {
+            names: catalog.tools.map((tool) => tool.name),
+            fixed: denyOf(catalog, base.tools),
+          },
+        }),
   }),
   refusal(base, derived) {
     const offered = offeredModels(base);

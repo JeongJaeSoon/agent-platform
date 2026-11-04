@@ -26,10 +26,12 @@ import { useState } from "react";
 const PROFILES = [
   {
     id: "claude-coding-local",
+    label: "claude-coding-local v1 · claude-sonnet-5 (설치)",
     tools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "AskUserQuestion"],
   },
   {
     id: "general",
+    label: "general v1 · claude-sonnet-5 (설치)",
     tools: ["Read", "Write", "Edit", "Glob", "Grep", "AskUserQuestion"],
   },
 ] as const;
@@ -118,19 +120,20 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
       <FieldSet className="gap-3">
         <FieldLegend variant="label">쓸 수 있는 도구</FieldLegend>
         <Field>
-          <FieldLabel>도구를 보여 줄 프로필</FieldLabel>
+          <FieldLabel>프로필</FieldLabel>
           <NativeSelect
             value={previewId}
             onChange={(event) => setPreviewId(event.target.value)}
           >
             {PROFILES.map((profile) => (
               <NativeSelectOption key={profile.id} value={profile.id}>
-                {profile.id}
+                {profile.label}
               </NativeSelectOption>
             ))}
           </NativeSelect>
           <FieldDescription>
-            이 프로필의 도구 목록에서 고릅니다. 카드에는 저장하지 않습니다.
+            이 프로필의 도구에서 고르고, 새 릴리스도 이 프로필로 만듭니다.
+            카드에는 저장하지 않습니다.
           </FieldDescription>
         </Field>
         <Field orientation="horizontal">
@@ -148,11 +151,11 @@ function AgentCardToolsScreen({ state }: { readonly state: State }) {
             }
           />
           <FieldContent>
-            <FieldLabel>릴리스할 때 프로필이 허용하는 도구 전부</FieldLabel>
+            <FieldLabel>릴리스할 때 프로필이 막지 않은 도구 전부</FieldLabel>
             <FieldDescription>
-              릴리스를 만들 때 그 프로필의 도구로 정해집니다. 프로필에 나중에
-              더한 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만
-              씁니다.
+              릴리스를 만들 때 그 프로필이 막지 않은 도구로 정해집니다. 프로필
+              새 버전에서 막기를 푼 도구는 새 릴리스부터 들어갑니다. 끄면
+              아래에서 체크한 도구만 씁니다.
             </FieldDescription>
           </FieldContent>
         </Field>

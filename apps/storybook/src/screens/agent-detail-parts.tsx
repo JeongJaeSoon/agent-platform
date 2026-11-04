@@ -465,7 +465,7 @@ export function AgentReadiness({
       state: released ? "done" : "todo",
       desc: released
         ? `릴리스 ${detail.releases.length}개가 있습니다.`
-        : "릴리스 탭에서 버전과 실행 프로필로 릴리스를 만듭니다.",
+        : "릴리스 탭에서 버전과 프로필로 릴리스를 만듭니다.",
     },
     {
       key: "activate",

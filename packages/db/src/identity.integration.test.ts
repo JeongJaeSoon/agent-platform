@@ -149,7 +149,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "checkpoint_collection_settled_at",
     // 0207
     "attached_repository_ids",
-    // 0228
+    // 0229
     "platform_prompt",
   ],
   turns: [

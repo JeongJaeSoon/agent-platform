@@ -3665,9 +3665,42 @@ export const slackOutbox = pgTable(
       .defaultNow(),
     // Send order: rows enqueued within one clock tick still go in order.
     seq: bigserial({ mode: "number" }).notNull(),
+    // A sent card's redraws once its request moves on (design
+    // slack-approval-ui §4): `due` to redraw, `settled` once an end state
+    // went out, `abandoned` when Slack will take no more edits.
+    settleState: text("settle_state"),
+    /** What the posted card shows now: `open`, `reject_only` or an end state. */
+    settleRendered: text("settle_rendered"),
+    /** Set just before an edit; left behind, its outcome is unknown. */
+    settleInflightAt: timestamp("settle_inflight_at", { withTimezone: true }),
+    settleUncertainRev: integer("settle_uncertain_rev").notNull().default(0),
+    settleUncertainLatestAt: timestamp("settle_uncertain_latest_at", {
+      withTimezone: true,
+    }),
+    settleClaimToken: uuid("settle_claim_token"),
+    settleLeaseExpiresAt: timestamp("settle_lease_expires_at", {
+      withTimezone: true,
+    }),
+    settleAttempts: integer("settle_attempts").notNull().default(0),
+    settleNextAt: timestamp("settle_next_at", { withTimezone: true }),
+    settleError: text("settle_error"),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
+    check(
+      "slack_outbox_settle_state_check",
+      sql`${table.settleState} IN ('due', 'settled', 'abandoned')`,
+    ),
+    check(
+      "slack_outbox_settle_claim_check",
+      sql`(${table.settleClaimToken} IS NULL) = (${table.settleLeaseExpiresAt} IS NULL)`,
+    ),
+    // The cards a redraw may still be owed: few, as an end state leaves it.
+    index("slack_outbox_settle_idx")
+      .on(table.settleNextAt)
+      .where(
+        sql`${table.kind} = 'input_notice' AND ${table.status} = 'sent' AND ${table.settleState} IS DISTINCT FROM 'abandoned' AND (${table.settleState} IS DISTINCT FROM 'settled' OR ${table.settleUncertainLatestAt} IS NOT NULL)`,
+      ),
     foreignKey({
       name: "slack_outbox_agent_fk",
       columns: [table.workspaceId, table.agentId],
