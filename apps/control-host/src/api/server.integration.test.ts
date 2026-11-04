@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,10 +24,12 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { seedSettings, settingsDocument } from "../test-support/settings.ts";
 import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-// profiles.yaml seeds only an empty table, so the suite owns its database.
+const MASTER_KEY = "ab".repeat(32);
+// A seed fills only an empty table, so the suite owns its database.
 let databaseUrl: string;
 
 // Thirty seconds leaves room for server startup under CI load while still
@@ -167,18 +169,6 @@ const REPOSITORIES = `repositories:
     profiles: [coding]
 `;
 
-async function configDir(
-  root: string,
-  name: string,
-  profiles = PROFILES,
-): Promise<string> {
-  const dir = join(root, name);
-  await Bun.write(join(dir, "profiles.yaml"), profiles);
-  await writeFile(join(dir, "connections.yaml"), CONNECTIONS);
-  await writeFile(join(dir, "repositories.yaml"), REPOSITORIES);
-  return dir;
-}
-
 async function issueKey(
   ownerId: string,
   scopes: string,
@@ -256,6 +246,7 @@ async function refusedStart(
       STORAGE_LIMIT_BYTES: "1073741824",
       PORT: "0",
       INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
+      PLATFORM_SECRET_KEY: MASTER_KEY,
       ...env,
     },
     stdout: "pipe",
@@ -331,6 +322,10 @@ integration("API server on PostgreSQL", () => {
     databaseUrl = database.url;
     pool = new Pool({ connectionString: databaseUrl, max: 2 });
     db = drizzle(pool, { schema });
+    await seedSettings(
+      db,
+      settingsDocument(PROFILES, CONNECTIONS, REPOSITORIES),
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -387,7 +382,7 @@ integration("API server on PostgreSQL", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
-          PLATFORM_CONFIG_DIR: await configDir(root, "valid"),
+          PLATFORM_SECRET_KEY: MASTER_KEY,
           INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
@@ -599,7 +594,7 @@ integration("API server on PostgreSQL", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
-          PLATFORM_CONFIG_DIR: await configDir(root, "shutdown"),
+          PLATFORM_SECRET_KEY: MASTER_KEY,
           INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
@@ -810,7 +805,7 @@ integration("API server on PostgreSQL", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           PORT: "0",
-          PLATFORM_CONFIG_DIR: await configDir(root, "long-poll"),
+          PLATFORM_SECRET_KEY: MASTER_KEY,
           INTEGRATION_PROVIDER_KEY: PROVIDER_KEY,
         },
         stdout: "pipe",
@@ -869,35 +864,21 @@ integration("API server on PostgreSQL", () => {
   );
 
   test(
-    "an invalid profile, an unresolved credential or a bad HEARTBEAT_TTL_SEC stops the server",
+    "a leftover file catalog, no master key or a bad HEARTBEAT_TTL_SEC stops the server",
     async () => {
-      // The suite's database is seeded already, and a filled table never
-      // opens profiles.yaml.
-      const empty = await createTempDatabase({ prefix: "server_seed_it" });
-      const invalid = await refusedStart({
-        DATABASE_URL: empty.url,
-        PLATFORM_CONFIG_DIR: await configDir(
-          root,
-          "invalid",
-          PROFILES.replace("permission_mode: default", "permission_mode: yolo"),
-        ),
-      }).finally(() => empty.drop());
-      expect(invalid.exitCode).not.toBe(0);
-      expect(invalid.stderr).toContain("profiles.coding.permission_mode");
-
-      const unresolved = await refusedStart({
-        PLATFORM_CONFIG_DIR: await configDir(root, "unresolved"),
-        INTEGRATION_PROVIDER_KEY: "",
+      const leftover = await refusedStart({
+        PLATFORM_CONFIG_DIR: "/app/config",
       });
-      expect(unresolved.exitCode).not.toBe(0);
-      expect(unresolved.stderr).toContain(
-        "connections.main.auth.value_env: INTEGRATION_PROVIDER_KEY is not set",
+      expect(leftover.exitCode).not.toBe(0);
+      expect(leftover.stderr).toContain(
+        "PLATFORM_CONFIG_DIR no longer read: finish the import",
       );
 
-      const ttl = await refusedStart({
-        PLATFORM_CONFIG_DIR: await configDir(root, "ttl"),
-        HEARTBEAT_TTL_SEC: "30s",
-      });
+      const keyless = await refusedStart({ PLATFORM_SECRET_KEY: "" });
+      expect(keyless.exitCode).not.toBe(0);
+      expect(keyless.stderr).toContain("PLATFORM_SECRET_KEY is required");
+
+      const ttl = await refusedStart({ HEARTBEAT_TTL_SEC: "30s" });
       expect(ttl.exitCode).not.toBe(0);
       expect(ttl.stderr).toContain(
         "HEARTBEAT_TTL_SEC must be a number of seconds above 20",
@@ -910,7 +891,6 @@ integration("API server on PostgreSQL", () => {
     "refuses to start on API settings that used to become defaults, naming each",
     async () => {
       const refused = await refusedStart({
-        PLATFORM_CONFIG_DIR: await configDir(root, "settings"),
         AUTH_MODE: "none",
         EGRESS_AUTHORIZER_PORT: "0",
         EGRESS_AUTHORIZER_TOKEN: "t".repeat(32),

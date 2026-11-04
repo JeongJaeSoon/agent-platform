@@ -124,7 +124,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...outsider,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...repo(1),
       }),
     ).toEqual({ outcome: "actor_inactive" });
@@ -135,7 +134,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...member,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...repo(1),
       }),
     ).toEqual({ outcome: "outranked" });
@@ -151,7 +149,6 @@ integration("catalog repositories on PostgreSQL", () => {
       ...member,
       receiptId,
       base: "app1",
-      reserved: new Set(),
       ...repo(1),
     });
     expect(first).toMatchObject({
@@ -186,7 +183,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "x",
-        reserved: new Set(),
         ...repo(1),
         owner: "acme",
         name: "app1",
@@ -204,7 +200,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...newcomer,
       }),
     ).toEqual({ outcome: "name_held", id: "app1" });
@@ -216,7 +211,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: renameReceipt,
         base: "x",
-        reserved: new Set(),
         ...repo(1),
         name: "App1-old",
         url: "https://github.com/Acme/App1-old.git",
@@ -251,7 +245,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "x",
-        reserved: new Set(),
         ...repo(1),
         name: "Seeded",
         owner: "acme",
@@ -263,7 +256,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...newcomer,
       }),
     ).toMatchObject({
@@ -277,7 +269,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "seeded",
-        reserved: new Set(),
         githubRepositoryId: 5000,
         owner: "ACME",
         name: "Seeded",
@@ -289,17 +280,6 @@ integration("catalog repositories on PostgreSQL", () => {
       created: false,
       repository: { id: "seeded", github_repository_id: 5000, branch: "trunk" },
     });
-    // A reserved (file) id is numbered past.
-    expect(
-      await store.resolve({
-        ...owner,
-        receiptId: randomUUID(),
-        base: "tool",
-        reserved: new Set(["tool"]),
-        ...repo(2),
-      }),
-    ).toMatchObject({ outcome: "resolved", repository: { id: "tool-2" } });
-
     // Two first picks at once: one row, one receipt.
     const picks = await Promise.all(
       [0, 1, 2].map(() =>
@@ -307,7 +287,6 @@ integration("catalog repositories on PostgreSQL", () => {
           ...owner,
           receiptId: randomUUID(),
           base: "app3",
-          reserved: new Set(),
           ...repo(3),
         }),
       ),

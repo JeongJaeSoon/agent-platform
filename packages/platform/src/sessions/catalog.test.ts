@@ -5,7 +5,6 @@ import {
   allowedRun,
   type CatalogProfile,
   catalogCredentialRefs,
-  catalogRevision,
   describeConfigError,
   environmentCredentials,
   fingerprintModel,
@@ -179,14 +178,12 @@ describe("catalog config schema", () => {
         ],
       ],
     });
-    // Neither the revision nor the binding carries the value, and neither
-    // moves when only the value behind the same reference is rotated.
+    // The binding does not carry the value and does not move when only the
+    // value behind the same reference is rotated.
     const rotated = load(
       config(configured, { app: withAuth }),
       lookup("rotated-value"),
     );
-    expect(catalogRevision(rotated)).toBe(catalogRevision(catalog));
-    expect(catalogRevision(catalog)).not.toContain("repo-secret");
     const rotatedApp = rotated.repositories.app;
     if (!rotatedApp) throw new Error("no repository");
     expect(repositoryBinding("app", rotatedApp)).toBe(
@@ -301,7 +298,6 @@ describe("catalog config schema", () => {
       const body = pem.split("\n")[1] ?? "";
       expect(body.length).toBeGreaterThan(20);
       expect(repositoryBinding("app", app)).not.toContain(body);
-      expect(catalogRevision(catalog)).not.toContain(body);
       // A rotated key behind the same reference keeps the binding; another
       // installation, App or API base does not.
       const other = generateKeyPairSync("rsa", { modulusLength: 2048 })
@@ -877,7 +873,7 @@ describe("profile fingerprint and catalog revision", () => {
     }
   });
 
-  test("a repository binding and the catalog revision are the values main computed before version 2", () => {
+  test("a repository binding is the value main computed before version 2", () => {
     // Pending pushes and pull requests hold the binding and compare it
     // when they run, so it must not move with the profile fingerprint.
     const catalog = load(
@@ -886,28 +882,6 @@ describe("profile fingerprint and catalog revision", () => {
     expect(repositoryBinding("app", catalog.repositories.app as never)).toBe(
       "sha256:c8954e2d28652f1630adf031f84b8446160fc6fc9712c7d5fe153d8998feacce",
     );
-    expect(catalogRevision(catalog)).toBe(
-      "sha256:920c69094709f4acdff2c9d7e0215957d59190a289e312b7c719eb339ab0a529",
-    );
-  });
-
-  test("the revision moves with any repository and never with a credential value", () => {
-    const catalog = load(config());
-    const revision = catalogRevision(catalog);
-    expect(revision).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(
-      catalogRevision(
-        load(
-          config(),
-          environmentCredentials({ ANTHROPIC_KEY_MAIN: "other-value" }),
-        ),
-      ),
-    ).toBe(revision);
-    expect(
-      catalogRevision(
-        load(config(configured, { app: { ...repository, branch: "dev" } })),
-      ),
-    ).not.toBe(revision);
   });
 });
 
@@ -1230,7 +1204,6 @@ describe("remote MCP servers", () => {
       headers: [["authorization", "Bearer sa-value"]],
     });
     expect(load(config())).not.toHaveProperty("mcp_servers");
-    expect(catalogRevision(catalog)).toBe(catalogRevision(load(config())));
   });
 
   test("refuses what the proxy or the card could not name", () => {

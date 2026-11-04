@@ -20,7 +20,7 @@ export interface CatalogRepositoryRow {
   updated_at: string;
 }
 
-/** A `{ kind: github_app }` entry of repositories.yaml to seed with. */
+/** A `{ kind: github_app }` entry to seed with. */
 export interface SeedRepository {
   id: string;
   owner: string;
@@ -42,8 +42,7 @@ interface RepositoryWrite {
 export interface CatalogRepositoryStore {
   listActive(): Promise<CatalogRepositoryRow[]>;
   /**
-   * `listActive`, or null while the table has never held a row: the seed
-   * has not run yet, so the operator file still decides.
+   * `listActive`, or null while the table has never held a row.
    */
   readCatalog(): Promise<CatalogRepositoryRow[] | null>;
   /**
@@ -55,7 +54,7 @@ export interface CatalogRepositoryStore {
    * The row of that GitHub repository: found by its id (taking the new
    * owner/name and URL after a rename), else by owner/name on a row with no
    * GitHub id yet (filling it in), else inserted as a `selection` row under
-   * `base`, numbered `-2`, `-3` past ids ever used or `reserved`. A row of
+   * `base`, numbered `-2`, `-3` past ids ever used. A row of
    * another GitHub repository, or a second row with no GitHub id, under that
    * name is `name_held`. An insert or a rename leaves a receipt.
    */
@@ -68,8 +67,6 @@ export interface CatalogRepositoryStore {
       agentId: string;
       managerRoles: readonly WorkspaceRole[];
       base: string;
-      /** Ids the operator's file holds, which a row may not take. */
-      reserved: ReadonlySet<string>;
       githubRepositoryId: number;
       owner: string;
       name: string;

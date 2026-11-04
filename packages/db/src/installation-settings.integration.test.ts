@@ -183,7 +183,6 @@ async function catalogOver(
     },
     sources: {
       connections: file.connections,
-      repositoryIdsOf: () => [],
       allowUnattended: false,
       runtimeSupported: () => true,
       materialize: (id, definition, settings) => {
@@ -198,11 +197,10 @@ async function catalogOver(
   });
   await registry.refresh();
   return profileCatalog(resolvedFile, registry, (rows, settings) =>
-    withConsoleRepositories(
-      resolvedFile.repositories,
-      rows,
-      settings?.repositories,
-    ),
+    withConsoleRepositories(rows, {
+      ...resolvedFile.repositories,
+      ...settings?.repositories,
+    }),
   );
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ExistingSettings,
+  parseSeedDocument,
   parseSettingsDocument,
   planSettingsImport,
   repositoryNameOf,
@@ -133,8 +134,74 @@ describe("parseSettingsDocument", () => {
   });
 });
 
+describe("parseSeedDocument", () => {
+  const PROFILE = {
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "claude-sonnet-5",
+    repository: "none",
+    tools: ["Read"],
+    permission_mode: "plan",
+    provider: DOCUMENT.connections.main,
+  };
+
+  test("a document without `profiles` seeds nothing", () => {
+    expect(parseSeedDocument(DOCUMENT)).toEqual({
+      entries: parseSettingsDocument(DOCUMENT),
+      profiles: null,
+    });
+  });
+
+  test("the operator's `profiles` is the seed, and the API's parser still refuses it", () => {
+    const document = { ...DOCUMENT, profiles: { general: PROFILE } };
+    const seed = parseSeedDocument(document);
+    expect(Object.keys(seed.profiles ?? {})).toEqual(["general"]);
+    expect(seed.entries).toEqual(parseSettingsDocument(DOCUMENT));
+    expect(() => parseSettingsDocument(document)).toThrow(
+      SettingsDocumentError,
+    );
+  });
+
+  test("a seed that does not parse refuses the document", () => {
+    expect(() =>
+      parseSeedDocument({
+        ...DOCUMENT,
+        profiles: { general: { ...PROFILE, permission_mode: "whatever" } },
+      }),
+    ).toThrow(SettingsDocumentError);
+  });
+});
+
 describe("planSettingsImport", () => {
   const entries = parseSettingsDocument(DOCUMENT);
+
+  test("a repository's seed `profiles` is no conflict with its row", () => {
+    const seeded = parseSettingsDocument({
+      ...DOCUMENT,
+      repositories: {
+        open: { ...DOCUMENT.repositories.open, profiles: ["general"] },
+      },
+    });
+    const plan = planSettingsImport(
+      seeded,
+      {
+        ...NONE,
+        repositories: new Map([
+          [
+            "open",
+            {
+              entry: entries.repositories.open,
+              active: true,
+              has_value: false,
+            },
+          ],
+        ]),
+      },
+      { allowExternal: true },
+    );
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.unchanged).toContain("repository:open");
+  });
 
   test("adds every entry over an empty installation", () => {
     const plan = planSettingsImport(entries, NONE, { allowExternal: true });

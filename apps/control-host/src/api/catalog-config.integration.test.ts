@@ -1,22 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   CreateSecretCommand,
   DeleteSecretCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { localstackEnabled, localstackEnv } from "@werft-ai/testkit/localstack";
-import { loadSessionCatalog, secretsManagerReader } from "./catalog-config.ts";
+import { secretsManagerReader } from "./catalog-config.ts";
 
 const integration = localstackEnabled() ? describe : describe.skip;
 
-integration("catalog credentials from LocalStack Secrets Manager", () => {
+integration("credentials from LocalStack Secrets Manager", () => {
   const secretId = `agent-platform/it/${crypto.randomUUID()}`;
   const value = `secret-${crypto.randomUUID()}`;
   let client: SecretsManagerClient;
-  let dir: string;
   let env: Record<string, string>;
 
   beforeAll(async () => {
@@ -36,44 +32,6 @@ integration("catalog credentials from LocalStack Secrets Manager", () => {
     await client.send(
       new CreateSecretCommand({ Name: secretId, SecretString: value }),
     );
-    dir = await mkdtemp(join(tmpdir(), "catalog-secrets-"));
-    await writeFile(
-      join(dir, "profiles.yaml"),
-      `profiles:
-  p:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        secret_id: ${secretId}
-`,
-    );
-    await writeFile(
-      join(dir, "repositories.yaml"),
-      `repositories:
-  app:
-    url: https://git.example.invalid/app.git
-    branch: main
-    profiles: [p]
-`,
-    );
-    await writeFile(
-      join(dir, "connections.yaml"),
-      `connections:
-  main:
-    kind: anthropic
-    endpoint: https://api.anthropic.invalid
-    auth:
-      kind: api_key
-      secret_id: ${secretId}
-`,
-    );
   });
 
   afterAll(async () => {
@@ -84,32 +42,15 @@ integration("catalog credentials from LocalStack Secrets Manager", () => {
       }),
     );
     client.destroy();
-    await rm(dir, { recursive: true, force: true });
   });
 
-  test("resolves a secret_id reference at load through AWS_ENDPOINT_URL_SECRETS_MANAGER", async () => {
-    const catalog = await loadSessionCatalog({
-      dir,
-      env,
-      readSecret: secretsManagerReader(env),
-    });
-    expect(catalog.profiles.p?.provider.auth).toEqual({
-      kind: "api_key",
-      value,
-      ref: { secret_id: secretId },
-    });
+  test("reads a secret_id reference through AWS_ENDPOINT_URL_SECRETS_MANAGER", async () => {
+    expect(await secretsManagerReader(env)(secretId)).toBe(value);
   });
 
-  test("a secret that does not exist stops the load with its name and the error class", async () => {
-    const missing = `${secretId}-missing`;
-    const load = loadSessionCatalog({
-      dir,
-      env,
-      readSecret: async (id) =>
-        secretsManagerReader(env)(id === secretId ? missing : id),
-    });
-    await expect(load).rejects.toThrow(
-      `connections.main.auth.secret_id: ${secretId} could not be read from ${env.AWS_ENDPOINT_URL_SECRETS_MANAGER} (ResourceNotFoundException)`,
-    );
+  test("a secret that does not exist fails with the store's error class", async () => {
+    await expect(
+      secretsManagerReader(env)(`${secretId}-missing`),
+    ).rejects.toMatchObject({ name: "ResourceNotFoundException" });
   });
 });

@@ -284,7 +284,7 @@ export function createPostgresCatalogRepositoryStore(
           ).map((row) => row.id),
         );
         let id = input.base;
-        for (let n = 2; taken.has(id) || input.reserved.has(id); n += 1) {
+        for (let n = 2; taken.has(id); n += 1) {
           id = `${input.base}-${n}`;
         }
         const [row] = await tx

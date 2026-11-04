@@ -1031,13 +1031,13 @@ const SETTINGS_OWNER =
 const SETTINGS_MANAGERS =
   "Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes.";
 const SETTINGS_LIST =
-  "The operator file's entries (`origin: file`, read only until they are imported) and the database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, `shadowed` (the file holds the same id and wins), else `active`. Changes nothing.";
+  "The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.";
 const SETTINGS_CREATE =
-  "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an id the operator's file holds is 409 `file_entry`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503.";
+  "The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503.";
 const SETTINGS_CREDENTIAL =
   "Seals a new value for a row that stores its own: rotating it or giving a `needs_value` row its first. Running sessions are not stopped. A row whose credential comes from the operator's deployment is 409 `not_stored`, a disabled one 409 `disabled`, the secret store off 503. Writes a `set_settings_credential` receipt naming the last four characters.";
 const SETTINGS_DISABLE =
-  "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. An entry from the operator's file is 404: it changes in the file. Disabling one already disabled is 409 `disabled`.";
+  "Never undone and nothing is deleted: the id stays taken and the stored value stays sealed. Ceilings over it stop running anything. Disabling one already disabled is 409 `disabled`.";
 const SETTINGS_CHANGE_EXAMPLE = (id: string) => ({
   id,
   receipt_id: "019a0000-0000-7000-8000-0000000000f3",
@@ -2091,7 +2091,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "A page of the GitHub Apps' repositories, and the catalog's (owner or admin)",
     description:
-      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account; while the role read first has several connections, absent is 400 `installation_required`), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or repositories.yaml seeded (`source` `selection`, `console` or `seed`; their branch is changed with PATCH) and the operator file's entries that carry their own credentials (`source: file`, read-only), each with its `agent_count`; `installed` says whether an installation of any author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer for an App and none said yes), and a row's `pins` names the connection each role's work uses (`GET …/app-pins` for the choices). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
+      "The repositories one installation of the workspace's GitHub Apps reaches, a page at a time as GitHub pages them (`GET /installation/repositories`): `installation_id` picks the installation (absent: the first not suspended, the author App's before the reviewer App's, by account; while the role read first has several connections, absent is 400 `installation_required`), `page` and `per_page` (at most 100) the page, and `total_count` is GitHub's count. `installations` lists the author App's installations, then the reviewer App's, each with its App's `connection_id` and `role`, the `permissions` the account approved, and `repository_count` (GitHub's count, asked for the first 20 installations; null past them or when GitHub did not give it). An App GitHub does not answer for leaves its installations out. Nothing is registered: a repository becomes a catalog row when an agent's manager picks it (`POST /v1/agents/{id}/github/repositories`), and `catalog_id` then names it; `agent_count` counts agents whose active release names it, and on a reviewer App's page only those that turn review on. `unavailable` says why the page is empty: `no_author_app`, `no_installation`, or, with no `installation_id` named, GitHub not answering (`github_unavailable` or `github_app_auth_failed`, the author App's cause first) or every installation suspended (`installation_suspended`); then `catalog` and the installations that were read still come back, to name one. `catalog` lists the rows picks resolved or a seed left (`source` `selection`, `console` or `seed`; their branch is changed with PATCH), each with its `agent_count`; `installed` says whether an installation of any author App covers a row now (asked for the first 100 rows; null past them, or when GitHub could not answer for an App and none said yes), and a row's `pins` names the connection each role's work uses (`GET …/app-pins` for the choices). An installation id no registered App has, or one GitHub no longer has, is 404 `installation_not_found`; a suspended one is 409 `INSTALLATION_SUSPENDED`; GitHub not answering for the App that may hold a named installation is 502 `GITHUB_UNAVAILABLE` (`github_unavailable` is worth retrying, `github_app_auth_failed` is not). API keys are refused.",
     auth: "session",
     query: "GitHubRepositoryPageQuery",
     success: {
@@ -2123,7 +2123,6 @@ export const API_ROUTE_DECLARATIONS = [
             url: "https://github.com/acme/app.git",
             branch: "main",
             source: "selection",
-            editable: true,
             version: 1,
             installed: true,
             updated_at: "2026-11-01T09:00:00Z",
@@ -2145,7 +2144,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Change a repository's default branch (owner or admin)",
     description:
-      "Sets the branch sessions start from. `version` is the one last read; another is 409 `REVISION_CONFLICT`. A session already running on the repository is refused its next repository request (`CATALOG_MISMATCH`), as after an operator edits the file. An operator file entry is 400 `file_repository`. Writes a `set_repository_branch` receipt with the branch before and after. API keys are refused.",
+      "Sets the branch sessions start from. `version` is the one last read; another is 409 `REVISION_CONFLICT`. A session already running on the repository is refused its next repository request (`CATALOG_MISMATCH`). Writes a `set_repository_branch` receipt with the branch before and after. API keys are refused.",
     auth: "session",
     body: "PatchGitHubRepositoryRequest",
     requestExample: { branch: "develop", version: 1 },
@@ -2161,7 +2160,6 @@ export const API_ROUTE_DECLARATIONS = [
           url: "https://github.com/acme/app.git",
           branch: "develop",
           source: "selection",
-          editable: true,
           version: 2,
           installed: true,
           updated_at: "2026-11-01T09:05:00Z",
@@ -2181,7 +2179,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Which App connection a repository uses per role, and the choices (owner or admin)",
     description:
-      "`pins` names the connection each role's work on the repository uses (null: none yet, or the pinned one was removed, which the gate then refuses as `pinned_app_removed`). `candidates` lists every connection with `installed`: whether an installation of its App covers the repository now (null when GitHub did not answer). An operator file entry is 400 `file_repository`. API keys are refused.",
+      "`pins` names the connection each role's work on the repository uses (null: none yet, or the pinned one was removed, which the gate then refuses as `pinned_app_removed`). `candidates` lists every connection with `installed`: whether an installation of its App covers the repository now (null when GitHub did not answer). API keys are refused.",
     auth: "session",
     success: {
       status: 200,
@@ -2204,7 +2202,7 @@ export const API_ROUTE_DECLARATIONS = [
         ],
       },
     },
-    errors: [400, 401, 403, 404],
+    errors: [401, 403, 404],
   },
   {
     method: "put",
@@ -2214,7 +2212,7 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Pin the App connection a repository's work uses for a role (owner or admin)",
     description:
-      "Sets the connection `role`'s tokens for the repository are issued from. The connection must be the workspace's and of that role (else 404, or 400 `role_mismatch`), and an installation of its App must cover the repository now (400 `not_installed`); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. Tokens already issued keep working until they expire; the next one comes from the new connection. Writes a `set_repository_github_app` receipt with the connection before and after; `receipt_id` is null when it was already pinned there. An operator file entry is 400 `file_repository`. API keys are refused.",
+      "Sets the connection `role`'s tokens for the repository are issued from. The connection must be the workspace's and of that role (else 404, or 400 `role_mismatch`), and an installation of its App must cover the repository now (400 `not_installed`); GitHub not answering is 502 `GITHUB_UNAVAILABLE`. Tokens already issued keep working until they expire; the next one comes from the new connection. Writes a `set_repository_github_app` receipt with the connection before and after; `receipt_id` is null when it was already pinned there. API keys are refused.",
     auth: "session",
     body: "PutGitHubRepositoryAppPinRequest",
     requestExample: { connection_id: "019a0000-0000-7000-8000-0000000000c9" },
@@ -5067,7 +5065,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Resolve an App repository to the catalog id a release names",
     description:
-      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), `file_repository` (the operator file holds that repository with its own credential), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
+      "Takes a repository from `GET …/github/repositories` and returns the catalog id to put in `github.repositories` of the next release (`POST /v1/agents/{id}/releases`); the release itself is unchanged. The server reads the repository by its GitHub id and checks that the named installation covers it, then takes its URL and default branch from GitHub. The same repository always resolves to the same id, by its GitHub id: the first pick writes a `resolve_repository` receipt (`receipt_id`), and so does a pick after a rename on GitHub, which moves the row to the new name and URL; other picks return null. A repository with no author pin yet is pinned to the connection whose App holds the installation (a `set_repository_github_app` receipt), and `connection_id` names the author connection it is pinned to; a pin made before stays. 400 `details.reason_code`: `repository_not_allowed` (the active release's ceiling does not run on App repositories, or there is no active release), `no_author_app`, `not_installed` (the author App has no such installation, or it does not cover the repository), or `name_held` (another row has that name: another GitHub repository's, whose pick after its rename frees the name, or one not yet tied to a GitHub id). GitHub not answering is 502 `GITHUB_UNAVAILABLE`, and an installation GitHub dropped while it was read is 404 `installation_not_found`; nothing stored changed. A signed-in manager of the agent; API keys are refused.",
     auth: "session",
     body: "PickAgentGitHubRepositoryRequest",
     requestExample: { installation_id: 4242, github_repository_id: 123456789 },
@@ -5765,7 +5763,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The runtime profiles this workspace can run",
     description:
-      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the installation ceilings (`source: operator`, imported from `profiles.yaml` or saved by the operator, each with an `installation` object) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). Every ceiling and every workspace version is listed with its state (`installation.state`, `workspace.state`); only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
+      "Lists the profiles a session's `profile_id` or a release's `runtime_profile_id` may name, by `id`: the installation ceilings (`source: operator`, saved by the operator, each with an `installation` object) and the caller's workspace's (`source: workspace`, ids starting `ws_`), each with the models it offers, its tools, permission mode and `repository_mode`: whether a session of it names a repository (`required`), may (`optional`) or never does (`none`). Every ceiling and every workspace version is listed with its state (`installation.state`, `workspace.state`); only `usable` takes a new release or session. A profile's provider endpoint and credential are not included.",
     scope: "read",
     success: {
       status: 200,
@@ -6359,7 +6357,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The installation's settings as one document, without a value",
     description:
-      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape `connections.yaml`, `repositories.yaml` and `mcp-servers.yaml` gave it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings and what the operator's files hold are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.",
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape the document holds it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings and what the operator's files hold are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.",
     auth: "session",
     success: {
       status: 200,

@@ -99,7 +99,6 @@ class ClaimingBackend implements ExecutionBackend {
   async startWorkers(): Promise<void> {
     for (const { intent, nonce } of this.starting.splice(0)) {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
-        catalogRevision: "catalog-under-test",
         settingsGeneration: null,
         unsettledRepositoryIds: new Set(),
         settledProfileIds: new Set([PROFILE_ID]),
@@ -408,7 +407,6 @@ integration("claim against a catalog that dropped the pair", () => {
       .where(eq(sessions.id, session.session_id));
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
-      catalogRevision: "catalog-under-test",
       settingsGeneration: null,
       unsettledRepositoryIds: new Set(),
       settledProfileIds: new Set([PROFILE_ID]),
@@ -487,7 +485,6 @@ integration("claim against a catalog that dropped the pair", () => {
     const nonce = await store().issueBootstrapNonce(intent);
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
-      catalogRevision: "catalog-under-test",
       settingsGeneration: null,
       unsettledRepositoryIds: new Set(),
       settledProfileIds: new Set([PROFILE_ID]),
@@ -570,7 +567,6 @@ integration("claim against a catalog that dropped the pair", () => {
       } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
-        catalogRevision: "catalog-under-test",
         settingsGeneration: settings.generation ?? null,
         unsettledRepositoryIds: settings.unsettledRepositoryIds ?? new Set(),
         settledProfileIds,

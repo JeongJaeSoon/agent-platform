@@ -66,7 +66,6 @@ import { createLogger, sanitizeText } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
   allowedRun,
-  catalogRevision,
   composeSlackFinalize,
   createAchievementJudge,
   createAchievementRuleService,
@@ -158,13 +157,13 @@ import {
   WorkGate,
 } from "./auth.ts";
 import {
-  DEFAULT_CONFIG_DIR,
   installedRuntimes,
-  loadProfileSources,
   loadSecretKey,
+  profileSources,
+  refuseFileCatalog,
   runtimeVersionsFromEnv,
-  SECRET_KEY_SETTING,
   secretsManagerReader,
+  unattendedAllowed,
   unattendedProfiles,
 } from "./catalog-config.ts";
 import {
@@ -202,11 +201,6 @@ import {
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
-import {
-  SeedProfilesError,
-  seedCatalogProfiles,
-  seedCatalogRepositories,
-} from "./profile-import.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import {
@@ -307,25 +301,8 @@ const settings = (() => {
     throw error;
   }
 })();
-const catalogSource = {
-  dir: process.env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
-  env: process.env,
-  readSecret: secretsManagerReader(process.env),
-};
-const profileSources = await loadProfileSources(catalogSource);
-if (Object.keys(profileSources.connections).length === 0) {
-  logger.warn(
-    "No provider connections in connections.yaml; profiles run only on connections the installation settings hold",
-    {},
-  );
-}
-const secretKey = await loadSecretKey(catalogSource);
-if (secretKey === null) {
-  logger.warn(
-    `Secret store is off (${SECRET_KEY_SETTING} unset); Slack secrets cannot be set`,
-    {},
-  );
-}
+refuseFileCatalog(process.env);
+const secretKey = loadSecretKey(process.env);
 
 // Checked before the pool exists: a bucket that is missing is a startup
 // error, not a warning, unless the operator said there is none.
@@ -358,7 +335,7 @@ const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
 const installationSettings = settingsSource({
   store: createPostgresInstallationSettingsStore(db, secretKey),
   env: process.env,
-  readSecret: catalogSource.readSecret,
+  readSecret: secretsManagerReader(process.env),
 });
 const reportLeftOut = leftOutReporter((message, fields) =>
   logger.warn(message, fields),
@@ -374,28 +351,22 @@ const workspaceProfileVersions = createProfileRegistry({
       return snapshot;
     },
   },
-  sources: profileSources.sources,
+  sources: profileSources(process.env),
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
 const catalog = profileCatalog(
   {
-    ...profileSources.catalog,
+    repositories: {},
     ...(runtimeVersions === undefined
       ? {}
       : { runtime_versions: runtimeVersions }),
     tool_catalogs: installedToolCatalogView,
   },
   workspaceProfileVersions,
-  (rows, settings) =>
-    withConsoleRepositories(
-      profileSources.catalog.repositories,
-      rows,
-      settings?.repositories,
-    ),
+  (rows, settings) => withConsoleRepositories(rows, settings?.repositories),
 );
 const logCatalog = (message: string): void => {
   logger.info(message, {
-    revision: catalogRevision(catalog),
     profiles: Object.keys(catalog.profiles).length,
     repositories: Object.keys(catalog.repositories).length,
   });
@@ -418,52 +389,31 @@ const refreshWorkspaceProfiles = (): void => {
 // The registry runs only what the database holds. Until the first read a
 // profile id it does not know reads the database itself, so a request
 // waits on that read rather than this one.
-const PROFILE_IMPORT_RETRY_MS = 30_000;
-const importProfiles = (): void => {
-  seedCatalogProfiles(
-    installationProfileStore,
-    { dir: catalogSource.dir, config: profileSources.config },
-    logger,
-  )
-    .then(() =>
-      seedCatalogRepositories(
-        catalogRepositoryStore,
-        profileSources.catalog.repositories,
-        logger,
-      ),
-    )
-    .then(() => workspaceProfileVersions.refresh())
-    .then(
-      () => {
-        // Logged only now: every ceiling is a row, so the revision before
-        // this read is not the one catalog-authority compares.
-        logCatalog("Session catalog loaded");
-        const unattended = unattendedProfiles(catalog);
-        if (unattended.length > 0) {
-          logger.warn("Profiles run tools without asking for approval", {
-            profiles: unattended,
-          });
-        }
-        setInterval(
-          refreshWorkspaceProfiles,
-          WORKSPACE_PROFILE_REFRESH_MS,
-        ).unref();
-      },
-      (error: unknown) => {
-        if (error instanceof SeedProfilesError) {
-          logger.error("Refusing to start: profiles.yaml cannot seed", {
-            problem: error.message,
-          });
-          process.exit(1);
-        }
-        logger.warn("Profiles could not be imported; retrying", {
-          error_name: error instanceof Error ? error.name : typeof error,
+const PROFILE_READ_RETRY_MS = 30_000;
+const readProfiles = (): void => {
+  workspaceProfileVersions.refresh().then(
+    () => {
+      logCatalog("Session catalog loaded");
+      const unattended = unattendedProfiles(catalog);
+      if (unattended.length > 0) {
+        logger.warn("Profiles run tools without asking for approval", {
+          profiles: unattended,
         });
-        setTimeout(importProfiles, PROFILE_IMPORT_RETRY_MS).unref();
-      },
-    );
+      }
+      setInterval(
+        refreshWorkspaceProfiles,
+        WORKSPACE_PROFILE_REFRESH_MS,
+      ).unref();
+    },
+    (error: unknown) => {
+      logger.warn("Profiles could not be read; retrying", {
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+      setTimeout(readProfiles, PROFILE_READ_RETRY_MS).unref();
+    },
+  );
 };
-importProfiles();
+readProfiles();
 // Not awaited: the API starts without its database, and a version 1
 // fingerprint names its model, so nothing waits on the column being filled.
 const MODEL_BACKFILL_RETRY_MS = 30_000;
@@ -775,7 +725,7 @@ const installationProfiles = createInstallationProfileService({
   store: installationProfileStore,
   catalog,
   connections: () => workspaceProfileVersions.connections,
-  allowUnattended: profileSources.sources.allowUnattended,
+  allowUnattended: unattendedAllowed(process.env),
   runtimes: installedRuntimes,
 });
 const settingsDocumentStore = createPostgresSettingsDocumentStore(
@@ -792,11 +742,6 @@ const settingsDocument = createSettingsDocumentService({
 const settingsConsole = createSettingsConsoleService({
   authorization,
   store: settingsDocumentStore,
-  files: () => ({
-    connections: profileSources.connections,
-    repositories: profileSources.config.repositories,
-    mcp_servers: profileSources.config.mcp_servers ?? {},
-  }),
   leftOut: () => workspaceProfileVersions.settings?.left_out ?? [],
   secretStoreOn: secretKey !== null,
   credentialHosts: credentialHostsFromEnv(process.env),
@@ -834,7 +779,6 @@ const githubRepositories = createGitHubRepositoryService({
   directory: githubAppDirectory,
   agents: agentStore,
   catalog,
-  fileRepositories: profileSources.catalog.repositories,
   changed: () => workspaceProfileVersions.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);

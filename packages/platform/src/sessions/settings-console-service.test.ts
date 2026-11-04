@@ -15,10 +15,7 @@ import type {
   SettingsRow,
 } from "../ports/settings-document-store.ts";
 import { SessionServiceError } from "./session-service.ts";
-import {
-  createSettingsConsoleService,
-  type SettingsFileEntries,
-} from "./settings-console-service.ts";
+import { createSettingsConsoleService } from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
@@ -52,29 +49,6 @@ const apiKey = callerFor(
   { kind: "api" },
   crypto.randomUUID(),
 );
-
-const FILES: SettingsFileEntries = {
-  connections: {
-    fake: {
-      kind: "anthropic",
-      endpoint: "http://fake-model:8080",
-      billing: "none",
-      auth: { kind: "api_key", value_env: "FAKE_MODEL_KEY" },
-    },
-  },
-  repositories: {
-    app: {
-      url: "https://github.com/acme/app.git",
-      branch: "main",
-      auth: { kind: "github_app" },
-    },
-    public: {
-      url: "https://git.example.invalid/acme/public.git",
-      branch: "main",
-    },
-  },
-  mcp_servers: {},
-};
 
 const AT = new Date("2026-11-04T03:00:00.000Z");
 const connectionRow = (
@@ -143,7 +117,6 @@ function service(
       decisions: { record: async () => {} },
     }),
     store,
-    files: () => FILES,
     leftOut: () => (options.leftOut ?? []).map((entry) => ({ entry })),
     secretStoreOn: options.secretStoreOn ?? true,
     credentialHosts: ["api.anthropic.com:443"],
@@ -225,18 +198,8 @@ describe("settings console service", () => {
     expect(rereads()).toBe(1);
   });
 
-  test("an id the operator's file holds, an entry the catalog refuses and a closed secret store are refused before the store", async () => {
+  test("an entry the catalog refuses and a closed secret store are refused before the store", async () => {
     const { settings, writes } = service();
-    expect(
-      (
-        await refusal(
-          settings.createConnection(caller("owner"), {
-            ...NEW_CONNECTION,
-            id: "fake",
-          }),
-        )
-      ).details,
-    ).toMatchObject({ reason_code: "file_entry" });
     const bad = await refusal(
       settings.createConnection(caller("owner"), {
         ...NEW_CONNECTION,
@@ -364,7 +327,7 @@ describe("settings console service", () => {
     }
   });
 
-  test("the list joins the file's entries and the rows, and tells each row's state; never a value", async () => {
+  test("the list tells each row's state; never a value", async () => {
     const { settings } = service({
       rows: {
         connection: [
@@ -385,25 +348,13 @@ describe("settings console service", () => {
       ["broken", "console", "unresolved"],
       ["console", "console", "active"],
       ["empty", "console", "needs_value"],
-      ["fake", "file", "active"],
-      ["fake", "import", "shadowed"],
+      ["fake", "import", "active"],
       ["off", "console", "disabled"],
     ]);
-    expect(listed.items.find((item) => item.origin === "file")).toMatchObject({
-      billing: "none",
-      credential: { source: "external", value_env: "FAKE_MODEL_KEY" },
-      created_at: null,
-    });
     expect(listed.items.find((item) => item.id === "console")).toMatchObject({
       credential: { source: "stored", last4: "wxyz" },
       created_at: AT.toISOString(),
     });
     expect(JSON.stringify(listed)).not.toContain("connection:console");
-
-    // The console App's repositories are the GitHub screen's.
-    const repositories = await settings.listRepositories(caller("owner"));
-    expect(repositories.items.map((item) => [item.id, item.auth_kind])).toEqual(
-      [["public", "none"]],
-    );
   });
 });

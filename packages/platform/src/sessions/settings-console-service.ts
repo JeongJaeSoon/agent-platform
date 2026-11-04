@@ -38,13 +38,6 @@ import {
 
 type Provider = CatalogProfileConfig["provider"];
 
-/** What the operator's files hold, references only, until S4 removes them. */
-export type SettingsFileEntries = {
-  connections: Readonly<Record<string, Provider>>;
-  repositories: Readonly<Record<string, CatalogRepositoryConfig>>;
-  mcp_servers: Readonly<Record<string, CatalogMcpServerConfig>>;
-};
-
 const ACTION: Record<SettingsKind, AuthorizationAction> = {
   connection: "installation.settings.manage",
   mcp: "installation.settings.manage",
@@ -90,7 +83,6 @@ function credentialOf(
 export function createSettingsConsoleService(deps: {
   authorization: AuthorizationPolicy;
   store: SettingsDocumentStore;
-  files: () => SettingsFileEntries;
   /** This replica's `<kind>:<id>` rows whose credential did not resolve. */
   leftOut: () => ReadonlyArray<{ entry: string }>;
   secretStoreOn: boolean;
@@ -122,26 +114,8 @@ export function createSettingsConsoleService(deps: {
     return { principal: caller, workspaceId, userId };
   }
 
-  function fileIds(kind: SettingsKind): ReadonlySet<string> {
-    const files = deps.files();
-    return new Set(
-      Object.keys(
-        kind === "connection"
-          ? files.connections
-          : kind === "mcp"
-            ? files.mcp_servers
-            : files.repositories,
-      ),
-    );
-  }
-
-  function stateOf(
-    kind: SettingsKind,
-    row: SettingsRow,
-    shadowed: boolean,
-  ): SettingsEntryState {
+  function stateOf(kind: SettingsKind, row: SettingsRow): SettingsEntryState {
     if (row.disabledAt !== null) return "disabled";
-    if (shadowed) return "shadowed";
     const auth = (row.entry as { auth?: { stored?: unknown } }).auth;
     if (typeof auth?.stored === "string" && row.last4 === null) {
       return "needs_value";
@@ -151,9 +125,8 @@ export function createSettingsConsoleService(deps: {
     return "active";
   }
 
-  async function rowsWithFiles<T>(
+  async function rowItems<T>(
     kind: SettingsKind,
-    file: Readonly<Record<string, unknown>>,
     view: (
       id: string,
       entry: unknown,
@@ -161,27 +134,17 @@ export function createSettingsConsoleService(deps: {
         origin: SettingsEntryOrigin;
         state: SettingsEntryState;
         last4: string | null;
-        created_at: string | null;
+        created_at: string;
         disabled_at: string | null;
       },
     ) => T | null,
   ): Promise<T[]> {
     const rows = await store.listRows(kind);
     const items: Array<{ id: string; item: T }> = [];
-    for (const [id, entry] of Object.entries(file)) {
-      const item = view(id, entry, {
-        origin: "file",
-        state: "active",
-        last4: null,
-        created_at: null,
-        disabled_at: null,
-      });
-      if (item !== null) items.push({ id, item });
-    }
     for (const row of rows) {
       const item = view(row.id, row.entry, {
         origin: row.origin,
-        state: stateOf(kind, row, Object.hasOwn(file, row.id)),
+        state: stateOf(kind, row),
         last4: row.last4,
         created_at: row.createdAt.toISOString(),
         disabled_at: row.disabledAt?.toISOString() ?? null,
@@ -205,7 +168,7 @@ export function createSettingsConsoleService(deps: {
     throw error;
   }
 
-  /** The entry under the file catalog's rules, `stored` naming its own row. */
+  /** The entry under the catalog's rules, `stored` naming its own row. */
   function parsed(
     section: keyof SettingsEntries,
     id: string,
@@ -281,14 +244,6 @@ export function createSettingsConsoleService(deps: {
   ): Promise<SettingsChangeResponse> {
     const actor = await writer(caller, kind);
     const entry = add();
-    if (fileIds(kind).has(entry.id)) {
-      throw new SessionServiceError(
-        "REVISION_CONFLICT",
-        `${entry.id} is the operator file's, which wins until it is imported`,
-        undefined,
-        { reason_code: "file_entry" },
-      );
-    }
     if (value !== null && !deps.secretStoreOn) throw STORE_OFF();
     return settled(await store.create(entry, value, actor), entry.id);
   }
@@ -308,9 +263,8 @@ export function createSettingsConsoleService(deps: {
       caller: Caller,
     ): Promise<ListSettingsConnectionsResponse> {
       await writer(caller, "connection");
-      const items = await rowsWithFiles<SettingsConnection>(
+      const items = await rowItems<SettingsConnection>(
         "connection",
-        deps.files().connections,
         (id, entry, meta) => {
           const provider = entry as Provider;
           return {
@@ -338,9 +292,8 @@ export function createSettingsConsoleService(deps: {
       caller: Caller,
     ): Promise<ListSettingsMcpServersResponse> {
       await writer(caller, "mcp");
-      const items = await rowsWithFiles<SettingsMcpServer>(
+      const items = await rowItems<SettingsMcpServer>(
         "mcp",
-        deps.files().mcp_servers,
         (id, entry, meta) => {
           const server = entry as CatalogMcpServerConfig;
           return {
@@ -363,9 +316,8 @@ export function createSettingsConsoleService(deps: {
       caller: Caller,
     ): Promise<ListSettingsRepositoriesResponse> {
       await writer(caller, "repository");
-      const items = await rowsWithFiles<SettingsRepository>(
+      const items = await rowItems<SettingsRepository>(
         "repository",
-        deps.files().repositories,
         (id, entry, meta) => {
           const repository = entry as CatalogRepositoryConfig;
           const authKind = repositoryAuthKindOf(repository);

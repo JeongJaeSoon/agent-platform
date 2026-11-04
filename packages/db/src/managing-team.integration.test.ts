@@ -1123,7 +1123,6 @@ integration("the managing team on PostgreSQL", () => {
               managerRoles: MANAGERS,
               receiptId: randomUUID(),
               base: `app-${randomUUID().slice(0, 8)}`,
-              reserved: new Set(),
               githubRepositoryId: Math.floor(Math.random() * 1e9),
               owner: "Acme",
               name: "App",

@@ -1,21 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresInstallationProfileStore,
+  type Database,
   installationProfiles,
 } from "@werft-ai/db";
 import {
   allowedRun,
   type CatalogProfile,
   type Connections,
+  catalogImports,
   catalogProfile,
-  catalogRevision,
-  catalogRows,
+  catalogRepositoryIds,
   createProfileRegistry,
   installationProfileSnapshot,
+  parseSeedDocument,
   profileCatalog,
   profileFingerprint,
   profileModels,
@@ -23,7 +23,6 @@ import {
   profilePins,
   resolveSessionCatalog,
   runtimeConfigOf,
-  type SessionCatalogConfig,
   type SnapshotSources,
   type WorkspaceProfileRecord,
   workspaceProfileState,
@@ -33,36 +32,26 @@ import {
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
 import { asc } from "drizzle-orm";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { slackProfileCatalog } from "../slack/main.ts";
-import {
-  ALLOW_UNATTENDED_SETTING,
-  CONNECTIONS_FILE,
-  DEFAULT_CONFIG_DIR,
-  PROFILES_FILE,
-  readCatalogConfig,
-  readConnections,
-  readSeedProfiles,
-} from "./catalog-config.ts";
-import {
-  connectionsFromProfiles,
-  SeedProfilesError,
-  seedCatalogProfiles,
-} from "./profile-import.ts";
+import { seedSettings } from "../test-support/settings.ts";
+import { ALLOW_UNATTENDED_SETTING } from "./catalog-config.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const CATALOGS = [".", "fake-model", "fake-model-unattended", "local-model"];
+const FIXTURES = [
+  "real-model",
+  "fake-model",
+  "fake-model-unattended",
+  "local-model",
+];
 const PLACEHOLDER = "placeholder-credential-value";
-const quiet = { info: () => {} };
 
 // Computed on main at 304c2713 (catalog-config.test.ts): sessions and
 // releases pin these, so the database path must give the same.
-// claude-coding-real moved with AskUserQuestion and again when it became auto,
-// as catalog-config.test.ts says.
 const ON_MAIN: Record<string, Record<string, string>> = {
-  ".": {
+  "real-model": {
     "claude-coding-real":
       "sha256:1fc3c2a8042b16a150b6c2f7ab2d93c801daf2faacc7c86eefdf087f94d10fc1",
   },
@@ -89,7 +78,6 @@ const ON_MAIN: Record<string, Record<string, string>> = {
 function sourcesFor(connections: Connections): SnapshotSources<CatalogProfile> {
   return {
     connections,
-    repositoryIdsOf: () => [],
     allowUnattended: true,
     runtimeSupported: () => true,
     materialize: (id, definition) => {
@@ -104,9 +92,7 @@ function sourcesFor(connections: Connections): SnapshotSources<CatalogProfile> {
 }
 
 // Seeding only acts on an empty table, so each test owns a database.
-async function emptyDatabase<T>(
-  run: (db: NodePgDatabase<typeof schema>) => Promise<T>,
-): Promise<T> {
+async function emptyDatabase<T>(run: (db: Database) => Promise<T>): Promise<T> {
   const database = await createTempDatabase({ prefix: "profile_seed_it" });
   const pool = new Pool({ connectionString: database.url, max: 4 });
   try {
@@ -117,54 +103,38 @@ async function emptyDatabase<T>(
   }
 }
 
-const dump = (db: NodePgDatabase<typeof schema>) =>
+const dump = (db: Database) =>
   db.select().from(installationProfiles).orderBy(asc(installationProfiles.id));
 
-async function shipped(dir: string) {
-  const path = join(DEFAULT_CONFIG_DIR, dir);
-  const config = await readCatalogConfig(path);
-  return {
-    path,
-    config,
-    seed: await readSeedProfiles(path, config),
-    connections: await readConnections(path),
-  };
+async function fixture(name: string) {
+  const document = await Bun.file(
+    join(import.meta.dir, `../../../../tests/fixtures/settings/${name}.json`),
+  ).json();
+  const { entries, profiles } = parseSeedDocument(document);
+  if (profiles === null) throw new Error(`${name} seeds no ceiling`);
+  return { document, entries, profiles };
 }
 
-async function editableCopy(dir: string): Promise<string> {
-  const copy = await mkdtemp(join(tmpdir(), "profile-seed-"));
-  await cp(join(DEFAULT_CONFIG_DIR, dir), copy, { recursive: true });
-  return copy;
-}
-
-integration("profiles.yaml seeding an empty PostgreSQL", () => {
-  for (const dir of CATALOGS) {
-    test(`${dir}: the seeded database gives the YAML's profiles, pins, revision and repositories`, async () => {
+integration("a settings document seeding an empty PostgreSQL", () => {
+  for (const name of FIXTURES) {
+    test(`${name}: the seeded database gives the document's profiles, pins and repositories`, async () => {
       await emptyDatabase(async (db) => {
-        const { path, config, seed, connections } = await shipped(dir);
+        const { document, entries, profiles } = await fixture(name);
         // What the YAML-only image (main 9afaf942) resolves.
         const stageZero = resolveSessionCatalog(
-          { ...config, profiles: seed },
+          { repositories: entries.repositories, profiles },
           () => PLACEHOLDER,
         );
+        await seedSettings(db, document);
         const store = createPostgresInstallationProfileStore(db);
-        const result = await seedCatalogProfiles(
-          store,
-          { dir: path, config },
-          quiet,
-        );
-        expect(result).toEqual({
-          seeded: Object.keys(seed).sort(),
-          migrated: [],
-        });
         const fromDatabase = installationProfileSnapshot(
-          sourcesFor(connections),
+          sourcesFor(entries.connections),
           await store.listAll(),
         );
         expect(fromDatabase.profiles).toEqual(stageZero.profiles);
         for (const [id, profile] of Object.entries(stageZero.profiles)) {
           const stored = fromDatabase.profiles[id];
-          if (!stored) throw new Error(`${dir}: no ${id}`);
+          if (!stored) throw new Error(`${name}: no ${id}`);
           expect(profilePins(stored, [])).toEqual(profilePins(profile, []));
           expect(profileModels(stored)).toEqual(profileModels(profile));
           expect(profileFingerprint(stored)).toBe(profileFingerprint(profile));
@@ -200,24 +170,18 @@ integration("profiles.yaml seeding an empty PostgreSQL", () => {
             ),
           ).toBe("usable");
         }
-        for (const [id, digest] of Object.entries(ON_MAIN[dir] ?? {})) {
+        for (const [id, digest] of Object.entries(ON_MAIN[name] ?? {})) {
           const stored = fromDatabase.profiles[id];
-          if (!stored) throw new Error(`${dir}: no ${id}`);
+          if (!stored) throw new Error(`${name}: no ${id}`);
           expect(profilePinned(stored, digest, [])).toBe(true);
         }
-        expect(
-          catalogRevision({
-            ...fromDatabase,
-            repositories: stageZero.repositories,
-          }),
-        ).toBe(catalogRevision(stageZero));
         const catalog = {
           ...stageZero,
           profiles: fromDatabase.profiles,
           installation: fromDatabase.installation,
         };
         for (const [repositoryId, repository] of Object.entries(
-          config.repositories,
+          entries.repositories,
         )) {
           for (const profileId of repository.profiles ?? []) {
             if (!stageZero.profiles[profileId]) continue;
@@ -228,85 +192,66 @@ integration("profiles.yaml seeding an empty PostgreSQL", () => {
     }, 60_000);
   }
 
-  test("a populated database ignores later YAML: new ids, edited entries, moved repositories, a broken file", async () => {
+  test("a populated table ignores a later seed: new ids, edited entries, moved repositories", async () => {
     await emptyDatabase(async (db) => {
-      const copy = await editableCopy("fake-model");
-      try {
-        const store = createPostgresInstallationProfileStore(db);
-        const config = await readCatalogConfig(copy);
-        await seedCatalogProfiles(store, { dir: copy, config }, quiet);
-        const before = await dump(db);
-        await writeFile(join(copy, PROFILES_FILE), "profiles: [broken\n");
-        const moved: SessionCatalogConfig = {
-          ...config,
-          repositories: Object.fromEntries(
-            Object.entries(config.repositories).map(([id, repository]) => [
+      const { document, entries, profiles } = await fixture("fake-model");
+      const store = createPostgresInstallationProfileStore(db);
+      await seedSettings(db, document);
+      const before = await dump(db);
+      const edited = Object.fromEntries(
+        Object.entries(profiles).map(([id, profile]) => [
+          `${id}-edited`,
+          { ...profile, model: "claude-opus-5-5" },
+        ]),
+      );
+      const again = await store.seedCatalog({
+        entries: async () => catalogImports({ ...profiles, ...edited }),
+        repositoryIdsOf: catalogRepositoryIds(
+          Object.fromEntries(
+            Object.entries(entries.repositories).map(([id, repository]) => [
               id,
               { ...repository, profiles: [] },
             ]),
           ),
-        };
-        const again = await seedCatalogProfiles(
-          store,
-          { dir: copy, config: moved },
-          quiet,
-        );
-        expect(again).toEqual({ seeded: [], migrated: [] });
-        const after = await dump(db);
-        console.log(
-          `populated seed: ${before.length} rows, then ${after.length}; equal=${JSON.stringify(before) === JSON.stringify(after)}`,
-        );
-        expect(after).toEqual(before);
-      } finally {
-        await rm(copy, { recursive: true, force: true });
-      }
+        ),
+      });
+      expect(again).toEqual({ seeded: [], migrated: [] });
+      expect(await dump(db)).toEqual(before);
     });
   }, 60_000);
 
-  test("an empty database with a profiles.yaml that does not parse refuses to seed", async () => {
+  test("a populated table is not read for a seed: a broken one writes nothing", async () => {
     await emptyDatabase(async (db) => {
-      const copy = await editableCopy("fake-model");
-      try {
-        await writeFile(join(copy, PROFILES_FILE), "profiles: [broken\n");
-        const config = await readCatalogConfig(copy);
-        const store = createPostgresInstallationProfileStore(db);
-        const refused = await seedCatalogProfiles(
-          store,
-          { dir: copy, config },
-          quiet,
-        ).then(
-          () => null,
-          (error: unknown) => error,
-        );
-        expect(refused).toBeInstanceOf(SeedProfilesError);
-        expect(await dump(db)).toEqual([]);
-      } finally {
-        await rm(copy, { recursive: true, force: true });
-      }
+      const { document } = await fixture("fake-model");
+      await seedSettings(db, document);
+      const before = await dump(db);
+      const again = await createPostgresInstallationProfileStore(
+        db,
+      ).seedCatalog({
+        entries: async () => {
+          throw new Error("the seed was read");
+        },
+        repositoryIdsOf: () => [],
+      });
+      expect(again).toEqual({ seeded: [], migrated: [] });
+      expect(await dump(db)).toEqual(before);
     });
   }, 60_000);
 
-  test("a restarted replica reads the same rows, profiles and revision", async () => {
+  test("a restarted replica reads the same rows and profiles", async () => {
     await emptyDatabase(async (db) => {
-      const { path, config, connections } = await shipped("fake-model");
+      const { document, entries } = await fixture("fake-model");
       const store = createPostgresInstallationProfileStore(db);
+      await seedSettings(db, document);
       const boot = async () => {
-        await seedCatalogProfiles(store, { dir: path, config }, quiet);
         const registry = createProfileRegistry({
           workspaces: schema.createPostgresWorkspaceProfileStore(db),
           installations: store,
-          sources: sourcesFor(connections),
+          sources: sourcesFor(entries.connections),
         });
         await registry.refresh();
-        const catalog = profileCatalog(
-          resolveSessionCatalog(config, () => PLACEHOLDER),
-          registry,
-        );
-        return {
-          rows: await dump(db),
-          profiles: catalog.profiles,
-          revision: catalogRevision(catalog),
-        };
+        const catalog = profileCatalog({ repositories: {} }, registry);
+        return { rows: await dump(db), profiles: catalog.profiles };
       };
       const first = await boot();
       const second = await boot();
@@ -317,16 +262,10 @@ integration("profiles.yaml seeding an empty PostgreSQL", () => {
 
   test("the slack role leaves a bypass ceiling out while the switch is off", async () => {
     await emptyDatabase(async (db) => {
-      const { path, config, connections } = await shipped(
-        "fake-model-unattended",
-      );
-      await seedCatalogProfiles(
-        createPostgresInstallationProfileStore(db),
-        { dir: path, config },
-        quiet,
-      );
-      const off = slackProfileCatalog(db, config, connections, {});
-      const on = slackProfileCatalog(db, config, connections, {
+      const { document } = await fixture("fake-model-unattended");
+      await seedSettings(db, document);
+      const off = slackProfileCatalog(db, {});
+      const on = slackProfileCatalog(db, {
         [ALLOW_UNATTENDED_SETTING]: "true",
       });
       await Promise.all([
@@ -345,24 +284,4 @@ integration("profiles.yaml seeding an empty PostgreSQL", () => {
       expect(catalogProfile(off, "claude-coding-auto")).toBeDefined();
     });
   }, 60_000);
-});
-
-test("connections-from-yaml writes a file every profile's provider is a connection in", async () => {
-  const config = await readCatalogConfig(DEFAULT_CONFIG_DIR);
-  const seed = await readSeedProfiles(DEFAULT_CONFIG_DIR, config);
-  const dir = await mkdtemp(join(tmpdir(), "connections-"));
-  try {
-    await writeFile(join(dir, CONNECTIONS_FILE), connectionsFromProfiles(seed));
-    const snapshot = installationProfileSnapshot(
-      sourcesFor(await readConnections(dir)),
-      catalogRows(seed),
-    );
-    expect(
-      [...snapshot.installation.values()].every(
-        (entry) => entry.state === "usable",
-      ),
-    ).toBe(true);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 });

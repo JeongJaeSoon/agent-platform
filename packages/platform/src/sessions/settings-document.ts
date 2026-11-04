@@ -9,6 +9,7 @@ import {
   catalogConnectionsSchema,
   describeConfigError,
   isRegisteredGitHubApp,
+  type SessionCatalogConfig,
   type StoredOwnerKind,
   sessionCatalogConfigSchema,
 } from "./catalog.ts";
@@ -129,6 +130,35 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
     repositories: catalog.data.repositories,
     mcp_servers: catalog.data.mcp_servers ?? {},
   };
+}
+
+export type SeedDocument = {
+  entries: SettingsEntries;
+  /** Ceilings for an empty installation; null when the document has none. */
+  profiles: SessionCatalogConfig["profiles"] | null;
+};
+
+/**
+ * A document as the operator's CLI takes it: `profiles` is an initial seed
+ * for fixture stacks, neither part of what the API imports nor anything
+ * export gives back (S4, settings-replace-file-catalog.md §6).
+ */
+export function parseSeedDocument(input: unknown): SeedDocument {
+  if (!isObject(input) || !Object.hasOwn(input, "profiles")) {
+    return { entries: parseSettingsDocument(input), profiles: null };
+  }
+  const { profiles, ...document } = input;
+  const entries = parseSettingsDocument(document);
+  const seed = sessionCatalogConfigSchema.safeParse({
+    profiles,
+    repositories: entries.repositories,
+  });
+  if (!seed.success) {
+    throw new SettingsDocumentError(
+      `The settings document is invalid: ${describeConfigError(seed.error)}`,
+    );
+  }
+  return { entries, profiles: seed.data.profiles };
 }
 
 function exported(
@@ -288,6 +318,13 @@ export type SettingsImportPlan = {
   refused_external: string[];
 };
 
+// A repository's `profiles` only seeds ceilings, so it is no part of the row.
+const withoutSeed = (entry: unknown) => {
+  if (!isObject(entry)) return entry;
+  const { profiles: _seed, ...kept } = entry;
+  return kept;
+};
+
 const sameEntry = (a: unknown, b: unknown) =>
   canonicalJsonOfJson(a) === canonicalJsonOfJson(b);
 
@@ -321,7 +358,11 @@ export function planSettingsImport(
       const source = credentialSourceOf(entry);
       const row = rows.get(id);
       if (row !== undefined) {
-        if (!sameEntry(row.entry, entry)) {
+        const same =
+          kind === "repository"
+            ? sameEntry(withoutSeed(row.entry), withoutSeed(entry))
+            : sameEntry(row.entry, entry);
+        if (!same) {
           plan.conflicts.push(ref);
           continue;
         }

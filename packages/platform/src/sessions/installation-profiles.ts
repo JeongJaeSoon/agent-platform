@@ -82,8 +82,8 @@ export function createInstallationProfileService(deps: {
   store: Pick<InstallationProfileStore, "create" | "retire" | "setBlocked">;
   catalog: SessionCatalogView & { workspace_profiles: WorkspaceProfiles };
   /**
-   * As last read: the operator's file and the installation settings, which
-   * may gain one between two requests.
+   * As last read: the installation settings, which may gain one between two
+   * requests.
    */
   connections: () => Connections;
   allowUnattended: boolean;

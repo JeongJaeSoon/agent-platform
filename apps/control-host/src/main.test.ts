@@ -111,27 +111,14 @@ describe("control host executable", () => {
   test(
     "slack --once passes the startup gate the loop does",
     async () => {
-      const dir = await mkdtemp(join(tmpdir(), "slack-once-"));
-      try {
-        await writeFile(
-          join(dir, "repositories.yaml"),
-          `repositories:
-  sample-app:
-    url: http://gitea:3000/agent/sample-app.git
-    branch: main
-    profiles: [coding]
-`,
-        );
-        // The unused address shows the gate refuses before any connection.
-        const once = await run(["slack", "--once"], {
-          DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
-          PLATFORM_CONFIG_DIR: dir,
-        });
-        expect(once.exitCode).not.toBe(0);
-        expect(once.stderr).toContain("connections.yaml is missing");
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
+      // The unused address shows the gate refuses before any connection.
+      const once = await run(["slack", "--once"], {
+        DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+        PLATFORM_SECRET_KEY: "ab".repeat(32),
+        PLATFORM_CONFIG_DIR: "/config",
+      });
+      expect(once.exitCode).not.toBe(0);
+      expect(once.stderr).toContain("PLATFORM_CONFIG_DIR no longer read");
     },
     TIMEOUT_MS,
   );

@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
+  type InstallationProfileRecord,
+  type InstallationProfileStore,
   parseSettingsDocument,
   type SettingsDocumentStore,
   type SettingsEntries,
@@ -14,10 +16,66 @@ import {
   runSettingsCommand,
 } from "./settings.ts";
 
-const FAKE_MODEL_DIR = resolve(
-  import.meta.dir,
-  "../../../../config/fake-model",
-);
+const OLD_CATALOG = {
+  "connections.yaml": `connections:
+  fake-messages:
+    kind: anthropic
+    endpoint: http://fake-messages:4010
+    auth:
+      kind: api_key
+      secret_id: agent-platform/local/fake-messages
+`,
+  "repositories.yaml": `repositories:
+  sample-app:
+    url: http://gitea:3000/agent/sample-app.git
+    branch: main
+    profiles: [coding]
+  bare:
+    url: http://gitea:3000/agent/bare.git
+    branch: main
+`,
+  "mcp-servers.yaml": `mcp_servers:
+  fake:
+    url: http://fake-mcp:4020/mcp
+    credential_ref: mcp/fake
+    auth:
+      kind: bearer
+      secret_id: agent-platform/local/fake-mcp
+    workspaces: [verify]
+`,
+  "profiles.yaml": `profiles:
+  coding:
+    runtime_kind: claude_agent_sdk
+    runtime_version: "0.3.270"
+    model: claude-sonnet-5
+    tools: [Read]
+    permission_mode: default
+    provider:
+      kind: anthropic
+      endpoint: http://fake-messages:4010
+      auth:
+        kind: api_key
+        secret_id: agent-platform/local/fake-messages
+`,
+  "platform.yaml": `secret_key:
+  value_env: UNREAD
+`,
+};
+
+let root: string;
+let oldCatalog: string;
+
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), "settings-cli-"));
+  oldCatalog = join(root, "catalog");
+  await mkdir(oldCatalog);
+  for (const [name, text] of Object.entries(OLD_CATALOG)) {
+    await writeFile(join(oldCatalog, name), text);
+  }
+});
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true });
+});
 
 const PLAN = {
   add: [],
@@ -54,6 +112,20 @@ function fakeStore(result: SettingsImportResult) {
   return { store, asked };
 }
 
+function fakeProfiles(rows: InstallationProfileRecord[] = []) {
+  const seeded: Array<Parameters<InstallationProfileStore["seedCatalog"]>[0]> =
+    [];
+  const store: Pick<InstallationProfileStore, "listAll" | "seedCatalog"> = {
+    listAll: async () => rows,
+    seedCatalog: async (seed) => {
+      seeded.push(seed);
+      const entries = await seed.entries();
+      return { seeded: entries.map((entry) => entry.id), migrated: [] };
+    },
+  };
+  return { store, seeded };
+}
+
 function captured() {
   const out: string[] = [];
   const err: string[] = [];
@@ -81,8 +153,18 @@ describe("settings CLI arguments", () => {
       parseSettingsCommand(["import", "--from-dir", "/app/config"]),
     ).toEqual({
       command: "import",
-      source: { dir: "/app/config" },
+      source: { dir: "/app/config", ifPresent: false },
       dryRun: false,
+    });
+    expect(
+      parseSettingsCommand([
+        "import",
+        "--from-dir",
+        "/legacy-config",
+        "--if-present",
+      ]),
+    ).toMatchObject({
+      source: { dir: "/legacy-config", ifPresent: true },
     });
   });
 
@@ -94,6 +176,8 @@ describe("settings CLI arguments", () => {
       ["export", "extra"],
       ["apply"],
       ["import", "--document", "a", "--force"],
+      ["import", "--document", "a", "--if-present"],
+      ["export", "--if-present"],
     ]) {
       expect(() => parseSettingsCommand(argv)).toThrow("Usage:");
     }
@@ -102,33 +186,40 @@ describe("settings CLI arguments", () => {
 
 describe("settings CLI", () => {
   test("--from-dir turns the old files into the document, the fake-messages connection included, and says what it leaves out", async () => {
-    const { document, notes } = await documentFromDir(FAKE_MODEL_DIR);
+    const { document, profiles, notes } = await documentFromDir(oldCatalog);
     const entries = parseSettingsDocument(document);
     expect(Object.keys(entries.connections)).toEqual(["fake-messages"]);
     expect(entries.connections["fake-messages"]).toMatchObject({
       kind: "anthropic",
       endpoint: "http://fake-messages:4010",
     });
-    expect(Object.keys(entries.repositories)).toEqual(["sample-app"]);
+    expect(Object.keys(entries.repositories).sort()).toEqual([
+      "bare",
+      "sample-app",
+    ]);
     expect(Object.keys(entries.mcp_servers)).toEqual(["fake"]);
     expect(notes).toEqual([
-      expect.stringContaining(
-        "profiles.yaml is not part of the settings document",
-      ),
+      "platform.yaml is not imported: set the master key in PLATFORM_SECRET_KEY",
     ]);
     expect(document).not.toHaveProperty("profiles");
+    expect(Object.keys(profiles)).toEqual(["coding"]);
   });
 
-  test("import --from-dir hands the operator's import every entry, external references allowed", async () => {
+  test("import --from-dir hands the operator's import every entry, external references allowed, and seeds its ceilings", async () => {
     const { store, asked } = fakeStore({
       ...PLAN,
       outcome: "applied",
       receipt_ids: [],
     });
-    const { output, err } = captured();
+    const { store: profiles, seeded } = fakeProfiles();
+    const { output, out, err } = captured();
     const ok = await runSettingsCommand(
-      { command: "import", source: { dir: FAKE_MODEL_DIR }, dryRun: false },
-      store,
+      {
+        command: "import",
+        source: { dir: oldCatalog, ifPresent: false },
+        dryRun: false,
+      },
+      { settings: store, profiles },
       output,
     );
     expect(ok).toBe(true);
@@ -141,12 +232,125 @@ describe("settings CLI", () => {
       allowExternal: true,
       actor: null,
     });
-    expect(err.some((line) => line.includes("profiles.yaml"))).toBe(true);
+    expect(err.some((line) => line.includes("platform.yaml"))).toBe(true);
+    expect(seeded[0]?.repositoryIdsOf("coding")).toEqual(["sample-app"]);
+    expect(JSON.parse(out.join("\n")).profiles).toEqual({
+      seed: ["coding"],
+      fill: [],
+      unfilled: [],
+    });
   });
 
-  test("a refused import exits non-zero and names the conflicts", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "settings-cli-"));
-    const path = join(dir, "settings.json");
+  test("--if-present skips a missing or empty directory, and only that", async () => {
+    const { store, asked } = fakeStore({
+      ...PLAN,
+      outcome: "applied",
+      receipt_ids: [],
+    });
+    const { store: profiles, seeded } = fakeProfiles();
+    const empty = join(root, "empty");
+    await mkdir(empty, { recursive: true });
+    for (const dir of [empty, join(root, "absent")]) {
+      const { output, err } = captured();
+      expect(
+        await runSettingsCommand(
+          {
+            command: "import",
+            source: { dir, ifPresent: true },
+            dryRun: false,
+          },
+          { settings: store, profiles },
+          output,
+        ),
+      ).toBe(true);
+      expect(err).toEqual([`nothing to import from ${dir}`]);
+    }
+    expect(asked).toEqual([]);
+    expect(seeded).toEqual([]);
+
+    const partial = join(root, "partial");
+    await mkdir(partial, { recursive: true });
+    await writeFile(
+      join(partial, "repositories.yaml"),
+      OLD_CATALOG["repositories.yaml"],
+    );
+    await expect(
+      runSettingsCommand(
+        {
+          command: "import",
+          source: { dir: partial, ifPresent: true },
+          dryRun: false,
+        },
+        { settings: store, profiles },
+        captured().output,
+      ),
+    ).rejects.toThrow("connections.yaml is missing");
+    expect(asked).toEqual([]);
+  });
+
+  test("a dry run reports the ceilings without seeding them", async () => {
+    const { store } = fakeStore({
+      ...PLAN,
+      outcome: "dry_run",
+      receipt_ids: [],
+    });
+    const older = {
+      id: "older",
+      repository_ids: null,
+    } as InstallationProfileRecord;
+    const coding = { id: "coding", repository_ids: null };
+    for (const [rows, report] of [
+      [[], { seed: ["coding"], fill: [], unfilled: [] }],
+      [
+        [older, coding as InstallationProfileRecord],
+        { seed: [], fill: ["older", "coding"], unfilled: ["older"] },
+      ],
+    ] as const) {
+      const { store: profiles, seeded } = fakeProfiles([...rows]);
+      const { output, out } = captured();
+      await runSettingsCommand(
+        {
+          command: "import",
+          source: { dir: oldCatalog, ifPresent: false },
+          dryRun: true,
+        },
+        { settings: store, profiles },
+        output,
+      );
+      expect(JSON.parse(out.join("\n")).profiles).toEqual(report);
+      expect(seeded).toEqual([]);
+    }
+  });
+
+  test("a document's profiles key is the CLI's seed; without one no ceiling is touched", async () => {
+    const { store } = fakeStore({
+      ...PLAN,
+      outcome: "applied",
+      receipt_ids: [],
+    });
+    const { store: profiles, seeded } = fakeProfiles();
+    const path = join(root, "no-seed.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        connections: {},
+        repositories: {},
+        mcp_servers: {},
+      }),
+    );
+    const { output, out } = captured();
+    await runSettingsCommand(
+      { command: "import", source: { document: path }, dryRun: false },
+      { settings: store, profiles },
+      output,
+    );
+    expect(seeded).toEqual([]);
+    expect(JSON.parse(out.join("\n"))).not.toHaveProperty("profiles");
+  });
+
+  test("a refused import exits non-zero, names the conflicts and seeds nothing", async () => {
+    const path = join(root, "settings.json");
     await writeFile(
       path,
       JSON.stringify({
@@ -164,13 +368,15 @@ describe("settings CLI", () => {
       outcome: "refused",
       receipt_ids: [],
     });
+    const { store: profiles, seeded } = fakeProfiles();
     const { output, err, out } = captured();
     const ok = await runSettingsCommand(
       { command: "import", source: { document: path }, dryRun: true },
-      store,
+      { settings: store, profiles },
       output,
-    ).finally(() => rm(dir, { recursive: true, force: true }));
+    );
     expect(ok).toBe(false);
+    expect(seeded).toEqual([]);
     expect(asked[0]?.[1].dryRun).toBe(true);
     expect(JSON.parse(out.join("\n")).conflicts).toEqual(["repository:open"]);
     expect(err.join("\n")).toContain("repository:open");
@@ -183,9 +389,13 @@ describe("settings CLI", () => {
       receipt_ids: [],
     });
     const { output, out, err } = captured();
-    expect(await runSettingsCommand({ command: "export" }, store, output)).toBe(
-      true,
-    );
+    expect(
+      await runSettingsCommand(
+        { command: "export" },
+        { settings: store, profiles: fakeProfiles().store },
+        output,
+      ),
+    ).toBe(true);
     const document = JSON.parse(out.join("\n"));
     expect(document.connections.main.auth).toEqual({
       kind: "api_key",

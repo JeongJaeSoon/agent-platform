@@ -71,8 +71,8 @@ export const installationProfileStateSchema = z.enum([
 ]);
 
 /**
- * `catalog`: imported from `profiles.yaml` under its YAML id. `console`: a
- * named version an operator made, `op_<name>_v<n>`.
+ * `catalog`: seeded under a plain id (the settings CLI, or the old file
+ * catalog). `console`: a named version an operator made, `op_<name>_v<n>`.
  */
 export const installationProfileOriginSchema = z.enum(["catalog", "console"]);
 

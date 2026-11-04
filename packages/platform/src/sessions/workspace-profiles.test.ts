@@ -17,7 +17,6 @@ import {
   allowedRun,
   type CatalogProfile,
   catalogProfile,
-  catalogRevision,
   narrowingRefusal,
   profileFingerprint,
   refreshWorkspaceProfilesFor,
@@ -225,12 +224,6 @@ describe("a workspace version in the catalog", () => {
       workspaceProfileRefusal(catalog, WORKSPACE, "ws_acme_strict_v9")?.state,
     ).toBe("unknown");
     expect(workspaceProfileRefusal(catalog, WORKSPACE, "coding")).toBeNull();
-  });
-
-  test("leaves the catalog revision as the operator's file alone makes it", () => {
-    const without = catalogWith([]);
-    const withVersions = catalogWith([version(), version({ id: "ws_x_y_v1" })]);
-    expect(catalogRevision(withVersions)).toBe(catalogRevision(without));
   });
 
   test("an operator profile id in the workspace prefix is refused at load", () => {

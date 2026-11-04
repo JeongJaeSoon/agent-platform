@@ -1,334 +1,196 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   catalogRows,
   installationProfileSnapshot,
+  parseSeedDocument,
   profileFingerprint,
   profilePinned,
   repositoryModeOf,
   resolveSessionCatalog,
+  type SessionCatalogConfig,
 } from "@werft-ai/platform";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { settingsDocument } from "../test-support/settings.ts";
 import {
   ALLOW_UNATTENDED_SETTING,
-  CONNECTIONS_FILE,
-  DEFAULT_CONFIG_DIR,
   installedRuntimes,
-  loadProfileSources,
-  loadSessionCatalog,
+  loadSecretKey,
   optInProfiles,
-  PROFILES_FILE,
+  profileSources,
   profileViewSources,
-  REPOSITORIES_FILE,
-  readCatalogConfig,
-  readConnections,
-  readSeedProfiles,
+  refuseFileCatalog,
   runtimeVersionsFromEnv,
-  type SecretReader,
+  SECRET_KEY_SETTING,
+  unattendedAllowed,
   unattendedProfiles,
 } from "./catalog-config.ts";
-import { connectionsFromProfiles } from "./profile-import.ts";
 
-// The directory's catalog with its profiles.yaml read as the seed.
-async function readCatalog(dir: string) {
-  const config = await readCatalogConfig(dir);
-  return { ...config, profiles: await readSeedProfiles(dir, config) };
+const REPO_ROOT = join(import.meta.dir, "../../../..");
+const FIXTURES = {
+  "real-model": "tests/fixtures/settings/real-model.json",
+  "fake-model": "tests/fixtures/settings/fake-model.json",
+  "local-model": "tests/fixtures/settings/local-model.json",
+  "fake-model-unattended": "tests/fixtures/settings/fake-model-unattended.json",
+  "d2-gate": "scripts/d2-gate/settings.json",
+} as const;
+type Fixture = keyof typeof FIXTURES;
+const EXAMPLES = Object.keys(FIXTURES).filter(
+  (name) => name !== "d2-gate",
+) as Fixture[];
+
+async function fixture(name: Fixture) {
+  const { entries, profiles } = parseSeedDocument(
+    await Bun.file(join(REPO_ROOT, FIXTURES[name])).json(),
+  );
+  if (profiles === null) throw new Error(`${name} seeds no ceiling`);
+  return { entries, profiles, repositories: entries.repositories };
 }
 
-const PROFILES = `profiles:
-  claude-coding-v1:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read, Edit]
-    permission_mode: default
-    provider:
+const resolved = (config: Pick<SessionCatalogConfig, "profiles">) =>
+  resolveSessionCatalog(
+    { profiles: config.profiles, repositories: {} },
+    () => "placeholder-credential-value",
+  );
+
+const PROVIDER = `    provider:
       kind: anthropic
       endpoint: https://api.anthropic.invalid
       auth:
         kind: api_key
         value_env: PROVIDER_KEY
-  from-secrets:
-    runtime_kind: claude_agent_sdk
+`;
+const profile = (
+  id: string,
+  mode: string,
+  kind = "claude_agent_sdk",
+) => `  ${id}:
+    runtime_kind: ${kind}
     runtime_version: "0.3.270"
     model: claude-sonnet-5
     tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.invalid
-      auth:
-        kind: api_key
-        secret_id: agent-platform/provider
-`;
-const REPOSITORIES = `repositories:
-  sample-app:
-    url: http://gitea:3000/agent/sample-app.git
-    branch: main
-    profiles: [claude-coding-v1, from-secrets]
-`;
-const SECRET_VALUE = "value-from-secrets-manager";
-const ENV_VALUE = "value-from-environment";
+    permission_mode: ${mode}
+    repository: none
+${PROVIDER}`;
+const seedWith = (other: string) =>
+  parseSeedDocument(
+    settingsDocument(
+      `profiles:\n${profile("steady", "default")}${other}`,
+      `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: PROVIDER_KEY
+`,
+    ),
+  );
 
-let root: string;
-let count = 0;
-
-beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "catalog-config-"));
-});
-afterAll(async () => {
-  await rm(root, { recursive: true, force: true });
-});
-
-async function dirWith(
-  files: Partial<Record<string, string>> = {},
-): Promise<string> {
-  const dir = join(root, String(count++));
-  const contents: Record<string, string | undefined> = {
-    [PROFILES_FILE]: PROFILES,
-    [REPOSITORIES_FILE]: REPOSITORIES,
-    ...files,
-  };
-  await Bun.write(join(dir, ".keep"), "");
-  // The connections the shared profiles name, unless the test writes its own.
-  if (!Object.hasOwn(files, CONNECTIONS_FILE)) {
-    contents[CONNECTIONS_FILE] = connectionsFromProfiles(
-      parseYaml(PROFILES).profiles,
-    );
-  }
-  for (const [name, text] of Object.entries(contents)) {
-    if (text !== undefined) await writeFile(join(dir, name), text);
-  }
-  return dir;
+/** The api's snapshot of `seed`: its credentials stand in for the database's. */
+function apiSnapshot(
+  seed: ReturnType<typeof seedWith>,
+  env: Record<string, string>,
+) {
+  const sources = profileSources(env);
+  return installationProfileSnapshot(
+    {
+      ...sources,
+      connections: seed.entries.connections,
+      materialize: (id, definition) =>
+        sources.materialize(id, definition, () => "placeholder"),
+    },
+    catalogRows(seed.profiles ?? {}, seed.entries.repositories),
+  );
 }
 
-const secrets: SecretReader = async (id) =>
-  id === "agent-platform/provider" ? SECRET_VALUE : undefined;
-
-async function failure(promise: Promise<unknown>): Promise<string> {
-  try {
-    await promise;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  throw new Error("expected the load to fail");
-}
-
-describe("loadSessionCatalog", () => {
-  test("resolves both kinds of reference and keeps where each came from", async () => {
-    const catalog = await loadSessionCatalog({
-      dir: await dirWith(),
-      env: { PROVIDER_KEY: ENV_VALUE },
-      readSecret: secrets,
-    });
-    expect(catalog.profiles["claude-coding-v1"]?.provider.auth).toEqual({
-      kind: "api_key",
-      value: ENV_VALUE,
-      ref: { value_env: "PROVIDER_KEY" },
-    });
-    expect(catalog.profiles["from-secrets"]?.provider.auth).toEqual({
-      kind: "api_key",
-      value: SECRET_VALUE,
-      ref: { secret_id: "agent-platform/provider" },
-    });
-    expect(catalog.repositories["sample-app"]?.profiles).toEqual([
-      "claude-coding-v1",
-      "from-secrets",
-    ]);
+describe("what no longer starts", () => {
+  test("a leftover file catalog is refused with the way out, until it is unset", () => {
+    for (const name of ["PLATFORM_CONFIG_DIR", "SESSION_CATALOG_JSON"]) {
+      expect(() => refuseFileCatalog({ [name]: "x" })).toThrow(
+        `${name} no longer read: finish the import with \`bun run settings import --from-dir <dir>\``,
+      );
+    }
+    expect(() =>
+      refuseFileCatalog({
+        PLATFORM_CONFIG_DIR: "/c",
+        SESSION_CATALOG_JSON: "{}",
+      }),
+    ).toThrow("then unset them");
+    // Compose passes an unset variable through as empty.
+    expect(() =>
+      refuseFileCatalog({ PLATFORM_CONFIG_DIR: "", SESSION_CATALOG_JSON: "" }),
+    ).not.toThrow();
+    expect(() => refuseFileCatalog({})).not.toThrow();
   });
 
-  test("reads each secret once however many profiles share it", async () => {
-    const reads: string[] = [];
-    const twice = PROFILES.replace(
-      "value_env: PROVIDER_KEY",
-      "secret_id: agent-platform/provider",
-    );
-    const provider = parseYaml(twice).profiles["claude-coding-v1"].provider;
-    const connections = stringifyYaml({
-      connections: {
-        a: provider,
-        b: { ...provider, endpoint: "https://elsewhere.invalid" },
-      },
-    });
-    await loadSessionCatalog({
-      dir: await dirWith({
-        [PROFILES_FILE]: twice,
-        [CONNECTIONS_FILE]: connections,
-      }),
-      env: {},
-      readSecret: async (id) => {
-        reads.push(id);
-        return SECRET_VALUE;
-      },
-    });
-    expect(reads).toEqual(["agent-platform/provider"]);
-  });
-
-  test("a missing or unreadable secret names the profile and the reference, never a value", async () => {
-    const missing = await failure(
-      loadSessionCatalog({
-        dir: await dirWith(),
-        env: { PROVIDER_KEY: ENV_VALUE },
-        readSecret: async () => undefined,
-      }),
-    );
-    expect(missing).toBe(
-      "connections.from-secrets.auth.secret_id: agent-platform/provider is not set",
-    );
-    const thrown = await failure(
-      loadSessionCatalog({
-        dir: await dirWith(),
-        env: { PROVIDER_KEY: ENV_VALUE },
-        readSecret: async () => {
-          const error = new Error(`denied while reading ${SECRET_VALUE}`);
-          error.name = "AccessDeniedException";
-          throw error;
-        },
-      }),
-    );
-    expect(thrown).toBe(
-      "connections.from-secrets.auth.secret_id: agent-platform/provider could not be read (AccessDeniedException)",
-    );
-    expect(thrown).not.toContain(SECRET_VALUE);
-  });
-
-  test("an unreadable secret names the endpoint it was read from", async () => {
-    const thrown = await failure(
-      loadSessionCatalog({
-        dir: await dirWith(),
-        env: {
-          PROVIDER_KEY: ENV_VALUE,
-          AWS_ENDPOINT_URL_SECRETS_MANAGER: "http://secrets:4566",
-        },
-        readSecret: async () => {
-          const error = new Error("getaddrinfo ENOTFOUND secrets");
-          error.name = "DNSException";
-          throw error;
-        },
-      }),
-    );
-    expect(thrown).toBe(
-      "connections.from-secrets.auth.secret_id: agent-platform/provider could not be read from http://secrets:4566 (DNSException)",
-    );
-  });
-
-  test("an empty environment value is not a credential", async () => {
+  test("a missing or empty master key is refused, a bad one without its value", () => {
+    for (const env of [{}, { [SECRET_KEY_SETTING]: "" }]) {
+      expect(() => loadSecretKey(env)).toThrow(
+        `${SECRET_KEY_SETTING} is required`,
+      );
+    }
+    let message = "";
+    try {
+      loadSecretKey({ [SECRET_KEY_SETTING]: "not-hex-value" });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain(SECRET_KEY_SETTING);
+    expect(message).not.toContain("not-hex-value");
     expect(
-      await failure(
-        loadSessionCatalog({
-          dir: await dirWith(),
-          env: { PROVIDER_KEY: "" },
-          readSecret: secrets,
-        }),
-      ),
-    ).toBe(
-      "connections.claude-coding-v1.auth.value_env: PROVIDER_KEY is not set",
-    );
-  });
-
-  test("refuses to start while the retired SESSION_CATALOG_JSON is still set", async () => {
-    expect(
-      await failure(
-        loadSessionCatalog({
-          dir: await dirWith(),
-          env: { PROVIDER_KEY: ENV_VALUE, SESSION_CATALOG_JSON: "{}" },
-          readSecret: secrets,
-        }),
-      ),
-    ).toContain("SESSION_CATALOG_JSON is no longer read");
+      loadSecretKey({ [SECRET_KEY_SETTING]: "ab".repeat(32) }),
+    ).toBeDefined();
   });
 });
 
 describe("unattended permission modes", () => {
-  const bypass = PROFILES.replace(
-    "tools: [Read]\n    permission_mode: default",
-    "tools: [Read]\n    permission_mode: bypassPermissions",
-  );
-
-  // A row in the database must not stop the API, so the YAML's own entry
-  // is left out the same way: the rest of the catalog still runs.
-  test("a profile that skips approval is left out until the installation allows it", async () => {
-    expect(bypass).not.toBe(PROFILES);
-    const dir = await dirWith({ [PROFILES_FILE]: bypass });
-    const { config, sources } = await loadProfileSources({
-      dir,
-      env: { PROVIDER_KEY: ENV_VALUE },
-      readSecret: secrets,
-    });
-    const imported = installationProfileSnapshot(
-      sources,
-      catalogRows(await readSeedProfiles(dir, config)),
-    );
-    expect(Object.keys(imported.profiles)).toEqual(["claude-coding-v1"]);
-    expect(imported.installation.get("from-secrets")?.state).toBe(
-      "unattended_off",
-    );
+  // A row in the database must not stop the API: the rest still runs.
+  test("a profile that skips approval is left out until the installation allows it", () => {
+    const seed = seedWith(profile("skipping", "bypassPermissions"));
+    const off = apiSnapshot(seed, {});
+    expect(Object.keys(off.profiles)).toEqual(["steady"]);
+    expect(off.installation.get("skipping")?.state).toBe("unattended_off");
+    const on = apiSnapshot(seed, { [ALLOW_UNATTENDED_SETTING]: "true" });
+    expect(on.profiles.skipping?.permission_mode).toBe("bypassPermissions");
+    expect(unattendedProfiles(on)).toEqual(["skipping"]);
   });
 
-  test("anything but the literal true keeps it out", async () => {
+  test("anything but the literal true keeps it out", () => {
     for (const value of ["1", "TRUE", "yes", ""]) {
-      const catalog = await loadSessionCatalog({
-        dir: await dirWith({ [PROFILES_FILE]: bypass }),
-        env: { PROVIDER_KEY: ENV_VALUE, [ALLOW_UNATTENDED_SETTING]: value },
-        readSecret: secrets,
-      });
-      expect(Object.hasOwn(catalog.profiles, "from-secrets")).toBe(false);
+      expect(unattendedAllowed({ [ALLOW_UNATTENDED_SETTING]: value })).toBe(
+        false,
+      );
     }
+    expect(unattendedAllowed({ [ALLOW_UNATTENDED_SETTING]: "true" })).toBe(
+      true,
+    );
   });
 
-  test("with the switch on, the profile loads with its mode", async () => {
-    const catalog = await loadSessionCatalog({
-      dir: await dirWith({ [PROFILES_FILE]: bypass }),
-      env: { PROVIDER_KEY: ENV_VALUE, [ALLOW_UNATTENDED_SETTING]: "true" },
-      readSecret: secrets,
-    });
-    expect(catalog.profiles["from-secrets"]?.permission_mode).toBe(
-      "bypassPermissions",
-    );
-    expect(unattendedProfiles(catalog)).toEqual(["from-secrets"]);
-  });
-
-  test("an auto profile loads without the switch: its classifier still judges each call", async () => {
-    const auto = PROFILES.replace(
-      "tools: [Read]\n    permission_mode: default",
-      "tools: [Read]\n    permission_mode: auto",
-    );
-    expect(auto).not.toBe(PROFILES);
-    const catalog = await loadSessionCatalog({
-      dir: await dirWith({ [PROFILES_FILE]: auto }),
-      env: { PROVIDER_KEY: ENV_VALUE },
-      readSecret: secrets,
-    });
-    expect(catalog.profiles["from-secrets"]?.permission_mode).toBe("auto");
-    expect(unattendedProfiles(catalog)).toEqual(["from-secrets"]);
-    expect(optInProfiles(catalog)).toEqual([]);
+  test("an auto profile loads without the switch: its classifier still judges each call", () => {
+    const snapshot = apiSnapshot(seedWith(profile("judged", "auto")), {});
+    expect(snapshot.profiles.judged?.permission_mode).toBe("auto");
+    expect(unattendedProfiles(snapshot)).toEqual(["judged"]);
+    expect(optInProfiles(snapshot)).toEqual([]);
   });
 });
 
 describe("installed runtimes", () => {
-  test("pass every profile shipped in the repository", async () => {
-    for (const dir of [
-      ".",
-      "fake-model",
-      "local-model",
-      "fake-model-unattended",
-    ]) {
-      const config = await readCatalog(join(DEFAULT_CONFIG_DIR, dir));
-      expect(Object.keys(config.profiles).length).toBeGreaterThan(0);
-      installedRuntimes.assertProfiles(config.profiles);
+  test("pass every profile the fixtures seed", async () => {
+    for (const name of Object.keys(FIXTURES) as Fixture[]) {
+      const { profiles } = await fixture(name);
+      expect(Object.keys(profiles).length).toBeGreaterThan(0);
+      installedRuntimes.assertProfiles(profiles);
     }
   });
 
-  test("the default catalogs carry an auto base and start without the installation's opt-in", async () => {
-    const expected: Record<string, string[]> = {
-      ".": ["claude-coding-real"],
+  test("the default fixtures carry an auto base and start without the installation's opt-in", async () => {
+    const expected: Partial<Record<Fixture, string[]>> = {
+      "real-model": ["claude-coding-real"],
       "fake-model": ["claude-coding-auto"],
       "local-model": [],
     };
-    for (const [dir, auto] of Object.entries(expected)) {
-      const config = await readCatalog(join(DEFAULT_CONFIG_DIR, dir));
+    for (const [name, auto] of Object.entries(expected)) {
+      const config = await fixture(name as Fixture);
       expect(unattendedProfiles(config)).toEqual(auto);
       expect(optInProfiles(config)).toEqual([]);
       for (const id of auto) {
@@ -337,14 +199,14 @@ describe("installed runtimes", () => {
     }
   });
 
-  test("a shipped profile keeps the fingerprint main gave it, and an auto base is the same profile in every example", async () => {
+  test("a seeded profile keeps the fingerprint main gave it, and an auto base is the same profile in every example", async () => {
     // Computed on main at 304c2713: sessions and releases pin these.
     // claude-coding-real moved when it gained AskUserQuestion and again when
-    // it became auto (94S-1243): the file only seeds an empty
+    // it became auto (94S-1243): a seed only fills an empty
     // installation_profiles table, whose rows keep the digest their sessions
     // pinned.
-    const onMain: Record<string, Record<string, string>> = {
-      ".": {
+    const onMain: Partial<Record<Fixture, Record<string, string>>> = {
+      "real-model": {
         "claude-coding-real":
           "sha256:1fc3c2a8042b16a150b6c2f7ab2d93c801daf2faacc7c86eefdf087f94d10fc1",
       },
@@ -368,17 +230,14 @@ describe("installed runtimes", () => {
       },
     };
     const shared = new Map<string, string>();
-    for (const [dir, pinned] of Object.entries(onMain)) {
-      const config = resolveSessionCatalog(
-        await readCatalog(join(DEFAULT_CONFIG_DIR, dir)),
-        () => "placeholder-credential-value",
-      );
+    for (const [name, pinned] of Object.entries(onMain)) {
+      const config = resolved(await fixture(name as Fixture));
       for (const [id, digest] of Object.entries(pinned)) {
-        const profile = config.profiles[id];
-        expect(profile && profileFingerprint(profile)).toBe(digest);
+        const entry = config.profiles[id];
+        expect(entry && profileFingerprint(entry)).toBe(digest);
       }
-      for (const [id, profile] of Object.entries(config.profiles)) {
-        const digest = profileFingerprint(profile);
+      for (const [id, entry] of Object.entries(config.profiles)) {
+        const digest = profileFingerprint(entry);
         expect(shared.get(id) ?? digest).toBe(digest);
         shared.set(id, digest);
       }
@@ -386,9 +245,7 @@ describe("installed runtimes", () => {
   });
 
   test("only the bypass example needs the installation's opt-in", async () => {
-    const dir = join(DEFAULT_CONFIG_DIR, "fake-model-unattended");
-    const config = await readCatalog(dir);
-    const connections = await readConnections(dir);
+    const config = await fixture("fake-model-unattended");
     expect(unattendedProfiles(config)).toEqual([
       "claude-coding-auto",
       "claude-coding-bypass",
@@ -403,8 +260,11 @@ describe("installed runtimes", () => {
       new Map(
         [
           ...installationProfileSnapshot(
-            profileViewSources(connections, config.repositories, env),
-            catalogRows(config.profiles),
+            {
+              ...profileViewSources(env),
+              connections: config.entries.connections,
+            },
+            catalogRows(config.profiles, config.repositories),
           ).installation.values(),
         ].map((entry) => [entry.id, entry.state]),
       );
@@ -418,18 +278,19 @@ describe("installed runtimes", () => {
     ).toBe("usable");
   });
 
-  test("configured worker images take no ceiling out of the catalog: open sessions keep their profile", async () => {
-    const dir = join(DEFAULT_CONFIG_DIR, "fake-model");
-    const config = await readCatalog(dir);
-    const connections = await readConnections(dir);
+  test("configured worker images take no ceiling away: open sessions keep their profile", async () => {
+    const config = await fixture("fake-model");
     const image = (sdkVersion: string, cliVersion: string) =>
       JSON.stringify({ cliVersion, engine: "claude", sdkVersion });
     const states = (env: Record<string, string>) =>
       new Set(
         [
           ...installationProfileSnapshot(
-            profileViewSources(connections, config.repositories, env),
-            catalogRows(config.profiles),
+            {
+              ...profileViewSources(env),
+              connections: config.entries.connections,
+            },
+            catalogRows(config.profiles, config.repositories),
           ).installation.values(),
         ].map((entry) => entry.state),
       );
@@ -452,100 +313,23 @@ describe("installed runtimes", () => {
     ).toThrow("WORKER_IMAGE_RUNTIME");
   });
 
-  test("a profile of a kind the image does not ship stops the seed's load", async () => {
-    const dir = await dirWith({
-      [PROFILES_FILE]: PROFILES.replace(
-        "from-secrets:\n    runtime_kind: claude_agent_sdk",
-        "from-secrets:\n    runtime_kind: codex_app_server",
-      ),
-    });
-    expect(
-      parseYaml(await Bun.file(join(dir, PROFILES_FILE)).text()).profiles[
-        "from-secrets"
-      ],
-    ).toEqual(expect.objectContaining({ runtime_kind: "codex_app_server" }));
-    expect(
-      await failure(
-        loadSessionCatalog({
-          dir,
-          env: { PROVIDER_KEY: ENV_VALUE },
-          readSecret: secrets,
-        }),
-      ),
-    ).toBe(
-      "Catalog profile(s) refused: from-secrets: Runtime codex_app_server is not installed (installed: claude_agent_sdk)",
+  test("a profile of a kind the image does not ship is refused by name", () => {
+    const seed = seedWith(profile("other", "default", "codex_app_server"));
+    expect(() => installedRuntimes.assertProfiles(seed.profiles ?? {})).toThrow(
+      "Catalog profile(s) refused: other: Runtime codex_app_server is not installed (installed: claude_agent_sdk)",
     );
   });
 });
 
-describe("readCatalogConfig", () => {
-  test("a missing file, bad YAML or a stray top-level key names the file", async () => {
-    const noRepositories = await dirWith({ [REPOSITORIES_FILE]: undefined });
-    expect(await failure(readCatalogConfig(noRepositories))).toBe(
-      `${join(noRepositories, REPOSITORIES_FILE)} is missing`,
-    );
-    const broken = await dirWith({ [PROFILES_FILE]: "profiles: [unclosed" });
-    expect(await failure(readCatalog(broken))).toStartWith(
-      `${join(broken, PROFILES_FILE)} is not valid YAML: `,
-    );
-    for (const text of [
-      `${PROFILES}repositories: {}\n`,
-      "profile:\n  a: {}\n",
-      "- profiles\n",
-      "",
-    ]) {
-      const dir = await dirWith({ [PROFILES_FILE]: text });
-      expect(await failure(readCatalog(dir))).toBe(
-        `${join(dir, PROFILES_FILE)} must hold exactly one top-level key: profiles`,
-      );
-    }
-  });
-
-  test("without profiles.yaml there is nothing to seed and the repositories still load", async () => {
-    const config = await readCatalog(
-      await dirWith({ [PROFILES_FILE]: undefined }),
-    );
-    expect(config.profiles).toEqual({});
-    expect(Object.keys(config.repositories)).toEqual(["sample-app"]);
-  });
-
-  test("profiles.yaml is never part of the catalog itself, only the seed", async () => {
-    const dir = await dirWith();
-    expect((await readCatalogConfig(dir)).profiles).toEqual({});
-    expect(Object.keys((await readCatalog(dir)).profiles).sort()).toEqual([
-      "claude-coding-v1",
-      "from-secrets",
-    ]);
-  });
-
-  test("a directory without connections.yaml refuses to load, naming the file", async () => {
-    const dir = await dirWith({ [CONNECTIONS_FILE]: undefined });
-    expect(
-      await failure(
-        loadSessionCatalog({
-          dir,
-          env: { PROVIDER_KEY: ENV_VALUE },
-          readSecret: async () => undefined,
-        }),
-      ),
-    ).toBe(`${join(dir, CONNECTIONS_FILE)} is missing`);
-  });
-
-  test("every shipped directory carries the connections its seed profiles run on", async () => {
-    for (const dir of [
-      ".",
-      "fake-model",
-      "local-model",
-      "fake-model-unattended",
-      // scripts/d2-gate/compose.yml mounts it as the API's /app/config.
-      "../scripts/d2-gate/config",
-    ]) {
-      const path = join(DEFAULT_CONFIG_DIR, dir);
-      const config = await readCatalog(path);
+describe("the settings fixtures", () => {
+  test("every fixture carries the connections its seeded ceilings run on", async () => {
+    for (const name of Object.keys(FIXTURES) as Fixture[]) {
+      const config = await fixture(name);
       const snapshot = installationProfileSnapshot(
-        profileViewSources(await readConnections(path), config.repositories, {
-          [ALLOW_UNATTENDED_SETTING]: "true",
-        }),
+        {
+          ...profileViewSources({ [ALLOW_UNATTENDED_SETTING]: "true" }),
+          connections: config.entries.connections,
+        },
         catalogRows(config.profiles, config.repositories),
       );
       expect(
@@ -556,93 +340,41 @@ describe("readCatalogConfig", () => {
     }
   });
 
-  test("a key defined twice is refused, not resolved to the last one", async () => {
-    const dir = await dirWith({
-      [PROFILES_FILE]: PROFILES.replace(
-        "  from-secrets:",
-        `  claude-coding-v1:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-opus-5-5
-    tools: [Read]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://elsewhere.invalid
-      auth:
-        kind: api_key
-        value_env: OTHER_KEY
-  from-secrets:`,
-      ),
-    });
-    expect(await failure(readCatalog(dir))).toStartWith(
-      `${join(dir, PROFILES_FILE)} is not valid YAML: Map keys must be unique`,
-    );
-  });
-
-  test("an invalid profile stops the load with its path", async () => {
-    const dir = await dirWith({
-      [PROFILES_FILE]: PROFILES.replace(
-        "permission_mode: default",
-        "permission_mode: yolo",
-      ),
-    });
-    expect(await failure(readCatalog(dir))).toStartWith(
-      `Catalog config in ${dir} is invalid: profiles.claude-coding-v1.permission_mode: `,
-    );
-  });
-
-  test("the example config shipped in the repository loads", async () => {
-    const config = await readCatalog(DEFAULT_CONFIG_DIR);
-    expect(Object.keys(config.profiles).length).toBeGreaterThan(0);
-    for (const repository of Object.values(config.repositories)) {
-      for (const id of repository.profiles ?? []) {
-        expect(Object.hasOwn(config.profiles, id)).toBe(true);
+  test("a repository names only ceilings the fixture seeds", async () => {
+    for (const name of EXAMPLES) {
+      const config = await fixture(name);
+      for (const repository of Object.values(config.repositories)) {
+        for (const id of repository.profiles ?? []) {
+          expect(Object.hasOwn(config.profiles, id)).toBe(true);
+        }
       }
     }
   });
 
-  test("the shipped profiles keep the fingerprints main computed before `repository` existed", async () => {
+  test("seeded profiles keep the fingerprints main computed before `repository` existed", async () => {
     // Captured on main 015a1634; a profile they no longer name fails every
     // session pinned to it with CATALOG_MISMATCH. claude-coding-real left
     // the list when it gained AskUserQuestion; the rows it seeded before keep
     // their own definition.
-    const before = {
-      "fake-model": {
-        "claude-coding-local":
-          "sha256:a4c77446d640fa3aebb3c5ccc66f2b3d2a1ab475a431435b320f50852c16ac57",
-      },
-    };
-    for (const [dir, expected] of Object.entries(before)) {
-      const catalog = resolveSessionCatalog(
-        await readCatalog(join(DEFAULT_CONFIG_DIR, dir)),
-        () => "placeholder-credential-value",
-      );
-      const pinned = Object.keys(expected).map((id) => {
-        const profile = catalog.profiles[id];
-        if (profile === undefined) throw new Error(`${dir}: no profile ${id}`);
-        return [id, profile] as const;
-      });
-      for (const [id, profile] of pinned) {
-        expect(
-          profilePinned(profile, expected[id as keyof typeof expected], []),
-        ).toBe(true);
-      }
-      for (const [, profile] of pinned) {
-        expect(repositoryModeOf(profile)).toBe("required");
-      }
-    }
+    const catalog = resolved(await fixture("fake-model"));
+    const coding = catalog.profiles["claude-coding-local"];
+    if (coding === undefined) throw new Error("no claude-coding-local");
+    expect(
+      profilePinned(
+        coding,
+        "sha256:a4c77446d640fa3aebb3c5ccc66f2b3d2a1ab475a431435b320f50852c16ac57",
+        [],
+      ),
+    ).toBe(true);
+    expect(repositoryModeOf(coding)).toBe("required");
   });
 
-  test("the fake-model catalog offers a profile that runs without a repository", async () => {
-    const catalog = resolveSessionCatalog(
-      await readCatalog(join(DEFAULT_CONFIG_DIR, "fake-model")),
-      () => "placeholder-credential-value",
-    );
+  test("the fake-model fixture offers a profile that runs without a repository", async () => {
+    const catalog = resolved(await fixture("fake-model"));
     const general = catalog.profiles.general;
     const coding = catalog.profiles["claude-coding-local"];
     if (general === undefined || coding === undefined) {
-      throw new Error("fake-model catalog lacks a profile");
+      throw new Error("the fake-model fixture lacks a profile");
     }
     expect(repositoryModeOf(general)).toBe("none");
     expect(general.tools).not.toContain("Bash");

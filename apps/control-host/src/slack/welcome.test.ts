@@ -7,9 +7,6 @@ import {
   test,
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import {
   agentCardRequestSchema,
@@ -41,7 +38,6 @@ import { createLogger } from "@werft-ai/observability";
 import {
   agentSlackBotToken,
   type Caller,
-  type Connections,
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
@@ -54,7 +50,6 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   SecretKey,
-  type SessionCatalogConfig,
   type SlackInstalled,
   slackBotToken,
   slackConversationKey,
@@ -70,12 +65,11 @@ import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
 import {
-  CONNECTIONS_FILE,
-  loadSessionCatalog,
-  PROFILES_FILE,
-  REPOSITORIES_FILE,
-} from "../api/catalog-config.ts";
-import { slackRoleStartup, slackSessionHandler } from "./main.ts";
+  seedSettings,
+  settingsCatalog,
+  settingsDocument,
+} from "../test-support/settings.ts";
+import { slackSessionHandler } from "./main.ts";
 
 // The API side (activation, binding writes, install Finalize) and the
 // `slack` role (the invite event, the outbox) over one database and the
@@ -123,14 +117,10 @@ slack.apps.set(APP_ID, {
 const logger = createLogger({ level: "error", sinks: [] });
 const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 
-let root = "";
-let catalog: SessionCatalogConfig;
-let connections: Connections;
 let db: Database;
 
-afterAll(async () => {
+afterAll(() => {
   slack.stop();
-  if (root) await rm(root, { recursive: true, force: true });
 });
 
 const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
@@ -138,26 +128,6 @@ const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
 function useDatabase(engine: string) {
   let close = async () => {};
   beforeEach(async () => {
-    if (!root) {
-      root = await mkdtemp(join(tmpdir(), "slack-welcome-"));
-      await writeFile(join(root, PROFILES_FILE), PROFILES);
-      await writeFile(join(root, REPOSITORIES_FILE), "repositories: {}\n");
-      await writeFile(
-        join(root, CONNECTIONS_FILE),
-        "connections:\n  main:\n    kind: anthropic\n    endpoint: https://api.anthropic.invalid\n    auth:\n      kind: api_key\n      value_env: PROVIDER_KEY\n",
-      );
-      const started = await slackRoleStartup(
-        {
-          DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
-          PLATFORM_CONFIG_DIR: root,
-        },
-        async () => {
-          throw new Error("no secret is read");
-        },
-      );
-      catalog = started.catalog;
-      connections = started.connections;
-    }
     if (engine === "PGlite") {
       const client = new PGlite();
       const pglite = drizzle(client, { schema });
@@ -175,6 +145,20 @@ function useDatabase(engine: string) {
         await database.drop();
       };
     }
+    await seedSettings(
+      db,
+      settingsDocument(
+        PROFILES,
+        `connections:
+  main:
+    kind: anthropic
+    endpoint: https://api.anthropic.invalid
+    auth:
+      kind: api_key
+      value_env: PROVIDER_KEY
+`,
+      ),
+    );
     slack.calls.length = 0;
     slack.messages.length = 0;
     slack.statuses.length = 0;
@@ -248,11 +232,7 @@ async function installedAgent() {
   const agents = createAgentService({
     authorization,
     store: agentStore,
-    catalog: await loadSessionCatalog({
-      dir: root,
-      env: { PROVIDER_KEY: "api-side-only" },
-      readSecret: async () => undefined,
-    }),
+    catalog: await settingsCatalog(db),
     credentials: createPostgresCredentialBindingStore(db),
     welcome,
   });
@@ -416,8 +396,6 @@ async function invited(
       },
       environment: ENVIRONMENT,
       logger,
-      catalog,
-      connections,
       secretKey: key,
       leaseMs: 30_000,
       slackApiUrl: slack.url,

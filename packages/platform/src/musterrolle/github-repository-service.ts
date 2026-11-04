@@ -33,7 +33,6 @@ import {
 } from "../ports/github-app-store.ts";
 import {
   type CatalogProfileView,
-  type CatalogRepository,
   ceilingAppRepositories,
   type ProfileLookup,
 } from "../sessions/catalog.ts";
@@ -133,8 +132,7 @@ const emptyPage = (
 /**
  * The console's GitHub App repositories (settings-replace-file-catalog.md
  * §1.1): read from the author App's installations a page at a time, never
- * registered. A pick resolves one to a catalog row, which a release names;
- * the operator file's entries stay read-only beside them.
+ * registered. A pick resolves one to a catalog row, which a release names.
  */
 export function createGitHubRepositoryService(deps: {
   authorization: AuthorizationPolicy;
@@ -147,35 +145,12 @@ export function createGitHubRepositoryService(deps: {
   agents: Pick<AgentStore, "get">;
   /** For the ceiling of an agent's active release. */
   catalog: ProfileLookup<CatalogProfileView>;
-  /** The operator file's repositories, as resolved at startup. */
-  fileRepositories: Readonly<Record<string, CatalogRepository>>;
   /** Called after a write commits, so this replica's catalog picks it up. */
   changed: () => Promise<void>;
   newId?: () => string;
 }) {
   const { authorization, directory, store } = deps;
   const newId = deps.newId ?? randomUUID;
-  const fileEntries = Object.entries(deps.fileRepositories).filter(
-    ([, repository]) => {
-      const auth = repository.auth;
-      if (auth?.kind === "github_app") return !("registered" in auth);
-      try {
-        return new URL(repository.url).hostname === "github.com";
-      } catch {
-        return false;
-      }
-    },
-  );
-  // The file ids that stay in the file, GitHub or not: a row may not shadow
-  // them. A registered-App entry is the seed of a row, so it is the row's.
-  const reserved = new Set(
-    Object.entries(deps.fileRepositories)
-      .filter(([, repository]) => {
-        const auth = repository.auth;
-        return !(auth?.kind === "github_app" && "registered" in auth);
-      })
-      .map(([id]) => id),
-  );
 
   /** A signed-in console user: picks and branch changes are not for keys. */
   function writer(caller: Caller) {
@@ -378,17 +353,6 @@ export function createGitHubRepositoryService(deps: {
     };
   }
 
-  /** The file id that already holds that github.com repository. */
-  const fileHolder = (repository: { owner: string; name: string }) =>
-    fileEntries
-      .map(fileView)
-      .find(
-        (entry) =>
-          entry.full_name !== null &&
-          entry.full_name.toLowerCase() ===
-            fullNameOf(repository.owner, repository.name),
-      )?.id;
-
   const pickedOf = (
     repository: GitHubInstallationRepository,
     rows: readonly CatalogRepositoryRow[],
@@ -416,32 +380,10 @@ export function createGitHubRepositoryService(deps: {
     url: row.url,
     branch: row.branch,
     source: row.source,
-    editable: true,
     version: row.version,
     installed,
     updated_at: row.updated_at,
   });
-
-  function fileView([id, repository]: [
-    string,
-    CatalogRepository,
-  ]): CatalogGitHubRepository {
-    const path = /^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(
-      new URL(repository.url).pathname,
-    );
-    return {
-      id,
-      github_repository_id: null,
-      full_name: path ? `${path[1]}/${path[2]}` : null,
-      url: repository.url,
-      branch: repository.branch,
-      source: "file",
-      editable: false,
-      version: null,
-      installed: null,
-      updated_at: null,
-    };
-  }
 
   /** Whether an installation of the App covers the row; null when unknown. */
   async function installedNow(
@@ -516,12 +458,6 @@ export function createGitHubRepositoryService(deps: {
   }
 
   async function ownRow(repositoryId: string): Promise<CatalogRepositoryRow> {
-    if (reserved.has(repositoryId)) {
-      throw refused(
-        "file_repository",
-        "The operator's file holds this repository; change it there",
-      );
-    }
     const row = (await store.listActive()).find(
       (held) => held.id === repositoryId,
     );
@@ -595,23 +531,22 @@ export function createGitHubRepositoryService(deps: {
         store.agentCounts(),
         pinTable(),
       ]);
-      const own = rows.filter((row) => !reserved.has(row.id));
-      const ownViews = (await rowViews(workspaceId, own)).map((row) =>
+      const views = (await rowViews(workspaceId, rows)).map((row) =>
         deps.pins === null ? row : { ...row, pins: pinsOf(row.id) },
       );
       return {
         ...page,
         repositories: page.repositories.map((repository) => {
-          const picked = pickedOf(repository, own);
-          const catalogId = picked.catalog_id ?? fileHolder(repository) ?? null;
+          const picked = pickedOf(repository, rows);
           return {
             ...picked,
-            catalog_id: catalogId,
             agent_count:
-              catalogId === null ? 0 : (counts.get(catalogId)?.[role] ?? 0),
+              picked.catalog_id === null
+                ? 0
+                : (counts.get(picked.catalog_id)?.[role] ?? 0),
           };
         }),
-        catalog: [...ownViews, ...fileEntries.map(fileView)].map((row) => ({
+        catalog: views.map((row) => ({
           ...row,
           agent_count: counts.get(row.id)?.author ?? 0,
         })),
@@ -625,12 +560,6 @@ export function createGitHubRepositoryService(deps: {
       readBody: () => Promise<PatchGitHubRepositoryRequest>,
     ): Promise<GitHubRepositoryWriteResponse> {
       const write = await managed(caller, workspaceId);
-      if (reserved.has(repositoryId)) {
-        throw refused(
-          "file_repository",
-          "The operator's file holds this repository; change it there",
-        );
-      }
       const body = await readBody();
       const receiptId = newId();
       const result = await store.setBranch({
@@ -675,11 +604,10 @@ export function createGitHubRepositoryService(deps: {
         installationPage(workspaceId, query, ["author"]),
         store.listActive(),
       ]);
-      const own = rows.filter((row) => !reserved.has(row.id));
       return {
         ...page,
         repositories: page.repositories.map((repository) =>
-          pickedOf(repository, own),
+          pickedOf(repository, rows),
         ),
       };
     },
@@ -747,12 +675,6 @@ export function createGitHubRepositoryService(deps: {
         );
       }
       const { repository, app } = picked;
-      if (fileHolder(repository) !== undefined) {
-        throw refused(
-          "file_repository",
-          "The operator's file holds that repository with its own credential",
-        );
-      }
       const receiptId = newId();
       // The URL and branch come from GitHub's answer, never from the body.
       const result = await store.resolve({
@@ -761,7 +683,6 @@ export function createGitHubRepositoryService(deps: {
         managerRoles: MANAGEMENT_ROLES["agent.manage"] ?? [],
         receiptId,
         base: repositoryIdBase(repository.name),
-        reserved,
         githubRepositoryId: repository.id,
         owner: repository.owner,
         name: repository.name,

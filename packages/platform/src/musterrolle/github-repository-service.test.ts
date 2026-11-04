@@ -216,7 +216,6 @@ function serviceWith(
         ],
       ]),
     },
-    fileRepositories: {},
     changed: async () => {},
   });
   const pick = (githubRepositoryId: number) =>

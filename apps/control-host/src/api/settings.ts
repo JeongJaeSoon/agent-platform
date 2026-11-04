@@ -1,11 +1,19 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import * as schema from "@werft-ai/db";
-import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
+import {
+  createPostgresInstallationProfileStore,
+  createPostgresSettingsDocumentStore,
+} from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
 import { createLogger } from "@werft-ai/observability";
 import {
-  parseSettingsDocument,
+  catalogImports,
+  catalogRepositoryIds,
+  type InstallationProfileStore,
+  parseSeedDocument,
+  type SeedDocument,
+  type SessionCatalogConfig,
   type SettingsDocument,
   type SettingsDocumentStore,
   type SettingsEntries,
@@ -13,12 +21,14 @@ import {
   settingsDocumentOf,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { installedRuntimes } from "./catalog-config.ts";
 import {
+  dirIsEmpty,
   PLATFORM_FILE,
-  PROFILES_FILE,
   readCatalogConfig,
   readConnections,
-} from "./catalog-config.ts";
+  readSeedProfiles,
+} from "./settings-from-dir.ts";
 
 // The operator's settings import and export
 // (docs/contributing/decisions/settings-replace-file-catalog.md §5, §6).
@@ -26,13 +36,14 @@ import {
 // may bring in env and Secrets Manager references, since whoever reaches
 // the database already holds the deployment.
 const USAGE = `Usage: bun run apps/control-host/src/api/settings.ts export
-       bun run apps/control-host/src/api/settings.ts import (--document <file|-> | --from-dir <dir>) [--dry-run]`;
+       bun run apps/control-host/src/api/settings.ts import --document <file|-> [--dry-run]
+       bun run apps/control-host/src/api/settings.ts import --from-dir <dir> [--if-present] [--dry-run]`;
 
 export type SettingsCommand =
   | { command: "export" }
   | {
       command: "import";
-      source: { document: string } | { dir: string };
+      source: { document: string } | { dir: string; ifPresent: boolean };
       dryRun: boolean;
     };
 
@@ -52,7 +63,8 @@ export function parseSettingsCommand(argv: string[]): SettingsCommand {
     if (
       values.document !== undefined ||
       values["from-dir"] !== undefined ||
-      values["dry-run"] !== undefined
+      values["dry-run"] !== undefined ||
+      values["if-present"] !== undefined
     ) {
       throw new Error(USAGE);
     }
@@ -64,9 +76,14 @@ export function parseSettingsCommand(argv: string[]): SettingsCommand {
   if ((document === undefined) === (dir === undefined)) {
     throw new Error(`name one of --document or --from-dir\n${USAGE}`);
   }
+  const ifPresent = values["if-present"] === true;
+  if (ifPresent && dir === undefined) {
+    throw new Error(`--if-present goes with --from-dir\n${USAGE}`);
+  }
   return {
     command,
-    source: document !== undefined ? { document } : { dir: dir as string },
+    source:
+      document !== undefined ? { document } : { dir: dir as string, ifPresent },
     dryRun: values["dry-run"] === true,
   };
 }
@@ -77,6 +94,7 @@ function parse(argv: string[]) {
     options: {
       document: { type: "string" },
       "from-dir": { type: "string" },
+      "if-present": { type: "boolean" },
       "dry-run": { type: "boolean" },
     },
     allowPositionals: true,
@@ -86,13 +104,15 @@ function parse(argv: string[]) {
 
 /**
  * The old catalog directory as a settings document: connections.yaml,
- * repositories.yaml and mcp-servers.yaml under their own rules. What else
- * the directory holds is named in `notes`: the ceilings stay with the API's
- * profiles.yaml seed, and the master key with PLATFORM_SECRET_KEY.
+ * repositories.yaml and mcp-servers.yaml under their own rules, plus the
+ * ceilings of profiles.yaml, which go to the same empty-table seed the API
+ * ran. The master key in platform.yaml is the deployment's alone now.
  */
-export async function documentFromDir(
-  dir: string,
-): Promise<{ document: SettingsDocument; notes: string[] }> {
+export async function documentFromDir(dir: string): Promise<{
+  document: SettingsDocument;
+  profiles: SessionCatalogConfig["profiles"];
+  notes: string[];
+}> {
   const config = await readCatalogConfig(dir);
   const entries: SettingsEntries = {
     connections: { ...(await readConnections(dir)) },
@@ -100,17 +120,16 @@ export async function documentFromDir(
     mcp_servers: config.mcp_servers ?? {},
   };
   const notes: string[] = [];
-  if (await Bun.file(resolve(dir, PROFILES_FILE)).exists()) {
-    notes.push(
-      `${PROFILES_FILE} is not part of the settings document: the API still seeds an empty installation's ceilings from it`,
-    );
-  }
   if (await Bun.file(resolve(dir, PLATFORM_FILE)).exists()) {
     notes.push(
-      `${PLATFORM_FILE} is not part of the settings document: the master key is the deployment's (PLATFORM_SECRET_KEY)`,
+      `${PLATFORM_FILE} is not imported: set the master key in PLATFORM_SECRET_KEY`,
     );
   }
-  return { document: settingsDocumentOf(entries), notes };
+  return {
+    document: settingsDocumentOf(entries),
+    profiles: await readSeedProfiles(dir, config),
+    notes,
+  };
 }
 
 /** `-` is stdin: the document reaches a container through `exec -T`. */
@@ -130,28 +149,83 @@ async function readDocument(path: string): Promise<unknown> {
 
 type Output = { out: (line: string) => void; err: (line: string) => void };
 
-/** Runs `command` against `store`; false when the import was refused. */
+/**
+ * What the ceilings came to: `seed` while the table is empty, `fill` for
+ * rows older than repository_ids, `unfilled` for rows that still run on no
+ * repository for want of a value. A dry run reads and writes nothing.
+ */
+type ProfileSeedReport = {
+  seed: string[];
+  fill: string[];
+  unfilled: string[];
+};
+
+async function seedProfiles(
+  store: Pick<InstallationProfileStore, "listAll" | "seedCatalog">,
+  seed: SeedDocument,
+  dryRun: boolean,
+): Promise<ProfileSeedReport | null> {
+  const { profiles } = seed;
+  if (profiles === null) return null;
+  installedRuntimes.assertProfiles(profiles);
+  const repositoryIdsOf = catalogRepositoryIds(seed.entries.repositories);
+  if (dryRun) {
+    const rows = await store.listAll();
+    const missing = rows.filter((row) => row.repository_ids === null);
+    return {
+      seed: rows.length === 0 ? Object.keys(profiles).sort() : [],
+      fill: missing.map((row) => row.id),
+      unfilled: missing
+        .filter((row) => repositoryIdsOf(row.id).length === 0)
+        .map((row) => row.id),
+    };
+  }
+  const result = await store.seedCatalog({
+    entries: async () => catalogImports(profiles),
+    repositoryIdsOf,
+  });
+  return {
+    seed: result.seeded,
+    fill: result.migrated,
+    unfilled: result.migrated.filter((id) => repositoryIdsOf(id).length === 0),
+  };
+}
+
+type SettingsStores = {
+  settings: Pick<SettingsDocumentStore, "exportEntries" | "importEntries">;
+  profiles: Pick<InstallationProfileStore, "listAll" | "seedCatalog">;
+};
+
+/** Runs `command` against `stores`; false when the import was refused. */
 export async function runSettingsCommand(
   command: SettingsCommand,
-  store: Pick<SettingsDocumentStore, "exportEntries" | "importEntries">,
+  stores: SettingsStores,
   output: Output,
 ): Promise<boolean> {
   if (command.command === "export") {
-    const { entries, last4 } = await store.exportEntries();
+    const { entries, last4 } = await stores.settings.exportEntries();
     const document = settingsDocumentOf(entries, last4);
     output.out(JSON.stringify(document, null, 2));
     output.err(`digest ${settingsDocumentDigest(document)}`);
     return true;
   }
-  let document: unknown;
-  if ("dir" in command.source) {
-    const read = await documentFromDir(command.source.dir);
+  const { source } = command;
+  let seed: SeedDocument;
+  if ("dir" in source) {
+    if (source.ifPresent && (await dirIsEmpty(source.dir))) {
+      output.err(`nothing to import from ${source.dir}`);
+      return true;
+    }
+    const read = await documentFromDir(source.dir);
     for (const note of read.notes) output.err(`note: ${note}`);
-    document = read.document;
+    seed = {
+      entries: parseSeedDocument(read.document).entries,
+      profiles: read.profiles,
+    };
   } else {
-    document = await readDocument(command.source.document);
+    seed = parseSeedDocument(await readDocument(source.document));
   }
-  const result = await store.importEntries(parseSettingsDocument(document), {
+  const result = await stores.settings.importEntries(seed.entries, {
     dryRun: command.dryRun,
     allowExternal: true,
     actor: null,
@@ -159,12 +233,25 @@ export async function runSettingsCommand(
   if (result.outcome === "actor_inactive") {
     throw new Error("the operator's import has no actor to lose");
   }
-  output.out(JSON.stringify(result, null, 2));
   if (result.outcome === "refused") {
+    output.out(JSON.stringify(result, null, 2));
     output.err(
       `refused: nothing changed (conflicts: ${result.conflicts.join(", ") || "none"})`,
     );
     return false;
+  }
+  const profiles = await seedProfiles(stores.profiles, seed, command.dryRun);
+  output.out(
+    JSON.stringify(
+      profiles === null ? result : { ...result, profiles },
+      null,
+      2,
+    ),
+  );
+  if ((profiles?.unfilled.length ?? 0) > 0) {
+    output.err(
+      `note: no repository names these ceilings, so they run on none: ${profiles?.unfilled.join(", ")}`,
+    );
   }
   if (result.outcome === "applied" && result.receipt_ids.length === 0) {
     if (result.add.length > 0) {
@@ -185,9 +272,13 @@ async function main(): Promise<void> {
     JOB_POOL_TIMEOUTS,
   );
   try {
+    const db = drizzle(pool, { schema });
     const ok = await runSettingsCommand(
       command,
-      createPostgresSettingsDocumentStore(drizzle(pool, { schema })),
+      {
+        settings: createPostgresSettingsDocumentStore(db),
+        profiles: createPostgresInstallationProfileStore(db),
+      },
       {
         out: (line) => process.stdout.write(`${line}\n`),
         err: (line) => process.stderr.write(`${line}\n`),

@@ -117,7 +117,7 @@ export const RECEIPT_OPERATION_VALUES = [
   "mint_github_token",
   "set_github_ceiling",
   // A GitHub App repository added to the catalog from the console, its
-  // default branch changed, removed, or imported from repositories.yaml.
+  // default branch changed, removed, or seeded.
   // Console adds and removes are gone; their receipts stay readable.
   "add_repository",
   "set_repository_branch",

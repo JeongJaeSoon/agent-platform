@@ -3006,11 +3006,9 @@ export const apiKeys = pgTable(
   ],
 );
 
-// The catalog revision an operator activated: only a gateway
-// whose own `catalogRevision` equals it may fail a session for a pair its
-// catalog lacks. One row at most; none means a single replica, where every
-// gateway is the authority. The API never writes it — the operator's
-// compare-and-swap does, as a rollout's first step (docs/operator/api-server.md).
+// No code of this release reads or writes it. The table stays for one release
+// so a rolling replica or a rollback to the release before still finds what
+// it locks; the next compatibility-breaking release drops it.
 export const catalogAuthority = pgTable(
   "catalog_authority",
   {
@@ -4299,8 +4297,8 @@ export const installationProfiles = pgTable(
     definition: jsonb().$type<Record<string, unknown>>().notNull(),
     permissionMode: text("permission_mode").notNull(),
     fingerprint: text().notNull(),
-    // Null on a `catalog` row until startup fills it once from the
-    // `profiles` arrays of repositories.yaml.
+    // Null on a `catalog` row until `settings import` fills it once from the
+    // `profiles` arrays of the document's repositories.
     repositoryIds: jsonb("repository_ids").$type<string[]>(),
     // Beside repository_ids and, like it, outside the fingerprint.
     githubAppRepositories: text("github_app_repositories")
@@ -4403,8 +4401,8 @@ export const catalogRepositories = pgTable(
       .$type<CatalogRepositoryAuthKind>()
       .notNull()
       .default("github_app"),
-    // The entry's `auth` as repositories.yaml spelled it; null for none and
-    // for the console's App.
+    // The entry's `auth` as the settings document spelled it; null for none
+    // and for the console's App.
     auth: jsonb().$type<Record<string, unknown>>(),
     credentialSource:
       text("credential_source").$type<SettingsCredentialSource>(),
@@ -4470,8 +4468,8 @@ export const providerConnections = pgTable(
   "provider_connections",
   {
     id: text().primaryKey(),
-    // connections.yaml's entry as parsed; a ceiling's `provider` runs only
-    // while it is the same JSON.
+    // The settings document's entry as parsed; a ceiling's `provider` runs
+    // only while it is the same JSON.
     definition: jsonb().$type<Record<string, unknown>>().notNull(),
     credentialSource: text("credential_source")
       .$type<SettingsCredentialSource>()
@@ -4513,7 +4511,7 @@ export const mcpServers = pgTable(
     id: text().primaryKey(),
     url: text().notNull(),
     credentialRef: text("credential_ref").notNull(),
-    // mcp-servers.yaml's `auth` as parsed.
+    // The settings document's `auth` as parsed.
     auth: jsonb().$type<Record<string, unknown>>().notNull(),
     credentialSource: text("credential_source")
       .$type<SettingsCredentialSource>()

@@ -112,7 +112,6 @@ import {
   CLAIM_RUNS_RELEASE_TOOLS,
   type ClaimedMcpServer,
   catalogProfile,
-  catalogRevision,
   claimToolLists,
   type EgressUpstream,
   GITHUB_MCP_ENDPOINT,
@@ -855,14 +854,12 @@ export function createWorkerGateway(deps: {
     ];
   }
 
-  // The claim's candidates, its revision and the ids it may give up on all
-  // come from one read of the registry, and are made again when it moves.
+  // The claim's candidates and the ids it may give up on all come from one read of the registry, and are made again when it moves.
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
     profiles: SessionCatalog["profiles"];
     repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
-    revision: string;
     settingsGeneration: number | null;
     unavailableRepositories: ReadonlySet<string>;
     settled: ReadonlySet<string>;
@@ -885,7 +882,6 @@ export function createWorkerGateway(deps: {
         profiles,
         repositories,
         pairs: buildRunnablePairs(workspace),
-        revision: catalogRevision(catalog),
         settingsGeneration,
         unavailableRepositories:
           catalog.unavailable_repositories ?? new Set<string>(),
@@ -1452,7 +1448,6 @@ export function createWorkerGateway(deps: {
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
-        catalogRevision: claimable.revision,
         settingsGeneration: claimable.settingsGeneration,
         unsettledRepositoryIds: claimable.unavailableRepositories,
         settledProfileIds: claimable.settled,

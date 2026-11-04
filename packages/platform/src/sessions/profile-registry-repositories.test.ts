@@ -50,7 +50,6 @@ const rowOf = (
 
 const SOURCES: SnapshotSources<CatalogProfile> = {
   connections: {},
-  repositoryIdsOf: () => [],
   allowUnattended: false,
   runtimeSupported: () => true,
   materialize: () => {
@@ -59,12 +58,15 @@ const SOURCES: SnapshotSources<CatalogProfile> = {
 };
 
 describe("console repositories in the catalog", () => {
-  test("rows replace the file's registered-App entries; a credentialed file id wins", () => {
-    const merged = withConsoleRepositories(FILE, [
-      rowOf({ id: "web", url: "https://github.com/acme/web.git" }),
-      rowOf({ id: "tool", url: "https://github.com/evil/tool.git" }),
-    ]);
-    expect(Object.keys(merged).sort()).toEqual(["tool", "web"]);
+  test("rows join the settings' entries; a credentialed settings id wins", () => {
+    const merged = withConsoleRepositories(
+      [
+        rowOf({ id: "web", url: "https://github.com/acme/web.git" }),
+        rowOf({ id: "tool", url: "https://github.com/evil/tool.git" }),
+      ],
+      FILE,
+    );
+    expect(Object.keys(merged).sort()).toEqual(["app", "tool", "web"]);
     expect(merged.tool).toBe(FILE.tool as CatalogRepository);
     expect(merged.web).toEqual({
       url: "https://github.com/acme/web.git",
@@ -75,7 +77,7 @@ describe("console repositories in the catalog", () => {
 
   test("a seeded row binds exactly as its yaml entry did", () => {
     const [seeded] = Object.entries(
-      withConsoleRepositories(FILE, [
+      withConsoleRepositories([
         rowOf({
           id: "app",
           source: "seed",
@@ -102,14 +104,14 @@ describe("console repositories in the catalog", () => {
       sources: SOURCES,
     });
     const catalog = profileCatalog({ repositories: FILE }, registry, (held) =>
-      withConsoleRepositories(FILE, held),
+      withConsoleRepositories(held, FILE),
     );
-    // Before the first read: the file as it is.
+    // Before the first read: what it was built with.
     expect(catalog.repositories).toBe(FILE);
 
     await registry.refresh();
     const first = catalog.repositories;
-    expect(Object.keys(first).sort()).toEqual(["tool", "web"]);
+    expect(Object.keys(first).sort()).toEqual(["app", "tool", "web"]);
     // The gateway's claim cache keys on this object.
     expect(catalog.repositories).toBe(first);
     await registry.refresh();
@@ -122,6 +124,6 @@ describe("console repositories in the catalog", () => {
 
     rows = [];
     await registry.refresh();
-    expect(Object.keys(catalog.repositories)).toEqual(["tool"]);
+    expect(Object.keys(catalog.repositories).sort()).toEqual(["app", "tool"]);
   });
 });
