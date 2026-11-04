@@ -300,13 +300,13 @@ describe("connectionsOf", () => {
           ref: { value_env: "P" },
         },
       },
-      gitea: {
+      selfHosted: {
         ...base,
-        url: "http://gitea:3000/agent/sample.git",
+        url: "http://git.internal:3000/agent/sample.git",
         auth: {
           kind: "basic",
           username: "agent",
-          value: "gitea-token-fixture",
+          value: "self-hosted-token-fixture",
           ref: { value_env: "G" },
         },
       },
@@ -314,7 +314,7 @@ describe("connectionsOf", () => {
     },
   };
 
-  test("an App or a github.com PAT has an author connection; Gitea, public repositories and the reviewer role have none", async () => {
+  test("an App or a github.com PAT has an author connection; a self-hosted host, public repositories and the reviewer role have none", async () => {
     const connections = connectionsOf(catalog);
     expect(connections("app", "author")).toMatchObject({
       kind: "fixed",
@@ -337,7 +337,7 @@ describe("connectionsOf", () => {
       fixedOf(connections("app", "author")),
     );
     expect(connections("app", "reviewer")).toBeNull();
-    expect(connections("gitea", "author")).toBeNull();
+    expect(connections("selfHosted", "author")).toBeNull();
     expect(connections("public", "author")).toBeNull();
     expect(connections("missing", "author")).toBeNull();
   });

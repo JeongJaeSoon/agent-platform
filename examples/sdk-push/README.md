@@ -16,7 +16,7 @@ bun examples/sdk-push/src/push.ts
 
 ## 실행 결과
 
-로컬 FAKE 스택의 `sample-app`(Gitea)은 카탈로그에 push 자격 증명(`auth`)이 없다. 그래서 승인된 push는 `failed`(`no_push_credential`)로 끝나고, PR은 push되지 않은 요청이라 409 `PUSH_NOT_PUSHED`다. 샘플은 이 둘을 이 스택의 예상 결과로 출력하고 종료 코드 0으로 끝난다. 그 밖의 push 실패는 종료 코드 1이다.
+로컬 FAKE 스택의 `sample-app`(읽기 전용 fake-git)은 카탈로그에 push 자격 증명(`auth`)이 없다. 그래서 승인된 push는 `failed`(`no_push_credential`)로 끝나고, PR은 push되지 않은 요청이라 409 `PUSH_NOT_PUSHED`다. 샘플은 이 둘을 이 스택의 예상 결과로 출력하고 종료 코드 0으로 끝난다. 그 밖의 push 실패는 종료 코드 1이다.
 
 ```text
 session …: created
@@ -36,7 +36,7 @@ pull request: 409 PUSH_NOT_PUSHED not_pushed
 close: receipt succeeded
 ```
 
-push 자격이 있는 저장소에서는 `push …: pushed`, `push receipt: succeeded, refs/heads/agent/<session-id>`가 나온다. 그 저장소가 GitHub(GitHub App 또는 github.com PAT)면 PR을 열고 `sdk-sample` marker로 코멘트를 달며 그 응답을 출력한다. GitHub이 아닌 저장소(Gitea, GHES PAT)에 push된 브랜치면 PR은 403 `FORBIDDEN`(`no_forge`)이다. 이 두 경로는 가짜 API 테스트로만 확인했다.
+push 자격이 있는 저장소에서는 `push …: pushed`, `push receipt: succeeded, refs/heads/agent/<session-id>`가 나온다. 그 저장소가 GitHub(GitHub App 또는 github.com PAT)면 PR을 열고 `sdk-sample` marker로 코멘트를 달며 그 응답을 출력한다. GitHub forge가 없는 저장소(GitHub가 아닌 호스트, GHES PAT)에 push된 브랜치면 PR은 403 `FORBIDDEN`(`no_forge`)이다. 이 두 경로는 가짜 API 테스트로만 확인했다.
 
 - 승인은 요청이 고정한 `git_commit`을 그대로 보낸다. 다른 commit이거나 요청 뒤 세션이 새 checkpoint를 남겼으면 409 `CHECKPOINT_MOVED`다. SDK는 그때 다시 읽어 다시 승인하지 않는다. 검토한 commit만 승인한다.
 - 한 세션에 열린 요청은 하나다. 거부한 뒤에 새로 요청한다.

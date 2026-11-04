@@ -122,28 +122,6 @@ services:
       postgres:
         condition: service_healthy
 
-  gitea:
-    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
-    logging: *logging
-    environment:
-      GITEA__database__DB_TYPE: sqlite3
-      GITEA__security__INSTALL_LOCK: "true"
-      # Accounts come from the admin CLI (gitea-init) only: an open sign-up
-      # would let anyone who reaches Gitea make a channel between sessions.
-      GITEA__service__DISABLE_REGISTRATION: "true"
-    ports:
-      # Web UI and HTTP clone for this host. SSH is not published: workers
-      # clone over HTTP through the proxy's repository route (gitea:3000).
-      - "127.0.0.1:3001:3000"
-    volumes:
-      - gitea-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/v1/version >/dev/null"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 10s
-
   # The only route off every worker network. The scheduler gives each worker
   # an internal network of its own and attaches this container to it under
   # the name in EXECUTION_EGRESS_PROXY_URL; workers are handed it as
@@ -177,7 +155,7 @@ services:
       # the object store route sends the API-signed request to.
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
-      # Gitea without a token; test-ops LocalStack accepts any signature,
+      # the git host without a token; test-ops LocalStack accepts any signature,
       # while local SeaweedFS still needs the route's session authorization.
       # fake-messages:4010 and fake-mcp:4020 are
       # config/fake-model's Messages API and remote MCP server.
@@ -188,7 +166,9 @@ services:
       # Hosts the packages route follows a registry's redirect to. None of
       # today's public registries redirects.
       EGRESS_PACKAGES_REDIRECT_ALLOWLIST: ${EGRESS_PACKAGES_REDIRECT_ALLOWLIST:-}
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
+      # Private upstreams belong to the installation: the local layer names
+      # its own, test-ops on LocalStack requires one.
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
@@ -354,8 +334,6 @@ services:
       migrate:
         condition: service_completed_successfully
       postgres:
-        condition: service_healthy
-      gitea:
         condition: service_healthy
 
   # Not a long-running service: workers are launched per session by the
@@ -620,4 +598,3 @@ networks:
 
 volumes:
   postgres-data:
-  gitea-data:

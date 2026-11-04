@@ -10,8 +10,14 @@ import {
   sessionRuntimeSchema,
   terminalTurnStatusSchema,
 } from "../api/session.ts";
-import { mcpServerIdSchema } from "../kollegium/agents.ts";
-import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "../shared/agent-card.ts";
+import {
+  AGENT_CARD_LANGUAGE_VALUES,
+  mcpServerIdSchema,
+} from "../kollegium/agents.ts";
+import {
+  AGENT_DESCRIPTION_MAX_LENGTH,
+  AGENT_INSTRUCTIONS_MAX_LENGTH,
+} from "../shared/agent-card.ts";
 import {
   attemptIdSchema,
   epochSchema,
@@ -211,6 +217,47 @@ export const runtimeMcpServerSchema = z
   })
   .strict();
 
+// `owner/repo`, the name people know a GitHub repository by; a catalog URL
+// with any other path names no repository here.
+export const githubRepositoryNameSchema = z
+  .string()
+  .max(201)
+  .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
+
+export const PLATFORM_PROMPT_SURFACE_VALUES = [
+  "slack_channel",
+  "slack_dm",
+  "console",
+  "api",
+] as const;
+
+// What the worker renders the platform's paragraph of the system prompt
+// from: who the agent is, where the session started and its repository, as
+// the session was created. It is part of the checkpoint fingerprint, so the
+// platform stores it on the session once and never re-reads the agent or the
+// catalog for it. Whether GitHub is set up changes while a session runs, so
+// it is not here: the GitHub tools answer it. A new revision is a new
+// literal next to this one.
+export const platformPromptSchema = z
+  .object({
+    prompt_revision: z.literal(1),
+    agent_identity: z
+      .object({
+        name: z.string().min(1).max(120),
+        description: z
+          .string()
+          .min(1)
+          .max(AGENT_DESCRIPTION_MAX_LENGTH)
+          .nullable(),
+      })
+      .strict(),
+    origin_surface: z.enum(PLATFORM_PROMPT_SURFACE_VALUES),
+    language: z.enum(AGENT_CARD_LANGUAGE_VALUES),
+    // The session's own repository.
+    repository: githubRepositoryNameSchema.nullable(),
+  })
+  .strict();
+
 export const runtimeConfigSchema = z
   .object({
     model: z.string().min(1),
@@ -244,6 +291,10 @@ export const runtimeConfigSchema = z
       .min(1)
       .max(AGENT_INSTRUCTIONS_MAX_LENGTH)
       .optional(),
+    // Here and not at the claim's top level for the same reason as
+    // `agent_instructions`. Absent for a session created without it
+    // (revision 0), so its claims and fingerprints stay what they were.
+    platform_prompt: platformPromptSchema.optional(),
   })
   .strict();
 
@@ -309,6 +360,24 @@ export const claimGitSchema = z
 export const claimGitAuthorSchema = z
   .object({ name: trailerValueSchema, email: trailerValueSchema })
   .strict();
+
+/**
+ * The emails of the co-author lines engines add on their own, which no
+ * session commit keeps (decision github-agent.md D1). The one list: claims
+ * hand it to the worker's hook, and the push check reads it here. A list only
+ * grows while an image that still adds a removed email may run.
+ */
+export const ENGINE_COAUTHOR_EMAILS = ["noreply@anthropic.com"] as const;
+
+export const claimGitStripSchema = z
+  .array(
+    z
+      .string()
+      .min(3)
+      .max(254)
+      .regex(/^[^\s<>@]+@[^\s<>@]+$/),
+  )
+  .max(32);
 
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
@@ -376,6 +445,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // older worker's strict `git` would refuse the whole claim over a new key,
   // where an unknown top-level key is dropped.
   git_author: claimGitAuthorSchema.nullable().optional(),
+  // The emails whose Co-authored-by lines the hook removes from the
+  // session's commits (ENGINE_COAUTHOR_EMAILS). Sent with `git`; top-level for
+  // the reason `git_author` is.
+  git_strip: claimGitStripSchema.optional(),
   // The attempt's repository route token, also when the claim names no
   // repository: a repository the agent attaches mid-session is fetched with
   // it (session-repository-attachment.md decision 3). Top-level so an older
@@ -1011,6 +1084,8 @@ export type AdditionalWorkspaceRepository = z.infer<
 export type ClaimPrincipal = z.infer<typeof claimPrincipalSchema>;
 export type RuntimeProvider = z.infer<typeof runtimeProviderSchema>;
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+export type PlatformPrompt = z.infer<typeof platformPromptSchema>;
+export type PlatformPromptSurface = PlatformPrompt["origin_surface"];
 export type NextInputRequest = z.infer<typeof nextInputRequestSchema>;
 export type NextInputResponse = z.infer<typeof nextInputResponseSchema>;
 export type CheckpointBlockReason = z.infer<typeof checkpointBlockReasonSchema>;

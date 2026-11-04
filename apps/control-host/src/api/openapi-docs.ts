@@ -236,6 +236,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "The push request has not been pushed (`state` is not `pushed`); a pull request opens only from a pushed branch.",
   PULL_REQUEST_MISSING:
     "No pull request was opened from this push request yet; open it first.",
+  PULL_REQUEST_MERGED:
+    "The pull request was merged; a merged pull request is neither closed nor reopened.",
   GITHUB_REFUSED:
     "The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.",
   GITHUB_APP_CONFLICT:

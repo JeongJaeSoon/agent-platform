@@ -1,6 +1,6 @@
 import { startFakeGit } from "./fake-git.ts";
 
-// The example catalog's git host for a local stack, in place of a Gitea:
+// The example catalog's git host for a local stack:
 // `bun fake-git-main.ts sample-app gate-app` serves
 // http://<host>:3000/agent/sample-app.git and .../gate-app.git, read-only.
 // FAKE_GIT_PORT and FAKE_GIT_OWNER keep the URLs existing session records

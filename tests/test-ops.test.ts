@@ -411,12 +411,10 @@ describe("rendered installation", () => {
             ? {
                 EGRESS_CREDENTIAL_ALLOWLIST:
                   "api.anthropic.com:443,ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
-                EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
               }
             : {
                 EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
-                EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:
-                  "gitea:3000,localstack:4566",
+                EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "localstack:4566",
               }),
         },
       },
@@ -473,10 +471,11 @@ describe("rendered installation", () => {
       services["local-s3-init"] = { image: "localstack/localstack:3" };
       services.migrate = { ...services.migrate, build: { context: ".." } };
       services.worker = { ...services.worker, image: "ghcr.io/x/worker:v1" };
-      services.gitea = {
-        ...services.gitea,
-        ports: [{ host_ip: "0.0.0.0", published: "3001", target: 3000 }],
+      services.postgres = {
+        ...services.postgres,
+        ports: [{ host_ip: "0.0.0.0", published: "5432", target: 5432 }],
       };
+      services.gitea = { image: "ghcr.io/x/control-host:v1" };
       env("api").AUTH_MODE = "none";
       env("api").CHECKPOINT_OBJECT_PROTECTION = "unversioned";
       env("postgres").POSTGRES_PASSWORD = "a/b@c";
@@ -498,7 +497,9 @@ describe("rendered installation", () => {
         "service local-s3-init is local-only",
         "service migrate builds its image",
         "service worker runs ghcr.io/x/worker:v1, not an image by digest",
-        "service gitea publishes 3001 on 0.0.0.0",
+        "service postgres publishes 5432 on 0.0.0.0",
+        "service gitea is local-only",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names gitea:3000, a local-only service",
         "api AUTH_MODE must be api-key",
         "api CHECKPOINT_OBJECT_PROTECTION must be locked",
         "POSTGRES_PASSWORD may hold only letters, digits and . _ ~ -",
@@ -528,7 +529,7 @@ describe("rendered installation", () => {
       };
       api.AWS_ENDPOINT_URL = "http://127.0.0.1:4566";
       api.S3_BUCKET = "ops-bucket";
-      proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "gitea:3000,secrets:4566";
+      proxy.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST = "secrets:4566";
       const found = await checkRender(model, { store: "localstack" }).then(
         () => "",
         (error: Error) => error.message,

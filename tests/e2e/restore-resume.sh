@@ -24,12 +24,12 @@
 # Everything lands in RR_OUT (default: a fresh temp dir): record.txt (tested
 # SHA, image ids, versions, the comparison table), each step's JSON, both
 # projects' checkpoint rows and manifests, restore and verify logs, compose
-# logs, and every worker's log. The backup itself holds Gitea's secrets and
-# the API key hashes, so only its manifest.json is kept.
+# logs, and every worker's log. The backup itself holds the API key hashes,
+# so only its manifest.json is kept.
 #
 # Knobs: RR_PROJECT (source project; the restored one is <it>r),
 # RR_INSTALLATION_ID (EXECUTION_INSTALLATION_ID for both), RR_PORT_BASE
-# (the restored project's four loopback ports, default 24320), RR_KEEP=1
+# (the restored project's three loopback ports, default 24320), RR_KEEP=1
 # leaves both projects' images and the backup behind. RR_IMAGES_FROM=<p>
 # builds nothing and runs the images project <p> already has (a stack from
 # scripts/soak/stack.sh or scripts/d2-gate/run.sh), retagged for both projects:
@@ -37,7 +37,7 @@
 #
 # Needs what tests/e2e/run.sh and scripts/restore.sh need: Docker Engine 28+,
 # compose v2.24.6+, bun, jq. On macOS put /bin ahead of Homebrew's bash 5.3,
-# which hangs on the backup's heredoc (docs/operator/backup-restore.md).
+# which hangs on long heredocs (docs/operator/backup-restore.md).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -67,8 +67,7 @@ export WORKER_IMAGE="agent-platform-worker:${project}"
 export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
 export RESTORE_POSTGRES_PORT="$port_base"
 export RESTORE_LOCALSTACK_PORT="$((port_base + 1))"
-export RESTORE_GITEA_HTTP_PORT="$((port_base + 2))"
-export RESTORE_GITEA_SSH_PORT="$((port_base + 3))"
+export RESTORE_GIT_HOST_PORT="$((port_base + 2))"
 label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
 src_files=(-f infra/compose.yml -f infra/compose.fake-model.yml -f tests/e2e/compose.yml)
 dst_files=("${src_files[@]}" -f infra/compose.restore.yml)
@@ -102,7 +101,8 @@ cleanup() {
     dst down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     remove_installation
     docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" \
-      "${project}-migrate:latest" "${restored}-migrate:latest" >/dev/null 2>&1 || true
+      "${project}-migrate:latest" "${restored}-migrate:latest" \
+      "${project}-gitea:latest" "${restored}-gitea:latest" >/dev/null 2>&1 || true
     rm -rf "$out/backup"
   fi
   [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
@@ -189,13 +189,17 @@ if [ -n "${RR_IMAGES_FROM:-}" ]; then
     docker tag "agent-platform-${repo}:${from}" "agent-platform-${repo}:${project}" \
       || fail "project ${from} has no agent-platform-${repo} image"
   done
-  # restore.sh runs migrate on the restored project, under its own default name.
+  # restore.sh runs migrate on the restored project, under its default name.
   for name in "$project" "$restored"; do
     docker tag "${from}-migrate:latest" "${name}-migrate:latest" \
       || fail "project ${from} has no migrate image"
   done
+  docker tag "${from}-gitea:latest" "${project}-gitea:latest" \
+    || fail "project ${from} has no gitea image"
 fi
 src up -d "$build" >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
+# restore.sh leaves the git host down; the restored apps start it --no-build.
+docker tag "${project}-gitea:latest" "${restored}-gitea:latest" || fail "project ${project} has no gitea image"
 api_key="$(COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="infra/compose.yml:infra/compose.fake-model.yml:tests/e2e/compose.yml" \
   bun run --silent keys create rr-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control)"
@@ -242,7 +246,9 @@ done
 backup_dir="$(bash scripts/backup.sh --project "$project" --out "$out/backup" 2>"$out/backup.log")" \
   || { cat "$out/backup.log" >&2; fail "backup"; }
 cp "$backup_dir/manifest.json" "$out/backup-manifest.json"
-note "backup: $(jq -c '{objects, repos: (.repos.bundled | length), worker: .images.worker.id}' "$out/backup-manifest.json")"
+note "backup: $(jq -c '{objects, worker: .images.worker.id}' "$out/backup-manifest.json")"
+jq -e 'has("gitea") or has("repos") or (.images | has("gitea")) | not' "$out/backup-manifest.json" >/dev/null \
+  || fail "the backup manifest names a git host"
 src down -v --remove-orphans >/dev/null 2>&1
 remove_installation
 ! project_has_resources "$project" || fail "source project ${project} still has resources"

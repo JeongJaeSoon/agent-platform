@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
@@ -278,6 +278,10 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(
       "COPY --chmod=0755 apps/worker/git-hooks/werft-hook /usr/local/share/werft/git-hooks/werft-hook\n",
     );
+    // The hook sources it from its own directory.
+    expect(source).toContain(
+      "COPY --chmod=0644 apps/worker/git-hooks/werft-trailers.sh /usr/local/share/werft/git-hooks/werft-trailers.sh\n",
+    );
     expect(source).toContain(
       "git config --system core.hooksPath /usr/local/share/werft/git-hooks\n",
     );
@@ -381,9 +385,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   });
 
   // A credential route's upstream on a forward list is a way round the
-  // route: the provider outside cost accounting, Gitea without a token,
+  // route: the provider outside cost accounting, the git host without a token,
   // LocalStack into every session's prefix.
-  test("workers reach the provider, Gitea and the object store only through the credential routes", () => {
+  test("workers reach the provider, the git host and the object store only through the credential routes", () => {
     const forward = ["EGRESS_ALLOWLIST", "EGRESS_PRIVATE_ALLOWLIST"];
     const credential = [
       "EGRESS_CREDENTIAL_ALLOWLIST",
@@ -410,10 +414,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const listOf = (value: string | undefined) =>
       (value ?? "").split(",").filter((entry) => entry !== "");
 
-    for (const name of [...forward, ...credential]) {
+    for (const name of [...forward, ...credential])
       expect(composeDefault(name)).toBeDefined();
+    for (const name of [...forward, "EGRESS_CREDENTIAL_ALLOWLIST"])
       expect(example[name]).toBe(composeDefault(name));
-    }
+    // The local layer's default stands unless a .env replaces it.
+    expect(example.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST).toBeUndefined();
+    expect(servicesOf(CORE)["egress-proxy"]?.environment).toMatchObject({
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:
+        "$" + "{EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-}",
+    });
     const forwarded = forward.flatMap((name) => listOf(composeDefault(name)));
     const routed = credential.flatMap((name) => listOf(composeDefault(name)));
     for (const upstream of upstreams) {
@@ -442,12 +452,131 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ?.environment;
     const gateForward = forward.flatMap((name) => listOf(gate?.[name]));
     expect(gateForward).toEqual(["gate-gateway:3000"]);
+  });
 
-    // Accounts come from the admin CLI; an open sign-up is a channel
-    // between sessions for anything that reaches Gitea.
-    expect(
-      localStack().gitea?.environment?.GITEA__service__DISABLE_REGISTRATION,
-    ).toBe("true");
+  test("no compose layer runs a Gitea, and only the local stack has a git host", () => {
+    for (const file of readdirSync(join(root, "infra"))) {
+      if (file.endsWith(".yml"))
+        expect(read(`infra/${file}`)).not.toMatch(/gitea\/gitea|GITEA__/);
+    }
+    expect(servicesOf(CORE).gitea).toBeUndefined();
+    expect(layeredServices(TEST_OPS_LAYERS).gitea).toBeUndefined();
+    expect(localStack().gitea).toBeDefined();
+  });
+
+  // Session records keep the repo_url they started with, so the catalogs,
+  // the service name and what fake-git serves have to go on agreeing.
+  test("the local git host serves every repository the example catalogs name", () => {
+    const local = localStack();
+    const gitHost = local.gitea;
+    expect(gitHost?.image).toBeUndefined();
+    expect(gitHost?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
+    expect(gitHost?.command?.slice(0, 3)).toEqual([
+      "bun",
+      "run",
+      "packages/testkit/src/fake-git-main.ts",
+    ]);
+    // FAKE_GIT_PORT and FAKE_GIT_OWNER default to the URLs' 3000 and agent.
+    expect(gitHost?.environment).toBeUndefined();
+    const served = gitHost?.command?.slice(3) ?? [];
+
+    const catalogs: Record<string, string> = {
+      "config/repositories.yaml": "sample-app",
+      "config/fake-model/repositories.yaml": "sample-app",
+      "config/fake-model-unattended/repositories.yaml": "sample-app",
+      "config/local-model/repositories.yaml": "sample-app",
+      ".claude/skills/verify-agent-platform/github-sandbox/repositories.yaml":
+        "sample-app",
+      "scripts/d2-gate/config/repositories.yaml": "gate-app",
+    };
+    for (const [path, repository] of Object.entries(catalogs)) {
+      const { repositories } = Bun.YAML.parse(read(path)) as {
+        repositories: Record<string, { url: string }>;
+      };
+      expect(repositories[repository]?.url).toBe(
+        `http://gitea:3000/agent/${repository}.git`,
+      );
+      expect(served).toContain(repository);
+    }
+  });
+
+  test("the kind git host keeps the name, port and paths of the example catalogs", () => {
+    type Manifest = {
+      kind: string;
+      metadata: { name: string };
+      spec: {
+        selector: { app?: string };
+        ports: { port: number }[];
+        template: {
+          metadata: { labels: { app: string } };
+          spec: {
+            containers: {
+              image: string;
+              imagePullPolicy: string;
+              command?: string[];
+              args: string[];
+              readinessProbe: { httpGet: { path: string; port: number } };
+            }[];
+          };
+        };
+      };
+    };
+    const session = read("deploy/kind/deps-session.yaml");
+    const [deployment, service] = session
+      .split(/^---$/m)
+      .map((document) => Bun.YAML.parse(document) as Manifest);
+    expect(deployment?.kind).toBe("Deployment");
+    expect(deployment?.metadata.name).toBe("gitea");
+    expect(service?.kind).toBe("Service");
+    expect(service?.metadata.name).toBe("gitea");
+    expect(service?.spec.ports).toEqual([{ port: 3000 }]);
+    expect(service?.spec.selector.app).toBe(
+      deployment?.spec.template.metadata.labels.app,
+    );
+
+    const containers = deployment?.spec.template.spec.containers ?? [];
+    expect(containers).toHaveLength(1);
+    const [gitHost] = containers;
+    expect(gitHost?.image).toBe("CONTROL_HOST_IMAGE");
+    expect(gitHost?.imagePullPolicy).toBe(
+      (
+        Bun.YAML.parse(read("deploy/helm/agent-platform/values.yaml")) as {
+          images: { pullPolicy: string };
+        }
+      ).images.pullPolicy,
+    );
+    expect(gitHost?.command).toBeUndefined();
+    expect(gitHost?.args).toEqual([
+      "bun",
+      "run",
+      "packages/testkit/src/fake-git-main.ts",
+      "sample-app",
+      "gate-app",
+    ]);
+    expect(gitHost?.readinessProbe.httpGet).toEqual({
+      path: "/healthz",
+      port: 3000,
+    });
+    expect(read("deploy/kind/up.sh")).toContain(
+      "s#CONTROL_HOST_IMAGE#$" +
+        "{image_repo}-control-host@$" +
+        "{control_host_digest}#",
+    );
+
+    const { catalog } = Bun.YAML.parse(
+      read("deploy/helm/agent-platform/values.yaml"),
+    ) as { catalog: { repositories: Record<string, { url: string }> } };
+    expect(catalog.repositories["sample-app"]?.url).toBe(
+      "http://gitea:3000/agent/sample-app.git",
+    );
+    for (const model of ["fake", "real"]) {
+      const { config } = Bun.YAML.parse(
+        read(`deploy/kind/values-${model}-model.yaml`),
+      ) as { config: { egress: { credentialPrivateAllowlist: string } } };
+      expect(config.egress.credentialPrivateAllowlist.split(",")).toContain(
+        "gitea:3000",
+      );
+    }
   });
 
   const apiBlock = compose.slice(
@@ -872,7 +1001,6 @@ describe("compose layers", () => {
     "local-s3-init",
     "secrets",
     "fake-messages",
-    "gitea-init",
   ];
   const APP_IMAGES = {
     API_IMAGE: `registry.invalid/control-host@sha256:${"a".repeat(64)}`,
@@ -899,7 +1027,7 @@ describe("compose layers", () => {
     EXECUTION_WORKSPACE_QUOTA: "on",
     EGRESS_CREDENTIAL_ALLOWLIST:
       "api.anthropic.com:443,test-ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
-    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
+    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "localstack:4566",
   };
   const TEST_OPS_REQUIRED = {
     ...APP_IMAGES,
@@ -908,6 +1036,8 @@ describe("compose layers", () => {
   };
   // What only the s3 store's layer requires; LocalStack needs none of it.
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+  // And what only LocalStack's does: on s3 no upstream is private.
+  const LOCALSTACK_ONLY = ["EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"];
   const holdsKey = (service: string, variable: string) =>
     service === "api" ||
     (service === "maintenance" && variable.startsWith("AWS_"));
@@ -1095,11 +1225,20 @@ describe("compose layers", () => {
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,
-  // networks, healthchecks, restart policies, allowlists — stays in the core.
+  // networks, restart policies, allowlists — stays in the core. The exception
+  // is EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST, whose entries are each
+  // installation's own hosts; the core's default is empty.
   test.each([
     [
       LOCAL_LAYERS[1],
-      ["build", "env_file", "environment", "depends_on"],
+      [
+        "build",
+        "command",
+        "env_file",
+        "environment",
+        "depends_on",
+        "healthcheck",
+      ],
       [
         "AWS_ENDPOINT_URL",
         "AWS_ENDPOINT_URL_SECRETS_MANAGER",
@@ -1107,6 +1246,8 @@ describe("compose layers", () => {
         "AWS_SECRET_ACCESS_KEY",
         "ANTHROPIC_API_KEY",
         "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS",
+        "SESSION_PROMPT_REVISION",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
       ],
     ],
     [
@@ -1116,7 +1257,10 @@ describe("compose layers", () => {
         "WORKER_IMAGE",
         ...Object.keys(TEST_OPS_SECRETS),
         ...Object.keys(TEST_OPS_SETTINGS).filter(
-          (name) => name !== "PLATFORM_CATALOG_DIR" && !S3_ONLY.includes(name),
+          (name) =>
+            name !== "PLATFORM_CATALOG_DIR" &&
+            !S3_ONLY.includes(name) &&
+            !LOCALSTACK_ONLY.includes(name),
         ),
       ],
     ],
@@ -1134,7 +1278,12 @@ describe("compose layers", () => {
     [
       TEST_OPS_STORE_LAYERS.localstack,
       ["environment", "depends_on"],
-      ["AWS_ENDPOINT_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+      [
+        "AWS_ENDPOINT_URL",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        ...LOCALSTACK_ONLY,
+      ],
     ],
   ] as const)(
     "%s only adds to the core's services",
@@ -1282,7 +1431,6 @@ describe("compose layers", () => {
       expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
       // The local S3 server and its encryption seed survive container replacement.
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
-        "gitea-data",
         "local-s3-data",
         "postgres-data",
       ]);
@@ -1360,7 +1508,13 @@ describe("compose layers", () => {
   });
 
   test.each([
-    ["s3", S3_LAYERS, Object.keys(TEST_OPS_REQUIRED)],
+    [
+      "s3",
+      S3_LAYERS,
+      Object.keys(TEST_OPS_REQUIRED).filter(
+        (name) => !LOCALSTACK_ONLY.includes(name),
+      ),
+    ],
     [
       "localstack",
       LOCALSTACK_LAYERS,

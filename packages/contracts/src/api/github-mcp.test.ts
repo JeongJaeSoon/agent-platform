@@ -28,6 +28,8 @@ describe("githubMcpTools", () => {
       "open_pull_request",
       "update_pull_request",
       "comment_pull_request",
+      "close_pull_request",
+      "reopen_pull_request",
       "list_repositories",
       "attach_repository",
     ]);
@@ -38,6 +40,8 @@ describe("githubMcpTools", () => {
       "open_pull_request",
       "update_pull_request",
       "comment_pull_request",
+      "close_pull_request",
+      "reopen_pull_request",
       "list_repositories",
       "attach_repository",
     ]);

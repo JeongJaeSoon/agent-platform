@@ -153,6 +153,8 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 - `POST /v1/installation/settings/import`(owner cookie): 문서의 없는 id만 더한다. `external` 참조가 새로 나오면 거절한다(그것은 CLI만). `stored` 항목은 값이 없으므로 "값 필요" 상태로 들어가고 콘솔에서 값을 넣어야 돈다.
 - CLI `settings import`·`settings export`: DB에 직접 붙는 운영자 도구. `external`을 받는다. `--dry-run`은 더할 것·충돌·값 필요 항목을 보인다.
 - 이것으로 하는 일: 저장소에 문서를 두고 PR 리뷰 뒤 `settings import --dry-run`/적용(GitOps 비슷한 흐름), DB 백업과 별도로 설정만 복구, 스테이징→운영 복제.
+- **S2 구현에서 좁힌 것.** 문서 v1에는 연결·저장소·MCP 서버만 있다. 실행 상한과 워크스페이스 판은 넣지 않았다. 상한의 도구 목록은 allowlist에서 deny 목록으로 바뀔 예정이라 지금 모양을 새 계약으로 굳히지 않는다. 상한은 지금처럼 `profiles.yaml` 시드와 `POST /v1/installation-profiles`로 다룬다. 상한을 문서로 옮기는 일은 S4나 도구 deny 목록 작업에서 정한다. 형식과 명령은 [운영 문서](../../operator/api-server.md#설정-문서-가져오기내보내기)에 있다.
+- **S2 뒤 되돌리기 하한.** 가져오기는 GitHub App이 아닌 `catalog_repositories` 행을 쓴다. 이런 행이 생긴 DB는 S1(migration 0225) 앞 이미지로 되돌리지 않는다. 앞 이미지는 `auth_kind`를 모르므로 그 행을 GitHub App 저장소로 읽는다.
 
 ## 7. 위험
 

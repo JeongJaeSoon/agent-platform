@@ -25,6 +25,7 @@ function record(
     agentReleaseId: null,
     starter,
     authorApp: null,
+    authorPinned: false,
   };
 }
 

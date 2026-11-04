@@ -51,6 +51,40 @@ function pinReceipt(input: {
   };
 }
 
+// No actor: the claim, not a person, made it. The session it was for is
+// what an audit reads it by.
+function claimPinReceipt(input: {
+  workspaceId: string;
+  sessionId: string;
+  receiptId: string;
+  repositoryId: string;
+  role: Row["role"];
+  appId: number;
+  after: string;
+}) {
+  return {
+    id: input.receiptId,
+    ownerId: input.workspaceId,
+    actor: null,
+    operation: "set_repository_github_app",
+    targetRef: {
+      resource: { kind: "workspace", id: input.workspaceId },
+      workspace_id: input.workspaceId,
+    },
+    status: "succeeded" as const,
+    result: {
+      event: "pinned_at_claim",
+      repository_id: input.repositoryId,
+      role: input.role,
+      pinned_by: "claim",
+      app_id: input.appId,
+      session_id: input.sessionId,
+      before: null,
+      after: input.after,
+    },
+  };
+}
+
 export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
   return {
     async get(repositoryId, role) {
@@ -105,13 +139,30 @@ export function createPostgresGitHubPinStore(db: Database): GitHubPinStore {
             connectionId,
             appId: input.appId,
             pinnedBy: input.pinnedBy,
-            updatedBy: input.audit?.actor.actor_user_id ?? null,
+            updatedBy:
+              input.pinnedBy === "claim"
+                ? null
+                : (input.audit?.actor.actor_user_id ?? null),
           })
           .onConflictDoNothing()
           .returning();
         const [created] = inserted;
         if (created !== undefined) {
-          if (input.audit !== undefined && input.pinnedBy === "selection") {
+          if (input.pinnedBy === "claim") {
+            await tx.insert(receipts).values(
+              claimPinReceipt({
+                ...input.audit,
+                workspaceId: owner.workspaceId,
+                repositoryId: input.repositoryId,
+                role: input.role,
+                appId: input.appId,
+                after: connectionId,
+              }),
+            );
+          } else if (
+            input.audit !== undefined &&
+            input.pinnedBy === "selection"
+          ) {
             await tx.insert(receipts).values(
               pinReceipt({
                 id: input.audit.receiptId,

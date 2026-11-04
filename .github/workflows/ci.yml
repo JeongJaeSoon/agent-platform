@@ -148,9 +148,10 @@ jobs:
     name: integration (${{ matrix.domain }})
     if: contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
-    # The longest domain, DB, reached 5m42s on main and 4m55s on the PR.
-    # Allow 10m for runner variability, service startup and cleanup.
-    timeout-minutes: 10
+    # Bounds a stuck job; it is not a budget. Slow runners are projected to need
+    # 10.5-11m for surface and db, and a 10m limit cancelled them with no test
+    # recorded as failed, which turned the required `integration` red.
+    timeout-minutes: 15
     strategy:
       # A failing job must not cancel the rest: each one's failures are
       # their own, and a cancelled job would hide them until the next push.

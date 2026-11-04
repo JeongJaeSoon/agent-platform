@@ -82,6 +82,10 @@ worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 �
 
 API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). 둘 다 없으면 지금처럼 동작한다. `WORKER_IMAGE_PREVIOUS_RUNTIME`만 있거나 값을 읽을 수 없으면 기동하지 않는다. 설정하면 profile의 `runtime_version`을 다음 이미지 버전으로 올려도, 직전 이미지 버전으로 만들어진 열린 세션의 profile pin이 유지된다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 그래서 SDK를 올리는 릴리스는 `profiles.yaml`의 `runtime_version`도 함께 올린다.
 
+API와 slack role은 `SESSION_PROMPT_REVISION`(기본 0, 허용 값 0·1, 틀린 값이면 기동하지 않음)으로 에이전트 release 세션의 system prompt 앞머리 문단을 정한다. 1이면 새 세션은 만들 때 에이전트 이름·설명, 시작한 곳(Slack 채널·DM, 웹 콘솔, API), 카드 언어, 세션 저장소의 GitHub 이름(`owner/repo`)을 `sessions.platform_prompt`에 남기고, worker가 그것으로 문단을 만든다. 문단에는 역할 문장이 없다. 역할은 에이전트 작성자가 지시문에 쓴다. GitHub 안내는 설정 유무와 관계없이 한 문단이다. GitHub 일은 내장 `mcp__github__` 도구로 하고 쓸 수 있는 저장소는 `list_repositories`가 답한다고 알린다. `git push`는 GitHub에 닿지 않는다는 것도 알린다. 그 도구가 없거나 GitHub를 쓸 수 없다고 답하면 "이 세션에서는 GitHub 작업을 할 수 없고, 관리자가 콘솔 에이전트 GitHub 탭에서 설정하며 새 세션이 필요할 수 있다"고 답하게 한다. GitHub 설정 없는 release로 시작한 세션에는 나중에 설정해도 도구가 붙지 않기 때문이다. 0이면 새 세션도 문단이 없다(이 설정 전과 같다). 저장한 값은 세션이 끝날 때까지 바뀌지 않는다. 문단은 checkpoint fingerprint에 들어가므로 에이전트 이름·설명이나 release를 바꿔도 진행 중인 세션은 그대로 재개된다.
+
+켜는 순서: migration(`0229_session_platform_prompt`) → claim을 처리하는 모든 API replica와 모든 worker 이미지(현재·직전)를 이 버전 이상으로 배포 → 1로 설정. 옛 worker는 이 값이 실린 claim을 거부하고, 옛 API는 이 값을 claim에 싣지 않아 새 worker가 문단 없이 돌려 그 세션의 checkpoint가 재개되지 않는다. 0으로 되돌리면 새 세션만 문단이 없어진다. 이미 1로 만든 세션은 계속 문단을 받는다. 1을 켠 뒤 API·worker를 이 버전 전으로 되돌리는 것은 지원하지 않는다. 로컬 compose(`infra/compose.local.yml`)는 API·slack·worker를 한 tree에서 빌드하므로 1을 기본으로 둔다.
+
 GitHub Packages bot token([결정](../contributing/decisions/github-packages-bot-token.md))을 다른 host로 보내야 할 때만 아래 값을 둔다. GitHub Enterprise Server나 테스트용 가짜 레지스트리가 그런 경우다. 값은 http(s) URL이고 userinfo·query·fragment가 있으면 API가 기동하지 않는다. 레지스트리 host는 proxy의 `EGRESS_CREDENTIAL_ALLOWLIST`(사설 주소면 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`)에도 있어야 한다.
 
 | 변수 | 기본값 | 의미 |
@@ -141,6 +145,6 @@ API 컨테이너의 메모리는 checkpoint bundle 검증이 정한다. 검증�
 | `API_MEMORY_MB` | 7168 | compose api 컨테이너의 `mem_limit`(MiB) |
 | `CHECKPOINT_GIT_MEMORY_MB` | 1536 | bundle 검증 git 프로세스 하나의 주소 공간 상한(MiB). 512 미만이면 기동을 거부한다 |
 
-compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·`POSTGRES_DB`(`sessions`)로 만들고, 모든 서비스가 같은 값으로 DSN을 만든다. 로컬 Gitea 예시 저장소의 agent 사용자 비밀번호는 `GITEA_AGENT_PASSWORD`이고, 비워 두면 아무도 모르는 무작위 값이 된다.
+compose의 Postgres는 `POSTGRES_USER`(`postgres`)·`POSTGRES_PASSWORD`(`dev`)·`POSTGRES_DB`(`sessions`)로 만들고, 모든 서비스가 같은 값으로 DSN을 만든다.
 
 worker는 아래 값도 env로 읽는다. 하지만 scheduler가 넘기지 않으므로 운영에서는 코드 기본값으로 고정이다. `WORKER_ANSWER_POLL_SEC`(1), `WORKER_ATTACH_FETCH_TIMEOUT_SEC`(300, 세션 도중 붙인 저장소 하나를 받아 오는 시간), `WORKER_ATTACH_FETCH_MAX_MB`(2048, 그 저장소를 받은 scratch mirror의 크기), `WORKER_CLAIM_TIMEOUT_SEC`(60), `WORKER_DRAIN_TIMEOUT_SEC`(100, stop 유예 안으로 줄어든다), `WORKER_HEARTBEAT_INTERVAL_SEC`(5), `WORKER_IDLE_TIMEOUT_SEC`(1800), `WORKER_LEASE_SAFETY_MARGIN_SEC`(10), `WORKER_NEXT_INPUT_RETRY_SEC`(60), `WORKER_NEXT_INPUT_WAIT_SEC`(20), `WORKER_REQUEST_TIMEOUT_SEC`(30), `WORKER_STARTUP_TIMEOUT_SEC`(3600), `QUESTION_TIMEOUT_SEC`(1800), `WORKER_CLAUDE_CONFIG_DIR`(`$HOME/.claude`).

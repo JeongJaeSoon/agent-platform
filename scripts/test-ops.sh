@@ -654,9 +654,11 @@ reseed() {
   log "reseed: $restored objects back in $bucket; the installation is up"
 }
 
-# Everything of this installation goes: containers, volumes (database, Gitea,
-# and in LocalStack whatever is left), the workers and workspace volumes the
-# scheduler made, and the recorded release. Keys are gone with the database.
+# Everything of this installation goes: containers, volumes (database, and in
+# LocalStack whatever is left), the workers and workspace volumes the scheduler
+# made, and the recorded release. Keys are gone with the database. A Gitea
+# volume from an older release is not deleted: no backup of this checkout holds
+# it, so it may be the last copy.
 reset() {
   local installation old
   take_lock
@@ -674,6 +676,8 @@ reset() {
   rm -f "$IDENTITY" "$PENDING"
   printf '%s reset by %s: project %s, release %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$PROJECT" "$old" \
     >> "${STATE_DIR}/history.log"
+  ! docker volume inspect "${PROJECT}_gitea-data" >/dev/null 2>&1 \
+    || log "reset: warning — volume ${PROJECT}_gitea-data stays: no backup holds it. Copy what matters, then remove it, or deploy refuses this project"
   log "reset: done; deploy again with scripts/test-ops.sh deploy $old, then issue keys again"
 }
 

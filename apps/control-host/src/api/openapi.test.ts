@@ -317,6 +317,8 @@ describe("OpenAPI document", () => {
         "/v1/installation-profiles/{profile_id}/block",
         "/v1/installation-profiles/{profile_id}/retire",
         "/v1/installation-profiles/{profile_id}/unblock",
+        "/v1/installation/settings/export",
+        "/v1/installation/settings/import",
         "/v1/limits",
         "/v1/linked-accounts",
         "/v1/linked-accounts/github/callback",

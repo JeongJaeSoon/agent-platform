@@ -12,7 +12,7 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 | 단일 서버 | Docker Compose, 세션마다 worker 컨테이너 | [단일 서버 배포](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) |
 | Kubernetes | Helm chart, 세션마다 worker Pod | [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md) |
 
-어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. 단일 서버 설치에는 Git 서버(Gitea)도 들어간다. 단일 서버 설치에서 HA는 범위 밖이다.
+어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. 어느 방식에도 Git 서버는 없으므로 세션이 쓸 GitHub 저장소를 카탈로그에 직접 적는다. 단일 서버 설치에서 HA는 범위 밖이다.
 
 ## 단일 서버 설치 순서
 

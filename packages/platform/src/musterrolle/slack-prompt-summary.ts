@@ -14,6 +14,8 @@ type SummaryCopy = {
   openPullRequest: string;
   updatePullRequest: string;
   commentPullRequest: string;
+  closePullRequest: string;
+  reopenPullRequest: string;
   attachRepository: string;
   /** `{tool}`: the tool's name. */
   useTool: string;
@@ -37,6 +39,8 @@ export const SLACK_SUMMARY_MESSAGES: Readonly<Record<UserLocale, SummaryCopy>> =
       openPullRequest: "PR 열기",
       updatePullRequest: "PR 고치기",
       commentPullRequest: "PR에 댓글",
+      closePullRequest: "PR 닫기",
+      reopenPullRequest: "PR 다시 열기",
       attachRepository: "저장소 붙이기",
       useTool: "{tool} 도구 사용",
       useMcpTool: "{server}의 {tool} 도구 사용",
@@ -54,6 +58,8 @@ export const SLACK_SUMMARY_MESSAGES: Readonly<Record<UserLocale, SummaryCopy>> =
       openPullRequest: "PR作成",
       updatePullRequest: "PR更新",
       commentPullRequest: "PRにコメント",
+      closePullRequest: "PRをクローズ",
+      reopenPullRequest: "PRを再オープン",
       attachRepository: "リポジトリ追加",
       useTool: "{tool}ツールの使用",
       useMcpTool: "{server}の{tool}ツールの使用",
@@ -71,6 +77,8 @@ export const SLACK_SUMMARY_MESSAGES: Readonly<Record<UserLocale, SummaryCopy>> =
       openPullRequest: "Open a PR",
       updatePullRequest: "Update a PR",
       commentPullRequest: "Comment on a PR",
+      closePullRequest: "Close a PR",
+      reopenPullRequest: "Reopen a PR",
       attachRepository: "Attach a repository",
       useTool: "Use the {tool} tool",
       useMcpTool: "Use the {tool} tool of {server}",
@@ -262,6 +270,14 @@ function githubSummary(
       return head === null
         ? null
         : { verb: copy.commentPullRequest, target: head };
+    case "close_pull_request":
+      return head === null
+        ? null
+        : { verb: copy.closePullRequest, target: head };
+    case "reopen_pull_request":
+      return head === null
+        ? null
+        : { verb: copy.reopenPullRequest, target: head };
     case "attach_repository":
       return context.repository === undefined
         ? null

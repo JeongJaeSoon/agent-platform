@@ -49,7 +49,7 @@ const publicKey = keys.publicKey
 const BASIC_LOGIN = `Basic ${Buffer.from("push-bot:pat-value-1234").toString("base64")}`;
 
 let github: FakeGitHub;
-let gitea: GitHttpServer;
+let plainHost: GitHttpServer;
 let chain: { base: GitBundleFixture; tip: GitBundleFixture };
 let tempRoot: string;
 
@@ -57,17 +57,22 @@ beforeAll(async () => {
   github = await startFakeGitHub({ appId: 101, publicKey });
   await github.createRepository("acme", "app", { "README.md": "hello\n" });
   await github.createRepository("acme", "other", { "README.md": "no\n" });
-  gitea = await startGitHttpServer({ authorization: BASIC_LOGIN, push: true });
-  await createServedRepository(gitea, "app", { "README.md": "gitea\n" });
+  plainHost = await startGitHttpServer({
+    authorization: BASIC_LOGIN,
+    push: true,
+  });
+  await createServedRepository(plainHost, "app", {
+    "README.md": "plainHost\n",
+  });
   chain = await createGitBundleChain();
   // A checkpoint builds on the repository it was cloned from.
   await github.seedBranch("acme", "app", "main", chain.base);
-  await seedServedBranch(gitea, "app", "main", chain.base);
+  await seedServedBranch(plainHost, "app", "main", chain.base);
   tempRoot = await mkdtemp(join(tmpdir(), "push-executor-test-"));
 });
 afterAll(async () => {
   await github.stop();
-  await gitea.stop();
+  await plainHost.stop();
   await rm(tempRoot, { force: true, recursive: true });
 });
 
@@ -572,25 +577,25 @@ describe("the platform's push", () => {
     }
   });
 
-  test("a basic credential without a forge (Gitea, GHES with a PAT) pushes with the catalog login", async () => {
+  test("a basic credential without a forge (a non-GitHub host, GHES with a PAT) pushes with the catalog login", async () => {
     const catalog = catalogOf({
-      gitea: {
-        url: `${gitea.origin}/app.git`,
+      plainHost: {
+        url: `${plainHost.origin}/app.git`,
         branch: "main",
         profiles: ["default"],
         auth: {
           kind: "basic",
           username: "push-bot",
           value: "pat-value-1234",
-          ref: { value_env: "GITEA_TOKEN" },
+          ref: { value_env: "PLAIN_HOST_TOKEN" },
         },
       },
     });
-    const job = jobFor(catalog, "gitea");
+    const job = jobFor(catalog, "plainHost");
     const result = await run(catalog, job);
     expect(result.outcome).toMatchObject({ state: "pushed" });
     expectNoCredentialIn(result);
-    const pushes = gitea.requests.filter((request) =>
+    const pushes = plainHost.requests.filter((request) =>
       request.path.includes("git-receive-pack"),
     );
     expect(pushes.length).toBeGreaterThan(0);
@@ -601,7 +606,11 @@ describe("the platform's push", () => {
 
   test("a repository with no credential is not pushed to", async () => {
     const catalog = catalogOf({
-      open: { url: `${gitea.origin}/app.git`, branch: "main", profiles: ["d"] },
+      open: {
+        url: `${plainHost.origin}/app.git`,
+        branch: "main",
+        profiles: ["d"],
+      },
     });
     expect((await run(catalog, jobFor(catalog, "open"))).outcome).toMatchObject(
       {

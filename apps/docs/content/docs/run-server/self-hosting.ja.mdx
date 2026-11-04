@@ -12,7 +12,7 @@ Werft サーバーを自分でインストールし、チームで共有する�
 | 単一サーバー | Docker Compose、セッションごとに worker コンテナ | [単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) |
 | Kubernetes | Helm chart、セッションごとに worker Pod | [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md) |
 
-どちらの方式でも、サーバーは API (Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換の object store で構成される。単一サーバーのインストールには Git サーバー (Gitea) も含まれる。単一サーバーのインストールでは HA は対象外である。
+どちらの方式でも、サーバーは API (Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換の object store で構成される。どちらにも Git サーバーは含まれないため、セッションが使う GitHub リポジトリをカタログに自分で書く。単一サーバーのインストールでは HA は対象外である。
 
 ## 単一サーバーのインストール手順
 

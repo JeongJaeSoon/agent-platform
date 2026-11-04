@@ -80,6 +80,7 @@ import {
   deleteTeamResponseSchema,
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
+  exportSettingsResponseSchema,
   GITHUB_APP_MANIFEST_STATE_TTL_SECONDS,
   GITHUB_INSTALLATION_STATE_TTL_SECONDS,
   getGitHubAppResponseSchema,
@@ -103,6 +104,8 @@ import {
   githubWorkflowRunSchema,
   googleLoginCallbackRequestSchema,
   healthResponseSchema,
+  importSettingsQuerySchema,
+  importSettingsResponseSchema,
   installationLimitsResponseSchema,
   installationProfileIdParamsSchema,
   installationProfileOptionsResponseSchema,
@@ -229,6 +232,7 @@ import {
   setSessionShareRequestSchema,
   setSessionShareResponseSchema,
   setTeamMemberRoleRequestSchema,
+  settingsDocumentSchema,
   slackAppParamsSchema,
   slackAppSecretParamsSchema,
   slackAppSettingsSchema,
@@ -534,6 +538,10 @@ const responseComponents = {
   AchievementJudgeResponse: achievementJudgeResponseSchema,
   AchievementJudgeChangeResponse: achievementJudgeChangeResponseSchema,
   InstallationProfileOptionsResponse: installationProfileOptionsResponseSchema,
+  SettingsDocument: settingsDocumentSchema,
+  ExportSettingsResponse: exportSettingsResponseSchema,
+  ImportSettingsQuery: importSettingsQuerySchema,
+  ImportSettingsResponse: importSettingsResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
   ActivateAgentResponse: activateAgentResponseSchema,
@@ -972,6 +980,30 @@ const ACHIEVEMENT_RULE_EXAMPLE = {
 const ACHIEVEMENT_JUDGE_EXAMPLE = EXAMPLE_WORKSPACE.settings.achievement_judge;
 const ACHIEVEMENT_MANAGERS =
   "Owners and admins (`achievement_rule.manage`), signed in; API keys are refused.";
+
+const SETTINGS_DOCUMENT_EXAMPLE = {
+  version: 1,
+  connections: {
+    "anthropic-main": {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth: { kind: "api_key", value_env: "ANTHROPIC_API_KEY" },
+    },
+    "anthropic-console": {
+      kind: "anthropic",
+      endpoint: "https://api.anthropic.com",
+      auth: { kind: "api_key", stored: true, last4: "x9Qa" },
+    },
+  },
+  repositories: {
+    "docs-site": {
+      url: "https://github.com/acme/docs-site.git",
+      branch: "main",
+      auth: { kind: "github_app" },
+    },
+  },
+  mcp_servers: {},
+};
 
 const INSTALLATION_PROFILE_EXAMPLE = {
   id: "op_coding_v2",
@@ -2648,6 +2680,7 @@ export const API_ROUTE_DECLARATIONS = [
           "usage.installation_read",
           "usage.agent_read",
           "profile.installation.manage",
+          "installation.settings.manage",
         ],
       },
     },
@@ -6249,6 +6282,58 @@ export const API_ROUTE_DECLARATIONS = [
   },
   {
     method: "get",
+    path: "/v1/installation/settings/export",
+    operationId: "exportInstallationSettings",
+    tag: "Agents",
+    summary: "The installation's settings as one document, without a value",
+    description:
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The provider connections, repositories and remote MCP servers the database holds, each entry in the shape `connections.yaml`, `repositories.yaml` and `mcp-servers.yaml` gave it; disabled and removed rows are left out, so this is the active settings to copy, not a backup. An env or Secrets Manager reference comes back as its name (`value_env`, `secret_id`); a value the database stores as `stored: true` and its `last4`, never the value. Execution ceilings and what the operator's files hold are not in it. `digest` is the SHA-256 of the document's canonical JSON, `last4` included. Changes nothing.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "ExportSettingsResponse",
+      description: "The document and its digest.",
+      example: {
+        document: SETTINGS_DOCUMENT_EXAMPLE,
+        digest: `sha256:${"0".repeat(64)}`,
+      },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/installation/settings/import",
+    operationId: "importInstallationSettings",
+    tag: "Agents",
+    summary: "Add the entries of a settings document the installation lacks",
+    description:
+      "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Adds each entry whose id no row holds, in one transaction, and writes an `import_connection`, `import_repository` or `import_mcp_server` receipt for each. An id held with the same content is `unchanged` (`inactive` when that row is disabled or removed: it stays so), and nothing is overwritten: an id held with other content, a GitHub App repository another id already holds, or a new stored entry whose id already has a value is 409 REVISION_CONFLICT (`details.reason_code: settings_conflict`, `details.entries`) and nothing changes. An entry bringing an env or Secrets Manager reference the installation does not hold yet is 400 `external_reference` (`details.entries`), nothing changed: only the operator's `settings import` CLI brings those in. A `stored: true` entry always means its own row's value and runs once the value is set (`needs_value`). A wrong outline (`version`, the top-level keys) is 400 with `details.issues`; an entry the file catalog's rules refuse is 400 `invalid_document`. `dry_run=true` answers the same without writing.",
+    auth: "session",
+    query: "ImportSettingsQuery",
+    body: "SettingsDocument",
+    requestExample: SETTINGS_DOCUMENT_EXAMPLE,
+    success: {
+      status: 200,
+      schema: "ImportSettingsResponse",
+      description: "What was added, and what was there already.",
+      example: {
+        outcome: "applied",
+        added: ["connection:anthropic-console", "repository:docs-site"],
+        unchanged: ["connection:anthropic-main"],
+        inactive: [],
+        needs_value: ["connection:anthropic-console"],
+        receipt_ids: [
+          "019a0000-0000-7000-8000-0000000000f1",
+          "019a0000-0000-7000-8000-0000000000f2",
+        ],
+      },
+    },
+    errors: [400, 401, 403, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
     path: "/v1/limits",
     operationId: "getInstallationLimits",
     tag: "Limits & receipts",
@@ -6656,7 +6741,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. It changes nothing.",
     scope: "read",
     success: {
       status: 200,

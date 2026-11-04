@@ -44,6 +44,7 @@ import {
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSettingsDocumentStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
@@ -105,6 +106,7 @@ import {
   createSessionService,
   createSessionShareService,
   createSessionTitler,
+  createSettingsDocumentService,
   createSlackAppService,
   createSlackBotApi,
   createSlackChannelJoiner,
@@ -131,6 +133,7 @@ import {
   InstallationConfigError,
   installationLimitsFromEnv,
   NO_JUDGE_CONNECTIONS,
+  platformPromptRevisionFromEnv,
   profileCatalog,
   resolveAgentRelease,
   SessionServiceError,
@@ -222,6 +225,7 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github-work.ts";
+import { registerInstallationSettingsRoutes } from "./routes/installation-settings.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -556,6 +560,7 @@ const sessions = createSessionService({
   }),
   catalog,
   releases: agents,
+  promptRevision: platformPromptRevisionFromEnv(process.env),
   credentials: credentialBindings,
   limits,
 });
@@ -764,6 +769,11 @@ const installationProfiles = createInstallationProfileService({
   connections: () => workspaceProfileVersions.connections,
   allowUnattended: profileSources.sources.allowUnattended,
   runtimes: installedRuntimes,
+});
+const settingsDocument = createSettingsDocumentService({
+  authorization,
+  store: createPostgresSettingsDocumentStore(db),
+  reread: () => workspaceProfileVersions.refresh().catch(() => undefined),
 });
 const agentAdmins = createAgentAdminService({
   authorization,
@@ -1020,6 +1030,11 @@ const workers = createWorkerGateway({
     store: sessionAttribution,
     consoleOrigin,
     appBotUserId: createAppBotUsers({ logger }),
+    commitPin: {
+      resolver: githubResolver,
+      onFailed: (failure) =>
+        logger.warn("Commit author pin not made at claim", failure),
+    },
   },
   mcp: createPostgresMcpEgressStore(db),
   onMcpReceiptError: (error) =>
@@ -1202,6 +1217,7 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, workspaceProfiles, installationProfiles);
+    registerInstallationSettingsRoutes(router, settingsDocument);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,

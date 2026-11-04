@@ -399,6 +399,17 @@ export function createGitHubConnection(
           );
         });
       },
+      async setPullRequestState(number, state) {
+        const { data } = await call("pull request state", () =>
+          client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+            ...target,
+            pull_number: number,
+            state,
+            headers,
+          }),
+        );
+        return pullRequestOf(data);
+      },
       async upsertComment(number, marker, body): Promise<ForgeComment> {
         const text = `${body}\n\n${marker}`;
         // Two first comments for one marker would both find none and both
@@ -1246,7 +1257,7 @@ function githubReason(cause: unknown): {
 /**
  * The connection behind each catalog repository: a GitHub App repository's
  * own App (one connection each), the console's App for `{ kind: github_app }`,
- * and a PAT on github.com. Others (Gitea, GHES with a PAT, bearer, public)
+ * and a PAT on github.com. Others (a non-GitHub host, GHES with a PAT, bearer, public)
  * have none and keep their static credential. Only `{ kind: github_app }`
  * repositories have a reviewer: the console's reviewer App.
  */

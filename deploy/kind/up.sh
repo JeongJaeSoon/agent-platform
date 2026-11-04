@@ -178,10 +178,9 @@ deps=(postgres localstack)
 values=(-f "$root/deploy/kind/values.yaml")
 
 if [ "$KIND_MODEL" != none ]; then
-  kubectl -n "$NAMESPACE" create configmap gitea-init \
-    --from-file=init-sample-repo.sh="$root/infra/gitea/init-sample-repo.sh" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  manifest "$root/deploy/kind/deps-session.yaml" | kubectl -n "$NAMESPACE" apply -f -
+  manifest "$root/deploy/kind/deps-session.yaml" |
+    sed "s#CONTROL_HOST_IMAGE#${image_repo}-control-host@${control_host_digest}#" |
+    kubectl -n "$NAMESPACE" apply -f -
   deps+=(gitea)
   values+=(-f "$root/deploy/kind/values-${KIND_MODEL}-model.yaml")
 fi

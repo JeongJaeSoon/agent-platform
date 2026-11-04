@@ -197,7 +197,10 @@ export const agentSchema = z
     workspace_id: workspaceIdSchema,
     slug: agentSlugSchema,
     name: z.string().min(1).max(120),
-    /** What the agent is for, to people only: no run reads it. */
+    /**
+     * What the agent is for. With `name`, a new session snapshots it into
+     * its platform prompt, so a change reaches the sessions started after it.
+     */
     description: agentDescriptionSchema.nullable(),
     /**
      * The team whose leads administer the agent and whose members work with

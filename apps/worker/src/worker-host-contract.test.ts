@@ -257,6 +257,51 @@ describe("WorkerHost over a run that implements the contract itself", () => {
     }
   });
 
+  test("starts the engine with the git settings made from its claim", async () => {
+    const git_author = {
+      name: "werft-dev[bot]",
+      email: "41898282+werft-dev[bot]@users.noreply.github.com",
+    };
+    const run = new ScriptedRun();
+    run.onSend = (sent) => finish(run, sent);
+    const gateway = new FakeWorkerGateway();
+    const claim = gateway.bootstrapClaim.bind(gateway);
+    gateway.bootstrapClaim = async (request) => ({
+      ...(await claim(request)),
+      git_author,
+    });
+    const launches: unknown[] = [];
+    const worker = new WorkerHost({
+      checkpoints: unwiredCheckpoints,
+      execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
+      gateway,
+      gitEnvironment: (given) => ({
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "user.name",
+        GIT_CONFIG_VALUE_0: given.git_author?.name ?? "none",
+      }),
+      runtimes: {
+        launcherFor: () => ({
+          start: (launch) => {
+            launches.push(launch.gitEnvironment);
+            return run;
+          },
+        }),
+      },
+      timeouts,
+      workspace: noWorkspace,
+    });
+    gateway.enqueue("hello");
+    await worker.runLoop();
+    expect(launches).toEqual([
+      {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "user.name",
+        GIT_CONFIG_VALUE_0: "werft-dev[bot]",
+      },
+    ]);
+  });
+
   test("hands the engine routes to the claim's repositories and their Go modules before the run starts; a failed or empty route write is only logged and names no Go module", async () => {
     const access = { kind: "egress_token" as const, token: "wek_routes" };
     const workspace = {

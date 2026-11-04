@@ -65,10 +65,14 @@ const CATALOG = {
         ref: { value_env: "GHES_APP_KEY" },
       },
     },
-    gitea: {
-      url: "https://gitea.example.com/acme/app.git",
+    selfhosted: {
+      url: "https://selfhosted.example.com/acme/app.git",
       branch: "main",
-      auth: { kind: "bearer", value: "static", ref: { value_env: "GITEA" } },
+      auth: {
+        kind: "bearer",
+        value: "static",
+        ref: { value_env: "SELF_HOSTED" },
+      },
     },
     public: { url: "https://example.com/acme/app.git", branch: "main" },
   },
@@ -99,6 +103,7 @@ function fakeApi(): GitHubApi {
     createPullRequest: unused,
     getPullRequest: unused,
     updatePullRequestBody: unused,
+    setPullRequestState: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
@@ -703,7 +708,7 @@ describe("connections", () => {
   });
 
   test("a repository not on GitHub returns null and writes nothing", async () => {
-    for (const repositoryId of ["gitea", "public"]) {
+    for (const repositoryId of ["selfhosted", "public"]) {
       const { grant, receipts } = harness({ repositoryId });
       expect(await grant({ purpose: "clone" })).toBeNull();
       expect(receipts).toEqual([]);
@@ -894,7 +899,7 @@ describe("another repository than the session's", () => {
   test("lists the repositories a claim attaches", async () => {
     const listed = harness({
       catalog: MULTI,
-      github: settings({ repositories: ["app", "docs", "gitea"] }),
+      github: settings({ repositories: ["app", "docs", "selfhosted"] }),
     });
     expect(await listed.gate.additionalRepositories?.(SESSION)).toEqual([
       "docs",
@@ -1099,6 +1104,66 @@ function registered(
 }
 
 describe("registered connections", () => {
+  test("a claim's pin is chosen as a first mint's and recorded as the claim's, with its audit", async () => {
+    const a = registered(CONNECTION_A, 101);
+    const b = registered(CONNECTION_B, 102, false);
+    const { pins, rows } = memoryPins();
+    const given: unknown[] = [];
+    const resolver = createGitHubConnectionResolver({
+      connections: () => ({
+        kind: "registered",
+        candidates: [a.entry, b.entry],
+      }),
+      pins: {
+        get: pins.get,
+        pinFirst: (input) => {
+          given.push(input);
+          return pins.pinFirst(input);
+        },
+      },
+    });
+    const claim = { sessionId: "s-1", receiptId: "r-1" };
+    expect(
+      await resolver.resolve(
+        "app",
+        "author",
+        { owner: "o", name: "app" },
+        { pin: true, claim },
+      ),
+    ).toMatchObject({
+      kind: "connection",
+      connectionId: CONNECTION_A,
+      pinnedBy: "claim",
+    });
+    expect(given).toEqual([
+      {
+        repositoryId: "app",
+        role: "author",
+        connectionId: CONNECTION_A,
+        appId: 101,
+        pinnedBy: "claim",
+        audit: claim,
+      },
+    ]);
+    expect(rows.get("app:author")?.pinnedBy).toBe("claim");
+
+    const both = createGitHubConnectionResolver({
+      connections: () => ({
+        kind: "registered",
+        candidates: [a.entry, registered(CONNECTION_B, 102).entry],
+      }),
+      pins: memoryPins().pins,
+    });
+    expect(
+      await both.resolve(
+        "other",
+        "author",
+        { owner: "o", name: "other" },
+        { pin: true, claim },
+      ),
+    ).toMatchObject({ kind: "refused", reason: "ambiguous_app" });
+  });
+
   test("the one connection that reaches an unpinned repository pins it at the first mint and is used after", async () => {
     const a = registered(CONNECTION_A, 101);
     const b = registered(CONNECTION_B, 102, false);

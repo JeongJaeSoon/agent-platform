@@ -74,6 +74,7 @@ const STATUS_BY_CODE: Partial<Record<ApiErrorCode, ContentfulStatusCode>> = {
   PUSH_NOT_PUSHED: 409,
   CATALOG_MISMATCH: 409,
   PULL_REQUEST_MISSING: 409,
+  PULL_REQUEST_MERGED: 409,
   // 403 when details.reason_code is a policy refusal; mapped() decides.
   GITHUB_REFUSED: 409,
   GITHUB_APP_CONFLICT: 409,

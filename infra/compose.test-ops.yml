@@ -49,10 +49,9 @@ services:
     image: ${EGRESS_PROXY_IMAGE:?EGRESS_PROXY_IMAGE must name the released egress-proxy image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
-      # The core defaults name the local stack's upstreams. Here: the
-      # provider, Gitea, and the object store — the bucket's S3 host, or
-      # localstack:4566.
+      # The core default names the local stack's upstreams. Here: the
+      # provider and, on s3, the bucket's S3 host. LocalStack's layer requires
+      # the private list.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:?EGRESS_CREDENTIAL_ALLOWLIST must name the provider (and the bucket's S3 host on s3)}
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:?EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must be set (gitea:3000, and localstack:4566 on localstack)}
   worker:
     image: ${WORKER_IMAGE:?WORKER_IMAGE must name the released worker image}

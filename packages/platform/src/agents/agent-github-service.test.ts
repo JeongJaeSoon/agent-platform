@@ -84,8 +84,8 @@ const catalog = withSeededInstallation({
       profiles: [PROFILE],
       auth: enterprise,
     },
-    "gitea-app": {
-      url: "https://gitea.example.com/acme/app",
+    "selfhosted-app": {
+      url: "https://selfhosted.example.com/acme/app",
       branch: "main",
       profiles: [PROFILE],
     },

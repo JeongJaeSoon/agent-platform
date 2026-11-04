@@ -31,7 +31,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
-로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(Gitea 웹·HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
+로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(읽기 전용 git 서버 fake-git의 HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 
 ```bash
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -63,7 +63,7 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), gitea(+ 샘플 저장소 `agent/sample-app`을 만드는 `gitea-init`), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), gitea(샘플 저장소 `agent/sample-app`을 내주는 읽기 전용 fake-git. 저장소 URL을 지키려고 서비스 이름은 `gitea`로 유지), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
@@ -95,9 +95,9 @@ scripts/local.sh status
 
 코드를 새로 pull했으면 `scripts/local.sh up --fake-model`을 다시 실행한다. 매번 이미지를 이 checkout에서 다시 빌드한다.
 
-**로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL과 Gitea도 각각의 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
+**로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL도 자기 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
 
-Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`은 누구나 읽을 수 있는 공개 저장소다. 워커도 egress proxy를 거쳐 Gitea에 닿으므로 소유 계정 `agent`의 비밀번호는 알려진 기본값 없이 무작위로 만들어진다(6장).
+fake-git(`http://127.0.0.1:3001`)의 `agent/sample-app`은 읽기 전용이다. 기동할 때마다 같은 커밋 하나로 다시 만들어지고, push는 403으로 거절한다. 볼륨이 없으므로 지켜야 할 데이터도 없다. 내장 Gitea를 쓰던 스택을 올리면 `<project>_gitea-data` 볼륨(기본 `agent-platform_gitea-data`)이 남는다. 그 안의 저장소가 필요 없으면 `docker volume rm`으로 지운다.
 
 ## 2. curl 준비
 
@@ -337,7 +337,7 @@ get "/v1/sessions/$SID/usage" | jq .
 | API key 추가 발급 | `scripts/local.sh key <owner> --scopes …`. key id는 stderr의 `key_id …` 줄에 있다 |
 | API key 폐기 | `bun run keys revoke <key id>`. 폐기한 key로 호출하면 401이다 |
 | Idempotency 확인 | 같은 `Idempotency-Key`로 같은 본문을 다시 보내면 첫 응답이 그대로 온다. 같은 key에 다른 본문을 보내면 409 `IDEMPOTENCY_CONFLICT`다 |
-| Gitea에서 커밋 보기 | `http://127.0.0.1:3001`의 `agent/sample-app`. 읽기는 공개다. 로그인하거나 push하려면 비밀번호를 직접 정한다: `docker compose exec -u git gitea gitea admin user change-password -u agent -p <비밀번호>` |
+| 샘플 저장소 clone | `git clone http://127.0.0.1:3001/agent/sample-app.git`. 읽기 전용이고 웹 UI는 없다 |
 
 에이전트가 워커 안에서 만든 커밋의 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다. 그래서 Claude가 커밋 전에 이름과 이메일을 묻지 않는다. 세션 안에서 `git config`로 정한 값이 있으면 그 값이 먼저다.
 
@@ -351,7 +351,7 @@ get "/v1/sessions/$SID/usage" | jq .
 scripts/local.sh down
 ```
 
-`down`은 스택과 **모든 데이터**(세션, checkpoint, API key, Gitea 저장소)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
+`down`은 스택과 **모든 데이터**(세션, checkpoint, API key)를 지운다. scheduler가 만든 worker 컨테이너·네트워크·workspace volume은 compose 소유가 아니므로 `agent-platform.installation=<installation id>` label(기본 `local`, 1장)로 찾아 함께 지운다. 처음부터 다시 하려면 `scripts/local.sh reset --fake-model`(= `down` 뒤 `up --fake-model`)을 쓴다. 새 스택에서는 1장의 `KEY=…`부터 다시 한다.
 
 데이터를 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. compose 서비스와 scheduler가 만든 worker 컨테이너·네트워크를 지우고, compose volume과 workspace volume(`ap-ws-*`)은 남긴다. `docker compose down`만 하면 compose label이 없는 worker 컨테이너와 그 네트워크가 남아 Docker 주소 풀을 계속 차지할 수 있다. 다시 `scripts/local.sh up --fake-model`로 올리면 S3 객체·버전·법적 hold·버킷 설정과 암호화 seed도 `local-s3-data` named volume에서 읽는다. seed를 잃거나 바꾸면 기존 객체를 복호화할 수 없으므로 volume 전체를 함께 보존한다. 외장 디스크 bind mount나 별도 라이선스는 필요 없다. 이전 LocalStack에서 이미 객체를 잃은 설치에만 아래 복구 결정이 필요하다.
 
@@ -364,7 +364,7 @@ scripts/local.sh down
 1. **pull 전에 옛 checkout에서**, writer를 멈추고 [백업 절차](operator/backup-restore.md)로 checkpoint를 보존한다. 이미 객체가 유실됐다면 백업으로 되살릴 수 없다.
 2. 코드를 pull한다.
 3. 보존할 백업이 있으면 `scripts/restore.sh`로 **이전에 사용하지 않은 새 compose project**에 복원하고 `scripts/verify-restore.sh`로 확인한다. restore는 기존 프로젝트나 기존 볼륨 위에 덮어쓰지 않는다.
-4. 복구 가능한 백업이 없고 이전 checkpoint를 명시적으로 포기하기로 했다면, 기존 PostgreSQL 볼륨의 계정·워크스페이스·API key·Gitea 저장소를 남기고 아래 명령으로 유실 참조만 해제한다. 새 설치에는 필요 없다.
+4. 복구 가능한 백업이 없고 이전 checkpoint를 명시적으로 포기하기로 했다면, 기존 PostgreSQL 볼륨의 계정·워크스페이스·API key를 남기고 아래 명령으로 유실 참조만 해제한다. 새 설치에는 필요 없다.
 
 새 저장소가 비어 있고 PostgreSQL에 기존 checkpoint가 남아 있으면 API는 이 복구 결정을 할 때까지 기동을 거부한다.
 

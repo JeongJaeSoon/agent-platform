@@ -34,6 +34,20 @@ import { type FormEvent, useId, useState } from "react";
 import { queryKeysOf } from "../api/queries.ts";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { ChangeReview } from "./profile-editor.tsx";
+import {
+  DenyChecklist,
+  reasonOf,
+  toolField,
+  toolRefusalKey,
+} from "./profile-tools.tsx";
+import {
+  askAgain,
+  blockedOf,
+  ceilingTools,
+  denyRequest,
+  NO_PICKS,
+  type ToolPicks,
+} from "./profile-tools-model.ts";
 
 // The OpenAPI body, whose optional fields take no explicit undefined.
 type CeilingRequest = components["schemas"]["CreateInstallationProfileRequest"];
@@ -46,7 +60,7 @@ type CeilingField =
   | "models"
   | "model"
   | "title_model"
-  | "tools"
+  | "deny"
   | "permission_mode"
   | "project_settings"
   | "repository_mode"
@@ -60,7 +74,7 @@ const FIELDS: readonly CeilingField[] = [
   "models",
   "model",
   "title_model",
-  "tools",
+  "deny",
   "permission_mode",
   "project_settings",
   "repository_mode",
@@ -82,7 +96,7 @@ interface Draft {
   readonly models: string;
   readonly model: string;
   readonly title_model: string;
-  readonly tools: string;
+  readonly tools: ToolPicks;
   readonly permission_mode: PermissionMode;
   readonly claude_md: boolean;
   readonly repository_mode: RepositoryMode;
@@ -150,7 +164,7 @@ function draftOf(
     models: template?.models.join("\n") ?? "",
     model: template?.model ?? "",
     title_model: template?.installation?.title_model ?? "",
-    tools: template?.tools.join("\n") ?? "",
+    tools: NO_PICKS,
     permission_mode: mode,
     claude_md: template?.installation?.project_settings.claude_md ?? false,
     repository_mode: template?.repository_mode ?? "required",
@@ -219,16 +233,36 @@ export function CeilingForm({
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const riskId = useId();
   const modelsId = useId();
-  const toolsId = useId();
 
   const modes = modesOf(options, draft.runtime_kind);
   const models = lines(draft.models);
-  const tools = lines(draft.tools);
   const model = models.includes(draft.model) ? draft.model : (models[0] ?? "");
 
   const name = workspaceProfileNameStep.safeParse(draft.name);
   const runtimeVersion = draft.runtime_version.trim();
   const titleModel = draft.title_model.trim();
+  const tools = ceilingTools(options, draft.runtime_kind, runtimeVersion, {
+    previous,
+    template,
+  });
+  const choice = tools === null ? null : denyRequest(tools, draft.tools);
+  const supported = [
+    ...new Set(
+      (options.tool_catalogs ?? [])
+        .filter((catalog) => catalog.runtime_kind === draft.runtime_kind)
+        .map((catalog) => catalog.runtime_version),
+    ),
+  ];
+  // Shown before any save: the checklist cannot be drawn without it.
+  const noCatalog =
+    tools !== null
+      ? undefined
+      : supported.length === 0
+        ? t("profiles.tools.noCatalogs")
+        : t("profiles.tools.noCatalog", {
+            version: runtimeVersion,
+            versions: supported.join(", "),
+          });
   const local: Partial<Record<CeilingField, string>> = {
     ...(name.success ? {} : { name: t("profiles.editor.nameInvalid") }),
     ...(runtimeVersion.length === 0 || runtimeVersion.length > 200
@@ -241,10 +275,14 @@ export function CeilingForm({
         : models.some((item) => item.length > 200)
           ? { models: t("profiles.editor.tooLong") }
           : {}),
-    ...(tools.length > 64
-      ? { tools: t("profiles.editor.tooLarge") }
-      : tools.some((item) => item.length > 200)
-        ? { tools: t("profiles.editor.tooLong") }
+    ...(noCatalog
+      ? { deny: noCatalog }
+      : choice !== null && "unaccepted" in choice
+        ? {
+            deny: t("profiles.tools.unaccepted", {
+              tools: choice.unaccepted.join(", "),
+            }),
+          }
         : {}),
     ...(titleModel.length > 200
       ? { title_model: t("profiles.editor.tooLong") }
@@ -276,6 +314,16 @@ export function CeilingForm({
     },
     onError: async (failure) => {
       const refused = refusalOf(failure);
+      if (
+        refused.field === "deny" &&
+        reasonOf(failure) === "added_tool_not_accepted" &&
+        tools !== null &&
+        previous !== undefined
+      )
+        setDraft((now) => ({
+          ...now,
+          tools: askAgain(tools, now.tools, previous),
+        }));
       // The link opens the latest version from the list; this one may not
       // have it yet.
       if (refused.field === null && refused.latestId)
@@ -297,9 +345,11 @@ export function CeilingForm({
       typeof details.field === "string"
         ? details.field.split(".")[0]
         : undefined;
-    const named = FIELDS.find((field) => field === path);
+    const named = FIELDS.find((field) => field === toolField(path));
     const beside = (text: string): Refusal =>
       named ? { field: named, text } : { field: null, text };
+    const toolRefusal = toolRefusalKey(details.reason_code);
+    if (toolRefusal) return { field: "deny", text: t(toolRefusal) };
     switch (details.reason_code) {
       case "unknown_connection":
         return beside(t("profiles.ceiling.error.unknownConnection"));
@@ -339,7 +389,13 @@ export function CeilingForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
-    if (save.isPending || !name.success || Object.keys(local).length > 0)
+    if (
+      save.isPending ||
+      !name.success ||
+      Object.keys(local).length > 0 ||
+      choice === null ||
+      "unaccepted" in choice
+    )
       return;
     const body: CeilingRequest = {
       name: name.data,
@@ -348,7 +404,7 @@ export function CeilingForm({
       runtime_version: runtimeVersion,
       model,
       models,
-      tools,
+      ...choice,
       permission_mode: draft.permission_mode,
       project_settings: { claude_md: draft.claude_md },
       repository_mode: draft.repository_mode,
@@ -529,20 +585,20 @@ export function CeilingForm({
         </Field>
       </div>
 
-      <Field>
-        <FieldLabel htmlFor={toolsId}>{t("profiles.editor.tools")}</FieldLabel>
-        <Textarea
-          id={toolsId}
-          className="font-mono"
-          rows={3}
-          value={draft.tools}
-          readOnly={pending}
-          aria-invalid={errorOf("tools") ? true : undefined}
-          onChange={(event) => set({ tools: event.target.value })}
+      {tools === null ? (
+        <Alert variant="amber">
+          <AlertDescription>{noCatalog}</AlertDescription>
+        </Alert>
+      ) : (
+        <DenyChecklist
+          model={tools}
+          picks={draft.tools}
+          onPicks={(picks) => set({ tools: picks })}
+          disabled={pending}
+          previousId={previous?.id}
+          error={errorOf("deny")}
         />
-        <FieldDescription>{t("profiles.ceiling.toolsHint")}</FieldDescription>
-        <FieldError>{errorOf("tools")}</FieldError>
-      </Field>
+      )}
 
       <Field className="w-auto max-w-full">
         <FieldLabel>{t("profiles.editor.permissionMode")}</FieldLabel>
@@ -701,10 +757,19 @@ export function CeilingForm({
               after: titleModel,
             },
             {
-              id: "tools",
-              label: t("profiles.editor.tools"),
-              before: join(lines(saved.tools), t("profiles.noTools")),
-              after: join(tools, t("profiles.noTools")),
+              id: "deny",
+              label: t("profiles.tools.blocked"),
+              before:
+                template.deny == null
+                  ? ""
+                  : join(template.deny, t("profiles.tools.noneBlocked")),
+              after:
+                tools === null
+                  ? ""
+                  : join(
+                      blockedOf(tools, draft.tools),
+                      t("profiles.tools.noneBlocked"),
+                    ),
             },
             {
               id: "mode",

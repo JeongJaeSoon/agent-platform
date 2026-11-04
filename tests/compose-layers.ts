@@ -40,8 +40,8 @@ export const servicesOf = (path: string) =>
 /**
  * The files' services, uninterpolated, merged as compose merges `-f` files
  * for what the tests read: mappings key by key, anything else replaced by
- * the later file. The layers use no `!reset` or `!override`; the render
- * tests hold this to `docker compose config`.
+ * the later file. The layers use no `!override`, and a `!reset` reads as null;
+ * the render tests hold this to `docker compose config`.
  */
 export function layeredServices<Service>(
   paths: readonly string[],

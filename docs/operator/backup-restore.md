@@ -1,6 +1,6 @@
 # 백업과 복원 (compose 설치)
 
-`scripts/backup.sh`가 한 compose 설치(PostgreSQL·checkpoint object store·Gitea)를 디렉터리 하나로 묶고, `scripts/restore.sh`가 그것을 **새 compose project**에 풀며, `scripts/verify-restore.sh`가 복원된 checkpoint pointer가 가리키는 object를 version 단위로 대조한다. 복원된 checkpoint는 새 bucket의 version으로 **다시 고정**되고 legal hold가 걸리므로, 복원본의 API도 기본값 `CHECKPOINT_OBJECT_PROTECTION=locked`로 뜬다(아래 "checkpoint 객체의 version" 절). 원본 설치의 volume·환경 파일은 어느 스크립트도 쓰지 않는다([development.md](../contributing/development.md#의존-서비스만-띄우기와-host에서-도는-api)의 규칙).
+`scripts/backup.sh`가 한 compose 설치(PostgreSQL·checkpoint object store)를 디렉터리 하나로 묶고, `scripts/restore.sh`가 그것을 **새 compose project**에 풀며, `scripts/verify-restore.sh`가 복원된 checkpoint pointer가 가리키는 object를 version 단위로 대조한다. 복원된 checkpoint는 새 bucket의 version으로 **다시 고정**되고 legal hold가 걸리므로, 복원본의 API도 기본값 `CHECKPOINT_OBJECT_PROTECTION=locked`로 뜬다(아래 "checkpoint 객체의 version" 절). 원본 설치의 volume·환경 파일은 어느 스크립트도 쓰지 않는다([development.md](../contributing/development.md#의존-서비스만-띄우기와-host에서-도는-api)의 규칙).
 
 호스트에 필요한 것: docker + compose v2.24.6 이상(`!override` 병합, `include`로 합친 스택 위의 overlay), git, jq, `sha256sum` 또는 `shasum`, 그리고 `bun install`을 마친 이 저장소 checkout. restore의 `migrate` 서비스가 checkout을 마운트한다. S3 호출은 모두 호스트에서 production S3 어댑터로 한다. object 복사·업로드·검사는 `scripts/lib/object-store-cli.ts`, checkpoint version 고정은 `scripts/lib/checkpoint-pins-cli.ts`가 맡는다(published postgres 포트로 붙는다). verify는 `scripts/lib/decode-manifest.ts`도 부른다. pg_dump·psql·git은 컨테이너 안에서 실행한다.
 
@@ -8,7 +8,7 @@ test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scr
 
 ## Kubernetes 설치
 
-[Kubernetes 설치](kubernetes-deployment.md)에서는 이 문서의 세 스크립트를 쓰지 않는다. 스크립트는 compose project의 PostgreSQL·로컬 S3·Gitea 컨테이너를 전제로 한다. 대신 AWS 기능이 같은 일을 한다.
+[Kubernetes 설치](kubernetes-deployment.md)에서는 이 문서의 세 스크립트를 쓰지 않는다. 스크립트는 compose project의 PostgreSQL·로컬 S3 컨테이너를 전제로 한다. 대신 AWS 기능이 같은 일을 한다.
 
 - **DB**: RDS 자동 백업(point-in-time 복원)과 수동 스냅샷.
 - **checkpoint object**: S3 versioning과 Object Lock. 커밋된 checkpoint는 version으로 고정되고 legal hold가 걸려 있어(`locked`, 아래 "checkpoint 객체의 version" 절), 같은 key를 덮어쓰거나 지워도 그 version은 남는다. 복원은 bucket을 복사하지 않고 같은 bucket의 version을 그대로 가리킨다.
@@ -36,7 +36,7 @@ RDS 스냅샷은 그 시점의 pointer를 담는다. 스냅샷 뒤에 GC가 지�
 - backup: `s3:ListBucket`, `s3:GetObject`, `s3:GetObjectVersion`
 - restore·verify: 위 권한과 `s3:ListBucketVersions`, `s3:GetBucketVersioning`, `s3:GetBucketObjectLockConfiguration`, `s3:GetEncryptionConfiguration`, `s3:PutObject`, `s3:GetObjectLegalHold`, `s3:PutObjectLegalHold`, `s3:DeleteObjectVersion`. 마지막 권한은 create-only 검사가 scratch key의 version을 version id로 지우는 데 쓴다
 
-macOS에서 Homebrew bash 5.3.9가 PATH 앞에 있으면 1 KB가 넘는 here-string·heredoc에서 멈춘다(`cat <<< "$(seq 1 300)"`가 돌아오지 않는다. backup의 gitea 단계 heredoc이 여기에 걸린다). 스크립트는 `#!/usr/bin/env bash`이므로 `/bin`을 PATH 앞에 두어 /bin/bash 3.2로 실행한다.
+macOS에서 Homebrew bash 5.3.9가 PATH 앞에 있으면 1 KB가 넘는 here-string·heredoc에서 멈춘다(`cat <<< "$(seq 1 300)"`가 돌아오지 않는다). 스크립트는 `#!/usr/bin/env bash`이므로 `/bin`을 PATH 앞에 두어 /bin/bash 3.2로 실행한다.
 
 ## 백업
 
@@ -52,11 +52,13 @@ scripts/backup.sh --project ap-ops --object-store env --bucket ap-ops-checkpoint
 backup-20260923T101500Z/
 ├── db.sql          pg_dump --no-owner --no-privileges (schema·data·drizzle journal)
 ├── objects/        bucket의 모든 object, key가 곧 경로 (checkpoint가 고정한 key는 그 version의 바이트)
-├── repos/<owner>/<repo>.bundle   Gitea bare repo마다 git bundle create --all (wiki 포함)
-├── gitea/gitea.db  sqlite 온라인 백업(.backup), gitea/app.ini
 ├── manifest.json   아래 참조
 └── SHA256SUMS      위 파일 전부
 ```
+
+백업에는 git 호스트가 들어가지 않는다. 로컬 스택의 git 호스트(compose 서비스 이름은 저장소 URL을 지키려고 `gitea`로 남았다)는 읽기 전용 fake-git이라 지킬 데이터가 없고, 그 밖의 저장소는 GitHub에 있다.
+
+내장 Gitea를 쓰던 때의 `<project>_gitea-data` volume이 남아 있으면 백업은 경고를 남기고 그 volume을 넣지 않는다. 그 저장소가 필요하면 volume을 지우지 말고 따로 옮긴다.
 
 `manifest.json`:
 
@@ -67,12 +69,11 @@ backup-20260923T101500Z/
 | `schema.applied[]` | DB의 `drizzle.__drizzle_migrations` 행(`hash`, `when`) 순서대로. `head_tag`는 마지막 행에 해당하는 journal tag |
 | `images.<service>` | 실행 중인 컨테이너의 image·image id·registry digest. api/worker/scheduler 컨테이너가 없으면 `status: "not_built"`로 남긴다. 나중에 만든 이미지를 이 값에 소급 기록하지 않는다 |
 | `objects` | `store`(`localstack`·`env`), bucket 이름, `endpoint`(백업이 읽은 주소, AWS S3면 빈 문자열), object 수. restore는 이 bucket 이름을 대상으로 받지 않는다 |
-| `repos` | bundle로 담은 repo와 빈 repo(ref가 없어 bundle 불가) 각각의 이름·symbolic HEAD. 복원 시 HEAD를 그대로 되돌리고 임시 origin은 제거한다 |
 
 주의:
 
 - 로컬 compose의 S3는 SeaweedFS이며 객체·메타데이터·암호화 키를 `local-s3-data` named volume에 보존한다. Docker 재시작과 `docker compose down`(`-v` 없이) 뒤에도 남는다. 보존하며 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. 옵션 없는 `scripts/local.sh down`과 `reset`은 데이터까지 지우므로 보존할 때 쓰지 않는다. 이전 휘발성 LocalStack 설치에서 전환할 때는 **pull 전 옛 checkout에서 백업**하고, pull 뒤 사용한 적 없는 새 project에 restore한다. 이미 유실된 checkpoint는 백업으로 되살릴 수 없으며 [전환 안내](../quickstart.md#재부팅이나-docker-재시작-뒤)의 명시적 복구 결정을 따른다.
-- `pg_dump`는 자체로 일관되지만 object·repo는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·maintenance·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
+- `pg_dump`는 자체로 일관되지만 object는 그 뒤에 복사한다. 백업 중 checkpoint가 커밋되면 pointer만 있고 object가 없는 행이 생길 수 있다. 그래서 writer가 돌고 있으면 백업은 아무것도 쓰지 않고 exit 1로 거부한다. writer는 compose 서비스 api·scheduler·reconciler·maintenance·worker와, scheduler가 띄운 worker 컨테이너다. worker 컨테이너는 `agent-platform.installation=<scheduler 컨테이너의 EXECUTION_INSTALLATION_ID>` 라벨로 찾는다. scheduler 컨테이너가 없으면 설치 id를 알 수 없으므로 `agent-platform.installation` 라벨이 붙은 컨테이너는 어느 설치 것이든 writer로 센다. 서비스는 compose 라벨로 찾으므로 `apps` profile 밖에서도 보인다. docker가 답하지 않으면 거부한다. `--allow-running-writers`를 주면 경고만 하고 진행한다.
 - checkpoint GC(`apps/control-host/src/api/checkpoint-gc.ts`)는 백업 중에 돌리지 않는다. GC는 더 이상 복원될 수 없는 revision의 행에 `collected_at`을 적은 뒤 그 객체를 지운다. capture와 repin은 이렇게 표시된 행을 건너뛴다. 그런데 `pg_dump` 뒤에 GC가 행을 표시하면, 덤프에는 표시가 없는 행이 남고 그 객체는 백업에 없다. 그러면 restore의 repin이 실패한다. 그래서 `backup.sh`는 객체 복사를 마친 뒤 `pg_dump` 시작 1분 전 이후에 `collected_at`이 적힌 행이 있는지 확인하고, 있으면 백업을 실패로 끝낸다. GC를 멈추고 다시 백업한다.
 - object 복사(`object-store-cli.ts download`)는 각 key의 **현재** 객체만 받는다. 그 뒤 `checkpoint-pins-cli.ts capture`가 `collected_at`이 비어 있는 `checkpoints` 행을 모두 읽고 다음을 확인한다.
   - manifest는 `manifest_version`으로, 그 안의 모든 ref는 자기 `version`으로 읽는다. incremental checkpoint의 `workspace.baseBundles`도 ref다. base bundle은 앞 checkpoint의 디렉터리에 있지만, 그 checkpoint가 GC로 빠졌어도 이 checkpoint의 ref로서 백업된다. version이 없는 행(`unversioned`로 커밋된 행)은 key로 읽는다.
@@ -83,9 +84,7 @@ backup-20260923T101500Z/
   - 고정된 version이 없거나 해시가 맞지 않는다. 보관한 이벤트 object도 같다.
   - 한 key에 서로 다른 바이트가 고정되어 있다(`objects/<key>` 파일 하나로 둘을 담을 수 없다).
   - 한 checkpoint의 manifest key를 다른 checkpoint가 ref로 쓴다. 복원 때 manifest를 다시 쓸 수 없다.
-- `gitea/app.ini`에는 Gitea의 SECRET_KEY·INTERNAL_TOKEN이, `db.sql`에는 api key 해시가 들어 있다. 디렉터리는 `umask 077`로 만들어지며 보관 위치는 백업 소유자가 책임진다.
-- Gitea는 백업 중 계속 떠 있다. sqlite 스냅샷과 repo 디렉터리 목록을 비교해 그 사이 repo가 생기거나 이름이 바뀌었으면 백업을 실패시킨다.
-- LFS·attachments·avatars·indexer는 담지 않는다. 지금 설치는 저장소 데이터만 쓰며 필요해지면 `gitea dump`로 바꾼다.
+- `db.sql`에는 api key 해시가 들어 있다. 디렉터리는 `umask 077`로 만들어지며 보관 위치는 백업 소유자가 책임진다.
 
 ## 복원
 
@@ -100,12 +99,13 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 순서와 거부 조건:
 
 1. `SHA256SUMS` 검증. 불일치면 exit 1.
-2. **schema 검사** — manifest의 `schema.applied`가 이 checkout `packages/db/migrations`의 journal(각 SQL 파일 sha256, journal 순서)과 정확히 같아야 한다. 오래된 백업도, 이 checkout이 모르는 migration이 든 백업도 exit 3으로 거부한다. 오래된 백업을 올리려면 그 백업과 같은 commit을 checkout해 복원·검증한 뒤 migration을 별도 단계로 돌린다.
-3. `env`면 대상 bucket 검사(아래 6.1–6.2와 같은 것)를 docker를 건드리기 전에 먼저 한다. `--check-only`도 이 검사를 한다.
-4. 대상 project 이름을 label로 가진 container·volume·network가 하나라도 있으면 exit 4. 기존 설치는 절대 재사용하지 않는다. 같은 이름으로 동시에 들어오는 restore는 `<project>-restore-lock` network 생성으로 하나만 통과한다(끝나면 제거).
-5. `infra/compose.restore.yml`을 겹쳐 postgres·gitea(`localstack`이면 localstack도)를 띄운다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, gitea http, gitea ssh 순. 스크립트가 `RESTORE_POSTGRES_PORT`·`RESTORE_LOCALSTACK_PORT`·`RESTORE_GITEA_HTTP_PORT`·`RESTORE_GITEA_SSH_PORT`로 넘긴다), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
-6. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
-7. object와 재고정. 첫 쓰기 직전에 대상 bucket을 다시 검사한다(`object-store-cli.ts check-target`).
+2. **Gitea 데이터 검사** — manifest의 `gitea`가 `null`이 아니면 exit 3으로 거부한다. 아래 "내장 Gitea를 쓰던 때의 백업"을 본다. `gitea`가 `null`이거나 없는 백업은 그대로 진행한다.
+3. **schema 검사** — manifest의 `schema.applied`가 이 checkout `packages/db/migrations`의 journal(각 SQL 파일 sha256, journal 순서)과 정확히 같아야 한다. 오래된 백업도, 이 checkout이 모르는 migration이 든 백업도 exit 3으로 거부한다. 오래된 백업을 올리려면 그 백업과 같은 commit을 checkout해 복원·검증한 뒤 migration을 별도 단계로 돌린다.
+4. `env`면 대상 bucket 검사(아래 8.1–8.2와 같은 것)를 docker를 건드리기 전에 먼저 한다. `--check-only`도 이 검사를 한다.
+5. 대상 project 이름을 label로 가진 container·volume·network가 하나라도 있으면 exit 4. 기존 설치는 절대 재사용하지 않는다. 같은 이름으로 동시에 들어오는 restore는 `<project>-restore-lock` network 생성으로 하나만 통과한다(끝나면 제거).
+6. `infra/compose.restore.yml`을 겹쳐 postgres(`localstack`이면 localstack도)를 띄운다. git 호스트는 띄우지 않는다. 복원한 apps를 올릴 때 함께 뜬다. 이 override는 host port를 `--port-base`부터 loopback에 다시 묶고(postgres, localstack, git 호스트 순. 스크립트가 `RESTORE_POSTGRES_PORT`·`RESTORE_LOCALSTACK_PORT`·`RESTORE_GIT_HOST_PORT`로 넘긴다), postgres의 initdb SQL 마운트를 없애 dump가 빈 DB에 들어가게 한다.
+7. `psql --single-transaction < db.sql` → 복원된 journal이 manifest와 같은지 재확인.
+8. object와 재고정. 첫 쓰기 직전에 대상 bucket을 다시 검사한다(`object-store-cli.ts check-target`).
    1. `env`에서 대상 bucket 이름이 백업의 원본 bucket(`manifest.json`의 `objects.bucket`)과 같으면 endpoint와 상관없이 exit 4로 거부한다. 같은 저장소도 여러 주소로 부를 수 있어서(AWS S3의 전역·리전 endpoint, `localhost`와 `127.0.0.1`) 주소 비교로는 원본이 아님을 증명할 수 없다. 다른 저장소로 훈련할 때도 다른 이름의 bucket을 쓴다. `localstack`이면 대상이 방금 띄운 새 로컬 S3라 원본일 수 없다. bucket이 없으면 Object Lock과 SSE-S3로 만든다. 기본 `claude-sessions`는 `local-s3-init`이 만든다.
    2. versioning `Enabled`, Object Lock `Enabled`(기본 보존 기간 없음), 기본 암호화 `AES256`인지 확인한다. 아니면 exit 1이다. version이나 delete marker가 하나라도 있으면 exit 4로 거부한다.
    3. 저장소가 `If-None-Match: *` 두 번째 쓰기를 412로 거부하는지 scratch key로 확인한다. 확인이 끝나면 scratch key의 version과 delete marker를 모두 version id로 지우고, bucket이 다시 비었는지 본다.
@@ -115,12 +115,21 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
    7. `session_event_archives` 행도 같은 순서를 따른다. 쓰기 전에 행마다 복원 bucket에서 같은 바이트의 version을 찾고, 하나라도 없거나 다르면 아무것도 쓰지 않고 멈춘다. 그 version에 legal hold를 건 뒤, 위 트랜잭션 안에서 `version_id`를 새 version으로 바꾼다. 행의 `version_id`가 그사이 바뀌었으면 트랜잭션 전체를 되돌린다.
    8. object 수가 manifest와 같아야 한다.
    9. 재고정이 실패하면 restore는 exit 1로 끝난다. 이미 올라간 object와 hold는 되돌릴 수 없으므로, 그 project는 내리고 새 project로 다시 복원한다. 이미 있는 object를 덮어쓰는 경로는 없다.
-8. gitea를 멈추고 `gitea.db`·`app.ini`를 백업본으로 교체, bundle마다 `git clone --mirror`, 빈 repo는 `git init --bare`, `gitea admin regenerate hooks`, 재시작. `app.ini`는 secret(`SECRET_KEY`·`INTERNAL_TOKEN`·`[oauth2] JWT_SECRET`)을 지키려고 통째로 복사하므로 `[server]`의 외부 주소는 원본 것이다. restore override가 gitea에 `GITEA__server__ROOT_URL`·`DOMAIN`·`SSH_DOMAIN`·`SSH_PORT`를 주고, Gitea 이미지 entrypoint의 `environment-to-ini`가 기동할 때마다 이 네 키만 복원 주소(`http://127.0.0.1:<port-base+2>/`, ssh `<port-base+3>`)로 덮어쓴다. 나머지 키와 섹션은 백업본 그대로다. 컨테이너 안 포트인 `HTTP_PORT`(3000)·`SSH_LISTEN_PORT`(22)는 건드리지 않는다. 재시작 뒤 네 값이 실제로 들어갔는지 확인하고, 아니면 실패한다.
 9. `migrate` 서비스를 한 번 돌려 `db.migrate.noop`을 확인한다.
 
 끝나면 접속 정보, 다시 띄우는 명령, 정리 명령(`docker compose -p <project> -f infra/compose.yml down -v`)을 출력한다.
 
-복원 project는 **항상 restore override와 같은 `RESTORE_*` 값으로** 다시 띄운다(출력된 "start again" 명령). base 파일만으로 `up`하면 컨테이너가 재생성되며 원본 포트(5432·4566·3001)와 공용 worker network로 되돌아가 원본 설치와 충돌하고, Gitea의 `app.ini`는 복원 포트를 계속 광고해 clone URL이 없는 listener를 가리킨다. 복원본을 원본 자리로 승격하는 절차는 아직 없다.
+복원 project는 **항상 restore override와 같은 `RESTORE_*` 값으로** 다시 띄운다(출력된 "start again" 명령). base 파일만으로 `up`하면 컨테이너가 재생성되며 원본 포트(5432·4566·3001)와 공용 worker network로 되돌아가 원본 설치와 충돌한다. 복원본을 원본 자리로 승격하는 절차는 아직 없다.
+
+### 내장 Gitea를 쓰던 때의 백업
+
+manifest의 `gitea`에 값이 있는 백업에는 `repos/`와 `gitea/`(Gitea DB, `app.ini`의 secret 포함)가 들어 있다. 지금 checkout에는 이것을 풀 Gitea가 없으므로 `restore.sh`가 exit 3으로 거부하고, 아무것도 띄우지 않는다. 같은 migration이어도 거부한다. 백업 파일은 그대로 남는다.
+
+그런 백업은 Gitea 제거 전 checkout에서 복원한다.
+
+1. 거부 메시지가 알려 주는 `source.checkout_commit`을 checkout한다. 백업과 같은 migration이어야 schema 검사를 지난다.
+2. 그 값이 `unknown`이거나 메시지에 `with local changes`가 붙으면 그 commit이 백업을 뜬 코드와 같다고 보장할 수 없다. manifest의 `schema.head_tag`가 마지막 migration인 commit 중 Gitea 복원이 있는 것을 고르거나, 배포 때 보관한 checkout을 쓴다.
+3. 그 checkout의 `scripts/restore.sh`로 새 project에 복원한다. 저장소만 필요하면 복원 없이 `repos/<owner>/<repo>.bundle`을 `git clone`해도 된다.
 
 ## 검증
 
@@ -184,7 +193,7 @@ checkpoint manifest와 pointer는 S3 object **version**을 가리킨다. 복원�
 tests/e2e/restore-resume.sh    # macOS: PATH="/bin:/usr/bin:$PATH" bash tests/e2e/restore-resume.sh
 ```
 
-`tests/e2e/run.sh`와 같은 이미지·overlay로 제품 스택(`apps` profile)을 띄워 다음을 한 번에 끝까지 수행한다. 기록은 `RR_OUT`(기본값은 새 임시 디렉터리)에 남는다. 기록에는 tested SHA, image id, SDK·Claude Code 버전, 단계별 JSON, 두 project의 checkpoint 행과 manifest, restore·verify 로그, compose 로그, worker 로그, 대조표가 들어간다. backup 디렉터리는 Gitea secret과 API key 해시를 담으므로 `manifest.json`만 남기고 지운다.
+`tests/e2e/run.sh`와 같은 이미지·overlay로 제품 스택(`apps` profile)을 띄워 다음을 한 번에 끝까지 수행한다. 기록은 `RR_OUT`(기본값은 새 임시 디렉터리)에 남는다. 기록에는 tested SHA, image id, SDK·Claude Code 버전, 단계별 JSON, 두 project의 checkpoint 행과 manifest, restore·verify 로그, compose 로그, worker 로그, 대조표가 들어간다. backup 디렉터리는 API key 해시를 담으므로 `manifest.json`만 남기고 지운다.
 
 1. 원본 project에서 세션을 만들고 turn 2개를 실제 Claude Code로 돌린다. turn 1은 `echo alpha > hello.txt`, turn 2는 `echo beta >> hello.txt`이다. 그다음 pause로 checkpoint를 커밋하고 worker를 내린다.
 2. api·scheduler·reconciler·maintenance를 멈추고 `scripts/backup.sh`를 뜬다. 그다음 원본 project와 그 installation 라벨이 붙은 container·network·volume(worker workspace volume 포함)을 모두 지운다. 세션을 넘기는 것은 backup뿐이다.
@@ -228,7 +237,7 @@ EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=10
 MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # + 위와 같은 AWS 자격 증명
 
-# 4. 정리 (복원본만. --rmi local은 복원이 빌드한 migrate 이미지)
+# 4. 정리 (복원본만. --rmi local은 복원이 빌드한 이미지)
 docker compose -p ap-restore-1 -f infra/compose.yml down -v --rmi local
 docker compose start api scheduler reconciler maintenance   # 원본을 다시 연다
 ```

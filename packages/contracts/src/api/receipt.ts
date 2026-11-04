@@ -100,6 +100,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "open_pull_request",
   "update_pull_request",
   "comment_pull_request",
+  "close_pull_request",
+  "reopen_pull_request",
   // A remote MCP exchange the egress proxy refused for the agent's
   // credential: unbound, not for this workspace, or moved in the catalog.
   "call_mcp",
@@ -121,6 +123,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_repository_branch",
   "remove_repository",
   "import_repository",
+  // A provider connection or remote MCP server brought in by a settings
+  // document; the receipt names references, never a value.
+  "import_connection",
+  "import_mcp_server",
   // An agent's pick resolved a GitHub App repository to a new catalog row.
   "resolve_repository",
   // An agent's GitHub switch turned on or off.

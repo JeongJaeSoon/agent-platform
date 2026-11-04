@@ -454,6 +454,34 @@ describe("reading a pull request for the outcome refresher", () => {
     }
   });
 
+  test("closes and reopens a pull request with one PATCH each, and answers it as GitHub left it", async () => {
+    const { forge } = await appForge();
+    try {
+      const before = github.apiRequests.length;
+      const closed = await forge.setPullRequestState(1, "closed");
+      expect(closed).toMatchObject({ number: 1, state: "closed", head });
+      expect(closed.closedAt).not.toBeNull();
+      expect((await forge.getPullRequest(1)).pullRequest.state).toBe("closed");
+      expect(await forge.setPullRequestState(1, "open")).toMatchObject({
+        state: "open",
+        closedAt: null,
+      });
+      expect(
+        github.apiRequests
+          .slice(before)
+          .filter((request) => request.method === "PATCH")
+          .map((request) => request.body),
+      ).toEqual([{ state: "closed" }, { state: "open" }]);
+
+      github.setPullRequestState("acme", "app", 1, "merged");
+      expect(
+        await forge.setPullRequestState(1, "closed").catch((error) => error),
+      ).toBeInstanceOf(ForgeCredentialError);
+    } finally {
+      github.setPullRequestState("acme", "app", 1, "open");
+    }
+  });
+
   test("a 500 is sent once and not retried; a 404 names its status", async () => {
     const { forge, warnings } = await appForge();
     await forge.getPullRequest(1);

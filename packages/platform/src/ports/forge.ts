@@ -1,7 +1,7 @@
 // The repository host behind a catalog repository, as the API talks to it:
 // the credential the egress proxy logs in with, and the host's own API.
-// Only GitHub has an adapter; a repository without one (Gitea, a bearer
-// token, a public repository) keeps the catalog's static credential.
+// Only GitHub has an adapter; a repository without one (another host, a
+// bearer token, a public repository) keeps the catalog's static credential.
 
 export type ForgeKind = "github";
 

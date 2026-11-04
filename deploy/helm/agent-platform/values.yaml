@@ -116,8 +116,9 @@ catalog:
           value_env: ANTHROPIC_API_KEY
       project_settings:
         claude_md: true
-  # At least one, or the api does not start. The example is
-  # config/repositories.yaml's compose Gitea; name your own.
+  # At least one, or the api does not start. The example is the read-only git
+  # host of config/repositories.yaml, which this chart does not install
+  # (deploy/kind/deps-session.yaml does, for the kind checks); name your own.
   repositories:
     sample-app:
       url: http://gitea:3000/agent/sample-app.git

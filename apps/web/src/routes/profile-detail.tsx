@@ -14,6 +14,7 @@ import { useAgentPlatform } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
+  AlertTitle,
   Badge,
   Button,
   buttonVariants,
@@ -57,6 +58,8 @@ import { LoadFailure } from "../components/load-failure.tsx";
 import { PagedListFooter } from "../components/paged-list-footer.tsx";
 import { pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
+import { installationOptionsQuery } from "./profile-tools.tsx";
+import { blockedNewTools } from "./profile-tools-model.ts";
 import { profileName, STATE_BADGE, stateOf, versionOf } from "./profiles.tsx";
 
 const HISTORY_COLUMNS = [
@@ -117,6 +120,11 @@ export function ProfileDetailScreen() {
   const items = profiles.data?.items ?? [];
   const profile = items.find((item) => item.id === profileId);
   const ceiling = profile?.source === "operator";
+  // Only an owner reads the catalogs, which say what a newer engine added.
+  const options = useQuery({
+    ...installationOptionsQuery(client),
+    enabled: ceiling && operates,
+  });
   // Workspace versions answer to an owner or admin, ceilings to an owner.
   const changes = ceiling ? operates : manages;
 
@@ -256,6 +264,24 @@ export function ProfileDetailScreen() {
       item.id === profile.workspace?.base_profile_id &&
       item.source === "operator",
   );
+  // The server takes a new version of a name only from its latest; an
+  // imported ceiling has no name, so any new name may follow it.
+  const ceilingName = profile.installation?.name;
+  const versionable =
+    ceiling &&
+    operates &&
+    !(
+      ceilingName &&
+      items.some(
+        (item) =>
+          item.installation?.name === ceilingName &&
+          versionOf(item) > versionOf(profile),
+      )
+    );
+  const blockedNew =
+    ceiling && options.data
+      ? blockedNewTools(options.data, profile)
+      : { catalog: "", tools: [] };
   const actions: ReactNode[] = [];
   if (ceiling) {
     if (manages && pickable(profile))
@@ -269,20 +295,7 @@ export function ProfileDetailScreen() {
           {t("profiles.detail.createFrom")}
         </Link>,
       );
-    // The server takes a new version of a name only from its latest; an
-    // imported ceiling has no name, so any new name may follow it.
-    const name = profile.installation?.name;
-    if (
-      operates &&
-      !(
-        name &&
-        items.some(
-          (item) =>
-            item.installation?.name === name &&
-            versionOf(item) > versionOf(profile),
-        )
-      )
-    )
+    if (versionable)
       actions.push(
         <Link
           key="version"
@@ -385,6 +398,37 @@ export function ProfileDetailScreen() {
             {t(`profiles.stateReason.${state}`, {
               base: profile.workspace?.base_profile_id ?? "",
             })}
+          </AlertDescription>
+        </Alert>
+      )}
+      {blockedNew.tools.length === 0 ? null : (
+        <Alert variant="amber">
+          <AlertTitle>
+            {t("profiles.tools.blockedNew", {
+              count: blockedNew.tools.length,
+            })}
+          </AlertTitle>
+          <AlertDescription>
+            {t("profiles.tools.blockedNewText", {
+              tools: blockedNew.tools.join(", "),
+              catalog: blockedNew.catalog,
+            })}
+            {versionable ? (
+              <>
+                {" "}
+                <Link
+                  className="font-medium underline underline-offset-4"
+                  to="/profiles/new"
+                  search={{
+                    kind: "installation",
+                    from: profile.id,
+                    mode: "version",
+                  }}
+                >
+                  {t("profiles.tools.makeVersion")}
+                </Link>
+              </>
+            ) : null}
           </AlertDescription>
         </Alert>
       )}
@@ -598,8 +642,15 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
               ]
             : []),
           item(
+            "deny",
+            t("profiles.tools.blocked"),
+            profile.deny == null
+              ? t("profiles.tools.allowList")
+              : list(profile.deny, t("profiles.tools.noneBlocked")),
+          ),
+          item(
             "tools",
-            t("profiles.editor.tools"),
+            t("profiles.tools.running"),
             list(profile.tools, t("profiles.noTools")),
           ),
           item(

@@ -90,8 +90,8 @@ record_stage() {
 }
 
 if [ "$stage" = all ]; then
-  # From nothing: a stack left up (its database, bucket and Gitea) fails the
-  # fixture and would carry state into the run.
+  # From nothing: a stack left up (its database and bucket) would carry state
+  # into the run.
   scripts/soak/stack.sh down || die "stack down failed"
   # down swallows removal errors: check nothing of the project or installation survived.
   for label in com.docker.compose.project=soak135 agent-platform.installation=soak135; do

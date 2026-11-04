@@ -5,6 +5,7 @@ import type { Database } from "./queries.ts";
 import {
   agentReleases,
   apiKeys,
+  catalogRepositoryGitHubApps,
   githubApps,
   linkedAccounts,
   sessions,
@@ -40,6 +41,7 @@ export function createPostgresSessionAttributionStore(
         .select({
           ownerId: sessions.ownerId,
           workspaceId: sessions.workspaceId,
+          repositoryId: sessions.repositoryId,
           channel: sessions.channel,
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
@@ -79,23 +81,46 @@ export function createPostgresSessionAttributionStore(
             ? null
             : { id: link.id, login: link.login };
       }
+      // The App the primary repository is pinned to, the one that opens its
+      // pull requests (decision D11). A pin whose connection is gone or now
+      // holds another App names none: no other App stands in for it.
       let authorApp: { slug: string; apiBase: string } | null = null;
-      if (row.workspaceId !== null) {
-        const [app] = await db
-          .select({ slug: githubApps.slug, apiBase: githubApps.apiBase })
-          .from(githubApps)
+      let authorPinned = false;
+      if (row.workspaceId !== null && row.repositoryId !== null) {
+        const [pin] = await db
+          .select({
+            slug: githubApps.slug,
+            apiBase: githubApps.apiBase,
+          })
+          .from(catalogRepositoryGitHubApps)
+          .leftJoin(
+            githubApps,
+            and(
+              eq(githubApps.id, catalogRepositoryGitHubApps.connectionId),
+              eq(githubApps.appId, catalogRepositoryGitHubApps.appId),
+              eq(githubApps.role, "author"),
+              eq(githubApps.workspaceId, row.workspaceId),
+            ),
+          )
           .where(
             and(
-              eq(githubApps.workspaceId, row.workspaceId),
-              eq(githubApps.role, "author"),
+              eq(catalogRepositoryGitHubApps.repositoryId, row.repositoryId),
+              eq(catalogRepositoryGitHubApps.role, "author"),
             ),
           )
           .limit(1);
-        authorApp = app ?? null;
+        if (pin !== undefined) {
+          authorPinned = true;
+          authorApp =
+            pin.slug === null || pin.apiBase === null
+              ? null
+              : { slug: pin.slug, apiBase: pin.apiBase };
+        }
       }
       return {
         ownerId: row.ownerId,
         authorApp,
+        authorPinned,
         trigger: triggerOf(row),
         agentId: row.agentId,
         agentReleaseId: row.agentReleaseId,

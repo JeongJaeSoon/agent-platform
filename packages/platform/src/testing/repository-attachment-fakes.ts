@@ -30,16 +30,20 @@ const repo = (name: string, branch = "main") => ({
   profiles: ["p"],
 });
 
-/** `app` is the session's own; `docs` and `tools` are on the release's list, `secret` is not. */
+/**
+ * `app` is the session's own; `docs` and `tools` are on the release's list,
+ * `secret` is not. `lab` is allowed for profile `q` alone.
+ */
 export const attachCatalog = withSeededInstallation(
   resolveSessionCatalog(
     sessionCatalogConfigSchema.parse({
-      profiles: { p: profile },
+      profiles: { p: profile, q: profile },
       repositories: {
         app: repo("app"),
         docs: repo("docs", "trunk"),
         tools: repo("tools"),
         secret: repo("secret"),
+        lab: { ...repo("lab"), profiles: ["q"] },
       },
     }),
     environmentCredentials({ ANTHROPIC_KEY_MAIN: "resolved-key" }),
@@ -105,7 +109,16 @@ export function memoryAttachmentStore(
   }> = [];
   let next = 0;
   const list = attached === null ? null : [...attached];
+  /** The agent's active release; null leaves none, as with no agent. */
+  const agent: {
+    active: Awaited<ReturnType<RepositoryAttachmentStore["activeRelease"]>>;
+    activeReads: number;
+  } = { active: null, activeReads: 0 };
   const store: RepositoryAttachmentStore = {
+    async activeRelease() {
+      agent.activeReads += 1;
+      return agent.active;
+    },
     async request(input) {
       if (!openAttempts.has(input.attemptId)) {
         return { outcome: "attempt_ended" };
@@ -192,5 +205,5 @@ export function memoryAttachmentStore(
       }
     },
   };
-  return Object.assign(store, { rows, receipts, attached: () => list });
+  return Object.assign(store, { rows, receipts, agent, attached: () => list });
 }

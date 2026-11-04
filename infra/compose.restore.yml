@@ -1,12 +1,11 @@
 # Layered on compose.yml by scripts/restore.sh only:
 #
 #   docker compose -p <new-project> -f infra/compose.yml \
-#     -f infra/compose.restore.yml up -d postgres localstack gitea
+#     -f infra/compose.restore.yml up -d postgres localstack
 #
 # A restore is a second installation on the same daemon, so everything the
 # base file fixes per host has to move: published ports are re-bound from
-# RESTORE_* variables (loopback only) and Gitea's external address follows
-# them. Worker networks need no counterpart: the scheduler names each one
+# RESTORE_* variables (loopback only). Worker networks need no counterpart: the scheduler names each one
 # after its installation and execution. The restore starts no egress proxy,
 # so its label cannot collide with the live installation's. `!override`
 # replaces the base list instead of merging into it. Compose v2.24.6+: older
@@ -27,17 +26,7 @@ services:
     ports: !override
       - "127.0.0.1:${RESTORE_LOCALSTACK_PORT:?}:4566"
 
-  # The restored app.ini is the backup's, secrets and all, so its [server]
-  # section still names the source's address. The image's entrypoint runs
-  # environment-to-ini on every start, which rewrites just these keys and
-  # leaves the rest of the file alone; HTTP_PORT and SSH_LISTEN_PORT are the
-  # container-side ports and stay as they are.
+  # restore.sh does not start it; the api of a restored stack does.
   gitea:
     ports: !override
-      - "127.0.0.1:${RESTORE_GITEA_HTTP_PORT:?}:3000"
-      - "127.0.0.1:${RESTORE_GITEA_SSH_PORT:?}:22"
-    environment:
-      GITEA__server__ROOT_URL: http://127.0.0.1:${RESTORE_GITEA_HTTP_PORT:?}/
-      GITEA__server__DOMAIN: 127.0.0.1
-      GITEA__server__SSH_DOMAIN: 127.0.0.1
-      GITEA__server__SSH_PORT: ${RESTORE_GITEA_SSH_PORT:?}
+      - "127.0.0.1:${RESTORE_GIT_HOST_PORT:?}:3000"
