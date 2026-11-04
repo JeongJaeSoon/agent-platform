@@ -34,6 +34,7 @@ import {
   SlackApiError,
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
+import type { SlackTokenRevoked } from "./slack-token-gone.ts";
 import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -83,7 +84,14 @@ const SEEDS: SeedSlackChannel[] = [
   { name: "random", members: [APP_ID] },
 ];
 
-function world(options: { botToken?: boolean } = {}) {
+function world(
+  options: {
+    botToken?: boolean;
+    /** Every Slack call is answered `ok: false` with this code. */
+    slackError?: string;
+    tokenRevoked?: SlackTokenRevoked;
+  } = {},
+) {
   let clock = NOW.getTime();
   const slack = createFakeSlackWebApi();
   const botToken = fakeSlackValue("xoxb");
@@ -145,10 +153,16 @@ function world(options: { botToken?: boolean } = {}) {
     api: createSlackBotApi({
       apiUrl: "http://slack.test/api",
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
-        (await slack.handle(new Request(input, init))) ??
-        new Response("not found", { status: 404 })) as typeof fetch,
+        options.slackError === undefined
+          ? ((await slack.handle(new Request(input, init))) ??
+            new Response("not found", { status: 404 }))
+          : Response.json({
+              ok: false,
+              error: options.slackError,
+            })) as typeof fetch,
     }),
     cache,
+    ...(options.tokenRevoked ? { tokenRevoked: options.tokenRevoked } : {}),
   });
   const listCalls = () =>
     slack.calls.filter((call) => call.method === "conversations.list").length;
@@ -156,6 +170,8 @@ function world(options: { botToken?: boolean } = {}) {
     slack,
     botToken,
     service,
+    lookup: (ids: string[]) =>
+      service.lookupSlackChannels(owner, AGENT, { ids }),
     cache,
     listCalls,
     search: (q: string, more: Partial<SearchSlackChannelsQuery> = {}) =>
@@ -617,6 +633,50 @@ describe("searching an agent's Slack channels", () => {
     expect((await refusal(revoked.search(""))).code).toBe(
       "SLACK_NOT_INSTALLED",
     );
+  });
+
+  describe("a token Slack says was revoked (94S-1359)", () => {
+    const calls = () => {
+      const seen: Parameters<SlackTokenRevoked>[0][] = [];
+      const tokenRevoked: SlackTokenRevoked = async (input) => {
+        seen.push(input);
+      };
+      return { seen, tokenRevoked };
+    };
+
+    for (const code of ["token_revoked", "account_inactive"]) {
+      test(`${code} revokes the install once per failed call, with the token that failed`, async () => {
+        const { seen, tokenRevoked } = calls();
+        const w = world({ slackError: code, tokenRevoked });
+        expect((await refusal(w.search(""))).code).toBe("SLACK_NOT_INSTALLED");
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({
+          workspaceId: WORKSPACE,
+          agentId: AGENT,
+          slackAppId: APP_ROW,
+          failedToken: w.botToken,
+        });
+        const named = await refusal(w.lookup(["C0A"]));
+        expect(named.code).toBe("SLACK_NOT_INSTALLED");
+        expect(seen).toHaveLength(2);
+      });
+    }
+
+    for (const code of [
+      "invalid_auth",
+      "not_authed",
+      "token_expired",
+      "ratelimited",
+      "internal_error",
+    ]) {
+      test(`${code} answers the same 409 or a retry but changes no state`, async () => {
+        const { seen, tokenRevoked } = calls();
+        const w = world({ slackError: code, tokenRevoked });
+        await refusal(w.search(""));
+        await refusal(w.lookup(["C0A"]));
+        expect(seen).toEqual([]);
+      });
+    }
   });
 
   test("an agent not in the caller's workspace is not found", async () => {

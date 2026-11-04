@@ -1,5 +1,6 @@
 import type { SlackInstallStore } from "@werft-ai/platform";
 import { and, eq, lt } from "drizzle-orm";
+import { revokeInstallationIdentities } from "./agent-identities.ts";
 import type { Database } from "./queries.ts";
 import { slackInstallations, slackInstallStates } from "./schema.ts";
 import {
@@ -74,9 +75,12 @@ export function createPostgresSlackInstallStore(
     },
 
     async revokeInstallation(key, sentAt) {
-      if (!sentAt) return (await revokeSlackInstallation(db, key)).outcome;
       return db.transaction(async (tx) => {
         // Locked, so a reinstall cannot verify it between check and revoke.
+        // NO KEY UPDATE still queues behind link and verify, but lets a
+        // channel binding write take the row's key share for its foreign key
+        // while it holds the identity: FOR UPDATE here would wait on that
+        // identity and block that write, a deadlock.
         const [row] = await tx
           .select({ verifiedAt: slackInstallations.verifiedAt })
           .from(slackInstallations)
@@ -86,12 +90,18 @@ export function createPostgresSlackInstallStore(
               eq(slackInstallations.teamId, key.teamId),
             ),
           )
-          .for("update");
+          .for("no key update");
         if (!row) return "not_found";
-        if (verifiedAfter(row.verifiedAt, sentAt)) {
+        if (sentAt && verifiedAfter(row.verifiedAt, sentAt)) {
           return "superseded";
         }
-        return (await revokeSlackInstallation(tx, key)).outcome;
+        const revoked = await revokeSlackInstallation(tx, key);
+        if (revoked.outcome === "not_found") return "not_found";
+        // The console reads the agent's identity, so it goes with the
+        // install. Also on a repeat: an install revoked before this
+        // existed still has its identity active.
+        await revokeInstallationIdentities(tx, revoked.installation.id);
+        return "revoked";
       });
     },
   };
