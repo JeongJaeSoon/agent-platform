@@ -185,6 +185,11 @@ all three render this one definition and cannot disagree.
 {{- fail (printf "%s.%s must be a non-empty string: set the runtime images.yml recorded" $name $key) -}}
 {{- end -}}
 {{- end -}}
+{{- /* The engines with a checkpoint codec (CLAUDE_CHECKPOINT_ENGINE). */ -}}
+{{- $engines := list "claude" -}}
+{{- if not (has (index $runtime "engine") $engines) -}}
+{{- fail (printf "%s.engine must be one of: %s" $name (join ", " $engines)) -}}
+{{- end -}}
 {{- if hasKey $runtime "profileDigestScheme" -}}
 {{- $scheme := index $runtime "profileDigestScheme" -}}
 {{- if not (and (or (kindIs "float64" $scheme) (kindIs "int64" $scheme) (kindIs "int" $scheme)) (eq (float64 $scheme) (floor $scheme)) (ge (float64 $scheme) 1.0)) -}}
