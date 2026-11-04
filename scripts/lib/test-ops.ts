@@ -62,7 +62,8 @@ const LOCALSTACK_ENDPOINT = "http://localstack:4566";
 const URL_SAFE = /^[A-Za-z0-9._~-]+$/;
 
 const API_TARGET_PORT = 3000;
-const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "[::1]"];
+/** A host name, as URL normalizes it; never an IP literal or `localhost`. */
+const NAMED_PROXY = /^(?!.*(^|\.)localhost\.?$)(?![\d.]+$)[^[]/i;
 
 export type ReleaseManifest = {
   readonly catalogRevision: string;
@@ -176,9 +177,9 @@ const isPort = (value: string) =>
   /^[1-9][0-9]{0,4}$/.test(value) && Number(value) <= 65535;
 
 /**
- * What the script's health checks call. On loopback it must be the port the
- * API publishes, or they would read whatever else listens there. Problems
- * never quote the value: a URL can carry a credential.
+ * What the script's health checks call: the port the API publishes, or they
+ * would read whatever else listens there, unless a host name says it is a
+ * proxy. Problems never quote the value: a URL can carry a credential.
  */
 function apiUrlProblems(value: string, apiPort: string | undefined): string[] {
   const form = ["TEST_OPS_API_URL must be scheme://host[:port]"];
@@ -187,8 +188,8 @@ function apiUrlProblems(value: string, apiPort: string | undefined): string[] {
   if (url.protocol !== "http:" && url.protocol !== "https:")
     return ["TEST_OPS_API_URL must be http or https"];
   const port = url.port || (url.protocol === "http:" ? "80" : "443");
-  if (!/^[a-z]+:\/\/[^/\\?#@\s]+$/i.test(value) || !isPort(port)) return form;
-  return LOOPBACK_HOSTS.includes(url.hostname) && port !== apiPort
+  if (!/^[a-z]+:\/\/[\w.:[\]-]+$/i.test(value) || !isPort(port)) return form;
+  return !NAMED_PROXY.test(url.hostname) && port !== apiPort
     ? [`TEST_OPS_API_URL must use the published API port ${apiPort}`]
     : [];
 }

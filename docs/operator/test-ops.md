@@ -156,9 +156,9 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 |---|---|---|
 | `TEST_OPS_API_PORT` | `3000` | API와 웹 콘솔의 호스트 포트. 1~65535 |
 | `TEST_OPS_POSTGRES_PORT` | `5432` | postgres의 호스트 포트. 1~65535 |
-| `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | `deploy`·`upgrade`·`status`가 `/readyz`를 확인하는 주소. 포트를 따라가므로 호스트 앞에 프록시를 둘 때만 넣는다. `scheme://host[:port]` 형식이고 경로와 끝의 `/`는 쓰지 않는다 |
+| `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | `deploy`·`upgrade`·`status`가 `/readyz`를 확인하는 주소. 포트를 따라가므로 호스트 앞에 프록시를 둘 때만 그 호스트 이름으로 넣는다. `scheme://host[:port]` 형식이고 경로와 끝의 `/`는 쓰지 않는다 |
 
-`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL, 게시한 API 포트와 다른 loopback URL을 거부한다. 오류 문구에 URL 값은 넣지 않는다. 이미 배포한 설치의 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. 이 문서의 3000과 5432는 기본값이다. 값을 바꾸면 터널과 `curl` 명령의 포트도 함께 바꾼다.
+`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL, 게시한 API 포트와 다른 포트를 쓰는 IP 주소·`localhost` URL을 거부한다. 오류 문구에 URL 값은 넣지 않는다. 이미 배포한 설치의 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. 이 문서의 3000과 5432는 기본값이다. 값을 바꾸면 터널과 `curl` 명령의 포트도 함께 바꾼다.
 
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
 

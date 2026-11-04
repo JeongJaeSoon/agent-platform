@@ -585,6 +585,12 @@ describe("rendered installation", () => {
     ["http://127.0.0.1:13000", "must use the published API port 3000"],
     ["http://localhost:13000", "must use the published API port 3000"],
     ["http://[::1]:13000", "must use the published API port 3000"],
+    ["http://[::ffff:127.0.0.1]:13000", "must use the published API port 3000"],
+    ["http://127.0.0.2:13000", "must use the published API port 3000"],
+    ["http://localhost.:13000", "must use the published API port 3000"],
+    ["http://app.localhost:13000", "must use the published API port 3000"],
+    ["http://0.0.0.0:13000", "must use the published API port 3000"],
+    ["http://ops{.example.test", "must be scheme://host[:port]"],
   ])(
     "preflight refuses the API URL %p",
     async (url, message) => {
