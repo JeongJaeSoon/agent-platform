@@ -133,6 +133,7 @@ beforeEach(async () => {
               pushes.push({ actor, sessionId });
               return { id: "push-1" } as never;
             },
+            get: unused,
           },
           pullRequests: {
             open: unused,
