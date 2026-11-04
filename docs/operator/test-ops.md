@@ -243,7 +243,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 이 절은 저장소 관리자가 `v*` 릴리스를 게시한 뒤에만 쓸 수 있다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)다.
 
-게시된 digest는 `v*` tag push로 돈 Images workflow(`.github/workflows/images.yml`)가 ghcr.io에 올린 값이다. run의 `staged-digest-*` artifact나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/agent-platform-worker:<tag>`로 읽는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
+게시된 digest는 `v*` tag push로 돈 Images workflow(`.github/workflows/images.yml`)가 ghcr.io에 올린 값이다. 초록 run의 `image-digests-published` artifact나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/agent-platform-worker:<tag>`로 읽는다. `staged-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
 ## 배포
 
