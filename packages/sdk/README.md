@@ -55,8 +55,8 @@ console.log(turn.status);
 
 같은 workflow가 SDK 경로(pull request와 같은 `paths`)를 바꾼 main push마다 프리릴리스를 게시한다. 승인은 없다. `latest`는 위 릴리스만 움직인다.
 
-1. `build`가 `package.json`의 `version`과 `SDK_VERSION`을 이 checkout 안에서만 `<package 버전>-main.<커밋 12자>`로 바꾸고 빌드·smoke·pack을 한다. package 버전이 `x.y.z`가 아니면 멈춘다. 번들의 버전이 manifest와 같은지도 확인한다.
-2. `publish-main`이 `sdk-prerelease` environment에서 그 tarball을 `npm publish --tag main --provenance --access public`으로 올린다. 게시 직전에 tarball의 이름과 버전이 `<x.y.z>-main.<이 커밋 12자>`인지, `publishConfig.tag`가 없는지, 이 커밋이 아직 main의 head인지, npm에 같은 버전이 없는지 확인한다. head가 아니거나 이미 있으면 게시 없이 성공으로 끝나고, 조회 오류는 실패다.
+1. `build`가 `package.json`의 `version`과 `SDK_VERSION`을 이 checkout 안에서만 `<package 버전>-main.<커밋 12자>`로 바꾸고 빌드·smoke·pack을 한다. package 버전이 `x.y.z`가 아니거나 커밋 앞 12자가 앞자리 0인 숫자뿐이면(SemVer가 거부한다. 약 0.04%) 멈추고 다음 push가 게시한다. 번들의 버전이 manifest와 같은지도 확인한다.
+2. `publish-main`이 `sdk-prerelease` environment에서 그 tarball을 `npm publish --tag main --provenance --access public`으로 올린다. 게시 직전에 tarball의 이름과 버전이 `<x.y.z>-main.<이 커밋 12자>`인지, 최상위 `tag`와 `publishConfig.tag`가 없는지, 이 커밋이 아직 main의 head인지, npm에 같은 버전이 없는지 확인한다. head가 아니거나 이미 있으면 게시 없이 성공으로 끝나고, 조회 오류는 실패다.
 3. `vars.SDK_PRERELEASE`가 `true`일 때만 `publish-main`이 돈다. 아래 준비를 마치기 전에 돌면 npm 인증 오류로 실패해 main에 붉은 run이 남기 때문이다.
 
 npm의 trusted publisher 등록에는 프리릴리스만 허용하는 설정이 없다. 안정판과 `latest`를 막는 것은 2의 확인과 리터럴 `--tag main`이고, 둘 다 이 파일에 있다. 그래서 이 파일을 고치는 변경을 main에 넣는 리뷰가 안정판을 승인 없이 올릴 수 있는 길을 막는다. `tests/sdk-release.test.ts`가 확인을 실제 bash로 돌려 안정판 버전, 다른 커밋의 해시, 짧은 해시, `publishConfig.tag`가 거부되는지 본다. npm `dist-tag` 명령은 쓰지 않는다. OIDC에서 쓰려면 npm 11.21.0 이상과 `Allow npm dist-tag`가 필요하다.

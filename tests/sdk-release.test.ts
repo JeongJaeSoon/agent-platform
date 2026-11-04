@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -443,7 +444,9 @@ describe("sdk-release.yml prerelease path", () => {
   });
 
   test("the only npm publish with a tag is the literal main one, after the check", () => {
-    const at = mainSteps.findIndex((step) => step.run?.includes("npm publish"));
+    const at = mainSteps.findIndex((step) =>
+      step.run?.startsWith("npm publish"),
+    );
     expect(at).toBe(mainSteps.length - 1);
     expect(at).toBeGreaterThan(mainSteps.indexOf(mainCheck));
     expect(mainSteps[at]?.run).toBe(mainPublish);
@@ -518,6 +521,9 @@ esac
       code: done.exitCode,
       out: done.stdout.toString(),
       output: readFileSync(output, "utf8"),
+      calls: existsSync(join(cwd, "npm-calls"))
+        ? readFileSync(join(cwd, "npm-calls"), "utf8")
+        : "",
     };
   };
 
@@ -545,13 +551,14 @@ esac
   });
 
   test("a prerelease of this commit, still the head of main and not on npm, is published", () => {
-    const { code, output } = exec(
+    const { code, output, calls } = exec(
       mainCheck,
       packed(sdk(`0.1.2-main.${short}`)),
       {},
     );
     expect(code).toBe(0);
     expect(output).toBe("publish=true\n");
+    expect(calls).toBe(`view @werft-ai/sdk@0.1.2-main.${short} version\n`);
   });
 
   const refusals: [string, object, Record<string, string>, string][] = [
@@ -575,7 +582,31 @@ esac
       "a publishConfig tag of latest",
       sdk(`0.1.2-main.${short}`, { publishConfig: { tag: "latest" } }),
       {},
-      "publishConfig.tag is latest",
+      "not valid for a prerelease",
+    ],
+    [
+      "a publishConfig tag of main",
+      sdk(`0.1.2-main.${short}`, { publishConfig: { tag: "main" } }),
+      {},
+      "not valid for a prerelease",
+    ],
+    [
+      "a top-level tag of latest",
+      sdk(`0.1.2-main.${short}`, { tag: "latest" }),
+      {},
+      "not valid for a prerelease",
+    ],
+    [
+      "a version with a trailing newline",
+      sdk(`0.1.2-main.${short}\n`, { publishConfig: { tag: "latest" } }),
+      {},
+      "not valid for a prerelease",
+    ],
+    [
+      "a version that is not a string",
+      sdk(1 as unknown as string),
+      {},
+      "not valid for a prerelease",
     ],
     [
       "another package",
@@ -681,6 +712,35 @@ esac
     expect(exec(mainCheck, packed(sdk(stampedVersion)), {}).output).toBe(
       "publish=true\n",
     );
+  });
+
+  test("the stamp step refuses a commit whose 12 characters are digits with a leading zero", () => {
+    const dir = fresh();
+    mkdirSync(join(dir, "packages/sdk/src"), { recursive: true });
+    writeFileSync(
+      join(dir, "packages/sdk/package.json"),
+      JSON.stringify({ name: "@werft-ai/sdk", version: "0.1.2" }),
+    );
+    const { code, out } = exec(stampStep, dir, {
+      GITHUB_SHA: `012345678901${"a".repeat(28)}`,
+    });
+    expect(code).toBe(1);
+    expect(out).toContain("leading zero");
+    // The same shape with a letter in it, or without the leading zero, is fine.
+    for (const head of ["01234567890a", "112345678901"]) {
+      writeFileSync(
+        join(dir, "packages/sdk/src/version.ts"),
+        'export const SDK_VERSION = "0.1.2";\n',
+      );
+      const ok = exec(stampStep, dir, {
+        GITHUB_SHA: `${head}${"a".repeat(28)}`,
+      });
+      expect(ok.code).toBe(0);
+      writeFileSync(
+        join(dir, "packages/sdk/package.json"),
+        JSON.stringify({ name: "@werft-ai/sdk", version: "0.1.2" }),
+      );
+    }
   });
 
   for (const base of ["0.1.2-rc.1", "0.1.2-main.abcdefabcdef", "", "v0.1.2"])
