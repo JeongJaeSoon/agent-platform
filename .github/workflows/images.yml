@@ -5,9 +5,10 @@ name: Images
 # every digest as an artifact. A push to main and a v* tag push publish to
 # ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
 # approval; a tag waits for the `release` environment, and its digests are what
-# a release manifest pins. Registry CD
+# the release manifest pins. Registry CD
 # beyond the push is D5. After the promotion the chart follows, with that run's
-# digests in its values, under the same two events and the same approval.
+# digests in its values, under the same two events and the same approval. A tag
+# then gets a GitHub Release carrying the manifest (`release`).
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
 # and scans it for known vulnerabilities. The `supply-chain` job is
@@ -28,7 +29,8 @@ on:
 # Read-only for every job but the publish, index and promote jobs: a pull
 # request can edit this file, so a token with package write in the PR job would
 # let a branch publish images before merge. Those jobs alone get package write,
-# and only run on a main or tag push.
+# and only run on a main or tag push. `release` alone gets contents write, and
+# only runs on a tag push.
 permissions:
   contents: read
 
@@ -458,8 +460,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # The tags depend on the run: vX and sha-… for a tag, main-<12> for
-      # main. The set-level commit point consumers resolve through (a release
-      # manifest) is D5; until then it is the artifact below.
+      # main. The set-level record consumers resolve through is the release
+      # manifest of a tag (`release`), built from the artifact below.
       - name: Promote staged digests
         run: .github/scripts/image-promote.sh staged digests
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -614,6 +616,50 @@ jobs:
         run: |
           .github/scripts/chart-push.sh chart-out/werft-*.tgz \
             "${REGISTRY}/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+
+  # The GitHub Release of a tag, with one manifest file: the three image
+  # digests, the worker runtime and the chart version. It comes last because
+  # the chart is final only once chart-publish has read it back, and it alone
+  # holds contents: write. The release is a draft until the manifest is read
+  # back; a rerun of the same tag passes on the same content and fails on other
+  # content (.github/scripts/release-publish.sh). Main runs publish no release.
+  release:
+    needs: chart-publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    concurrency:
+      group: images-release
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-digests-published
+          path: published
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chart
+          path: chart-out
+      - name: Write the manifest
+        run: bun .github/scripts/release-manifest.ts published chart-out release-manifest.json
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: .github/scripts/release-publish.sh "$GITHUB_REF_NAME" release-manifest.json
+      - name: Show the manifest
+        run: |
+          {
+            echo '```json'
+            cat release-manifest.json
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
 
   chart-publish-main:
     needs: chart-main

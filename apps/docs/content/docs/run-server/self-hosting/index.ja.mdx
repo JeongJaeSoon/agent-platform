@@ -32,6 +32,20 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 `v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、イメージのタグは `v<バージョン>`、chart のバージョンは `v` を除いた `<バージョン>` になります。設置ページのコマンドは同じままで、単一サーバーでは同じタグを checkout します。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)します。
 </Callout>
 
+## リリース manifest を読む
+
+リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下は最初のリリースができた後のコマンドである。
+
+```bash
+TAG=v0.1.0   # 読むリリースのタグ
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # タグごとに 1 ディレクトリ
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # デプロイに使う 3 つの digest
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart の場所とバージョン
+```
+
+digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기)を見る。
+
 ## サーバーに接続する
 
 SDK と HTTP API は、サーバーのアドレスと API key で接続します。TypeScript SDK は `baseUrl`(既定値は環境変数 `WERFT_BASE_URL`)と `apiKey`(`WERFT_API_KEY`)を受け取ります。既定のサーバーはないので、アドレスは必ず渡します。詳しいオプションは[クライアントの設定とエラー](/getting-started/client#クライアントのオプション)にあります。

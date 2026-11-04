@@ -256,9 +256,20 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ### 게시된 이미지를 쓸 때
 
-`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
+`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없고, 생기면 GitHub Release에 `release-manifest.json`이 붙는다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
 
-digest는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 읽고, manifest에는 digest로 적는다. GitHub에 로그인할 수 있으면 초록 run의 `image-digests-published` artifact에서도 읽는다. `staged-digests`와 `arch-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
+릴리스(`v*` 태그)를 쓸 때는 그 GitHub Release의 `release-manifest.json`에서 읽는다. 아래 명령이 이 문서의 manifest 이미지 줄과 `source_commit`을 채운다. `settings_digest`는 위 `settings-digest`의 출력을 더한다. 저장소 checkout은 필요 없다.
+
+```bash
+TAG=v0.1.0   # 쓸 릴리스 태그
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"
+jq '{source_commit: .commit, images: {
+  control_host: (.images["control-host"] | "\(.image)@\(.digest)"),
+  worker: (.images.worker | "\(.image)@\(.digest)"),
+  egress_proxy: (.images["egress-proxy"] | "\(.image)@\(.digest)")}}' "$TAG/release-manifest.json"
+```
+
+릴리스가 없을 때(`main` 머지)는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 digest를 읽고, manifest에는 digest로 적는다. `staged-digests`와 `arch-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
 ## 배포
 

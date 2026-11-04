@@ -32,6 +32,20 @@ The packages need no login. `<12>` is the first 12 characters of the commit SHA.
 There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, the image tag is `v<version>` and the chart version is `<version>` without the `v`. The install pages' commands stay the same, and the single-server install checks out the same tag. If you cannot pull the published images, check out the repository and [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다).
 </Callout>
 
+## Read the release manifest
+
+Every release (`v*` tag) gets a GitHub Release with `release-manifest.json` attached. The three image digests, the worker runtime and the chart version are in that one file. Read it with `gh` and `jq`; no repository checkout is needed. The commands below apply once the first release exists.
+
+```bash
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests to deploy
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
+```
+
+Each digest is that of the index holding both architectures, and a deployment pins it. An attached manifest never changes. For the fields and how to check them, see [Read the release manifest](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기).
+
 ## Connect to the server
 
 The SDK and the HTTP API connect with a server address and an API key. The TypeScript SDK takes `baseUrl` (default: the `WERFT_BASE_URL` environment variable) and `apiKey` (`WERFT_API_KEY`). There is no default server, so always pass the address. Options are in [Client setup and errors](/getting-started/client#client-options).
