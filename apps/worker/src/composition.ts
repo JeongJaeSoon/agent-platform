@@ -28,6 +28,7 @@ import {
   IMAGE_GIT_HOOKS,
   writeGitTrailers,
 } from "./git-trailers.ts";
+import { placeInstructionFiles } from "./instruction-files.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
 import { platformPromptText } from "./platform-prompt.ts";
@@ -76,12 +77,12 @@ export function createWorkerHost(
       requestTimeoutMs: config.timeouts.requestTimeoutMs,
     });
   const runtime = imageRuntime();
-  const instructionsFile = runtime.descriptor.instructionFiles[0] ?? null;
+  const instructionFiles = runtime.descriptor.instructionFiles;
   const workspace =
     overrides.workspace ??
     new GitWorkspace(
       config.runtime.cwd,
-      instructionsFile,
+      instructionFiles,
       config.egressCredentialUrl,
       config.attachLimits,
     );
@@ -106,7 +107,7 @@ export function createWorkerHost(
           ),
         workspaceRoot: config.runtime.cwd,
         claudeConfigDir: config.runtime.claudeConfigDir,
-        instructionsFile,
+        instructionFiles,
         runtime,
       }),
     engines,
@@ -118,6 +119,14 @@ export function createWorkerHost(
     gateway,
     gitTrailers: (claim) => writeGitTrailers(config.runtime.home, claim),
     gitEnvironment: (claim) => gitEnvironmentFor(claim, imageHooks),
+    placeInstructions: (claim, signal) =>
+      placeInstructionFiles({
+        root: config.runtime.cwd,
+        text: instructionParts(claim.runtime_config, claim.workspace)
+          .map((part) => part.text)
+          .join("\n\n"),
+        signal,
+      }),
     packageManagers: (token, github, privateModules) =>
       writePackageManagerConfig(
         config.runtime.home,
@@ -257,7 +266,7 @@ export function runtimeProfile(
     principal.owner_scope,
     config.egressCredentialUrl,
   );
-  const instructionsFile = module.descriptor.instructionFiles[0];
+  const instructionFiles = module.descriptor.instructionFiles;
   return {
     config: {
       cwd: config.runtime.cwd,
@@ -268,28 +277,42 @@ export function runtimeProfile(
     },
     bindings: { principal: owner, provider },
     bundle: {
-      instructions: [
-        ...(runtimeConfig.platform_prompt === undefined
-          ? []
-          : [
-              {
-                scope: "platform" as const,
-                text: platformPromptText(runtimeConfig.platform_prompt),
-              },
-            ]),
-        ...(launch.workspace?.repository === null
-          ? [{ scope: "platform" as const, text: OUT_DIRECTORY_PROMPT }]
-          : []),
-        ...agentInstructionsOf(runtimeConfig),
-      ],
+      instructions: instructionParts(runtimeConfig, launch.workspace),
       repoInstructions:
         runtimeConfig.project_settings?.claude_md === true &&
-        instructionsFile !== undefined
-          ? { file: instructionsFile, text: committedInstructions() }
+        instructionFiles.length > 0
+          ? { files: instructionFiles, text: committedInstructions() }
           : null,
       mcpServers: mcpServersOf(runtimeConfig, config.egressCredentialUrl),
     },
   };
+}
+
+/**
+ * What the platform and the agent's administrators tell the engine, in
+ * order. The engine gets it as its prompt and the workspace as AGENTS.md
+ * (`placeInstructionFiles`), so the two cannot differ.
+ */
+export function instructionParts(
+  runtimeConfig: RuntimeConfig,
+  workspace:
+    | Pick<BootstrapClaimResponse["workspace"], "repository">
+    | undefined,
+): InstructionPart[] {
+  return [
+    ...(runtimeConfig.platform_prompt === undefined
+      ? []
+      : [
+          {
+            scope: "platform" as const,
+            text: platformPromptText(runtimeConfig.platform_prompt),
+          },
+        ]),
+    ...(workspace?.repository === null
+      ? [{ scope: "platform" as const, text: OUT_DIRECTORY_PROMPT }]
+      : []),
+    ...agentInstructionsOf(runtimeConfig),
+  ];
 }
 
 // Blank adds nothing, so its prompt and fingerprint are a claim without it.

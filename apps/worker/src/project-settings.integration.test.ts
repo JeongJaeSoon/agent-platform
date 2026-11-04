@@ -181,7 +181,10 @@ async function runOneTurn(
     logger: silent,
     runtimes: workerRuntimeRegistry(config, engines),
     timeouts,
-    workspace: new GitWorkspace(repository.workspace, "CLAUDE.md"),
+    workspace: new GitWorkspace(repository.workspace, [
+      "AGENTS.md",
+      "CLAUDE.md",
+    ]),
   });
   const summary = await host.runLoop();
   expect(summary.turns).toEqual([
@@ -218,7 +221,9 @@ describe("the repository's own Claude project settings, under the claim's profil
     expect(server.requests).toHaveLength(1);
     expect(firedMarkers(repository)).toEqual([]);
     const system = JSON.stringify(server.requests[0]?.body.system);
-    expect(system).toContain("Contents of CLAUDE.md at the root");
+    expect(system).toContain(
+      "Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root",
+    );
     expect(system).toContain(INSTRUCTIONS);
     // Once, in the system prompt: nothing else loaded it alongside.
     expect(JSON.stringify(server.requests[0]?.body.messages)).not.toContain(

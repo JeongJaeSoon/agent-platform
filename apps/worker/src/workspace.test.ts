@@ -43,7 +43,7 @@ function descriptor(url = origin, branch = "main"): WorkspaceDescriptor {
 }
 
 function prepare(workspace: WorkspaceDescriptor, signal?: AbortSignal) {
-  return new GitWorkspace(root, "CLAUDE.md").prepare({
+  return new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"]).prepare({
     descriptor: workspace,
     restore: null,
     signal: signal ?? new AbortController().signal,
@@ -150,7 +150,7 @@ describe("GitWorkspace", () => {
     await writeFile(join(root, "stray.txt"), "?\n");
 
     expect(
-      await new GitWorkspace(root, "CLAUDE.md").prepare({
+      await new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"]).prepare({
         descriptor: descriptor(),
         restore: {
           revision: 3,
@@ -416,18 +416,19 @@ describe("GitWorkspace", () => {
     git(["commit", "--quiet", "-m", "docs"], seed);
     git(["push", "--quiet", "origin", "HEAD:trunk"], seed);
 
-    const result = await new GitWorkspace(root, "CLAUDE.md").attachRepositories(
-      {
-        descriptor: {
-          ...descriptor(),
-          additional_repositories: [
-            { id: "docs", url: docs, branch: "trunk" },
-            { id: "gone", url: join(scratch, "missing.git"), branch: "main" },
-          ],
-        },
-        signal: new AbortController().signal,
+    const result = await new GitWorkspace(root, [
+      "AGENTS.md",
+      "CLAUDE.md",
+    ]).attachRepositories({
+      descriptor: {
+        ...descriptor(),
+        additional_repositories: [
+          { id: "docs", url: docs, branch: "trunk" },
+          { id: "gone", url: join(scratch, "missing.git"), branch: "main" },
+        ],
       },
-    );
+      signal: new AbortController().signal,
+    });
     expect(result).toEqual({ attached: ["docs"], failed: ["gone"] });
     expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(
       git(["rev-parse", "HEAD"], seed),
@@ -456,7 +457,10 @@ describe("GitWorkspace", () => {
     test("answers the commit it fetched", async () => {
       await prepare(descriptor());
       const { docs, head } = await docsRepository();
-      const commit = await new GitWorkspace(root, "CLAUDE.md").attachRepository(
+      const commit = await new GitWorkspace(root, [
+        "AGENTS.md",
+        "CLAUDE.md",
+      ]).attachRepository(
         { id: "docs", url: docs, branch: "trunk" },
         new AbortController().signal,
       );
@@ -467,10 +471,15 @@ describe("GitWorkspace", () => {
     test("a fetch past the size limit fails as too large and leaves no remote", async () => {
       await prepare(descriptor());
       const { docs } = await docsRepository(256 * 1024);
-      const workspace = new GitWorkspace(root, "CLAUDE.md", null, {
-        timeoutMs: 60_000,
-        maxBytes: 64 * 1024,
-      });
+      const workspace = new GitWorkspace(
+        root,
+        ["AGENTS.md", "CLAUDE.md"],
+        null,
+        {
+          timeoutMs: 60_000,
+          maxBytes: 64 * 1024,
+        },
+      );
       const failed = await workspace
         .attachRepository(
           { id: "docs", url: docs, branch: "trunk" },
@@ -486,10 +495,15 @@ describe("GitWorkspace", () => {
     test("a fetch past the time limit fails as timed out", async () => {
       await prepare(descriptor());
       const { docs } = await docsRepository();
-      const workspace = new GitWorkspace(root, "CLAUDE.md", null, {
-        timeoutMs: 1,
-        maxBytes: 1024 ** 3,
-      });
+      const workspace = new GitWorkspace(
+        root,
+        ["AGENTS.md", "CLAUDE.md"],
+        null,
+        {
+          timeoutMs: 1,
+          maxBytes: 1024 ** 3,
+        },
+      );
       const failed = await workspace
         .attachRepository(
           { id: "docs", url: docs, branch: "trunk" },
@@ -648,7 +662,7 @@ describe("GitWorkspace without a repository", () => {
 
   test("makes a local git with no origin and one empty commit by a fixed identity", async () => {
     await rm(root, { recursive: true });
-    const workspace = new GitWorkspace(root, "CLAUDE.md");
+    const workspace = new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"]);
 
     expect(
       await workspace.prepare({
@@ -685,15 +699,16 @@ describe("GitWorkspace without a repository", () => {
     git(["commit", "--quiet", "-m", "docs"], seed);
     git(["push", "--quiet", "origin", "HEAD:trunk"], seed);
 
-    const result = await new GitWorkspace(root, "CLAUDE.md").attachRepositories(
-      {
-        descriptor: {
-          ...none,
-          additional_repositories: [{ id: "docs", url: docs, branch: "trunk" }],
-        },
-        signal: new AbortController().signal,
+    const result = await new GitWorkspace(root, [
+      "AGENTS.md",
+      "CLAUDE.md",
+    ]).attachRepositories({
+      descriptor: {
+        ...none,
+        additional_repositories: [{ id: "docs", url: docs, branch: "trunk" }],
       },
-    );
+      signal: new AbortController().signal,
+    });
     expect(result).toEqual({ attached: ["docs"], failed: [] });
     expect(git(["rev-parse", "refs/remotes/docs/trunk"], root)).toBe(
       git(["rev-parse", "HEAD"], seed),
@@ -725,7 +740,7 @@ describe("GitWorkspace without a repository", () => {
     await writeFile(join(root, "stray.txt"), "?\n");
 
     expect(
-      await new GitWorkspace(root, "CLAUDE.md").prepare({
+      await new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"]).prepare({
         descriptor: none,
         restore: {
           revision: 0,
@@ -808,7 +823,7 @@ describe("GitWorkspace.committedInstructions", () => {
   }
 
   async function prepared(): Promise<GitWorkspace> {
-    const workspace = new GitWorkspace(root, "CLAUDE.md");
+    const workspace = new GitWorkspace(root, ["AGENTS.md", "CLAUDE.md"]);
     await workspace.prepare({
       descriptor: descriptor(),
       restore: null,
@@ -858,6 +873,52 @@ describe("GitWorkspace.committedInstructions", () => {
     );
 
     expect((await prepared()).committedInstructions()).toBe("shared rules\n");
+  });
+
+  test("reads AGENTS.md before CLAUDE.md, and CLAUDE.md when there is no AGENTS.md", async () => {
+    await publish({ "CLAUDE.md": "claude rules\n" });
+    expect((await prepared()).committedInstructions()).toBe("claude rules\n");
+
+    await publish({ "AGENTS.md": "agents rules\n" });
+    expect((await prepared()).committedInstructions()).toBe("agents rules\n");
+  });
+
+  test("a CLAUDE.md that is a link to AGENTS.md, or only imports it, is read once", async () => {
+    await publish(
+      { "AGENTS.md": "shared rules\n" },
+      { "CLAUDE.md": "AGENTS.md" },
+    );
+    expect((await prepared()).committedInstructions()).toBe("shared rules\n");
+
+    await publish({ "CLAUDE.md": "@AGENTS.md\n" });
+    expect((await prepared()).committedInstructions()).toBe("shared rules\n");
+  });
+
+  test("an AGENTS.md that only imports CLAUDE.md stands for it, and two imports do not loop", async () => {
+    await publish({
+      "AGENTS.md": "@CLAUDE.md\n",
+      "CLAUDE.md": "claude rules\n",
+    });
+    expect((await prepared()).committedInstructions()).toBe("claude rules\n");
+
+    await publish({ "AGENTS.md": "@CLAUDE.md\n", "CLAUDE.md": "@AGENTS.md\n" });
+    expect((await prepared()).committedInstructions()).toBe("@AGENTS.md\n");
+  });
+
+  test("a CLAUDE.md importing an AGENTS.md that is not there is no instructions", async () => {
+    await publish({ "CLAUDE.md": "@AGENTS.md\n" });
+
+    expect((await prepared()).committedInstructions()).toBeNull();
+  });
+
+  test("an AGENTS.md the worker refuses is not passed over for CLAUDE.md", async () => {
+    await publish({
+      "AGENTS.md": "a".repeat(COMMITTED_INSTRUCTIONS_MAX_BYTES + 1),
+      "CLAUDE.md": "claude rules\n",
+    });
+
+    const workspace = await prepared();
+    expect(() => workspace.committedInstructions()).toThrow("larger than");
   });
 
   test("a committed link to nothing is no instructions", async () => {

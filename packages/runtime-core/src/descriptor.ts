@@ -43,7 +43,11 @@ export interface RuntimeDescriptor {
   capabilities: RuntimeCapabilityTable;
   extraFeatures: Partial<Record<FeatureKey, Support>>;
   toolEnv: "engine_inherited" | "tool_scoped";
-  /** Repository files the engine takes as instructions, in order of preference. */
+  /**
+   * Repository files the engine takes as instructions, in order of
+   * preference: the first the repository has is read. Which file was read is
+   * not part of any checkpoint fingerprint.
+   */
   instructionFiles: readonly string[];
 }
 
