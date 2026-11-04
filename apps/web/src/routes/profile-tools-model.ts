@@ -176,7 +176,8 @@ export const latestVersion = (
  * A workspace version's checklist over `base`, or null when no catalog
  * lists the base's runtime version. It starts from `from`, the version it
  * follows, when there is one; what needs accepting is read against
- * `latest`, the name's latest version, which is what the server checks.
+ * `latest`, the name's latest version, which is what the server checks,
+ * and starts blocked like an installation version's added tools.
  */
 export function workspaceTools(
   base: ProfileSummary,
@@ -189,12 +190,14 @@ export function workspaceTools(
     from === undefined
       ? WORKSPACE_PROFILE_POLICY.initial(base, catalog)
       : WORKSPACE_PROFILE_POLICY.carry(from, base, catalog);
+  const added =
+    latest === undefined ? [] : addedTools(catalog, choiceOf(latest));
   return {
     catalog,
     boundaries: null,
-    start: derived.deny ?? [],
+    start: [...new Set([...(derived.deny ?? []), ...added])],
     fixed: WORKSPACE_PROFILE_POLICY.choices(base, catalog).deny?.fixed ?? [],
-    added: latest === undefined ? [] : addedTools(catalog, choiceOf(latest)),
+    added,
     removed: [],
     versioned: latest !== undefined,
   };

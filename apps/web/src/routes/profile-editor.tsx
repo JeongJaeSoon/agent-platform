@@ -186,11 +186,11 @@ export function ProfileEditor({
       ) {
         // The server weighed the name's latest version, which may have
         // landed after this list was read.
-        const fresh = await queryClient.fetchQuery({
-          ...profilesQuery(client),
-          staleTime: 0,
-        });
-        const latestNow = latestVersion(fresh.items, name.data) ?? previous;
+        const fresh = await queryClient
+          .fetchQuery({ ...profilesQuery(client), staleTime: 0 })
+          .catch(() => undefined);
+        const latestNow =
+          (fresh && latestVersion(fresh.items, name.data)) ?? previous;
         if (latestNow !== undefined)
           setDraft((now) => ({
             ...now,

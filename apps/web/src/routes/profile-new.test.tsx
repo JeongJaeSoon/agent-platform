@@ -1271,4 +1271,57 @@ describe("차단할 내장 도구", () => {
     await waitFor(() => expect(posted(api)).toHaveLength(2));
     expect(posted(api)[1]).toMatchObject({ accept_added_tools: ["Edit"] });
   });
+
+  test("a new workspace profile under a name already taken starts with what its latest version never ran blocked", async () => {
+    const { api } = renderAt(
+      "/profiles/new?kind=workspace",
+      // An allow-list v1: it weighed nothing outside what it ran.
+      catalog([
+        CODING,
+        version(1, "usable", { tools: ["Read", "Edit"], deny: null }),
+      ]).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    const user = await setupUser();
+    await user.type(screen.getByLabelText("이름"), "strict");
+    // v1, the latest, ran Read and Edit; the base also runs Bash.
+    expect(blockedBoxes()).toContain("Bash");
+    const diff = screen.getByRole("group", { name: "카탈로그 차이" });
+    expect(
+      within(diff).getByRole("checkbox", { name: "Bash 실행을 받아들이기" }),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(1));
+    expect(posted(api)[0]).toMatchObject({
+      deny: expect.arrayContaining(["Bash"]),
+    });
+  });
+
+  test("a refusal beside the checklist marks its open boxes invalid", async () => {
+    renderAt("/profiles/new?kind=workspace", {
+      ...catalog().routes,
+      "POST /v1/workspace-profiles": () =>
+        refusal(400, "BAD_REQUEST", {
+          reason_code: "unknown_tool",
+          field: "deny",
+        }),
+    });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "strict");
+    const tools = screen.getByRole("group", { name: "차단할 내장 도구" });
+    const read = within(tools).getByRole("checkbox", { name: "Read" });
+    expect(read.getAttribute("aria-invalid") === null).toBe(true);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(
+      "이 런타임 버전의 지원 카탈로그에 없는 도구가 있습니다. 목록을 다시 불러오세요.",
+    );
+    expect(read.getAttribute("aria-invalid")).toBe("true");
+    // A base's block cannot change, so it is not what the person fixes.
+    const locked = within(tools)
+      .getAllByRole("checkbox")
+      .filter((box) => (box as HTMLButtonElement).disabled);
+    expect(locked.length > 0).toBe(true);
+    for (const box of locked)
+      expect(box.getAttribute("aria-invalid") === null).toBe(true);
+  });
 });

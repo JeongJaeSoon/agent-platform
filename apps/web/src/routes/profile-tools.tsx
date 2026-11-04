@@ -127,6 +127,7 @@ export function DenyChecklist({
                 checked={blocked.has(name)}
                 disabled={disabled || locked}
                 aria-describedby={describedBy}
+                aria-invalid={error && !locked ? true : undefined}
                 onCheckedChange={(checked) =>
                   onPicks({
                     ...picks,
