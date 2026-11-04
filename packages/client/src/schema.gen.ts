@@ -3572,7 +3572,7 @@ export interface paths {
         put?: never;
         /**
          * Make a provider connection with a key typed in
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503. Writes a `create_connection` receipt.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503. An empty `endpoint` is stored as the kind's default from `endpoint_defaults`; a kind with none answers `400` `invalid_entry`. Writes a `create_connection` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -8291,6 +8291,9 @@ export interface components {
                 disabled_at: string | null;
             }[];
             credential_hosts: string[] | null;
+            endpoint_defaults: {
+                [key: string]: string;
+            };
         };
         ListSettingsMcpServersResponse: {
             items: {
@@ -8352,7 +8355,7 @@ export interface components {
             id: string;
             /** @enum {string} */
             kind: "anthropic" | "litellm";
-            endpoint: string;
+            endpoint?: string;
             /** @enum {string} */
             billing?: "per_token" | "none";
             /** @enum {string} */
@@ -34418,7 +34421,10 @@ export interface operations {
                      *       ],
                      *       "credential_hosts": [
                      *         "api.anthropic.com:443"
-                     *       ]
+                     *       ],
+                     *       "endpoint_defaults": {
+                     *         "anthropic": "https://api.anthropic.com"
+                     *       }
                      *     }
                      */
                     "application/json": components["schemas"]["ListSettingsConnectionsResponse"];
