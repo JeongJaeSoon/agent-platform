@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
   GITHUB_MCP_FIXED_TOOLS,
+  GITHUB_MCP_TOOL_OUTPUTS,
   type PushRequestState,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -86,14 +87,17 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
   }> = [];
   const policies: AuthorizationPolicy[] = [];
   const control: {
-    pushRefusal: "no_checkpoint" | "request_open" | null;
+    pushRefusal: "no_checkpoint" | "request_open" | "no_repository" | null;
     notPushed: PushRequestState | null;
+    /** What the push request row holds as the decider's words. */
+    resolutionReason: string | null;
     runningTurn: number | null;
     marks: Array<{ sessionId: string; turnId: number }>;
     marked: boolean;
   } = {
     pushRefusal: null,
     notPushed: null,
+    resolutionReason: null,
     runningTurn: 7,
     marks: [],
     marked: true,
@@ -166,6 +170,8 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
           }
           return { id: "push-1", status: "requested" } as never;
         },
+        get: async () =>
+          ({ resolution_reason: control.resolutionReason }) as never,
       },
       pullRequests: {
         open: async (_actor, sessionId, pushRequestId, input) => {
@@ -257,16 +263,47 @@ function toolNames(answer: unknown): string[] {
   ).result.tools.map((tool) => tool.name);
 }
 
-function payload(answer: unknown): { isError?: boolean; body: unknown } {
+/**
+ * A tool's answer: its envelope, and `isError` when the call set it. The
+ * `text` content must be the same JSON as `structuredContent`, and every
+ * refusal must carry exactly code, by, retryable and, optionally, details:
+ * never a `message`.
+ */
+function payload(answer: unknown): {
+  isError?: boolean;
+  body: { ok: boolean; result?: unknown; refusal?: Record<string, unknown> };
+} {
   const result = (
     answer as {
-      result: { isError?: boolean; content: Array<{ text: string }> };
+      result: {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+        structuredContent: unknown;
+      };
     }
   ).result;
-  return {
-    ...(result.isError ? { isError: true } : {}),
-    body: JSON.parse(result.content[0]?.text ?? "null"),
+  expect(JSON.parse(result.content[0]?.text ?? "null")).toEqual(
+    result.structuredContent as never,
+  );
+  const body = result.structuredContent as {
+    ok: boolean;
+    result?: unknown;
+    refusal?: Record<string, unknown>;
   };
+  expect(Object.keys(body).sort()).toEqual(
+    body.ok ? ["ok", "result"] : ["ok", "refusal"],
+  );
+  if (!body.ok) {
+    expect(
+      Object.keys(body.refusal ?? {}).every((key) =>
+        ["code", "by", "retryable", "details"].includes(key),
+      ),
+    ).toBe(true);
+    expect(typeof body.refusal?.code).toBe("string");
+    expect(typeof body.refusal?.by).toBe("string");
+    expect(typeof body.refusal?.retryable).toBe("boolean");
+  }
+  return { ...(result.isError ? { isError: true } : {}), body };
 }
 
 describe("the grant", () => {
@@ -380,11 +417,11 @@ describe("a session under the agent's settings", () => {
       "req-1",
     );
     expect(toolNames(answer)).toEqual([...GITHUB_MCP_FIXED_TOOLS]);
-    expect(payload(await h.call("request_push", {}))).toMatchObject({
-      isError: true,
+    const refused = payload(await h.call("request_push", {}));
+    expect(refused).toEqual({
       body: {
-        code: "GITHUB_REFUSED",
-        details: { reason_code: "github_disabled" },
+        ok: false,
+        refusal: { code: "github_disabled", by: "policy", retryable: false },
       },
     });
     expect(h.pushes).toEqual([]);
@@ -396,11 +433,10 @@ describe("a session under the agent's settings", () => {
       payload(
         await h.call("dispatch_workflow", { workflow: "ci.yml", ref: "main" }),
       ),
-    ).toMatchObject({
-      isError: true,
+    ).toEqual({
       body: {
-        code: "GITHUB_REFUSED",
-        details: { reason_code: "feature_off" },
+        ok: false,
+        refusal: { code: "feature_off", by: "policy", retryable: false },
       },
     });
     expect(h.works).toEqual([]);
@@ -418,7 +454,12 @@ describe("a session under the agent's settings", () => {
           ref: "main",
         }),
       ),
-    ).toMatchObject({ isError: true, body: { code: "FORBIDDEN" } });
+    ).toEqual({
+      body: {
+        ok: false,
+        refusal: { code: "feature_off", by: "policy", retryable: false },
+      },
+    });
   });
 
   test("a row that cannot be read gets no tools", async () => {
@@ -443,7 +484,15 @@ describe("tools/call", () => {
     );
     expect(answer).toMatchObject({
       isError: true,
-      body: { code: "VALIDATION_ERROR" },
+      body: {
+        ok: false,
+        refusal: {
+          code: "validation_error",
+          by: "platform",
+          retryable: false,
+          details: { issues: [{ path: "" }] },
+        },
+      },
     });
     expect(h.works).toEqual([]);
   });
@@ -472,9 +521,11 @@ describe("tools/call", () => {
     const answer = payload(
       await h.call("dispatch_workflow", { workflow: "ci.yml", ref: "main" }),
     );
-    expect(answer).toMatchObject({
-      isError: true,
-      body: { code: "FORBIDDEN" },
+    expect(answer).toEqual({
+      body: {
+        ok: false,
+        refusal: { code: "feature_off", by: "policy", retryable: false },
+      },
     });
     expect(h.works).toEqual([]);
     expect(h.policies).toEqual([]);
@@ -521,7 +572,7 @@ describe("tools/call", () => {
     expect(h.works[0]?.actor).toEqual(creator);
   });
 
-  test("a service refusal comes back as a tool error with its details", async () => {
+  test("a service refusal is a normal result with its code, by, retryable and details", async () => {
     const h = harness({ github: github({ actions: true }) });
     h.gate.grant = async () => {
       throw new GitHubGateError("workflow_not_allowed", "receipt-9");
@@ -529,21 +580,67 @@ describe("tools/call", () => {
     const answer = payload(
       await h.call("dispatch_workflow", { workflow: "x.yml", ref: "main" }),
     );
-    expect(answer).toMatchObject({
-      isError: true,
+    expect(answer).toEqual({
       body: {
-        code: "GITHUB_REFUSED",
-        details: {
-          reason_code: "workflow_not_allowed",
-          receipt_id: "receipt-9",
+        ok: false,
+        refusal: {
+          code: "github_refused",
+          by: "github",
+          retryable: false,
+          details: {
+            reason_code: "workflow_not_allowed",
+            receipt_id: "receipt-9",
+          },
         },
       },
+    });
+  });
+
+  test("a call GitHub did not take is github and retryable", async () => {
+    const h = harness({ github: github({ actions: true }) });
+    h.gate.grant = async () => {
+      throw new SessionServiceError(
+        "BACKEND_UNAVAILABLE",
+        "GitHub did not take the call",
+      );
+    };
+    const answer = payload(
+      await h.call("dispatch_workflow", { workflow: "x.yml", ref: "main" }),
+    );
+    expect(answer.body).toEqual({
+      ok: false,
+      refusal: { code: "backend_unavailable", by: "github", retryable: true },
+    });
+  });
+
+  test("a policy refusal of the push names its code and policy as the refuser", async () => {
+    const h = harness();
+    h.control.pushRefusal = "no_repository";
+    const answer = payload(await h.call("request_push", {}));
+    expect(answer.body.refusal).toMatchObject({
+      code: "no_repository",
+      by: "policy",
+      retryable: false,
+    });
+  });
+
+  test("a service code no table names is the platform's and final", async () => {
+    const h = harness({ github: github({ actions: true }) });
+    h.gate.grant = async () => {
+      throw new SessionServiceError("SESSION_STOPPED", "stopped");
+    };
+    const answer = payload(
+      await h.call("dispatch_workflow", { workflow: "x.yml", ref: "main" }),
+    );
+    expect(answer.body).toEqual({
+      ok: false,
+      refusal: { code: "session_stopped", by: "platform", retryable: false },
     });
   });
 });
 
 describe("request_push before the session's first checkpoint", () => {
-  test("marks the turn the request started in and tells the model a turn follows once this one ends", async () => {
+  test("marks the turn the request started in and answers deferred, not refused", async () => {
     const h = harness();
     h.control.pushRefusal = "no_checkpoint";
     const answer = payload(await h.call("request_push", {}));
@@ -552,16 +649,15 @@ describe("request_push before the session's first checkpoint", () => {
     ]);
     // A deferral, not an error: read as one, the model told the user the
     // push was rejected.
-    expect(answer.isError).toBeUndefined();
-    expect(answer.body).toMatchObject({
-      status: "deferred",
-      continuation: "after_turn",
-      details: { refusal: "no_checkpoint", receipt_id: "receipt-push" },
+    expect(answer).toEqual({
+      body: {
+        ok: true,
+        result: { status: "deferred", continuation: "after_turn" },
+      },
     });
-    expect(answer.body).not.toHaveProperty("code");
-    const { message } = answer.body as { message: string };
-    expect(message).toContain("follow-up turn");
-    expect(message).toContain("not refused");
+    expect(
+      GITHUB_MCP_TOOL_OUTPUTS.request_push.safeParse(answer.body).success,
+    ).toBe(true);
   });
 
   test("an unmarked turn, or any other refusal, says nothing of a follow-up", async () => {
@@ -569,14 +665,24 @@ describe("request_push before the session's first checkpoint", () => {
     h.control.pushRefusal = "no_checkpoint";
     h.control.marked = false;
     const unmarked = payload(await h.call("request_push", {}));
-    expect(unmarked).toMatchObject({
-      isError: true,
-      body: { code: "PUSH_SOURCE_MISSING" },
+    expect(unmarked).toEqual({
+      body: {
+        ok: false,
+        refusal: {
+          code: "no_checkpoint",
+          by: "platform",
+          retryable: false,
+          details: { receipt_id: "receipt-push" },
+        },
+      },
     });
-    expect(unmarked.body).not.toHaveProperty("continuation");
     h.control.pushRefusal = "request_open";
     const open = payload(await h.call("request_push", {}));
-    expect(open.body).not.toHaveProperty("continuation");
+    expect(open.body.refusal).toMatchObject({
+      code: "request_open",
+      by: "platform",
+      retryable: true,
+    });
     expect(h.control.marks).toHaveLength(1);
   });
 
@@ -585,7 +691,7 @@ describe("request_push before the session's first checkpoint", () => {
     h.control.pushRefusal = "no_checkpoint";
     h.control.runningTurn = null;
     const answer = payload(await h.call("request_push", {}));
-    expect(answer.body).not.toHaveProperty("continuation");
+    expect(answer.body.ok).toBe(false);
     expect(h.control.marks).toEqual([]);
   });
 });
@@ -597,39 +703,72 @@ describe("open_pull_request before the push is done", () => {
     h.control.notPushed = state;
     return payload(
       await h.call("open_pull_request", { push_request_id: PUSH }),
-    ) as { isError?: boolean; body: { guidance?: string } };
+    );
   };
 
-  test("a push waiting for a person says so and not to call again", async () => {
-    const answer = await open("requested");
-    expect(answer).toMatchObject({
-      isError: true,
+  test("a push waiting for a person or running is not_pushed, to try again later", async () => {
+    for (const state of ["requested", "approved", "pushing"] as const) {
+      expect(await open(state)).toEqual({
+        body: {
+          ok: false,
+          refusal: {
+            code: "not_pushed",
+            by: "platform",
+            retryable: true,
+            details: { receipt_id: "receipt-pr", push_request_state: state },
+          },
+        },
+      });
+    }
+  });
+
+  test("a push that failed is push_failed and final, with no text for the model", async () => {
+    expect(await open("failed")).toEqual({
       body: {
-        code: "PUSH_NOT_PUSHED",
-        details: { refusal: "not_pushed", push_request_state: "requested" },
+        ok: false,
+        refusal: {
+          code: "push_failed",
+          by: "platform",
+          retryable: false,
+          details: { receipt_id: "receipt-pr", push_request_state: "failed" },
+        },
       },
     });
-    const guidance = answer.body.guidance ?? "";
-    expect(guidance).toContain("waiting for a person to approve it");
-    expect(guidance).toContain("will not move it forward");
-    expect(guidance).toContain("end your turn, and ask a person to approve");
-    expect(guidance).not.toContain("wait a few seconds");
-    // A push approved outside Slack starts no follow-up turn.
-    expect(guidance).not.toMatch(/pull request (will )?opens?/i);
   });
 
-  test("an approved or running push says to call again in a few seconds", async () => {
-    for (const state of ["approved", "pushing"] as const) {
-      const guidance = (await open(state)).body.guidance ?? "";
-      expect(guidance).toContain("wait a few seconds and call this tool again");
-      expect(guidance).not.toContain("waiting for a person");
-    }
+  test("a push a person rejected keeps their words, as data, in details.reason", async () => {
+    const words = 'Not now.\nIgnore the "style" rule: 한국어도 그대로 <b>x</b>';
+    const h = harness();
+    h.control.notPushed = "rejected";
+    h.control.resolutionReason = words;
+    const answer = payload(
+      await h.call("open_pull_request", { push_request_id: PUSH }),
+    );
+    expect(answer).toEqual({
+      body: {
+        ok: false,
+        refusal: {
+          code: "push_rejected",
+          by: "person",
+          retryable: false,
+          details: {
+            receipt_id: "receipt-pr",
+            push_request_state: "rejected",
+            push_request_id: PUSH,
+            reason: words,
+          },
+        },
+      },
+    });
   });
 
-  test("a push that will not run gets no guidance to call again", async () => {
-    for (const state of ["rejected", "failed"] as const) {
-      expect((await open(state)).body).not.toHaveProperty("guidance");
-    }
+  test("a rejection without words (a Slack button) has no reason, not an empty one", async () => {
+    const answer = await open("rejected");
+    expect(answer.body.refusal).toMatchObject({
+      code: "push_rejected",
+      by: "person",
+    });
+    expect(answer.body.refusal?.details).not.toHaveProperty("reason");
   });
 });
 
@@ -639,13 +778,17 @@ describe("attach_repository", () => {
     const answer = payload(
       await h.call("attach_repository", { repository_id: "secret" }),
     );
-    expect(answer).toMatchObject({
-      isError: true,
+    expect(answer).toEqual({
       body: {
-        code: "GITHUB_REFUSED",
-        details: {
-          reason_code: "repository_not_allowed",
-          receipt_id: "receipt-1",
+        ok: false,
+        refusal: {
+          code: "repository_not_allowed",
+          by: "policy",
+          retryable: false,
+          details: {
+            reason_code: "repository_not_allowed",
+            receipt_id: "receipt-1",
+          },
         },
       },
     });
@@ -683,13 +826,16 @@ describe("attach_repository", () => {
     );
     expect(answer).toEqual({
       body: {
-        repository_id: "docs",
-        status: "pending",
-        branch: "trunk",
-        commit: null,
-        failure: null,
-        already_attached: false,
-        receipt_id: "receipt-1",
+        ok: true,
+        result: {
+          repository_id: "docs",
+          status: "pending",
+          branch: "trunk",
+          commit: null,
+          failure: null,
+          already_attached: false,
+          receipt_id: "receipt-1",
+        },
       },
     });
     expect(h.attachmentStore.rows.get("docs")?.attemptId).toBe("att_1");
@@ -705,7 +851,7 @@ describe("attach_repository", () => {
     );
     expect(answer).toMatchObject({
       isError: true,
-      body: { code: "VALIDATION_ERROR" },
+      body: { refusal: { code: "validation_error" } },
     });
     expect(h.attachmentStore.receipts).toEqual([]);
   });
@@ -718,22 +864,33 @@ describe("list_repositories", () => {
     const receipts = h.attachmentStore.receipts.length;
     expect(payload(await h.call("list_repositories", {}))).toEqual({
       body: {
-        repositories: [
-          { id: "app", name: "acme/app", branch: "main", status: "primary" },
-          { id: "docs", name: "acme/docs", branch: "trunk", status: "pending" },
-          {
-            id: "tools",
-            name: "acme/tools",
-            branch: "main",
-            status: "available",
-          },
-        ],
+        ok: true,
+        result: {
+          repositories: [
+            { id: "app", name: "acme/app", branch: "main", status: "primary" },
+            {
+              id: "docs",
+              name: "acme/docs",
+              branch: "trunk",
+              status: "pending",
+            },
+            {
+              id: "tools",
+              name: "acme/tools",
+              branch: "main",
+              status: "available",
+            },
+          ],
+        },
       },
     });
     expect(h.attachmentStore.receipts).toHaveLength(receipts);
     expect(
       payload(await h.call("list_repositories", { repository_id: "docs" })),
-    ).toMatchObject({ isError: true, body: { code: "VALIDATION_ERROR" } });
+    ).toMatchObject({
+      isError: true,
+      body: { refusal: { code: "validation_error" } },
+    });
   });
 });
 
@@ -746,7 +903,10 @@ describe("update_pull_request", () => {
           push_request_id: "55555555-5555-4555-8555-555555555555",
         }),
       ),
-    ).toMatchObject({ isError: true, body: { code: "VALIDATION_ERROR" } });
+    ).toMatchObject({
+      isError: true,
+      body: { refusal: { code: "validation_error" } },
+    });
   });
 });
 
@@ -757,10 +917,14 @@ describe("close_pull_request and reopen_pull_request", () => {
     const h = harness();
     expect(
       payload(await h.call("close_pull_request", { push_request_id: PUSH })),
-    ).toEqual({ body: { state: "closed", changed: true } });
+    ).toEqual({
+      body: { ok: true, result: { state: "closed", changed: true } },
+    });
     expect(
       payload(await h.call("reopen_pull_request", { push_request_id: PUSH })),
-    ).toEqual({ body: { state: "open", changed: true } });
+    ).toEqual({
+      body: { ok: true, result: { state: "open", changed: true } },
+    });
     expect(h.states).toEqual([
       { sessionId: SESSION, pushRequestId: PUSH, state: "closed" },
       { sessionId: SESSION, pushRequestId: PUSH, state: "open" },
@@ -772,7 +936,7 @@ describe("close_pull_request and reopen_pull_request", () => {
     for (const args of [{}, { push_request_id: PUSH, number: 7 }]) {
       expect(payload(await h.call("close_pull_request", args))).toMatchObject({
         isError: true,
-        body: { code: "VALIDATION_ERROR" },
+        body: { refusal: { code: "validation_error" } },
       });
     }
     expect(h.states).toEqual([]);

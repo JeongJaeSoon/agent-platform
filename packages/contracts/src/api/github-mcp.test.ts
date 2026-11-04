@@ -1,13 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import type { AgentGitHub } from "../kollegium/agents.ts";
 import { runtimeConfigSchema } from "../worker-protocol/index.ts";
 import {
+  ACTION_REFUSAL_CODE_PATTERN,
+  ACTION_REFUSAL_CODES,
+} from "./action-broker.ts";
+import {
   GITHUB_MCP_FIXED_TOOLS,
   GITHUB_MCP_TOOL_ARGUMENTS,
+  GITHUB_MCP_TOOL_DESCRIPTIONS,
+  GITHUB_MCP_TOOL_OUTPUTS,
+  GITHUB_MCP_TOOL_REFUSALS,
   type GitHubMcpTool,
+  githubMcpRefusalSpec,
   githubMcpToolNames,
   githubMcpTools,
 } from "./github-mcp.ts";
+import { PULL_REQUEST_REFUSAL_VALUES } from "./pull-request.ts";
+import { PUSH_REFUSAL_VALUES } from "./push-request.ts";
 
 const off: AgentGitHub["features"] = {
   workflows: false,
@@ -65,6 +76,114 @@ describe("githubMcpTools", () => {
           session_id: "11111111-1111-4111-8111-111111111111",
         }).success,
       ).toBe(false);
+    }
+  });
+});
+
+describe("the refusal code tables", () => {
+  const tools = Object.keys(GITHUB_MCP_TOOL_ARGUMENTS) as GitHubMcpTool[];
+
+  test("every listed code has a row, in the code shape, and each tool lists no code twice", () => {
+    for (const tool of tools) {
+      const listed = GITHUB_MCP_TOOL_REFUSALS[tool];
+      expect(new Set(listed).size).toBe(listed.length);
+      for (const code of listed) {
+        expect(code).toMatch(ACTION_REFUSAL_CODE_PATTERN);
+        expect(ACTION_REFUSAL_CODES).toHaveProperty(code);
+      }
+    }
+  });
+
+  test("the push and pull request refusals that exist today keep their names in the table", () => {
+    for (const value of [
+      ...PUSH_REFUSAL_VALUES,
+      ...PULL_REQUEST_REFUSAL_VALUES,
+    ]) {
+      expect(ACTION_REFUSAL_CODES).toHaveProperty(value);
+    }
+  });
+
+  test("by and retryable are fixed per code (catalog 5.5 to 5.7)", () => {
+    expect(githubMcpRefusalSpec("request_push", "no_repository")).toEqual({
+      by: "policy",
+      retryable: false,
+    });
+    expect(githubMcpRefusalSpec("request_push", "request_open")).toEqual({
+      by: "platform",
+      retryable: true,
+    });
+    expect(githubMcpRefusalSpec("open_pull_request", "push_rejected")).toEqual({
+      by: "person",
+      retryable: false,
+    });
+    expect(githubMcpRefusalSpec("open_pull_request", "forge_failed")).toEqual({
+      by: "github",
+      retryable: true,
+    });
+    // The pull request tools read a failed push as final.
+    expect(githubMcpRefusalSpec("request_push", "push_failed")).toBeNull();
+    expect(githubMcpRefusalSpec("open_pull_request", "push_failed")).toEqual({
+      by: "platform",
+      retryable: false,
+    });
+    expect(
+      githubMcpRefusalSpec("close_pull_request", "pull_request_merged"),
+    ).toEqual({
+      by: "platform",
+      retryable: false,
+    });
+    expect(
+      githubMcpRefusalSpec("attach_repository", "repository_not_allowed"),
+    ).toEqual({
+      by: "policy",
+      retryable: false,
+    });
+    expect(
+      githubMcpRefusalSpec("list_repositories", "no_such_code"),
+    ).toBeNull();
+  });
+});
+
+describe("the tool envelope", () => {
+  test("every tool has an output schema, and a refusal carries no message", () => {
+    for (const tool of Object.keys(
+      GITHUB_MCP_TOOL_ARGUMENTS,
+    ) as GitHubMcpTool[]) {
+      const schema = GITHUB_MCP_TOOL_OUTPUTS[tool];
+      expect(
+        schema.safeParse({
+          ok: false,
+          refusal: { code: "not_found", by: "platform", retryable: false },
+        }).success,
+      ).toBe(true);
+      expect(
+        schema.safeParse({
+          ok: false,
+          refusal: {
+            code: "not_found",
+            by: "platform",
+            retryable: false,
+            message: "x",
+          },
+        }).success,
+      ).toBe(false);
+      expect(
+        schema.safeParse({
+          ok: false,
+          refusal: { code: "Not Found", by: "platform", retryable: false },
+        }).success,
+      ).toBe(false);
+      expect(() =>
+        z.toJSONSchema(schema, { io: "output", unrepresentable: "any" }),
+      ).not.toThrow();
+    }
+  });
+
+  test("a tool description names fields and effects, and gives the model no orders", () => {
+    for (const description of Object.values(GITHUB_MCP_TOOL_DESCRIPTIONS)) {
+      expect(description).not.toMatch(
+        /\b(you|your|do not|don't|must|should|tell the user|end (this|your) turn|call (it|this|open_pull_request)|instructions?)\b/i,
+      );
     }
   });
 });
