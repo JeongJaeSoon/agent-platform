@@ -11,6 +11,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/infra/compose.yml"
 RESTORE_OVERRIDE="${REPO_ROOT}/infra/compose.restore.yml"
+GITEA_OVERLAY="${REPO_ROOT}/infra/compose.gitea.yml"
 MIGRATIONS_DIR="${REPO_ROOT}/packages/db/migrations"
 BACKUP_MANIFEST_VERSION=1
 
@@ -54,11 +55,20 @@ compose() {
 }
 
 # Same, with the restore override layered on. Port and network variables come
-# from the caller's environment (restore.sh exports them).
+# from the caller's environment (restore.sh exports them). RESTORE_GITEA=1:
+# the backup holds Gitea data, so the git host is a Gitea, not the local one.
 compose_restore() {
   local project="$1"
   shift
-  docker compose -p "$project" -f "$COMPOSE_FILE" -f "$RESTORE_OVERRIDE" "$@"
+  local files=(-f "$COMPOSE_FILE")
+  [ "${RESTORE_GITEA:-0}" != 1 ] || files+=(-f "$GITEA_OVERLAY")
+  docker compose -p "$project" "${files[@]}" -f "$RESTORE_OVERRIDE" "$@"
+}
+
+# True when the backup carries Gitea data; a backup of a local fake-git says
+# `gitea: null`.
+manifest_has_gitea() {
+  [ "$(jq -r '.gitea != null' "$1")" = true ]
 }
 
 # The value of one environment variable inside a running service container,

@@ -106,6 +106,41 @@ describe("i18n", () => {
     }
   });
 
+  test("release changes and the session's release are written in every locale", () => {
+    const keys = [
+      "agent.releases.changesFirst",
+      "agent.releases.changesNone",
+      "agent.releases.changesSummary",
+      "agent.releases.changesTitle",
+      "agent.releases.changesAgainst",
+      "agent.releases.byUnknown",
+      ...[
+        "repositories",
+        "model",
+        "tools",
+        "prompt",
+        "settings",
+        "secrets",
+      ].map((area) => `agent.releases.area.${area}`),
+      "agent.releases.field.credentials",
+      "agent.releases.absent.profileRepositories",
+      "agent.releases.changed",
+      "agent.releases.secretsHidden",
+      "session.release.title",
+      "session.release.active",
+      "session.release.notActive",
+      "session.release.notActiveBody",
+    ];
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale] as Record<string, string | undefined>;
+      for (const key of keys)
+        expect([key, catalog[key]?.trim()]).toEqual([
+          key,
+          expect.stringMatching(/./),
+        ]);
+    }
+  });
+
   test("every message is written and keeps the Korean variables", () => {
     for (const locale of LOCALES) {
       for (const [key, text] of Object.entries(ko)) {

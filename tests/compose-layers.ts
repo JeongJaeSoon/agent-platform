@@ -9,7 +9,13 @@ const root = join(import.meta.dir, "..");
 
 export const CORE = "infra/compose.core.yml";
 export const LOCAL_LAYERS = [CORE, "infra/compose.local.yml"] as const;
-export const TEST_OPS_LAYERS = [CORE, "infra/compose.test-ops.yml"] as const;
+/** Over the local stack or the test-ops layer: a Gitea as the git host. */
+export const GITEA_OVERLAY = "infra/compose.gitea.yml";
+export const TEST_OPS_LAYERS = [
+  CORE,
+  "infra/compose.test-ops.yml",
+  GITEA_OVERLAY,
+] as const;
 /** Over the local stack: the real-model e2e's cost limits. */
 export const REAL_MODEL = "infra/compose.real-model.yml";
 /** Over the local stack, for `--fake-model` and the free runs. */
@@ -40,8 +46,8 @@ export const servicesOf = (path: string) =>
 /**
  * The files' services, uninterpolated, merged as compose merges `-f` files
  * for what the tests read: mappings key by key, anything else replaced by
- * the later file. The layers use no `!reset` or `!override`; the render
- * tests hold this to `docker compose config`.
+ * the later file. The layers use no `!override`, and a `!reset` reads as null;
+ * the render tests hold this to `docker compose config`.
  */
 export function layeredServices<Service>(
   paths: readonly string[],

@@ -1,0 +1,26 @@
+# A Gitea as the `gitea` service, for what still holds Gitea data: a test-ops
+# installation (scripts/test-ops.sh layers this after compose.test-ops.yml)
+# and a restore of a backup taken from a Gitea (scripts/restore.sh layers this
+# over compose.yml). The `!reset`s take away the local layer's fake-git.
+services:
+  gitea:
+    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+    build: !reset null
+    command: !reset null
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__security__INSTALL_LOCK: "true"
+      # Accounts come from the admin CLI only: an open sign-up would let
+      # anyone who reaches Gitea make a channel between sessions.
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    volumes:
+      - gitea-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/v1/version >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  gitea-data:

@@ -159,6 +159,11 @@ export function claudeStartConfig(
     ...claudeProfileConfig(start),
     claudeConfigDir: deps.stateDir,
     correlationId: config.correlationId,
+    // Not in claudeProfileConfig: the fingerprint must not move when a
+    // claim names another commit author.
+    ...(config.gitEnvironment === undefined
+      ? {}
+      : { gitEnvironment: config.gitEnvironment }),
     ...(deps.providerMaxRetries === undefined
       ? {}
       : { providerMaxRetries: deps.providerMaxRetries }),

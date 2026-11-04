@@ -54,8 +54,8 @@
 #     auth:
 #       kind: github_app
 #
-# The entry below is the compose Gitea; its gitea-init service creates the
-# repository (infra/gitea/init-sample-repo.sh).
+# The entry below is the local stack's read-only fake-git (the compose service
+# `gitea`, infra/compose.local.yml). The URL stays: session records carry it.
 repositories:
   sample-app:
     url: http://gitea:3000/agent/sample-app.git

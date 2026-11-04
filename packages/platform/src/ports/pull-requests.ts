@@ -50,12 +50,18 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     code: "GITHUB_REFUSED",
     message: "The GitHub gate refused the pull request",
   },
+  pull_request_merged: {
+    code: "PULL_REQUEST_MERGED",
+    message: "The pull request was merged; it cannot be closed or reopened",
+  },
 };
 
 export type PullRequestOperation =
   | "open_pull_request"
   | "update_pull_request"
-  | "comment_pull_request";
+  | "comment_pull_request"
+  | "close_pull_request"
+  | "reopen_pull_request";
 
 /** The push request a pull request is opened from, as stored. */
 export type PullRequestSource = {
@@ -104,6 +110,14 @@ export interface PullRequestStore {
    * error when `result.refusal` is set, `succeeded` otherwise.
    */
   recordReceipt(input: PullRequestReceipt): Promise<string>;
+  /**
+   * The receipt of a close or reopen GitHub took, and in the same
+   * transaction the session's outcome for `url` made due for the
+   * refresher's next read: it no longer reads one closed over 30 days ago.
+   */
+  recordStateChange(
+    input: PullRequestReceipt & { url: string },
+  ): Promise<string>;
   /**
    * Records the pull request opened from the push request, with its
    * `open_pull_request` receipt. When one is already recorded (a racing

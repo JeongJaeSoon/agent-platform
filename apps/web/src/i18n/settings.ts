@@ -47,7 +47,7 @@ export const settingsKo = {
   "settings.disableFor": "{id} 사용 중지",
   "settings.disableTitle": "{id}를 사용 중지할까요?",
   "settings.disableConsequence":
-    "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 실행 프로필과 에이전트는 더 이상 실행되지 않습니다.",
+    "되돌릴 수 없습니다. 이 id는 다시 쓸 수 없고, 이 항목을 쓰는 프로필과 에이전트는 더 이상 실행되지 않습니다.",
   "settings.done.created": "{id}를 만들었습니다.",
   "settings.done.value": "{id}의 값을 바꿨습니다.",
   "settings.done.disabled": "{id}를 사용 중지했습니다.",
@@ -62,7 +62,7 @@ export const settingsKo = {
 
   "settings.connections.title": "모델 연결",
   "settings.connections.description":
-    "실행 프로필이 모델을 부르는 주소와 키입니다. 콘솔에서 넣은 키는 암호화해 저장하고 끝 네 글자만 보입니다.",
+    "프로필이 모델을 부르는 주소와 키입니다. 콘솔에서 넣은 키는 암호화해 저장하고 끝 네 글자만 보입니다.",
   "settings.connections.add": "연결 추가",
   "settings.connections.empty":
     "모델 연결이 없습니다. 연결을 추가한 뒤 설치 프로필을 만드세요.",
@@ -122,11 +122,11 @@ export const settingsKo = {
 
   "home.setup.connection": "모델 연결 추가하기",
   "home.setup.connectionHint":
-    "실행 프로필 화면의 모델 연결에서 엔드포인트와 키를 넣습니다.",
+    "프로필 화면의 모델 연결에서 엔드포인트와 키를 넣습니다.",
   "home.setup.ceiling": "설치 프로필 만들기",
   "home.setup.ceilingHint":
     "연결 하나를 골라 이 설치가 쓸 모델·도구·저장소의 범위를 정합니다.",
-  "home.setup.toProfiles": "실행 프로필",
+  "home.setup.toProfiles": "프로필",
 } as const;
 
 export const settingsEn: Record<keyof typeof settingsKo, string> = {
@@ -190,7 +190,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
 
   "settings.connections.title": "Model connections",
   "settings.connections.description":
-    "Where the runtime profiles reach a model, and with which key. A key entered here is stored encrypted; only its last four characters show.",
+    "Where the profiles reach a model, and with which key. A key entered here is stored encrypted; only its last four characters show.",
   "settings.connections.add": "Add connection",
   "settings.connections.empty":
     "No model connections. Add one, then make an installation profile.",
@@ -252,11 +252,11 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
 
   "home.setup.connection": "Add a model connection",
   "home.setup.connectionHint":
-    "Enter an endpoint and a key under model connections on the runtime profiles page.",
+    "Enter an endpoint and a key under model connections on the profiles page.",
   "home.setup.ceiling": "Create an installation profile",
   "home.setup.ceilingHint":
     "Pick a connection and set the models, tools and repositories this installation may use.",
-  "home.setup.toProfiles": "Runtime profiles",
+  "home.setup.toProfiles": "Profiles",
 };
 
 export const settingsJa: Record<keyof typeof settingsKo, string> = {
@@ -304,7 +304,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.disableFor": "{id} を使用停止",
   "settings.disableTitle": "{id} を使用停止しますか？",
   "settings.disableConsequence":
-    "元に戻せません。この id は再利用できず、この項目を使う実行プロファイルとエージェントは動かなくなります。",
+    "元に戻せません。この id は再利用できず、この項目を使うプロファイルとエージェントは動かなくなります。",
   "settings.done.created": "{id} を作成しました。",
   "settings.done.value": "{id} の値を変えました。",
   "settings.done.disabled": "{id} を使用停止しました。",
@@ -320,7 +320,7 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
 
   "settings.connections.title": "モデル接続",
   "settings.connections.description":
-    "実行プロファイルがモデルを呼ぶアドレスとキーです。コンソールで入れたキーは暗号化して保存し、末尾 4 文字だけ表示します。",
+    "プロファイルがモデルを呼ぶアドレスとキーです。コンソールで入れたキーは暗号化して保存し、末尾 4 文字だけ表示します。",
   "settings.connections.add": "接続を追加",
   "settings.connections.empty":
     "モデル接続がありません。接続を追加してからインストールのプロファイルを作ってください。",
@@ -381,9 +381,9 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
 
   "home.setup.connection": "モデル接続を追加する",
   "home.setup.connectionHint":
-    "実行プロファイル画面のモデル接続で、エンドポイントとキーを入れます。",
+    "プロファイル画面のモデル接続で、エンドポイントとキーを入れます。",
   "home.setup.ceiling": "インストールのプロファイルを作成する",
   "home.setup.ceilingHint":
     "接続を 1 つ選び、このインストールで使うモデル・ツール・リポジトリの範囲を決めます。",
-  "home.setup.toProfiles": "実行プロファイル",
+  "home.setup.toProfiles": "プロファイル",
 };

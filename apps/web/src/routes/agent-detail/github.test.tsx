@@ -319,7 +319,7 @@ describe("에이전트 GitHub 탭", () => {
       expect(switchNamed(name).disabled).toBe(true);
       expect(within(rowOf(name)).getByText(text)).toBeTruthy();
     };
-    expectLocked("billing-api", /실행 프로필이 이 저장소를 허용하지 않습니다/);
+    expectLocked("billing-api", /프로필이 이 저장소를 허용하지 않습니다/);
     expectLocked("legacy-pat", /PAT로 연결된 저장소라/);
     expectLocked("워크플로 파일 수정", /워크스페이스 상한 밖입니다/);
     expectLocked("Actions 실행", /GitHub Enterprise에 있어/);
@@ -634,7 +634,7 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.queryByText(/릴리스에 넣지 않은 변경/)).toBeNull();
   });
 
-  test("새 릴리스로 저장하면 같은 카드 버전·실행 프로필로 릴리스를 만들고 활성화한다", async () => {
+  test("새 릴리스로 저장하면 같은 카드 버전·프로필로 릴리스를 만들고 활성화한다", async () => {
     const { server, release, versionId } = await activeAgent();
     const sent: unknown[] = [];
     const activated: unknown[] = [];

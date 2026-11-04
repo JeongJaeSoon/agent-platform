@@ -11,7 +11,7 @@ import {
   type PullRequestReceipt,
   type PullRequestStore,
 } from "@werft-ai/platform";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -253,6 +253,31 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
 
     recordReceipt(input) {
       return insertReceipt(db, input);
+    },
+
+    recordStateChange({ url, ...input }) {
+      return db.transaction(async (tx) => {
+        const receiptId = await insertReceipt(tx, input);
+        // closed_at too: the refresher skips one closed over 30 days ago. The
+        // lease too: a read that began before this change must not finish.
+        await tx
+          .update(sessionOutcomes)
+          .set({
+            stateCheckedAt: null,
+            closedAt: null,
+            leaseToken: null,
+            leaseExpiresAt: null,
+          })
+          .where(
+            and(
+              eq(sessionOutcomes.sessionId, input.sessionId),
+              eq(sessionOutcomes.type, "github_pull_request"),
+              eq(sessionOutcomes.url, url),
+              ne(sessionOutcomes.state, "merged"),
+            ),
+          );
+        return receiptId;
+      });
     },
 
     savePullRequest(input) {

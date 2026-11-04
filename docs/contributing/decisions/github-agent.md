@@ -332,6 +332,7 @@ GA-7이 정한다. 지금 있는 원격 MCP 경로(카탈로그 `mcp_servers`, `
 | `open_pull_request` | 늘 | `PullRequestService.open` | `push_request_id`, `title?`, `body?` |
 | `update_pull_request` | 늘 | `PullRequestService.update`(입구 1 없음, 아래 "PR 제목·본문 수정") | `push_request_id`, `title?`, `body?`(하나 이상) |
 | `comment_pull_request` | 늘 | `PullRequestService.comment` | `push_request_id`, `body`, `marker?` |
+| `close_pull_request`, `reopen_pull_request` | 늘 | `PullRequestService.setState`(입구 1 없음, [action-broker.md](action-broker.md) T9) | `push_request_id` |
 | `dispatch_workflow` | `features.actions` | `GitHubWorkService.dispatch` | `workflow`, `ref`, `inputs?` |
 | `get_workflow_run` | `features.actions` | `GitHubWorkService.getRun` | `run_id` |
 | `rerun_workflow` | `features.actions` | `GitHubWorkService.rerun` | `run_id`, `failed_only?` |

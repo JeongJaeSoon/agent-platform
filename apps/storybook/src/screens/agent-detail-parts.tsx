@@ -465,7 +465,7 @@ export function AgentReadiness({
       state: released ? "done" : "todo",
       desc: released
         ? `릴리스 ${detail.releases.length}개가 있습니다.`
-        : "릴리스 탭에서 버전과 실행 프로필로 릴리스를 만듭니다.",
+        : "릴리스 탭에서 버전과 프로필로 릴리스를 만듭니다.",
     },
     {
       key: "activate",
@@ -585,6 +585,7 @@ export const SESSIONS: readonly SessionFixture[] = [
       name: "결제 담당",
       release_version_no: 2,
       release_label: RELEASE.label,
+      release_is_active: true,
     },
     last_event_at: "2026-11-02T01:40:00Z",
     created_at: "2026-11-02T01:10:00Z",
@@ -599,6 +600,7 @@ export const SESSIONS: readonly SessionFixture[] = [
       name: "결제 담당",
       release_version_no: 2,
       release_label: RELEASE.label,
+      release_is_active: true,
     },
     last_event_at: null,
     created_at: "2026-11-01T08:00:00Z",

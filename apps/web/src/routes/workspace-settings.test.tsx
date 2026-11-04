@@ -665,7 +665,7 @@ describe("워크스페이스 설정", () => {
   test("구성원의 사이드바에는 설정이 없다(내 설정은 계정 메뉴: layout.test)", async () => {
     renderAt("/", { "GET /v1/auth/me": () => json(200, memberMe()) });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    await within(nav).findByRole("link", { name: "실행 프로필" });
+    await within(nav).findByRole("link", { name: "프로필" });
     expect(within(nav).queryByRole("link", { name: "설정" })).toBeNull();
   });
 

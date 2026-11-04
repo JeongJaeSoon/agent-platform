@@ -6,6 +6,10 @@
 # bound on loopback from --port-base (postgres, localstack, gitea http, gitea
 # ssh = base, base+1, base+2, base+3).
 #
+# A backup with Gitea data (manifest `gitea` not null) restores into a Gitea
+# (infra/compose.gitea.yml); one without runs the local fake-git, which has
+# nothing to restore.
+#
 # The objects go into a bucket that must be new as well: versioned, Object
 # Lock, SSE-S3 by default, and without a single object version or delete
 # marker. --object-store localstack (default) uses the new project's own
@@ -38,7 +42,7 @@ CHECK_ONLY=0
 BUCKET=""
 
 usage() {
-  sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -75,6 +79,8 @@ verify_checksums "$BACKUP" || die "SHA256SUMS mismatch in $BACKUP; the bundle is
 MANIFEST="$BACKUP/manifest.json"
 schema_check "$MANIFEST" || exit "$EXIT_SCHEMA_MISMATCH"
 BUCKET="${BUCKET:-$(jq -r '.objects.bucket' "$MANIFEST")}"
+RESTORE_GITEA=0
+if manifest_has_gitea "$MANIFEST"; then RESTORE_GITEA=1; fi
 
 # `check_target [--create|--source-bucket <b>]`: the target bucket is new,
 # empty and locked, or the restore stops with the CLI's reason; 4 when it
@@ -176,6 +182,7 @@ RESTORED_OBJECTS="$(object_store "$INTO" "$BUCKET" count)" || die "could not cou
 log "restore: $RESTORED_OBJECTS objects in $BUCKET, $(printf '%s\n' "$MANIFEST_KEYS" | grep -c . || true) checkpoint manifests re-pinned and held"
 
 # --- gitea -------------------------------------------------------------------
+if [ "$RESTORE_GITEA" = 1 ]; then
 # Gitea wrote a fresh app.ini and gitea.db on first start; both are replaced
 # with the backup's while it is stopped, then the bare repositories are
 # recreated from their bundles and the hooks regenerated so pushes are seen.
@@ -248,6 +255,9 @@ compose_restore "$INTO" exec -T gitea cat /data/gitea/conf/app.ini </dev/null \
   | gitea_address_is "$RESTORE_GITEA_HTTP_PORT" "$RESTORE_GITEA_SSH_PORT" \
   || die "restored gitea still names another address; its clone URLs would point at the source"
 log "restore: gitea data and $(jq -r '.repos.bundled | length' "$MANIFEST") bundled + $(jq -r '.repos.empty | length' "$MANIFEST") empty repositories"
+else
+  log "restore: the backup has no git data; the local fake-git serves the example repositories"
+fi
 
 # --- migration state ---------------------------------------------------------
 # The schema check already proved the dump's journal equals this checkout, so
@@ -263,6 +273,8 @@ if [ "$OBJECT_STORE" = env ]; then
 else
   STORE_LINE="localstack http://127.0.0.1:${RESTORE_LOCALSTACK_PORT}  (bucket $BUCKET)"
 fi
+GITEA_FILE=""
+[ "$RESTORE_GITEA" != 1 ] || GITEA_FILE="-f infra/compose.gitea.yml "
 cat <<EOF
 restore: done — project '$INTO'
   postgres   postgresql://${POSTGRES_USER}@127.0.0.1:${RESTORE_POSTGRES_PORT}/${POSTGRES_DB}
@@ -275,6 +287,6 @@ restore: done — project '$INTO'
              RESTORE_POSTGRES_PORT=$RESTORE_POSTGRES_PORT RESTORE_LOCALSTACK_PORT=$RESTORE_LOCALSTACK_PORT \\
              RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
              POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
-             docker compose -p $INTO -f infra/compose.yml -f infra/compose.restore.yml up -d ${SERVICES[*]}
-  tear down  docker compose -p $INTO -f infra/compose.yml down -v
+             docker compose -p $INTO -f infra/compose.yml ${GITEA_FILE}-f infra/compose.restore.yml up -d ${SERVICES[*]}
+  tear down  docker compose -p $INTO -f infra/compose.yml ${GITEA_FILE}down -v
 EOF

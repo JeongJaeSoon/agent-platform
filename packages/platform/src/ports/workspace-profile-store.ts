@@ -39,6 +39,16 @@ export interface WorkspaceProfileStore {
         repositoryMode: RepositoryMode;
       };
       narrowing: ProfileNarrowing;
+      /** Both null for a version made from an allow list. */
+      deny: string[] | null;
+      toolCatalogId: string | null;
+      /**
+       * The latest version the request was checked against, null for none:
+       * any other latest is `version_taken`.
+       */
+      previousVersion?: number | null;
+      /** Named in the receipt: the previous version's deny column read otherwise. */
+      previousDenyDrift?: boolean;
     },
   ): Promise<CreateWorkspaceProfileResult>;
   retire(

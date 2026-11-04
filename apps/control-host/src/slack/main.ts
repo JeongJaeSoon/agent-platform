@@ -38,6 +38,7 @@ import {
   type StructuredLogger,
 } from "@werft-ai/observability";
 import {
+  agentPromptIdentity,
   allowedRun,
   type CatalogRepository,
   type Connections,
@@ -54,6 +55,7 @@ import {
   drainSlackOutbox,
   installationLimitsFromEnv,
   isRegisteredGitHubApp,
+  platformPromptRevisionFromEnv,
   profileCatalog,
   resolveAgentRelease,
   type SecretKey,
@@ -257,7 +259,10 @@ export function slackSessionHandler(deps: {
           workspaceId,
           releaseId,
         ),
+      promptIdentity: (workspaceId, releaseId) =>
+        agentPromptIdentity(agentStore, workspaceId, releaseId),
     },
+    promptRevision: platformPromptRevisionFromEnv(environment),
     credentials,
     limits: installationLimitsFromEnv(environment),
   });

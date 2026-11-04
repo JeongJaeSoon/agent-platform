@@ -13,6 +13,8 @@ const GENERAL = imported("general-read", {
   models: ["claude-haiku-5"],
   tools: [],
   permission_mode: "default",
+  // No catalog lists it, so the listing has no deny for it.
+  runtime_version: "0.3.100",
   billing: "none",
   repository_mode: "none",
   repository_ids: [],
@@ -48,10 +50,11 @@ const HEADER = [
   "바탕 프로필",
   "기본 모델",
   "권한 모드",
+  "차단",
   "상태",
 ];
 
-describe("실행 프로필", () => {
+describe("프로필", () => {
   test("lists ceilings and workspace profiles in one table from the sidebar", async () => {
     const { api } = renderAt(
       "/",
@@ -59,16 +62,14 @@ describe("실행 프로필", () => {
     );
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
     const user = await setupUser();
-    await user.click(
-      await within(nav).findByRole("link", { name: "실행 프로필" }),
-    );
-    await screen.findByRole("heading", { level: 1, name: "실행 프로필" });
+    await user.click(await within(nav).findByRole("link", { name: "프로필" }));
+    await screen.findByRole("heading", { level: 1, name: "프로필" });
     expect(
       within(nav)
-        .getByRole("link", { name: "실행 프로필" })
+        .getByRole("link", { name: "프로필" })
         .getAttribute("aria-current"),
     ).toBe("page");
-    const table = await screen.findByRole("table", { name: "실행 프로필" });
+    const table = await screen.findByRole("table", { name: "프로필" });
     // Ceilings first; each name cell ends in the line a phone shows instead
     // of the columns it drops. A profile without a name shows its id once.
     expect(rows(table)).toEqual([
@@ -80,6 +81,7 @@ describe("실행 프로필", () => {
         "—",
         "claude-sonnet-5",
         "acceptEdits",
+        "3개",
         "사용 가능",
       ],
       [
@@ -89,6 +91,8 @@ describe("실행 프로필", () => {
         "—",
         "claude-haiku-5",
         "default",
+        // A version no catalog lists has no block count.
+        "—",
         "사용 가능",
       ],
       [
@@ -98,6 +102,7 @@ describe("실행 프로필", () => {
         "coding-claude",
         "claude-sonnet-5",
         "default",
+        "5개",
         "사용 가능",
       ],
     ]);
@@ -131,49 +136,25 @@ describe("실행 프로필", () => {
 
   test("a member reads every profile but gets no way to change them", async () => {
     renderAt("/profiles", routes([CODING, version(1, "usable")], memberMe()));
-    await screen.findByRole("table", { name: "실행 프로필" });
+    await screen.findByRole("table", { name: "프로필" });
     expect(
       screen.getByText("바꾸려면 워크스페이스 소유자나 관리자에게 요청하세요"),
     ).toBeDefined();
     expect(screen.queryAllByRole("link", { name: /만들기/ }).length).toBe(0);
   });
 
-  test("the kind filter narrows the table and counts each kind", async () => {
+  test("one list without a kind filter; the kind column still tells them apart", async () => {
     renderAt("/profiles", routes([CODING, GENERAL, version(1, "usable")]));
-    const table = await screen.findByRole("table", { name: "실행 프로필" });
-    const filter = screen.getByRole("group", { name: "프로필 종류" });
-    expect(
-      within(filter)
-        .getAllByRole("button")
-        .map((button) => [
-          button.textContent,
-          button.getAttribute("aria-pressed"),
-        ]),
-    ).toEqual([
-      ["전체 3", "true"],
-      ["설치 프로필 2", "false"],
-      ["워크스페이스 프로필 1", "false"],
-    ]);
-    const user = await setupUser();
-    await user.click(
-      within(filter).getByRole("button", { name: /^워크스페이스 프로필/ }),
+    const table = await screen.findByRole("table", { name: "프로필" });
+    expect(screen.queryAllByRole("group", { name: "프로필 종류" }).length).toBe(
+      0,
     );
+    expect(screen.queryAllByRole("button", { name: /^전체/ }).length).toBe(0);
     expect(
       rows(table)
         .slice(1)
-        .map((row) => row[0]),
-    ).toEqual(["strictws_acme_strict_v1워크스페이스 프로필 · v1"]);
-    await user.click(
-      within(filter).getByRole("button", { name: /^설치 프로필/ }),
-    );
-    expect(
-      rows(table)
-        .slice(1)
-        .map((row) => row[0]),
-    ).toEqual([
-      "coding-claude설치 프로필 · v1",
-      "general-read설치 프로필 · v1",
-    ]);
+        .map((row) => row[2]),
+    ).toEqual(["설치 프로필파일", "설치 프로필파일", "워크스페이스 프로필"]);
   });
 
   test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
@@ -186,11 +167,11 @@ describe("실행 프로필", () => {
         version(2, "usable"),
       ]),
     );
-    const table = await screen.findByRole("table", { name: "실행 프로필" });
+    const table = await screen.findByRole("table", { name: "프로필" });
     expect(
       rows(table)
         .slice(1)
-        .map((row) => [row[0], row[6]]),
+        .map((row) => [row[0], row[7]]),
     ).toEqual([
       ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
       [
@@ -208,7 +189,7 @@ describe("실행 프로필", () => {
     expect(
       rows(table)
         .slice(1)
-        .map((row) => [row[0], row[6]]),
+        .map((row) => [row[0], row[7]]),
     ).toEqual([
       ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
       ["wideop_wide_v1설치 프로필 · v1", "사용 중지됨"],
@@ -233,7 +214,7 @@ describe("실행 프로필", () => {
         CODING,
       ]),
     );
-    const table = await screen.findByRole("table", { name: "실행 프로필" });
+    const table = await screen.findByRole("table", { name: "프로필" });
     expect(
       rows(table)
         .slice(1)
@@ -283,7 +264,7 @@ describe("실행 프로필", () => {
         },
       ]),
     );
-    const table = await screen.findByRole("table", { name: "실행 프로필" });
+    const table = await screen.findByRole("table", { name: "프로필" });
     const badges = Array.from(
       table.querySelectorAll("[data-slot=badge]"),
       (badge) => [
@@ -341,15 +322,13 @@ describe("실행 프로필", () => {
     const retry = await screen.findByRole("button", { name: "다시 시도" });
     failing = false;
     retry.click();
-    await screen.findByRole("table", { name: "실행 프로필" });
+    await screen.findByRole("table", { name: "프로필" });
   });
 
   test("an installation without profiles says so; with no usable ceiling there is nothing to narrow", async () => {
     renderAt("/profiles", routes([]));
-    await screen.findByText("이 설치에 실행 프로필이 없습니다.");
-    expect(screen.queryAllByRole("table", { name: "실행 프로필" }).length).toBe(
-      0,
-    );
+    await screen.findByText("이 설치에 프로필이 없습니다.");
+    expect(screen.queryAllByRole("table", { name: "프로필" }).length).toBe(0);
     expect(
       screen.queryAllByRole("link", { name: "프로필 만들기" }).length,
     ).toBe(0);
@@ -364,7 +343,7 @@ describe("실행 프로필", () => {
       "/profiles",
       routes([imported("coding-claude", {}, "connection_missing")]),
     );
-    await screen.findByRole("table", { name: "실행 프로필" });
+    await screen.findByRole("table", { name: "프로필" });
     await waitFor(() =>
       expect(
         screen.queryAllByRole("link", { name: "프로필 만들기" }).length,

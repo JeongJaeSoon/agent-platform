@@ -289,4 +289,97 @@ integration("repository attachments on PostgreSQL", () => {
       },
     ]);
   });
+
+  test("activeRelease reads the agent's active release, not the one the session keeps", async () => {
+    const store = createPostgresRepositoryAttachments(db);
+    const s = await session([]);
+    const agentId = randomUUID();
+    const versionId = randomUUID();
+    const github = (repositories: string[]) => ({
+      repositories,
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+      push_approval: true,
+    });
+    await pool.query(
+      "INSERT INTO agents (id, workspace_id, slug, name, github_enabled) VALUES ($1, $2, $3, 'a', true)",
+      [agentId, s.ownerId, `a-${agentId.slice(0, 8)}`],
+    );
+    await pool.query(
+      `INSERT INTO agent_versions (id, agent_id, version_no, card, content_sha256)
+       VALUES ($1, $2, 1, '{}', $3)`,
+      [versionId, agentId, "a".repeat(64)],
+    );
+    const release = async (pins: object, profileId = "claude-coding-v1") => {
+      const id = `sha256:${randomUUID()}`;
+      await pool.query(
+        `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+           runtime_profile_id, repository_id, profile_digest,
+           runtime_config_snapshot, effective_tools, policy_pins)
+         VALUES ($1, $2, $3, $4, $7, 'sample-app', $5, '{}', '{}', $6)`,
+        [
+          id,
+          agentId,
+          versionId,
+          "a".repeat(64),
+          `sha256:${"c".repeat(64)}`,
+          JSON.stringify(pins),
+          profileId,
+        ],
+      );
+      return id;
+    };
+    const activate = (id: string, revision: number) =>
+      pool.query(
+        "UPDATE agents SET active_release_id = $2, activation_revision = $3 WHERE id = $1",
+        [agentId, id, revision],
+      );
+
+    expect(await store.activeRelease(s.sessionId)).toBeNull();
+
+    const pinned = await release({ github: github(["sample-app"]) });
+    await activate(pinned, 0);
+    await pool.query(
+      "UPDATE sessions SET agent_release_id = $2 WHERE id = $1",
+      [s.sessionId, pinned],
+    );
+    expect(await store.activeRelease(s.sessionId)).toEqual({
+      id: pinned,
+      profileId: "claude-coding-v1",
+      github: github(["sample-app"]),
+    });
+
+    const newer = await release(
+      { github: github(["sample-app", "docs"]) },
+      "general",
+    );
+    await activate(newer, 1);
+    expect(await store.activeRelease(s.sessionId.toUpperCase())).toEqual({
+      id: newer,
+      profileId: "general",
+      github: github(["sample-app", "docs"]),
+    });
+
+    const bare = await release({});
+    await activate(bare, 2);
+    expect(await store.activeRelease(s.sessionId)).toEqual({
+      id: bare,
+      profileId: "claude-coding-v1",
+      github: null,
+    });
+
+    const broken = await release({ github: { repositories: "docs" } });
+    await activate(broken, 3);
+    expect(await store.activeRelease(s.sessionId)).toEqual({
+      id: broken,
+      profileId: "claude-coding-v1",
+      github: "invalid",
+    });
+  });
 });

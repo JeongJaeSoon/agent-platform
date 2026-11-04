@@ -5,7 +5,7 @@
 #
 # Builds the control-host, worker and egress-proxy images from this
 # checkout, starts the compose product stack under a project of its own with the gate overlay
-# (scripts/d2-gate/compose.yml), creates the Gitea repository and an API key,
+# (scripts/d2-gate/compose.yml), creates an API key,
 # then runs tests/d2-gate/gate.e2e.test.ts, tests/d2-gate/reconciler-sweep.e2e.test.ts
 # and tests/d2-gate/control-host-roles.e2e.test.ts against it and prints each
 # test's result (.github/scripts/d2-gate-verdict.ts). The report (JSON and
@@ -75,25 +75,17 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-# migrate too, or `up` would build it from this checkout, not the build root.
-(cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$out/build.log" 2>&1
+# migrate and gitea too, or `up` would build them from this checkout, not the
+# build root.
+(cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate gitea worker egress-proxy) >"$out/build.log" 2>&1
 
 echo "== stack" >&2
 dc up -d --wait postgres localstack secrets gitea gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
 dc up -d --wait api >>"$out/up.log" 2>&1
 
 port() { dc port "$1" "$2" | sed 's/.*://'; }
-gitea_url="http://127.0.0.1:$(port gitea 3000)"
 
 echo "== fixture" >&2
-gitea_password="gate-$(openssl rand -hex 12)"
-dc exec -T -u git gitea gitea admin user create --username agent \
-  --password "$gitea_password" --email agent@example.test \
-  --must-change-password=false >"$out/fixture.log" 2>&1
-curl -fsS -u "agent:${gitea_password}" -X POST "${gitea_url}/api/v1/user/repos" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"gate-app","auto_init":true,"default_branch":"main","private":false}' \
-  >>"$out/fixture.log"
 api_key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create gate-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
 
@@ -111,7 +103,6 @@ export D2_GATE_DATABASE_URL="postgres://postgres:dev@127.0.0.1:$(port postgres 5
 export D2_GATE_S3_URL="http://127.0.0.1:$(port localstack 4566)"
 export D2_GATE_CHAOS_URL="http://127.0.0.1:$(port gate-chaos 8099)"
 export D2_GATE_MESSAGES_URL="http://127.0.0.1:$(port gate-messages 4011)"
-export D2_GATE_GITEA_URL="$gitea_url"
 export D2_GATE_NETWORK="${project}_default"
 # A fresh file, so a reused D2_GATE_OUT cannot hand the key an older mode.
 rm -f "$out/vars.sh"

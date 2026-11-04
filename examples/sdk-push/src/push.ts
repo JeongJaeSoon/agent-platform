@@ -119,7 +119,7 @@ async function run(): Promise<void> {
   };
   console.log(`push receipt: ${receipt.status}, ${refusal ?? remote_ref}`);
   const pushed = done.state === "pushed";
-  // A catalog repository without `auth` (the local Gitea one) cannot be
+  // A catalog repository without `auth` (the local fake-git one) cannot be
   // pushed to; anything else that fails is an error here.
   if (!pushed && refusal !== "no_push_credential")
     throw new Error(`push ${done.state}: ${refusal}`);

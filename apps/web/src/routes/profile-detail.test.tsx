@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentListItem, ProfileSummary } from "@werft-ai/contracts";
+import type {
+  AgentListItem,
+  InstallationProfileOptionsResponse,
+  ProfileSummary,
+} from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import {
   apiError,
@@ -10,8 +14,10 @@ import {
   WORKSPACE_ID,
 } from "../test-support/fake-api.ts";
 import {
+  CATALOG_ID,
   ceiling,
   imported,
+  OPTIONS,
   RECEIPT_ID,
   version,
 } from "../test-support/profiles.ts";
@@ -74,6 +80,7 @@ function catalog(
     version(2, "usable", { tools: ["Read", "Edit"] }),
   ],
   signedIn = me(),
+  options: InstallationProfileOptionsResponse = OPTIONS,
 ) {
   const items = [...start];
   const retire = (id: string) => {
@@ -117,6 +124,7 @@ function catalog(
   return {
     "GET /v1/auth/me": () => json(200, signedIn),
     "GET /v1/profiles": () => json(200, { items }),
+    "GET /v1/installation-profiles/options": () => json(200, options),
     // As the server filters: agents whose active release runs on the profile.
     "GET /v1/agents": (request: Request) => {
       const profile = new URL(request.url).searchParams.get(
@@ -175,7 +183,7 @@ const dangers = () =>
     (item) => item.textContent,
   );
 
-describe("실행 프로필 상세", () => {
+describe("프로필 상세", () => {
   test("a workspace row opens its version with settings, record, history and the agents on it", async () => {
     const { history, api } = renderAt("/profiles", catalog());
     const user = await setupUser();
@@ -200,7 +208,8 @@ describe("실행 프로필 상세", () => {
       런타임: "claude_agent_sdk 0.3.270",
       "기본 모델": "claude-sonnet-5",
       "고를 수 있는 모델": "claude-sonnet-5",
-      도구: "ReadEdit",
+      "차단한 도구": "WriteBashWebFetchWebSearch",
+      "실행하는 도구": "ReadEdit",
       "권한 모드": "default",
       저장소: "저장소 필요",
       "허용할 저장소": "platform",
@@ -299,7 +308,8 @@ describe("실행 프로필 상세", () => {
       "기본 모델": "claude-sonnet-5",
       "고를 수 있는 모델": "claude-sonnet-5claude-haiku-5",
       "제목 모델": "claude-haiku-5",
-      도구: "ReadEditBash",
+      "차단한 도구": "WriteWebFetchWebSearch",
+      "실행하는 도구": "ReadEditBash",
       "권한 모드": "auto",
       저장소: "저장소 필요",
       "허용할 저장소": "platform",
@@ -566,5 +576,103 @@ describe("실행 프로필 상세", () => {
         name: "프로필을 찾을 수 없습니다",
       }),
     ).toBeDefined();
+  });
+});
+
+describe("프로필 상세의 도구", () => {
+  const NEWER: InstallationProfileOptionsResponse = {
+    ...OPTIONS,
+    // Oldest first, as the runtime codecs install them.
+    tool_catalogs: [
+      {
+        id: "claude_agent_sdk@0.3.260+claude-code@2.1.260",
+        runtime_kind: "claude_agent_sdk",
+        runtime_version: "0.3.260",
+        tools: [
+          { name: "Read", boundary: "local" },
+          { name: "Edit", boundary: "local" },
+          { name: "Write", boundary: "local" },
+          { name: "Bash", boundary: "local" },
+          { name: "WebFetch", boundary: "egress" },
+        ],
+      },
+      ...(OPTIONS.tool_catalogs ?? []),
+    ],
+  };
+
+  test("a version on an older catalog says how many new tools it blocks and links to a new version", async () => {
+    const { history } = renderAt(
+      "/profiles/op_wide_v1",
+      catalog(
+        [
+          CODING,
+          ceiling("wide", 1, {
+            runtime_version: "0.3.260",
+            deny: ["Write", "WebFetch"],
+          }),
+        ],
+        me(),
+        NEWER,
+      ),
+    );
+    const notice = await screen.findByText("이 버전에서 막힌 새 도구 1개");
+    const alert = notice.closest("[data-slot=alert]") as HTMLElement;
+    expect(alert.textContent).toContain(
+      `이 버전이 차단 여부를 정한 적 없는 도구라 돌지 않습니다: WebSearch. 열려면 지원 카탈로그 ${CATALOG_ID}로 새 버전을 만들어 받아들입니다.`,
+    );
+    expect(values("설정")).toMatchObject({
+      "차단한 도구": "WriteWebFetch",
+      "실행하는 도구": "ReadEditBash",
+    });
+    const user = await setupUser();
+    await user.click(
+      within(alert).getByRole("link", { name: "새 버전 만들기" }),
+    );
+    await screen.findByRole("heading", { level: 1, name: "wide 새 버전" });
+    expect(history.location.search).toContain("from=op_wide_v1");
+    expect(history.location.search).toContain("mode=version");
+  });
+
+  test("a version on the newest catalog has no new tools to tell about", async () => {
+    renderAt(
+      "/profiles/op_wide_v1",
+      catalog([CODING, ceiling("wide", 1)], me(), NEWER),
+    );
+    await screen.findByRole("heading", { level: 1, name: "wide" });
+    expect(values("설정")).toMatchObject({
+      "차단한 도구": "WriteWebFetchWebSearch",
+    });
+    expect(screen.queryAllByText(/막힌 새 도구/)).toHaveLength(0);
+  });
+
+  test("a version no catalog lists shows its tool list read-only", async () => {
+    renderAt(
+      "/profiles/op_wide_v1",
+      catalog([CODING, ceiling("wide", 1, { runtime_version: "0.3.100" })]),
+    );
+    await screen.findByRole("heading", { level: 1, name: "wide" });
+    expect(values("설정")).toMatchObject({
+      "차단한 도구":
+        "이 버전의 런타임 버전에는 지원 카탈로그가 없습니다. 도구 목록(허용목록)으로만 정한 버전이라 콘솔에서는 읽기만 합니다.",
+      "실행하는 도구": "ReadEditBash",
+    });
+  });
+
+  test("an admin, who cannot read the catalogs, is not asked to", async () => {
+    const { api } = renderAt(
+      "/profiles/op_wide_v1",
+      catalog(
+        [CODING, ceiling("wide", 1, { runtime_version: "0.3.260" })],
+        me(undefined, "admin"),
+        NEWER,
+      ),
+    );
+    await screen.findByRole("heading", { level: 1, name: "wide" });
+    expect(
+      api.calls.some((call) =>
+        call.path.startsWith("/v1/installation-profiles"),
+      ),
+    ).toBe(false);
+    expect(screen.queryAllByText(/막힌 새 도구/)).toHaveLength(0);
   });
 });

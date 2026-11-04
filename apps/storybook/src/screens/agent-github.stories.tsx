@@ -89,7 +89,7 @@ type RepositoryReason = NonNullable<
   AgentGitHubResponse["options"]["repositories"][number]["reason"]
 >;
 const REPOSITORY_REASON: Record<RepositoryReason, string> = {
-  repository_not_allowed: "실행 프로필이 이 저장소를 허용하지 않습니다.",
+  repository_not_allowed: "프로필이 이 저장소를 허용하지 않습니다.",
   app_required:
     "PAT로 연결된 저장소라 권한을 좁힐 수 없습니다. GitHub App으로 옮겨야 고를 수 있습니다.",
 };
@@ -98,7 +98,7 @@ const UNSAVABLE: Record<Unsavable, string> = {
   no_active_release:
     "활성 릴리스가 없습니다. 릴리스 탭에서 릴리스를 만들고 활성화하면 GitHub 설정을 정할 수 있습니다.",
   repository_none:
-    "활성 릴리스의 실행 프로필은 저장소 없이 실행합니다. 저장소를 쓰는 실행 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
+    "활성 릴리스의 프로필은 저장소 없이 실행합니다. 저장소를 쓰는 프로필로 릴리스를 만들면 GitHub 설정을 정할 수 있습니다.",
   app_required:
     "활성 릴리스의 저장소가 PAT로 연결되어 권한을 좁힐 수 없습니다. 운영자가 그 저장소를 GitHub App으로 옮기면 설정할 수 있습니다.",
 };
@@ -571,7 +571,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
         <Alert variant="blue" role="region" aria-label={pendingTitle}>
           <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
-            저장하면 지금 카드 버전 v{version}과 실행 프로필{" "}
+            저장하면 지금 카드 버전 v{version}과 프로필{" "}
             {RELEASE.runtime_profile_id}로 새 릴리스를 만들고 활성화합니다. 그
             뒤에 시작하는 세션부터 적용되고, 진행 중인 세션은 이전 릴리스 설정을
             씁니다.
@@ -603,7 +603,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
       ) : data.github === null && base ? (
         <Alert>
           <AlertDescription>
-            이 릴리스에는 아직 GitHub 설정이 없어 실행 프로필이 허용하는 모든
+            이 릴리스에는 아직 GitHub 설정이 없어 프로필이 허용하는 모든
             저장소를 씁니다. 아래 값은 처음 저장할 때의 기본값입니다.
           </AlertDescription>
         </Alert>

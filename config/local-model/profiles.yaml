@@ -11,6 +11,8 @@
 #
 # The model table has no price for them: usage is charged at the fallback,
 # the highest rate the table knows, so the reported cost is not a real one.
+#
+# `tools` lists are allowlists on purpose: a new installation's intended narrow default.
 profiles:
   local-ollama:
     runtime_kind: claude_agent_sdk

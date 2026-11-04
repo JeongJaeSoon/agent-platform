@@ -97,6 +97,9 @@ function app(
     getPullRequest: () => {
       throw new Error("not used");
     },
+    setPullRequestState: async () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       fail("comment");
       comments += 1;
@@ -178,6 +181,9 @@ function app(
       recordReceipt: async (input) => {
         receipts.push(input);
         return "44444444-4444-4444-8444-444444444444";
+      },
+      recordStateChange: async () => {
+        throw new Error("not used");
       },
       savePullRequest: async (input) => {
         recorded = {

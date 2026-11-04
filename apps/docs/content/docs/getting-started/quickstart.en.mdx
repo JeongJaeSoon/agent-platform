@@ -5,9 +5,9 @@ description: Create a session with the SDK, wait for the turn to end, and read t
 
 With the `werft` client from [Install the SDK](/getting-started/install), create one session and follow it until the first turn ends. The examples assume the [development server](/run-server/dev-server) started with `--fake-model`. A `GATE-SPEC {…}` message is a script the fake model reads; on a server that runs the real Claude, send a plain sentence.
 
-## Pick a run profile
+## Pick a profile
 
-A session runs on one of the run profiles the server operator registered: the list you saw in [Check the connection](/getting-started/install#check-the-connection). The development server has `claude-coding-local` (a person answers permission requests) and `claude-coding-auto` (a classifier decides), which use a repository, and `general`, which runs without one. This page uses `claude-coding-local`.
+A session runs on one of the profiles the server operator registered: the list you saw in [Check the connection](/getting-started/install#check-the-connection). The development server has `claude-coding-local` (a person answers permission requests) and `claude-coding-auto` (a classifier decides), which use a repository, and `general`, which runs without one. This page uses `claude-coding-local`.
 
 ## Create a session
 
@@ -33,7 +33,7 @@ console.log(created);
 }
 ```
 
-- `repository_id` is the repository the session clones. The development server's Gitea holds `sample-app`.
+- `repository_id` is the repository the session clones. The development server's read-only Git server provides `sample-app`.
 - `message` is the input of the first turn. This script calls no tool and ends with `hello from Werft`.
 - Creating a session only accepts it. Read the result after the turn ends.
 - A request that creates a session needs an `Idempotency-Key`. The SDK makes one per call and sends the same key when it retries that call.

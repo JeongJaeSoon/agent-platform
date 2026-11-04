@@ -27,7 +27,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
-import { MAX_RESTORE_PROFILES, type RuntimeConfig } from "@werft-ai/contracts";
+import {
+  MAX_RESTORE_PROFILES,
+  type PlatformPrompt,
+  type RuntimeConfig,
+} from "@werft-ai/contracts";
 import {
   acceptedRuntimeVersions,
   allowedRun,
@@ -264,11 +268,15 @@ type ClaimOwner = {
   // The release card's agent_instructions; null without a release or when
   // the card has none.
   readonly agentInstructions: string | null;
+  // The row's platform_prompt as stored, unread: the image's claim schema
+  // judges it as a worker would. Null for a revision 0 session.
+  readonly platformPrompt: unknown;
 };
 
 /** A `sessions` row with its release and the release's card, as read for a plan. */
 export type SessionRow = {
   agent_instructions: unknown;
+  platform_prompt: unknown;
   branch: string | null;
   id: string;
   model: string | null;
@@ -311,6 +319,7 @@ export function claimedSessionOf(
       typeof row.agent_instructions === "string"
         ? row.agent_instructions
         : null,
+    platformPrompt: row.platform_prompt ?? null,
   };
 }
 
@@ -377,10 +386,15 @@ function claimOf(
   );
   return {
     principal: { owner_scope: session.ownerId },
-    runtime_config:
-      session.agentInstructions === null || session.agentInstructions === ""
-        ? runtimeConfig
-        : { ...runtimeConfig, agent_instructions: session.agentInstructions },
+    runtime_config: {
+      ...runtimeConfig,
+      ...(session.agentInstructions === null || session.agentInstructions === ""
+        ? {}
+        : { agent_instructions: session.agentInstructions }),
+      ...(session.platformPrompt === null
+        ? {}
+        : { platform_prompt: session.platformPrompt as PlatformPrompt }),
+    },
     ...(hasRepository ? {} : { workspace: { repository: null } }),
   };
 }

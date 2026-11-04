@@ -157,8 +157,8 @@ describe("bootstrap checklist", () => {
     const links = stepLinks();
     expect(links.map((link) => link?.slice(0, 2) ?? null)).toEqual([
       null,
-      ["실행 프로필", "/profiles"],
-      ["실행 프로필", "/profiles"],
+      ["프로필", "/profiles"],
+      ["프로필", "/profiles"],
       ["구성원 목록", "/members"],
       ["에이전트 목록", "/agents"],
       ["세션 목록", "/sessions"],

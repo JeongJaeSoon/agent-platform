@@ -288,7 +288,7 @@ async function collectMeta(): Promise<void> {
     worker_image: `${env.workerImage} ${await imageId(env.workerImage)}`,
     postgres_image: await containerImage("postgres"),
     localstack_image: await containerImage("localstack"),
-    gitea_image: await containerImage("gitea"),
+    git_host_image: await containerImage("gitea"),
     // Built by run.sh from this checkout, like the three app images.
     egress_proxy_image: await containerImage("egress-proxy"),
     reconciler_image: await containerImage("reconciler"),

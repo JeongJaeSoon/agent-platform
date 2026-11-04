@@ -1,4 +1,5 @@
 import { tmpdir } from "node:os";
+import { assertGitEnvironment } from "@werft-ai/runtime-core";
 import { z } from "zod";
 
 import { describeComponents } from "./component-identity.ts";
@@ -146,6 +147,7 @@ export function runtimeEnvironment(
   config: Pick<
     ClaudeRuntimeConfig,
     | "claudeConfigDir"
+    | "gitEnvironment"
     | "home"
     | "profile"
     | "providerMaxRetries"
@@ -165,6 +167,9 @@ export function runtimeEnvironment(
   for (const name of HOST_PROXY_VARIABLES) {
     const value = host[name];
     if (value !== undefined) environment[name] = value;
+  }
+  if (config.gitEnvironment !== undefined) {
+    Object.assign(environment, assertGitEnvironment(config.gitEnvironment));
   }
   if (config.providerMaxRetries !== undefined) {
     environment.CLAUDE_CODE_MAX_RETRIES = String(config.providerMaxRetries);

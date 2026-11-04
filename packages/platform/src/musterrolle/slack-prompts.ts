@@ -9,6 +9,7 @@ import {
   type UserLocale,
 } from "@werft-ai/contracts";
 import type { ToolSummaryContext } from "../ports/pending-requests.ts";
+import type { PushRequestDisplay } from "../ports/push-requests.ts";
 import type { SlackPromptCard } from "../ports/slack-outbox-store.ts";
 import { summarizeToolRequest } from "./slack-prompt-summary.ts";
 
@@ -91,16 +92,18 @@ type PromptCopy = {
   /** The folded raw input's title; `{tool}` is the tool's name. */
   rawInput: string;
   details: string;
-  /** The one line a settled card keeps when no one or no path is named. */
+  /** How a settled card ended, decided in Slack or by no one. */
   settled: Record<SlackPromptResult, string>;
-  /**
-   * The line naming how it was settled: `{who}` is `who` filled with the
-   * decider's mention, or empty when they have no linked Slack account.
-   */
-  settledBy: Record<SlackDecisionPath, Record<SlackDecidedResult, string>>;
-  who: string;
-  freeTextGiven: string;
-  manyAnswered: string;
+  /** How a settled card ended, decided on the web. */
+  settledOnWeb: Record<SlackDecidedResult, string>;
+  /** A question's answer under it: `{answer}` is the chosen labels. */
+  chosen: Record<SlackDecisionPath, string>;
+  /** Stands in for a typed answer, whose words the thread never shows. */
+  typedAnswer: string;
+  /** A push card left with Reject only. */
+  pushStale: string;
+  /** A turn's notice from before the cards, once its turn waits no more. */
+  done: string;
   answerOnWeb: string;
   openConsole: string;
   /** Shown when the card is pressed after someone else settled it. */
@@ -148,25 +151,17 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       expired: "만료됨",
       closed: "더 이상 답할 수 없어요",
     },
-    settledBy: {
-      slack: {
-        allowed: "{who}허용했어요",
-        denied: "{who}거부했어요",
-        answered: "{who}답했어요",
-        approved: "{who}push를 승인했어요",
-        rejected: "{who}push를 거절했어요",
-      },
-      web: {
-        allowed: "{who}웹에서 허용했어요",
-        denied: "{who}웹에서 거부했어요",
-        answered: "{who}웹에서 답했어요",
-        approved: "{who}웹에서 push를 승인했어요",
-        rejected: "{who}웹에서 push를 거절했어요",
-      },
+    settledOnWeb: {
+      allowed: "웹에서 허용됨",
+      denied: "웹에서 거부됨",
+      answered: "웹에서 답함",
+      approved: "웹에서 push 승인됨",
+      rejected: "웹에서 push 거절됨",
     },
-    who: "{mention}님이 ",
-    freeTextGiven: "직접 입력한 답",
-    manyAnswered: "질문 {n}개에 답했어요",
+    chosen: { slack: "{answer} 선택됨", web: "웹에서 {answer} 선택됨" },
+    typedAnswer: "직접 입력",
+    pushStale: "새 커밋이 생겨 이 push는 승인할 수 없어요",
+    done: "처리됐어요",
     answerOnWeb: "이 요청은 웹에서 답해 주세요",
     openConsole: "웹 콘솔에서 확인해 주세요",
     already: {
@@ -218,25 +213,17 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       expired: "期限切れ",
       closed: "もう回答できません",
     },
-    settledBy: {
-      slack: {
-        allowed: "{who}許可しました",
-        denied: "{who}拒否しました",
-        answered: "{who}回答しました",
-        approved: "{who}pushを承認しました",
-        rejected: "{who}pushを却下しました",
-      },
-      web: {
-        allowed: "{who}Webで許可しました",
-        denied: "{who}Webで拒否しました",
-        answered: "{who}Webで回答しました",
-        approved: "{who}Webでpushを承認しました",
-        rejected: "{who}Webでpushを却下しました",
-      },
+    settledOnWeb: {
+      allowed: "Webで許可済み",
+      denied: "Webで拒否済み",
+      answered: "Webで回答済み",
+      approved: "Webでpush承認済み",
+      rejected: "Webでpush却下済み",
     },
-    who: "{mention}さんが",
-    freeTextGiven: "直接入力した回答",
-    manyAnswered: "{n}件の質問に回答しました",
+    chosen: { slack: "{answer}を選択", web: "Webで{answer}を選択" },
+    typedAnswer: "直接入力",
+    pushStale: "新しいコミットがあるため、このpushは承認できません",
+    done: "対応済みです",
     answerOnWeb: "このリクエストはWebで回答してください",
     openConsole: "Webコンソールで確認してください",
     already: {
@@ -288,25 +275,17 @@ export const SLACK_PROMPT_MESSAGES: Readonly<Record<UserLocale, PromptCopy>> = {
       expired: "Expired",
       closed: "Can no longer be answered",
     },
-    settledBy: {
-      slack: {
-        allowed: "Allowed{who}",
-        denied: "Denied{who}",
-        answered: "Answered{who}",
-        approved: "Push approved{who}",
-        rejected: "Push rejected{who}",
-      },
-      web: {
-        allowed: "Allowed on the web{who}",
-        denied: "Denied on the web{who}",
-        answered: "Answered on the web{who}",
-        approved: "Push approved on the web{who}",
-        rejected: "Push rejected on the web{who}",
-      },
+    settledOnWeb: {
+      allowed: "Allowed on the web",
+      denied: "Denied on the web",
+      answered: "Answered on the web",
+      approved: "Push approved on the web",
+      rejected: "Push rejected on the web",
     },
-    who: " by {mention}",
-    freeTextGiven: "A typed answer",
-    manyAnswered: "Answered {n} questions",
+    chosen: { slack: "Chose {answer}", web: "Chose {answer} on the web" },
+    typedAnswer: "a typed answer",
+    pushStale: "A newer commit means this push can no longer be approved",
+    done: "Handled",
     answerOnWeb: "Please answer this request on the web",
     openConsole: "Check it in the web console",
     already: {
@@ -336,7 +315,6 @@ const FIELD_MAX = 2000;
 const CONTEXT_TEXT_MAX = 3000;
 const BRANCH_MAX = 40;
 const QUESTION_HEAD_MAX = 200;
-const SETTLED_QUESTION_MAX = 40;
 
 const SLACK_ID = /^[A-Z0-9]{1,64}$/;
 
@@ -411,13 +389,17 @@ function slackDate(iso: string): string {
 
 /**
  * The raw input as a person reads it: an object's fields one by one, a
- * string field's own line breaks kept rather than shown as `\n`.
+ * string field's own line breaks kept rather than shown as `\n`. An input
+ * with nothing to list (`{}`, `""`, `null`) shows as JSON, so the card says
+ * the input was empty; null only when there is no JSON form at all.
  */
 function inputPreview(input: unknown): string | null {
-  if (input === null || input === undefined) return null;
+  if (input === undefined) return null;
   let text: string;
   try {
-    if (typeof input === "string") {
+    if (input === null) {
+      text = "null";
+    } else if (typeof input === "string") {
       text = input;
     } else if (typeof input === "object" && !Array.isArray(input)) {
       text = Object.entries(input)
@@ -433,6 +415,7 @@ function inputPreview(input: unknown): string | null {
     } else {
       text = JSON.stringify(input, null, 2) ?? "";
     }
+    if (text === "") text = JSON.stringify(input) ?? "";
   } catch {
     return null;
   }
@@ -770,102 +753,236 @@ export function slackSettledResult(
   return display.decision === "allow" ? "allowed" : "denied";
 }
 
-/** The request in one line, as a settled card keeps it. */
+/** A permission or push in one line, as a settled card keeps it. */
 function settledSummary(
-  display: SlackPromptCard["display"],
+  display: Exclude<SlackPromptCard["display"], { kind: "question" }>,
   locale: UserLocale,
 ): string {
-  const copy = SLACK_PROMPT_MESSAGES[locale];
   if (display.kind === "push") {
     return `${display.repositoryName ?? display.repositoryId} ← ${shortCommit(display.gitCommit)} · ${shortBranch(display.targetBranch)}`;
   }
-  if (display.kind === "permission") {
-    return summaryLine(
-      summarizeToolRequest(
-        display.tool,
-        display.input,
-        display.context,
-        locale,
-      ),
-    );
-  }
-  if (display.state === "answered" && display.questions.length > 1) {
-    return copy.manyAnswered.replace("{n}", String(display.questions.length));
-  }
-  const [first] = display.questions;
-  if (first === undefined) return "";
-  const head = clip(first.prompt, SETTLED_QUESTION_MAX);
-  const answer = display.answers.find(
-    (item) => item.question_id === first.question_id,
+  return summaryLine(
+    summarizeToolRequest(display.tool, display.input, display.context, locale),
   );
-  if (display.state !== "answered" || answer === undefined) return head;
-  // A typed answer was seen by whoever typed it only; the line is not.
-  const given = [
-    ...answer.selected_option_ids.flatMap((id) => {
-      const option = first.options.find((item) => item.option_id === id);
-      return option === undefined ? [] : [option.label];
-    }),
-    ...(answer.typed ? [copy.freeTextGiven] : []),
-  ];
-  return given.length === 0 ? head : `${head}: ${given.join(", ")}`;
 }
 
 /**
- * The settled card, drawn from the request as stored rather than from the
- * pressed message: one context line of how it ended, by whom, the request
- * in plain words and the web link. `via` names where it was settled when
- * the caller knows; the decider comes from the card. Null while the
- * request is still open.
+ * The labels a person chose for one question, or null when they chose
+ * none. A typed answer was seen by whoever typed it only; the thread is
+ * told one was given, never its words.
  */
-export function slackSettledCard(
-  card: SlackPromptCard,
-  via: SlackDecisionPath | null = null,
-): { text: string; blocks: unknown[] } | null {
+function chosenLabels(
+  display: Extract<SlackPromptCard["display"], { kind: "question" }>,
+  question: PendingQuestion,
+  locale: UserLocale,
+): string | null {
+  const answer = display.answers.find(
+    (item) => item.question_id === question.question_id,
+  );
+  if (answer === undefined) return null;
+  const given = [
+    ...answer.selected_option_ids.flatMap((id) => {
+      const option = question.options.find((item) => item.option_id === id);
+      return option === undefined ? [] : [option.label];
+    }),
+    ...(answer.typed ? [SLACK_PROMPT_MESSAGES[locale].typedAnswer] : []),
+  ];
+  return given.length === 0 ? null : given.join(", ");
+}
+
+type SlackCard = { text: string; blocks: unknown[] };
+
+const linkOf = (url: string | null) =>
+  url !== null && isSafeLink(url) ? url : null;
+
+const linkElements = (link: string | null, locale: UserLocale) =>
+  link === null
+    ? []
+    : [
+        {
+          type: "mrkdwn",
+          text: `<${link}|${escapeMrkdwn(SLACK_PROMPT_MESSAGES[locale].link)}>`,
+        },
+      ];
+
+/**
+ * The settled card, drawn from the request as stored rather than from a
+ * pressed message, so the press and the redraw of a card settled elsewhere
+ * draw the same blocks: how it ended and where (`웹에서 허용됨`), the
+ * decider's mention, the request and the web link. A question keeps its
+ * full text with the answer under it. Null while the request is open.
+ */
+export function slackSettledCard(card: SlackPromptCard): SlackCard | null {
   const result = slackSettledResult(card.display);
   if (result === null) return null;
   const copy = SLACK_PROMPT_MESSAGES[card.locale];
   const decided = result !== "expired" && result !== "closed";
+  // A decision whose path was not recorded reads as Slack's, unnamed.
+  const via: SlackDecisionPath = card.decidedVia ?? "slack";
   const decider =
     decided &&
     card.deciderSlackUserId !== null &&
     SLACK_ID.test(card.deciderSlackUserId)
       ? card.deciderSlackUserId
       : null;
-  let line = `*${escapeMrkdwn(copy.settled[result])}*`;
-  if (decided && (via === "web" || decider !== null)) {
-    const template =
-      copy.settledBy[via ?? "slack"][result as SlackDecidedResult];
-    const who =
-      decider === null
-        ? ""
-        : escapeMrkdwn(copy.who).replace("{mention}", mention(decider));
-    line = escapeMrkdwn(template).replace("{who}", who);
+  const label =
+    decided && via === "web"
+      ? copy.settledOnWeb[result as SlackDecidedResult]
+      : copy.settled[result];
+  // Platform copy, escaped, with only a checked mention.
+  const head = `*${escapeMrkdwn(label)}*${decider === null ? "" : ` · ${mention(decider)}`}`;
+  const mark = SETTLED_MARK[result];
+  const link = linkOf(card.linkUrl);
+  const textOf = (lines: string[], title = head) =>
+    `${title}${slackCardText({ locale: card.locale, title: "", lines, linkUrl: link })}`;
+
+  if (card.display.kind !== "question") {
+    const summary = settledSummary(card.display, card.locale);
+    return {
+      text: textOf([summary]),
+      blocks: [
+        {
+          type: "context",
+          elements: [
+            { type: "mrkdwn", text: `${mark} ${head}` },
+            ...(summary === "" ? [] : [plain(summary, CONTEXT_TEXT_MAX)]),
+            ...linkElements(link, card.locale),
+          ],
+        },
+      ],
+    };
   }
-  const summary = settledSummary(card.display, card.locale);
-  const link =
-    card.linkUrl !== null && isSafeLink(card.linkUrl) ? card.linkUrl : null;
-  // `line` is platform copy, escaped, with only a checked mention; an empty
-  // title leaves slackCardText the summary and link lines after it.
-  const rest = slackCardText({
-    locale: card.locale,
-    title: "",
-    lines: [summary],
-    linkUrl: link,
+
+  const display = card.display;
+  const questions = display.questions.slice(0, QUESTIONS_MAX);
+  const blocks: unknown[] = [];
+  const lines: string[] = [];
+  const answers = questions.map((question) => {
+    const labels =
+      result === "answered"
+        ? chosenLabels(display, question, card.locale)
+        : null;
+    return labels === null
+      ? null
+      : copy.chosen[questions.length === 1 ? via : "slack"].replace(
+          "{answer}",
+          () => labels,
+        );
   });
+  const [onlyAnswer] = answers;
+  // One answered question folds the path and decider into its answer line:
+  // `웹에서 <label> 선택됨 · @who`.
+  if (
+    questions.length === 1 &&
+    onlyAnswer !== null &&
+    onlyAnswer !== undefined
+  ) {
+    const [question] = questions;
+    const prompt = question?.prompt ?? "";
+    lines.push(prompt, onlyAnswer);
+    return {
+      text: textOf(lines),
+      blocks: [
+        { type: "section", text: plain(prompt) },
+        {
+          type: "context",
+          elements: [
+            { type: "mrkdwn", text: mark },
+            plain(onlyAnswer, CONTEXT_TEXT_MAX),
+            ...(decider === null
+              ? []
+              : [{ type: "mrkdwn", text: `· ${mention(decider)}` }]),
+            ...linkElements(link, card.locale),
+          ],
+        },
+      ],
+    };
+  }
+  questions.forEach((question, index) => {
+    blocks.push({ type: "section", text: plain(question.prompt) });
+    lines.push(question.prompt);
+    const answer = answers[index];
+    if (answer !== null && answer !== undefined) {
+      blocks.push({
+        type: "context",
+        elements: [plain(answer, CONTEXT_TEXT_MAX)],
+      });
+      lines.push(answer);
+    }
+  });
+  blocks.push({
+    type: "context",
+    elements: [
+      { type: "mrkdwn", text: `${mark} ${head}` },
+      ...linkElements(link, card.locale),
+    ],
+  });
+  return { text: textOf(lines), blocks };
+}
+
+/**
+ * A push card the latest checkpoint has moved past: it can still be
+ * rejected, never approved, so only Reject stays.
+ */
+export function slackRejectOnlyCard(
+  card: SlackPromptCard & {
+    display: { kind: "push" } & PushRequestDisplay;
+  },
+  ids: { sessionId: string; requestId: string },
+): SlackCard {
+  const copy = SLACK_PROMPT_MESSAGES[card.locale];
+  const summary = `${card.display.repositoryName ?? card.display.repositoryId} ← ${shortCommit(card.display.gitCommit)}`;
   return {
-    text: `${line}${rest}`,
+    text: slackCardText({
+      locale: card.locale,
+      title: copy.pushStale,
+      lines: [summary],
+      linkUrl: linkOf(card.linkUrl),
+    }),
     blocks: [
       {
         type: "context",
         elements: [
           {
             type: "mrkdwn",
-            text: `${SETTLED_MARK[result]} ${line}`,
+            text: `:warning: *${escapeMrkdwn(copy.pushStale)}*`,
           },
-          ...(summary === "" ? [] : [plain(summary, CONTEXT_TEXT_MAX)]),
-          ...(link === null
-            ? []
-            : [{ type: "mrkdwn", text: `<${link}|${copy.link}>` }]),
+          plain(summary, CONTEXT_TEXT_MAX),
+        ],
+      },
+      {
+        type: "actions",
+        elements: [
+          button(
+            copy.reject,
+            SLACK_INTERACTION_ACTIONS.pushReject,
+            slackPromptValue(ids),
+            "danger",
+          ),
+        ],
+      },
+    ],
+  };
+}
+
+/** A turn's notice from before the cards, once its turn waits no more. */
+export function slackDoneCard(
+  locale: UserLocale,
+  linkUrl: string | null,
+): SlackCard {
+  const copy = SLACK_PROMPT_MESSAGES[locale];
+  const link = linkOf(linkUrl);
+  return {
+    text: slackCardText({ locale, title: copy.done, linkUrl: link }),
+    blocks: [
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `:white_circle: *${escapeMrkdwn(copy.done)}*`,
+          },
+          ...linkElements(link, locale),
         ],
       },
     ],

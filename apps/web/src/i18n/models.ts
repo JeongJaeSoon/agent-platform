@@ -12,12 +12,9 @@ export const modelsKo = {
   "agentCard.modelsFailed":
     "모델 목록을 불러오지 못해 저장할 수 없습니다: {reason}",
 
-  "agent.releases.modelMismatch":
-    "카드 모델(이 버전): {card} · 고른 프로필의 모델: {profile}. 둘이 달라 이대로 만들면 거부됩니다.",
-  "agent.releases.profileOptionMismatch":
-    "{profile} · {model} · 카드 모델과 다름",
+  "agent.releases.profileOptionMismatch": "{profile} · 카드 모델과 다름",
   "agent.releases.modelRefused":
-    "카드 모델 {card}이(가) 프로필 {profile}의 모델과 달라 릴리스를 만들지 못했습니다. 카드 모델과 같은 모델의 프로필을 고르세요.",
+    "카드 모델 {card}이(가) 프로필 {profile}에서 실행되지 않아 릴리스를 만들지 못했습니다. 카드 모델을 실행하는 프로필을 고르세요.",
   "agent.releases.profileBlocked":
     "운영자가 설치 프로필 {profile}을(를) 차단했습니다. 차단이 풀릴 때까지 이 프로필로는 릴리스를 만들거나 활성화할 수 없습니다.",
   "agent.releases.baseProfileBlocked":
@@ -34,12 +31,9 @@ export const modelsEn: Record<keyof typeof modelsKo, string> = {
   "agentCard.modelsFailed":
     "Could not load the models, so you cannot save: {reason}",
 
-  "agent.releases.modelMismatch":
-    "This version's card uses {card}, but the chosen profile runs {profile}. A release like this is refused.",
-  "agent.releases.profileOptionMismatch":
-    "{profile} · {model} · not the card's model",
+  "agent.releases.profileOptionMismatch": "{profile} · not the card's model",
   "agent.releases.modelRefused":
-    "The card's model {card} is not the model of profile {profile}, so no release was created. Choose a profile that runs the card's model.",
+    "Profile {profile} does not run the card's model {card}, so no release was created. Choose a profile that runs the card's model.",
   "agent.releases.profileBlocked":
     "The operator blocked the installation profile {profile}. Until it is unblocked, no release on it can be created or activated.",
   "agent.releases.baseProfileBlocked":
@@ -56,12 +50,9 @@ export const modelsJa: Record<keyof typeof modelsKo, string> = {
   "agentCard.modelsFailed":
     "モデルを読み込めなかったため、保存できません: {reason}",
 
-  "agent.releases.modelMismatch":
-    "このバージョンのカードは {card} を使いますが、選択したプロファイルは {profile} を実行します。この組み合わせのリリースは拒否されます。",
-  "agent.releases.profileOptionMismatch":
-    "{profile} · {model} · カードのモデルと不一致",
+  "agent.releases.profileOptionMismatch": "{profile} · カードのモデルと不一致",
   "agent.releases.modelRefused":
-    "カードのモデル {card} はプロファイル {profile} のモデルではないため、リリースは作成されませんでした。カードのモデルを実行するプロファイルを選んでください。",
+    "プロファイル {profile} はカードのモデル {card} を実行しないため、リリースは作成されませんでした。カードのモデルを実行するプロファイルを選んでください。",
   "agent.releases.profileBlocked":
     "運用担当者がインストールのプロファイル {profile} をブロックしました。解除されるまで、このプロファイルのリリースは作成も有効化もできません。",
   "agent.releases.baseProfileBlocked":

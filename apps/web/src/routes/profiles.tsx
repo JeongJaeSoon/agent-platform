@@ -22,8 +22,6 @@ import {
   GridTableRow,
   GridTableRowOpener,
   Page,
-  SegmentedControl,
-  SegmentedControlItem,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
@@ -32,15 +30,19 @@ import { type ReactNode, useState } from "react";
 import { profilesQuery } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
-import { pickable } from "../components/profile-options.tsx";
+import {
+  pickable,
+  profileName,
+  versionOf,
+} from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { ModelConnections } from "./model-connections.tsx";
 import { OriginBadge } from "./settings-entries.tsx";
 
-// Name, version, kind, base, default model, permission mode, state; a phone
-// keeps the name and the state, and the name cell says the kind.
+// Name, version, kind, base, default model, permission mode, blocked tools,
+// state; a phone keeps the name and the state, and the name cell says the kind.
 const COLUMNS = [
-  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 152px",
+  "minmax(0,1.6fr) 64px 112px minmax(0,1fr) minmax(0,1fr) 128px 72px 152px",
   "minmax(0,1fr) 128px",
 ] as const;
 
@@ -60,17 +62,10 @@ export const STATE_BADGE: Record<ProfileState, "green" | "red" | "gray"> = {
   runtime_unsupported: "red",
 };
 
-type Filter = "all" | "installation" | "workspace";
-
 export const stateOf = (profile: ProfileSummary): ProfileState =>
   profile.workspace?.state ?? profile.installation?.state ?? "usable";
 
-/** What a profile is called: an imported ceiling has only its id. */
-export const profileName = (profile: ProfileSummary): string =>
-  profile.workspace?.name ?? profile.installation?.name ?? profile.id;
-
-export const versionOf = (profile: ProfileSummary): number =>
-  profile.workspace?.version ?? profile.installation?.version ?? 1;
+export { profileName, versionOf };
 
 /** The id a save of a new version under `name` would get. */
 export function nextVersionId(
@@ -140,19 +135,12 @@ export function ProfilesScreen() {
   const profiles = useQuery(profilesQuery(client));
   const manages = useHasPermission("workspace.manage");
   const operates = useHasPermission("profile.installation.manage");
-  const [filter, setFilter] = useState<Filter>("all");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const items = profiles.data?.items ?? [];
   const ceilings = items.filter((item) => item.source === "operator");
   const versions = items.filter((item) => item.source === "workspace");
-  const shown =
-    filter === "installation"
-      ? ceilings
-      : filter === "workspace"
-        ? versions
-        : items;
-  const groups = groupsOf(shown);
+  const groups = groupsOf(items);
   const toggle = (id: string) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -240,35 +228,8 @@ export function ProfilesScreen() {
               {t("profiles.locked")}
             </Text>
           )}
-          <SegmentedControl
-            aria-label={t("profiles.filter.label")}
-            size="toolbar"
-            value={filter}
-            onValueChange={(next) => setFilter(next as Filter)}
-          >
-            <SegmentedControlItem value="all" count={items.length}>
-              {t("profiles.filter.all")}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="installation" count={ceilings.length}>
-              {t("profiles.kind.installation")}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="workspace" count={versions.length}>
-              {t("profiles.kind.workspace")}
-            </SegmentedControlItem>
-          </SegmentedControl>
           {groups.length === 0 ? (
-            <EmptyState
-              title={t(
-                filter === "workspace"
-                  ? "profiles.emptyWorkspace.title"
-                  : "profiles.empty",
-              )}
-              description={
-                filter === "workspace"
-                  ? t("profiles.emptyWorkspace.text")
-                  : undefined
-              }
-            />
+            <EmptyState title={t("profiles.empty")} />
           ) : (
             <GridTable
               aria-label={t("profiles.title")}
@@ -295,6 +256,9 @@ export function ProfilesScreen() {
                 </GridTableColumnHeader>
                 <GridTableColumnHeader hideNarrow>
                   {t("profiles.editor.permissionMode")}
+                </GridTableColumnHeader>
+                <GridTableColumnHeader hideNarrow>
+                  {t("profiles.column.blocked")}
                 </GridTableColumnHeader>
                 <GridTableColumnHeader>
                   {t("profiles.column.state")}
@@ -422,6 +386,13 @@ function ProfileRow({
       </GridTableCell>
       <GridTableCell hideNarrow>
         <Code>{profile.permission_mode}</Code>
+      </GridTableCell>
+      <GridTableCell hideNarrow>
+        <Text as="span" variant="meta">
+          {profile.deny == null
+            ? "—"
+            : t("profiles.blockedCount", { count: profile.deny.length })}
+        </Text>
       </GridTableCell>
       <GridTableCell>
         <Badge variant={STATE_BADGE[state]}>
