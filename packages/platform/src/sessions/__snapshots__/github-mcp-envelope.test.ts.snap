@@ -1,0 +1,2086 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`tools/list every tool has a description of its fields and an outputSchema 1`] = `
+[
+  {
+    "description": "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when \`branch\` is given. \`repository_id\` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or \`deferred\` when no checkpoint exists yet.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+          "type": "string",
+        },
+        "repository_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "name": "request_push",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkpoint_revision": {
+                      "maximum": 2147483647,
+                      "minimum": 0,
+                      "type": "integer",
+                    },
+                    "finished_at": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "git_commit": {
+                      "pattern": "^[0-9a-f]{40}$",
+                      "type": "string",
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "push_receipt_id": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "request_receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "requested_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "requested_by": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "actor_user_id": {
+                          "anyOf": [
+                            {
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "agent_id": {
+                          "anyOf": [
+                            {
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "principal": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "kind": {
+                              "enum": [
+                                "api_key",
+                                "user",
+                                "installation",
+                              ],
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "kind",
+                            "id",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "principal",
+                        "actor_user_id",
+                        "agent_id",
+                      ],
+                      "type": "object",
+                    },
+                    "resolution_reason": {
+                      "type": [
+                        "string",
+                        "null",
+                      ],
+                    },
+                    "resolution_receipt_id": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "resolved_at": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "resolved_by": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "actor_user_id": {
+                                  "anyOf": [
+                                    {
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "agent_id": {
+                                  "anyOf": [
+                                    {
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "principal": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "id": {
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
+                                    "kind": {
+                                      "enum": [
+                                        "api_key",
+                                        "user",
+                                        "installation",
+                                      ],
+                                      "type": "string",
+                                    },
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "id",
+                                  ],
+                                  "type": "object",
+                                },
+                              },
+                              "required": [
+                                "principal",
+                                "actor_user_id",
+                                "agent_id",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "agent_release_id": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "agent_settings_revision": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 9007199254740991,
+                                      "minimum": -9007199254740991,
+                                      "type": "integer",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "kind": {
+                                  "const": "policy",
+                                  "type": "string",
+                                },
+                                "policy_source": {
+                                  "enum": [
+                                    "release",
+                                    "agent",
+                                  ],
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                                "agent_release_id",
+                              ],
+                              "type": "object",
+                            },
+                          ],
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "state": {
+                      "enum": [
+                        "requested",
+                        "approved",
+                        "rejected",
+                        "pushing",
+                        "pushed",
+                        "failed",
+                      ],
+                      "type": "string",
+                    },
+                    "target_branch": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "session_id",
+                    "repository_id",
+                    "checkpoint_revision",
+                    "git_commit",
+                    "target_branch",
+                    "state",
+                    "requested_by",
+                    "requested_at",
+                    "resolved_by",
+                    "resolved_at",
+                    "resolution_reason",
+                    "request_receipt_id",
+                    "resolution_receipt_id",
+                    "finished_at",
+                    "push_receipt_id",
+                  ],
+                  "type": "object",
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "continuation": {
+                      "const": "after_turn",
+                      "type": "string",
+                    },
+                    "status": {
+                      "const": "deferred",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "status",
+                    "continuation",
+                  ],
+                  "type": "object",
+                },
+              ],
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Open, or return the already open, pull request from the branch and commit of a pushed push request (\`push_request_id\`).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "type": "string",
+        },
+        "push_request_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "push_request_id",
+      ],
+      "type": "object",
+    },
+    "name": "open_pull_request",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "created": {
+                  "type": "boolean",
+                },
+                "pull_request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "head": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "push_request_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "push_request_id",
+                    "session_id",
+                    "repository_id",
+                    "number",
+                    "url",
+                    "head",
+                    "base",
+                    "created_at",
+                    "receipt_id",
+                  ],
+                  "type": "object",
+                },
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "pull_request",
+                "created",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Set the title, the body or both of the pull request that the push request's branch has open. The platform's closing lines stay, naming the push request's commit.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "type": "string",
+        },
+        "push_request_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "push_request_id",
+      ],
+      "type": "object",
+    },
+    "name": "update_pull_request",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "pull_request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "head": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "push_request_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "push_request_id",
+                    "session_id",
+                    "repository_id",
+                    "number",
+                    "url",
+                    "head",
+                    "base",
+                    "created_at",
+                    "receipt_id",
+                  ],
+                  "type": "object",
+                },
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "pull_request",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Add a comment to the pull request of a pushed push request. The same \`marker\` edits the same comment.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "marker": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+          "type": "string",
+        },
+        "push_request_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "body",
+        "push_request_id",
+      ],
+      "type": "object",
+    },
+    "name": "comment_pull_request",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "comment": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "created": {
+                      "type": "boolean",
+                    },
+                    "id": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "marker": {
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "url",
+                    "marker",
+                    "created",
+                  ],
+                  "type": "object",
+                },
+                "pull_request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "head": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "push_request_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "push_request_id",
+                    "session_id",
+                    "repository_id",
+                    "number",
+                    "url",
+                    "head",
+                    "base",
+                    "created_at",
+                    "receipt_id",
+                  ],
+                  "type": "object",
+                },
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "pull_request",
+                "comment",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Close the pull request of a pushed push request without merging it; the branch stays. \`changed\` is false when it was already closed.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "push_request_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "push_request_id",
+      ],
+      "type": "object",
+    },
+    "name": "close_pull_request",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "changed": {
+                  "type": "boolean",
+                },
+                "pull_request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "head": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "push_request_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "push_request_id",
+                    "session_id",
+                    "repository_id",
+                    "number",
+                    "url",
+                    "head",
+                    "base",
+                    "created_at",
+                    "receipt_id",
+                  ],
+                  "type": "object",
+                },
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+                "state": {
+                  "enum": [
+                    "open",
+                    "closed",
+                  ],
+                  "type": "string",
+                },
+              },
+              "required": [
+                "pull_request",
+                "state",
+                "changed",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Reopen the closed pull request of a pushed push request. \`changed\` is false when it was already open.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "push_request_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "push_request_id",
+      ],
+      "type": "object",
+    },
+    "name": "reopen_pull_request",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "changed": {
+                  "type": "boolean",
+                },
+                "pull_request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "created_at": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "head": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "push_request_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "receipt_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "repository_id": {
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "session_id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "push_request_id",
+                    "session_id",
+                    "repository_id",
+                    "number",
+                    "url",
+                    "head",
+                    "base",
+                    "created_at",
+                    "receipt_id",
+                  ],
+                  "type": "object",
+                },
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+                "state": {
+                  "enum": [
+                    "open",
+                    "closed",
+                  ],
+                  "type": "string",
+                },
+              },
+              "required": [
+                "pull_request",
+                "state",
+                "changed",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Dispatch an allow-listed workflow on a branch. \`inputs\` go to GitHub only.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "inputs": {
+          "additionalProperties": {
+            "maxLength": 65536,
+            "type": "string",
+          },
+          "propertyNames": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": "object",
+        },
+        "ref": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^(?!refs\\/)(?!\\/)(?!.*\\/\\/)(?!.*\\.\\.)[^\\s~^:?*[\\\\]+(?<![/.])$",
+          "type": "string",
+        },
+        "workflow": {
+          "pattern": "^[A-Za-z0-9._-]+\\.ya?ml$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "workflow",
+        "ref",
+      ],
+      "type": "object",
+    },
+    "name": "dispatch_workflow",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+                "run": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "html_url": {
+                          "format": "uri",
+                          "type": "string",
+                        },
+                        "id": {
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "type": "integer",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "html_url",
+                      ],
+                      "type": "object",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+              },
+              "required": [
+                "receipt_id",
+                "run",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Read a workflow run of the session's repository.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "run_id",
+      ],
+      "type": "object",
+    },
+    "name": "get_workflow_run",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "conclusion": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "head_branch": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "html_url": {
+                  "format": "uri",
+                  "type": "string",
+                },
+                "id": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer",
+                },
+                "path": {
+                  "type": "string",
+                },
+                "status": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+              },
+              "required": [
+                "id",
+                "path",
+                "head_branch",
+                "status",
+                "conclusion",
+                "html_url",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Rerun a workflow run that the platform dispatched for the session's repository.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "failed_only": {
+          "type": "boolean",
+        },
+        "run_id": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "run_id",
+      ],
+      "type": "object",
+    },
+    "name": "rerun_workflow",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+              },
+              "required": [
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Submit a review of a pull request as the reviewer App, on the commit named by \`commit_id\`.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string",
+        },
+        "commit_id": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string",
+        },
+        "event": {
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT",
+          ],
+          "type": "string",
+        },
+        "number": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "event",
+        "commit_id",
+        "number",
+      ],
+      "type": "object",
+    },
+    "name": "submit_review",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "receipt_id": {
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "type": "string",
+                },
+                "review": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "html_url": {
+                      "format": "uri",
+                      "type": "string",
+                    },
+                    "id": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "html_url",
+                  ],
+                  "type": "object",
+                },
+              },
+              "required": [
+                "receipt_id",
+                "review",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "List the repositories the session can work on. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "list_repositories",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "repositories": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "branch": {
+                        "type": [
+                          "string",
+                          "null",
+                        ],
+                      },
+                      "id": {
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "name": {
+                        "type": "string",
+                      },
+                      "status": {
+                        "enum": [
+                          "primary",
+                          "attached",
+                          "pending",
+                          "failed",
+                          "available",
+                          "allowed_in_newer_release",
+                        ],
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "branch",
+                      "status",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+              },
+              "required": [
+                "repositories",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. Attaching an attached repository changes nothing.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "repository_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "repository_id",
+      ],
+      "type": "object",
+    },
+    "name": "attach_repository",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean",
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "already_attached": {
+                  "type": "boolean",
+                },
+                "branch": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "commit": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "failure": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "fetch_timeout",
+                        "fetch_too_large",
+                        "fetch_failed",
+                      ],
+                      "type": "string",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
+                "receipt_id": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
+                "repository_id": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "status": {
+                  "enum": [
+                    "pending",
+                    "attached",
+                    "failed",
+                  ],
+                  "type": "string",
+                },
+              },
+              "required": [
+                "repository_id",
+                "status",
+                "branch",
+                "commit",
+                "failure",
+                "already_attached",
+                "receipt_id",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "result",
+          ],
+          "type": "object",
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean",
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "enum": [
+                    "policy",
+                    "person",
+                    "platform",
+                    "github",
+                  ],
+                  "type": "string",
+                },
+                "code": {
+                  "pattern": "^[a-z][a-z0-9_]{1,63}$",
+                  "type": "string",
+                },
+                "details": {
+                  "additionalProperties": {},
+                  "propertyNames": {
+                    "type": "string",
+                  },
+                  "type": "object",
+                },
+                "retryable": {
+                  "type": "boolean",
+                },
+              },
+              "required": [
+                "code",
+                "by",
+                "retryable",
+              ],
+              "type": "object",
+            },
+          },
+          "required": [
+            "ok",
+            "refusal",
+          ],
+          "type": "object",
+        },
+      ],
+      "type": "object",
+    },
+  },
+]
+`;
