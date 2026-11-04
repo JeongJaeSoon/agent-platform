@@ -974,6 +974,13 @@
       "when": 1793753726101,
       "tag": "0229_session_platform_prompt",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793756043009,
+      "tag": "0230_pin_by_claim",
+      "breakpoints": true
     }
   ]
 }

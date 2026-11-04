@@ -1,0 +1,2 @@
+ALTER TABLE "catalog_repository_github_apps" DROP CONSTRAINT "catalog_repository_github_apps_pinned_by_check";--> statement-breakpoint
+ALTER TABLE "catalog_repository_github_apps" ADD CONSTRAINT "catalog_repository_github_apps_pinned_by_check" CHECK ("catalog_repository_github_apps"."pinned_by" IN ('selection', 'first_mint', 'admin', 'claim'));

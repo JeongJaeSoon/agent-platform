@@ -6,7 +6,11 @@ import type {
   TurnEnded,
 } from "@werft-ai/runtime-core";
 
-import { claudeContractRun } from "./contract.ts";
+import {
+  claudeContractRun,
+  claudeRuntimeModule,
+  claudeStartConfig,
+} from "./contract.ts";
 import type {
   AgentFrame,
   DriverRun,
@@ -677,5 +681,54 @@ describe("claudeContractRun events", () => {
       provider_error: "authentication_failed",
       last_retry_status: null,
     });
+  });
+});
+
+describe("gitEnvironment", () => {
+  const start = {
+    config: {
+      mode: "new" as const,
+      correlationId: "c",
+      cwd: "/tenant/workspace",
+      home: "/tenant/home",
+      model: "primary",
+      permissionMode: "default" as const,
+      tools: ["Bash"],
+    },
+    bindings: {
+      principal: { ownerScope: "owner-a" },
+      provider: {
+        kind: "anthropic" as const,
+        endpoint: "https://api.anthropic.com",
+        auth: { kind: "api_key" as const, value: "placeholder" },
+      },
+    },
+    bundle: { instructions: [], repoInstructions: null, mcpServers: [] },
+  };
+  const git = {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "user.name",
+    GIT_CONFIG_VALUE_0: "werft-dev[bot]",
+  };
+  const deps = { stateDir: "/tenant/config" };
+
+  test("reaches the run's config", () => {
+    expect(
+      claudeStartConfig(
+        { ...start, config: { ...start.config, gitEnvironment: git } },
+        deps,
+      ).gitEnvironment,
+    ).toEqual(git);
+    expect(claudeStartConfig(start, deps)).not.toHaveProperty("gitEnvironment");
+  });
+
+  test("leaves the checkpoint fingerprint as it is", () => {
+    const withGit = {
+      ...start,
+      config: { ...start.config, gitEnvironment: git },
+    };
+    expect(claudeRuntimeModule.fingerprint(withGit)).toEqual(
+      claudeRuntimeModule.fingerprint(start),
+    );
   });
 });

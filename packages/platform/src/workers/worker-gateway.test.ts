@@ -36,6 +36,7 @@ import {
   repositoryBinding,
   type SessionCatalog,
 } from "../sessions/catalog.ts";
+import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import { createGitHubGate } from "../sessions/github-gate.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import {
@@ -958,6 +959,7 @@ describe("WorkerGateway", () => {
               agentReleaseId: null,
               starter,
               authorApp,
+              authorPinned: true,
             };
           },
         },
@@ -980,6 +982,7 @@ describe("WorkerGateway", () => {
       },
       session_url: sessionUrl,
     });
+    expect(linked.git_strip).toEqual(["noreply@anthropic.com"]);
     starter = null;
     const agentKey = await attributed.bootstrapClaim(
       { kind: "bootstrap" },
@@ -1020,6 +1023,7 @@ describe("WorkerGateway", () => {
               agentReleaseId: null,
               starter,
               authorApp,
+              authorPinned: true,
             }),
           },
           consoleOrigin: null,
@@ -1065,6 +1069,152 @@ describe("WorkerGateway", () => {
     repositories = {};
     expect((await claimOf()).git_author).toBeNull();
     expect(looked).toHaveLength(2);
+
+    // No author pin on the primary repository yet (decision D11): the claim
+    // pins it the way a token issue would, then reads the App back through
+    // the pin. Anything that stops the pin leaves the image's author.
+    repositories = {
+      "gone-from-catalog": {
+        url: "https://github.com/team/app.git",
+        branch: "release",
+        profiles: ["claude-coding-v1"],
+        auth: { kind: "github_app", registered: true },
+      } as never,
+    };
+    type Choice = Awaited<ReturnType<GitHubConnectionResolver["resolve"]>>;
+    let pinned = false;
+    let answer: () => Promise<Choice> = async () => {
+      pinned = true;
+      return {
+        kind: "connection",
+        connection: {} as never,
+        connectionId: "conn-1",
+        pinnedBy: "claim",
+      };
+    };
+    const resolved: unknown[] = [];
+    const failures: unknown[] = [];
+    const pinning = () =>
+      createWorkerGateway({
+        work: work({
+          claimAtomic: async () => ({ outcome: "claimed", binding }),
+        }),
+        catalog: { profiles: { "claude-coding-v1": profile }, repositories },
+        checkpoints: acceptAllCheckpoints,
+        attribution: {
+          store: {
+            attribution: async () => ({
+              ownerId: "owner-a",
+              trigger: "web",
+              agentId: null,
+              agentReleaseId: null,
+              starter: null,
+              authorApp: pinned
+                ? { slug: "pinned-app", apiBase: "https://api.github.com" }
+                : null,
+              authorPinned: pinned,
+            }),
+          },
+          consoleOrigin: null,
+          appBotUserId: async () => "41898282",
+          commitPin: {
+            resolver: {
+              resolve: async (...args) => {
+                resolved.push(args);
+                return answer();
+              },
+            },
+            onFailed: (failure) => failures.push(failure),
+          },
+        },
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+    const pinClaim = async () =>
+      bootstrapClaimResponseSchema.parse(
+        await pinning().bootstrapClaim({ kind: "bootstrap" }, request),
+      );
+    expect((await pinClaim()).git_author).toEqual({
+      name: "pinned-app[bot]",
+      email: "41898282+pinned-app[bot]@users.noreply.github.com",
+    });
+    expect(resolved).toEqual([
+      [
+        "gone-from-catalog",
+        "author",
+        { owner: "team", name: "app" },
+        {
+          pin: true,
+          claim: { sessionId: scope.session_id, receiptId: expect.any(String) },
+        },
+      ],
+    ]);
+    // Held now: the next claim reads the pin and resolves nothing.
+    await pinClaim();
+    expect(resolved).toHaveLength(1);
+    expect(failures).toEqual([]);
+
+    pinned = false;
+    for (const [choice, reason] of [
+      [
+        {
+          kind: "refused",
+          reason: "ambiguous_app",
+          candidateConnectionIds: ["a", "b"],
+        },
+        "ambiguous_app",
+      ],
+      [
+        { kind: "unreachable", pinState: "lookup_failed", connectionId: null },
+        "lookup_failed",
+      ],
+      [{ kind: "none" }, "no_author_app"],
+    ] as const) {
+      answer = async () => choice as Choice;
+      failures.length = 0;
+      expect((await pinClaim()).git_author).toBeNull();
+      expect(failures).toEqual([
+        {
+          sessionId: scope.session_id,
+          repositoryId: "gone-from-catalog",
+          reason,
+        },
+      ]);
+    }
+    // The pin store failing (or a connection replaced between the choice
+    // and the pin, which leaves no pin): the claim is still issued.
+    answer = async () => {
+      throw new TypeError("connection reset");
+    };
+    failures.length = 0;
+    const failed = await pinClaim();
+    expect(failed.git_author).toBeNull();
+    expect(failed.session_id).toBe(scope.session_id);
+    expect(failures).toEqual([
+      {
+        sessionId: scope.session_id,
+        repositoryId: "gone-from-catalog",
+        reason: "TypeError",
+      },
+    ]);
+    answer = async () => ({
+      kind: "connection",
+      connection: {} as never,
+      connectionId: "conn-1",
+      pinnedBy: null,
+    });
+    failures.length = 0;
+    expect((await pinClaim()).git_author).toBeNull();
+    expect(failures).toEqual([
+      {
+        sessionId: scope.session_id,
+        repositoryId: "gone-from-catalog",
+        reason: "not_pinned",
+      },
+    ]);
   });
 
   test("the claim lists the other repositories the gate allows, on the attempt's repository token", async () => {

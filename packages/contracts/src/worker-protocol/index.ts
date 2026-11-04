@@ -361,6 +361,24 @@ export const claimGitAuthorSchema = z
   .object({ name: trailerValueSchema, email: trailerValueSchema })
   .strict();
 
+/**
+ * The emails of the co-author lines engines add on their own, which no
+ * session commit keeps (decision github-agent.md D1). The one list: claims
+ * hand it to the worker's hook, and the push check reads it here. A list only
+ * grows while an image that still adds a removed email may run.
+ */
+export const ENGINE_COAUTHOR_EMAILS = ["noreply@anthropic.com"] as const;
+
+export const claimGitStripSchema = z
+  .array(
+    z
+      .string()
+      .min(3)
+      .max(254)
+      .regex(/^[^\s<>@]+@[^\s<>@]+$/),
+  )
+  .max(32);
+
 export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   session_credential: z.string().min(1),
   lease_expires_at: timestampSchema,
@@ -427,6 +445,10 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // older worker's strict `git` would refuse the whole claim over a new key,
   // where an unknown top-level key is dropped.
   git_author: claimGitAuthorSchema.nullable().optional(),
+  // The emails whose Co-authored-by lines the hook removes from the
+  // session's commits (ENGINE_COAUTHOR_EMAILS). Sent with `git`; top-level for
+  // the reason `git_author` is.
+  git_strip: claimGitStripSchema.optional(),
   // The attempt's repository route token, also when the claim names no
   // repository: a repository the agent attaches mid-session is fetched with
   // it (session-repository-attachment.md decision 3). Top-level so an older

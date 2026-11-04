@@ -62,6 +62,7 @@ const LINKED: SessionAttributionRecord = {
   agentReleaseId: "release-1",
   starter: { userId: "user-1", github: { id: "583231", login: "octocat" } },
   authorApp: null,
+  authorPinned: false,
 };
 const TAIL = [
   "---",

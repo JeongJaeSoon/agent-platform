@@ -692,6 +692,7 @@ describe("GET /v1/sessions/{id}/github/attribution", () => {
       agentReleaseId: RELEASE,
       starter: { userId: "user-1", github: { id: "583231", login: "octocat" } },
       authorApp: null,
+      authorPinned: false,
     },
     [OTHER_OWNERS]: {
       ownerId: "owner-b",
@@ -700,6 +701,7 @@ describe("GET /v1/sessions/{id}/github/attribution", () => {
       agentReleaseId: null,
       starter: null,
       authorApp: null,
+      authorPinned: false,
     },
   };
   const api = createApiApp({
