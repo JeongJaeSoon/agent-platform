@@ -63,7 +63,7 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), gitea(샘플 저장소 `agent/sample-app`을 내주는 읽기 전용 fake-git. 저장소 URL을 지키려고 서비스 이름은 `gitea`로 유지), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), fake-git(샘플 저장소 `agent/sample-app`을 내주는 읽기 전용 git 호스트), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
@@ -382,6 +382,16 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 
 `up --fake-model`의 데모 데이터 시드는 기존 데모 세션의 outputs 조회가 409 `CHECKPOINT_UNAVAILABLE`이면 `awaiting-recovery session <id>: CHECKPOINT_UNAVAILABLE; existing demo left unchanged`를 출력하고 그 세션을 그대로 둔 채 나머지 시드를 계속한다. 뒤의 `exists session <제목>`은 기존 세션이 있다는 뜻이며 산출물이 복구됐다는 뜻이 아니다. 잃은 산출물을 다시 만들거나 복구 결정을 대신하지 않는다. 다른 조회 오류는 시드를 중단한다.
 
+### Git 서버 이름이 `gitea`에서 `fake-git`으로 바뀐 스택
+
+Git 서버의 compose 서비스 이름이 `fake-git`으로, 저장소 URL이 `http://fake-git:3000/agent/<repo>.git`으로 바뀌었다. 새로 띄우는 스택은 할 일이 없다. 이 변경 전에 띄워 계속 쓰는 스택은 코드를 pull할 때 아래 순서로 옮긴다.
+
+1. `COMPOSE_FILE`로 포트 override를 얹었다면, 코드를 갱신할 때 그 파일의 키 `gitea:`를 `fake-git:`으로 같이 바꾼다. 코드와 키가 어긋나면 `service "gitea" has neither an image nor a build context specified`처럼 렌더링부터 실패한다. 두 키를 함께 적어도 같다. 코드를 자동으로 갱신하는 스택이면 그 갱신을 먼저 멈춘다.
+2. `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 실행한다. `up`은 옛 서비스의 컨테이너를 지우지 않으므로, 내리지 않고 `up`만 하면 옛 `gitea-1`이 같은 포트를 쥔 채 남아 `port is already allocated`로 멈춘다. volume은 그대로라 계정과 세션은 남는다.
+3. `bun run catalog-authority show`로 활성 revision을 본다. 활성 행이 없으면 할 일이 없다. 행이 있으면 URL이 바뀌어 revision도 바뀌었으므로, API 기동 로그 `Session catalog loaded`의 `revision`을 읽어 `bun run catalog-authority activate <새 revision> --expected <옛 revision>`으로 넘긴다([운영자 카탈로그](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
+4. 옛 URL로 만든 세션은 이어지지 않는다. 조회는 되고 세션 상세의 `attention.code`는 `CATALOG_MISMATCH`다. 새 메시지는 받지만 그 turn은 `failed`(`terminal_reason: catalog_mismatch`)로 끝나고 세션도 `failed`가 된다. 다른 세션에는 영향이 없다. 이어 갈 일은 새 세션을 연다.
+5. kind 클러스터를 재사용했다면 `kubectl apply`는 옛 리소스를 지우지 않는다. `kubectl -n <namespace> delete deployment/gitea service/gitea`로 지운다. preview namespace는 TTL로 함께 사라진다.
+
 ## 8. 막혔을 때
 
 | 증상 | 원인과 조치 |
@@ -401,6 +411,7 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 | 409 `REVISION_CONFLICT` | 그 사이 세션이 바뀌었다. `$(revision)`으로 다시 읽어 보낸다 |
 | pause가 오래 `pausing`이고 `attention.code`가 `PAUSE_BLOCKED`다 | worker가 60초 안에 drain하지 못했다. 진행 중인 turn을 interrupt하거나 기다린다 |
 | pull한 코드가 반영되지 않은 것 같다 | `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 다시 실행한다. 이미지를 이 checkout에서 다시 빌드한다 |
+| pull 뒤 `up`이 `has neither an image nor a build context specified`나 `port is already allocated`로 끝난다 | Git 서버의 서비스 이름이 바뀌었다. [7장의 전환 순서](#git-서버-이름이-gitea에서-fake-git으로-바뀐-스택)를 따른다 |
 | 빌드 중 디스크가 부족하다 | `docker system df`로 확인하고, 필요 없는 이미지와 빌드 캐시를 지운다(예: `docker builder prune`) |
 
 ## 스크립트된 프롬프트

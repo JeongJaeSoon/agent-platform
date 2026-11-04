@@ -422,7 +422,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     ];
     const upstreams = [
       "api.anthropic.com:443",
-      "gitea:3000",
+      "fake-git:3000",
       "fake-messages:4010",
       "fake-mcp:4020",
       "localstack:4566",
@@ -486,16 +486,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       if (file.endsWith(".yml"))
         expect(read(`infra/${file}`)).not.toMatch(/gitea\/gitea|GITEA__/);
     }
-    expect(servicesOf(CORE).gitea).toBeUndefined();
-    expect(layeredServices(TEST_OPS_LAYERS).gitea).toBeUndefined();
-    expect(localStack().gitea).toBeDefined();
+    expect(servicesOf(CORE)["fake-git"]).toBeUndefined();
+    expect(layeredServices(TEST_OPS_LAYERS)["fake-git"]).toBeUndefined();
+    expect(localStack()["fake-git"]).toBeDefined();
   });
 
   // Session records keep the repo_url they started with, so the catalogs,
   // the service name and what fake-git serves have to go on agreeing.
   test("the local git host serves every repository the example catalogs name", () => {
     const local = localStack();
-    const gitHost = local.gitea;
+    const gitHost = local["fake-git"];
     expect(gitHost?.image).toBeUndefined();
     expect(gitHost?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
     expect(gitHost?.command?.slice(0, 3)).toEqual([
@@ -521,7 +521,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         repositories: Record<string, { url: string }>;
       };
       expect(repositories[repository]?.url).toBe(
-        `http://gitea:3000/agent/${repository}.git`,
+        `http://fake-git:3000/agent/${repository}.git`,
       );
       expect(served).toContain(repository);
     }
@@ -537,6 +537,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         template: {
           metadata: { labels: { app: string } };
           spec: {
+            enableServiceLinks?: boolean;
             containers: {
               image: string;
               imagePullPolicy: string;
@@ -553,9 +554,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       .split(/^---$/m)
       .map((document) => Bun.YAML.parse(document) as Manifest);
     expect(deployment?.kind).toBe("Deployment");
-    expect(deployment?.metadata.name).toBe("gitea");
+    expect(deployment?.metadata.name).toBe("fake-git");
     expect(service?.kind).toBe("Service");
-    expect(service?.metadata.name).toBe("gitea");
+    expect(service?.metadata.name).toBe("fake-git");
+    // The Service's link variable would overwrite FAKE_GIT_PORT.
+    expect(deployment?.spec.template.spec.enableServiceLinks).toBe(false);
     expect(service?.spec.ports).toEqual([{ port: 3000 }]);
     expect(service?.spec.selector.app).toBe(
       deployment?.spec.template.metadata.labels.app,
@@ -594,14 +597,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       read("deploy/helm/agent-platform/values.yaml"),
     ) as { catalog: { repositories: Record<string, { url: string }> } };
     expect(catalog.repositories["sample-app"]?.url).toBe(
-      "http://gitea:3000/agent/sample-app.git",
+      "http://fake-git:3000/agent/sample-app.git",
     );
     for (const model of ["fake", "real"]) {
       const { config } = Bun.YAML.parse(
         read(`deploy/kind/values-${model}-model.yaml`),
       ) as { config: { egress: { credentialPrivateAllowlist: string } } };
       expect(config.egress.credentialPrivateAllowlist.split(",")).toContain(
-        "gitea:3000",
+        "fake-git:3000",
       );
     }
   });
@@ -903,7 +906,7 @@ describe("compose publishes nothing beyond loopback and runs pinned images", () 
       postgres: ["127.0.0.1:$" + "{TEST_OPS_POSTGRES_PORT:-5432}:5432"],
       localstack: ["127.0.0.1:4566:4566"],
       secrets: ["127.0.0.1:4567:4566"],
-      gitea: ["127.0.0.1:3001:3000"],
+      "fake-git": ["127.0.0.1:3001:3000"],
       api: ["127.0.0.1:$" + "{TEST_OPS_API_PORT:-3000}:3000"],
     });
   });

@@ -580,7 +580,7 @@ describe("catalog config schema", () => {
     }
     for (const url of [
       "https://git.example.invalid/team/app.git",
-      "http://gitea:3000/agent/sample.git",
+      "http://fake-git:3000/agent/sample.git",
     ]) {
       expect(
         load(config(configured, { app: { ...repository, url } })).repositories

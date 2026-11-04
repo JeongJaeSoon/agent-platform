@@ -181,7 +181,7 @@ if [ "$KIND_MODEL" != none ]; then
   manifest "$root/deploy/kind/deps-session.yaml" |
     sed "s#CONTROL_HOST_IMAGE#${image_repo}-control-host@${control_host_digest}#" |
     kubectl -n "$NAMESPACE" apply -f -
-  deps+=(gitea)
+  deps+=(fake-git)
   values+=(-f "$root/deploy/kind/values-${KIND_MODEL}-model.yaml")
 fi
 if [ "$KIND_MODEL" = fake ]; then

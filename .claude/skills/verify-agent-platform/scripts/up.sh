@@ -55,7 +55,7 @@ services:
       - "127.0.0.1::4566"
   secrets:
     ports: !override []
-  gitea:
+  fake-git:
     ports: !override
       - "127.0.0.1::3000"
   api:

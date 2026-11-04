@@ -65,12 +65,12 @@ up() {
     echo "== build (${project})" >&2
     # migrate builds from the same Dockerfile under the project's own name;
     # left out, a kept stack runs an old image missing the newest migrations.
-    # gitea likewise, or `up` would build it from this checkout.
+    # fake-git likewise, or `up` would build it from this checkout.
     # SOAK_BUILD_ROOT: another checkout to build the images from (rc.sh).
-    (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate gitea worker egress-proxy) >"$state/build.log" 2>&1
+    (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate fake-git worker egress-proxy) >"$state/build.log" 2>&1
   fi
   echo "== stack (${project})" >&2
-  dc up -d --wait postgres localstack secrets gitea gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
+  dc up -d --wait postgres localstack secrets fake-git gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
   dc up -d --wait api >>"$state/up.log" 2>&1
 
   port() { dc port "$1" "$2" | sed 's/.*://'; }

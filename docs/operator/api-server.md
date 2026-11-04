@@ -313,7 +313,7 @@ profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`by
 
 ### 저장소의 예시 카탈로그
 
-저장소의 `config/`는 로컬 예시다: `https://api.anthropic.com`을 endpoint로, API 프로세스의 `ANTHROPIC_API_KEY`를 `value_env`로, compose `gitea` 서비스(읽기 전용 fake-git)의 `sample-app`을 저장소로 쓴다. `config/fake-model/`은 외부 계정 없이 도는 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음, `infra/compose.fake-model.yml`을 얹을 때만 뜬다)에 심어 둔 placeholder 키를 `secret_id`로 쓴다. `agent/sample-app`은 fake-git이 기동할 때마다 같은 커밋으로 다시 만든다. URL `http://gitea:3000/agent/sample-app.git`은 바꾸지 않는다. 세션은 시작할 때의 `repo_url`을 간직하고 카탈로그와 다르면 `CATALOG_MISMATCH`로 멈추기 때문이다.
+저장소의 `config/`는 로컬 예시다: `https://api.anthropic.com`을 endpoint로, API 프로세스의 `ANTHROPIC_API_KEY`를 `value_env`로, compose `fake-git` 서비스(읽기 전용)의 `sample-app`을 저장소로 쓴다. `config/fake-model/`은 외부 계정 없이 도는 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음, `infra/compose.fake-model.yml`을 얹을 때만 뜬다)에 심어 둔 placeholder 키를 `secret_id`로 쓴다. `agent/sample-app`은 fake-git이 기동할 때마다 같은 커밋으로 다시 만든다. URL은 `http://fake-git:3000/agent/sample-app.git`이다. 세션은 시작할 때의 `repo_url`을 간직하고 카탈로그와 다르면 `CATALOG_MISMATCH`로 멈추므로, 이 URL을 바꾸면 그 전 세션은 이어지지 않는다.
 
 ```bash
 docker compose -f infra/compose.yml up -d secrets

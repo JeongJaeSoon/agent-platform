@@ -75,12 +75,12 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== build (${project})" >&2
-# migrate and gitea too, or `up` would build them from this checkout, not the
+# migrate and fake-git too, or `up` would build them from this checkout, not the
 # build root.
-(cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate gitea worker egress-proxy) >"$out/build.log" 2>&1
+(cd "${D2_GATE_BUILD_ROOT:-$root}" && dc build api migrate fake-git worker egress-proxy) >"$out/build.log" 2>&1
 
 echo "== stack" >&2
-dc up -d --wait postgres localstack secrets gitea gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
+dc up -d --wait postgres localstack secrets fake-git gate-chaos gate-messages egress-proxy >"$out/up.log" 2>&1
 dc up -d --wait api >>"$out/up.log" 2>&1
 
 port() { dc port "$1" "$2" | sed 's/.*://'; }

@@ -94,6 +94,7 @@ scripts/local.sh down
 | `127.0.0.1 port(s) … already in use` | 上の `lsof` ループで、そのポートを使っているプロセスを探す |
 | `up needs ANTHROPIC_API_KEY exported or in .env` | オプションなしの `up` は実際の Claude を使う。キーなしで動かすには `--fake-model` を付ける |
 | Docker を再起動した後に API が起動しない | S3 volume・暗号化キー・ログを確認する。以前の LocalStack のデータ消失なら移行・バックアップ手順に従う |
+| pull の後、`up` が `has neither an image nor a build context specified` または `port is already allocated` で終わる | Git サーバーのサービス名が `fake-git` に変わった。ポート override ファイルのキーを直し、`scripts/local.sh down --keep-volumes` の後でもう一度 `up` する。以前のセッションは `CATALOG_MISMATCH` で止まるので、新しいセッションを開く |
 
 ## 次のステップ
 

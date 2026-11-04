@@ -257,7 +257,7 @@ export async function reproMeta(
     egress_proxy_image: await serviceImage("egress-proxy"),
     postgres_image: await serviceImage("postgres"),
     localstack_image: await serviceImage("localstack"),
-    git_host_image: await serviceImage("gitea"),
+    git_host_image: await serviceImage("fake-git"),
     messages_image: await serviceImage("gate-messages"),
     claude_agent_sdk: await inWorker(
       'sed -n \'s/^  "version": "\\(.*\\)",$/\\1/p\' /app/node_modules/@anthropic-ai/claude-agent-sdk/package.json',

@@ -235,7 +235,7 @@ echo "turn 1: ${turn}"
 echo "worker Pod the scheduler launched:"
 echo "$pod_listing"
 # A turn can complete without its workspace, so ask the git host itself.
-clones="$(k exec deploy/gitea -- bun -e 'console.log(await (await fetch("http://127.0.0.1:3000/requests")).text())')"
+clones="$(k exec deploy/fake-git -- bun -e 'console.log(await (await fetch("http://127.0.0.1:3000/requests")).text())')"
 echo "$clones" | jq -c '[.[] | select(.path | contains("sample-app"))]'
 echo "$clones" | jq -e 'any(.[]; .path == "/agent/sample-app.git/git-upload-pack" and .status == 200)' >/dev/null ||
   fail "the git host served no clone of sample-app"
