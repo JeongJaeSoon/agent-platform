@@ -51,6 +51,20 @@ describe("RevisionDiff", () => {
     expect(block?.textContent?.split("\n")).toHaveLength(lines.length + 1);
   });
 
+  test("글은 따옴표 없이 줄 그대로 비교하고, 빈 글은 줄이 없다", () => {
+    const { container } = renderDiff("", "첫 줄\n둘째 줄");
+    const lines = [...container.querySelectorAll("[data-kind]")];
+    expect(
+      lines.map((line) => [
+        line.getAttribute("data-kind"),
+        line.lastChild?.previousSibling?.textContent,
+      ]),
+    ).toEqual([
+      ["added", "첫 줄"],
+      ["added", "둘째 줄"],
+    ]);
+  });
+
   test("같은 카드면 CodeBlock 대신 같다고 말한다", () => {
     const { container } = renderDiff({ a: 1 }, { a: 1 });
     expect(container.querySelector("[data-slot=code-block]")).toBeNull();

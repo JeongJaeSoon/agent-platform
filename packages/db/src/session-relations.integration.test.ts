@@ -12,6 +12,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
+import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresMemberStore } from "./members.ts";
@@ -180,6 +181,12 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         });
       }
     }
+    // X now runs releaseX2, so sessions on releaseX are pinned to an older
+    // one; Y has never been activated.
+    await db
+      .update(agents)
+      .set({ activeReleaseId: releaseX2, activationRevision: 0 })
+      .where(eq(agents.id, agentX));
     // alice administers X directly, dave through a team; nobody Y.
     await db
       .insert(agentAdmins)
@@ -447,6 +454,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
       name: "Checkout fixer",
       release_version_no: 3,
       release_label: "2026-10-30_14:30:28-2",
+      release_is_active: true,
     });
     expect(page.items[0]?.created_by).toEqual({
       user_id: people.bob.id,
@@ -473,6 +481,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         name: "Checkout fixer",
         release_version_no: 3,
         release_label: "2026-10-30_14:30:28",
+        release_is_active: false,
       },
       created_by: { user_id: people.alice.id, display_name: "Alice Kim" },
       channel: "web",
@@ -484,6 +493,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         name: "Docs writer",
         release_version_no: 1,
         release_label: "2026-10-30_00:00:00",
+        release_is_active: false,
       },
       created_by: { user_id: people.bob.id, display_name: "Bob Lee" },
       channel: "api",

@@ -1026,6 +1026,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     name: "Checkout fixer",
     release_version_no: 3,
     release_label: "2026-10-11_17:00:00",
+    release_is_active: true,
   },
   created_by: {
     user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",

@@ -52,6 +52,12 @@ x-worker-runtimes:
   current: &worker-image-runtime ${WORKER_IMAGE_RUNTIME:-}
   previous: &worker-image-previous-runtime ${WORKER_IMAGE_PREVIOUS_RUNTIME:-}
 
+# The pass-loop roles (scheduler, reconciler, slack) each run two Bun
+# processes, the loop and its pass child, idle between passes. --smol keeps
+# their heaps smaller for a little more GC time; BUN_OPTIONS reaches the
+# child and the healthcheck too.
+x-pass-loop-bun-options: &pass-loop-bun-options --smol
+
 # Every image is pinned by its multi-arch index digest or is one of the apps
 # built from this repository, so amd64 and arm64 daemons run the same bytes
 # (tests/images.test.ts).
@@ -459,6 +465,7 @@ services:
       # Above EXECUTION_DOCKER_STOP_TIMEOUT_SEC + the request timeout.
       SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-180}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BUN_OPTIONS: *pass-loop-bun-options
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -523,6 +530,7 @@ services:
       RECONCILER_HEALTH_STALE_SEC: ${RECONCILER_HEALTH_STALE_SEC:-90}
       RECONCILER_BATCH_SIZE: ${RECONCILER_BATCH_SIZE:-100}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BUN_OPTIONS: *pass-loop-bun-options
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -592,6 +600,7 @@ services:
       <<: *installation-limits
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BUN_OPTIONS: *pass-loop-bun-options
       # Slack's outbound calls (94S-792) decrypt bot tokens here.
       PLATFORM_SECRET_KEY:
       PLATFORM_CONFIG_DIR: /app/config
