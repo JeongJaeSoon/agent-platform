@@ -10,7 +10,6 @@
     "./callers": "./src/callers.ts",
     "./checkpoint-objects": "./src/checkpoint-objects.ts",
     "./fake-anthropic": "./src/fake-anthropic.ts",
-    "./fake-github": "./src/fake-github.ts",
     "./fake-mcp": "./src/fake-mcp.ts",
     "./fake-slack-api": "./src/fake-slack-api.ts",
     "./git": "./src/git.ts",
@@ -21,7 +20,6 @@
     "./mock-oidc": "./src/mock-oidc.ts",
     "./pglite": "./src/pglite.ts",
     "./postgres": "./src/postgres.ts",
-    "./scripted-messages": "./src/scripted-messages.ts",
     "./tls-client-hello": "./src/tls-client-hello.ts",
     "./workspace": "./src/workspace.ts"
   },

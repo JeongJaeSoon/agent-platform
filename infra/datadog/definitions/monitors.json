@@ -5,7 +5,7 @@
     {
       "name": "[Werft] readyz unavailable",
       "type": "service check",
-      "query": "\"http.can_connect\".over(\"instance:agent-platform-readyz\").by(\"env\").last(3).count_by_status()",
+      "query": "\"http.can_connect\".over(\"instance:werft-readyz\").by(\"env\").last(3).count_by_status()",
       "message": "API readiness failed. Follow docs/operator/configuration.md#api-설정.",
       "tags": ["service:api", "threshold_stage:first-week-tuning"],
       "options": {

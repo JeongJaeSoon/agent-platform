@@ -9,9 +9,6 @@
  * a real connection.
  */
 
-export const DECISIONS_GUIDE_URL =
-  "https://developers.openai.com/api/docs/guides/decisions";
-
 /** One choice question, as the judge sends it per (rule, evidence) pair. */
 export const DECISIONS_REQUEST_FIXTURE = {
   model: "gpt-6-luna",

@@ -32,28 +32,28 @@ services:
 
   api:
     labels:
-      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"api"}]'
+      com.datadoghq.ad.logs: '[{"source":"werft","service":"api"}]'
       com.datadoghq.tags.service: api
       com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
       com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
 
   scheduler:
     labels:
-      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"scheduler"}]'
+      com.datadoghq.ad.logs: '[{"source":"werft","service":"scheduler"}]'
       com.datadoghq.tags.service: scheduler
       com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
       com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
 
   reconciler:
     labels:
-      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"reconciler"}]'
+      com.datadoghq.ad.logs: '[{"source":"werft","service":"reconciler"}]'
       com.datadoghq.tags.service: reconciler
       com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
       com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}
 
   egress-proxy:
     labels:
-      com.datadoghq.ad.logs: '[{"source":"agent-platform","service":"egress-proxy"}]'
+      com.datadoghq.ad.logs: '[{"source":"werft","service":"egress-proxy"}]'
       com.datadoghq.tags.service: egress-proxy
       com.datadoghq.tags.env: ${DD_ENV:?DD_ENV must name the deployment environment}
       com.datadoghq.tags.version: ${DD_VERSION:?DD_VERSION must name the release version}

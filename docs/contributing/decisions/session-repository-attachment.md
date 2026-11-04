@@ -61,7 +61,7 @@
 - 같은 저장소를 다시 붙이면 아무것도 바꾸지 않고 성공한다(멱등). 끝난 attempt의 요청은 거절한다.
 - receipt: 요청한 actor·attempt, 저장소, 정책(릴리스) 버전, fetch한 commit, 거절 사유. fetch에는 시간·크기 상한을 둔다. 사람 승인은 받지 않는다([오너 결정](#오너-결정-2026-11-02) 3). 쓰기는 지금처럼 push 요청 승인이 막는다.
 - restore 뒤에는 worker가 부착 목록으로 원격을 다시 단다.
-- **붙일 수 있는 저장소를 에이전트가 본다(2026-11-03).** 이 결정은 상한을 정했지만 에이전트가 상한을 어떻게 아는지는 정하지 않았다. 4620에서 세션이 자기 기본 저장소도 말하지 못하고 `api.github.com`을 직접 부르다 egress에 막혔다(`~/share/owner-checks/sandbox-repo-access-20261102/result.md`). 읽기 전용 내장 MCP 도구 `list_repositories`를 둔다. 부를 때마다 게이트와 같은 세션 문맥을 다시 읽고, 상한은 부착 목록을 빼고(`attached: null`) 계산한 뒤 부착 상태를 따로 합친다. 부착 목록을 넣으면 아직 붙이지 않은 후보가 사라지기 때문이다. 항목은 `id`, `name`(URL 경로, 자격 증명 없음), `branch`, `status`(`primary`·`attached`·`pending`·`failed`·`available`)뿐이고 카탈로그 객체는 내보내지 않는다. receipt는 남기지 않는다(읽기만 한다).
+- **붙일 수 있는 저장소를 에이전트가 본다(2026-11-03).** 이 결정은 상한을 정했지만 에이전트가 상한을 어떻게 아는지는 정하지 않았다. 4620에서 세션이 자기 기본 저장소도 말하지 못하고 `api.github.com`을 직접 부르다 egress에 막혔다. 읽기 전용 내장 MCP 도구 `list_repositories`를 둔다. 부를 때마다 게이트와 같은 세션 문맥을 다시 읽고, 상한은 부착 목록을 빼고(`attached: null`) 계산한 뒤 부착 상태를 따로 합친다. 부착 목록을 넣으면 아직 붙이지 않은 후보가 사라지기 때문이다. 항목은 `id`, `name`(URL 경로, 자격 증명 없음), `branch`, `status`(`primary`·`attached`·`pending`·`failed`·`available`)뿐이고 카탈로그 객체는 내보내지 않는다. receipt는 남기지 않는다(읽기만 한다).
 - 에이전트가 터미널에서 직접 `git clone`한 결과는 보존하지 않는다. checkpoint가 추적되지 않는 중첩 저장소를 거절한다(`apps/worker/src/workspace-capture.ts:560-565`). 도구로 붙인 저장소만 세션의 저장소다.
 
 ## 결정 4: 저장소 없이 시작한 세션도 붙인다

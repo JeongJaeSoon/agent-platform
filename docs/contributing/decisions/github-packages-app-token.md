@@ -2,8 +2,8 @@
 
 - 상태: 결정됨(2026-10-31), 확정(2026-11-01). **App 설치 token으로는 GitHub Packages(npm·RubyGems)를 받을 수 없다(불가 확정).** App에 Packages: Read를 준 뒤에도 403이다. 조직 레지스트리(GitHub Packages) 요청에 proxy가 App token을 붙이는 작업(이하 "조직 레지스트리 작업")은 하지 않는다. 대신 조직 bot 계정의 `read:packages` classic PAT를 proxy가 주입하는 방식으로 간다(아래 "대안과 후속"의 A).
 - 기준 커밋: `origin/main` `fc1e7f26`. 아래 `파일:줄`은 모두 이 커밋 기준이다.
-- 실측 로그: `~/share/owner-checks/session-deps-20261031/1098-measure.log`(오너가 실행, 이 문서의 표는 그 로그에서 옮겼다).
-- 조사: `~/share/owner-checks/github-packages-multiuser-20261101/report.md`(GitHub 문서·커뮤니티·타사 사례), `~/share/owner-checks/devin-github-packages-20261101.md`(Devin 비교). 요약은 아래 "근거"에 있다.
+- 실측 로그: 오너가 실행한 측정 로그(repo 밖). 이 문서의 표는 그 로그에서 옮겼다.
+- 조사: GitHub 문서·커뮤니티·타사 사례 조사와 Devin 비교(repo 밖). 요약은 아래 "근거"에 있다.
 
 ## 왜 실측했나
 
@@ -11,7 +11,7 @@
 
 ## 어떻게 쟀나
 
-- 스크립트: [`scripts/github-packages-probe.ts`](../../../scripts/github-packages-probe.ts). 제품의 발급 경로(#941 GitHub 게이트, `packages/platform/src/sessions/github-gate.ts`)를 거치지 않는 일회성 측정이다. `apps/control-host/src/api/forge-github.ts:546`의 `@octokit/auth-app` 호출과 같은 REST 요청(`POST /app/installations/{id}/access_tokens`, `repositories: [<repo>]`, `permissions`)을 직접 보낸다. 그래서 422(권한 거절)를 HTTP status 그대로 본다.
+- 스크립트: [`scripts/github-packages-probe.ts`](https://github.com/JeongJaeSoon/werft/blob/4b014d723f9a7f3d5aba5fddc9b60f577e2f8723/scripts/github-packages-probe.ts)(삭제됨, 링크는 삭제 직전 커밋). 제품의 발급 경로(#941 GitHub 게이트, `packages/platform/src/sessions/github-gate.ts`)를 거치지 않는 일회성 측정이다. `apps/control-host/src/api/forge-github.ts:546`의 `@octokit/auth-app` 호출과 같은 REST 요청(`POST /app/installations/{id}/access_tokens`, `repositories: [<repo>]`, `permissions`)을 직접 보낸다. 그래서 422(권한 거절)를 HTTP status 그대로 본다.
 - token과 App 키는 출력·기록하지 않는다. 출력은 행마다 `<행> <대상> <status> <redirect host|-> <요약>`뿐이다. 발급한 token은 끝날 때(예외·SIGINT 포함) `DELETE /installation/token`으로 폐기한다(R행).
 - redirect는 token을 붙인 채 따라가지 않는다. 다음 요청은 Authorization 없이 보낸다(proxy가 보낼 모양).
 - 순서: 먼저 오너의 classic PAT로 받아지는지(양성 대조, `--control`의 `C-pat/` 행)와 token 없이는 실패하는지(`C-anon/` 행)를 본다. 그다음 PAT·캐시 없는 환경(`env -i`, 빈 HOME, `.npmrc`·gem 설정·프록시 없음)에서 설치 token만으로 받는다. 패키지별 접근 설정(visibility, 저장소 권한 상속, 연결 저장소)은 오너가 로그에 `# owner:` 줄로 남긴다.
@@ -142,8 +142,8 @@ PAT로는 네 대상이 모두 받아지고, 무인증은 모두 401이다. 테�
 ## 근거
 
 1. 실측(위 4차): App에 `packages:read`를 준 설치 token도 npm·RubyGems 전부 403. PAT 200, 무인증 401.
-2. 조사(`~/share/owner-checks/github-packages-multiuser-20261101/report.md`): GitHub 문서가 Packages 레지스트리 인증으로 이름을 대는 것은 classic PAT와 Actions `GITHUB_TOKEN`뿐이고, App 설치 token과 fine-grained PAT는 나오지 않는다. 지원하지 않는다는 명시는 커뮤니티 답변과 그곳에 옮겨진 GitHub Support 답변에 있다. App token 지원은 공개 로드맵에 오른 적이 없고, fine-grained PAT 항목은 2024-11에 로드맵 보드에서 빠졌다. 조직 소유 패키지·조직 설치 App에서도 같은 403(`installation not allowed to Read organization package`)이 커뮤니티에 여러 건 보고돼 있다.
-3. 비교(`~/share/owner-checks/devin-github-packages-20261101.md`): Devin 공개 문서에는 GitHub Packages 전용 기능이 없다. 문서가 설명하는 것은 일반 사설 레지스트리 방식뿐으로, 사용자가 넣은 Secret을 설치 단계에서 환경 변수로 참조해 설정 파일을 쓴다. 그 Secret이 GitHub Packages에서는 classic PAT일 것이라는 점, Devin GitHub App의 `packages` 읽기 권한이 레지스트리 설치용이 아니라는 점은 추정이다(실제 화면은 확인하지 않았다).
+2. 조사: GitHub 문서가 Packages 레지스트리 인증으로 이름을 대는 것은 classic PAT와 Actions `GITHUB_TOKEN`뿐이고, App 설치 token과 fine-grained PAT는 나오지 않는다. 지원하지 않는다는 명시는 커뮤니티 답변과 그곳에 옮겨진 GitHub Support 답변에 있다. App token 지원은 공개 로드맵에 오른 적이 없고, fine-grained PAT 항목은 2024-11에 로드맵 보드에서 빠졌다. 조직 소유 패키지·조직 설치 App에서도 같은 403(`installation not allowed to Read organization package`)이 커뮤니티에 여러 건 보고돼 있다.
+3. 비교: Devin 공개 문서에는 GitHub Packages 전용 기능이 없다. 문서가 설명하는 것은 일반 사설 레지스트리 방식뿐으로, 사용자가 넣은 Secret을 설치 단계에서 환경 변수로 참조해 설정 파일을 쓴다. 그 Secret이 GitHub Packages에서는 classic PAT일 것이라는 점, Devin GitHub App의 `packages` 읽기 권한이 레지스트리 설치용이 아니라는 점은 추정이다(실제 화면은 확인하지 않았다).
 
 ## 결론
 

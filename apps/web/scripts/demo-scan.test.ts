@@ -29,7 +29,7 @@ describe("demo fixture scan", () => {
     expect(
       scan({
         email: "someone@gmail.com",
-        url: "https://box.tail015a0d.ts.net:4620/",
+        url: "https://box.tailnet-example.ts.net:4620/",
         api: "http://127.0.0.1:4611",
         path: "/Users/someone/work",
       }),

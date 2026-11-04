@@ -19,13 +19,13 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 - 웹: 설정 › 워크스페이스 › GitHub 연결(App 등록·상한), 에이전트 상세 GitHub 탭. 이 파일은 같은 API를 cookie와 key로 몬다. 화면은 [web-settings.md](./web-settings.md)·[web-members-agents.md](./web-members-agents.md)의 `browser.mjs`로 본다.
 - push·PR·dispatch는 콘솔에 화면이 없다. 세션 API로만 한다.
-- GitHub 쪽 확인과 정리는 `gh`(이 머신의 오너 로그인)로 한다.
+- GitHub 쪽 확인과 정리는 이 머신에 로그인된 `gh`로 한다.
 
 ## Driving it with lib.sh
 
 Preconditions:
 
-- 대상은 `JeongJaeSoon/werft-sandbox`(private)와 작성용 App `werft-sandbox-agent`(App ID `5513262`, installation `176243287`)다. App 키는 오너가 둔 파일이고, 이 절차는 그 경로만 쓴다. 내용을 읽거나 출력하지 않는다. `ls ~/.config/werft`로 파일 이름만 확인한다.
+- 대상은 sandbox 저장소(`JeongJaeSoon/werft-sandbox`)와 작성용 App `werft-sandbox-agent`다. App ID는 환경 변수 `SANDBOX_APP_ID`로 준다(운영자가 따로 보관한다). App 키는 운영자가 둔 파일이고, 이 절차는 그 경로만 쓴다. 내용을 읽거나 출력하지 않는다. `ls ~/.config/werft`로 파일 이름만 확인한다.
 - master key는 이 run만 쓰는 버리는 값이다(값은 출력하지 않고 길이만). 사람의 Keychain 항목은 읽지 않는다.
 - Orca 프로그램이면 `orch hold verify-stack --note "<card>"`를 먼저 잡고 끝나면 놓는다. 스택은 프로그램 전체에서 하나다.
 - 열린 sandbox PR은 다른 카드의 증거일 수 있다. 자기가 연 PR만 닫는다.
@@ -43,11 +43,11 @@ orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh .clau
 U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
 node $U <run id> bootstrap owner; node $U <run id> login owner; ap_as owner
 WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id); printf 'WS=%s\n' "$WS" >> "$VERIFY_RUN/ids.sh"
-node $U <run id> github-app owner "$WS" 5513262 | tee "$EVIDENCE/gh-app-put.txt"
+node $U <run id> github-app owner "$WS" "$SANDBOX_APP_ID" | tee "$EVIDENCE/gh-app-put.txt"
 ap_web GET "/v1/workspaces/$WS/github-app" | tee "$EVIDENCE/gh-app-get.txt"
 ```
 
-기대: PUT `200`, `github_app.app_id: 5513262`, `slug: "werft-sandbox-agent"`, `permissions`(지금 App이 가진 권한), `receipt_id`. GET `200`, `check.state: "ok"`, `repositories`의 `sandbox`에 `installation_id: 176243287`. 키는 어느 응답에도 없다.
+기대: PUT `200`, `github_app.app_id`(`$SANDBOX_APP_ID`), `slug: "werft-sandbox-agent"`, `permissions`(지금 App이 가진 권한), `receipt_id`. GET `200`, `check.state: "ok"`, `repositories`의 `sandbox`에 sandbox 설치의 `installation_id`. 키는 어느 응답에도 없다.
 
 ```sh
 # 3. 상한(Actions)과 에이전트 릴리스
@@ -147,10 +147,10 @@ orch release verify-stack
 
 ## Gotchas
 
-- **오너 단계가 남은 항목.** 2026-10-30 기준 App에는 Actions 권한이 없고 werft-sandbox `main`에는 `.github/workflows/`가 없다(설계 문서 9절 "오너만 할 수 있는 단계" 1·4). 그래서 목록 안 dispatch는 `409 app_permission_missing`(GitHub가 `actions: write` 발급을 거절)에서 멈추고, run 조회(`actions_read`)도 같은 이유로 거절된다. 성공·run 조회·rerun 성공은 오너 단계 뒤에 같은 명령으로 확인한다. 워크플로만 없으면 GitHub가 dispatch를 404로 답한다.
+- **운영자 단계가 남은 항목.** 2026-10-30 기준 App에는 Actions 권한이 없고 werft-sandbox `main`에는 `.github/workflows/`가 없다(설계 문서 9절의 운영자 단계 1·4). 그래서 목록 안 dispatch는 `409 app_permission_missing`(GitHub가 `actions: write` 발급을 거절)에서 멈추고, run 조회(`actions_read`)도 같은 이유로 거절된다. 성공·run 조회·rerun 성공은 운영자 단계 뒤에 같은 명령으로 확인한다. 워크플로만 없으면 GitHub가 dispatch를 404로 답한다.
 - **릴리스 없는 세션은 GitHub 설정이 없다.** 개인 key로 `repository_id: "sandbox"`만 주고 만든 세션은 기본 설정(Actions 꺼짐)이라 dispatch가 `403 feature_off`다(코드 기준: `packages/platform/src/sessions/github-gate.ts`의 `settings === null`, 이 run에서는 몰지 않았다). dispatch를 보려면 위처럼 `agent_release_id`로 만든다.
-- **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 오너에게 기본 경로에 두게 한다.
+- **키 경로를 명령에 쓰지 않는다.** agent-guard가 키 파일 모양의 경로가 든 명령을 막는다. 다른 파일이면 `VERIFY_GITHUB_APP_KEY_FILE`을 따로 export하는 줄도 같은 이유로 막힐 수 있으니, 기본 경로에 둔다.
 - **머지는 사람의 리뷰가 있어야 한다.** werft-sandbox `main`의 ruleset이 승인 리뷰 1개를 요구해 `gh pr merge`가 거절된다. `--admin`으로 넘지 않는다. 그래서 머지 뒤 근거 상태(`merged`)와 Luna 규칙의 다시 판정은 이 절차로 보지 못한다(연결 저장 뒤 후속 검증).
-- **sandbox 저장소는 공유 상태다.** 다른 카드가 연 PR·브랜치가 있다. `gh pr list -R JeongJaeSoon/werft-sandbox`로 자기 `agent/<SID>`만 골라 닫는다. 머지는 하지 않는다(auto mode가 [Merge Without Review]로 막는다. 필요하면 오너 줄로 넘긴다).
+- **sandbox 저장소는 공유 상태다.** 다른 카드가 연 PR·브랜치가 있다. `gh pr list -R JeongJaeSoon/werft-sandbox`로 자기 `agent/<SID>`만 골라 닫는다. 머지는 하지 않는다(auto mode가 [Merge Without Review]로 막는다. 필요하면 사람에게 명령 한 줄로 넘긴다).
 - **다른 run의 파일을 읽지 않는다.** 남겨 둔 run의 `state.env`는 agent-guard가 막는다. 자기 run을 새로 띄운다.
-- **repo 밖 overlay**(예: 오너 확인 디렉터리의 카탈로그 App overlay)는 `up.sh`가 repo 기준으로 붙이므로 `../../…` 상대 경로로 넘긴다.
+- **repo 밖 overlay**(예: 저장소 밖 디렉터리의 카탈로그 App overlay)는 `up.sh`가 repo 기준으로 붙이므로 `../../…` 상대 경로로 넘긴다.
