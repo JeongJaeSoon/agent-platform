@@ -179,6 +179,15 @@ describe("placeInstructionFiles", () => {
 
     expect(await exists("AGENTS.md")).toBe(false);
     expect(await exists("CLAUDE.md")).toBe(false);
+
+    // Skipped leaves no proof of ownership: a file added later, once the
+    // re-inclusion is gone, is not taken for ours.
+    await rm(join(root, ".gitignore"));
+    git(["rm", "--quiet", "--cached", ".gitignore"]);
+    git(["commit", "--quiet", "-m", "drop gitignore"]);
+    await writeFile(join(root, "AGENTS.md"), "mine\n");
+    expect(await place()).toBe("kept");
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("mine\n");
   });
 
   test("stops before writing when the worker is told to stop", async () => {

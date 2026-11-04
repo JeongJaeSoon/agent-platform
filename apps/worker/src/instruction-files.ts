@@ -76,7 +76,12 @@ export async function placeInstructionFiles(input: {
   }
   // The repository's own .gitignore can re-include a name (`!AGENTS.md`),
   // and then the exclude would not keep the file out of a commit or capture.
-  if (!(await ignored(root, [CANONICAL, LINK], signal))) return "skipped";
+  if (!(await ignored(root, [CANONICAL, LINK], signal))) {
+    // The marker is the proof a file is ours; without a placement it must
+    // not outlive this call, or a file someone adds later would look ours.
+    if (!marked) await replaceFile(gitDir, exclude, excludes);
+    return "skipped";
+  }
   signal.throwIfAborted();
   await replaceFile(gitDir, join(root, CANONICAL), ensureNewline(input.text));
   signal.throwIfAborted();

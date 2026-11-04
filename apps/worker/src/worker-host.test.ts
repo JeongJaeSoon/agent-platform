@@ -266,14 +266,12 @@ describe("WorkerHost turn loop", () => {
 
   test("starts no engine when a stop landed while the instruction files were being placed", async () => {
     let started = false;
-    let release: () => void = () => {};
     let hostRef: WorkerHost | undefined;
     const { gateway, host } = harness([{ type: "await-input" }], {
+      // Never answers: the shutdown must not wait for it.
       placeInstructions: async () => {
         hostRef?.drain("received SIGTERM");
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
+        await new Promise<void>(() => {});
         return "placed";
       },
       wrap: (run) => {
@@ -284,11 +282,7 @@ describe("WorkerHost turn loop", () => {
     hostRef = host;
     gateway.enqueue("hello");
 
-    const running = host.runLoop();
-    await waitFor(() => hostRef !== undefined, "the host");
-    await Bun.sleep(50);
-    release();
-    await running;
+    await host.runLoop();
 
     expect(started).toBe(false);
   });
