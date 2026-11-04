@@ -564,9 +564,9 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
     expect(result.exitCode).toBe(0);
     expect(await kubectlArgs()).toEqual([
       "-n",
-      "agent-platform",
+      "werft",
       "exec",
-      "deploy/agent-platform-api",
+      "deploy/werft-api",
       "-c",
       "api",
       "--",
@@ -590,23 +590,21 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
       "-n",
       "ap",
       "exec",
-      "deploy/prod-agent-platform-api",
+      "deploy/prod-werft-api",
     ]);
     expect(args).toContain("apps/control-host/src/api/catalog-authority.ts");
 
-    run(["grants", "revoke", "x"], { RELEASE: "agent-platform-blue" });
-    expect((await kubectlArgs())[3]).toBe("deploy/agent-platform-blue-api");
+    run(["grants", "revoke", "x"], { RELEASE: "werft-blue" });
+    expect((await kubectlArgs())[3]).toBe("deploy/werft-blue-api");
   });
 
   test("truncates the fullname to 50 characters like the chart", async () => {
-    // 45 + "-agent-platform" = 60, cut at 50 right after a "-".
+    // 45 + "-werft" = 51, one over.
     run(["keys", "revoke", "x"], { RELEASE: "r".repeat(45) });
-    expect((await kubectlArgs())[3]).toBe(`deploy/${"r".repeat(45)}-agen-api`);
+    expect((await kubectlArgs())[3]).toBe(`deploy/${"r".repeat(45)}-werf-api`);
 
-    run(["keys", "revoke", "x"], { RELEASE: "r".repeat(36) });
-    expect((await kubectlArgs())[3]).toBe(
-      `deploy/${"r".repeat(36)}-agent-platfor-api`,
-    );
+    run(["keys", "revoke", "x"], { RELEASE: "r".repeat(44) });
+    expect((await kubectlArgs())[3]).toBe(`deploy/${"r".repeat(44)}-werft-api`);
 
     run(["keys", "revoke", "x"], { RELEASE: `${"r".repeat(49)}-x` });
     expect((await kubectlArgs())[3]).toBe(`deploy/${"r".repeat(49)}-api`);
@@ -649,9 +647,9 @@ describe("verify-agent-platform down.sh", () => {
         `export COMPOSE_PROJECT_NAME=${project}`,
         `export EXECUTION_INSTALLATION_ID=${project}`,
         `export COMPOSE_FILE=${repo}/compose.yaml:${runDir}/ports.yml`,
-        `export API_IMAGE=agent-platform-control-host:${project}`,
-        `export WORKER_IMAGE=agent-platform-worker:${project}`,
-        `export EGRESS_PROXY_IMAGE=agent-platform-egress-proxy:${project}`,
+        `export API_IMAGE=werft-control-host:${project}`,
+        `export WORKER_IMAGE=werft-worker:${project}`,
+        `export EGRESS_PROXY_IMAGE=werft-egress-proxy:${project}`,
         "",
       ].join("\n"),
     );

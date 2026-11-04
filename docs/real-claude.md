@@ -64,7 +64,7 @@ docker compose -p "$P" -f infra/compose.yml -f tests/e2e/compose.yml \
 docker ps -aq --filter "label=agent-platform.installation=$I" | xargs -r docker rm -f
 docker network ls -q --filter "label=agent-platform.installation=$I" | xargs -r docker network rm
 docker volume ls -q --filter "label=agent-platform.installation=$I" | xargs -r docker volume rm
-docker image rm "agent-platform-control-host:$P" "agent-platform-worker:$P" "agent-platform-egress-proxy:$P"
+docker image rm "werft-control-host:$P" "werft-worker:$P" "werft-egress-proxy:$P"
 ```
 
 ## B. 실제 Claude와 직접 대화하기

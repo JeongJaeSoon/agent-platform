@@ -47,8 +47,8 @@ REGISTRY_NAME="${REGISTRY_NAME:-${CLUSTER_NAME}-registry}"
 REGISTRY_PORT="${REGISTRY_PORT:-5001}"
 # Local end of the api port-forward the check below reads through.
 FORWARD_PORT="${FORWARD_PORT:-13000}"
-NAMESPACE="${NAMESPACE:-agent-platform}"
-RELEASE="${RELEASE:-agent-platform}"
+NAMESPACE="${NAMESPACE:-werft}"
+RELEASE="${RELEASE:-werft}"
 KIND_MODEL="${KIND_MODEL:-none}"
 CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind}"
 REGISTRY_IMAGE="${REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
@@ -138,8 +138,8 @@ done
 docker network connect kind "$REGISTRY_NAME" 2>/dev/null || true
 fi
 
-image_repo="localhost:${REGISTRY_PORT}/agent-platform"
-[ "$CLUSTER_PROVIDER" = kind ] || image_repo="agent-platform"
+image_repo="localhost:${REGISTRY_PORT}/werft"
+[ "$CLUSTER_PROVIDER" = kind ] || image_repo="werft"
 # Builds one app image and prints the digest the chart pins it by: the
 # registry's after a push on kind; on OrbStack, whose cluster pulls from the
 # Docker engine's own store, the manifest digest the containerd image store
@@ -219,7 +219,7 @@ fi
 # local defaults. The default catalog names ANTHROPIC_API_KEY, which only
 # has to resolve unless KIND_MODEL is real.
 if [ "$KIND_MODEL" = real ]; then
-  if kubectl -n "$NAMESPACE" get secret agent-platform >/dev/null 2>&1; then
+  if kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
     echo "KIND_MODEL=real needs a fresh cluster: the Secret already holds another key (up.sh down first)" >&2
     exit 1
   fi
@@ -234,8 +234,8 @@ if [ "$KIND_MODEL" = real ]; then
 else
   provider_key() { printf kind-check-no-key; }
 fi
-if ! kubectl -n "$NAMESPACE" get secret agent-platform >/dev/null 2>&1; then
-  kubectl -n "$NAMESPACE" create secret generic agent-platform \
+if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
+  kubectl -n "$NAMESPACE" create secret generic werft \
     --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
     --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
     --from-literal=AWS_ACCESS_KEY_ID=test \
@@ -248,11 +248,17 @@ for dep in "${deps[@]}"; do
   kubectl -n "$NAMESPACE" rollout status "deploy/$dep" --timeout=300s
 done
 
+# preview.sh runs this copy over older heads, whose chart has another name
+# and another default Secret.
+chart="$root/deploy/helm/agent-platform"
+chart_name="$(sed -n 's/^name: //p' "$chart/Chart.yaml")"
+
 # Helm waits for the migrate hook, and the rollouts below for the rest.
-helm upgrade --install "$RELEASE" "$root/deploy/helm/agent-platform" \
+helm upgrade --install "$RELEASE" "$chart" \
   --namespace "$NAMESPACE" \
   "${values[@]}" \
   ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
+  --set "secrets.name=werft" \
   --set "images.controlHost.repository=${image_repo}-control-host" \
   --set "images.controlHost.digest=${control_host_digest}" \
   --set "images.egressProxy.repository=${image_repo}-egress-proxy" \
@@ -262,7 +268,11 @@ helm upgrade --install "$RELEASE" "$root/deploy/helm/agent-platform" \
   --timeout 10m
 
 fullname="$RELEASE"
-case "$RELEASE" in *agent-platform*) ;; *) fullname="${RELEASE}-agent-platform" ;; esac
+case "$RELEASE" in *"$chart_name"*) ;; *) fullname="${RELEASE}-${chart_name}" ;; esac
+fullname="${fullname:0:50}"
+fullname="${fullname%-}"
+# preview.sh points its Ingress at this name.
+echo "$fullname" >"$STATE_DIR/fullname"
 
 kubectl -n "$NAMESPACE" wait --for=condition=complete "job/${fullname}-migrate" --timeout=60s
 for deploy in api egress-proxy reconciler scheduler slack; do

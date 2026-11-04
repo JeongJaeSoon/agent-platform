@@ -52,8 +52,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 export CLUSTER_NAME="${CLUSTER_NAME:-agent-platform-smoke}"
 export KIND_MODEL="${KIND_MODEL:-fake}"
-export NAMESPACE="${NAMESPACE:-agent-platform}"
-export RELEASE="${RELEASE:-agent-platform}"
+export NAMESPACE="${NAMESPACE:-werft}"
+export RELEASE="${RELEASE:-werft}"
 # As up.sh checks it: it is in a path below, and the namespace the teardown
 # may delete.
 if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
@@ -80,7 +80,9 @@ case "$KIND_MODEL" in
 esac
 
 fullname="$RELEASE"
-case "$RELEASE" in *agent-platform*) ;; *) fullname="${RELEASE}-agent-platform" ;; esac
+case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
+fullname="${fullname:0:50}"
+fullname="${fullname%-}"
 k() { kubectl -n "$NAMESPACE" "$@"; }
 step() { current="$1"; echo; echo "== k8s-smoke: $*"; }
 pass() { echo "PASS ${current}"; }

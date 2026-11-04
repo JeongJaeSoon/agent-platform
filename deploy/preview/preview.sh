@@ -192,6 +192,11 @@ up() {
   require_local_only
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
+    # A second release beside it would share its postgres and installation id.
+    if helm status agent-platform --namespace "$namespace" >/dev/null 2>&1; then
+      echo "${namespace} holds a release from before the werft rename: run down ${n} first" >&2
+      exit 1
+    fi
   else
     require_memory "$namespace"
   fi
@@ -212,8 +217,7 @@ up() {
   kubectl annotate namespace "$namespace" --overwrite \
     "agent-platform.dev/preview-up-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
 
-  # RELEASE fixes the Service name the Ingress below points at.
-  CLUSTER_PROVIDER=orbstack KIND_MODEL=fake RELEASE=agent-platform \
+  CLUSTER_PROVIDER=orbstack KIND_MODEL=fake RELEASE=werft \
     NAMESPACE="$namespace" IMAGE_TAG="$namespace" \
     EXTRA_VALUES="$here/values.yaml" STATE_DIR="${dir}/state" FORWARD_PORT="$(free_port)" \
     "${dir}/src/deploy/kind/preview-up.sh"
@@ -235,7 +239,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: agent-platform-api
+                name: $(cat "${dir}/state/fullname")-api
                 port:
                   number: 3000
 EOF
@@ -291,9 +295,11 @@ down() {
     sleep 5
   done
   echo "${namespace}: ${left} containers left"
+  # agent-platform-*: the tags of a preview up since before the werft rename.
   for app in "${APPS[@]}"; do
-    docker image rm "agent-platform-${app}:${namespace}" >/dev/null 2>&1 \
-      && echo "removed agent-platform-${app}:${namespace}"
+    for image in "werft-${app}:${namespace}" "agent-platform-${app}:${namespace}"; do
+      docker image rm "$image" >/dev/null 2>&1 && echo "removed ${image}"
+    done
   done
   if [ -d "${dir}/src" ]; then
     git -C "$root" worktree remove --force "${dir}/src"

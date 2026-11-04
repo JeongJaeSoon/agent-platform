@@ -818,8 +818,8 @@ const MUST_FAIL: [string, string[], RegExp][] = [
   ],
   ...[
     "alb.ingress.kubernetes.io/conditions.block-internal",
-    "alb.ingress.kubernetes.io/conditions.ap-agent-platform-api",
-    "alb.ingress.kubernetes.io/transforms.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/conditions.ap-werft-api",
+    "alb.ingress.kubernetes.io/transforms.ap-werft-api",
     "alb.ingress.kubernetes.io/actions.block-internal",
     "alb.ingress.kubernetes.io/group.name",
     "kubernetes.io/ingress.class",
@@ -1089,8 +1089,8 @@ const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
   ],
   ...[
     "alb.ingress.kubernetes.io/conditions.block-internal",
-    "alb.ingress.kubernetes.io/conditions.ap-agent-platform-api",
-    "alb.ingress.kubernetes.io/transforms.ap-agent-platform-api",
+    "alb.ingress.kubernetes.io/conditions.ap-werft-api",
+    "alb.ingress.kubernetes.io/transforms.ap-werft-api",
     "alb.ingress.kubernetes.io/group.order",
     "kubernetes.io/ingress.class",
   ].map((key): [string, (ingress: Manifest) => void, string] => [
@@ -1105,7 +1105,7 @@ const CONSOLE_BREAKS: [string, (ingress: Manifest) => void, string][] = [
     ({ spec }) => {
       spec.rules[0].http.paths.at(-1).backend.service.name = "elsewhere";
     },
-    "/ does not route to Service/ap-agent-platform-api port http",
+    "/ does not route to Service/ap-werft-api port http",
   ],
 ];
 for (const [name, breakIngress, expected] of CONSOLE_BREAKS) {
@@ -1237,7 +1237,7 @@ errors.push(
     {
       runtime: asRendered(CURRENT_RUNTIME),
       previousRuntime: asRendered(PREVIOUS_RUNTIME),
-      previousImage: `ghcr.io/jeongjaesoon/agent-platform-worker@${PREVIOUS_DIGEST}`,
+      previousImage: `ghcr.io/jeongjaesoon/werft-worker@${PREVIOUS_DIGEST}`,
     },
   ),
   ...checkUpgradeHook(

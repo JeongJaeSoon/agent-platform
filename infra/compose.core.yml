@@ -131,7 +131,7 @@ services:
   egress-proxy:
     # Released with the other apps (images.yml); a deployment points
     # EGRESS_PROXY_IMAGE at that digest.
-    image: ${EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}
+    image: ${EGRESS_PROXY_IMAGE:-werft-egress-proxy:dev}
     logging: *logging
     environment:
       # Nothing public: a worker's one public destination is its provider,
@@ -212,7 +212,7 @@ services:
   # ../.env when present and never writes it (docs/contributing/development.md); no other
   # installation picks up a checkout's .env.
   api:
-    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    image: ${API_IMAGE:-werft-control-host:dev}
     logging: *logging
     profiles: ["apps"]
     # Docker's default 10s would SIGKILL a shutdown that may run to
@@ -349,7 +349,7 @@ services:
   # bundled Claude Code version and exits. `--profile worker build` still
   # builds it alone.
   worker:
-    image: ${WORKER_IMAGE:-agent-platform-worker:dev}
+    image: ${WORKER_IMAGE:-werft-worker:dev}
     logging: *logging
     profiles: ["apps", "worker"]
     command: ["claude", "--version"]
@@ -387,7 +387,7 @@ services:
   # Docker kills the loop itself. Stopping the scheduler ends no worker: a
   # slot is given back only once a pass has seen the worker gone.
   scheduler:
-    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    image: ${API_IMAGE:-werft-control-host:dev}
     logging: *logging
     profiles: ["apps"]
     # The control-host image's scheduler role. Where a layer builds that
@@ -418,7 +418,7 @@ services:
       # Workers reach the API only through the proxy; `api` resolves on the
       # default network the proxy also sits on (EGRESS_PRIVATE_ALLOWLIST).
       WORKER_GATEWAY_URL: ${WORKER_GATEWAY_URL:-http://api:3000}
-      WORKER_IMAGE: ${WORKER_IMAGE:-agent-platform-worker:dev}
+      WORKER_IMAGE: ${WORKER_IMAGE:-werft-worker:dev}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS: ${WORKER_IMAGE_PREVIOUS:-}
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
@@ -487,7 +487,7 @@ services:
   # service building the same tag races it on export. Starting it on its own
   # needs that image first (`docker compose build api`).
   reconciler:
-    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    image: ${API_IMAGE:-werft-control-host:dev}
     logging: *logging
     profiles: ["apps"]
     command: ["bun", "run", "apps/control-host/src/main.ts", "reconciler"]
@@ -527,7 +527,7 @@ services:
   # now. A writer: backup.sh refuses to start while it runs. Its object store
   # endpoint and credentials are the layer's, as for api.
   maintenance:
-    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    image: ${API_IMAGE:-werft-control-host:dev}
     logging: *logging
     profiles: ["apps"]
     command:
@@ -558,7 +558,7 @@ services:
         condition: service_healthy
 
   slack:
-    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    image: ${API_IMAGE:-werft-control-host:dev}
     logging: *logging
     profiles: ["apps", "slack"]
     command: ["bun", "run", "apps/control-host/src/main.ts", "slack"]
