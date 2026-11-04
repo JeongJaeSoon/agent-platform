@@ -80,10 +80,17 @@ export type ReleaseManifest = {
 
 /**
  * A release as test-ops deploys it: the commit its compose files come from,
- * the three app images by digest, and the catalog by content. A tag can be
+ * the three app images by digest, and the settings by content. A tag can be
  * moved after the fact; none of these can.
+ *
+ * `deployed` reads the manifest of the running release, which an installation
+ * from before settings documents wrote with `catalog_revision`. That release
+ * has no digest: `settingsDigest` is empty, and an upgrade off it migrates.
  */
-export function parseReleaseManifest(value: unknown): ReleaseManifest {
+export function parseReleaseManifest(
+  value: unknown,
+  { deployed = false }: { deployed?: boolean } = {},
+): ReleaseManifest {
   const problems: string[] = [];
   const object = (found: unknown, where: string, keys: readonly string[]) => {
     if (typeof found !== "object" || found === null || Array.isArray(found)) {
@@ -108,7 +115,12 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
     "source_commit",
     "images",
     "settings_digest",
+    ...(deployed ? ["catalog_revision"] : []),
   ]);
+  const beforeSettings =
+    deployed &&
+    top.settings_digest === undefined &&
+    typeof top.catalog_revision === "string";
   const images = object(top.images, "images", [
     "control_host",
     "worker",
@@ -117,12 +129,14 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
   const image = (key: string) =>
     text(images[key], `images.${key}`, PINNED_IMAGE, "<name>@sha256:<64 hex>");
   const manifest = {
-    settingsDigest: text(
-      top.settings_digest,
-      "settings_digest",
-      /^sha256:[0-9a-f]{64}$/,
-      "sha256:<64 hex>",
-    ),
+    settingsDigest: beforeSettings
+      ? ""
+      : text(
+          top.settings_digest,
+          "settings_digest",
+          /^sha256:[0-9a-f]{64}$/,
+          "sha256:<64 hex>",
+        ),
     images: {
       controlHost: image("control_host"),
       egressProxy: image("egress_proxy"),
@@ -583,10 +597,16 @@ async function main(argv: readonly string[]): Promise<number> {
   const [command, ...args] = argv;
   switch (command) {
     case "manifest": {
-      const [file] = args;
-      if (!file || args.length > 1) return usage();
+      const [file, mode] = args;
+      if (
+        !file ||
+        args.length > 2 ||
+        (mode !== undefined && mode !== "--deployed")
+      )
+        return usage();
       const manifest = parseReleaseManifest(
         JSON.parse(await readFile(file, "utf8")),
+        { deployed: mode === "--deployed" },
       );
       console.log(
         [
@@ -724,7 +744,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | settings-digest <file> | render-refusal <stderr-file> | check-render --store <localstack|s3> [--settings-digest <digest> [--localstack-port <running>]] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> [--deployed] | settings-digest <file> | render-refusal <stderr-file> | check-render --store <localstack|s3> [--settings-digest <digest> [--localstack-port <running>]] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }

@@ -422,6 +422,20 @@ describe("release manifest", () => {
       [key: string]: unknown;
     };
 
+  test("the running release may predate settings documents; a new one may not", async () => {
+    const { settings_digest: _digest, ...rest } = await base();
+    const old = { ...rest, catalog_revision: "sha256:abc" };
+    expect(parseReleaseManifest(old, { deployed: true }).settingsDigest).toBe(
+      "",
+    );
+    expect(() => parseReleaseManifest(old)).toThrow(
+      "manifest has unknown key catalog_revision",
+    );
+    expect(() => parseReleaseManifest(rest, { deployed: true })).toThrow(
+      "settings_digest must be sha256:<64 hex>",
+    );
+  });
+
   test.each([
     ["control_host", "ghcr.io/jeongjaesoon/agent-platform-control-host:latest"],
     ["worker", "ghcr.io/jeongjaesoon/agent-platform-worker"],

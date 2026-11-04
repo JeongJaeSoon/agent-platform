@@ -176,7 +176,7 @@ check_env_file() {
 load_manifest() {
   local file="$1" out name value
   [ -r "$file" ] || die "manifest $file not found"
-  out="$(bun_script "$HELPER" manifest "$file")" || die "manifest $file refused (above)"
+  out="$(bun_script "$HELPER" manifest "$file" ${2:+"$2"})" || die "manifest $file refused (above)"
   while IFS='=' read -r name value; do
     case "$name" in
       SOURCE_COMMIT|API_IMAGE|WORKER_IMAGE|EGRESS_PROXY_IMAGE|SETTINGS_DIGEST) printf -v "$name" '%s' "$value" ;;
@@ -190,7 +190,7 @@ load_current() {
     && ! { [ "$VERB" = upgrade ] && cmp -s "$MANIFEST" "$PENDING"; }; then
     die "an upgrade to $PENDING did not finish and the installation may be stopped; rerun upgrade with that manifest"
   fi
-  load_manifest "$CURRENT"
+  load_manifest "$CURRENT" --deployed
 }
 
 # The rendered installation is the one deploy started: same project, same
@@ -341,7 +341,7 @@ preflight() {
     [ -z "$running_port" ] || running_port="$(ops_compose port localstack 4566)" \
       || die "cannot read the port of the running LocalStack"
   fi
-  check_render --settings-digest "$SETTINGS_DIGEST" ${running_port:+--localstack-port "${running_port##*:}"}
+  check_render ${SETTINGS_DIGEST:+--settings-digest "$SETTINGS_DIGEST"} ${running_port:+--localstack-port "${running_port##*:}"}
   if [ "$STORE" = s3 ]; then
     with_render probe-store || die "the bucket or the API's S3 key failed (above)"
   else
