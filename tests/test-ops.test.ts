@@ -475,7 +475,7 @@ describe("rendered installation", () => {
     }));
 
   test(
-    "without settings the API and postgres keep their loopback ports",
+    "without settings the API, postgres and LocalStack keep their loopback ports",
     () => {
       const model = render("localstack");
       expect(published(model, "api")).toEqual([
@@ -484,7 +484,38 @@ describe("rendered installation", () => {
       expect(published(model, "postgres")).toEqual([
         { host_ip: "127.0.0.1", published: "5432", target: 5432 },
       ]);
+      expect(published(model, "localstack")).toEqual([
+        { host_ip: "127.0.0.1", published: "4566", target: 4566 },
+      ]);
       expect(model["x-test-ops-api-url"]).toBe("http://127.0.0.1:3000");
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the LocalStack port moves only the host side, on loopback",
+    async () => {
+      const model = render("localstack", {
+        TEST_OPS_LOCALSTACK_PORT: "14566",
+      });
+      expect(published(model, "localstack")).toEqual([
+        { host_ip: "127.0.0.1", published: "14566", target: 4566 },
+      ]);
+      // Services still reach it on the compose network's own port.
+      expect(model.services?.api?.environment?.AWS_ENDPOINT_URL).toBe(
+        "http://localstack:4566",
+      );
+      await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the s3 store has no LocalStack, so its port setting changes nothing",
+    async () => {
+      const model = render("s3", { TEST_OPS_LOCALSTACK_PORT: "14566" });
+      expect(model).toEqual(render("s3"));
+      await checkRender(model, { store: "s3" });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
@@ -539,7 +570,11 @@ describe("rendered installation", () => {
   ])(
     "preflight refuses the port %p without showing a secret",
     async (value) => {
-      for (const name of ["TEST_OPS_API_PORT", "TEST_OPS_POSTGRES_PORT"]) {
+      for (const name of [
+        "TEST_OPS_API_PORT",
+        "TEST_OPS_POSTGRES_PORT",
+        "TEST_OPS_LOCALSTACK_PORT",
+      ]) {
         const result = compose("localstack", { [name]: value });
         let refusal = result.stderr.toString();
         if (result.exitCode === 0) {
@@ -555,20 +590,35 @@ describe("rendered installation", () => {
         });
         expect(refusal).not.toContain(filler("p"));
         expect(refusal).not.toContain(filler("t"));
+        expect(refusal).not.toContain(filler("s"));
       }
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  test(
-    "preflight refuses one port for two services",
-    async () => {
-      const model = render("localstack", {
-        TEST_OPS_API_PORT: "15432",
-        TEST_OPS_POSTGRES_PORT: "15432",
-      });
+  test.each([
+    [
+      { TEST_OPS_API_PORT: "15432", TEST_OPS_POSTGRES_PORT: "15432" },
+      "services api and postgres both publish port 15432",
+    ],
+    [
+      { TEST_OPS_API_PORT: "14566", TEST_OPS_LOCALSTACK_PORT: "14566" },
+      "services api and localstack both publish port 14566",
+    ],
+    [
+      { TEST_OPS_POSTGRES_PORT: "4566" },
+      "services localstack and postgres both publish port 4566",
+    ],
+    [
+      { TEST_OPS_LOCALSTACK_PORT: "3000" },
+      "services api and localstack both publish port 3000",
+    ],
+  ])(
+    "preflight refuses one port for two services: %j",
+    async (settings, message) => {
+      const model = render("localstack", settings);
       await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
-        "services api and postgres both publish port 15432",
+        message,
       );
     },
     COMPOSE_RENDER_TIMEOUT_MS,

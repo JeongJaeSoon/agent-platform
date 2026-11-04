@@ -328,7 +328,7 @@ preflight() {
   else
     # LocalStack starts with the installation; the API checks its bucket at
     # startup, and deploy and upgrade wait for that.
-    log "preflight: object store is LocalStack, in memory — a restart loses every checkpoint object (docs/operator/test-ops.md)"
+    log "preflight: object store is LocalStack on port $(printf '%s' "$RENDER" | jq -r '.services.localstack.ports[0].published'), in memory — a restart loses every checkpoint object (docs/operator/test-ops.md)"
   fi
   log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, catalog $CATALOG_REVISION, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
 }
