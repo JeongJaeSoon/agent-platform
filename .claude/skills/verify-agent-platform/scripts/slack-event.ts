@@ -48,7 +48,7 @@ try {
             mode === "bot"
               ? "EvVerifyBot"
               : uninstalled
-                ? `EvVerifyUninstall${mode}${seq}`
+                ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
                 : posted
                   ? `EvVerify${mode}${channel}${seq}`
                   : "EvVerify1",
