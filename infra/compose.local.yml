@@ -123,17 +123,15 @@ services:
   # start from the same fixed commits: the repository of
   # config/repositories.yaml and the D2 gate's. It runs from the control-host
   # image because that image has git, and has no `image:` for the reason
-  # migrate below has none. `gitea` is only a name now, kept with the port: a
-  # session record keeps the repo_url it started with, and the catalog must
-  # still match it.
-  gitea:
+  # migrate below has none.
+  fake-git:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
     command: ["bun", "run", "packages/testkit/src/fake-git-main.ts", "sample-app", "gate-app"]
     ports:
       # HTTP clone for this host. Workers clone through the proxy's
-      # repository route (gitea:3000).
+      # repository route (fake-git:3000).
       - "127.0.0.1:3001:3000"
     healthcheck:
       test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/healthz'); if (!r.ok) process.exit(1)"]
@@ -157,7 +155,7 @@ services:
     environment:
       # The local git host, config/fake-model's Messages API and remote MCP
       # server, and the object store.
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
 
   # A developer's overrides (docs/contributing/development.md). Not the reconciler's: it
   # refuses to start with the API's HEARTBEAT_TTL_SEC.
@@ -190,7 +188,7 @@ services:
         condition: service_healthy
       local-s3-init:
         condition: service_completed_successfully
-      gitea:
+      fake-git:
         condition: service_healthy
 
   slack:
@@ -223,7 +221,7 @@ services:
         condition: service_healthy
       local-s3-init:
         condition: service_completed_successfully
-      gitea:
+      fake-git:
         condition: service_healthy
 
 volumes:

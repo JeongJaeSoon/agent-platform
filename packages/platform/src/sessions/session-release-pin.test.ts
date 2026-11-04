@@ -1198,7 +1198,7 @@ function sessionOn(profileId: string): SessionDetailRecord {
 // Session records keep the repo_url they started with, so moving the example
 // repository to another host or path would strand every one of them.
 describe("a session recorded on the example git host", () => {
-  const RECORDED = "http://gitea:3000/agent/sample-app.git";
+  const RECORDED = "http://fake-git:3000/agent/sample-app.git";
   const root = join(import.meta.dir, "../../../..");
 
   test.each([

@@ -20,9 +20,9 @@ describe("the proxy's log", () => {
 
     logger.warn("proxy.probe", {
       authorization: "Bearer abc123",
-      url: "https://agent:tok123@gitea:3000/a.git",
+      url: "https://agent:tok123@fake-git:3000/a.git",
       error: "upstream said: Bearer abc123",
-      host: "gitea",
+      host: "fake-git",
     });
 
     const text = lines.join("\n");
@@ -33,9 +33,9 @@ describe("the proxy's log", () => {
       message: "proxy.probe",
       fields: {
         authorization: "[REDACTED]",
-        url: "https://[REDACTED]@gitea:3000/a.git",
+        url: "https://[REDACTED]@fake-git:3000/a.git",
         error: "[REDACTED]",
-        host: "gitea",
+        host: "fake-git",
       },
     });
   });

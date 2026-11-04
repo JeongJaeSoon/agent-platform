@@ -56,7 +56,7 @@ backup-20260923T101500Z/
 └── SHA256SUMS      위 파일 전부
 ```
 
-백업에는 git 호스트가 들어가지 않는다. 로컬 스택의 git 호스트(compose 서비스 이름은 저장소 URL을 지키려고 `gitea`로 남았다)는 읽기 전용 fake-git이라 지킬 데이터가 없고, 그 밖의 저장소는 GitHub에 있다.
+백업에는 git 호스트가 들어가지 않는다. 로컬 스택의 git 호스트는 읽기 전용 fake-git이라 지킬 데이터가 없고, 그 밖의 저장소는 GitHub에 있다.
 
 내장 Gitea를 쓰던 때의 `<project>_gitea-data` volume이 남아 있으면 백업은 경고를 남기고 그 volume을 넣지 않는다. 그 저장소가 필요하면 volume을 지우지 말고 따로 옮긴다.
 

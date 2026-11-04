@@ -17,7 +17,7 @@ services=$(ap_compose ps --format '{{.Service}} {{.State}} {{.Health}}') || { ec
 echo "$services" | sort
 # /readyz covers the database, schema and config only; sessions also need
 # these running (and healthy where they have a healthcheck).
-for service in api scheduler reconciler postgres localstack gitea egress-proxy fake-messages secrets; do
+for service in api scheduler reconciler postgres localstack fake-git egress-proxy fake-messages secrets; do
   line=$(echo "$services" | awk -v s="$service" '$1 == s')
   case "$line" in
     *" running unhealthy" | *" running starting") echo "doctor: $service is not healthy yet: $line" >&2; exit 1 ;;

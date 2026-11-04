@@ -172,7 +172,7 @@ try {
   await db.query("BEGIN");
   await db.query(
     `INSERT INTO sessions (id, owner_id, repo_url, branch, status, admission_state, checkpoint_revision, checkpoint_committed_at)
-     VALUES ($1, 'seed', 'http://gitea:3000/seed/workspace.git', 'main', 'idle', 'paused', $2, now())`,
+     VALUES ($1, 'seed', 'http://fake-git:3000/seed/workspace.git', 'main', 'idle', 'paused', $2, now())`,
     [sessionId, revision],
   );
   await db.query(

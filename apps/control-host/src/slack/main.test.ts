@@ -37,7 +37,7 @@ const profiles = (mode: string) => `profiles:
 `;
 const REPOSITORIES = `repositories:
   sample-app:
-    url: http://gitea:3000/agent/sample-app.git
+    url: http://fake-git:3000/agent/sample-app.git
     branch: main
     profiles: [coding]
 `;

@@ -130,25 +130,25 @@ describe("forward and credential allowlists", () => {
       egressProxyConfigFromEnv({
         ...routes,
         EGRESS_ALLOWLIST: "api.anthropic.com:443",
-        EGRESS_PRIVATE_ALLOWLIST: "api:3000,gitea:3000,LocalStack:4566",
+        EGRESS_PRIVATE_ALLOWLIST: "api:3000,fake-git:3000,LocalStack:4566",
         EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
-        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000,localstack:4566",
+        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "fake-git:3000,localstack:4566",
       }),
     ).toThrow(
-      "api.anthropic.com:443, gitea:3000, localstack:4566 must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST or EGRESS_PACKAGES_REDIRECT_ALLOWLIST alone",
+      "api.anthropic.com:443, fake-git:3000, localstack:4566 must be on EGRESS_CREDENTIAL_(PRIVATE_)ALLOWLIST or EGRESS_PACKAGES_REDIRECT_ALLOWLIST alone",
     );
     const split = egressProxyConfigFromEnv({
       ...routes,
       EGRESS_PRIVATE_ALLOWLIST: "api:3000",
       EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000,localstack:4566",
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "fake-git:3000,localstack:4566",
     });
     expect(split.allowPrivate).toEqual([{ host: "api", port: 3000 }]);
     // Without the routes there is nothing to go round.
     expect(
-      egressProxyConfigFromEnv({ EGRESS_PRIVATE_ALLOWLIST: "gitea:3000" })
+      egressProxyConfigFromEnv({ EGRESS_PRIVATE_ALLOWLIST: "fake-git:3000" })
         .allowPrivate,
-    ).toEqual([{ host: "gitea", port: 3000 }]);
+    ).toEqual([{ host: "fake-git", port: 3000 }]);
   });
 
   // A host the packages route follows a redirect to would otherwise be

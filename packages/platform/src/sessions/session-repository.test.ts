@@ -36,7 +36,7 @@ describe("sessionRepositoryOf", () => {
     for (const [repoUrl, fullName] of [
       ["https://git.example.com/team_name/app.git", "team_name/app"],
       ["https://gitlab.example.com/group/sub/app.git/", "group/sub/app"],
-      ["http://gitea:3000/agent/sample-app.git", "agent/sample-app"],
+      ["http://fake-git:3000/agent/sample-app.git", "agent/sample-app"],
     ] as const) {
       expect(
         sessionRepositoryOf({

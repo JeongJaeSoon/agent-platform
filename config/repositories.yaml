@@ -54,10 +54,10 @@
 #     auth:
 #       kind: github_app
 #
-# The entry below is the local stack's read-only fake-git (the compose service
-# `gitea`, infra/compose.local.yml). The URL stays: session records carry it.
+# The entry below is the local stack's read-only fake-git
+# (infra/compose.local.yml).
 repositories:
   sample-app:
-    url: http://gitea:3000/agent/sample-app.git
+    url: http://fake-git:3000/agent/sample-app.git
     branch: main
     profiles: [claude-coding-real]
