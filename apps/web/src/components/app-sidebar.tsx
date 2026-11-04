@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { cn, IconTile, Text, type TileHue } from "@werft-ai/ui";
 import {
   Bell,
@@ -278,7 +278,7 @@ export function navItemFor(
 }
 
 function useWaitingSessions() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const canRead = useCan("sessions:read");
   return useQuery({
     ...waitingSessionsQuery(client),

@@ -10,9 +10,9 @@ import { acceptInviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   submitStep,
-  useAgentPlatform,
   useStepForm,
   useStepper,
+  useWerft,
 } from "@werft-ai/react";
 import {
   Button,
@@ -48,7 +48,7 @@ import { errorKey, useI18n } from "../i18n/i18n.tsx";
 export function InviteScreen() {
   const { t } = useI18n();
   const { token } = useParams({ from: "/invite/$token" });
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const viewer = useQuery(viewerQuery(client));
 
@@ -144,7 +144,7 @@ const hasAccount = (data: unknown): data is AcceptSteps["password"] =>
  */
 function AcceptFlow({ token }: { readonly token: string }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const funnel = useFunnel<AcceptSteps>({

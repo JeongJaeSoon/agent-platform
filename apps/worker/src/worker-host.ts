@@ -157,6 +157,14 @@ export type WorkerHostOptions = {
   approvalCheckpointMs?: number;
   /** Hands the claim's commit author and trailers to the image's git config and hook. */
   gitTrailers?: (claim: BootstrapClaimResponse) => Promise<void>;
+  /**
+   * Leaves the platform's instructions in the workspace once it is ready,
+   * before the engine starts; the answer is what happened, for the log.
+   */
+  placeInstructions?: (
+    claim: BootstrapClaimResponse,
+    signal: AbortSignal,
+  ) => Promise<string>;
   /** The git settings the claim's engine runs every git under. */
   gitEnvironment?: (
     claim: BootstrapClaimResponse,
@@ -514,6 +522,28 @@ export class WorkerHost {
       try {
         const plan = await this.startUp(claim);
         if (plan !== undefined) this.startAttachments();
+        if (plan !== undefined && this.stopping === undefined) {
+          // A convenience file: the engine's prompt carries the same text.
+          // Raced with a stop like the other stages, so slow I/O cannot hold
+          // the shutdown back.
+          const placing = this.options.placeInstructions;
+          if (placing !== undefined) {
+            await this.untilStopped(
+              placing(claim, this.preparation.signal)
+                .then((placement) =>
+                  this.logger.info("worker.instruction_files.placed", {
+                    placement,
+                  }),
+                )
+                .catch((error: unknown) =>
+                  this.logger.warn("worker.instruction_files.not_placed", {
+                    reason: describe(error),
+                  }),
+                ),
+            );
+          }
+        }
+        // Again: a stop can land while the files are being placed.
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           const gitEnvironment = this.options.gitEnvironment?.(claim);

@@ -21,7 +21,7 @@ const base = {
   SESSION_COST_LIMIT_USD: "25",
   STORAGE_LIMIT_BYTES: "1073741824",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
-  WORKER_IMAGE: "agent-platform-worker:dev",
+  WORKER_IMAGE: "werft-worker:dev",
 };
 
 // What a cluster scheduler is given: no Docker setting at all.
@@ -29,7 +29,7 @@ const kubernetes = {
   ...base,
   EXECUTION_BACKEND: "kubernetes",
   EXECUTION_INSTALLATION_ID: "dev-a",
-  EXECUTION_K8S_NAMESPACE: "agent-platform",
+  EXECUTION_K8S_NAMESPACE: "werft",
   WORKER_GATEWAY_URL: "http://api:3000",
   WORKER_IMAGE: `registry.local/worker@sha256:${"a".repeat(64)}`,
 };
@@ -83,7 +83,7 @@ describe("schedulerConfigFromEnv", () => {
     const config = schedulerConfigFromEnv(base);
     expect(config).toMatchObject({
       databaseUrl: base.DATABASE_URL,
-      image: "agent-platform-worker:dev",
+      image: "werft-worker:dev",
       resources: {
         cpus: 1,
         memoryBytes: 4608 * 1024 * 1024,
@@ -124,13 +124,13 @@ describe("schedulerConfigFromEnv", () => {
     const withImages = {
       ...base,
       WORKER_IMAGE_RUNTIME: JSON.stringify(current),
-      WORKER_IMAGE_PREVIOUS: "agent-platform-worker:previous",
+      WORKER_IMAGE_PREVIOUS: "werft-worker:previous",
       WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
     };
     const config = schedulerConfigFromEnv(withImages);
     expect(config.imageRuntime).toEqual(current);
     expect(config.previousImage).toEqual({
-      image: "agent-platform-worker:previous",
+      image: "werft-worker:previous",
       runtime: previous,
     });
     // One image, as before: no previous, and without a runtime no selection.
@@ -261,7 +261,7 @@ describe("schedulerConfigFromEnv", () => {
       gatewayUrl: "http://api:3000",
       installationId: "dev-a",
       logLevel: "warn",
-      namespace: "agent-platform",
+      namespace: "werft",
       workerLimits: { maxTurnSeconds: 3600, providerMaxRetries: 2 },
     });
   });

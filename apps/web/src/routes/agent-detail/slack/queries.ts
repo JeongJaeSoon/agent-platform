@@ -5,7 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { type ApiClient, type components, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { UNVERIFIED_POLL_MS } from "./shared.ts";
 
 /**
@@ -27,7 +27,7 @@ export const slackKey = (client: ApiClient, agentId: string) =>
   [...queryKeysOf(client).agent(agentId), "slack"] as const;
 
 export function useSlackState(agentId: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const key = slackKey(client, agentId);
   const app = useQuery({
     queryKey: [...key, "app"],
@@ -58,7 +58,7 @@ export function useSlackState(agentId: string) {
 }
 
 export function useSlackBindings(agentId: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     queryKey: [...slackKey(client, agentId), "bindings"],
     queryFn: () =>
@@ -73,7 +73,7 @@ export function useSlackBindings(agentId: string) {
 }
 
 export function useSlackSettings(agentId: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     queryKey: [...slackKey(client, agentId), "settings"],
     queryFn: () =>
@@ -92,7 +92,7 @@ export function useSlackChannels(
   query: string,
   enabled = true,
 ) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useInfiniteQuery({
     enabled,
     queryKey: [...slackKey(client, agentId), "channels", query],

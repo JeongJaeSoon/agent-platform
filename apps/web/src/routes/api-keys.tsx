@@ -14,7 +14,7 @@ import type {
   RevokeApiKeyResponse,
   SessionScope,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -263,7 +263,7 @@ export function expiryState(
  * admins bind to any agent and search for it instead, so they read none.
  */
 function useAdministeredAgents() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("api_key.manage");
   return useQuery({
     ...administeredAgentsQuery(client),
@@ -288,7 +288,7 @@ function useIssuesAgentKeys(): boolean {
 function useAgentNames(
   ids: readonly string[],
 ): (id: string | null) => string | null {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("api_key.manage");
   const unique = [...new Set(ids)];
   const named = useQuery({
@@ -366,7 +366,7 @@ function KeyScreenNav({
  */
 function KeysScreen({ kind }: { readonly kind: KeyKind }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const navigate = useNavigate();
   const keys = useQuery(apiKeysQuery(client));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -541,7 +541,7 @@ function KeyList({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const agentName = useAgentNames(
@@ -809,7 +809,7 @@ function useIssue(
   onOutcome: (outcome: Outcome | null) => void,
 ) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   return useMutation<CreateApiKeyResponse, ApiError, IssueRequest>({
@@ -1037,7 +1037,7 @@ function PersonalKeyForm({ busy, send }: FormProps) {
 
 function AgentKeyForm({ busy, send }: FormProps) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const held = useMe()?.scopes ?? [];
   const everywhere = useHasPermission("api_key.manage");
   // Owners and admins search every agent on the server, a page at a time;

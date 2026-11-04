@@ -881,7 +881,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       "--set",
       `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
     ],
@@ -893,9 +893,9 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       "--set-json",
-      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+      'images.workerPrevious.runtime={"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
     ],
     /images\.workerPrevious\.digest is required/,
   ],
@@ -907,7 +907,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "--set",
       `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
       "--set-json",
-      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+      'images.workerPrevious.runtime={"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
     ],
     /images\.workerPrevious needs images\.worker\.runtime/,
   ],
@@ -917,9 +917,19 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","profileDigestScheme":1}',
     ],
     /images\.worker\.runtime\.cliVersion must be a non-empty string/,
+  ],
+  [
+    "a worker runtime naming an engine the platform does not have",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+    ],
+    /images\.worker\.runtime\.engine must be one of: claude/,
   ],
   [
     "a previous worker runtime with a scheme of zero",
@@ -927,11 +937,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       "--set",
       `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
       "--set-json",
-      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":0}',
+      'images.workerPrevious.runtime={"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":0}',
     ],
     /images\.workerPrevious\.runtime\.profileDigestScheme must be a positive integer/,
   ],
@@ -1208,7 +1218,7 @@ errors.push(
   ...checkMetrics("aws example, metrics on", metricsOnAws, true, true),
 );
 const CURRENT_RUNTIME = {
-  engine: "claude-agent-sdk",
+  engine: "claude",
   sdkVersion: "0.3.280",
   cliVersion: "2.1.280",
   profileDigestScheme: 1,
@@ -1305,18 +1315,20 @@ for (const [label, args, message] of MUST_FAIL) {
 }
 
 // The chart takes a runtime value exactly when the readers do: one it lets
-// through and they refuse stops api, slack and the scheduler at startup.
+// through and they refuse stops api, slack and the scheduler at startup. The
+// engine name is the one rule the chart keeps beyond them (see MUST_FAIL), so
+// these values all name the supported engine.
 const RUNTIME_EDGES = [
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c"}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":3}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1e21}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profiles":{}}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":"1"}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":0}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1.5}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c"}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":3}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1e21}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profiles":{}}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":"1"}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":0}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1.5}',
   '{"engine":"","sdkVersion":"s","cliVersion":"c"}',
-  '{"engine":"e","sdkVersion":"s"}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","typo":1}',
+  '{"engine":"claude","sdkVersion":"s"}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","typo":1}',
 ];
 for (const runtime of RUNTIME_EDGES) {
   let readers = true;

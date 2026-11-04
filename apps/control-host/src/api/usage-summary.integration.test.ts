@@ -1359,7 +1359,7 @@ integration("installation figures over HTTP on PostgreSQL", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Requested-With": "agent-platform-web",
+          "X-Requested-With": "werft-web",
         },
         body: JSON.stringify({
           email: `${role}@example.com`,
@@ -1381,7 +1381,7 @@ integration("installation figures over HTTP on PostgreSQL", () => {
     app.request(path, {
       headers: {
         Cookie: cookies[role],
-        "X-Requested-With": "agent-platform-web",
+        "X-Requested-With": "werft-web",
       },
     });
 

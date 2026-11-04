@@ -10,7 +10,7 @@ import { createApiClient } from "./api/client.ts";
 
 /**
  * What the app builds once at start. The client and the cache reach screens
- * through AgentPlatformProvider and QueryClientProvider; the rest is the
+ * through WerftProvider and QueryClientProvider; the rest is the
  * app's own and rides on the router's context.
  */
 export interface Services {

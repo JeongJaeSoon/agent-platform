@@ -21,12 +21,12 @@ import {
 import { setupDom } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
 import {
-  AgentPlatformProvider,
   type SessionControl,
   useAnswer,
   useSendMessage,
   useSessionControl,
   useSessionEvents,
+  WerftProvider,
 } from "./index.ts";
 import { eventToolCallId } from "./sessions.ts";
 
@@ -139,14 +139,14 @@ function harness(
   const invalidate = spyOn(queryClient, "invalidateQueries");
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="en"
         renderLink={() => null}
         eventRetry={{ initialMs: 1, maxMs: 4 }}
       >
         {children}
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   );
   const keys = {

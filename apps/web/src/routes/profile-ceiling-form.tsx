@@ -11,7 +11,7 @@ import type {
   WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
 import { workspaceProfileNameStep } from "@werft-ai/core/forms";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -209,7 +209,7 @@ export function CeilingForm({
   readonly onSaved: (id: string) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   // An imported ceiling has no name; its next version takes a new one.
   const fixedName = previous?.installation?.name ?? null;

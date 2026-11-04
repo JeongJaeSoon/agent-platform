@@ -431,7 +431,7 @@ integration(
       return { ...setup, done, updates };
     }
 
-    const PUBLIC = "https://agent-platform.example.ts.net:8443";
+    const PUBLIC = "https://werft.example.ts.net:8443";
 
     test("with SLACK_EVENTS_PUBLIC_URL, complete registers the event subscription in the whole manifest", async () => {
       const { done, updates, appId, agentId } = await installed(`${PUBLIC}/`);

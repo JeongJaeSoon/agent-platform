@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -65,7 +65,7 @@ export function SlackConnect({
   readonly notify?: Notify;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const cache = useQueryClient();
   const me = useMe();
   // The workspace Slack screen is the workspace managers' (app-sidebar).

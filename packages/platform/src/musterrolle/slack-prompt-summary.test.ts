@@ -28,7 +28,7 @@ describe("summarizeToolRequest", () => {
   test("a file tool's excerpt is the first lines of what it writes, with real line breaks", () => {
     // The owner's report: a Write card showed this as one JSON string.
     const content =
-      "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n\n- `notes/`: 예시 텍스트 파일\n";
+      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n\n- `notes/`: 예시 텍스트 파일\n";
     const write = summarizeToolRequest(
       "Write",
       { file_path: "README.md", content },
@@ -39,7 +39,7 @@ describe("summarizeToolRequest", () => {
       verb: "파일 쓰기",
       target: "README.md",
       excerpt:
-        "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
+        "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
     });
     expect(write.excerpt).not.toContain("\\n");
     expect(

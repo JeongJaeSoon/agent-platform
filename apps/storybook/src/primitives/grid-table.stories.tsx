@@ -128,7 +128,7 @@ const SESSIONS = [
     status: "running",
     agent: "Release helper",
     model: "claude-opus-5-5",
-    repo: "werft-ai/agent-platform",
+    repo: "werft-ai/werft",
     starter: "김하나",
     minutes: 3,
   },
@@ -259,7 +259,7 @@ function Sessions({
               <GridTableCell hideNarrow={true}>
                 <span className="truncate">
                   {long && index === 0
-                    ? "werft-ai/agent-platform-infrastructure-and-deploy-scripts"
+                    ? "werft-ai/werft-infrastructure-and-deploy-scripts"
                     : session.repo}
                 </span>
               </GridTableCell>

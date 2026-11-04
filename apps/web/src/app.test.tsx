@@ -15,7 +15,7 @@ const { App } = await import("./app.tsx");
 const { GuardedButton } = await import("./auth/reason-button.tsx");
 const { I18nProvider } = await import("./i18n/i18n.tsx");
 const { createServices } = await import("./services.tsx");
-const { AgentPlatformProvider } = await import("@werft-ai/react");
+const { WerftProvider } = await import("@werft-ai/react");
 
 type Routes = Parameters<typeof fakeApi>[0];
 
@@ -148,7 +148,7 @@ describe("workspace shell", () => {
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     const [logout] = callsTo(api.calls, "/v1/auth/logout");
-    expect(logout?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(logout?.headers.get("x-requested-with")).toBe("werft-web");
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
   });
   test("로그아웃이 실패하면 로그인된 채로 남고 그렇게 말한다", async () => {
@@ -388,7 +388,7 @@ describe("권한 없는 버튼", () => {
     render(
       <I18nProvider locale="ko">
         <QueryClientProvider client={queryClient}>
-          <AgentPlatformProvider
+          <WerftProvider
             client={services.client}
             locale="ko"
             renderLink={({ children }) => children}
@@ -408,7 +408,7 @@ describe("권한 없는 버튼", () => {
                 복구
               </GuardedButton>
             </form>
-          </AgentPlatformProvider>
+          </WerftProvider>
         </QueryClientProvider>
       </I18nProvider>,
     );

@@ -60,7 +60,7 @@ compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object 
 도쿄 리전(`ap-northeast-1`)에 bucket을 하나 만든다. 설정은 셋이다: versioning, Object Lock(기본 retention 없음), 기본 암호화 SSE-S3(`AES256`). checkpoint는 legal hold로만 보호한다. 기본 retention을 걸면 checkpoint GC와 preflight의 삭제가 실패한다.
 
 ```bash
-bucket=agent-platform-test-ops   # 전역에서 유일한 이름
+bucket=werft-test-ops   # 전역에서 유일한 이름
 aws s3api create-bucket --bucket "$bucket" --region ap-northeast-1 \
   --create-bucket-configuration LocationConstraint=ap-northeast-1 \
   --object-lock-enabled-for-bucket
@@ -90,8 +90,8 @@ Object Lock을 켜면 versioning도 함께 켜진다.
         "s3:GetEncryptionConfiguration"
       ],
       "Resource": [
-        "arn:aws:s3:::agent-platform-test-ops",
-        "arn:aws:s3:::agent-platform-test-ops-drill-*"
+        "arn:aws:s3:::werft-test-ops",
+        "arn:aws:s3:::werft-test-ops-drill-*"
       ]
     },
     {
@@ -105,8 +105,8 @@ Object Lock을 켜면 versioning도 함께 켜진다.
         "s3:DeleteObjectVersion"
       ],
       "Resource": [
-        "arn:aws:s3:::agent-platform-test-ops/*",
-        "arn:aws:s3:::agent-platform-test-ops-drill-*/*"
+        "arn:aws:s3:::werft-test-ops/*",
+        "arn:aws:s3:::werft-test-ops-drill-*/*"
       ]
     }
   ]
@@ -426,7 +426,7 @@ scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backu
 `s3`에서는 훈련을 새 project와 **새로 만든 빈 bucket**에만 복원한다. 복원 대상 bucket이 백업의 원본 bucket 이름이거나 object version·delete marker가 하나라도 있으면 `scripts/restore.sh`가 거부한다(종료 코드 4). 훈련마다 bucket을 새로 만든다. 설정은 운영 bucket과 같다.
 
 ```bash
-drill=agent-platform-test-ops-drill-$(date -u +%Y%m%d)
+drill=werft-test-ops-drill-$(date -u +%Y%m%d)
 aws s3api create-bucket --bucket "$drill" --region ap-northeast-1 \
   --create-bucket-configuration LocationConstraint=ap-northeast-1 --object-lock-enabled-for-bucket
 aws s3api put-bucket-encryption --bucket "$drill" --server-side-encryption-configuration \

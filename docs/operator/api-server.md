@@ -378,7 +378,7 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: agent-platform-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
+웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: werft-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
 
 로컬 개발 스택의 데모 계정 CLI(`apps/control-host/src/api/demo-accounts.ts`)는 운영 설치에 쓰지 않는다. `scripts/local.sh up`이 자기 compose 스택의 api 컨테이너에서 `DEMO_ACCOUNTS=local`을 주고 부를 때만 공개된 비밀번호의 owner·member를 만들고, 그 값이 없거나 Kubernetes 안이거나 `DATABASE_URL`이 로컬 postgres가 아니면 아무것도 쓰지 않고 거부한다. Kubernetes에서는 chart `preview.enabled: true`로 설치한 미리보기 namespace(api 컨테이너가 자기 namespace를 `PREVIEW_NAMESPACE`로 받는다. values로 직접 넣으면 렌더가 실패한다)에서 `DATABASE_URL`이 그 namespace의 `postgres` Service일 때만 예외다. 운영 설치에서는 이 플래그를 켜지 않는다([quickstart § 웹 콘솔 데모 계정](../quickstart.md#웹-콘솔-데모-계정)). 데모 에이전트·세션 CLI(`apps/control-host/src/api/demo-data.ts`)도 같은 조건으로 거부하고, 쓰는 프로필이 fake Messages API를 부르지 않아도 거부한다.
 
@@ -386,10 +386,10 @@ curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 curl -s -X POST http://127.0.0.1:3000/v1/auth/bootstrap -H 'Content-Type: application/json' \
   -d '{"bootstrap_token":"<token>","email":"owner@example.com","password":"<12+ chars>","display_name":"Owner","workspace_name":"Acme","workspace_slug":"acme"}'
 curl -s -c jar -X POST http://127.0.0.1:3000/v1/auth/login -H 'Content-Type: application/json' \
-  -H 'X-Requested-With: agent-platform-web' \
+  -H 'X-Requested-With: werft-web' \
   -d '{"email":"owner@example.com","password":"<12+ chars>"}'
 curl -s -b jar http://127.0.0.1:3000/v1/auth/me
-curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: agent-platform-web' -i
+curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: werft-web' -i
 ```
 
 ### 계정 복구
@@ -402,7 +402,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/members/$USER_ID/password-reset" \
-  -H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: werft-web' \
   -d '{"current_password":"<owner password>"}'
 curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: application/json' \
   -d '{"token":"<apr_…>","password":"<12+ chars>"}'
@@ -440,9 +440,9 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 4. 콜백 화면이 생기기 전에는 아래로 확인한다. 받은 `authorization_url`을 브라우저로 열고 Google 계정으로 동의하면, 브라우저가 리디렉션 URI로 이동한다(화면이 없어도 주소창에 `code`·`state`가 남는다). 그 둘을 10분 안에 같은 cookie jar로 보낸다. 주소창의 `code`는 percent-encoding되어 있으므로(`4%2F0A…`) URL decode한 값(`4/0A…`)을 보낸다. 그대로 보내면 Google이 code를 거절해 `401`이 된다.
 
 ```bash
-curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/start -H 'X-Requested-With: agent-platform-web'
+curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/start -H 'X-Requested-With: werft-web'
 # 브라우저로 authorization_url을 열고 동의한 뒤, 이동한 주소의 code(URL decode)·state를 옮긴다
-curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/callback -H 'X-Requested-With: agent-platform-web' \
+curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/callback -H 'X-Requested-With: werft-web' \
   -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
 curl -s -b jar https://<host>/v1/auth/me
 ```
@@ -471,10 +471,10 @@ curl -s -b jar https://<host>/v1/auth/me
 
 ```bash
 bun run keys create --workspace "$WORKSPACE_ID" --scopes sessions:read,sessions:write --personal "$USER_ID"
-curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/disable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"reason":"left the team"}'
-curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/enable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{}'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/disable" -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{"reason":"left the team"}'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/enable" -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{}'
 curl -s -b jar http://127.0.0.1:3000/v1/takeovers
-curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" -H 'X-Requested-With: werft-web'
 ```
 
 ### Slack 계정 연결
@@ -549,11 +549,11 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
 
 ```bash
 # Secure cookies only travel over https: use the console origin from step 0.
-curl -s -b jar -c jar -X POST "$CONSOLE_URL/v1/linked-accounts/slack/start" -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -c jar -X POST "$CONSOLE_URL/v1/linked-accounts/slack/start" -H 'X-Requested-With: werft-web'
 curl -s -b jar -c jar -X POST "$CONSOLE_URL/v1/linked-accounts/slack/callback" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
 curl -s -b jar "$CONSOLE_URL/v1/linked-accounts"
-curl -s -b jar -X DELETE "$CONSOLE_URL/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -X DELETE "$CONSOLE_URL/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: werft-web'
 ```
 
 로컬에서는 `infra/compose.mock-slack.yml`을 겹쳐 띄우면 Slack 앱 없이 같은 흐름을 돌릴 수 있다. overlay는 fallback client를 비워 두므로, `POST http://mock-slack:4020/fake/config-tokens`로 받은 token을 owner가 `PUT /v1/workspaces/{id}/slack/config-token`으로 넣은 뒤의 첫 연결 시작이 Web API 가짜로 link 앱을 만든다(master key가 있어야 한다). mock IdP는 그 앱의 client를 받는다. 예전처럼 고정 client로 돌리려면 `MOCK_SLACK_FALLBACK_CLIENT_ID=mock-client-id`·`MOCK_SLACK_FALLBACK_CLIENT_SECRET=mock-client-secret`을 주고 띄운다. mock은 동의를 자동으로 하고 `MOCK_SLACK_TEAM_ID`·`MOCK_SLACK_USER_ID`(기본 `T0MOCK`·`U0MOCK`)를 돌려준다. `authorize_url`에 `mock_team`·`mock_user`를 붙이면 그 계정을 돌려준다. `MOCK_SLACK_TEAM_NAME`·`MOCK_SLACK_USER_NAME`(기본 빈 값)을 주면 id_token에 워크스페이스 이름(`https://slack.com/team_name`)과 표시 이름(`name`)을 싣고, `authorize_url`의 `mock_team_name`·`mock_user_name`이 그 값을 바꾼다(빈 값이면 이름 없음). 설치 등록 CLI가 부르는 `auth.test`·`bots.info`도 답한다: bot token `mock-bot-token`이면 team `MOCK_SLACK_TEAM_ID`, app `A0MOCK`, bot 사용자 `U0MOCKBOT`. 그때는 `SLACK_API_URL=http://mock-slack:4020/api`로 CLI를 실행한다. 실제 배포에는 절대 겹치지 않는다. API가 mock이 서명한 것을 믿게 된다.
@@ -582,7 +582,7 @@ key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"kind":"agent","agent_id":"<agent_id>","name":"ci-deploy","scopes":["sessions:read","sessions:write"]}'
 ```
 
@@ -624,11 +624,11 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/teams \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"name":"리서치봇 관리팀"}'
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{"name":"리서치봇 관리팀"}'
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/teams/$TEAM_ID/members" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d "{\"user_id\":\"$USER_ID\"}"
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d "{\"user_id\":\"$USER_ID\"}"
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
 ```
 
 ### 세션 공유 범위와 감사 열람
@@ -669,7 +669,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 
 ```bash
 curl -s -b jar -X PATCH "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/agent-access" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"agent_outsider_access":"view"}'
 ```
 
@@ -693,10 +693,10 @@ owner·admin은 범위 밖 세션을 두 길로만 다룬다. 둘 다 사유(`ju
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/share" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d "{\"scope\":\"team\",\"team_ids\":[\"$TEAM_ID\"]}"
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/audit-read" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"justification":"장애 조사 INC-42"}'
 curl -s -b jar http://127.0.0.1:3000/v1/admin/sessions
 ```
@@ -748,7 +748,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/agents/<agent_id>/credential-bindings \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"credential_ref":"notion_token"}'
 ```
 
@@ -778,7 +778,7 @@ Slack ingress는 이벤트를 받을 때 `agentForSlackEvent(store, {appId, team
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"provider":"slack_bot","app_id":"A0APP","team_id":"T0TEAM","credential_ref":"slack/research-bot-token"}'
 ```
 
@@ -873,7 +873,7 @@ docker compose --profile apps exec -T api \
 ```bash
 printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
   curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack/config-token" \
-    -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' --data-binary @-
+    -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' --data-binary @-
 ```
 
 **에이전트의 Slack 앱 설치**
@@ -1024,7 +1024,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 
 ```bash
 curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/agents/$AGENT_ID/slack-bindings" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"channel_id":"C0OPS","mode":"mention","home":true}'
 ```
 
@@ -1077,7 +1077,7 @@ guest 사용 설정은 `workspace.settings.slack_guest_enabled`(기본 `false`)�
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack-guest" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"slack_guest_enabled":true}'
 ```
 
@@ -1099,7 +1099,7 @@ WHERE d.request_id = '<X-Request-Id>';
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/audit-retention" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"audit_retention_days":60}'
 ```
 

@@ -1100,7 +1100,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const repo = (app: string) => `ghcr.io/jeongjaesoon/werft-${app}`;
     const hex = (c: string) => `sha256:${c.repeat(64)}`;
     const runtime = {
-      engine: "claude-agent-sdk",
+      engine: "claude",
       sdkVersion: "0.3.280",
       cliVersion: "2.1.280",
       profileDigestScheme: 1,
@@ -2573,9 +2573,9 @@ describe("compose layers", () => {
   test("api, slack and the scheduler read the same worker image runtimes, and only the scheduler the previous image", () => {
     const runtimes = {
       WORKER_IMAGE_RUNTIME:
-        '{"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+        '{"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       WORKER_IMAGE_PREVIOUS_RUNTIME:
-        '{"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+        '{"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
     };
     const previous = `registry.invalid/worker@sha256:${"d".repeat(64)}`;
     const { exitCode, stderr, model } = render(LOCAL_LAYERS, {

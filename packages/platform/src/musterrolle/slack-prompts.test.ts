@@ -160,7 +160,7 @@ describe("Slack prompt cards", () => {
   test("a Write card shows the path, the content's first lines and the raw input with real line breaks", () => {
     // The owner's report: the card showed the input as JSON, `\n` and all.
     const content =
-      "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n";
+      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n";
     const { blocks } = slackPromptMessage(
       permission({ content, file_path: "README.md" }, { tool: "Write" }),
       { locale: "ko", requesterSlackUserId: null, linkUrl: LINK },
@@ -181,7 +181,7 @@ describe("Slack prompt cards", () => {
     ]);
     expect(JSON.stringify(blocks[1])).toContain("파일 쓰기: README.md");
     expect(preText(blocks[2])).toBe(
-      "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
+      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
     );
     const raw = preText(
       (blocks[3] as { child_blocks: unknown[] }).child_blocks[0],

@@ -14,7 +14,7 @@ import type {
   MemberView,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import { useAgentPlatform, useMemberPages } from "@werft-ai/react";
+import { useMemberPages, useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
   Badge,
@@ -161,7 +161,7 @@ function refusal(
  */
 export function MembersLayout() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const { pathname } = useLocation();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
@@ -311,7 +311,7 @@ export function MembersScreen() {
 
 /** The 초대 tab: invites still waiting to be accepted. */
 export function InvitesScreen() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const manages = useHasPermission("member.manage");
   const members = useQuery({ ...firstMembersQuery(client), enabled: manages });
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -341,7 +341,7 @@ function MemberTable({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [confirming, setConfirming] = useState<MemberRow | null>(null);
@@ -745,7 +745,7 @@ function InviteList({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const invites = useQuery(invitesQuery(client));

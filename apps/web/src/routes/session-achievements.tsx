@@ -9,7 +9,7 @@ import type {
   SessionDetail,
 } from "@werft-ai/contracts";
 import { administeredAgentsQuery, queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Code,
@@ -53,14 +53,14 @@ const JUDGE_USD = new Intl.NumberFormat("en-US", {
 const RATIO = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 function achievementsKey(
-  client: ReturnType<typeof useAgentPlatform>["client"],
+  client: ReturnType<typeof useWerft>["client"],
   sessionId: string,
 ) {
   return [...queryKeysOf(client).session(sessionId), "achievements"];
 }
 
 export function useSessionAchievements(session: SessionDetail) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     queryKey: achievementsKey(client, session.id),
     queryFn: () =>
@@ -79,7 +79,7 @@ export function useSessionAchievements(session: SessionDetail) {
  * admins on its achievements. The server decides; this only hides buttons.
  */
 function useReviewable(): (agentId: string | null) => boolean {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("achievement.review");
   const person = useMe()?.principal.kind === "user";
   const administered = useQuery({
@@ -106,7 +106,7 @@ export function SessionAchievements({
 }) {
   const { t } = useI18n();
   const titleId = useId();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const achievements = useSessionAchievements(session);
   const reviewable = useReviewable();
@@ -214,7 +214,7 @@ function AchievementRow({
   readonly onReviewed: (decided: SessionAchievement) => Promise<unknown>;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const [failure, setFailure] = useState<string | null>(null);
   const review = useMutation<
     ReviewAchievementResponse,
@@ -333,7 +333,7 @@ function JudgmentLine({
   readonly onQueued: () => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const manager = useHasPermission("achievement_rule.manage");
   const [failure, setFailure] = useState<string | null>(null);
   const rejudge = useMutation<unknown, ApiError>({

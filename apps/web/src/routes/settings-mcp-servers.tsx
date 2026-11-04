@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import type { SettingsMcpServer } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Button,
   Code,
@@ -61,7 +61,7 @@ export const slugList = (text: string): string[] =>
 
 export function McpServersScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const owns = useHasPermission("installation.settings.manage");
   const servers = useQuery(settingsMcpServersQuery(client, owns));
   const [outcome, setOutcome] = useState<Outcome | null>(null);

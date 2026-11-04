@@ -80,7 +80,7 @@ terminate가 이미 사라진 execution에서 즉시 끝나거나 scheduler/reco
 
 worker도 기동 때 교차 검사를 한다. `WORKER_PROVIDER_MAX_RETRIES`가 없으면 기동하지 않는다. 코드 기본값이 없는 설치 상한이고, scheduler가 항상 넘긴다. `WORKER_NEXT_INPUT_WAIT_SEC`가 `WORKER_REQUEST_TIMEOUT_SEC` 이상이어도 기동하지 않는다. 그 설정에서는 모든 long poll이 요청 timeout에 잘린다. scheduler와 reconciler는 빈 `DATABASE_URL`을 설정하지 않은 것으로 보고 `QUEUE_DATABASE_URL`을 쓴다.
 
-API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). 직접 빌드한 이미지에는 그 JSON이 없다. images.yml과 같은 명령으로 이미지에서 읽는다.
+API와 slack role은 `WORKER_IMAGE_RUNTIME`과 `WORKER_IMAGE_PREVIOUS_RUNTIME`으로 현재·직전 worker 이미지의 런타임 조합을 읽는다. 값은 손으로 적지 않고, images.yml이 남긴 worker digest JSON의 `runtime` 필드를 그대로 넣는다(`{"engine":…,"sdkVersion":…,"cliVersion":…,"profileDigestScheme":…}`). `engine`은 지금 `claude`뿐이고, chart는 다른 이름을 렌더링 때 `images.worker.runtime.engine must be one of: claude`로 거절한다. 직접 빌드한 이미지에는 그 JSON이 없다. images.yml과 같은 명령으로 이미지에서 읽는다.
 
 ```bash
 docker run --rm -i --network none --entrypoint bun <worker 이미지> \

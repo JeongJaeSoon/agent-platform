@@ -5,7 +5,7 @@ import { type ReactNode, useState } from "react";
 
 const { render, waitFor } = await setupDom();
 // After setupDom: these load @werft-ai/ui (see detail-layout.test.tsx).
-const { AgentPlatformProvider } = await import("../../provider.tsx");
+const { WerftProvider } = await import("../../provider.tsx");
 const { Findings } = await import("./findings.tsx");
 const { SessionCounts } = await import("./session-counts.tsx");
 const { ToolCalls } = await import("./tool-calls.tsx");
@@ -55,7 +55,7 @@ const TOOLS = [
 
 function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
   return render(
-    <AgentPlatformProvider
+    <WerftProvider
       client={{} as ApiClient}
       locale={locale}
       renderLink={({ to, id, children, className }) => (
@@ -65,7 +65,7 @@ function withPlatform(node: ReactNode, locale: "ko" | "en" = "ko") {
       )}
     >
       {node}
-    </AgentPlatformProvider>,
+    </WerftProvider>,
   );
 }
 
@@ -226,13 +226,13 @@ describe("ToolRail loading", () => {
       view.getByRole("heading", { level: 2, name: "Loading tools" }),
     ).toBeTruthy();
     view.rerender(
-      <AgentPlatformProvider
+      <WerftProvider
         client={{} as ApiClient}
         locale="en"
         renderLink={() => null}
       >
         {rail("Bash")}
-      </AgentPlatformProvider>,
+      </WerftProvider>,
     );
     expect(view.getByRole("heading", { level: 2, name: "Bash" })).toBeTruthy();
     expect(view.container.querySelector("aside h2")?.textContent).toBe("Bash");
@@ -320,7 +320,7 @@ describe("ToolTable loading", () => {
 
   test("읽는 중 행 수는 loadingRows이고, 도구가 오면 같은 표에 그 행이 들어온다", () => {
     const table = (tools: typeof TOOLS | undefined) => (
-      <AgentPlatformProvider
+      <WerftProvider
         client={{} as ApiClient}
         locale="ko"
         renderLink={() => null}
@@ -331,7 +331,7 @@ describe("ToolTable loading", () => {
           loadingRows={TOOLS.length + 1}
           describe={() => "셸 명령"}
         />
-      </AgentPlatformProvider>
+      </WerftProvider>
     );
     const { getAllByRole, getByRole, queryByText, rerender } = render(
       table(undefined),
@@ -416,7 +416,7 @@ describe("tools tab loading", () => {
 
   test("ToolRail은 이름도 모를 때 자리표시로 서고, 값이 오면 같은 자리에 그린다", () => {
     const rail = (ready: boolean) => (
-      <AgentPlatformProvider
+      <WerftProvider
         client={{} as ApiClient}
         locale="ko"
         renderLink={({ id, children }) => <a href={`/s/${id}`}>{children}</a>}
@@ -436,7 +436,7 @@ describe("tools tab loading", () => {
           callSort="recent"
           onCallSortChange={() => {}}
         />
-      </AgentPlatformProvider>
+      </WerftProvider>
     );
     const { getByRole, queryByRole, rerender, container } = render(rail(false));
     const aside = getByRole("complementary", { name: "선택한 도구" });

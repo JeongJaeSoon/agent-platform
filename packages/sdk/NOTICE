@@ -4,7 +4,7 @@ Copyright 2026 JAESOON JEONG
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 The published npm package bundles compiled code from packages/client and
-type declarations from packages/contracts of the agent-platform repository
+type declarations from packages/contracts of the Werft repository
 (https://github.com/JeongJaeSoon/werft). In that repository those
 directories are licensed under the PolyForm Small Business License 1.0.0;
 the copyright holder licenses the copies included in this package under the

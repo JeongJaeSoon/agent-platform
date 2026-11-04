@@ -9,7 +9,7 @@ import type {
   CompleteGitHubAppManifestResponse,
   StartGitHubAppManifestResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Button,
   Checkbox,
@@ -76,7 +76,7 @@ export function NewAppForm({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const [owner, setOwner] = useState<"organization" | "user">("organization");
   const [scope, setScope] = useState<"private" | "public">("private");
@@ -333,7 +333,7 @@ export function GitHubNewAppCallback() {
   const [sent] = useState(() => search);
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id;
   const started = useRef(false);

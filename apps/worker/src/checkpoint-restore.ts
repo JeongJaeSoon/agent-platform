@@ -144,13 +144,14 @@ export async function stageCheckpointBundle(input: {
 }
 
 /**
- * The instruction file `file` as committed at the staged instructions commit.
+ * The first of the instruction files `files` that is committed at the staged
+ * instructions commit.
  * A checkpoint that pins none is refused rather than read as having no file,
  * so a profile that wants the file fails instead of resuming without it.
  */
 export async function stagedInstructions(
   staged: StagedCheckpoint,
-  file: string | null,
+  files: readonly string[],
   signal: AbortSignal,
 ): Promise<CommittedInstructions> {
   if (staged.instructions === null) {
@@ -163,7 +164,7 @@ export async function stagedInstructions(
     localGit(staged.repository, signal, { GIT_DIR: staged.repository }),
     staged.repository,
     staged.instructions,
-    file,
+    files,
     signal,
   );
 }

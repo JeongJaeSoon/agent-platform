@@ -58,7 +58,7 @@ class Web {
     body?: unknown,
   ): Promise<Reply<T>> {
     const headers: Record<string, string> = {
-      "x-requested-with": "agent-platform-web",
+      "x-requested-with": "werft-web",
     };
     const cookies = [this.cookie, this.extra].filter(Boolean).join("; ");
     if (cookies) headers.cookie = cookies;

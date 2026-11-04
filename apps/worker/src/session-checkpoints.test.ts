@@ -156,7 +156,7 @@ function harness(
     objectPrefix: `sessions/${SESSION}/`,
     objects,
     workspaceRoot: workspace,
-    instructionsFile: "CLAUDE.md",
+    instructionFiles: ["AGENTS.md", "CLAUDE.md"],
     runtime: {
       checkpointCodec: options.codec ?? claudeCheckpointCodec,
       openTranscriptStore: claude.openTranscriptStore,
@@ -2113,7 +2113,7 @@ describe("SessionCheckpoints restoring a checkpoint", () => {
       objectPrefix: `sessions/${SESSION}/`,
       objects: from.objects,
       workspaceRoot: elsewhere,
-      instructionsFile: "CLAUDE.md",
+      instructionFiles: ["AGENTS.md", "CLAUDE.md"],
       runtime: claude,
     });
 
@@ -2684,7 +2684,7 @@ describe("a bundle built on the checkpoint before", () => {
 describe("SessionCheckpoints for a session without a repository", () => {
   test("publishes the engine's files in the bundle and restores them on a new volume with no origin", async () => {
     await rm(workspace, { force: true, recursive: true });
-    await new GitWorkspace(workspace, "CLAUDE.md").prepare({
+    await new GitWorkspace(workspace, ["AGENTS.md", "CLAUDE.md"]).prepare({
       descriptor: { repository: null },
       restore: null,
       signal: neverStopped(),
@@ -2738,7 +2738,7 @@ describe("SessionCheckpoints for a session without a repository", () => {
     "indexes out/ beside the bundle, which carries the symlink the index leaves out",
     async () => {
       await rm(workspace, { force: true, recursive: true });
-      await new GitWorkspace(workspace, "CLAUDE.md").prepare({
+      await new GitWorkspace(workspace, ["AGENTS.md", "CLAUDE.md"]).prepare({
         descriptor: { repository: null },
         restore: null,
         signal: neverStopped(),

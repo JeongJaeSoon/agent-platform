@@ -6,7 +6,7 @@ import {
   agentSummariesQuery,
   usageBreakdownQuery,
 } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   OPERATIONS_MESSAGES,
   SessionRowOpener,
@@ -68,7 +68,7 @@ type Reading = string | { readonly missing: string } | undefined;
  */
 export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const lists = useHasPermission("agent.manage");
   const agents = useQuery({
     ...agentSummariesQuery(client, [detail.agent.id]),
@@ -116,7 +116,7 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
  */
 function WeekCost({ agentId }: { readonly agentId: string }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const operator = useHasPermission("usage.installation_read");
   const { since, until } = usagePeriod(7);
   const breakdown = useQuery({
@@ -193,7 +193,7 @@ export function AgentReadiness({
   readonly toRelease: ReactNode;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const bindings = useQuery(credentialBindingsQuery(client, detail.agent.id));
   const { agent } = detail;
   const latest = latestVersion(detail);
@@ -326,7 +326,7 @@ const RECENT_NARROW_COLUMNS = "minmax(0,1fr) 116px 72px";
 /** The newest sessions created for this agent that the reader can see. */
 export function AgentRecentSessions({ agentId }: { readonly agentId: string }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const sessions = useQuery(agentSessionsQuery(client, agentId));
   const items = sessions.data?.items;
   return (

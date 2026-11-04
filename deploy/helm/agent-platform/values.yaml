@@ -33,7 +33,7 @@ images:
     repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
-    # {engine: claude-agent-sdk, sdkVersion: 0.3.280, cliVersion: 2.1.280,
+    # {engine: claude, sdkVersion: 0.3.280, cliVersion: 2.1.280,
     # profileDigestScheme: 1}. Empty launches every session on this image, and
     # an upgrade can then keep this image but not replace it
     # (docs/operator/kubernetes-deployment.md).

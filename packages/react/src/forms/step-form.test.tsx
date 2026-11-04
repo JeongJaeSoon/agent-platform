@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import type { DefaultValues } from "react-hook-form";
 import { z } from "zod";
 import { defaultMessages } from "../messages/index.ts";
-import { AgentPlatformProvider } from "../provider.tsx";
+import { WerftProvider } from "../provider.tsx";
 import {
   formAlerts,
   type StepForm,
@@ -33,13 +33,13 @@ const ko = defaultMessages.ko;
 
 function Wrap({ children }: { readonly children: ReactNode }) {
   return (
-    <AgentPlatformProvider
+    <WerftProvider
       client={{} as ApiClient}
       locale="ko"
       renderLink={({ children: label }) => label}
     >
       {children}
-    </AgentPlatformProvider>
+    </WerftProvider>
   );
 }
 

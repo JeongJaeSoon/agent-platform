@@ -5,15 +5,15 @@ import { meQuery } from "@werft-ai/core";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  AgentPlatformProvider,
-  type AgentPlatformProviderProps,
   defaultMessages,
   LOCALES,
   sessionsEn,
   sessionsJa,
   sessionsKo,
-  useAgentPlatform,
   useMe,
+  useWerft,
+  WerftProvider,
+  type WerftProviderProps,
 } from "./index.ts";
 
 // A server render reads the cache and the context without a DOM; requests
@@ -23,12 +23,12 @@ const client = {} as ApiClient;
 
 function render(
   node: ReactNode,
-  props: Partial<AgentPlatformProviderProps> = {},
+  props: Partial<WerftProviderProps> = {},
   queryClient = new QueryClient(),
 ) {
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="ko"
         renderLink={({ to, id, children }) => (
@@ -37,20 +37,20 @@ function render(
         {...props}
       >
         {node}
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>,
   );
 }
 
 function Message({ name }: { name: keyof typeof sessionsKo }) {
-  return <>{useAgentPlatform().messages[name]}</>;
+  return <>{useWerft().messages[name]}</>;
 }
 
-describe("AgentPlatformProvider", () => {
+describe("WerftProvider", () => {
   test("hands the hooks the client it was given", () => {
     let seen: ApiClient | undefined;
     function Probe() {
-      seen = useAgentPlatform().client;
+      seen = useWerft().client;
       return null;
     }
     render(<Probe />);
@@ -84,7 +84,7 @@ describe("AgentPlatformProvider", () => {
 
   test("links are drawn by the host's renderLink", () => {
     function SessionLink() {
-      const { renderLink } = useAgentPlatform();
+      const { renderLink } = useWerft();
       return renderLink({ to: "session", id: "s-1", children: "열기" });
     }
     expect(render(<SessionLink />)).toBe('<a href="/session/s-1">열기</a>');
@@ -92,11 +92,11 @@ describe("AgentPlatformProvider", () => {
 
   test("a hook outside the provider says so", () => {
     function Probe() {
-      useAgentPlatform();
+      useWerft();
       return null;
     }
     expect(() => renderToStaticMarkup(<Probe />)).toThrow(
-      "useAgentPlatform outside AgentPlatformProvider",
+      "useWerft outside WerftProvider",
     );
   });
 

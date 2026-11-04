@@ -1,12 +1,22 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// The publish gate of sdk-release.yml: nothing but a pushed sdk-v* tag,
-// approved in the `release` environment, can mint the OIDC token npm trusts.
+// The publish gate of sdk-release.yml: nothing but a manual run on main naming
+// a version, approved in the `release` environment, can mint the OIDC token npm
+// trusts.
 
 type Step = {
   uses?: string;
+  name?: string;
   run?: string;
   if?: string;
   env?: Record<string, string>;
@@ -16,6 +26,7 @@ type Step = {
 type Job = {
   if?: string;
   needs?: string | string[];
+  "continue-on-error"?: boolean;
   environment?: string;
   permissions?: Record<string, string>;
   env?: Record<string, string>;
@@ -32,51 +43,91 @@ const root = join(import.meta.dir, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 const text = read(".github/workflows/sdk-release.yml");
 const workflow = Bun.YAML.parse(text) as Workflow;
-const { build, publish, ...others } = workflow.jobs;
+const { build, tag, publish, ...others } = workflow.jobs;
 const runs = (job: Job) => job.steps.map((step) => step.run ?? "").join("\n");
+const releaseRun =
+  "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.version != ''";
+const checkStep = build?.steps.find(
+  (step) => step.name === "Commit and version can be released",
+) as Step;
+const tagStep = tag?.steps[0] as Step;
+const stepEnv = {
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
+  VERSION: "${{ inputs.version }}",
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
+  GH_TOKEN: "${{ github.token }}",
+};
 
 describe("sdk-release.yml", () => {
-  test("is read-only at the top and has only the two jobs", () => {
+  test("is read-only at the top and has only the three jobs", () => {
     expect(workflow.permissions).toEqual({ contents: "read" });
     expect(Object.keys(others)).toEqual([]);
   });
 
-  test("a push starts it only for sdk-v* tags", () => {
-    expect(workflow.on.push).toEqual({ tags: ["sdk-v*"] });
+  test("only pull requests and manual runs start it", () => {
+    expect(Object.keys(workflow.on).sort()).toEqual([
+      "pull_request",
+      "workflow_dispatch",
+    ]);
+    expect(workflow.on.workflow_dispatch).toEqual({
+      inputs: {
+        version: {
+          description:
+            "Version to publish, equal to packages/sdk/package.json. Empty is a dry run.",
+          type: "string",
+          required: false,
+          default: "",
+        },
+      },
+    });
   });
 
-  test("publish needs a pushed sdk-v* tag and the release environment", () => {
-    expect(publish?.if).toBe(
-      "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/sdk-v')",
-    );
+  test("tag and publish run only for a manual run on main naming a version", () => {
+    expect(tag?.if).toBe(releaseRun);
+    expect(publish?.if).toBe(releaseRun);
+    expect(tag?.needs).toBe("build");
+    expect(publish?.needs).toEqual(["build", "tag"]);
+  });
+
+  test("publish waits for approval in the release environment after the tag", () => {
     expect(publish?.environment).toBe("release");
-    expect(publish?.needs).toBe("build");
-    for (const s of publish?.steps ?? [])
-      expect(s["continue-on-error"]).toBeUndefined();
+    expect(tag?.environment).toBeUndefined();
     expect(
       publish?.steps.some((s) => s.uses?.startsWith("actions/checkout@")),
     ).toBe(false);
+    expect(
+      tag?.steps.some((s) => s.uses?.startsWith("actions/checkout@")),
+    ).toBe(false);
   });
 
-  test("build fails an sdk-v* tag off main or naming another version", () => {
+  test("no failing step or job can be stepped over on the way to publish", () => {
+    for (const job of Object.values(workflow.jobs)) {
+      expect(job["continue-on-error"]).toBeUndefined();
+      for (const step of job.steps)
+        expect(step["continue-on-error"]).toBeUndefined();
+    }
+  });
+
+  test("build checks a release and SDK_VERSION before it packs", () => {
     const steps = build?.steps ?? [];
-    const onMain = steps.findIndex((step) =>
-      step.run?.includes(
-        'if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then',
-      ),
-    );
-    const version = steps.findIndex((step) =>
-      step.run?.includes('"${GITHUB_REF_NAME#sdk-v}" != "$version"'),
-    );
     const packAt = steps.findIndex((s) =>
       s.run?.includes("npm pack ./packages/sdk/dist"),
     );
-    for (const at of [onMain, version]) {
-      expect(at).toBeGreaterThanOrEqual(0);
-      expect(steps[at]?.if).toBe("startsWith(github.ref, 'refs/tags/sdk-v')");
-      expect(steps[at]?.run).toContain("exit 1");
-      expect(packAt).toBeGreaterThan(at);
+    const sdkVersion = steps.find(
+      (s) => s.name === "SDK_VERSION matches package.json",
+    ) as Step;
+    expect(checkStep.if).toBe("inputs.version != ''");
+    expect(sdkVersion.if).toBeUndefined();
+    expect(sdkVersion.run).toContain("packages/sdk/src/version.ts");
+    for (const step of [checkStep, sdkVersion]) {
+      expect(steps.indexOf(step)).toBeGreaterThanOrEqual(0);
+      expect(packAt).toBeGreaterThan(steps.indexOf(step));
     }
+  });
+
+  test("only tag can write the repository", () => {
+    expect(tag?.permissions).toEqual({ contents: "write" });
+    expect(build?.permissions).toEqual({ contents: "read", actions: "read" });
   });
 
   test("only publish can mint the OIDC token, and no npm token remains", () => {
@@ -84,7 +135,6 @@ describe("sdk-release.yml", () => {
       contents: "read",
       "id-token": "write",
     });
-    expect(build?.permissions).toBeUndefined();
     expect(runs(publish as Job).trim()).toBe(
       "npm publish ./pkg/*.tgz --provenance --access public",
     );
@@ -94,8 +144,16 @@ describe("sdk-release.yml", () => {
     expect(workflow.env).toBeUndefined();
     for (const job of Object.values(workflow.jobs)) {
       expect(job.env).toBeUndefined();
-      for (const step of job.steps) expect(step.env).toBeUndefined();
+      for (const step of job.steps)
+        expect(step.env).toEqual(
+          step === checkStep || step === tagStep ? stepEnv : undefined,
+        );
     }
+  });
+
+  test("the version input reaches a shell only through the environment", () => {
+    for (const job of Object.values(workflow.jobs))
+      for (const step of job.steps) expect(step.run ?? "").not.toContain("${{");
   });
 
   test("publish runs on the Node whose npm supports trusted publishing", () => {
@@ -153,5 +211,171 @@ describe("sdk-release.yml", () => {
   test("an sdk-v* tag starts no other push workflow", () => {
     expect(new Bun.Glob("v*").match("sdk-v0.1.0")).toBe(false);
     expect(new Bun.Glob("ui-v*").match("sdk-v0.1.0")).toBe(false);
+  });
+});
+
+// The check and tag steps run as written, on the shell flags Actions uses:
+// git against a real origin, gh as a stub that applies the step's own jq filter.
+describe("sdk-release.yml release steps", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "sdk-release-"));
+  afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+  const git = (cwd: string, ...args: string[]) => {
+    const done = Bun.spawnSync(["git", ...args], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.test",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.test",
+      },
+    });
+    if (done.exitCode !== 0) throw new Error(done.stderr.toString());
+    return done.stdout.toString().trim();
+  };
+
+  const origin = join(scratch, "origin.git");
+  const repo = join(scratch, "repo");
+  const stubs = join(scratch, "bin");
+  const ghCalls = join(scratch, "gh-calls");
+  mkdirSync(join(repo, "packages/sdk"), { recursive: true });
+  mkdirSync(stubs);
+  writeFileSync(
+    join(repo, "packages/sdk/package.json"),
+    '{"version":"1.2.3"}\n',
+  );
+  git(scratch, "init", "--bare", "--initial-branch=main", origin);
+  git(repo, "init", "--initial-branch=main");
+  git(repo, "remote", "add", "origin", origin);
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "release");
+  git(repo, "push", "origin", "main");
+  const onMain = git(repo, "rev-parse", "HEAD");
+  git(repo, "checkout", "-b", "side");
+  git(repo, "commit", "--allow-empty", "-m", "side");
+  const offMain = git(repo, "rev-parse", "HEAD");
+  git(repo, "push", "origin", "side");
+
+  writeFileSync(
+    join(stubs, "gh"),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALLS"
+[ -z "$GH_FAILS" ] || exit 1
+for last; do :; done
+[ "$1" = api ] && [ "$3" = --jq ] && printf '%s' "$FAKE_RUNS" | jq -r "$last"
+exit 0
+`,
+  );
+  chmodSync(join(stubs, "gh"), 0o755);
+
+  const ciRun = (conclusion: string | null) =>
+    JSON.stringify({ workflow_runs: [{ conclusion }] });
+
+  const run = (step: Step, env: Record<string, string> = {}) => {
+    rmSync(ghCalls, { force: true });
+    const script = join(scratch, "step.sh");
+    writeFileSync(script, step.run as string);
+    const done = Bun.spawnSync(["bash", "-eo", "pipefail", script], {
+      cwd: repo,
+      env: {
+        ...process.env,
+        PATH: `${stubs}:${process.env.PATH}`,
+        GH_CALLS: ghCalls,
+        GITHUB_REPOSITORY: "owner/repo",
+        GITHUB_REF: "refs/heads/main",
+        GITHUB_SHA: onMain,
+        VERSION: "1.2.3",
+        FAKE_RUNS: ciRun("success"),
+        ...env,
+      },
+    });
+    return {
+      code: done.exitCode,
+      out: done.stdout.toString(),
+      calls: Bun.file(ghCalls).size ? readFileSync(ghCalls, "utf8") : "",
+    };
+  };
+
+  test("a good release passes every check and asks CI about its own commit", () => {
+    const { code, calls } = run(checkStep);
+    expect(code).toBe(0);
+    expect(calls).toContain(
+      `repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=${onMain}&event=push&branch=main&per_page=1`,
+    );
+  });
+
+  const refusals: [string, Record<string, string>, string][] = [
+    [
+      "a run off main",
+      { GITHUB_REF: "refs/heads/side" },
+      "a release runs on main",
+    ],
+    ["a tag ref", { GITHUB_REF: "refs/tags/x" }, "a release runs on main"],
+    ["another version", { VERSION: "1.2.4" }, "does not match packages/sdk"],
+    ["a v prefix", { VERSION: "v1.2.3" }, "does not match packages/sdk"],
+    ["a blank version", { VERSION: " " }, "does not match packages/sdk"],
+    ["a commit off main", { GITHUB_SHA: offMain }, "is not on main"],
+    ["a failed CI", { FAKE_RUNS: ciRun("failure") }, "is failure, not success"],
+    [
+      "a cancelled CI",
+      { FAKE_RUNS: ciRun("cancelled") },
+      "is cancelled, not success",
+    ],
+    [
+      "a CI still running",
+      { FAKE_RUNS: ciRun(null) },
+      "is not finished, not success",
+    ],
+    [
+      "no CI run",
+      { FAKE_RUNS: '{"workflow_runs":[]}' },
+      "is not finished, not success",
+    ],
+    ["a failed CI lookup", { GH_FAILS: "1" }, "could not read main CI"],
+  ];
+  for (const [name, env, message] of refusals)
+    test(`refuses ${name}`, () => {
+      const { code, out } = run(checkStep, env);
+      expect(code).toBe(1);
+      expect(out).toContain(`::error::`);
+      expect(out).toContain(message);
+    });
+
+  test("refuses a tag that already exists", () => {
+    git(repo, "push", "origin", `${onMain}:refs/tags/sdk-v1.2.3`);
+    const { code, out } = run(checkStep);
+    git(repo, "push", "origin", ":refs/tags/sdk-v1.2.3");
+    expect(code).toBe(1);
+    expect(out).toContain("tag sdk-v1.2.3 already exists");
+  });
+
+  test("stops when origin cannot say whether the tag exists", () => {
+    const stub = join(stubs, "git");
+    const real = Bun.which("git") as string;
+    writeFileSync(
+      stub,
+      `#!/bin/sh
+[ "$1" = ls-remote ] && exit 128
+exec "${real}" "$@"
+`,
+    );
+    chmodSync(stub, 0o755);
+    const { code, out } = run(checkStep);
+    rmSync(stub);
+    expect(code).toBe(1);
+    expect(out).toContain("could not read tag sdk-v1.2.3 from origin");
+  });
+
+  test("the tag step creates sdk-v<version> at the run's commit", () => {
+    const { code, calls } = run(tagStep);
+    expect(code).toBe(0);
+    expect(calls.trim()).toBe(
+      `api --method POST repos/owner/repo/git/refs -f ref=refs/tags/sdk-v1.2.3 -f sha=${onMain}`,
+    );
+  });
+
+  test("the tag step fails when the ref cannot be created", () => {
+    expect(run(tagStep, { GH_FAILS: "1" }).code).toBe(1);
   });
 });

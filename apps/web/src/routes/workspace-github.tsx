@@ -8,7 +8,7 @@ import type {
   GitHubSettingsResponse,
 } from "@werft-ai/contracts";
 import { githubAppWarnings } from "@werft-ai/core/forms";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -165,7 +165,7 @@ function useSetupReturn(onOutcome: OnOutcome) {
   const [sent] = useState(() => search);
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const workspaceId = useMe()?.workspace?.id;
   const started = useRef(false);
@@ -204,7 +204,7 @@ function useSetupReturn(onOutcome: OnOutcome) {
 
 /** The keys' dates and who saved them; only owners and admins read these. */
 function useKeyLines(enabled: boolean) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return useQuery({
     queryKey: appsKey(client, workspaceId),
@@ -226,7 +226,7 @@ function GitHubCard({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
@@ -379,7 +379,7 @@ function AddAccount({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const start = useMutation<{ install_url: string }, ApiError, string>({
@@ -846,7 +846,7 @@ function RemoveApp({
   readonly onRemoved: () => Promise<void>;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const id = connection?.connection_id ?? "";

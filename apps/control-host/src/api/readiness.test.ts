@@ -162,7 +162,7 @@ describe("readiness probe", () => {
       STORAGE_LIMIT_BYTES: "1073741824",
       AWS_REGION: "ap-northeast-1",
       S3_BUCKET: "claude-sessions",
-      AWS_ROLE_ARN: "arn:aws:iam::123456789012:role/agent-platform-api",
+      AWS_ROLE_ARN: "arn:aws:iam::123456789012:role/werft-api",
       AWS_WEB_IDENTITY_TOKEN_FILE:
         "/var/run/secrets/eks.amazonaws.com/serviceaccount/token",
     };

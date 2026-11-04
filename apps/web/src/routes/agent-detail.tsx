@@ -13,7 +13,7 @@ import type {
   AgentDetail,
   AgentRelease,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertActions,
@@ -131,7 +131,7 @@ export function AgentDetailScreen() {
 function AgentDetailPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
   const search = useSearch({ from: "/authed/agents/$id" });
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const detail = useQuery(agentQuery(client, id));
   const [placed, setPlaced] = useState<Placed | null>(() =>
     search.notice === "created"
@@ -179,7 +179,7 @@ function AgentNotFound() {
 }
 
 function OutsideAgent({ id }: { readonly id: string }) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const rows = useQuery(agentSummariesQuery(client, [id]));
   if (rows.isPending) return <StatusScreen kind="loading" />;
   if (rows.error)
@@ -302,7 +302,7 @@ function AgentView({
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   // One profile for the card editor's tool checklist and a new release.
   const [profileId, setProfileId] = useState<string>();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [conflict, setConflict] = useState<Conflict | null>(null);

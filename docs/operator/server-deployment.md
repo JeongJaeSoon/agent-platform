@@ -39,10 +39,10 @@ API만 내부 DNS 이름으로 내보내고 upstream은 계속 loopback을 사�
 ```nginx
 server {
     listen 443 ssl;
-    server_name agent-platform.internal.example;
+    server_name werft.internal.example;
 
-    ssl_certificate /etc/ssl/agent-platform/fullchain.pem;
-    ssl_certificate_key /etc/ssl/agent-platform/privkey.pem;
+    ssl_certificate /etc/ssl/werft/fullchain.pem;
+    ssl_certificate_key /etc/ssl/werft/privkey.pem;
 
     allow 10.8.0.0/24;
     deny all;

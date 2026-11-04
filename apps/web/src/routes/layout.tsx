@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import { queryScopeOf, sessionQuery } from "@werft-ai/core";
-import { QueryScopeProvider, useAgentPlatform } from "@werft-ai/react";
+import { QueryScopeProvider, useWerft } from "@werft-ai/react";
 import {
   Button,
   Field,
@@ -195,7 +195,7 @@ function AuthedShell() {
   const me = useMe();
   useSavedLocale();
   const groups = useNavGroups();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const sidebarId = useId();
@@ -273,7 +273,7 @@ function usePathname() {
  */
 function useLeafTitle(pathname: string): string | undefined {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const sessionId = SESSION_PATH.exec(pathname)?.[1];
   const agentId = AGENT_PATH.exec(pathname)?.[1];
   const sessionRead = useQuery({

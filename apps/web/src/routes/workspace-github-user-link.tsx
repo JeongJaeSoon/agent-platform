@@ -5,7 +5,7 @@ import {
 } from "@tanstack/react-query";
 import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type { GitHubSettingsResponse } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -74,7 +74,7 @@ export function GitHubUserLinkRow({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
@@ -290,7 +290,7 @@ function SecretDialog({
   readonly onSaved: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const [missing, setMissing] = useState(false);
