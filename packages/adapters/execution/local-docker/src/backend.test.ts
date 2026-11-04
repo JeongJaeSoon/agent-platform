@@ -2531,8 +2531,8 @@ describe("LocalDockerBackend worker networks", () => {
   test("a refused replacement takes a pre-contract-5 worker off the shared network", async () => {
     const intent = intentFor();
     const body = await createBodyOf(intent);
-    docker.addNetwork("agent-platform-worker");
-    body.HostConfig.NetworkMode = "agent-platform-worker";
+    docker.addNetwork("werft-worker");
+    body.HostConfig.NetworkMode = "werft-worker";
     body.Labels[LABELS.isolation] = "4:0000000000000000";
     const old = docker.add(containerNameFor(intent, "test-a"), body);
     docker.images.delete("worker:test");
@@ -2557,8 +2557,8 @@ describe("LocalDockerBackend worker networks", () => {
       }),
     });
     const body = await createBodyOf(intent);
-    docker.addNetwork("agent-platform-worker");
-    body.HostConfig.NetworkMode = "agent-platform-worker";
+    docker.addNetwork("werft-worker");
+    body.HostConfig.NetworkMode = "werft-worker";
     body.Labels[LABELS.isolation] = "4:0000000000000000";
     const old = docker.add(containerNameFor(intent, "test-a"), body);
     docker.images.delete("worker:test");
@@ -2570,7 +2570,7 @@ describe("LocalDockerBackend worker networks", () => {
       Object.keys(
         docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
       ),
-    ).toEqual(["agent-platform-worker"]);
+    ).toEqual(["werft-worker"]);
   });
 
   test("a pre-contract-5 worker that claims while being cut off gets its network back", async () => {
@@ -2583,8 +2583,8 @@ describe("LocalDockerBackend worker networks", () => {
       },
     });
     const body = await createBodyOf(intent);
-    docker.addNetwork("agent-platform-worker");
-    body.HostConfig.NetworkMode = "agent-platform-worker";
+    docker.addNetwork("werft-worker");
+    body.HostConfig.NetworkMode = "werft-worker";
     body.Labels[LABELS.isolation] = "4:0000000000000000";
     const old = docker.add(containerNameFor(intent, "test-a"), body);
     docker.images.delete("worker:test");
@@ -2596,7 +2596,7 @@ describe("LocalDockerBackend worker networks", () => {
       Object.keys(
         docker.attachmentsOf(old.id, old.body.HostConfig.NetworkMode),
       ),
-    ).toEqual(["agent-platform-worker"]);
+    ).toEqual(["werft-worker"]);
   });
 
   test("a claimed worker that could not be put back says so", async () => {
@@ -2608,15 +2608,15 @@ describe("LocalDockerBackend worker networks", () => {
       },
     });
     const body = await createBodyOf(intent);
-    docker.addNetwork("agent-platform-worker");
-    body.HostConfig.NetworkMode = "agent-platform-worker";
+    docker.addNetwork("werft-worker");
+    body.HostConfig.NetworkMode = "werft-worker";
     body.Labels[LABELS.isolation] = "4:0000000000000000";
     docker.add(containerNameFor(intent, "test-a"), body);
     docker.images.delete("worker:test");
     docker.refuseConnects = true;
 
     await expect(backend.assertReplaceable(intent)).rejects.toThrow(
-      "could NOT be put back on agent-platform-worker",
+      "could NOT be put back on werft-worker",
     );
   });
 
@@ -2841,7 +2841,7 @@ describe("LocalDockerBackend.reconcileNetworks", () => {
     // shared network; its replacement's network was made before teardown.
     const intent = intentFor();
     const body = await createBodyOf(intent);
-    body.HostConfig.NetworkMode = "agent-platform-worker";
+    body.HostConfig.NetworkMode = "werft-worker";
     body.Labels[LABELS.isolation] = "4:0000000000000000";
     docker.add(containerNameFor(intent, "test-a"), body);
     await backend.assertReplaceable(intent);
@@ -3182,7 +3182,7 @@ describe("LocalDockerBackend.verifyNetworkIsolation", () => {
       EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
       S3_BUCKET: "claude-sessions",
       WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
-      WORKER_IMAGE: "agent-platform-worker:dev",
+      WORKER_IMAGE: "werft-worker:dev",
     } as Parameters<typeof localDockerConfigFromEnv>[0]);
     const launched = workerEnvironmentFor(
       config,

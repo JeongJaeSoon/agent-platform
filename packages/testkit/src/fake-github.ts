@@ -719,7 +719,7 @@ export async function startFakeGitHub(
           number,
           String(input.body ?? ""),
           {
-            user: { id: APP_BOT_USER_ID, login: "agent-platform[bot]" },
+            user: { id: APP_BOT_USER_ID, login: "werft[bot]" },
             performed_via_github_app: { id: grant.appId },
           },
         );

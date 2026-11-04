@@ -230,7 +230,7 @@ describe("control host executable", () => {
           SESSION_COST_LIMIT_USD: "25",
           STORAGE_LIMIT_BYTES: "1073741824",
           WORKER_GATEWAY_URL: "http://api:3000",
-          WORKER_IMAGE: "agent-platform-worker:dev",
+          WORKER_IMAGE: "werft-worker:dev",
         });
         expect(loop.stderr + loop.stdout).toContain("Scheduler loop started");
         expect(loop.exitCode).toBe(1);

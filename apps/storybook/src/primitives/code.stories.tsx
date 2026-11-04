@@ -38,8 +38,7 @@ function Sentence({ locale }: { readonly locale: unknown }) {
   const [before, middle, after] = COPY[localeOf(locale)].inline;
   return (
     <Text>
-      {before} <Code>AP_TOKEN</Code> {middle} <Code>agent-platform run</Code>{" "}
-      {after}
+      {before} <Code>AP_TOKEN</Code> {middle} <Code>werft run</Code> {after}
     </Text>
   );
 }

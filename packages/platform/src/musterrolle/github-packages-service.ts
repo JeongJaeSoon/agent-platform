@@ -226,7 +226,7 @@ export function createGitHubPackagesTokenVerifier(deps: {
           headers: {
             accept: "application/vnd.github+json",
             authorization: `Bearer ${token}`,
-            "user-agent": "agent-platform",
+            "user-agent": "werft",
           },
           redirect: "error",
           signal: AbortSignal.timeout(deps.timeoutMs ?? 10_000),

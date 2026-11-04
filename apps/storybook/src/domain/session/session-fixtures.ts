@@ -248,10 +248,10 @@ export const SESSION: SessionSummary = {
     permission_mode: "default",
   },
   model: "claude-sonnet-4-5",
-  repository_id: "agent-platform",
+  repository_id: "werft",
   repository: {
-    id: "agent-platform",
-    full_name: "werft-ai/agent-platform",
+    id: "werft",
+    full_name: "werft-ai/werft",
     branch: "main",
   },
   current_turn_id: "turn_01",
