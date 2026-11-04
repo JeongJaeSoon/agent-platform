@@ -127,7 +127,7 @@ allow_until_done 1
 
 대화 흐름을 보려면 다른 터미널에서 이벤트 스트림을 연다(Ctrl-C로 닫는다): `curl -sSN "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY"`.
 
-커밋 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다. 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 Gitea(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `Initial commit`만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
+커밋 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다. 그래서 요청에 git 사용자 이름과 이메일을 적지 않아도 Claude가 커밋한다. worker에서는 push를 지원하지 않으므로 fake-git(`http://127.0.0.1:3001`)의 `agent/sample-app`에는 `initial` 커밋만 남는다. 커밋은 worker의 작업 트리와 checkpoint에 있고, 4단계처럼 후속 메시지로 hash를 물어 확인한다.
 
 **4. pause → resume 뒤 이어서 대화.** turn이 끝나 세션이 `idle`이 되면 quickstart ⑦·⑧과 같이 멈췄다 되살린다. 새 worker가 checkpoint에서 저장소와 Claude Code 세션을 복원하므로 앞의 대화를 기억한다.
 
@@ -155,7 +155,7 @@ turn 조회 결과(`result`)에는 답 문장이 없다. 답은 이벤트 스트
 scripts/local.sh down
 ```
 
-스택과 모든 데이터(세션, checkpoint, API key, Gitea 저장소)를 지운다. key를 가진 API 컨테이너도 이때 사라진다. 마지막으로 Console에서 key를 비활성화한다.
+스택과 모든 데이터(세션, checkpoint, API key)를 지운다. key를 가진 API 컨테이너도 이때 사라진다. 마지막으로 Console에서 key를 비활성화한다.
 
 ## 자율 모드 세션
 

@@ -22,6 +22,7 @@ import {
   CORE,
   DATADOG_OVERLAY,
   FAKE_MODEL,
+  GITEA_OVERLAY,
   LOCAL_LAYERS,
   layeredServices,
   REAL_MODEL,
@@ -381,9 +382,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   });
 
   // A credential route's upstream on a forward list is a way round the
-  // route: the provider outside cost accounting, Gitea without a token,
+  // route: the provider outside cost accounting, the git host without a token,
   // LocalStack into every session's prefix.
-  test("workers reach the provider, Gitea and the object store only through the credential routes", () => {
+  test("workers reach the provider, the git host and the object store only through the credential routes", () => {
     const forward = ["EGRESS_ALLOWLIST", "EGRESS_PRIVATE_ALLOWLIST"];
     const credential = [
       "EGRESS_CREDENTIAL_ALLOWLIST",
@@ -446,8 +447,45 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // Accounts come from the admin CLI; an open sign-up is a channel
     // between sessions for anything that reaches Gitea.
     expect(
-      localStack().gitea?.environment?.GITEA__service__DISABLE_REGISTRATION,
+      composeServices(GITEA_OVERLAY).gitea?.environment
+        ?.GITEA__service__DISABLE_REGISTRATION,
     ).toBe("true");
+  });
+
+  // Session records keep the repo_url they started with, so the catalogs,
+  // the service name and what fake-git serves have to go on agreeing.
+  test("the local git host serves every repository the example catalogs name", () => {
+    const local = localStack();
+    const gitHost = local.gitea;
+    expect(gitHost?.image).toBeUndefined();
+    expect(gitHost?.build?.dockerfile).toBe("apps/control-host/Dockerfile");
+    expect(gitHost?.command?.slice(0, 3)).toEqual([
+      "bun",
+      "run",
+      "packages/testkit/src/fake-git-main.ts",
+    ]);
+    // FAKE_GIT_PORT and FAKE_GIT_OWNER default to the URLs' 3000 and agent.
+    expect(gitHost?.environment).toBeUndefined();
+    const served = gitHost?.command?.slice(3) ?? [];
+
+    const catalogs: Record<string, string> = {
+      "config/repositories.yaml": "sample-app",
+      "config/fake-model/repositories.yaml": "sample-app",
+      "config/fake-model-unattended/repositories.yaml": "sample-app",
+      "config/local-model/repositories.yaml": "sample-app",
+      ".claude/skills/verify-agent-platform/github-sandbox/repositories.yaml":
+        "sample-app",
+      "scripts/d2-gate/config/repositories.yaml": "gate-app",
+    };
+    for (const [path, repository] of Object.entries(catalogs)) {
+      const { repositories } = Bun.YAML.parse(read(path)) as {
+        repositories: Record<string, { url: string }>;
+      };
+      expect(repositories[repository]?.url).toBe(
+        `http://gitea:3000/agent/${repository}.git`,
+      );
+      expect(served).toContain(repository);
+    }
   });
 
   const apiBlock = compose.slice(
@@ -872,7 +910,6 @@ describe("compose layers", () => {
     "local-s3-init",
     "secrets",
     "fake-messages",
-    "gitea-init",
   ];
   const APP_IMAGES = {
     API_IMAGE: `registry.invalid/control-host@sha256:${"a".repeat(64)}`,
@@ -1095,11 +1132,20 @@ describe("compose layers", () => {
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,
-  // networks, healthchecks, restart policies, allowlists — stays in the core.
+  // networks, restart policies, allowlists — stays in the core. The local
+  // layer's command and healthcheck are fake-git's: the core's git host has
+  // neither, because each layer runs a different program there.
   test.each([
     [
       LOCAL_LAYERS[1],
-      ["build", "env_file", "environment", "depends_on"],
+      [
+        "build",
+        "command",
+        "env_file",
+        "environment",
+        "depends_on",
+        "healthcheck",
+      ],
       [
         "AWS_ENDPOINT_URL",
         "AWS_ENDPOINT_URL_SECRETS_MANAGER",
@@ -1282,7 +1328,6 @@ describe("compose layers", () => {
       expect(services.api?.volumes?.[0]?.source).toBe(join(root, "config"));
       // The local S3 server and its encryption seed survive container replacement.
       expect(Object.keys(model?.volumes ?? {}).sort()).toEqual([
-        "gitea-data",
         "local-s3-data",
         "postgres-data",
       ]);

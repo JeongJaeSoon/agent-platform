@@ -33,7 +33,7 @@ console.log(created);
 }
 ```
 
-- `repository_id` はセッションが clone するリポジトリである。開発用サーバーの Gitea に `sample-app` が入っている。
+- `repository_id` はセッションが clone するリポジトリである。開発用サーバーの読み取り専用 Git サーバーが `sample-app` を配信する。
 - `message` は最初のターンの入力である。この台本はツールを呼ばずに `hello from Werft` で終わる。
 - 作成は受け付けるだけである。結果はターンが終わってから読む。
 - セッションを作るリクエストには `Idempotency-Key` が必要である。SDK が呼び出しごとに 1 つ作って付け、その呼び出しをリトライするときは同じキーを送る。

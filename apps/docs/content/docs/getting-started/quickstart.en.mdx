@@ -33,7 +33,7 @@ console.log(created);
 }
 ```
 
-- `repository_id` is the repository the session clones. The development server's Gitea holds `sample-app`.
+- `repository_id` is the repository the session clones. The development server's read-only Git server provides `sample-app`.
 - `message` is the input of the first turn. This script calls no tool and ends with `hello from Werft`.
 - Creating a session only accepts it. Read the result after the turn ends.
 - A request that creates a session needs an `Idempotency-Key`. The SDK makes one per call and sends the same key when it retries that call.

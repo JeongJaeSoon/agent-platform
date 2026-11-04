@@ -155,6 +155,25 @@ describe("restore schema gate", () => {
   });
 });
 
+describe("the restore's git host", () => {
+  const files = async (restoreGitea: string) => {
+    const result = await bash(
+      `source "${lib}"; docker() { printf '%s\\n' "$*"; }; compose_restore fixture config`,
+      repoRoot,
+      { RESTORE_GITEA: restoreGitea },
+    );
+    return result.stdout;
+  };
+
+  test("is a Gitea for a backup that holds Gitea data", async () => {
+    expect(await files("1")).toContain("/infra/compose.gitea.yml -f ");
+  });
+
+  test("stays the local fake-git for a backup without", async () => {
+    expect(await files("0")).not.toContain("compose.gitea.yml");
+  });
+});
+
 describe("restored gitea address check", () => {
   const appIni = (server: string) =>
     [
@@ -558,6 +577,9 @@ describe("backup.sh writers", () => {
         "for last; do :; done",
         'case "$*" in',
         '  *" ps -q --status running "*) case " $FAKE_RUNNING " in *" $last "*) echo "cid-$last" ;; esac ;;',
+        '  *" ps -aq gitea") echo cid-gitea ;;',
+        '  "inspect -f {{range .Mounts}}"*) printf "%s\\n" "$FAKE_GITEA_VOLUME" ;;',
+        '  "volume inspect "*) [ -n "$FAKE_LEFT_VOLUME" ] ;;',
         '  "ps -q -a --filter label=com.docker.compose.project=fixture --filter label=com.docker.compose.service=scheduler")',
         '    [ -z "$FAKE_INSTALLATION" ] || echo cid-scheduler ;;',
         '  "ps -q --filter label=com.docker.compose.project=fixture --filter label=com.docker.compose.service="*)',
@@ -583,7 +605,11 @@ describe("backup.sh writers", () => {
     bash(
       `PATH="${join(dir, "bin")}:$PATH" scripts/backup.sh --project fixture --out "${out}" ${args.join(" ")}`,
       repoRoot,
-      { FAKE_RUNNING: "postgres localstack gitea", ...env },
+      {
+        FAKE_RUNNING: "postgres localstack gitea",
+        FAKE_GITEA_VOLUME: "fixture_gitea-data",
+        ...env,
+      },
     );
 
   const written = async () => {
@@ -603,6 +629,34 @@ describe("backup.sh writers", () => {
     );
     expect(result.exitCode).toBe(1);
     expect(await written()).toEqual([]);
+  }, 30_000);
+
+  test("a stopped Gitea stops the backup: its data would be missing", async () => {
+    const result = await backup({ FAKE_RUNNING: "postgres localstack" });
+    expect(result.stderr).toContain(
+      "service 'gitea' of project 'fixture' is not running",
+    );
+    expect(result.exitCode).toBe(1);
+  }, 30_000);
+
+  test("a git host with no volume at /data is not waited for", async () => {
+    const result = await backup({
+      FAKE_RUNNING: "postgres localstack api",
+      FAKE_GITEA_VOLUME: "",
+    });
+    expect(result.stderr).toContain("writers are running: api");
+    expect(result.stderr).not.toContain("gitea-data");
+  }, 30_000);
+
+  test("names a Gitea volume nothing mounts any more, which it leaves out", async () => {
+    const result = await backup({
+      FAKE_RUNNING: "postgres localstack api",
+      FAKE_GITEA_VOLUME: "",
+      FAKE_LEFT_VOLUME: "1",
+    });
+    expect(result.stderr).toContain(
+      "volume fixture_gitea-data exists but no container mounts it",
+    );
   }, 30_000);
 
   test("refuses while the reconciler runs", async () => {

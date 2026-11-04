@@ -3,7 +3,7 @@ title: "開発用サーバーの実行"
 description: ローカルマシンに Werft サーバーを立ち上げ、API キーを取得する
 ---
 
-Werft サーバーは API サーバー、scheduler、reconciler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (SeaweedFS)、Git サーバー (Gitea)、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
+Werft サーバーは API サーバー、scheduler、reconciler、セッションごとに起動する worker コンテナ、PostgreSQL、S3 (SeaweedFS)、サンプルリポジトリを配信する読み取り専用の Git サーバー、egress proxy で構成される。このページではそのすべてを Docker Compose で 1 台のマシンに立ち上げる。モデルはキーなしで動く fake モデルを使うため、Anthropic アカウントは不要である。
 
 立ち上がると、サーバーのアドレスは `http://127.0.0.1:3000` になる。SDK と curl の例は、このアドレスとここで取得する API キーでサーバーに接続する。
 
@@ -15,7 +15,7 @@ Werft サーバーは API サーバー、scheduler、reconciler、セッショ�
 | Docker Compose | 2.24.6 以上 |
 | curl, jq, uuidgen, git | 任意のバージョン |
 
-スタックは `127.0.0.1` にのみポートを開く。3000 (API・Web コンソール)、5432 (PostgreSQL)、4566 (S3)・4567 (LocalStack Secrets Manager)、3001 (Gitea) が空いている必要がある。
+スタックは `127.0.0.1` にのみポートを開く。3000 (API・Web コンソール)、5432 (PostgreSQL)、4566 (S3)・4567 (LocalStack Secrets Manager)、3001 (読み取り専用の Git サーバー) が空いている必要がある。
 
 ```sh
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -80,9 +80,9 @@ SDK には `baseUrl` でサーバーのアドレス(`API`)を、`apiKey` でこ�
 scripts/local.sh down
 ```
 
-`scripts/local.sh down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー、Gitea リポジトリ) を削除する。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
+`scripts/local.sh down` はスタックと**すべてのデータ** (セッション、checkpoint、API キー) を削除する。最初からやり直すには `scripts/local.sh reset --fake-model` を実行する。
 
-データを残し worker コンテナとネットワークも片付けるには `scripts/local.sh down --keep-volumes` を実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・Gitea・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
+データを残し worker コンテナとネットワークも片付けるには `scripts/local.sh down --keep-volumes` を実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
 
 以前の LocalStack から移行するときは、pull 前に古い checkout でバックアップし、pull 後に未使用の新しい project へ復元する。失われたオブジェクトはバックアップなしでは復元できないため、参照を放棄するか明示的に判断する。[移行・バックアップ手順](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)を参照する。
 

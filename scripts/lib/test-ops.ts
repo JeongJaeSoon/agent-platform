@@ -44,7 +44,6 @@ const LOCAL_ONLY = [
   "local-s3-init",
   "secrets",
   "fake-messages",
-  "gitea-init",
 ];
 
 /**

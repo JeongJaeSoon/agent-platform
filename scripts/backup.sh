@@ -8,6 +8,9 @@
 #                   `git bundle create --all` of each Gitea bare repository
 #   gitea/          gitea.db (sqlite online backup) and conf/app.ini — the
 #                   bundles alone cannot tell Gitea which repositories exist
+#                   (both only when the installation's git host is a Gitea
+#                   with a volume at /data: the local fake-git holds nothing,
+#                   and the manifest then says `gitea: null`)
 #   manifest.json   schema version (applied migrations), image digests,
 #                   object and repository inventory
 #   SHA256SUMS      over all of the above
@@ -37,7 +40,7 @@ BUCKET=claude-sessions
 ALLOW_RUNNING_WRITERS=0
 
 usage() {
-  sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -55,8 +58,19 @@ done
 
 require_tools docker jq bun
 
-STORES=(postgres gitea)
+STORES=(postgres)
 [ "$OBJECT_STORE" = env ] || STORES+=(localstack)
+# -a: a stopped Gitea must stop the backup below, not read as no Gitea.
+GITEA_CID="$(compose "$PROJECT" ps -aq gitea | head -n1)"
+GITEA_VOLUME=""
+if [ -n "$GITEA_CID" ]; then
+  GITEA_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$GITEA_CID")"
+fi
+if [ -n "$GITEA_VOLUME" ]; then
+  STORES+=(gitea)
+elif docker volume inspect "${PROJECT}_gitea-data" >/dev/null 2>&1; then
+  log "backup: warning — volume ${PROJECT}_gitea-data exists but no container mounts it; it is left out of this backup"
+fi
 for service in "${STORES[@]}"; do
   [ -n "$(compose "$PROJECT" ps -q --status running "$service")" ] \
     || die "service '$service' of project '$PROJECT' is not running"
@@ -119,7 +133,7 @@ trap 'status=$?
 if [ "$status" -ne 0 ] && [ -d "$DEST" ] && [ ! -e "${FINAL}.failed" ]; then
   mv "$DEST" "${FINAL}.failed" && log "backup: failed; what it wrote is in ${FINAL}.failed"
 fi' EXIT
-mkdir "$DEST/objects" "$DEST/repos" "$DEST/gitea"
+mkdir "$DEST/objects"
 log "backup: project=$PROJECT store=$OBJECT_STORE -> $FINAL"
 
 # --- database -------------------------------------------------------------
@@ -166,6 +180,11 @@ OBJECT_COUNT="$(find "$DEST/objects" -type f | wc -l | tr -d ' ')"
 log "backup: objects/ $OBJECT_COUNT objects from ${BUCKET} at ${ENDPOINT:-AWS S3}"
 
 # --- gitea -----------------------------------------------------------------
+GITEA_JSON=null
+REPOS_JSON='[]'
+EMPTY_REPOS_JSON='[]'
+if [ -n "$GITEA_VOLUME" ]; then
+mkdir "$DEST/repos" "$DEST/gitea"
 # Per-process, so concurrent backups of one project do not share a stage.
 STAGE="/tmp/ap-backup-${TS}-$$"
 # One shell inside the container: sqlite's online backup for a consistent DB
@@ -214,7 +233,12 @@ REPOS_JSON="$(jq -R 'split(" ") | {name: .[0], head: .[1]}' < "$DEST/gitea/bundl
 # An empty repository has no bundle, only a name and the branch HEAD points
 # at, which Gitea's own metadata expects to find again after restore.
 EMPTY_REPOS_JSON="$(jq -R 'split(" ") | {name: .[0], head: .[1]}' < "$DEST/gitea/empty-repos" | jq -s .)"
+GITEA_JSON="$(jq -n --arg version "$(compose "$PROJECT" exec -T gitea gitea --version | cut -d' ' -f1-3 | tr -d '\n')" \
+  '{version: $version, dir: "gitea"}')"
 log "backup: repos/ $(printf '%s' "$REPOS_JSON" | jq length) bundled, $(printf '%s' "$EMPTY_REPOS_JSON" | jq length) empty"
+else
+  log "backup: the git host keeps no data (no volume at /data); repos/ and gitea/ left out"
+fi
 
 # --- images ----------------------------------------------------------------
 # api/worker/scheduler are null until the installation runs them. Restore
@@ -245,7 +269,7 @@ jq -n \
   --arg source_commit "$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
   --argjson source_dirty "$([ -z "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ] && echo false || echo true)" \
   --arg pg_version "$(compose "$PROJECT" exec -T postgres postgres --version | tr -d '\n')" \
-  --arg gitea_version "$(compose "$PROJECT" exec -T gitea gitea --version | cut -d' ' -f1-3 | tr -d '\n')" \
+  --argjson gitea "$GITEA_JSON" \
   --arg head_tag "$HEAD_TAG" \
   --argjson applied "$APPLIED_JSON" \
   --arg pg_db "$PG_DB" \
@@ -263,7 +287,7 @@ jq -n \
     source: { project: $source_project, checkout_commit: $source_commit, checkout_dirty: $source_dirty },
     schema: { head_tag: $head_tag, applied: $applied },
     db: { name: $pg_db, user: $pg_user, file: "db.sql", server: $pg_version },
-    gitea: { version: $gitea_version, dir: "gitea" },
+    gitea: $gitea,
     objects: { store: $store, bucket: $bucket, endpoint: $endpoint, count: $object_count, dir: "objects" },
     repos: { bundled: $repos, empty: $empty_repos, dir: "repos" },
     images: $images

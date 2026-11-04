@@ -6,7 +6,7 @@
 #
 #   scripts/soak/stack.sh up      build the images, start, create the fixture
 #   scripts/soak/stack.sh reset   down (images kept) and up again: a clean
-#                                 database, bucket and Gitea for a campaign
+#                                 database and bucket for a campaign
 #   scripts/soak/stack.sh down    remove this project's containers, networks,
 #                                 volumes and workers; SOAK_RMI=1 also the images
 #   scripts/soak/stack.sh logs    write every service's log to $SOAK_STATE/compose.log
@@ -65,28 +65,17 @@ up() {
     echo "== build (${project})" >&2
     # migrate builds from the same Dockerfile under the project's own name;
     # left out, a kept stack runs an old image missing the newest migrations.
+    # gitea likewise, or `up` would build it from this checkout.
     # SOAK_BUILD_ROOT: another checkout to build the images from (rc.sh).
-    (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate worker egress-proxy) >"$state/build.log" 2>&1
+    (cd "${SOAK_BUILD_ROOT:-$root}" && dc build api migrate gitea worker egress-proxy) >"$state/build.log" 2>&1
   fi
   echo "== stack (${project})" >&2
   dc up -d --wait postgres localstack secrets gitea gate-chaos gate-messages egress-proxy vm-lag host-echo >"$state/up.log" 2>&1
   dc up -d --wait api >>"$state/up.log" 2>&1
 
   port() { dc port "$1" "$2" | sed 's/.*://'; }
-  local gitea_url
-  gitea_url="http://127.0.0.1:$(port gitea 3000)"
 
   echo "== fixture" >&2
-  # A throwaway login for this stack's own Gitea, gone with its volume.
-  local gitea_login
-  gitea_login="soak-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
-  dc exec -T -u git gitea gitea admin user create --username agent \
-    --password "$gitea_login" --email agent@example.test \
-    --must-change-password=false >"$state/fixture.log" 2>&1
-  curl -fsS -u "agent:${gitea_login}" -X POST "${gitea_url}/api/v1/user/repos" \
-    -H 'Content-Type: application/json' \
-    -d '{"name":"gate-app","auto_init":true,"default_branch":"main","private":false}' \
-    >>"$state/fixture.log"
   local key
   key="$(dc exec -T api bun run apps/control-host/src/api/keys.ts create soak-owner \
     --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover | tail -n 1)"
@@ -108,7 +97,6 @@ up() {
     echo "export SOAK_S3_URL='http://127.0.0.1:$(port localstack 4566)'"
     echo "export SOAK_CHAOS_URL='http://127.0.0.1:$(port gate-chaos 8099)'"
     echo "export SOAK_MESSAGES_URL='http://127.0.0.1:$(port gate-messages 4011)'"
-    echo "export SOAK_GITEA_URL='${gitea_url}'"
     echo "export SOAK_VM_LAG_URL='http://127.0.0.1:$(port vm-lag 8098)'"
     echo "export SOAK_HOST_ECHO_URL='http://127.0.0.1:$(port host-echo 8098)'"
     echo "export SOAK_NETWORK='${project}_default'"

@@ -33,7 +33,7 @@ console.log(created);
 }
 ```
 
-- `repository_id`는 세션이 clone할 저장소다. 개발용 서버의 Gitea에 `sample-app`이 들어 있다.
+- `repository_id`는 세션이 clone할 저장소다. 개발용 서버의 읽기 전용 Git 서버가 `sample-app`을 내준다.
 - `message`는 첫 turn의 입력이다. 이 대본은 도구를 부르지 않고 `hello from Werft`로 끝난다.
 - 만들기는 접수만 한다. 결과는 turn이 끝난 뒤에 읽는다.
 - 세션을 만드는 요청에는 `Idempotency-Key`가 필요하다. SDK가 호출마다 하나 만들어 붙이고, 그 호출을 재시도할 때 같은 key를 다시 보낸다.

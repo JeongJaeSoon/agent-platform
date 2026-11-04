@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs fault/contention campaigns, each on a freshly reset soak
-# stack (scripts/soak/stack.sh reset: empty database, bucket and Gitea, same
+# stack (scripts/soak/stack.sh reset: empty database and bucket, same
 # images), so one campaign's damage never becomes the next one's input.
 #
 #   scripts/soak/campaign.sh [campaign-id ...]    default: every campaign

@@ -253,7 +253,7 @@ ops_compose() {
     WORKER_IMAGE_PREVIOUS_RUNTIME="$WORKER_IMAGE_PREVIOUS_RUNTIME" \
     docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" --profile apps \
     -f "${REPO_ROOT}/infra/compose.core.yml" -f "${REPO_ROOT}/infra/compose.test-ops.yml" \
-    -f "${REPO_ROOT}/infra/compose.test-ops.${STORE}.yml" "$@"
+    -f "${REPO_ROOT}/infra/compose.gitea.yml" -f "${REPO_ROOT}/infra/compose.test-ops.${STORE}.yml" "$@"
 }
 
 # The installation as its containers get it. Held in memory only: it

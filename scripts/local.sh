@@ -238,7 +238,7 @@ down() {
     echo "local.sh: stopping the local stack and deleting its workers; volumes and checkpoint objects kept" >&2
     compose down --remove-orphans
   else
-    echo "local.sh: deleting the local stack and ALL its data: sessions, checkpoints, keys, Gitea repositories" >&2
+    echo "local.sh: deleting the local stack and ALL its data: sessions, checkpoints, keys" >&2
     compose down -v --remove-orphans
   fi
   # What the scheduler created is not compose's: worker containers, their
