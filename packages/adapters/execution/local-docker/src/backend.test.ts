@@ -1871,7 +1871,7 @@ describe("LocalDockerBackend.listManaged", () => {
     const ours = intentFor();
     docker.add(containerNameFor(ours, "test-a"), await createBodyOf(ours));
     const foreign = await createBodyOf(
-      intentFor({ executionId: "exec-foreign" }),
+      intentFor({ executionId: "exec-other" }),
     );
     delete foreign.Labels[LABELS.managed];
     docker.add("someone-elses-container", foreign);

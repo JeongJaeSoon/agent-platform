@@ -328,7 +328,7 @@ describe("PostgresSchedulerStore", () => {
     });
     if (!intent) throw new Error("no intent");
     const foreign = await insertUnassigned();
-    await seedLaunch("exec-foreign", foreign, "kubernetes");
+    await seedLaunch("exec-other", foreign, "kubernetes");
     const legacySession = await insertUnassigned();
     await seedLaunch("exec-legacy", legacySession, "local_docker");
     // An executions row nobody registered is not in the ledger at all: its
