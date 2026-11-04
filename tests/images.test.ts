@@ -784,7 +784,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   });
 
   describe("images.yml publishing", () => {
-    type Step = { uses?: string; run?: string; with?: Record<string, unknown> };
+    type Step = {
+      uses?: string;
+      run?: string;
+      env?: Record<string, string>;
+      with?: Record<string, unknown>;
+    };
     type Job = {
       if?: string;
       needs?: string | string[];
@@ -875,11 +880,28 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
       // Only the digest going out needs its sources on record.
       expect(publish).toContain(
-        'image-licenses.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}" publish',
+        'image-licenses.sh "$APP" "$' +
+          "{NAME}@$" +
+          '{DIGEST}" "$LICENSE_MODE"',
       );
       expect(runsOf(jobs.build)).toContain(
-        'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"\n',
+        'image-licenses.sh "$APP" "$' +
+          "{NAME}:sha-$" +
+          '{GITHUB_SHA::12}" "$LICENSE_MODE"',
       );
+      const licenseMode = (job: Job | undefined) =>
+        job?.steps.flatMap((step) => step.env?.LICENSE_MODE ?? []);
+      // Shared steps: the tag path stays strict by the ref, not by the job.
+      expect(licenseMode(jobs.publish)).toEqual([
+        expression(
+          "github.ref == 'refs/heads/main' && 'publish-main' || 'publish'",
+        ),
+      ]);
+      expect(licenseMode(jobs.build)).toEqual([
+        expression(
+          "github.event_name == 'push' && github.ref == 'refs/heads/main' && 'skip-snapshot' || 'build'",
+        ),
+      ]);
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
       ).toEqual([true]);
@@ -909,6 +931,116 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       });
       // In that group a queued entry would replace another merge's promotion.
       expect(jobs["promote-main"]?.concurrency).toBeUndefined();
+    });
+  });
+
+  describe("image-licenses.sh snapshot modes", () => {
+    const urls = [
+      "https://snapshot.debian.org/package/acl/2.3.2-2/",
+      "https://snapshot.debian.org/package/apt/3.0.3/",
+    ];
+    const fakeDocker = `#!/usr/bin/env bash
+case "$*" in
+  *--snapshot-check*)
+    echo "$*" >"$FAKE/check"
+    printf '%b' "$FAKE_STDERR" >&2
+    exit "$FAKE_EXIT"
+    ;;
+esac
+`;
+    const run = (mode: string | undefined, exit: number, stderr = "") => {
+      const directory = mkdtempSync(join(tmpdir(), "image-licenses-"));
+      mkdirSync(join(directory, "bin"));
+      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(root, ".github/scripts/image-licenses.sh"),
+          "worker",
+          "image@sha256:a",
+          ...(mode === undefined ? [] : [mode]),
+        ],
+        {
+          cwd: directory,
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            FAKE_EXIT: String(exit),
+            FAKE_STDERR: stderr,
+            GITHUB_STEP_SUMMARY: join(directory, "summary"),
+          },
+        },
+      );
+      const listed = join(directory, "unverified-sources/worker.txt");
+      const textOf = (path: string) =>
+        existsSync(path) ? readFileSync(path, "utf8") : undefined;
+      return {
+        code: result.exitCode,
+        out: `${result.stdout.toString()}${result.stderr.toString()}`,
+        listed: textOf(listed),
+        summary: textOf(join(directory, "summary")),
+        check: textOf(join(directory, "check")),
+      };
+    };
+    const unreachable = urls.map((url) => `unreachable: ${url}\n`).join("");
+
+    test("a main build goes out without answers, and says which", () => {
+      const result = run("publish-main", 3, unreachable);
+      expect(result.code).toBe(0);
+      expect(result.listed).toBe(`${urls.join("\n")}\n`);
+      expect(result.summary).toContain("2 sources unverified");
+      expect(result.summary).toContain(`- ${urls[0]}`);
+      expect(result.out).toContain("::warning::worker");
+      expect(result.check).toEndWith("/app/DEBIAN_SOURCES.md 240\n");
+    });
+
+    test("a clean main check leaves an empty list, not none", () => {
+      const result = run("publish-main", 0);
+      expect(result.code).toBe(0);
+      expect(result.listed).toBe("");
+    });
+
+    test("a main build stops on a denied source, also among unanswered ones", () => {
+      const result = run(
+        "publish-main",
+        1,
+        `missing: ${urls[0]}\nunreachable: ${urls[1]}\n`,
+      );
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("::error::worker");
+    });
+
+    test("only exit 3 is forgiven: docker and timeouts are not", () => {
+      for (const exit of [2, 125, 124, 137]) {
+        expect(run("publish-main", exit, unreachable).code).toBe(1);
+      }
+    });
+
+    test("exit 3 with no list stops instead of recording none", () => {
+      expect(run("publish-main", 3).code).toBe(1);
+    });
+
+    test("a release needs every answer and has no budget", () => {
+      const refused = run("publish", 3, unreachable);
+      expect(refused.code).toBe(1);
+      const clean = run("publish", 0);
+      expect(clean.code).toBe(0);
+      expect(clean.listed).toBe("");
+      expect(clean.check).toEndWith("/app/DEBIAN_SOURCES.md\n");
+    });
+
+    test("a build only warns, and a main push build does not ask", () => {
+      const build = run(undefined, 1);
+      expect(build.code).toBe(0);
+      expect(build.out).toContain("::warning::worker");
+      expect(build.listed).toBeUndefined();
+      const skipped = run("skip-snapshot", 1);
+      expect(skipped.code).toBe(0);
+      expect(skipped.check).toBeUndefined();
+    });
+
+    test("an unknown mode is refused", () => {
+      expect(run("publish-mian", 0).code).toBe(2);
     });
   });
 

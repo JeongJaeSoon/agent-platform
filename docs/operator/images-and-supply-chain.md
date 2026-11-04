@@ -52,7 +52,8 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
   ```
 
 - **덮어쓰지 않는다.** 쓰기 전에 세 태그를 모두 조회해, 태그가 이미 다른 digest를 가리키면 아무 태그도 쓰지 않고 실패한다. 같은 digest면 재실행으로 보고 통과한다. 조회가 "없음" 외의 이유로 실패하면 중단한다. 같은 run을 전체 재실행하면 다시 빌드하므로 digest가 달라질 수 있고, 그때는 거부되어 먼저 올린 이미지가 그대로 남는다. 세트가 반만 태그됐을 때는 staged artifact가 남아 있는 동안 "Re-run failed jobs"로 같은 digest를 채운다.
-- **게시되지 않는 commit이 있다.** 재검사에서 수정판 있는 high·critical이 나오거나, 검사가 답을 못 받거나, snapshot.debian.org가 소스를 아직 갖고 있지 않으면 그 commit은 게시되지 않고 Images run이 빨갛게 끝난다. 필수 check는 아니므로 머지는 막지 않고, 다음 머지가 새 세트를 올린다. 머지가 1초 안에 이어져 한 push로 묶인 commit은 run이 없어서 태그도 없다.
+- **`main-<12>`는 릴리스가 아니다.** 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. snapshot.debian.org가 답하지 않은 소스는 경고로 넘기고, 그 목록을 run의 job summary와 `image-digests-published` JSON의 `unverifiedSources`에 남긴다. 빈 배열은 모두 확인됐다는 뜻이고, 필드가 없는 옛 JSON은 기록이 없다는 뜻이다. 답하지 않은 소스가 실제로 없을 가능성은 남는다. 공식 릴리스(`v*` 태그)는 모든 소스의 보관을 확인해야 게시된다.
+- **게시되지 않는 commit이 있다.** 재검사에서 수정판 있는 high·critical이 나오거나, 취약점 검사가 답을 못 받거나, snapshot.debian.org가 소스가 없다고 답하면 그 commit은 게시되지 않고 Images run이 빨갛게 끝난다. 필수 check는 아니므로 머지는 막지 않고, 다음 머지가 새 세트를 올린다. 머지가 1초 안에 이어져 한 push로 묶인 commit은 run이 없어서 태그도 없다.
 - **아키텍처.** 태그 경로와 같이 `linux/amd64`만 게시한다.
 - **받기.** 패키지가 비공개이면 `docker login ghcr.io`가 먼저다.
 
