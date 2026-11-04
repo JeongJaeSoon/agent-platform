@@ -269,6 +269,8 @@ helm upgrade --install "$RELEASE" "$chart" \
 
 fullname="$RELEASE"
 case "$RELEASE" in *"$chart_name"*) ;; *) fullname="${RELEASE}-${chart_name}" ;; esac
+fullname="${fullname:0:50}"
+fullname="${fullname%-}"
 # preview.sh points its Ingress at this name.
 echo "$fullname" >"$STATE_DIR/fullname"
 

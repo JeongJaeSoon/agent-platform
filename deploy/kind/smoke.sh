@@ -81,6 +81,8 @@ esac
 
 fullname="$RELEASE"
 case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
+fullname="${fullname:0:50}"
+fullname="${fullname%-}"
 k() { kubectl -n "$NAMESPACE" "$@"; }
 step() { current="$1"; echo; echo "== k8s-smoke: $*"; }
 pass() { echo "PASS ${current}"; }

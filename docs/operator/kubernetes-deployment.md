@@ -104,7 +104,7 @@ done
 
 release 이름에 `werft`가 들어가지 않으면 리소스 이름은 `<release>-werft-…`가 된다.
 
-chart 이름이 `agent-platform`이던 때 설치한 release는 제자리에서 올릴 수 없다. 리소스 이름이 바뀌어 upgrade-check Job이 기존 scheduler를 찾지 못하고 멈춘다. 세션이 끝났는지 확인하고 [제거](#제거)한 뒤 새로 설치한다.
+chart 이름이 `agent-platform`이던 때 설치한 release는 제자리에서 올릴 수 없다. 리소스 이름이 바뀌어 upgrade-check Job이 기존 scheduler를 찾지 못하고 멈춘다. 세션이 끝났는지 확인하고 옛 이름으로 지운 뒤(`helm -n agent-platform uninstall agent-platform`, [제거](#제거)에서 남는 것을 본다) 새로 설치한다.
 
 첫 설치가 실패하면(이미지 경로나 pull 권한 오류가 흔하다) 값을 고치고 같은 명령을 다시 돌린다. Helm은 release가 `failed`로 남아 있으므로 이를 upgrade로 처리하고, 그래서 upgrade-check Job이 처음으로 돈다. scheduler Deployment가 없고 DB가 비어 있거나 세션이 없으면 Job이 `proceed`로 끝나고 설치가 이어진다([업그레이드 전 검사](#업그레이드-전-검사)). Deployment까지 만들어진 뒤 실패했다면 재시도는 보통의 upgrade 규칙을 따른다. worker 이미지를 고친 재시도는 여기서 멈추므로(`check_failed`, runtime을 넣었다면 `refused`), 세션을 시작하지 않았다면 [제거](#제거)한 뒤 다시 설치한다.
 
