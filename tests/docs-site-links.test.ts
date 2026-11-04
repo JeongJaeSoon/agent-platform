@@ -40,6 +40,8 @@ const ALLOWED: Record<string, string> = {
   "packages/ui/README.md":
     "contributor rules for building screens; the Storybook introduction links its source of truth",
   "examples/LICENSE": "license file of the sample code",
+  "CHANGELOG.md":
+    "the changelog is one repository file in Korean; the release notes are cut from it",
   "docs/quickstart.md":
     "the restart section has no site page; CI runs this file as written",
   "docs/contributing": "contributor documents stay in the repository",
@@ -49,10 +51,12 @@ const ALLOWED: Record<string, string> = {
   "docs/contributing/i18n-glossary.md": "contributor document",
   "docs/contributing/local-model.md": "contributor document",
   "docs/contributing/decisions": "contributor document",
-  "docs/operator": "self-hosting pages are split separately",
+  "docs/operator":
+    "operator reference documents stay in the repository; the install and upgrade steps have site pages",
 };
 const ALLOWED_PREFIXES: Record<string, string> = {
-  "docs/operator/": "self-hosting pages are split separately",
+  "docs/operator/":
+    "operator reference documents stay in the repository; the install and upgrade steps have site pages",
   "examples/sdk-": "sample code directories and their per-sample READMEs",
 };
 

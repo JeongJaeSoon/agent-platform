@@ -1,0 +1,105 @@
+---
+title: "アップグレード"
+description: 設置済みの Werft を新しい公開バージョンに上げ、上げる前に止まるセッションを確認する
+---
+
+設置済みの Werft を新しい公開バージョンに上げます。初めての設置は [Kubernetes の設置](/run-server/self-hosting/kubernetes) か [単一サーバーの設置](/run-server/self-hosting/single-server) を読んでください。
+
+<Callout type="warn">
+`v` タグはまだありません。今は `main` にマージされるたびに公開される chart `0.1.0-main-<12>` とイメージタグ `main-<12>` に上げます。これらはリリースではありません。最初の `v` タグができると、`VERSION` は `v` を除いたタグ(`v1.2.3` なら `1.2.3`)にし、コマンドは同じです。上げる前に、リポジトリの [変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) で運営者が手で行うことを読んでください。
+</Callout>
+
+## Kubernetes
+
+公開 chart は新しい worker イメージを持ちますが、直前の worker イメージは持ちません。直前のイメージは設置ごとに違うからです。worker イメージが変わるアップグレードは、`images.workerPrevious` が今デプロイされているイメージでなければ `refused` で止まり、承認でも越えられません。そのため、今のイメージをファイルに保存して一緒に渡します。`--reuse-values` は使いません。古い chart の値が新しい chart のイメージを上書きします。
+
+### 1. 新しいバージョンを決める
+
+[Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) で緑で終わった `main` の run の commit を選び、正確なバージョンを書きます。`main` のバージョン同士に順序の意味はないので、`--devel` で最新を選びません。
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+```
+
+### 2. 上げる
+
+今デプロイされている worker イメージと新バージョンの worker イメージを比べ、違えば今のイメージを候補ファイルに書いて一緒に渡します。`values-<installation>.yaml` は最初の設置で使ったファイルです。
+
+```bash
+DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+CURRENT="$(helm -n werft get values werft --all --revision "$DEPLOYED" -o json | jq -r '.images.worker.digest')"
+TARGET="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | awk '/^  worker:/ {found = 1} found && /digest:/ {print $2; exit}')"
+echo "deployed ${CURRENT}"
+echo "target   ${TARGET}"
+PREVIOUS=worker-previous.json
+if [ -n "$TARGET" ] && [ "$CURRENT" != "$TARGET" ]; then
+  PREVIOUS=worker-previous.next.json
+  helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
+    | jq '{images: {workerPrevious: .images.worker}}' > "$PREVIOUS"
+fi
+set -- -f values-<installation>.yaml
+if [ -f "$PREVIOUS" ]; then set -- "$@" -f "$PREVIOUS"; fi
+if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft "$@" --timeout 10m; then
+  if [ "$PREVIOUS" != worker-previous.json ]; then mv "$PREVIOUS" worker-previous.json; fi
+fi
+```
+
+- `worker-previous.json` は設置の隣に保管し、次のアップグレードにも渡します。抜かすと警告なしにサポート期間が縮み、古いイメージの組み合わせで残ったセッションは再開時に `recovery_required` で止まることがあります。
+- `--revision` を付けないと、失敗したアップグレードがある場合に上げようとしたイメージが出ます。今デプロイされている revision を指定します。
+- `helm get values --all` の全体を values ファイルとして渡しません。古い digest が新しい chart の値を上書きします。`.images.worker` だけを取り出します。
+- 初めての設置の後で worker イメージが変わらないアップグレードには、渡すファイルがありません。それで構いません。
+
+### 3. アップグレード前の検査を読む
+
+`helm upgrade` は migrate より先に、新バージョンの api イメージで `upgrade-check` Job を実行します。この Job は新しいイメージで再開できないセッションを選び、`verdict` を1行で知らせます。
+
+```bash
+kubectl -n werft logs job/werft-upgrade-check
+```
+
+| `verdict` | 意味 |
+| --- | --- |
+| `proceed` | 進みます |
+| `refused` | 止まります。選ばれたセッションが承認リストと違うか、`images.workerPrevious` が今デプロイされているイメージではありません。後者は承認で越えられません |
+| `check_failed` | 止まります。DB またはイメージの組み合わせを読めませんでした |
+
+選ばれたセッションが再開できなくてもよい場合は、`affected` のリストを `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` で渡し、同じアップグレードをもう一度実行します。承認リストは release の values に残るので、アップグレードのたびに `[]` で空にしてリストを読み直します。判定表と例外は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) にあります。
+
+### 4. 確認する
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl -fs -o /dev/null http://127.0.0.1:13000/healthz; do sleep 1; done
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+kill "$PF"
+```
+
+`{"status":"ready",…}` と `200` が出れば上がっています。
+
+### 戻す
+
+`helm rollback` は hook を実行しないので、アップグレード前の検査も実行されません。worker イメージを戻すロールバックは通常 `refused` で、ロールフォワードが先です。戻すときの検査コマンドと限界は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) の `helm rollback` の項にあります。
+
+## 単一サーバー (Docker Compose)
+
+<Callout type="warn">
+UNVERIFIED。単一サーバーの設置とアップグレードは、公開イメージで最初から最後まで実行して確認していません。以下は運用 runbook の順序であり、実行を保証しません。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드) に従ってください。
+</Callout>
+
+新しいタグの digest で `release.json` を作り直し、`upgrade` を呼びます。新しい worker イメージで現在の checkpoint を検査し、互換性のないセッションがあれば終了コード 3 で拒否します。
+
+```bash
+scripts/test-ops.sh upgrade release-new.json
+```
+
+## 変わった名前と運営者のすること
+
+指標名と CSS 名が変わりました。古い名前の別名はありません。すでに設置している環境は、[変更履歴](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) の対応表に従って、Datadog の定義を新しく適用し、Prometheus ルールのクエリを変えます。

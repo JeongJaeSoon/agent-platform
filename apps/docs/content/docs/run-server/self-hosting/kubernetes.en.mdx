@@ -139,7 +139,7 @@ Then run the rollout checks of step 4 and the checks of step 5 as written. When 
 
 ## Upgrade and remove
 
-When an upgrade changes the worker image, you must pass the previous worker image along. Do not use `--reuse-values`: it does not apply the new chart's images. The procedure, the pre-upgrade check and rollback are in [Raising the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기).
+When an upgrade changes the worker image, you must pass the previous worker image along. Do not use `--reuse-values`: it does not apply the new chart's images. The procedure, the pre-upgrade check and rollback are in [Upgrade](/run-server/self-hosting/upgrade).
 
 ```bash
 helm -n werft uninstall werft

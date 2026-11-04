@@ -12,6 +12,8 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 | 단일 서버 | Linux 서버 한 대, Docker Compose. 세션마다 worker 컨테이너 | [단일 서버 설치](/run-server/self-hosting/single-server) |
 | Kubernetes | 게시된 Helm chart. 세션마다 worker Pod | [Kubernetes 설치](/run-server/self-hosting/kubernetes) |
 
+이미 설치했다면 [업그레이드](/run-server/self-hosting/upgrade)를 읽는다.
+
 어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. Git 서버는 없으므로 세션이 쓸 GitHub 저장소는 설정 문서나 콘솔로 더한다. 단일 서버 설치에서 HA는 범위 밖이다.
 
 ## 게시된 패키지

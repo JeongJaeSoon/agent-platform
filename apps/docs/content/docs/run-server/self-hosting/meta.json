@@ -1,4 +1,4 @@
 {
   "title": "셀프 호스팅",
-  "pages": ["index", "single-server", "kubernetes"]
+  "pages": ["index", "single-server", "kubernetes", "upgrade"]
 }

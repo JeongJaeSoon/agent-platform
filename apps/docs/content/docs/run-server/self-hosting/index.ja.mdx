@@ -12,6 +12,8 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 | 単一サーバー | Linux サーバー1台、Docker Compose。セッションごとに worker コンテナ | [単一サーバーの設置](/run-server/self-hosting/single-server) |
 | Kubernetes | 公開された Helm chart。セッションごとに worker Pod | [Kubernetes の設置](/run-server/self-hosting/kubernetes) |
 
+すでに設置済みなら [アップグレード](/run-server/self-hosting/upgrade) を読んでください。
+
 どちらの方法でも、サーバーは API(Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換のオブジェクトストアで構成されます。Git サーバーはないため、セッションが使う GitHub リポジトリは設定ドキュメントかコンソールで追加します。単一サーバーの設置では HA は対象外です。
 
 ## 公開されたパッケージ

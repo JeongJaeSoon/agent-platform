@@ -139,7 +139,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 
 ## アップグレードと削除
 
-アップグレードで worker イメージが変わる場合は、直前の worker イメージも一緒に渡す必要があります。`--reuse-values` は新しい chart のイメージを適用しないので使いません。手順、アップグレード前の検査、ロールバックは[公開 chart を上げる](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기)にあります。
+アップグレードで worker イメージが変わる場合は、直前の worker イメージも一緒に渡す必要があります。`--reuse-values` は新しい chart のイメージを適用しないので使いません。手順、アップグレード前の検査、ロールバックは[アップグレード](/run-server/self-hosting/upgrade)にあります。
 
 ```bash
 helm -n werft uninstall werft

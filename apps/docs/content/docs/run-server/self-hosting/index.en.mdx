@@ -12,6 +12,8 @@ This is how to install a Werft server yourself so a team can share it. If you on
 | Single server | One Linux server, Docker Compose. One worker container per session | [Single-server install](/run-server/self-hosting/single-server) |
 | Kubernetes | The published Helm chart. One worker Pod per session | [Kubernetes install](/run-server/self-hosting/kubernetes) |
 
+If you have already installed, read [Upgrade](/run-server/self-hosting/upgrade).
+
 With either method the server is the API (with the web console), the scheduler, the reconciler, the egress proxy, PostgreSQL and an S3-compatible object store. There is no Git server, so add the GitHub repositories sessions use in the settings document or the console. High availability is out of scope for the single-server install.
 
 ## Published packages
