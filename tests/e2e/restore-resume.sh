@@ -102,7 +102,7 @@ cleanup() {
     remove_installation
     docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" \
       "${project}-migrate:latest" "${restored}-migrate:latest" \
-      "${project}-gitea:latest" "${restored}-gitea:latest" >/dev/null 2>&1 || true
+      "${project}-fake-git:latest" "${restored}-fake-git:latest" >/dev/null 2>&1 || true
     rm -rf "$out/backup"
   fi
   [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
@@ -194,12 +194,12 @@ if [ -n "${RR_IMAGES_FROM:-}" ]; then
     docker tag "${from}-migrate:latest" "${name}-migrate:latest" \
       || fail "project ${from} has no migrate image"
   done
-  docker tag "${from}-gitea:latest" "${project}-gitea:latest" \
-    || fail "project ${from} has no gitea image"
+  docker tag "${from}-fake-git:latest" "${project}-fake-git:latest" \
+    || fail "project ${from} has no fake-git image"
 fi
 src up -d "$build" >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }
 # restore.sh leaves the git host down; the restored apps start it --no-build.
-docker tag "${project}-gitea:latest" "${restored}-gitea:latest" || fail "project ${project} has no gitea image"
+docker tag "${project}-fake-git:latest" "${restored}-fake-git:latest" || fail "project ${project} has no fake-git image"
 api_key="$(COMPOSE_PROJECT_NAME="$project" COMPOSE_FILE="infra/compose.yml:infra/compose.fake-model.yml:tests/e2e/compose.yml" \
   bun run --silent keys create rr-owner \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control)"

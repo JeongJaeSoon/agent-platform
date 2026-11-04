@@ -117,7 +117,7 @@ describe("control host executable", () => {
           join(dir, "repositories.yaml"),
           `repositories:
   sample-app:
-    url: http://gitea:3000/agent/sample-app.git
+    url: http://fake-git:3000/agent/sample-app.git
     branch: main
     profiles: [coding]
 `,

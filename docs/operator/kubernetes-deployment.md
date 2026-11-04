@@ -28,7 +28,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 
 chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값, worker Pod(scheduler가 세션마다 만든다). kind에서는 `deploy/kind/deps.yaml`의 PostgreSQL·LocalStack이 대신한다.
 
-chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 egress proxy로 닿을 수 있는 저장소를 적는다. `values.yaml`의 `sample-app` URL은 예시이고, chart만 설치한 클러스터에는 그 주소가 없다. kind 확인 환경에서는 `deploy/kind/up.sh`가 `KIND_MODEL`이 `fake` 또는 `real`일 때(`smoke.sh`와 PR 미리보기가 이 경우다) `deploy/kind/deps-session.yaml`로 읽기 전용 fake-git을 띄운다. fake-git은 control-host 이미지로 돌고, Service `gitea:3000`의 `/agent/sample-app.git`·`/agent/gate-app.git`을 내주며, 기동할 때마다 같은 커밋으로 다시 만들어지고 push는 403이다.
+chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 egress proxy로 닿을 수 있는 저장소를 적는다. `values.yaml`의 `sample-app` URL은 예시이고, chart만 설치한 클러스터에는 그 주소가 없다. kind 확인 환경에서는 `deploy/kind/up.sh`가 `KIND_MODEL`이 `fake` 또는 `real`일 때(`smoke.sh`와 PR 미리보기가 이 경우다) `deploy/kind/deps-session.yaml`로 읽기 전용 fake-git을 띄운다. fake-git은 control-host 이미지로 돌고, Service `fake-git:3000`의 `/agent/sample-app.git`·`/agent/gate-app.git`을 내주며, 기동할 때마다 같은 커밋으로 다시 만들어지고 push는 403이다.
 
 ## 준비
 

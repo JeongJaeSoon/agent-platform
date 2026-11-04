@@ -121,7 +121,7 @@ catalog:
   # (deploy/kind/deps-session.yaml does, for the kind checks); name your own.
   repositories:
     sample-app:
-      url: http://gitea:3000/agent/sample-app.git
+      url: http://fake-git:3000/agent/sample-app.git
       branch: main
       profiles: [claude-coding-real]
 

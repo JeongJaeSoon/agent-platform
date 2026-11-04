@@ -123,7 +123,7 @@ describe("local-model compose overlay", () => {
     // The repository and the object store stay; the fake Messages API,
     // which this catalog never calls, does not.
     for (const kept of [
-      { host: "gitea", port: 3000 },
+      { host: "fake-git", port: 3000 },
       { host: "localstack", port: 4566 },
     ]) {
       expect(proxy.credential?.allowPrivate).toContainEqual(kept);
@@ -141,7 +141,7 @@ describe("local-model compose overlay", () => {
       // two routes the stack comes up healthy and every model call gets 403.
       const variables = {
         EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:
-          "gitea:3000,fake-messages:4010,localstack:4566",
+          "fake-git:3000,fake-messages:4010,localstack:4566",
       };
       const { PATH = "", HOME = "" } = Bun.env;
       const result = Bun.spawnSync(
@@ -169,7 +169,7 @@ describe("local-model compose overlay", () => {
           .environment,
       );
       for (const kept of [
-        { host: "gitea", port: 3000 },
+        { host: "fake-git", port: 3000 },
         { host: "localstack", port: 4566 },
         { host: "ollama.internal", port: 11434 },
         { host: "litellm", port: 4000 },

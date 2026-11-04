@@ -475,7 +475,7 @@ describe("rendered installation", () => {
         ...services.postgres,
         ports: [{ host_ip: "0.0.0.0", published: "5432", target: 5432 }],
       };
-      services.gitea = { image: "ghcr.io/x/control-host:v1" };
+      services["fake-git"] = { image: "ghcr.io/x/control-host:v1" };
       env("api").AUTH_MODE = "none";
       env("api").CHECKPOINT_OBJECT_PROTECTION = "unversioned";
       env("postgres").POSTGRES_PASSWORD = "a/b@c";
@@ -483,7 +483,7 @@ describe("rendered installation", () => {
       env("scheduler").EXECUTION_INSTALLATION_ID = "local";
       env("egress-proxy").EGRESS_CREDENTIAL_ALLOWLIST = "api.anthropic.com:443";
       env("egress-proxy").EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST =
-        "gitea:3000,fake-messages:4010";
+        "fake-git:3000,fake-messages:4010";
       env("api").AWS_ENDPOINT_URL = "http://localstack:4566";
       const found = await checkRender(model, {
         catalogRevision: `sha256:${"0".repeat(64)}`,
@@ -498,8 +498,8 @@ describe("rendered installation", () => {
         "service migrate builds its image",
         "service worker runs ghcr.io/x/worker:v1, not an image by digest",
         "service postgres publishes 5432 on 0.0.0.0",
-        "service gitea is local-only",
-        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names gitea:3000, a local-only service",
+        "service fake-git is local-only",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names fake-git:3000, a local-only service",
         "api AUTH_MODE must be api-key",
         "api CHECKPOINT_OBJECT_PROTECTION must be locked",
         "POSTGRES_PASSWORD may hold only letters, digits and . _ ~ -",

@@ -27,6 +27,6 @@ services:
       - "127.0.0.1:${RESTORE_LOCALSTACK_PORT:?}:4566"
 
   # restore.sh does not start it; the api of a restored stack does.
-  gitea:
+  fake-git:
     ports: !override
       - "127.0.0.1:${RESTORE_GIT_HOST_PORT:?}:3000"

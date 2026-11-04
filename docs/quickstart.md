@@ -63,7 +63,7 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), gitea(샘플 저장소 `agent/sample-app`을 내주는 읽기 전용 fake-git. 저장소 URL을 지키려고 서비스 이름은 `gitea`로 유지), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), fake-git(샘플 저장소 `agent/sample-app`을 내주는 읽기 전용 git 호스트), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다

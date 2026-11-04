@@ -1,20 +1,19 @@
 # What a session needs beyond deps.yaml, for smoke.sh (KIND_MODEL fake or
 # real): the repositories the catalogs name, read-only and rebuilt on every
 # start from the same fixed commits, as compose's local git host serves them.
-# The name and port stay: session records keep the repo_url they started with.
 # Workers reach it only through the egress proxy's repository route.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gitea
-  labels: {app: gitea}
+  name: fake-git
+  labels: {app: fake-git}
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: gitea}
+    matchLabels: {app: fake-git}
   template:
     metadata:
-      labels: {app: gitea}
+      labels: {app: fake-git}
     spec:
       terminationGracePeriodSeconds: 2
       containers:
@@ -33,8 +32,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: gitea
+  name: fake-git
 spec:
-  selector: {app: gitea}
+  selector: {app: fake-git}
   ports:
     - port: 3000
