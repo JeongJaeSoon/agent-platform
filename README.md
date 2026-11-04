@@ -2,7 +2,7 @@
 
 이 저장소 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. Werft의 모듈은 아래 모듈 구성 문단에, 어떤 코드가 어느 모듈인지는 [architecture.md](docs/contributing/architecture.md)에 있다.
 
-이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있다. npm 패키지 이름은 `@werft-ai/sdk`이고 [`npm install @werft-ai/sdk`](apps/docs/content/docs/getting-started/install.mdx)로 설치한다(배포 절차는 [packages/sdk/README.md](packages/sdk/README.md)). 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. [SDK 샘플](examples/README.md)은 세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push 승인을 유즈케이스별로 보여 준다. 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바꾸면 이미 설치된 곳이 깨지는 이름, 곧 compose project, 런타임 라벨, 메트릭 이름, 설치 경로에는 옛 이름이 남아 있다.
+이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있다. npm 패키지 이름은 `@werft-ai/sdk`이고 [`npm install @werft-ai/sdk`](apps/docs/content/docs/getting-started/install.mdx)로 설치한다(배포 절차는 [packages/sdk/README.md](packages/sdk/README.md)). 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)은 세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push 승인을 유즈케이스별로 보여 준다. 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바꾸면 이미 설치된 곳이 깨지는 이름, 곧 compose project, 런타임 라벨, 메트릭 이름, 설치 경로에는 옛 이름이 남아 있다.
 
 모듈 구성: Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서만 쓰고, API나 SDK처럼 바깥에 보이는 곳에는 내놓지 않는다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. `/v1` API는 control host가 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. 모듈마다 코드가 어디 있는지는 [architecture.md](docs/contributing/architecture.md)에 있다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
 
@@ -14,8 +14,8 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 
 | 독자 | 먼저 읽을 문서 | 이어서 볼 문서와 파일 |
 | --- | --- | --- |
-| API 사용자 | [API 유즈케이스 가이드](docs/api-guide.md) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
-| SDK 사용자 | [TypeScript SDK](docs/sdk.md) | 서버·스크립트에서 API key로 세션을 다루는 `packages/sdk`(`@werft-ai/sdk`). 예제는 [examples](examples/README.md) |
+| API 사용자 | [API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
+| SDK 사용자 | [TypeScript SDK](docs/sdk.md) | 서버·스크립트에서 API key로 세션을 다루는 `packages/sdk`(`@werft-ai/sdk`). 예제는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/) |
 | 운영자 | [단일 서버 배포](docs/operator/server-deployment.md) | [운영자 문서 색인](docs/README.md#운영자), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/contributing/development.md), [구성요소와 경계](docs/contributing/architecture.md), [CI](docs/contributing/ci.md), [실제 Claude 확인](docs/real-claude.md) |
 

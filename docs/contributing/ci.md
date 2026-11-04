@@ -20,6 +20,16 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 `concurrency`는 PR이면 PR 번호로 묶어 새 push가 이전 run을 취소한다. `main` push는 기존처럼 run 단위로 분리해 연속 merge를 모두 검증한다. 수동 실행은 기본적으로 workflow·이벤트·ref·SHA가 같은 진행 중 run을 대체해 실수로 여러 번 실행한 작업의 중첩을 줄인다. 다른 브랜치·다른 SHA·PR·main push를 취소하지 않고, 이미 끝난 run의 재실행까지 막는 것은 아니다. 식이 `inputs.*`가 아니라 `github.event.inputs.*`를 읽는 이유는 API 경유 dispatch가 입력을 문자열로 보내기 때문이다 — 문자열 `"false"`는 truthy라 `!inputs.allow_parallel`이면 기본값이 조용히 "병렬 허용"으로 뒤집힌다.
 
+## 금칙어 검사
+
+`.github/workflows/forbidden-terms.yml`의 job `forbidden-terms`가 현재 트리, 이번 run이 더한 커밋 메시지(PR이면 PR 커밋, push면 push된 커밋), PR 제목·본문에서 공개하면 안 되는 표현을 찾는다. 목록은 저장소 secret `FORBIDDEN_TERMS`(줄마다 확장 정규식 하나)에만 있고 어떤 공개 파일에도 없다. 저장소가 public이라 Actions 로그도 공개이므로 `.github/scripts/forbidden-terms.ts`는 위치별 **건수만** 찍고 값·경로·줄·sha는 찍지 않는다. 어디에 있는지는 목록을 가진 사람이 로컬 `git grep -i -E -f`로 찾는다. 대소문자는 구분하지 않고, 경계는 목록의 각 정규식이 스스로 정한다.
+
+ci.yml의 job이 아니라 별도 workflow인 이유는 PR 제목·본문을 고칠 때(`edited`)도 다시 검사해야 하는데, ci.yml의 `concurrency`는 같은 PR의 진행 중 run 전체를 취소하기 때문이다.
+
+secret이 없거나 비어 있으면 **실패한다.** 검사하지 못한 것을 통과로 읽으면 안 된다. fork PR과 Dependabot PR은 `pull_request`에서 secret을 받지 못하므로 같은 이유로 실패하고, 실패 문구만 fork일 때 따로 나온다. fork PR은 메인테이너가 브랜치를 이 저장소로 옮겨 검사한다. Dependabot PR을 통과시키려면 Dependabot secret에도 같은 이름으로 등록해야 한다.
+
+합성 목록으로 하는 시험은 `tests/forbidden-terms.test.ts`다. 실제 목록으로 시험하지 않는다.
+
 ## 수동 실행 옵션
 
 ```bash
@@ -57,7 +67,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `integration` | 없음 | 없음 | 일곱 도메인 job의 결과가 `success`인지 확인 | ✅ |
 | `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ❌ (아래 참고) |
 | `e2e` | 없음 — compose `apps` profile 전체를 job이 직접 띄운다(runner의 Docker daemon, 28 이상) | `E2E_API_URL`·`E2E_API_KEY`(run.sh가 설정) | `tests/e2e/run.sh` — 이미지 빌드 → 스택 → key → `bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts` | ✅ |
-| `quickstart` | 없음 — `docs/quickstart.md`와 `docs/api-guide.md`가 차례로 띄우는 기본 project·포트 그대로 | 없음 | `tests/e2e/quickstart.sh [문서]` — 두 문서의 `bash` 블록을 각각 한 셸(`bash -euo pipefail`)에서 실행. runner에 Bun을 설치하지 않는다 | ✅ |
+| `quickstart` | 없음 — `docs/quickstart.md`와 `apps/docs/content/docs/reference/api-guide.mdx`가 차례로 띄우는 기본 project·포트 그대로 | 없음 | `tests/e2e/quickstart.sh [문서]` — 두 문서의 `bash` 블록을 각각 한 셸(`bash -euo pipefail`)에서 실행. runner에 Bun을 설치하지 않는다 | ✅ |
 | `agent-sdk-compat` | 없음 | 없음 | `scripts/agent-sdk-compat`의 `probe:version`·`check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
 `check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 도메인 job들이 각자 필요한 변수를 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(ci.yml `skips`에 선언된 것 — `git-runner.test.ts` 1건과 D2 gate 테스트 — 만 남고, 그 외의 skip은 job을 실패시킨다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/checkpoint-objects.localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check` unit 부분들의 skip 합과 integration 도메인 job들의 skip 합을 같이 확인한다. 나뉜 뒤에는 세 unit 부분(또는 일곱 도메인 job)의 `N pass`·`N skip`·`across N files`를 더한 값이 단일 job으로 돌릴 때의 숫자다. 합계는 이렇게 낸다(정규식은 도메인별로 나누기 전의 숫자 샤드 run도 잡는다):

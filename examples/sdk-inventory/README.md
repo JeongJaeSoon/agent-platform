@@ -1,6 +1,6 @@
 # 세션 목록과 상세
 
-`src/inventory.ts`는 제목에 이번 실행만의 표시를 붙인 세션 셋을 만들고, 목록에서 그 셋을 찾는다. `await`로 받은 첫 페이지에서 `nextPage()`로 끝까지 가고, `for await`로 모든 페이지를 한 번에 돌고, `status` 필터를 건다. 그 가운데 하나의 상세(`get`), 사용량(`usage`), 공유 범위(`share`)를 읽은 뒤 셋을 모두 닫는다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/inventory.ts`는 제목에 이번 실행만의 표시를 붙인 세션 셋을 만들고, 목록에서 그 셋을 찾는다. `await`로 받은 첫 페이지에서 `nextPage()`로 끝까지 가고, `for await`로 모든 페이지를 한 번에 돌고, `status` 필터를 건다. 그 가운데 하나의 상세(`get`), 사용량(`usage`), 공유 범위(`share`)를 읽은 뒤 셋을 모두 닫는다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 ## key와 실행
 

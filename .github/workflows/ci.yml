@@ -278,8 +278,10 @@ jobs:
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-links.
+              - tests/docs-site-links.
               - tests/e2e/local-model.
               - tests/e2e/real-model.
+              - tests/forbidden-terms.
               - tests/soak/
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
@@ -811,7 +813,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # docs/quickstart.md and docs/api-guide.md run as written on this fresh clone
+  # docs/quickstart.md and the site's reference/api-guide.mdx run as written on this fresh clone
   # every `bash` block, in order, on the default project and ports —
   # the terminal record a new user would get, printed block by block. A page
   # edit that breaks a command fails here instead of in someone's terminal.
@@ -828,11 +830,11 @@ jobs:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
           QUICKSTART_OUT: ${{ runner.temp }}/quickstart
         run: tests/e2e/quickstart.sh
-      - name: docs/api-guide.md
+      - name: reference/api-guide.mdx
         env:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml
           QUICKSTART_OUT: ${{ runner.temp }}/api-guide
-        run: tests/e2e/quickstart.sh docs/api-guide.md
+        run: tests/e2e/quickstart.sh apps/docs/content/docs/reference/api-guide.mdx
       - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker

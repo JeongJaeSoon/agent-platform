@@ -1,6 +1,6 @@
 # 세션 제어와 복구
 
-`src/control.ts`는 세션 하나에서 제어 명령을 차례로 돈다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/control.ts`는 세션 하나에서 제어 명령을 차례로 돈다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 1. **interrupt**: 5분 늦게 답하는 turn을 실행 중에 멈춘다. worker는 남아 다음 메시지를 받는다.
 2. **revision**: 맞지 않는 `expected_revision`의 pause는 409 `REVISION_CONFLICT`다. SDK는 revision을 대신 채우거나 다시 보내지 않는다.
@@ -44,6 +44,6 @@ close: receipt succeeded
 ```
 
 - 모든 제어는 receipt를 주고, 샘플은 `waitForReceipt`로 `succeeded`를 확인한 뒤 다음으로 간다.
-- terminate는 도구가 이미 바깥에 한 일을 되돌리지 않는다(`external_effects_reverted: false`). 그 turn이 무엇을 했는지 확인한 사람이 복구 결정을 고른다. `abandon` 말고 `confirm_completed`, `close`, `start_fresh`, `retry_restore`가 있다([API 가이드 7절](../../docs/api-guide.md#7-outcome_unknownrecovery_required-복구-결정)).
+- terminate는 도구가 이미 바깥에 한 일을 되돌리지 않는다(`external_effects_reverted: false`). 그 turn이 무엇을 했는지 확인한 사람이 복구 결정을 고른다. `abandon` 말고 `confirm_completed`, `close`, `start_fresh`, `retry_restore`가 있다([API 가이드 7절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#7-outcome_unknownrecovery_required-복구-결정)).
 
 `bun test examples/sdk-control`이 세션 상태를 흉내 내는 가짜 API로 같은 출력과 복구 결정 본문을 확인하고, 복구 뒤 turn이 실패하면 종료 코드 1인지 확인한다.

@@ -31,11 +31,11 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 이 표에 기대는 기능은 다음과 같다.
 
-- **SSE와 재연결.** `apps/control-host/src/api/routes/events.ts`가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [api-guide.md § 5](../api-guide.md#5-sse로-진행-보기와-last-event-id-재연결)에 있다.
+- **SSE와 재연결.** `apps/control-host/src/api/routes/events.ts`가 `Last-Event-ID` 다음부터 이 표를 읽어 스트림으로 보낸다. 사용법은 [api-guide.md § 5](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#5-sse로-진행-보기와-last-event-id-재연결)에 있다.
 - **turn 종료 판정.** 앞 sequence가 비어 있으면 `sequence_gap`, finalize할 때 이벤트가 덜 저장됐으면 `events_incomplete`로 거절한다(`packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/workers/worker-gateway.ts`).
 - **대기 요청 알림.** 질문·권한 요청의 `question` 이벤트와 세션의 `needs_input` 상태가 같은 트랜잭션에서 커밋된다. 그래서 클라이언트는 질문을 보기 전에 `needs_input`을 받지 않는다(`packages/db/src/pending-control.ts`). 답은 `pending_requests` 표에 남는다. worker가 요청을 어떻게 닫았는지도 같은 행에 남는다. `settled_outcome`은 `answered`·`expired`·`cancelled`다. `settled_reason`은 worker가 취소한 이유(`park`·`shutdown`·`interrupt`·`refused`)다. `settled_answer_result`는 런타임이 답을 어떻게 받았는지(`applied`·`stale`·`unknown`)다. 사람이 거절한 요청은 `answered`이고 `answer`의 `decision`이 `deny`라서 취소와 구분된다.
 - **상태 전이.** 복구·재개·일시정지·interrupt 같은 제어 단계가 `recordStatus`·`recordEvent`(`packages/db/src/session-events.ts`)로 상태와 함께 커밋된다.
-- **클라이언트의 작업 완료 판단.** 공개 API 클라이언트는 `assistant`·`tool_use`·`tool_result` 이벤트를 읽고 일이 끝났는지 판단한다([api-guide.md](../api-guide.md)).
+- **클라이언트의 작업 완료 판단.** 공개 API 클라이언트는 `assistant`·`tool_use`·`tool_result` 이벤트를 읽고 일이 끝났는지 판단한다([API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)).
 
 비용과 사용량의 정본은 이벤트가 아니라 `provider_usage` 표다. egress proxy가 Messages 응답에서 사용량을 읽고(`apps/egress-proxy/src/usage.ts`), API가 이 표에 쓴다(`packages/db/src/worker-unit-of-work.ts`).
 
@@ -63,7 +63,7 @@ worker의 `EventPublisher`(`apps/worker/src/event-publisher.ts`)가 이벤트에
 
 ## 보존 기간
 
-`events` 표는 trim하지 않는다([api-guide.md](../api-guide.md)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 없다. 이벤트 말고 플랫폼이 남기는 데이터 전체의 위치·보존 기간·삭제 조건과 세션 하나를 따라가는 확인 절차는 [data-retention.md](data-retention.md)에 있다.
+`events` 표는 trim하지 않는다([API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)의 410 `CURSOR_EXPIRED` 설명). 보존 기간 정책은 아직 없다. 이벤트 말고 플랫폼이 남기는 데이터 전체의 위치·보존 기간·삭제 조건과 세션 하나를 따라가는 확인 절차는 [data-retention.md](data-retention.md)에 있다.
 
 ## 예제 수집기 띄우기
 

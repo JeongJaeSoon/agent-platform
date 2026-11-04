@@ -1,6 +1,6 @@
 # 이벤트 스트림과 이어 받기
 
-`src/events.ts`는 세션의 이벤트를 처음부터 받다가 turn 1의 `result` 이벤트에서 스트림을 닫고 `lastEventId`를 저장한다. turn 2를 보낸 뒤 저장한 cursor로 새 스트림을 열어 그 뒤의 이벤트만 받는지, 같은 이벤트가 두 번 오지 않는지 확인한다. 스트림은 세션이 끝나도 닫히지 않으므로 세 번째 스트림은 `signal`로 끝낸다. turn 목록은 한 페이지에 하나씩(`limit: 1`) 읽는다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/events.ts`는 세션의 이벤트를 처음부터 받다가 turn 1의 `result` 이벤트에서 스트림을 닫고 `lastEventId`를 저장한다. turn 2를 보낸 뒤 저장한 cursor로 새 스트림을 열어 그 뒤의 이벤트만 받는지, 같은 이벤트가 두 번 오지 않는지 확인한다. 스트림은 세션이 끝나도 닫히지 않으므로 세 번째 스트림은 `signal`로 끝낸다. turn 목록은 한 페이지에 하나씩(`limit: 1`) 읽는다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 ## key와 실행
 

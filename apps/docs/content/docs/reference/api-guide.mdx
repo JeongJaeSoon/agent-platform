@@ -1,22 +1,26 @@
-<!--
+---
+title: API 유즈케이스 가이드
+description: 유즈케이스별로 어떤 API를 어떤 순서로 부르는지 실행 가능한 명령으로 보여 준다
+---
+
+{/*
 Every ```bash block below runs, in order, in one `bash -euo pipefail`, in CI
 (the `quickstart` job, tests/e2e/quickstart.sh) on a fresh clone. Keep commands
 that are illustrative rather than executable in `sh`, `json`, or `text` blocks.
--->
+This page is the only copy; docs/api-guide.md no longer exists.
+*/}
 
-# API 유즈케이스 가이드
-
-이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 배포 서버의 인증 없는 `GET /docs`가 읽기 전용 참조를 같은 origin의 `/docs/scalar.js`와 함께 제공한다. 저장소에서 보는 생성물은 [`docs/api/index.html`](api/index.html)이다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
+이 문서는 API 사용자가 "어떤 endpoint를 어떤 순서로 호출하는가"를 빠르게 찾는 실행 가이드다. 요청·응답 스키마의 정본은 `docs/openapi.json`이며, 배포 서버의 인증 없는 `GET /docs`가 읽기 전용 참조를 같은 origin의 `/docs/scalar.js`와 함께 제공한다. 이 사이트의 [HTTP API 페이지](/reference/http-api/auth/getApiRoot)도 같은 명세에서 만든다. 여기서는 스키마를 복제하지 않고 operation 이름으로 연결한다. 아래 `bash` 블록은 CI가 compose의 fake Messages API로 그대로 실행하므로 Anthropic 계정이나 실제 호출 비용이 들지 않는다.
 
 예시는 로컬 기본 주소 `http://127.0.0.1:3000`을 쓴다. 배포 환경에서는 `API`만 바꾼다.
 
 ## 1. API key로 인증하고 scope 확인하기
 
-OpenAPI: [`getApiRoot`](api/index.html)
+OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **목적.** Bearer API key를 발급하고, 이후 유즈케이스에 필요한 최소 scope를 한 번에 확인한다. 읽기·세션 입력·승인·제어·복구는 각각 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`, `sessions:recover`로 나뉜다.
 
-**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [quickstart](quickstart.md))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
+**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
 
 ```bash
 scripts/local.sh up --fake-model
@@ -65,13 +69,13 @@ curl -sS "$API/v1" "${AUTH[@]}" | jq -e '.owner_id != null'
 
 ## 2. 세션 만들기: profile·repository 선택
 
-OpenAPI: [`createSession`](api/index.html), [`getSession`](api/index.html)
+OpenAPI: [`createSession`](/reference/http-api/sessions/createSession), [`getSession`](/reference/http-api/sessions/getSession)
 
 **목적.** 실행 profile과 repository를 명시해 세션과 첫 turn을 내구적으로 접수한다.
 
 **순서.** 고를 수 있는 profile과 그 모델은 `GET /v1/profiles`(`listProfiles`)로 본다. `profile_id`, `repository_id`, 첫 `message`를 보내고, 응답의 `session_id`와 `turn_id`를 저장한다. 이 예시는 다음 절에서 승인 요청을 보여 주기 위해 파일 쓰기 도구를 호출하는 fake 대본을 쓴다. 실제 Claude 스택(`scripts/local.sh up`)에서는 `profile_id`가 `claude-coding-real`이고 `message`는 자유 문장이다. 선택 필드 `model`로 profile이 허용한 모델(카탈로그의 `model`이나 `models`) 중 하나를 고를 수 있다. 생략하면 profile의 기본 `model`로 돌고, 고른 모델은 `GET /v1/sessions/{id}`의 `runtime.model`에 나온다. 세션의 profile을 바꾸면(`POST /v1/sessions/{id}/profile`) 그 뒤로는 새 profile의 기본 `model`로 돈다.
 
-목록에는 운영자 profile(`source: operator`)과, 워크스페이스 owner·admin이 콘솔에서 좁혀 만든 판(`source: workspace`, id가 `ws_`로 시작)이 함께 나온다. 워크스페이스 판은 `workspace.state`가 `usable`일 때만 새 세션에 쓸 수 있다. 규칙은 [운영자 문서](operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)에 있다.
+목록에는 운영자 profile(`source: operator`)과, 워크스페이스 owner·admin이 콘솔에서 좁혀 만든 판(`source: workspace`, id가 `ws_`로 시작)이 함께 나온다. 워크스페이스 판은 `workspace.state`가 `usable`일 때만 새 세션에 쓸 수 있다. 규칙은 [운영자 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)에 있다.
 
 `repository_id`를 보낼지는 profile의 `repository_mode`(`GET /v1/profiles`)가 정한다. `required`면 꼭 보내고, `none`이면 보내지 않으며, `optional`이면 둘 다 된다. `repository_id` 없이 만든 세션은 빈 작업 디렉터리에서 시작하고, 세션 조회의 `repository_id`가 `null`이다. 저장소가 없으므로 push 요청은 409 `PUSH_SOURCE_MISSING`이고, `optional` profile이 저장소의 CLAUDE.md를 읽게 해 두었어도 이 세션에서는 읽지 않는다. fake-model 스택에서는 `general` profile이 저장소 없이 돈다. 그 생성 body는 다음과 같다.
 
@@ -107,7 +111,7 @@ curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
 
 ## 3. pending-requests의 승인·질문에 답하기
 
-OpenAPI: [`listPendingRequests`](api/index.html), [`answerPendingRequest`](api/index.html), [`getReceipt`](api/index.html)
+OpenAPI: [`listPendingRequests`](/reference/http-api/pending-requests/listPendingRequests), [`answerPendingRequest`](/reference/http-api/pending-requests/answerPendingRequest), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
 **목적.** worker가 기다리는 도구 승인과 `AskUserQuestion`을 같은 pending-requests 흐름으로 처리한다.
 
@@ -154,7 +158,7 @@ wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status s
 
 ## 4. 메시지 보내기와 turn 상태 보기
 
-OpenAPI: [`appendSessionMessage`](api/index.html), [`getSessionTurn`](api/index.html)
+OpenAPI: [`appendSessionMessage`](/reference/http-api/messages-and-turns/appendSessionMessage), [`getSessionTurn`](/reference/http-api/messages-and-turns/getSessionTurn)
 
 **목적.** 기존 세션의 같은 engine 대화에 입력을 추가하고, 결과가 terminal인지 확인한다.
 
@@ -185,7 +189,7 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
 
 ## 5. SSE로 진행 보기와 Last-Event-ID 재연결
 
-OpenAPI: [`streamSessionEvents`](api/index.html)
+OpenAPI: [`streamSessionEvents`](/reference/http-api/events/streamSessionEvents)
 
 **목적.** 이미 저장된 이벤트를 재생한 뒤 live 진행을 받고, 연결이 끊기면 마지막 cursor 다음부터 이어 본다.
 
@@ -210,7 +214,7 @@ test "$RECONNECT_CODE" = 200
 
 ## 6. interrupt, pause/resume, terminate와 receipt 확인
 
-OpenAPI: [`interruptSession`](api/index.html), [`pauseSession`](api/index.html), [`resumeSession`](api/index.html), [`terminateSession`](api/index.html), [`getReceipt`](api/index.html)
+OpenAPI: [`interruptSession`](/reference/http-api/session-control/interruptSession), [`pauseSession`](/reference/http-api/session-control/pauseSession), [`resumeSession`](/reference/http-api/session-control/resumeSession), [`terminateSession`](/reference/http-api/session-control/terminateSession), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
 **목적.** turn 하나만 멈추거나, checkpoint를 남겨 worker를 내렸다 복원하거나, 실행을 강제로 종료한다. 모든 비동기 제어는 202 receipt의 최종 상태까지 확인한다.
 
@@ -259,7 +263,7 @@ wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeed
 
 ### 진행 중인 세션의 프로필 바꾸기
 
-OpenAPI: [`changeSessionProfile`](api/index.html)
+OpenAPI: [`changeSessionProfile`](/reference/http-api/session-control/changeSessionProfile)
 
 세션은 만들 때 고른 프로필로 돈다. 대화를 이어 가면서 모델·도구·provider를 바꾸려면 `POST /v1/sessions/{id}/profile`에 `expected_revision`과 새 `profile_id`를 보낸다. 권한은 pause·resume과 같다(`control` scope, 세션을 볼 수 있는 사람). 응답은 200과 이미 `succeeded`인 receipt이고, receipt `result`에 `previous_profile_id`와 `profile_id`가 남는다. 세션 `revision`은 1 오른다.
 
@@ -275,7 +279,7 @@ curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
 
 ### 세션 끝내기: close·terminate·recovery close
 
-OpenAPI: [`closeSession`](api/index.html), [`terminateSession`](api/index.html), [`decideSessionRecovery`](api/index.html)
+OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession), [`terminateSession`](/reference/http-api/session-control/terminateSession), [`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery)
 
 세션을 끝내는 길은 셋이다. 일을 마친 세션은 close로 닫는다. terminate와 recovery close는 각각 강제 종료와 복구 포기다. receipt와 이벤트에서 셋이 구분된다.
 
@@ -335,7 +339,7 @@ jq -e '.error.code == "SESSION_CLOSED"' /tmp/werft-closed.json
 
 ## 7. outcome_unknown·RECOVERY_REQUIRED 복구 결정
 
-OpenAPI: [`decideSessionRecovery`](api/index.html), [`resumeSession`](api/index.html), [`getSessionTurn`](api/index.html)
+OpenAPI: [`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery), [`resumeSession`](/reference/http-api/session-control/resumeSession), [`getSessionTurn`](/reference/http-api/messages-and-turns/getSessionTurn)
 
 **목적.** terminate나 worker 상실 뒤 외부 효과를 확정할 수 없는 turn을 운영자가 명시적으로 판정한다. `outcome_unknown`을 성공이나 실패로 추측하지 않는다.
 
@@ -367,7 +371,7 @@ wait_for "/v1/sessions/$SID" .admission_state active
 
 ## 8. 사용량·비용·한도 조회
 
-OpenAPI: [`getSessionUsage`](api/index.html), [`getUsageSummary`](api/index.html), [`getInstallationLimits`](api/index.html)
+OpenAPI: [`getSessionUsage`](/reference/http-api/sessions/getSessionUsage), [`getUsageSummary`](/reference/http-api/limits-and-receipts/getUsageSummary), [`getInstallationLimits`](/reference/http-api/limits-and-receipts/getInstallationLimits)
 
 **목적.** 세션의 추정 provider 비용과 입력 queue 상태, 기간 동안 내가 시작한 세션의 합계, 설치 전체의 실행 slot·저장소·turn 상한을 읽는다.
 
@@ -385,13 +389,13 @@ echo "$summary" | jq -e '.scope == "me" and .basis.sessions == "created_in_perio
 curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/limits" "${AUTH[@]}" | grep -qx 403
 ```
 
-**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([configuration.md](operator/configuration.md#과금-없는-profile-billing-none)). 합계 응답은 기간(`period`, UTC)에 만든 세션의 수, 비용 합(`cost_usd`, 각 세션 `cost.amount_usd`의 합), 그 가운데 하나라도 미완이면 false인 `cost_complete`, token 합, turn 벽시계 시간 합(`run_seconds`)을 준다. 개인 key는 만든 사람의 세션을, 만든 사람이 없는 key는 그 key가 시작한 세션을 더한다. 공유받은 세션은 더하지 않는다. owner가 읽는 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
+**기대 응답.** 세션 응답은 `cost.amount_usd`, `complete`, 보고/미보고/open turn 수, 비용 상한, 누적 provider token 수(`token_count`)와 token 상한(`token_limit`), queued input 수를 준다. `token_limit`이 null이면 설치에 token 상한이 없다. `budget_exceeded`는 비용과 token 중 어느 상한에든 닿으면 true다. 세션의 profile이 과금 없음(`billing: none`)을 선언했으면 `cost.kind`가 `"unmetered"`다. 이때 비용은 늘지 않고 비용 상한이 그 세션에 적용되지 않아 `cost_limit_usd`가 null이지만, token 상한은 그대로 걸린다([configuration.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md#과금-없는-profile-billing-none)). 합계 응답은 기간(`period`, UTC)에 만든 세션의 수, 비용 합(`cost_usd`, 각 세션 `cost.amount_usd`의 합), 그 가운데 하나라도 미완이면 false인 `cost_complete`, token 합, turn 벽시계 시간 합(`run_seconds`)을 준다. 개인 key는 만든 사람의 세션을, 만든 사람이 없는 key는 그 key가 시작한 세션을 더한다. 공유받은 세션은 더하지 않는다. owner가 읽는 설치 응답은 설정된 상한(`session_token_limit` 포함)과 현재 execution slot·queued input·저장소 사용량을 준다.
 
 **흔한 오류.** 404 `NOT_FOUND`면 세션이 없거나 현재 owner에게 보이지 않는다. 403 `FORBIDDEN`은 owner가 아닌 호출자가 `/v1/limits`나 `scope=installation`을 읽었다는 뜻이다. 400은 `since`가 없거나 offset 없는 시각이거나 `until`이 `since`보다 앞설 때다. `complete: false`를 0원으로 해석하지 않는다. 503이면 DB나 사용량 집계를 포함한 설치 상태를 확인한다.
 
 ## 9. Idempotency-Key로 안전하게 재시도하기
 
-OpenAPI: [`appendSessionMessage`](api/index.html), [`getReceipt`](api/index.html)
+OpenAPI: [`appendSessionMessage`](/reference/http-api/messages-and-turns/appendSessionMessage), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
 **목적.** 응답 유실이나 timeout 뒤 같은 명령을 중복 실행하지 않고 원래 접수 결과를 다시 받는다.
 
@@ -415,7 +419,7 @@ wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
 
 ## 10. 세션 결과의 push 요청과 승인·거부
 
-OpenAPI: [`createPushRequest`](api/index.html), [`listPushRequests`](api/index.html), [`getPushRequest`](api/index.html), [`approvePushRequest`](api/index.html), [`rejectPushRequest`](api/index.html), [`getReceipt`](api/index.html)
+OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest), [`listPushRequests`](/reference/http-api/push-requests/listPushRequests), [`getPushRequest`](/reference/http-api/push-requests/getPushRequest), [`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest), [`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
 
 **목적.** 세션이 만든 commit을 저장소의 `agent/<session-id>` 브랜치로 내보내도록 요청하고, `sessions:approve`를 가진 사람이 그 commit을 승인하거나 거부한다. push는 worker가 아니라 플랫폼(API)이 승인 뒤 몇 초 안에 한다.
 
@@ -462,13 +466,13 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@
   | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
 ```
 
-**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `resolved_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`resolve_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](operator/api-server.md#승인된-요청의-push)에 있다.
+**기대 응답.** 요청은 201로 `state: "requested"`와 고정한 값들을 돌려준다. 결정은 200으로 `approved` 또는 `rejected`와 `resolved_by`를 돌려준다. 요청·결정·거절된 시도마다 receipt(`request_push`·`resolve_push`)가 남고, 거절이면 오류의 `error.details.receipt_id`가 그 receipt를 가리킨다. receipt의 `result`에는 판정(`verdict`), 거절 사유(`refusal`), 요청 id, checkpoint revision, commit, 대상 브랜치가 있고 `actor`에는 누가 했는지가 있다. 승인된 요청은 `pushing`을 거쳐 `pushed`나 `failed`가 되고, `push_receipt_id`가 가리키는 `push` receipt에 원격 URL·ref(`refs/heads/agent/<session-id>`)·이전 commit·승인자, 실패면 `refusal`이 있다. 사유별 뜻은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#승인된-요청의-push)에 있다.
 
 **흔한 오류.** 409 `PUSH_SOURCE_MISSING`이면 세션에 저장소나 checkpoint가 아직 없다. 409 `PUSH_REQUEST_OPEN`이면 열린 요청이 있다. 409 `PUSH_REQUEST_RESOLVED`면 이미 결정한 요청이다. 409 `CHECKPOINT_MOVED`면 승인 body의 `git_commit`이 고정된 commit과 다르거나, 요청 뒤에 세션이 다른 commit으로 checkpoint를 남겼다. 요청 뒤 checkpoint가 다시 생겼어도 commit이 같으면 승인된다. 이 요청은 거부하고 새로 요청한다. `sessions:approve`가 없는 key로 결정하면 403 `FORBIDDEN`이고 receipt가 남는다. worker의 자격(launch nonce·session token)은 `/v1`에서 인증되지 않아 401이다.
 
 ## 11. 세션 결과물 목록과 내려받기
 
-OpenAPI: [`listSessionOutputs`](api/index.html), [`downloadSessionOutput`](api/index.html)
+OpenAPI: [`listSessionOutputs`](/reference/http-api/sessions/listSessionOutputs), [`downloadSessionOutput`](/reference/http-api/sessions/downloadSessionOutput)
 
 **목적.** 세션이 작업 디렉터리의 `out/` 아래에 남긴 파일을 사람이 받는다. 목록은 세션의 최신 commit된 checkpoint가 기록한 것이라 worker나 작업 디렉터리가 사라져도 남는다. 마지막 checkpoint 뒤에 쓴 파일은 다음 checkpoint가 commit될 때까지 목록에 없다.
 
@@ -503,4 +507,4 @@ scripts/local.sh down
 
 **기대 응답.** `local.sh: deleted`가 출력되고 로컬 세션·checkpoint·key가 삭제된다.
 
-**흔한 오류.** 다른 project나 installation을 수동 Docker 명령으로 지우지 않는다. 기본 포트를 다른 스택이 쓰고 있다면 이 예시를 시작하지 말고 [quickstart의 포트 점검](quickstart.md#0-준비물)을 먼저 따른다.
+**흔한 오류.** 다른 project나 installation을 수동 Docker 명령으로 지우지 않는다. 기본 포트를 다른 스택이 쓰고 있다면 이 예시를 시작하지 말고 [quickstart의 포트 점검](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#0-준비물)을 먼저 따른다.

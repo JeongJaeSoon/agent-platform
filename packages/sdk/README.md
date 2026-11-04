@@ -20,9 +20,9 @@ const turn = await waitForTurn(werft, created.session_id, created.turn_id);
 console.log(turn.status);
 ```
 
-- 사용 안내: [TypeScript SDK](https://github.com/JeongJaeSoon/werft/blob/main/docs/sdk.md)
-- 유즈케이스별 샘플(세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push): [examples](https://github.com/JeongJaeSoon/werft/tree/main/examples)
-- HTTP API 규칙: [API 유즈케이스 가이드](https://github.com/JeongJaeSoon/werft/blob/main/docs/api-guide.md)
+- 사용 안내: [TypeScript SDK](https://jeongjaesoon.github.io/werft/ko/sdk/)
+- 유즈케이스별 샘플(세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push): [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)
+- HTTP API 규칙: [API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)
 
 ## 라이선스
 

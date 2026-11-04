@@ -4,7 +4,7 @@
 
 저장소 밖에서는 [설치 안내](../apps/docs/content/docs/getting-started/install.mdx)대로 `npm install @werft-ai/sdk`로 설치하고, 저장소 안에서는 workspace의 `@werft-ai/sdk`를 가져온다. 빌드·검사·배포 절차는 [packages/sdk/README.md](../packages/sdk/README.md)에 있다.
 
-HTTP API 자체의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)은 [API 유즈케이스 가이드](api-guide.md)가 정본이다. 이 문서는 SDK가 그 규칙을 어떻게 감싸는지만 적는다.
+HTTP API 자체의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)은 [API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)가 정본이다. 이 문서는 SDK가 그 규칙을 어떻게 감싸는지만 적는다.
 
 ## 1. 만들기
 
@@ -177,7 +177,7 @@ if (done.state === "pushed")
 
 ## 9. 예제 실행 (로컬 스택, fake model)
 
-유즈케이스별 샘플과 어떤 API를 어느 샘플이 쓰는지는 [examples/README.md](../examples/README.md)에 있다. 아래는 그 가운데 하나다.
+유즈케이스별 샘플과 어떤 API를 어느 샘플이 쓰는지는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다. 아래는 그 가운데 하나다.
 
 [`examples/sdk-approver/src/session-close.ts`](../examples/sdk-approver/src/session-close.ts)는 세션 생성 → 메시지 → 이벤트 스트림으로 turn 대기 → 권한 요청 허락 → close → 닫힌 상태 확인을 한 번에 돈다. 메시지는 fake model이 재생하는 `GATE-SPEC` 대본이다([Quickstart](quickstart.md)).
 

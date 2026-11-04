@@ -36,6 +36,12 @@ RUN bun install --frozen-lockfile --production \
     --filter ./apps/worker \
   && bun run --filter @werft-ai/runtime-registry image:verify
 
+# What is published: deps without test sources, testkit and the demo tools
+# (scripts/image-prune.sh).
+FROM deps AS pruned
+RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
+  sh /tmp/image-prune.sh --delete /app
+
 # Git LFS, for a session's LFS objects through the proxy's repository route.
 # Built here from upstream's release source rather than taken as its binary or
 # Debian's package: both link a golang.org/x/net the image scan fails on
@@ -159,7 +165,7 @@ RUN cd /usr/local/share/werft/git-hooks \
 RUN test "$(id -u bun)" = 1000 && test "$(id -g bun)" = 1000 \
   && mkdir -p /workspace && chown 1000:1000 /workspace
 WORKDIR /app
-COPY --from=deps --chown=1000:1000 /app /app
+COPY --from=pruned --chown=1000:1000 /app /app
 # Each installed runtime checks its engine and puts it on PATH (for Claude,
 # `claude`, resolved the way the runtime does at run time), so the build fails
 # if an engine stops shipping for this arch.
@@ -185,3 +191,7 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
 # The scheduler passes bootstrap identity through env (WORKER_EXECUTION_ID,
 # WORKER_BOOTSTRAP_NONCE, WORKER_GATEWAY_URL, ...) and may override Cmd.
 CMD ["bun", "run", "apps/worker/src/main.ts"]
+
+# The last stage is the default target, and the one images.yml builds
+# (`target: release`).
+FROM runtime AS release
