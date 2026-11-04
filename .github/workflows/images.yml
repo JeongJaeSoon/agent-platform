@@ -25,10 +25,10 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
 
-# Read-only for every job but the publish and promote jobs: a pull request can
-# edit this file, so a token with package write in the PR job would let a branch
-# publish images before merge. Those jobs alone get package write, and only run
-# on a main or tag push.
+# Read-only for every job but the publish, index and promote jobs: a pull
+# request can edit this file, so a token with package write in the PR job would
+# let a branch publish images before merge. Those jobs alone get package write,
+# and only run on a main or tag push.
 permissions:
   contents: read
 
@@ -67,12 +67,13 @@ env:
 jobs:
   build:
     # Pinned rather than ubuntu-latest for the same reason as ci.yml.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
+      matrix: &image-matrix
         app: [control-host, worker, egress-proxy]
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -100,12 +101,13 @@ jobs:
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
           tags: ${{ steps.meta.outputs.tags }}
           load: true
           push: false
           provenance: false
-          cache-from: type=gha,scope=images-${{ matrix.app }}
-          cache-to: type=gha,scope=images-${{ matrix.app }},mode=max
+          cache-from: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }},mode=max
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -122,10 +124,7 @@ jobs:
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
-          # publish-main asks about the digest that goes out; on a main push
-          # this build's answer would only warn about an image nobody gets.
-          LICENSE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'skip-snapshot' || 'build' }}
-        run: .github/scripts/image-licenses.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}" "$LICENSE_MODE"
+        run: .github/scripts/image-licenses.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
 
       # Findings never fail the build: `supply-chain` judges them, so the
       # build's check stays about the build. A scan that cannot run (release
@@ -135,14 +134,15 @@ jobs:
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
           NAME: ${{ steps.meta.outputs.name }}
-        run: .github/scripts/image-scan.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}" vulnerabilities
+        run: .github/scripts/image-scan.sh "${APP}-${ARCH}" "${NAME}:sha-${GITHUB_SHA::12}" vulnerabilities
 
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: vulnerabilities-${{ matrix.app }}
-          path: vulnerabilities/${{ matrix.app }}.*
+          name: vulnerabilities-${{ matrix.app }}-${{ matrix.arch }}
+          path: vulnerabilities/${{ matrix.app }}-${{ matrix.arch }}.*
           if-no-files-found: ignore
 
       # One JSON per image. `digest` is the manifest digest buildx computed,
@@ -152,6 +152,7 @@ jobs:
       - name: Record digests
         env:
           APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
           NAME: ${{ steps.meta.outputs.name }}
           PUSHED: "false"
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -166,26 +167,26 @@ jobs:
           fi
           mkdir -p digests
           jq -n \
-            --arg app "$APP" --arg name "$NAME" --arg base "$base" \
+            --arg app "$APP" --arg arch "$ARCH" --arg name "$NAME" --arg base "$base" \
             --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
             --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
             --argjson pushed "$PUSHED" --argjson runtime "$runtime" \
-            '{app: $app, image: $name, base: $base, pushed: $pushed,
+            '{app: $app, arch: $arch, image: $name, base: $base, pushed: $pushed,
               digest: (if $digest == "" then null else $digest end),
               imageId: $imageId, commit: $sha, ref: $ref, runtime: $runtime}' \
-            | tee "digests/${APP}.json"
+            | tee "digests/${APP}-${ARCH}.json"
           {
-            echo "### ${APP}"
+            echo "### ${APP} (${ARCH})"
             echo
             echo '```json'
-            cat "digests/${APP}.json"
+            cat "digests/${APP}-${ARCH}.json"
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-digest-${{ matrix.app }}
-          path: digests/${{ matrix.app }}.json
+          name: image-digest-${{ matrix.app }}-${{ matrix.arch }}
+          path: digests/${{ matrix.app }}-${{ matrix.arch }}.json
           if-no-files-found: error
 
   # The required check. One job name whatever the event, so branch
@@ -228,24 +229,19 @@ jobs:
         run: .github/scripts/supply-chain-verdict.sh vulnerabilities "$NO_VERDICT"
 
   # Publish path, in stages so a failed verification never leaves a consumable
-  # tag behind:
-  #   publish  – per image: rebuild from the gha cache, push under a staging
-  #              tag scoped to this run, pull the digest back, smoke it
-  #   promote  – once all three staged digests passed: refuse if a tag it would
-  #              write already names a different digest, then retag the staged
-  #              digests (registry-side, no rebuild)
-  # Two pairs of jobs run the same steps. `publish` and `promote` are the
-  # release: a `push` of a `v*` tag writes vX and sha-… under the `release`
-  # environment, where the repository adds required reviewers. `publish-main`
-  # and `promote-main` write main-<12> on a push to main, reviewed by the merge
-  # itself, so no environment. sha-<12> is not reused there: a build on
-  # another day has another digest, and promote would refuse the tag.
+  # tag behind.
+  # Two chains of jobs run the same steps. `publish`, `index` and `promote` are
+  # the release: a `push` of a `v*` tag writes vX and sha-… under the `release`
+  # environment, where the repository adds required reviewers. The `-main` jobs
+  # write main-<12> on a push to main, reviewed by the merge itself, so no
+  # environment. sha-<12> is not reused there: a build on another day has
+  # another digest, and promote would refuse the tag.
   # `workflow_dispatch` can name any ref, so the event is checked as well as
   # the ref. The commit must be on main — a tag is not a review.
   publish:
     needs: [build, supply-chain]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     environment: release
     permissions:
@@ -253,8 +249,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        app: [control-host, worker, egress-proxy]
+      matrix: *image-matrix
     steps: &publish-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -280,11 +275,12 @@ jobs:
       - id: meta
         env:
           APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
           PREFIX: ${{ env.IMAGE_PREFIX }}
         run: |
           name="${REGISTRY}/$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')-${APP}"
           echo "name=${name}" >>"$GITHUB_OUTPUT"
-          echo "staging=${name}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >>"$GITHUB_OUTPUT"
+          echo "staging=${name}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}" >>"$GITHUB_OUTPUT"
           echo "apt-upgrade-key=$(date -u +%F)" >>"$GITHUB_OUTPUT"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -296,10 +292,11 @@ jobs:
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
           tags: ${{ steps.meta.outputs.staging }}
           push: true
           provenance: false
-          cache-from: type=gha,scope=images-${{ matrix.app }}
+          cache-from: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -321,20 +318,21 @@ jobs:
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
           NAME: ${{ steps.meta.outputs.name }}
           DIGEST: ${{ steps.push.outputs.digest }}
-          LICENSE_MODE: ${{ github.ref == 'refs/heads/main' && 'publish-main' || 'publish' }}
         run: |
-          .github/scripts/image-licenses.sh "$APP" "${NAME}@${DIGEST}" "$LICENSE_MODE"
-          .github/scripts/image-scan.sh "$APP" "${NAME}@${DIGEST}" vulnerabilities
-          result="$(cat "vulnerabilities/${APP}.txt")"
+          .github/scripts/image-licenses.sh "$APP" "${NAME}@${DIGEST}"
+          .github/scripts/image-scan.sh "${APP}-${ARCH}" "${NAME}@${DIGEST}" vulnerabilities
+          result="$(cat "vulnerabilities/${APP}-${ARCH}.txt")"
           if [ "$result" != clean ]; then
-            echo "::error::${APP}@${DIGEST}: ${result#found } high or critical with a fix available"
+            echo "::error::${APP}-${ARCH}@${DIGEST}: ${result#found } high or critical with a fix available"
             exit 1
           fi
       - name: Record staged digest
         env:
           APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
           NAME: ${{ steps.meta.outputs.name }}
           DIGEST: ${{ steps.push.outputs.digest }}
           IMAGE_ID: ${{ steps.push.outputs.imageid }}
@@ -346,25 +344,90 @@ jobs:
               "${NAME}@${DIGEST}" run apps/worker/src/image-runtime.ts \
               <<<'{}' | jq -c 'del(.profiles)')"
           fi
-          unverified="$(jq -Rn '[inputs]' "unverified-sources/${APP}.txt")"
-          mkdir -p staged
+          mkdir -p arch-staged debian-sources
+          docker run --rm --entrypoint cat "${NAME}@${DIGEST}" /app/DEBIAN_SOURCES.md \
+            >"debian-sources/${APP}-${ARCH}.md"
           jq -n \
-            --arg app "$APP" --arg name "$NAME" --arg base "$base" \
+            --arg app "$APP" --arg arch "$ARCH" --arg name "$NAME" --arg base "$base" \
             --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
             --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
-            --argjson runtime "$runtime" --argjson unverified "$unverified" \
-            '{app: $app, image: $name, base: $base, pushed: true, promoted: false,
-              digest: $digest, imageId: $imageId, commit: $sha, ref: $ref,
-              runtime: $runtime, unverifiedSources: $unverified}' \
-            | tee "staged/${APP}.json"
+            --argjson runtime "$runtime" \
+            '{app: $app, arch: $arch, image: $name, base: $base, pushed: true,
+              promoted: false, digest: $digest, imageId: $imageId, commit: $sha,
+              ref: $ref, runtime: $runtime}' \
+            | tee "arch-staged/${APP}-${ARCH}.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: staged-digest-${{ matrix.app }}
-          path: staged/${{ matrix.app }}.json
+          name: arch-digest-${{ matrix.app }}-${{ matrix.arch }}
+          path: arch-staged/${{ matrix.app }}-${{ matrix.arch }}.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: debian-sources-${{ matrix.app }}-${{ matrix.arch }}
+          path: debian-sources/${{ matrix.app }}-${{ matrix.arch }}.md
+          if-no-files-found: error
+
+  sources:
+    needs: publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps: &sources-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: debian-sources-*
+          path: debian-sources
+          merge-multiple: true
+      - name: snapshot.debian.org holds what the images list
+        env:
+          SOURCES_MODE: ${{ github.ref == 'refs/heads/main' && 'main' || 'release' }}
+        run: .github/scripts/image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unverified-sources
+          path: unverified-sources/*.json
+          if-no-files-found: error
+
+  index:
+    needs: sources
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    steps: &index-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: arch-digest-*
+          path: arch-staged
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unverified-sources
+          path: unverified-sources
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Join each image's two digests
+        run: .github/scripts/image-index.sh arch-staged unverified-sources staged
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staged-digests
+          path: staged/*.json
           if-no-files-found: error
 
   promote:
-    needs: publish
+    needs: index
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     # One promotion at a time across the whole repository: two v* tags on the
     # same commit share the sha-<12> tag, and the check-then-write below is
@@ -382,9 +445,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: staged-digest-*
+          name: staged-digests
           path: staged
-          merge-multiple: true
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: image=${{ env.BUILDKIT_IMAGE }}
@@ -407,22 +469,38 @@ jobs:
   publish-main:
     needs: [build, supply-chain]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        app: [control-host, worker, egress-proxy]
+      matrix: *image-matrix
     steps: *publish-steps
+
+  sources-main:
+    needs: publish-main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps: *sources-steps
+
+  index-main:
+    needs: sources-main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps: *index-steps
 
   # No job-level concurrency: main-<12> belongs to one commit and the workflow
   # group already runs one run per commit. Sharing `images-promote` would let
   # a queued merge replace another's pending promotion.
   promote-main:
-    needs: publish-main
+    needs: index-main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -475,9 +553,10 @@ jobs:
       - name: Every image reads without a login
         run: |
           for file in published/*.json; do
-            ref="$(jq -r '"\(.image)@\(.digest)"' "$file")"
-            docker manifest inspect "$ref" >/dev/null
-            echo "read ${ref}"
+            for ref in $(jq -r '.image as $name | .digest, .platforms[].digest | "\($name)@\(.)"' "$file"); do
+              docker manifest inspect "$ref" >/dev/null
+              echo "read ${ref}"
+            done
           done
       - name: Install the package on kind
         env:
@@ -573,7 +652,7 @@ jobs:
             echo
             echo "| scan | result |"
             echo "| --- | --- |"
-            for scan in control-host worker egress-proxy npm; do
+            for scan in {control-host,worker,egress-proxy}-{amd64,arm64} npm; do
               echo "| ${scan} | $(cat "vulnerabilities/${scan}.txt" 2>/dev/null || echo "no result") |"
             done
             echo

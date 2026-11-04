@@ -198,9 +198,12 @@ describe("supply-chain-verdict.sh", () => {
     return { code: run.exitCode, out: run.stdout.toString() };
   };
   const all = (result: string) => ({
-    "control-host": result,
-    worker: result,
-    "egress-proxy": result,
+    "control-host-amd64": result,
+    "control-host-arm64": result,
+    "worker-amd64": result,
+    "worker-arm64": result,
+    "egress-proxy-amd64": result,
+    "egress-proxy-arm64": result,
     npm: result,
   });
 
@@ -210,9 +213,12 @@ describe("supply-chain-verdict.sh", () => {
 
   test("fails on a fixable finding, whatever the event", async () => {
     for (const mode of ["warn", "fail"]) {
-      const run = await verdict({ ...all("clean"), worker: "found 2" }, mode);
+      const run = await verdict(
+        { ...all("clean"), "worker-arm64": "found 2" },
+        mode,
+      );
       expect(run.code).toBe(1);
-      expect(run.out).toContain("::error::worker: 2 high or critical");
+      expect(run.out).toContain("::error::worker-arm64: 2 high or critical");
     }
   });
 
@@ -223,10 +229,18 @@ describe("supply-chain-verdict.sh", () => {
   });
 
   test("a missing result fails even where outages only warn", async () => {
-    const { worker: _, ...rest } = all("clean");
+    const { "worker-arm64": _, ...rest } = all("clean");
     const run = await verdict(rest, "warn");
     expect(run.code).toBe(1);
-    expect(run.out).toContain("::error::worker: no result");
+    expect(run.out).toContain("::error::worker-arm64: no result");
+  });
+
+  test("a result without its arch stands in for neither", async () => {
+    const { "worker-amd64": _, "worker-arm64": __, ...rest } = all("clean");
+    const run = await verdict({ ...rest, worker: "clean" }, "warn");
+    expect(run.code).toBe(1);
+    expect(run.out).toContain("::error::worker-amd64: no result");
+    expect(run.out).toContain("::error::worker-arm64: no result");
   });
 
   test("an exception without a reason fails even a clean run", async () => {
