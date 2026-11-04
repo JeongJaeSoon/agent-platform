@@ -257,12 +257,14 @@ kubectl -n agent-platform logs job/agent-platform-upgrade-check
 
 | 배포된 상태 | 대상 | runtime 없을 때 |
 |---|---|---|
-| scheduler Deployment 없음, DB가 비어 있거나 세션 없음(첫 설치 재시도) | 무엇이든 | `proceed` |
+| scheduler Deployment 없음, DB가 비어 있거나 세션 없음(첫 설치 재시도) | 어떤 worker 이미지든, `images.workerPrevious` 없음 | `proceed` |
 | worker 이미지 하나, runtime·직전 이미지 없음 | 같은 worker 이미지, `images.workerPrevious` 없음 | `proceed` |
 | worker 이미지 하나, runtime·직전 이미지 없음 | 다른 worker 이미지 | `check_failed`. 대상에 `images.worker.runtime`과, 지금 이미지를 담은 `images.workerPrevious`를 둔다 |
-| runtime이나 직전 이미지가 있음 | 그 값을 뺀 값 | `check_failed`. 빠진 이미지로 재개할 세션을 검사할 수 없다 |
+| runtime이나 직전 이미지가 있음 | `images.worker.runtime`을 뺀 값 | `check_failed`. 조합 없이는 세션을 검사할 수 없다 |
 
 runtime 값을 얻는 방법은 [configuration.md의 API 설정](configuration.md)에 있다. 최소 values 설치는 runtime 없이 시작하고, worker 이미지를 처음 바꾸는 upgrade에서 두 이미지의 runtime을 함께 넣는다.
+
+`images.worker`를 그대로 두고 `images.workerPrevious`만 빼는 upgrade는 막지 않는다. 같은 이미지 upgrade는 세션을 비교하지 않으므로 `proceed`다. 빠진 이미지의 조합으로 남은 세션은 재개할 때 `recovery_required`로 멈출 수 있으니, 그런 세션이 없을 때만 뺀다.
 
 고른 세션이 재개하지 못해도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인은 세션 상태를 바꾸지 않는다. `no_image`로 고른 세션은 재개할 때 `recovery_required`로 멈춘다. `unrecorded`로 고른 세션은 새 이미지로 뜨고, 복원이 판정해 이어지거나 `recovery_required`로 멈춘다.
 

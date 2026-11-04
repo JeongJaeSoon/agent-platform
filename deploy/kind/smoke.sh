@@ -153,7 +153,8 @@ EOF
   k get job "${fullname}-migrate" -o json |
     jq -e '.status.conditions[]? | select(.type == "Failed" and .reason == "DeadlineExceeded")' ||
     fail "the migrate Job did not hit its deadline"
-  [ -n "$(k get events --field-selector reason=FailedScheduling -o name)" ] ||
+  k get events --field-selector reason=FailedScheduling -o jsonpath='{.items[*].involvedObject.name}' |
+    grep "${fullname}-migrate-" >/dev/null ||
     fail "the migrate Pod was never refused a node"
   [ -z "$(k get deploy "${fullname}-scheduler" -o name --ignore-not-found)" ] ||
     fail "the failed install left a scheduler Deployment"
