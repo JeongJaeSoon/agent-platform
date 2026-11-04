@@ -1,12 +1,16 @@
 ---
 title: "単一サーバーの設置"
-description: 公開イメージで Linux サーバー1台に Werft を設置し、/readyz 200 まで確認する
+description: 公開イメージで Linux サーバー1台に Werft を設置する手順
 ---
 
-Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページだけに従えば、`/readyz` が 200 を返すところまで進めます。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
+Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページは、`/readyz` が 200 を返すところまでの手順を書いています。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
 
 <Callout type="warn">
-`v` タグはまだありません。今は `main` にマージされるたびに公開される `main-<12>` タグを使います。これはリリースではなく、タグが指すイメージは digest で固定して使います。最初の `v` タグができたら、下の `TAG` だけを `v<バージョン>` に変えれば、ほかのコマンドは同じです。
+この手順は運用 runbook の順序を移したもので、公開イメージで最初から最後まで実行して確認してはいません。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)(韓国語)に従ってください。
+</Callout>
+
+<Callout type="warn">
+`v` タグはまだありません。今は `main` にマージされるたびに公開される `main-<12>` タグを使います。これはリリースではなく、タグが指すイメージは digest で固定して使います。最初の `v` タグができたら、下の `TAG` を `v<バージョン>` に変え、手順2で同じタグを checkout します。ほかのコマンドは同じです。
 </Callout>
 
 ## 必要なもの
@@ -16,10 +20,10 @@ Linux サーバー1台に Docker Compose で Werft を設置します。イメ�
 | OS | Linux。`x86_64` と `arm64` のどちらも使える |
 | Docker Engine | 28 以上 |
 | Docker Compose | 2.24.6 以上 |
-| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。そうでないと scheduler の quota 検査が失敗し、設置が止まる |
+| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。Docker Desktop では使えない |
 | 時刻 | NTP で同期している。再起動後に Docker が自動で起動する |
 | ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon に接続できるアカウント |
-| ネットワーク | ホストが `ghcr.io` からイメージを取得できる。パッケージはログイン不要 |
+| ネットワーク | ホストが `ghcr.io` と Docker Hub からイメージを取得できる。パッケージはログイン不要。セッションは `api.anthropic.com` と `github.com` に接続する |
 
 設置にはリポジトリの checkout が必要です。compose ファイルと `scripts/test-ops.sh` を checkout から読むためです。イメージは checkout からビルドしません。
 
@@ -27,7 +31,7 @@ Linux サーバー1台に Docker Compose で Werft を設置します。イメ�
 
 取得するタグを決め、3つのイメージの digest を読みます。イメージは `linux/amd64` と `linux/arm64` を含む index なので、サーバーは自分のアーキテクチャを取得します。
 
-`main-<12>` の `<12>` は commit SHA の先頭12文字です。どの commit を使うかは、リポジトリの [Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) で緑で終わった `main` の run を選んで決めます。
+`main-<12>` の `<12>` は commit SHA の先頭12文字です。どの commit を使うかは、リポジトリの [Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) で緑で終わった `main` の push run を選んで決めます。
 
 ```bash
 TAG=main-<12>
@@ -69,9 +73,11 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 | `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API コンテナにだけ渡る |
 | `BOOTSTRAP_TOKEN` | コメントを外して32〜256文字のランダムな値を入れる。最初の owner を作るトークン。入れないと API が生成してコンテナのログに出力する |
 
+例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
+
 値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
 
-設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。
+設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
 
 migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
 
@@ -123,7 +129,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.jso
 
 ## 4. release ファイルを作る
 
-`release.json` には、設置する commit、3つのイメージの digest、設定ドキュメントの digest を書きます。タグだけのイメージは拒否されます。
+`release.json` には、設置する commit、3つのイメージの digest、設定ドキュメントの digest を書きます。タグだけのイメージは拒否されます。手順1の `TAG` が残っているシェルで実行します。
 
 ```bash
 SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
@@ -143,14 +149,16 @@ jq -n \
 
 オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備とこれらの値は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#aws-준비s3에서만) に従います。
 
-`preflight` が、ホスト、env ファイル、release ファイルを先に検査します。通れば、`deploy` が同じファイルで設置します。
+`preflight` が、Docker のバージョン、checkout、env ファイル、release ファイルを先に検査します。ディスクの quota は `deploy` で scheduler が検査します。通れば、`deploy` が同じファイルで設置します。
 
 ```bash
 scripts/test-ops.sh preflight release.json
 scripts/test-ops.sh deploy release.json
 ```
 
-`deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。オブジェクトストアは既定で同じホストの LocalStack です。LocalStack はホストや Docker が再起動すると checkpoint を失うので、試用だけに使います。実サーバーでは専用の AWS S3 bucket を使い、`TEST_OPS_OBJECT_STORE=s3` を付けて `deploy` します。bucket の準備は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#aws-준비s3에서만) に従います。
+`deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。LocalStack はホストや Docker が再起動すると checkpoint を失い、再起動後に API が起動を拒否することがあります(復旧は runbook の `reseed` または `reset`)。試用だけに使います。
+
+最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`agent-platform-test-ops`)のコンテナと volume を手で削除し、もう一度 `deploy` します。
 
 ## 6. 確認する
 
@@ -172,7 +180,7 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 
 ## 7. 最初の owner と API key
 
-ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。
+ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、[最初の owner の手順](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#첫-owner)どおり API のログから探します。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。
 
 利用者ごとに owner と API key を別々に発行します。平文の key は一度しか出力されないので、変数に受けて直接渡します。
 
@@ -180,6 +188,8 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 KEY="$(scripts/test-ops.sh key create <owner_id> \
   --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
 ```
+
+`<owner_id>` は、この key のセッションをまとめる名前です。利用者ごとに別の値を決めます。Web コンソールのアカウントとは別で、workspace id は使いません。
 
 SDK と HTTP API は、このサーバーのアドレスと key で接続します([SDK のインストール](/getting-started/install))。
 
@@ -194,6 +204,8 @@ scripts/test-ops.sh reset --yes
 `reset` は、この設置のコンテナと volume(DB、LocalStack)、セッションが作った worker コンテナと workspace volume を削除します。セッション、checkpoint、API key も一緒に消えるので、削除前に[バックアップ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)を取ります。
 
 ## 次のステップ
+
+これらのページは韓国語で書かれています。
 
 - [アップグレードとロールバック](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드): 新しいタグの digest で `release.json` を作り直し、`upgrade` する
 - [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
