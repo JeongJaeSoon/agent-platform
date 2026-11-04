@@ -86,7 +86,7 @@ kill "$PF"
 
 ### 되돌리기
 
-`helm rollback`은 hook을 돌리지 않으므로 업그레이드 전 검사도 돌지 않는다. worker 이미지를 되돌리는 롤백은 보통 `refused`이고, 롤포워드가 우선이다. 되돌릴 때의 검사 명령과 한계는 [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사)의 `helm rollback` 전 항목에 있다.
+`helm rollback`은 hook을 돌리지 않으므로 업그레이드 전 검사도 돌지 않는다. worker 이미지를 되돌리는 롤백 전에 손으로 돌리는 검사는 보통 `refused`이고, 롤포워드가 우선이다. 되돌릴 때의 검사 명령과 한계는 [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사)의 `helm rollback` 전 항목에 있다.
 
 ## 단일 서버 (Docker Compose)
 

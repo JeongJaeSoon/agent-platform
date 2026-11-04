@@ -86,7 +86,7 @@ kill "$PF"
 
 ### Roll back
 
-`helm rollback` runs no hooks, so the pre-upgrade check does not run either. A rollback that reverts the worker image is usually `refused`; roll forward first. The check command for a rollback and its limits are in the `helm rollback` item of [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
+`helm rollback` runs no hooks, so the pre-upgrade check does not run either. For a rollback that reverts the worker image, the check you run by hand beforehand is usually `refused`; roll forward first. The check command for a rollback and its limits are in the `helm rollback` item of [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
 
 ## Single server (Docker Compose)
 

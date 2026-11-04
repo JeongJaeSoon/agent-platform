@@ -86,7 +86,7 @@ kill "$PF"
 
 ### 戻す
 
-`helm rollback` は hook を実行しないので、アップグレード前の検査も実行されません。worker イメージを戻すロールバックは通常 `refused` で、ロールフォワードが先です。戻すときの検査コマンドと限界は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) の `helm rollback` の項にあります。
+`helm rollback` は hook を実行しないので、アップグレード前の検査も実行されません。worker イメージを戻すロールバックの前に手で実行する検査は通常 `refused` で、ロールフォワードが先です。戻すときの検査コマンドと限界は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) の `helm rollback` の項にあります。
 
 ## 単一サーバー (Docker Compose)
 
