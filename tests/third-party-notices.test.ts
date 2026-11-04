@@ -22,6 +22,7 @@ import {
   removedFrom,
   render,
   renderDebianSources,
+  snapshotAnswers,
   snapshotUrl,
 } from "../scripts/third-party-notices.ts";
 
@@ -473,6 +474,61 @@ describe("Debian corresponding source", () => {
     expect(snapshotUrl("shadow", "1:4.17.4-2")).toBe(
       "https://snapshot.debian.org/package/shadow/1%3A4.17.4-2/",
     );
+  });
+
+  test("the snapshot budget ends the asking, and what is left has no answer", async () => {
+    const wanted = Array.from({ length: 6 }, (_, index) => ({
+      source: `source-${index}`,
+      version: "1",
+    }));
+    const asked: string[] = [];
+    const answers = await snapshotAnswers(wanted, 20, async (source) => {
+      asked.push(source);
+      await Bun.sleep(40);
+      return "held";
+    });
+    expect(asked).toEqual(["source-0", "source-1", "source-2", "source-3"]);
+    expect(answers).toEqual([
+      "held",
+      "held",
+      "held",
+      "held",
+      "unreachable",
+      "unreachable",
+    ]);
+  });
+
+  test("no budget asks about every source, four at a time", async () => {
+    let running = 0;
+    let most = 0;
+    const answers = await snapshotAnswers(
+      Array.from({ length: 9 }, (_, index) => ({
+        source: `source-${index}`,
+        version: "1",
+      })),
+      undefined,
+      async () => {
+        running += 1;
+        most = Math.max(most, running);
+        await Bun.sleep(1);
+        running -= 1;
+        return "held";
+      },
+    );
+    expect(answers).toEqual(Array(9).fill("held"));
+    expect(most).toBe(4);
+  });
+
+  test("--snapshot-check refuses an empty list and a bad budget", () => {
+    const check = (...args: string[]) =>
+      Bun.spawnSync(
+        ["bun", join(root, "scripts/third-party-notices.ts"), ...args],
+        { env: { PATH: process.env.PATH ?? "" } },
+      ).exitCode;
+    const listed = join(root, "README.md");
+    expect(check("--snapshot-check", listed)).toBe(2);
+    expect(check("--snapshot-check", listed, "nonsense")).toBe(2);
+    expect(check("--snapshot-check", listed, "0")).toBe(2);
   });
 
   test("GPL-family mentions in a copyright file", () => {

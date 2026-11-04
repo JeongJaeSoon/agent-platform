@@ -987,6 +987,37 @@ async function snapshotHolds(
   return "unreachable";
 }
 
+/**
+ * The answer for each wanted source, a few at a time: snapshot.debian.org is a
+ * volunteer service. Past `budgetMs` the remaining sources count as unreachable
+ * without being asked, so an outage ends with an answer and not a job timeout.
+ */
+export async function snapshotAnswers(
+  wanted: { source: string; version: string }[],
+  budgetMs = Number.POSITIVE_INFINITY,
+  holds: typeof snapshotHolds = snapshotHolds,
+): Promise<SnapshotAnswer[]> {
+  const deadline = Date.now() + budgetMs;
+  const answers: SnapshotAnswer[] = [];
+  for (let at = 0; at < wanted.length; at += 4) {
+    const batch = wanted.slice(at, at + 4);
+    const results =
+      Date.now() < deadline
+        ? await Promise.all(
+            batch.map(({ source, version }) => holds(source, version)),
+          )
+        : batch.map((): SnapshotAnswer => "unreachable");
+    results.forEach((answer, index) => {
+      const { source, version } = batch[index] as (typeof batch)[number];
+      if (answer !== "held") {
+        console.error(`${answer}: ${snapshotUrl(source, version)}`);
+      }
+    });
+    answers.push(...results);
+  }
+  return answers;
+}
+
 /** DEBIAN_SOURCES.md for the Debian system this runs on. */
 function debianSourcesHere(): string {
   return renderDebianSources(
@@ -1126,27 +1157,26 @@ async function main(argv: string[]): Promise<number> {
   // Exit 1 when snapshot.debian.org lacks a listed source, 3 when it did not
   // answer for one; image-licenses.sh decides what either means for a build.
   if (mode === "--snapshot-check") {
-    const [file] = rest;
-    if (file === undefined) {
-      console.error("usage: third-party-notices.ts --snapshot-check <file>");
+    const [file, budget] = rest;
+    const budgetSeconds = budget === undefined ? undefined : Number(budget);
+    if (
+      file === undefined ||
+      (budgetSeconds !== undefined && !(budgetSeconds > 0))
+    ) {
+      console.error(
+        "usage: third-party-notices.ts --snapshot-check <file> [budget seconds]",
+      );
       return 2;
     }
     const wanted = parseDebianSources(readFileSync(file, "utf8"));
-    const answers: SnapshotAnswer[] = [];
-    // A few at a time: snapshot.debian.org is a volunteer service.
-    for (let at = 0; at < wanted.length; at += 4) {
-      const batch = wanted.slice(at, at + 4);
-      const results = await Promise.all(
-        batch.map(({ source, version }) => snapshotHolds(source, version)),
-      );
-      results.forEach((answer, index) => {
-        const { source, version } = batch[index] as (typeof batch)[number];
-        if (answer !== "held") {
-          console.error(`${answer}: ${snapshotUrl(source, version)}`);
-        }
-        answers.push(answer);
-      });
+    if (wanted.length === 0) {
+      console.error(`no sources listed in ${file}`);
+      return 2;
     }
+    const answers = await snapshotAnswers(
+      wanted,
+      budgetSeconds === undefined ? undefined : budgetSeconds * 1000,
+    );
     const held = answers.filter((answer) => answer === "held").length;
     console.log(
       `snapshot.debian.org holds ${held} of ${wanted.length} sources in ${file}`,
