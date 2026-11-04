@@ -646,7 +646,7 @@ const webUiRules = {
   "shadow-component":
     "a component named like a @werft-ai/ui or @werft-ai/react export: import that export instead of defining a second one; if it lacks what you need, ask ui-kit to extend it",
   "legacy-class":
-    "legacy web-* / ap-input class: use the @werft-ai/ui component that draws it (Field, Input, PageHeader, EmptyState, ...); if none fits, ask ui-kit for one",
+    "legacy web-* / werft-input class: use the @werft-ai/ui component that draws it (Field, Input, PageHeader, EmptyState, ...); if none fits, ask ui-kit for one",
   "link-constant":
     "link className constant: use a link component from @werft-ai/ui; if none fits, ask ui-kit for one",
   "raw-destructive":
@@ -655,7 +655,7 @@ const webUiRules = {
 
 export type WebUiRule = keyof typeof webUiRules;
 
-const legacyClass = /(?<![\w-])(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)/g;
+const legacyClass = /(?<![\w-])(?:web-[a-z0-9_-]+|werft-input[a-z0-9_-]*)/g;
 
 /**
  * Where apps/web draws its own UI instead of composing packages/ui and
@@ -721,7 +721,7 @@ export async function webUiViolations(
         add(
           name,
           "legacy-class",
-          classes(/(?:^|:)!?(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)!?$/),
+          classes(/(?:^|:)!?(?:web-[a-z0-9_-]+|werft-input[a-z0-9_-]*)!?$/),
         );
         add(
           name,
@@ -1739,7 +1739,7 @@ describe("architecture", () => {
           "export function Card() {",
           "  return (",
           '    <table className="web-table">',
-          '      <a href="/x" className="ap-input web-field__hint">x</a>',
+          '      <a href="/x" className="werft-input web-field__hint">x</a>',
           '      <p className="text-destructive">no</p>',
           "    </table>",
           "  );",
@@ -1753,7 +1753,7 @@ describe("architecture", () => {
       );
       await writeFile(
         join(web, "styles.css"),
-        ".web-field .ap-input { color: red; }\n.ap-button {}",
+        ".web-field .werft-input { color: red; }\n.werft-button {}",
       );
       const counts = await webUiViolations(web, components);
       expect(counts).toEqual({

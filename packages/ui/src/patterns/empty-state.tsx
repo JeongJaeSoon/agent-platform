@@ -30,20 +30,20 @@ export function EmptyState({
 }: EmptyStateProps): JSX.Element {
   return (
     <div
-      className={cn("ap-state", "ap-state--empty", className)}
+      className={cn("werft-state", "werft-state--empty", className)}
       data-size={size}
     >
       {icon ? (
-        <span className="ap-state__icon" aria-hidden="true">
+        <span className="werft-state__icon" aria-hidden="true">
           {icon}
         </span>
       ) : null}
-      <p className="ap-state__title">{title}</p>
+      <p className="werft-state__title">{title}</p>
       {description ? (
-        <p className="ap-state__description">{description}</p>
+        <p className="werft-state__description">{description}</p>
       ) : null}
       {action || secondaryAction ? (
-        <div className="ap-state__actions">
+        <div className="werft-state__actions">
           {action}
           {secondaryAction}
         </div>

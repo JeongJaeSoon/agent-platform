@@ -34,7 +34,7 @@ export interface ReasonButtonProps
  */
 export function ReasonButton({
   reason,
-  className = "ap-button",
+  className = "werft-button",
   type = "button",
   children,
   ...rest

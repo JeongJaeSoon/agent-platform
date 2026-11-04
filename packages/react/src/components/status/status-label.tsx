@@ -65,7 +65,7 @@ export function StatusLabel<A extends StatusAxis>({
           status={spinning ? "run" : statusDot(axis, state)}
           data-animated={spinning || undefined}
         />
-        <span className="ap-visually-hidden">
+        <span className="werft-visually-hidden">
           {axisLabel ?? STATUS_AXIS_LABEL[axis]}:{" "}
         </span>
         {/* A narrow column cuts the label, never the wait after it. */}
@@ -91,7 +91,7 @@ export function StatusLabel<A extends StatusAxis>({
 
   return (
     <span
-      className={cn("ap-status", className)}
+      className={cn("werft-status", className)}
       data-axis={axis}
       data-state={state}
       data-tone={descriptor.tone}
@@ -101,20 +101,20 @@ export function StatusLabel<A extends StatusAxis>({
           so the axis reads from the label and the hidden axis name. */}
       {descriptor.inFlight && !reducedMotion ? (
         <span
-          className="ap-status__spinner"
+          className="werft-status__spinner"
           data-animated="true"
           aria-hidden="true"
         />
       ) : (
         <AxisIcon axis={axis} />
       )}
-      <span className="ap-visually-hidden">
+      <span className="werft-visually-hidden">
         {axisLabel ?? STATUS_AXIS_LABEL[axis]}:{" "}
       </span>
-      <span className="ap-status__text">{text}</span>
-      {detail ? <span className="ap-status__detail">{detail}</span> : null}
+      <span className="werft-status__text">{text}</span>
+      {detail ? <span className="werft-status__detail">{detail}</span> : null}
       {stale ? (
-        <span className="ap-status__stale" title={staleHint}>
+        <span className="werft-status__stale" title={staleHint}>
           {staleLabel}
         </span>
       ) : null}

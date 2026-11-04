@@ -73,12 +73,12 @@
    * loses its data-slot; every tone turns neutral, status dots included.
    * The actions cell keeps full contrast: a raised GridTableCell, an
    * `actions` TableCell, or any cell holding a Button, found by its
-   * `data-ap-button` mark because a trigger's asChild replaces its slot and
+   * `data-werft-button` mark because a trigger's asChild replaces its slot and
    * may change its tag. Colour alone never says "inactive"; the caller
    * names it in text.
    */
   :is([data-slot="grid-table-row"], [data-slot="table-row"])[data-inactive]
-    > :not([data-raised], [data-variant="actions"], :has([data-ap-button])) {
+    > :not([data-raised], [data-variant="actions"], :has([data-werft-button])) {
     --werft-color-foreground: var(--werft-color-subtle-foreground);
     --werft-color-muted-foreground: var(--werft-color-subtle-foreground);
     --werft-color-accent: var(--werft-color-subtle-foreground);
@@ -113,7 +113,7 @@
     color: var(--werft-color-subtle-foreground);
   }
 
-  .ap-visually-hidden {
+  .werft-visually-hidden {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -127,7 +127,7 @@
 
   /* StatusLabel ------------------------------------------------------------ */
 
-  .ap-status {
+  .werft-status {
     display: inline-flex;
     align-items: center;
     gap: var(--werft-space-1);
@@ -146,20 +146,20 @@
     text-transform: none;
   }
 
-  .ap-status[data-stale] {
+  .werft-status[data-stale] {
     border-style: dashed;
   }
 
-  .ap-status__icon {
+  .werft-status__icon {
     flex: none;
   }
 
-  .ap-status__text {
+  .werft-status__text {
     min-width: 0;
     overflow-wrap: anywhere;
   }
 
-  .ap-status__detail {
+  .werft-status__detail {
     /* A flex item's floor is its longest word; an unbreakable id (a ULID, a
      stack frame) would push the row past 360px without these two. */
     min-width: 0;
@@ -169,7 +169,7 @@
     font-weight: var(--werft-weight-regular);
   }
 
-  .ap-status__stale {
+  .werft-status__stale {
     /* muted, not a fainter tier: "갱신 지연" is meaning, and a warm grey light
      enough to read as "faint" lands near 3:1 on the tone backgrounds. The
      hierarchy comes from size and weight instead. */
@@ -178,8 +178,8 @@
     font-weight: var(--werft-weight-regular);
   }
 
-  .ap-status__spinner,
-  .ap-button__spinner {
+  .werft-status__spinner,
+  .werft-button__spinner {
     flex: none;
     width: 0.75em;
     height: 0.75em;
@@ -189,19 +189,19 @@
     opacity: 0.8;
   }
 
-  .ap-status__spinner[data-animated="true"],
-  .ap-button__spinner {
-    animation: ap-spin 900ms linear infinite;
+  .werft-status__spinner[data-animated="true"],
+  .werft-button__spinner {
+    animation: werft-spin 900ms linear infinite;
   }
 
   /* Same box as the axis icon whose slot it takes, so the text holds still. */
-  .ap-status__spinner {
+  .werft-status__spinner {
     box-sizing: border-box;
     width: 12px;
     height: 12px;
   }
 
-  @keyframes ap-spin {
+  @keyframes werft-spin {
     to {
       transform: rotate(360deg);
     }
@@ -209,7 +209,7 @@
 
   /* Receipt ---------------------------------------------------------------- */
 
-  .ap-receipt {
+  .werft-receipt {
     display: flex;
     flex-direction: column;
     gap: var(--werft-space-2);
@@ -223,7 +223,7 @@
     line-height: var(--werft-leading-body);
   }
 
-  .ap-receipt__head {
+  .werft-receipt__head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -231,43 +231,43 @@
     gap: var(--werft-space-2);
   }
 
-  .ap-receipt__operation {
+  .werft-receipt__operation {
     /* An operation this build has no label for is printed raw. */
     min-width: 0;
     overflow-wrap: anywhere;
     font-weight: var(--werft-weight-bold);
   }
 
-  .ap-receipt__target {
+  .werft-receipt__target {
     display: flex;
     flex-wrap: wrap;
     gap: var(--werft-space-1) var(--werft-space-4);
     margin: 0;
   }
 
-  .ap-receipt__field {
+  .werft-receipt__field {
     display: flex;
     gap: var(--werft-space-1);
     min-width: 0;
   }
 
-  .ap-receipt__field dt {
+  .werft-receipt__field dt {
     color: var(--werft-color-muted-foreground);
     font-size: var(--werft-text-sm);
   }
 
-  .ap-receipt__field dd {
+  .werft-receipt__field dd {
     margin: 0;
     min-width: 0;
   }
 
-  .ap-receipt__id {
+  .werft-receipt__id {
     font-family: var(--werft-font-mono);
     font-size: var(--werft-text-sm);
     overflow-wrap: anywhere;
   }
 
-  .ap-receipt__error {
+  .werft-receipt__error {
     display: flex;
     flex-direction: column;
     gap: var(--werft-space-1);
@@ -279,17 +279,17 @@
     color: var(--werft-tone-danger-fg);
   }
 
-  .ap-receipt__guidance {
+  .werft-receipt__guidance {
     font-weight: var(--werft-weight-medium);
   }
 
-  .ap-receipt__detail {
+  .werft-receipt__detail {
     color: var(--werft-color-muted-foreground);
     font-size: var(--werft-text-sm);
     overflow-wrap: anywhere;
   }
 
-  .ap-receipt__foot {
+  .werft-receipt__foot {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -299,7 +299,7 @@
     font-size: var(--werft-text-sm);
   }
 
-  .ap-receipt-link {
+  .werft-receipt-link {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
@@ -312,7 +312,7 @@
     text-underline-offset: 0.2em;
   }
 
-  .ap-receipt-link__dot {
+  .werft-receipt-link__dot {
     flex: none;
     width: 0.5rem;
     height: 0.5rem;
@@ -321,18 +321,18 @@
     background: var(--werft-tone-fg);
   }
 
-  .ap-receipt-link__text {
+  .werft-receipt-link__text {
     min-width: 0;
     overflow-wrap: anywhere;
   }
 
-  .ap-receipt-link__status {
+  .werft-receipt-link__status {
     flex: none;
     color: var(--werft-color-muted-foreground);
     font-size: var(--werft-text-xs);
   }
 
-  .ap-receipt-link__id {
+  .werft-receipt-link__id {
     min-width: 0;
     color: var(--werft-color-muted-foreground);
     font-family: var(--werft-font-mono);
@@ -343,7 +343,7 @@
 
   /* Console v4 `.empty` and `.state-err` (L325-331): the same centred stack,
    no frame of its own. Only the error's red icon box tells them apart. */
-  .ap-state {
+  .werft-state {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -357,11 +357,11 @@
     text-align: center;
   }
 
-  .ap-state[data-size="sm"] {
+  .werft-state[data-size="sm"] {
     padding: var(--werft-space-6) var(--werft-space-4);
   }
 
-  .ap-state__icon {
+  .werft-state__icon {
     display: grid;
     flex: none;
     place-items: center;
@@ -374,31 +374,31 @@
     color: var(--werft-color-subtle-foreground);
   }
 
-  .ap-state--error .ap-state__icon {
+  .werft-state--error .werft-state__icon {
     border-color: var(--werft-tone-danger-border);
     background: var(--werft-tone-danger-bg);
     color: var(--werft-tone-danger-fg);
   }
 
-  .ap-state__title {
+  .werft-state__title {
     margin: 0;
     color: var(--werft-color-foreground);
     font-size: var(--werft-text-label);
     font-weight: var(--werft-weight-bold);
   }
 
-  .ap-state__guidance {
+  .werft-state__guidance {
     margin: 0;
   }
 
-  .ap-state__description {
+  .werft-state__description {
     margin: 0;
     /* The server's own message lands here — a trace id or a URL with no spaces
      in it must wrap rather than widen the page. */
     overflow-wrap: anywhere;
   }
 
-  .ap-state__actions {
+  .werft-state__actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -406,26 +406,26 @@
     gap: var(--werft-space-2);
   }
 
-  .ap-state__code {
+  .werft-state__code {
     overflow-wrap: anywhere;
     color: var(--werft-color-subtle-foreground);
     font-family: var(--werft-font-mono);
     font-size: var(--werft-text-xs);
   }
 
-  .ap-skeleton {
+  .werft-skeleton {
     display: flex;
     flex-direction: column;
     gap: var(--werft-space-2);
     max-width: 100%;
   }
 
-  .ap-skeleton[data-inline] {
+  .werft-skeleton[data-inline] {
     display: inline-flex;
     vertical-align: top;
   }
 
-  .ap-skeleton__bar {
+  .werft-skeleton__bar {
     display: block;
     width: 100%;
     height: 0.75rem;
@@ -434,27 +434,27 @@
     background: var(--werft-color-skeleton);
   }
 
-  .ap-skeleton[data-shape="text"] .ap-skeleton__bar:last-of-type {
+  .werft-skeleton[data-shape="text"] .werft-skeleton__bar:last-of-type {
     width: 62%;
   }
 
-  .ap-skeleton[data-shape="block"] .ap-skeleton__bar {
+  .werft-skeleton[data-shape="block"] .werft-skeleton__bar {
     height: 100%;
     min-height: 4rem;
     border-radius: var(--werft-radius-card);
   }
 
-  .ap-skeleton[data-shape="circle"] .ap-skeleton__bar {
+  .werft-skeleton[data-shape="circle"] .werft-skeleton__bar {
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 50%;
   }
 
-  .ap-skeleton[data-animated="true"] .ap-skeleton__bar {
-    animation: ap-pulse 1.4s ease-in-out infinite;
+  .werft-skeleton[data-animated="true"] .werft-skeleton__bar {
+    animation: werft-pulse 1.4s ease-in-out infinite;
   }
 
-  @keyframes ap-pulse {
+  @keyframes werft-pulse {
     50% {
       opacity: 0.5;
     }
@@ -462,14 +462,14 @@
 
   /* Dialog ----------------------------------------------------------------- */
 
-  .ap-dialog__overlay {
+  .werft-dialog__overlay {
     position: fixed;
     inset: 0;
     background: var(--werft-color-overlay);
-    animation: ap-fade-in var(--werft-motion-normal) var(--werft-motion-ease);
+    animation: werft-fade-in var(--werft-motion-normal) var(--werft-motion-ease);
   }
 
-  .ap-dialog {
+  .werft-dialog {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -492,31 +492,31 @@
     font-family: var(--werft-font-sans);
     font-size: var(--werft-text-sm);
     line-height: var(--werft-leading-body);
-    animation: ap-dialog-in var(--werft-motion-normal) var(--werft-motion-ease);
+    animation: werft-dialog-in var(--werft-motion-normal) var(--werft-motion-ease);
   }
 
-  .ap-dialog__title {
+  .werft-dialog__title {
     margin: 0;
     font-size: var(--werft-text-label);
     font-weight: var(--werft-weight-bold);
   }
 
-  .ap-dialog__consequence {
+  .werft-dialog__consequence {
     margin: 0;
     color: var(--werft-color-muted-foreground);
   }
 
-  .ap-dialog__match {
+  .werft-dialog__match {
     display: flex;
     flex-direction: column;
     gap: var(--werft-space-2);
   }
 
-  .ap-dialog__match-label {
+  .werft-dialog__match-label {
     font-size: var(--werft-text-sm);
   }
 
-  .ap-dialog__match-target {
+  .werft-dialog__match-target {
     padding: var(--werft-space-1) var(--werft-space-2);
     border: 1px solid var(--werft-color-border);
     border-radius: var(--werft-radius-control);
@@ -527,20 +527,20 @@
     user-select: all;
   }
 
-  .ap-dialog__actions {
+  .werft-dialog__actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--werft-space-2);
   }
 
-  @keyframes ap-fade-in {
+  @keyframes werft-fade-in {
     from {
       opacity: 0;
     }
   }
 
-  @keyframes ap-dialog-in {
+  @keyframes werft-dialog-in {
     from {
       opacity: 0;
       transform: translate(-50%, calc(-50% + var(--werft-space-2)));
@@ -549,7 +549,7 @@
 
   /* Controls --------------------------------------------------------------- */
 
-  .ap-button {
+  .werft-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -568,34 +568,34 @@
     transition: background-color var(--werft-motion-fast) var(--werft-motion-ease);
   }
 
-  .ap-button:disabled {
+  .werft-button:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
 
-  .ap-button--primary {
+  .werft-button--primary {
     border-color: transparent;
     background: var(--werft-color-accent);
     color: var(--werft-color-accent-foreground);
   }
 
-  .ap-button--primary:hover:not(:disabled) {
+  .werft-button--primary:hover:not(:disabled) {
     background: var(--werft-color-accent-hover);
   }
 
-  .ap-button--danger {
+  .werft-button--danger {
     border-color: transparent;
     background: var(--werft-tone-danger-fg);
     color: var(--werft-color-surface);
   }
 
-  .ap-button--quiet {
+  .werft-button--quiet {
     border-color: transparent;
     background: transparent;
     color: var(--werft-color-muted-foreground);
   }
 
-  .ap-input {
+  .werft-input {
     width: 100%;
     padding: var(--werft-space-2) var(--werft-space-3);
     border: 1px solid var(--werft-color-border-input);
@@ -607,9 +607,9 @@
     transition: border-color var(--werft-motion-fast) var(--werft-motion-ease);
   }
 
-  .ap-button:focus-visible,
-  .ap-input:focus-visible,
-  .ap-receipt-link:focus-visible {
+  .werft-button:focus-visible,
+  .werft-input:focus-visible,
+  .werft-receipt-link:focus-visible {
     outline: 2px solid var(--werft-color-focus-ring);
     outline-offset: 2px;
   }
@@ -621,16 +621,16 @@
    * without its twin here, which is what keeps the repetition honest.
    */
   @media (prefers-reduced-motion: reduce) {
-    .ap-status__spinner[data-animated="true"],
-    .ap-button__spinner,
-    .ap-skeleton[data-animated="true"] .ap-skeleton__bar,
-    .ap-dialog__overlay,
-    .ap-dialog {
+    .werft-status__spinner[data-animated="true"],
+    .werft-button__spinner,
+    .werft-skeleton[data-animated="true"] .werft-skeleton__bar,
+    .werft-dialog__overlay,
+    .werft-dialog {
       animation: none;
     }
 
-    .ap-button,
-    .ap-input {
+    .werft-button,
+    .werft-input {
       transition: none;
     }
   }

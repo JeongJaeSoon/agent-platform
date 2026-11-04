@@ -20,10 +20,10 @@ describe("ApiErrorState", () => {
     const { container } = render(
       <ApiErrorState code="UNAUTHORIZED" message="token expired" />,
     );
-    expect(container.querySelector(".ap-state__guidance")?.textContent).toBe(
+    expect(container.querySelector(".werft-state__guidance")?.textContent).toBe(
       "로그인이 만료됐습니다 — 다시 로그인하세요.",
     );
-    expect(container.querySelector(".ap-state__description")?.textContent).toBe(
+    expect(container.querySelector(".werft-state__description")?.textContent).toBe(
       "token expired",
     );
   });
@@ -35,10 +35,10 @@ describe("ApiErrorState", () => {
         guidance="저장소가 꺼져 있습니다."
       />,
     );
-    expect(container.querySelector(".ap-state__guidance")?.textContent).toBe(
+    expect(container.querySelector(".werft-state__guidance")?.textContent).toBe(
       "저장소가 꺼져 있습니다.",
     );
-    expect(container.querySelector(".ap-state__code")?.textContent).toBe(
+    expect(container.querySelector(".werft-state__code")?.textContent).toBe(
       "BACKEND_UNAVAILABLE",
     );
   });
@@ -80,13 +80,13 @@ describe("ApiErrorState", () => {
         />,
       );
       const [title, retryLabel, evidence] = expected[locale];
-      expect(container.querySelector(".ap-state__title")?.textContent).toBe(
+      expect(container.querySelector(".werft-state__title")?.textContent).toBe(
         title,
       );
-      expect(container.querySelector(".ap-state__guidance")?.textContent).toBe(
+      expect(container.querySelector(".werft-state__guidance")?.textContent).toBe(
         ERROR_GUIDANCE_BY_LOCALE[locale].SESSION_CLOSED,
       );
-      expect(container.querySelector(".ap-state__code")?.textContent).toBe(
+      expect(container.querySelector(".werft-state__code")?.textContent).toBe(
         "SESSION_CLOSED",
       );
       expect(getByRole("link", { name: evidence })).toBeTruthy();
@@ -108,7 +108,7 @@ describe("ApiErrorState", () => {
         evidenceLink={{ href: "/x", label: "Open log" }}
       />,
     );
-    expect(container.querySelector(".ap-state__title")?.textContent).toBe(
+    expect(container.querySelector(".werft-state__title")?.textContent).toBe(
       "Couldn't load agents",
     );
     expect(getByRole("button", { name: "Reload" })).toBeTruthy();
@@ -117,7 +117,7 @@ describe("ApiErrorState", () => {
 
   test("코드가 없으면 안내 줄도 없다", () => {
     const { container } = render(<ApiErrorState message="boom" />);
-    expect(container.querySelector(".ap-state__guidance")).toBeNull();
+    expect(container.querySelector(".werft-state__guidance")).toBeNull();
   });
 });
 
@@ -150,7 +150,7 @@ describe("오류 문구", () => {
     const { container } = render(
       <ApiErrorState locale={"zh" as never} code="NOT_FOUND" />,
     );
-    expect(container.querySelector(".ap-state__title")?.textContent).toBe(
+    expect(container.querySelector(".werft-state__title")?.textContent).toBe(
       "문제가 생겼습니다",
     );
   });

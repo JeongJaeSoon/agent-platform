@@ -95,7 +95,7 @@ export const DetailStaleAndOverride: Story = {
         label="관리자가 세웠습니다"
       />
       {/* An unbreakable identifier: the case that pushed the row past 360px
-          before `.ap-status__detail` got a min-width of 0. */}
+          before `.werft-status__detail` got a min-width of 0. */}
       <StatusLabel
         axis="execution"
         state="suspended"

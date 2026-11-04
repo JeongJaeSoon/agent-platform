@@ -549,7 +549,7 @@ describe("styles.css", () => {
           .replace(/\s+/g, " ")
           .replace(/\( | (?=\))/g, (m) => m.trim()),
       ).toContain(
-        ':not([data-raised], [data-variant="actions"], :has([data-ap-button]))',
+        ':not([data-raised], [data-variant="actions"], :has([data-werft-button]))',
       );
     }
     const value = (property: string) =>
@@ -625,15 +625,15 @@ describe("styles.css", () => {
      * flex 항목의 최소 폭은 가장 긴 단어다.
      */
     const SERVER_TEXT = [
-      ".ap-status__text",
-      ".ap-status__detail",
-      ".ap-receipt__operation",
-      ".ap-receipt__id",
-      ".ap-receipt__detail",
-      ".ap-receipt-link__text",
-      ".ap-receipt-link__id",
-      ".ap-state__description",
-      ".ap-state__code",
+      ".werft-status__text",
+      ".werft-status__detail",
+      ".werft-receipt__operation",
+      ".werft-receipt__id",
+      ".werft-receipt__detail",
+      ".werft-receipt-link__text",
+      ".werft-receipt-link__id",
+      ".werft-state__description",
+      ".werft-state__code",
     ];
     const wrapping = new Map<string, string>();
     for (const declaration of styleDeclarations) {
@@ -672,7 +672,7 @@ describe("styles.css", () => {
 
   test("reduced-motion 짝이 모션을 실제로 끈다", () => {
     // The pairing test above only proves the selector is repeated. Without
-    // this one, `animation: ap-spin 900ms linear infinite` in the reduced
+    // this one, `animation: werft-spin 900ms linear infinite` in the reduced
     // block would still pass while nothing at all was stilled.
     const stilled = styleDeclarations.filter(
       (d) =>

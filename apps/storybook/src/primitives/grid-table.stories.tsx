@@ -701,7 +701,7 @@ export const InactiveRows: Story = {
     for (const row of inactive) {
       await expect(colour(row, ".font-medium")).toBe(subtle);
       await expect(colour(row, ROLE)).toBe(subtle);
-      await expect(colour(row, "[data-ap-button]")).not.toBe(subtle);
+      await expect(colour(row, "[data-werft-button]")).not.toBe(subtle);
     }
     await expect(colour(active, ".font-medium")).not.toBe(subtle);
     await expect(colour(active, ROLE)).not.toBe(subtle);

@@ -37,8 +37,8 @@ export function ErrorState({
   return (
     <div
       className={cn(
-        "ap-state",
-        "ap-state--error",
+        "werft-state",
+        "werft-state--error",
         framed && "rounded-card border bg-card",
         className,
       )}
@@ -46,15 +46,15 @@ export function ErrorState({
       data-code={code}
       data-framed={framed || undefined}
     >
-      <span className="ap-state__icon ap-state__mark" aria-hidden="true">
+      <span className="werft-state__icon werft-state__mark" aria-hidden="true">
         <CircleAlert size={16} strokeWidth={1.5} />
       </span>
-      <p className="ap-state__title">{title}</p>
-      {guidance ? <p className="ap-state__guidance">{guidance}</p> : null}
-      {message ? <p className="ap-state__description">{message}</p> : null}
-      {code ? <code className="ap-state__code">{code}</code> : null}
+      <p className="werft-state__title">{title}</p>
+      {guidance ? <p className="werft-state__guidance">{guidance}</p> : null}
+      {message ? <p className="werft-state__description">{message}</p> : null}
+      {code ? <code className="werft-state__code">{code}</code> : null}
       {retry || evidenceLink ? (
-        <div className="ap-state__actions">
+        <div className="werft-state__actions">
           {retry ? (
             <Button type="button" variant="outline" onClick={retry}>
               <RefreshCw
