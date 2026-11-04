@@ -1,5 +1,6 @@
 import type { SlackInstallStore } from "@werft-ai/platform";
 import { and, eq, lt } from "drizzle-orm";
+import { revokeInstallationIdentities } from "./agent-identities.ts";
 import type { Database } from "./queries.ts";
 import { slackInstallations, slackInstallStates } from "./schema.ts";
 import {
@@ -74,7 +75,6 @@ export function createPostgresSlackInstallStore(
     },
 
     async revokeInstallation(key, sentAt) {
-      if (!sentAt) return (await revokeSlackInstallation(db, key)).outcome;
       return db.transaction(async (tx) => {
         // Locked, so a reinstall cannot verify it between check and revoke.
         const [row] = await tx
@@ -88,10 +88,16 @@ export function createPostgresSlackInstallStore(
           )
           .for("update");
         if (!row) return "not_found";
-        if (verifiedAfter(row.verifiedAt, sentAt)) {
+        if (sentAt && verifiedAfter(row.verifiedAt, sentAt)) {
           return "superseded";
         }
-        return (await revokeSlackInstallation(tx, key)).outcome;
+        const revoked = await revokeSlackInstallation(tx, key);
+        if (revoked.outcome === "not_found") return "not_found";
+        // The console reads the agent's identity, so it goes with the
+        // install. Also on a repeat: an install revoked before this
+        // existed still has its identity active.
+        await revokeInstallationIdentities(tx, revoked.installation.id);
+        return "revoked";
       });
     },
   };

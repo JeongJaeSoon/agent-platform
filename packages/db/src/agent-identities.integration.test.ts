@@ -23,9 +23,11 @@ import {
   credentialBindings,
   memberships,
   receipts,
+  surfaceBindings,
   users,
   workspaces,
 } from "./schema.ts";
+import { createPostgresSlackInstallStore } from "./slack-install-states.ts";
 import {
   registerSlackInstallation,
   revokeSlackInstallation,
@@ -585,5 +587,144 @@ integration("agent identities on PostgreSQL", () => {
     expect((await revokeAs(owner, agentId, "not-a-uuid")).outcome).toBe(
       "not_found",
     );
+  });
+
+  describe("Slack takes the install away (94S-1359)", () => {
+    const installs = () => createPostgresSlackInstallStore(db);
+
+    async function linkedAgent() {
+      const workspaceId = await workspace();
+      const owner = await person(workspaceId, "owner");
+      const agentId = await agent(workspaceId);
+      const key = await installed(workspaceId);
+      const credentialRef = `slack/${randomUUID().slice(0, 8)}`;
+      const linked = await linkAs(owner, agentId, key, credentialRef);
+      if (linked.outcome !== "linked") throw new Error(linked.outcome);
+      return { workspaceId, owner, agentId, key, credentialRef, linked };
+    }
+
+    const identityRow = async (id: string) => {
+      const [row] = await db
+        .select({
+          status: agentIdentities.status,
+          revision: agentIdentities.revision,
+          revokedAt: agentIdentities.revokedAt,
+          revokedBy: agentIdentities.revokedBy,
+        })
+        .from(agentIdentities)
+        .where(eq(agentIdentities.id, id));
+      return row;
+    };
+
+    test("the uninstall event revokes the identity with the install and frees its credential name", async () => {
+      const { workspaceId, agentId, key, credentialRef, linked } =
+        await linkedAgent();
+      const binding = await db
+        .insert(surfaceBindings)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          agentId,
+          installationId: linked.identity.installationId,
+          surfaceKind: "public_channel",
+          externalSurfaceId: "C0HOME",
+          mode: "on",
+          ceilingActions: [],
+          ceilingDisclosure: "full",
+          home: true,
+        })
+        .returning({ id: surfaceBindings.id });
+
+      expect(await installs().revokeInstallation(key)).toBe("revoked");
+
+      expect(await identityRow(linked.identity.id)).toMatchObject({
+        status: "revoked",
+        revision: 2,
+        revokedBy: null,
+      });
+      expect((await identityRow(linked.identity.id))?.revokedAt).toBeInstanceOf(
+        Date,
+      );
+      expect(
+        (await store().list(workspaceId, agentId, 10)).map((r) => r.status),
+      ).toEqual(["revoked"]);
+      const [kept] = await db
+        .select({ revokedAt: surfaceBindings.revokedAt })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, binding[0]?.id ?? ""));
+      expect(kept?.revokedAt).toBeInstanceOf(Date);
+      const released = await db
+        .select({ revokedAt: credentialBindings.revokedAt })
+        .from(credentialBindings)
+        .where(eq(credentialBindings.credentialRef, credentialRef));
+      expect(released.map((row) => row.revokedAt instanceof Date)).toEqual([
+        true,
+      ]);
+      expect(await resolveSlackEventAgent(db, key)).toEqual({
+        status: "dropped",
+        reason: "installation_revoked",
+      });
+    });
+
+    test("a repeated or retried event changes nothing", async () => {
+      const { workspaceId, agentId, key, linked } = await linkedAgent();
+      await installs().revokeInstallation(key);
+      const first = await identityRow(linked.identity.id);
+
+      expect(await installs().revokeInstallation(key)).toBe("revoked");
+      expect(await installs().revokeInstallation(key, new Date())).toBe(
+        "revoked",
+      );
+
+      expect(await identityRow(linked.identity.id)).toEqual(first);
+      expect(await store().list(workspaceId, agentId, 10)).toHaveLength(1);
+    });
+
+    test("an event sent before a reinstall leaves the new identity active", async () => {
+      const { owner, agentId, key, linked } = await linkedAgent();
+      const sent = new Date(Date.now() - 60_000);
+      await installs().revokeInstallation(key);
+
+      // Reinstall: the same install row reopens, the link makes a new row.
+      await registerSlackInstallation(db, {
+        ...key,
+        workspaceId: owner.ownerId,
+      });
+      await verifySlackInstallation(db, { ...key, botUserId: "B0BOT" });
+      const again = await linkAs(owner, agentId, key, "slack/reinstalled");
+      if (again.outcome !== "linked") throw new Error(again.outcome);
+      expect(again.identity.id).not.toBe(linked.identity.id);
+
+      // The old event arrives late, and so does its retry.
+      expect(await installs().revokeInstallation(key, sent)).toBe("superseded");
+      expect(await installs().revokeInstallation(key, sent)).toBe("superseded");
+
+      expect((await identityRow(again.identity.id))?.status).toBe("active");
+      expect((await identityRow(linked.identity.id))?.status).toBe("revoked");
+      expect(await resolveSlackEventAgent(db, key)).toMatchObject({
+        status: "resolved",
+        agentId,
+        identity: { id: again.identity.id },
+      });
+      // The newest uninstall still takes it down again.
+      expect(await installs().revokeInstallation(key)).toBe("revoked");
+      expect((await identityRow(again.identity.id))?.status).toBe("revoked");
+    });
+
+    test("an install revoked before this fix gets its identity on the next event", async () => {
+      const { key, linked } = await linkedAgent();
+      await revokeSlackInstallation(db, key);
+      expect((await identityRow(linked.identity.id))?.status).toBe("active");
+
+      expect(await installs().revokeInstallation(key)).toBe("revoked");
+
+      expect((await identityRow(linked.identity.id))?.status).toBe("revoked");
+    });
+
+    test("an install that was never there is not found", async () => {
+      expect(
+        await installs().revokeInstallation({ appId: "A0NONE", teamId: "T0X" }),
+      ).toBe("not_found");
+    });
   });
 });

@@ -22,6 +22,11 @@ import {
   type SlackChannelPage,
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
+import {
+  isTokenGone,
+  isTokenRevoked,
+  type SlackTokenRevoked,
+} from "./slack-token-gone.ts";
 import type { SurfaceBindingService } from "./surface-binding-service.ts";
 
 // The channel picker's search (94S-898): one app's whole channel list is read
@@ -285,15 +290,6 @@ export function normalizeChannelQuery(q: string): string {
   return q.trim().replace(/^#+/, "").toLowerCase();
 }
 
-// Slack's answers for a bot token that no longer works.
-const TOKEN_GONE = new Set([
-  "invalid_auth",
-  "not_authed",
-  "token_revoked",
-  "token_expired",
-  "account_inactive",
-]);
-
 const notInstalled = () =>
   new SessionServiceError(
     "SLACK_NOT_INSTALLED",
@@ -314,6 +310,8 @@ export function createSlackChannelSearchService(deps: {
   secrets: Pick<SecretStore, "get"> | null;
   api: SlackChannelApi;
   cache?: SlackChannelCache;
+  /** Revokes the install when Slack says the bot token was revoked. */
+  tokenRevoked?: SlackTokenRevoked;
 }) {
   const { authorization, api } = deps;
   const cache = deps.cache ?? createSlackChannelCache();
@@ -358,6 +356,7 @@ export function createSlackChannelSearchService(deps: {
           ? new SessionServiceError("NOT_FOUND", "Resource not found")
           : notInstalled();
       }
+      const startedAt = new Date();
       const until = rateLimitedUntil.get(app.id) ?? 0;
       if (until > Date.now())
         throw new SessionServiceError(
@@ -403,8 +402,18 @@ export function createSlackChannelSearchService(deps: {
                 );
               }
               if (!(error instanceof SlackApiError)) throw error;
-              if (error.answered && TOKEN_GONE.has(error.code))
+              if (isTokenGone(error)) {
+                if (isTokenRevoked(error)) {
+                  await deps.tokenRevoked?.({
+                    workspaceId: app.workspaceId,
+                    agentId,
+                    slackAppId: app.id,
+                    failedToken: token,
+                    since: startedAt,
+                  });
+                }
                 throw notInstalled();
+              }
               if (!error.answered || !UNKNOWN_CHANNEL_ERRORS.has(error.code)) {
                 throw new SessionServiceError(
                   "BACKEND_UNAVAILABLE",
@@ -466,6 +475,7 @@ export function createSlackChannelSearchService(deps: {
           ? new SessionServiceError("NOT_FOUND", "Resource not found")
           : notInstalled();
       }
+      const startedAt = new Date();
       const q = normalizeChannelQuery(query.q);
       const from =
         query.cursor === undefined ? null : decodeCursor(query.cursor);
@@ -486,6 +496,7 @@ export function createSlackChannelSearchService(deps: {
           SLACK_CHANNEL_SEARCH_MESSAGES.cursorExpired,
         );
       } else {
+        let usedToken: string | null = null;
         try {
           lookup = await cache.lookup(app.id, async () => {
             const botToken = await secrets.get({
@@ -494,6 +505,7 @@ export function createSlackChannelSearchService(deps: {
               purpose: "slack_bot_token",
             });
             if (botToken === null) throw notInstalled();
+            usedToken = botToken;
             return (cursor) => api.listChannels(botToken, cursor);
           });
         } catch (error) {
@@ -505,7 +517,16 @@ export function createSlackChannelSearchService(deps: {
             );
           }
           if (error instanceof SlackApiError) {
-            if (error.answered && TOKEN_GONE.has(error.code)) {
+            if (isTokenGone(error)) {
+              if (isTokenRevoked(error) && usedToken !== null) {
+                await deps.tokenRevoked?.({
+                  workspaceId: app.workspaceId,
+                  agentId,
+                  slackAppId: app.id,
+                  failedToken: usedToken,
+                  since: startedAt,
+                });
+              }
               throw notInstalled();
             }
             throw new SessionServiceError(

@@ -223,6 +223,75 @@ async function link(
   });
 }
 
+async function revokeIdentityRow(
+  tx: Database,
+  identity: Pick<
+    AgentIdentityRecord,
+    "id" | "workspaceId" | "agentId" | "installationId"
+  >,
+  revokedBy: string | null,
+): Promise<void> {
+  await tx
+    .update(agentIdentities)
+    .set({
+      status: "revoked",
+      revokedAt: DB_NOW,
+      revokedBy,
+      revision: sql`${agentIdentities.revision} + 1`,
+    })
+    .where(eq(agentIdentities.id, identity.id));
+  // The agent's channels in that install go with it: the next agent the
+  // install is linked to starts from none, and cannot write these.
+  await tx
+    .update(surfaceBindings)
+    .set({
+      status: "revoked",
+      home: false,
+      revokedAt: DB_NOW,
+      updatedAt: DB_NOW,
+      revision: sql`${surfaceBindings.revision} + 1`,
+    })
+    .where(
+      and(
+        eq(surfaceBindings.agentId, identity.agentId),
+        eq(surfaceBindings.installationId, identity.installationId),
+        isNull(surfaceBindings.revokedAt),
+      ),
+    );
+  await releaseCredentialRefs(tx, {
+    workspaceId: identity.workspaceId,
+    target: "agent_identity",
+    targetId: identity.id,
+  });
+}
+
+/**
+ * Revokes the install's active identity when Slack took the install away,
+ * with no person acting. The caller holds the install row's lock. Nothing
+ * is active on a repeat, so a repeat changes nothing.
+ */
+export async function revokeInstallationIdentities(
+  tx: Database,
+  installationId: string,
+): Promise<void> {
+  const active = await tx
+    .select({
+      id: agentIdentities.id,
+      workspaceId: agentIdentities.workspaceId,
+      agentId: agentIdentities.agentId,
+      installationId: agentIdentities.installationId,
+    })
+    .from(agentIdentities)
+    .where(
+      and(
+        eq(agentIdentities.installationId, installationId),
+        eq(agentIdentities.status, "active"),
+      ),
+    )
+    .for("update");
+  for (const identity of active) await revokeIdentityRow(tx, identity, null);
+}
+
 async function revoke(
   db: Database,
   input: Parameters<AgentIdentityStore["revoke"]>[0],
@@ -254,38 +323,7 @@ async function revoke(
     if (current.status === "revoked") {
       return { outcome: "already_revoked", identity: current };
     }
-    await tx
-      .update(agentIdentities)
-      .set({
-        status: "revoked",
-        revokedAt: DB_NOW,
-        revokedBy: right.userId,
-        revision: sql`${agentIdentities.revision} + 1`,
-      })
-      .where(eq(agentIdentities.id, current.id));
-    // The agent's channels in that install go with it: the next agent the
-    // install is linked to starts from none, and cannot write these.
-    await tx
-      .update(surfaceBindings)
-      .set({
-        status: "revoked",
-        home: false,
-        revokedAt: DB_NOW,
-        updatedAt: DB_NOW,
-        revision: sql`${surfaceBindings.revision} + 1`,
-      })
-      .where(
-        and(
-          eq(surfaceBindings.agentId, agentId),
-          eq(surfaceBindings.installationId, current.installationId),
-          isNull(surfaceBindings.revokedAt),
-        ),
-      );
-    await releaseCredentialRefs(tx, {
-      workspaceId,
-      target: "agent_identity",
-      targetId: current.id,
-    });
+    await revokeIdentityRow(tx, current, right.userId);
     const identity = await findIdentity(
       tx,
       eq(agentIdentities.id, current.id),
