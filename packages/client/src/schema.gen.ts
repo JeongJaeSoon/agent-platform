@@ -3741,7 +3741,7 @@ export interface paths {
          *     - `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.
          *     - `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.
          *     - `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).
-         *     - `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.
+         *     - `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.
          *     - `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.
          *     - `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.
          *
@@ -4635,7 +4635,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -4645,6 +4645,8 @@ export interface components {
                 release_version_no: number;
                 /** @default null */
                 release_label: string | null;
+                /** @default null */
+                release_is_active: boolean | null;
             } | null;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
@@ -4782,7 +4784,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -4792,6 +4794,8 @@ export interface components {
                 release_version_no: number;
                 /** @default null */
                 release_label: string | null;
+                /** @default null */
+                release_is_active: boolean | null;
             } | null;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
@@ -14917,7 +14921,8 @@ export interface operations {
                      *             "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *             "name": "Checkout fixer",
                      *             "release_version_no": 3,
-                     *             "release_label": "2026-10-11_17:00:00"
+                     *             "release_label": "2026-10-11_17:00:00",
+                     *             "release_is_active": true
                      *           },
                      *           "created_by": {
                      *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -15358,7 +15363,8 @@ export interface operations {
                      *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
-                     *         "release_label": "2026-10-11_17:00:00"
+                     *         "release_label": "2026-10-11_17:00:00",
+                     *         "release_is_active": true
                      *       },
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -15513,7 +15519,8 @@ export interface operations {
                      *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
-                     *         "release_label": "2026-10-11_17:00:00"
+                     *         "release_label": "2026-10-11_17:00:00",
+                     *         "release_is_active": true
                      *       },
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",

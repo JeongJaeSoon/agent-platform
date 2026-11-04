@@ -6,10 +6,52 @@ export type DiffLine = {
   readonly text: string;
 };
 
-/** Line diff by longest common subsequence; cards are small enough for O(n·m). */
+// The LCS table's cells; past this the middle shows as removed, then added.
+const LCS_CELLS_MAX = 1_000_000;
+
+/**
+ * Line diff by longest common subsequence over what lies between the common
+ * head and tail; a middle too large for O(n·m) is shown removed, then added.
+ */
 export function diffLines(before: string, after: string): DiffLine[] {
-  const a = before.split("\n");
-  const b = after.split("\n");
+  // An empty text has no lines, not one empty line.
+  const all = {
+    a: before === "" ? [] : before.split("\n"),
+    b: after === "" ? [] : after.split("\n"),
+  };
+  let head = 0;
+  while (
+    head < all.a.length &&
+    head < all.b.length &&
+    all.a[head] === all.b[head]
+  )
+    head++;
+  let tail = 0;
+  while (
+    tail < all.a.length - head &&
+    tail < all.b.length - head &&
+    all.a[all.a.length - 1 - tail] === all.b[all.b.length - 1 - tail]
+  )
+    tail++;
+  const same = (lines: string[]) =>
+    lines.map((text): DiffLine => ({ kind: "same", text }));
+  const a = all.a.slice(head, all.a.length - tail);
+  const b = all.b.slice(head, all.b.length - tail);
+  const middle =
+    (a.length + 1) * (b.length + 1) > LCS_CELLS_MAX
+      ? [
+          ...a.map((text): DiffLine => ({ kind: "removed", text })),
+          ...b.map((text): DiffLine => ({ kind: "added", text })),
+        ]
+      : lcsLines(a, b);
+  return [
+    ...same(all.a.slice(0, head)),
+    ...middle,
+    ...same(all.a.slice(all.a.length - tail)),
+  ];
+}
+
+function lcsLines(a: string[], b: string[]): DiffLine[] {
   const width = b.length + 1;
   // lcs[i][j]: common lines between a[i..] and b[j..], flattened row-major.
   const lcs = new Int32Array((a.length + 1) * width);
@@ -53,6 +95,10 @@ const LINE = {
   removed: "block bg-[var(--ap-tone-danger-bg)] line-through",
 } as const;
 
+// Text as written; anything else as its JSON.
+const asText = (value: unknown) =>
+  typeof value === "string" ? value : JSON.stringify(value, null, 2);
+
 /** Two revisions of the same document, side by side as one annotated text. */
 export function RevisionDiff({
   before,
@@ -66,10 +112,7 @@ export function RevisionDiff({
   readonly afterLabel: string;
 }) {
   const { t } = useI18n();
-  const lines = diffLines(
-    JSON.stringify(before, null, 2),
-    JSON.stringify(after, null, 2),
-  );
+  const lines = diffLines(asText(before), asText(after));
   const changed = lines.some((line) => line.kind !== "same");
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-2">

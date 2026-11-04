@@ -12,6 +12,8 @@
 # New ids rather than a changed mode on claude-coding-local: the mode is in a
 # profile's fingerprint, so editing it in place stops every session and
 # release on that id. claude-coding-auto is config/fake-model's.
+#
+# `tools` lists are allowlists on purpose: a new installation's intended narrow default.
 profiles:
   claude-coding-local:
     runtime_kind: claude_agent_sdk

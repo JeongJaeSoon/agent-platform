@@ -47,6 +47,7 @@ import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionOutputsCount, SessionOutputsTab } from "./session-outputs.tsx";
 import { SessionsOverview } from "./session-overview.tsx";
+import { SessionReleaseBlock } from "./session-release.tsx";
 import { SessionShareBlock } from "./session-share.tsx";
 
 export function loadError(error: unknown, onRetry: () => void) {
@@ -409,7 +410,12 @@ export function SessionDetailScreen() {
         id={id}
         loading={<StatusScreen kind="loading" />}
         renderError={loadError}
-        controls={(session) => <SessionShareBlock id={session.id} />}
+        controls={(session) => (
+          <>
+            <SessionReleaseBlock agent={session.agent} />
+            <SessionShareBlock id={session.id} />
+          </>
+        )}
         tabs={(session) => [
           {
             value: "outputs",

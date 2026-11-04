@@ -1175,7 +1175,7 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("식별자"), "billing");
     expect(
       screen.getByText(
-        "사람이 읽는 소개입니다. 목록과 상세 화면에 보이고, 에이전트의 동작에는 쓰이지 않습니다.",
+        "목록과 상세 화면에 보이고, 이름과 함께 세션의 에이전트에게도 그대로 전달됩니다. 바꾼 값은 새 세션부터 적용됩니다.",
       ),
     ).toBeDefined();
     await user.type(screen.getByLabelText("설명 (선택)"), ` ${DESCRIPTION} `);
@@ -1204,7 +1204,7 @@ describe("새 에이전트", () => {
       PROFILE,
     );
     const all = screen.getByRole("switch", {
-      name: "릴리스할 때 프로필이 허용하는 도구 전부",
+      name: "릴리스할 때 프로필이 막지 않은 도구 전부",
     });
     expect(all.getAttribute("aria-checked")).toBe("true");
     const box = (name: string) =>
@@ -2216,6 +2216,83 @@ describe("에이전트 상세", () => {
       .map((row) => within(row).getAllByRole("cell")[at]?.textContent);
     expect(notes).toEqual(["환불 문의 규칙을 더함", "—"]);
   });
+  test("릴리스마다 직전 릴리스 대비 바뀐 것을 보이고, 자격 증명은 값 없이 변경됨으로만 보인다", async () => {
+    const user = await setupUser();
+    const server = agentServer();
+    await seedRelease(server);
+    const first = server.versions[0] as (typeof server.versions)[number];
+    server.versions.push({
+      ...first,
+      id: "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
+      version_no: 2,
+      content_sha256: "f".repeat(64),
+      card: {
+        ...first.card,
+        capabilities: {
+          ...first.card.capabilities,
+          credential_refs: ["github-token"],
+        },
+      },
+    });
+    await seedRelease(server);
+    const [older, newer] = server.releases as [
+      (typeof server.releases)[number],
+      (typeof server.releases)[number],
+    ];
+    const github = {
+      push_approval: true,
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: true,
+      },
+      actions_allow: [],
+    };
+    Object.assign(older, {
+      runtime_config_snapshot: { env_ref: "env:OLD_SECRET_NAME" },
+      policy_pins: { github: { ...github, repositories: ["sample-app"] } },
+    });
+    Object.assign(newer, {
+      runtime_config_snapshot: { env_ref: "env:NEW_SECRET_NAME" },
+      policy_pins: {
+        github: { ...github, repositories: ["sample-app", "agent-skills"] },
+      },
+    });
+    renderAt(RELEASE_TAB, { ...meOk, ...server.routes });
+    const table = await screen.findByRole("table");
+    const [newRow, oldRow] = within(table).getAllByRole("row").slice(1) as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    expect(within(oldRow).getByText("첫 릴리스")).toBeTruthy();
+    await user.click(
+      within(newRow).getByRole("button", {
+        name: "바뀐 것: 허용 저장소 · 자격 증명",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: `${newer.label}에서 바뀐 것`,
+    });
+    const repositories = within(dialog).getByRole("region", {
+      name: "허용 저장소",
+    });
+    expect(within(repositories).getByText("+ agent-skills")).toBeTruthy();
+    const secrets = within(dialog).getByRole("region", { name: "자격 증명" });
+    expect(within(secrets).getAllByText("변경됨")).toHaveLength(2);
+    for (const value of ["OLD_SECRET_NAME", "NEW_SECRET_NAME", "github-token"])
+      expect(dialog.textContent).not.toContain(value);
+    expect(dialog.textContent).toContain(`직전 릴리스 ${older.label}와 비교`);
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      document.activeElement ===
+        within(newRow).getByRole("button", {
+          name: "바뀐 것: 허용 저장소 · 자격 증명",
+        }),
+    ).toBe(true);
+  });
   test("잘린 메모만 펼침 단추를 갖고, 키보드로 펼치면 줄바꿈해 전체를 보인다", async () => {
     const long = "환불 문의 규칙을 더함. ".repeat(14).trim();
     const server = agentServer();
@@ -2262,9 +2339,16 @@ describe("에이전트 상세", () => {
       expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
       const user = await setupUser();
-      // Nothing in the never-activated row before the note takes the focus,
-      // so the cut note's toggle is the next tab stop after "새 릴리스".
+      // In the never-activated row only its changes come before the note,
+      // so the cut note's toggle is the second tab stop after "새 릴리스".
       screen.getByRole("button", { name: "새 릴리스" }).focus();
+      await user.tab();
+      expect(
+        document.activeElement ===
+          within(cutRow as HTMLElement).getByRole("button", {
+            name: /^바뀐 것: /,
+          }),
+      ).toBe(true);
       await user.tab();
       expect(document.activeElement === toggle).toBe(true);
       await user.keyboard("{Enter}");

@@ -51,6 +51,7 @@ import {
   type SessionCatalogView,
   workspaceProfileRefusal,
 } from "../sessions/catalog.ts";
+import type { AgentPromptIdentity } from "../sessions/platform-prompt.ts";
 import {
   profileBlockedError,
   requirePermitted,
@@ -116,6 +117,26 @@ export async function resolveAgentRelease(
     );
   }
   return release;
+}
+
+/** The agent a session of this release introduces itself as, read now. */
+export async function agentPromptIdentity(
+  store: Pick<AgentStore, "findRelease" | "get" | "findVersion">,
+  workspaceId: string,
+  releaseId: string,
+): Promise<AgentPromptIdentity | null> {
+  const release = await store.findRelease(workspaceId, releaseId);
+  if (!release) return null;
+  const [detail, version] = await Promise.all([
+    store.get(workspaceId, release.agent_id),
+    store.findVersion(workspaceId, release.agent_id, release.version_id),
+  ]);
+  if (!detail || !version) return null;
+  return {
+    name: detail.agent.name,
+    description: detail.agent.description,
+    language: version.card.language,
+  };
 }
 
 export function createAgentService(deps: {
@@ -295,6 +316,8 @@ export function createAgentService(deps: {
 
   return {
     resolveRelease,
+    promptIdentity: (workspaceId: string, releaseId: string) =>
+      agentPromptIdentity(store, workspaceId, releaseId),
 
     async listAgents(
       caller: Caller,

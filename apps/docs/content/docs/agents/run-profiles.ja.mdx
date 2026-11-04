@@ -30,7 +30,7 @@ general claude-sonnet-5 none
 
 ```bash
 curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
-  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, runtime_kind, runtime_version, billing, repository_mode}'
+  | jq '.items[] | select(.id == "claude-coding-local") | {id, model, tools, deny, runtime_kind, runtime_version, billing, repository_mode}'
 ```
 
 ```text
@@ -45,6 +45,11 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
     "Grep",
     "Bash",
     "AskUserQuestion"
+  ],
+  "deny": [
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch"
   ],
   "runtime_kind": "claude_agent_sdk",
   "runtime_version": "0.3.270",
@@ -62,6 +67,7 @@ curl -sS "$API/v1/profiles" -H "Authorization: Bearer $KEY" \
 | --- | --- |
 | `model` | デフォルトのモデル |
 | `tools` | セッションで使えるツール。これ以外のツールは実行されない ([権限](/agents/permissions)) |
+| `deny` | このプロファイルがブロックする組み込みツール。このインストールがその runtime バージョンでサポートする組み込みツールのうち、`tools` にないもの。サポート一覧がないバージョンなら `null` ([ツールのブロックリスト](#ツールのブロックリスト)) |
 | `billing` | `metered` ならコストをセッションの上限に計上する。`none` なら計上しない |
 | `repository_mode` | `required` (リポジトリ必須)、`optional`、`none` (リポジトリなし) |
 
@@ -127,6 +133,49 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" | jq .runtime
 カタログにないプロファイル、そのリポジトリで動作できないプロファイル、プロファイルが許可していないモデルは 422 になる。
 
 エージェントのリリースを作成するときは、`runtime_profile_id` で選ぶ。カードの `model` がそのプロファイルで実行できるモデルのひとつで、カードのツールがすべてプロファイルにある必要がある ([作成](/agents/create#リリースの作成))。
+
+## ツールのブロックリスト
+
+プロファイルのバージョンは、使うツールを並べる代わりに、ブロックする組み込みツールだけを `deny` に書ける。運用担当者のプロファイルなら、サーバーはバージョンを保存するとき、このインストールがその runtime バージョンでサポートする組み込みツールのうち `deny` にないものを `tools` として保存する。ワークスペースのプロファイルは、下のとおりベースのツールの中で計算する。セッションとリリースは保存された `tools` だけを見る。
+
+- **制限なしはサポート一覧の中での話である。** 運用担当者のプロファイルの `deny: []` はサポート一覧の組み込みツールをすべて開く。エンジンに入っていても、このインストールがサポートしないツールは開かない。サポート一覧とツールごとの実行場所 (`boundary`) は、オーナーが `GET /v1/installation-profiles/options` の `tool_catalogs` で見る。
+- **実行場所。** `local` は worker の中で、`egress` はプラットフォームの外部接続プロキシを通って外へ、`provider` はモデル provider 側で動く。provider 側のツール (`WebSearch`) は外部接続プロキシでは止められず、プロファイルのブロックだけが止める。そのため、新しい名前の最初のバージョンは provider 側のツールを `deny` に入れて始めることを勧める。API は `deny` に書いたものだけをブロックするので、`deny: []` は `WebSearch` も開く。コンソールは最初のバージョンで provider 側のツールを既定でブロックしておく。
+- **あとから増えたツールはブロックされたまま引き継がれる。** バージョンは保存したときのサポート一覧で `tools` を固定し、既存のバージョン・リリース・セッションは新しいツールを得ない。エンジンを上げると runtime バージョンが変わるので、新しいプロファイルのバージョンを作ることになる。このとき、前のバージョン (運用担当者のプロファイルは `previous_id`、ワークスペースのプロファイルは同じ名前の最新バージョン) が検討していないツールは、`accept_added_tools` に書いたときだけ新しい `tools` に入る。そのようなツールが `deny` にも `accept_added_tools` にもなければ `400` (`reason_code: added_tool_not_accepted`) になる。前のバージョンを `tools` で作っていれば、その一覧の外のツールがすべてこれにあたる。
+- **組み込みツールの名前だけを受け付ける。** `deny` と `accept_added_tools` にはサポート一覧の名前だけを書く。MCP ツール (`mcp__` で始まる) は `400` (`mcp_tool`)、`Bash(rm:*)` のようなパターンは `400` (`tool_pattern`)、一覧にない名前は `400` (`unknown_tool`) になる。MCP ツールはエージェントカードの MCP 設定が決める。
+- **`tools` と `deny` のどちらか一方。** リクエストはどちらか一方だけを送る。両方送る、またはどちらも送らないと `400` になる。`accept_added_tools` は `deny` と一緒にだけ送る。`tools` で送ると、これまでどおりその一覧のまま保存される。サポート一覧がない runtime バージョンは `tools` だけを受け付け、`deny` は `400` (`no_tool_catalog`) になる。
+- **ワークスペースのプロファイルはベースを超えない。** `tools` は、ベースのプロファイルの `tools` のうちサポート一覧にあるツールから `deny` を除いたものである。そのため `deny: []` でも、ベースが使わないツールは開かない。ベースが `deny` で作ったバージョンでサポート一覧が同じなら、ベースがブロックしたツールを `deny` から外すリクエストは `400` (`base_denies`) になる。
+- **既存のバージョンはそのままである。** `tools` で作ったバージョンも、一覧の `deny` にはサポート一覧から `tools` を除いたものが出る。既定のカタログ (空の DB を埋める `profiles.yaml`) は意図して `tools` の一覧のままにしてある。新しいインストールは狭く始まり、広げるには `deny` で新しいバージョンを作る。
+
+下の例は、オーナーが [作成](/agents/create#ログイン) の `WEB` ヘッダーで呼ぶ。まず、サポート一覧のうち worker の外へ出るツールを見る。
+
+```bash
+curl -sS "$API/v1/installation-profiles/options" "${WEB[@]}" \
+  | jq -c '.tool_catalogs[0].tools | map(select(.boundary != "local"))'
+```
+
+```text
+[{"name":"WebFetch","boundary":"egress"},{"name":"WebSearch","boundary":"provider"}]
+```
+
+ローカルプロファイルの次のバージョンを、`WebSearch` だけをブロックして作る。ローカルプロファイルは `tools` で作ったバージョンなので、`NotebookEdit`・`WebFetch` は検討したことのないツールである。
+
+```bash
+next=$(jq -nc '{name: "coding-local", previous_id: "claude-coding-local",
+  connection_id: "fake-messages", runtime_kind: "claude_agent_sdk", runtime_version: "0.3.270",
+  model: "claude-sonnet-5", models: ["claude-sonnet-5"], permission_mode: "default",
+  repository_ids: ["sample-app"], deny: ["WebSearch"]}')
+curl -sS "$API/v1/installation-profiles" "${WEB[@]}" -d "$next" | jq -c '.error.details'
+curl -sS "$API/v1/installation-profiles" "${WEB[@]}" \
+  -d "$(echo "$next" | jq -c '.accept_added_tools = ["NotebookEdit", "WebFetch"]')" \
+  | jq -c '.profile | {id, tools, deny}'
+```
+
+```text
+{"reason_code":"added_tool_not_accepted","field":"accept_added_tools"}
+{"id":"op_coding-local_v1","tools":["Read","Edit","Write","Glob","Grep","NotebookEdit","Bash","AskUserQuestion","WebFetch"],"deny":["WebSearch"]}
+```
+
+リファレンス: [`POST /v1/installation-profiles`](/reference/http-api/agents/createInstallationProfile)
 
 ## 進行中のセッションのプロファイルを変更する
 

@@ -3,8 +3,12 @@ import type {
   ListRepositoriesResponse,
   ReceiptActor,
   RepositoryAttachment,
+  RepositoryAttachRefusal,
 } from "@werft-ai/contracts";
-import type { GitHubGateStore } from "../ports/github-gate.ts";
+import type {
+  GitHubGateStore,
+  GitHubSessionContext,
+} from "../ports/github-gate.ts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
@@ -97,6 +101,28 @@ export function createRepositoryAttachmentService(deps: {
     return current;
   }
 
+  /**
+   * What the agent's active release allows besides the session's own, when
+   * it is not the release the session runs: a new session, on that
+   * release's profile, could attach these. Never widens what this session
+   * may attach.
+   */
+  async function newerReleaseAllowed(
+    sessionId: string,
+    context: GitHubSessionContext,
+  ) {
+    if (context.release === null || !context.agent?.githubEnabled) return [];
+    const active = await store.activeRelease(sessionId);
+    if (active === null || active.id === context.release.id) return [];
+    return additionalRepositoriesOf(catalog, {
+      repositoryId: context.repositoryId,
+      profileId: active.profileId,
+      attached: null,
+      github: active.github,
+      githubEnabled: true,
+    });
+  }
+
   return {
     async list(rawSessionId: string): Promise<ListRepositoriesResponse> {
       const sessionId = rawSessionId.toLowerCase();
@@ -142,6 +168,19 @@ export function createRepositoryAttachmentService(deps: {
               : "available"),
         });
       }
+      const listed = new Set(repositories.map(({ id }) => id));
+      for (const { id, repository } of await newerReleaseAllowed(
+        sessionId,
+        context,
+      )) {
+        if (listed.has(id)) continue;
+        repositories.push({
+          id,
+          name: nameOf(id, repository.url),
+          branch: repository.branch,
+          status: "allowed_in_newer_release",
+        });
+      }
       return { repositories };
     },
 
@@ -172,16 +211,16 @@ export function createRepositoryAttachmentService(deps: {
         repository_id: repositoryId,
       };
       const refuse = async (
-        reason: "repository_not_allowed" | "attempt_ended",
+        reason: RepositoryAttachRefusal | "attempt_ended",
       ): Promise<never> => {
         const code =
-          reason === "repository_not_allowed"
-            ? "GITHUB_REFUSED"
-            : "STALE_EPOCH";
+          reason === "attempt_ended" ? "STALE_EPOCH" : "GITHUB_REFUSED";
         const message =
-          reason === "repository_not_allowed"
-            ? `GitHub work refused: ${reason}`
-            : "The attempt that asked has ended";
+          reason === "attempt_ended"
+            ? "The attempt that asked has ended"
+            : reason === "allowed_in_newer_release"
+              ? `GitHub work refused: ${reason}. The agent's active release allows this repository, but this session keeps the release it started with. A new session (in Slack, a new thread) can attach it; it does not need to be allowed again.`
+              : `GitHub work refused: ${reason}`;
         const receiptId = await store.recordRefusal({
           ownerId: context.ownerId,
           sessionId,
@@ -213,7 +252,14 @@ export function createRepositoryAttachmentService(deps: {
         },
         repositoryId,
       );
-      if (allowed === null) return await refuse("repository_not_allowed");
+      if (allowed === null) {
+        const newer = await newerReleaseAllowed(sessionId, context);
+        return await refuse(
+          newer.some(({ id }) => id === repositoryId)
+            ? "allowed_in_newer_release"
+            : "repository_not_allowed",
+        );
+      }
       const outcome = await store.request({
         ownerId: context.ownerId,
         sessionId,

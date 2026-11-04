@@ -13,6 +13,8 @@ const GENERAL = imported("general-read", {
   models: ["claude-haiku-5"],
   tools: [],
   permission_mode: "default",
+  // No catalog lists it, so the listing has no deny for it.
+  runtime_version: "0.3.100",
   billing: "none",
   repository_mode: "none",
   repository_ids: [],
@@ -42,6 +44,7 @@ const HEADER = [
   "바탕 프로필",
   "기본 모델",
   "권한 모드",
+  "차단",
   "상태",
 ];
 
@@ -72,6 +75,7 @@ describe("프로필", () => {
         "—",
         "claude-sonnet-5",
         "acceptEdits",
+        "3개",
         "사용 가능",
       ],
       [
@@ -81,6 +85,8 @@ describe("프로필", () => {
         "—",
         "claude-haiku-5",
         "default",
+        // A version no catalog lists has no block count.
+        "—",
         "사용 가능",
       ],
       [
@@ -90,6 +96,7 @@ describe("프로필", () => {
         "coding-claude",
         "claude-sonnet-5",
         "default",
+        "5개",
         "사용 가능",
       ],
     ]);
@@ -158,7 +165,7 @@ describe("프로필", () => {
     expect(
       rows(table)
         .slice(1)
-        .map((row) => [row[0], row[6]]),
+        .map((row) => [row[0], row[7]]),
     ).toEqual([
       ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
       [
@@ -176,7 +183,7 @@ describe("프로필", () => {
     expect(
       rows(table)
         .slice(1)
-        .map((row) => [row[0], row[6]]),
+        .map((row) => [row[0], row[7]]),
     ).toEqual([
       ["wide 이전 버전 1개op_wide_v2설치 프로필 · v2", "사용 가능"],
       ["wideop_wide_v1설치 프로필 · v1", "사용 중지됨"],

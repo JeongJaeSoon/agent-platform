@@ -126,7 +126,8 @@ export const API_ERROR_CODE_VALUES = [
   // Closing or reopening a pull request that was merged.
   "PULL_REQUEST_MERGED",
   // The platform refused a GitHub token before asking GitHub;
-  // `details.reason_code` is one of GITHUB_REFUSAL_VALUES.
+  // `details.reason_code` is one of GITHUB_REFUSAL_VALUES, or of
+  // REPOSITORY_ATTACH_REFUSAL_VALUES from `attach_repository`.
   "GITHUB_REFUSED",
   // A GitHub App registration that would clash with the workspace's other
   // App; `details.reason_code` is one of GITHUB_APP_CONFLICT_VALUES.

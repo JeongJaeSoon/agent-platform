@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "platform_prompt" jsonb;

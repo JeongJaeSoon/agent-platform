@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentGitHub, ReceiptActor } from "@werft-ai/contracts";
+import type {
+  AgentGitHub,
+  PushRequestState,
+  ReceiptActor,
+} from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
   type AuthorizationPolicy,
@@ -12,6 +16,7 @@ import {
   type GitHubWork,
 } from "../ports/github-gate.ts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
+import { PULL_REQUEST_REFUSAL_ERRORS } from "../ports/pull-requests.ts";
 import { PUSH_REFUSAL_ERRORS } from "../ports/push-requests.ts";
 import {
   attachCatalog,
@@ -81,10 +86,17 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
   const policies: AuthorizationPolicy[] = [];
   const control: {
     pushRefusal: "no_checkpoint" | "request_open" | null;
+    notPushed: PushRequestState | null;
     runningTurn: number | null;
     marks: Array<{ sessionId: string; turnId: number }>;
     marked: boolean;
-  } = { pushRefusal: null, runningTurn: 7, marks: [], marked: true };
+  } = {
+    pushRefusal: null,
+    notPushed: null,
+    runningTurn: 7,
+    marks: [],
+    marked: true,
+  };
   const api: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: unused,
@@ -160,6 +172,14 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
             pushRequestId,
             body: await input.readBody(),
           });
+          if (control.notPushed !== null) {
+            const { code, message } = PULL_REQUEST_REFUSAL_ERRORS.not_pushed;
+            throw new SessionServiceError(code, message, undefined, {
+              refusal: "not_pushed",
+              receipt_id: "receipt-pr",
+              push_request_state: control.notPushed,
+            });
+          }
           return { created: true } as never;
         },
         update: unused,
@@ -492,6 +512,49 @@ describe("request_push before the session's first checkpoint", () => {
     const answer = payload(await h.call("request_push", {}));
     expect(answer.body).not.toHaveProperty("continuation");
     expect(h.control.marks).toEqual([]);
+  });
+});
+
+describe("open_pull_request before the push is done", () => {
+  const PUSH = "55555555-5555-4555-8555-555555555555";
+  const open = async (state: PushRequestState) => {
+    const h = harness();
+    h.control.notPushed = state;
+    return payload(
+      await h.call("open_pull_request", { push_request_id: PUSH }),
+    ) as { isError?: boolean; body: { guidance?: string } };
+  };
+
+  test("a push waiting for a person says so and not to call again", async () => {
+    const answer = await open("requested");
+    expect(answer).toMatchObject({
+      isError: true,
+      body: {
+        code: "PUSH_NOT_PUSHED",
+        details: { refusal: "not_pushed", push_request_state: "requested" },
+      },
+    });
+    const guidance = answer.body.guidance ?? "";
+    expect(guidance).toContain("waiting for a person to approve it");
+    expect(guidance).toContain("will not move it forward");
+    expect(guidance).toContain("end your turn, and ask a person to approve");
+    expect(guidance).not.toContain("wait a few seconds");
+    // A push approved outside Slack starts no follow-up turn.
+    expect(guidance).not.toMatch(/pull request (will )?opens?/i);
+  });
+
+  test("an approved or running push says to call again in a few seconds", async () => {
+    for (const state of ["approved", "pushing"] as const) {
+      const guidance = (await open(state)).body.guidance ?? "";
+      expect(guidance).toContain("wait a few seconds and call this tool again");
+      expect(guidance).not.toContain("waiting for a person");
+    }
+  });
+
+  test("a push that will not run gets no guidance to call again", async () => {
+    for (const state of ["rejected", "failed"] as const) {
+      expect((await open(state)).body).not.toHaveProperty("guidance");
+    }
   });
 });
 
