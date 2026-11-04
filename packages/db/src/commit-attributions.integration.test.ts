@@ -97,14 +97,17 @@ integration("postgres commit attribution ledger", () => {
 
   test("a co-author name without its email is refused by the table", async () => {
     const id = await session();
+    // The insert builder is a thenable, not a Promise: run it inside one.
     await expect(
-      db.insert(sessionCommitAttributions).values({
-        sessionId: id,
-        digest: "x",
-        authorName: "a",
-        authorEmail: "a@b",
-        coAuthorName: "only a name",
-      }),
+      (async () => {
+        await db.insert(sessionCommitAttributions).values({
+          sessionId: id,
+          digest: "x",
+          authorName: "a",
+          authorEmail: "a@b",
+          coAuthorName: "only a name",
+        });
+      })(),
     ).rejects.toThrow();
   });
 });
