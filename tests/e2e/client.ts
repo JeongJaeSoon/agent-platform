@@ -59,7 +59,7 @@ export async function firstOwnerCookie(
       headers: {
         "content-type": "application/json",
         "idempotency-key": crypto.randomUUID(),
-        "x-requested-with": "agent-platform-web",
+        "x-requested-with": "werft-web",
       },
       body: JSON.stringify(body),
     });

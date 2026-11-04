@@ -133,7 +133,7 @@ integration("who may disable a member or suspend an account", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Requested-With": "agent-platform-web",
+        "X-Requested-With": "werft-web",
       },
       body: JSON.stringify({ email, password: LOGIN_SECRET }),
     });

@@ -225,7 +225,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
     const response = await send(
       "POST",
       "/v1/auth/login",
-      { "X-Requested-With": "agent-platform-web" },
+      { "X-Requested-With": "werft-web" },
       { email, password: PASSWORD },
     );
     expect(response.status).toBe(200);

@@ -698,7 +698,7 @@ async function captureWorkspaceOnce(
                 "-a",
                 "-m",
                 `Werft checkpoint: ${name}`,
-                `agent-platform/${name}`,
+                `werft/${name}`,
                 oid,
               ],
               { GIT_DIR: repository, ...SNAPSHOT_IDENTITY },
@@ -706,7 +706,7 @@ async function captureWorkspaceOnce(
             "tag",
           );
           await check(
-            bundling(["update-ref", name, `refs/tags/agent-platform/${name}`]),
+            bundling(["update-ref", name, `refs/tags/werft/${name}`]),
             "update-ref",
           );
         }

@@ -7443,9 +7443,9 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       required: route.csrf === "always",
       description:
         route.csrf === "always"
-          ? "Always required: the literal `agent-platform-web`."
-          : "Required with a cookie session: the literal `agent-platform-web`.",
-      schema: { type: "string", enum: ["agent-platform-web"] },
+          ? "Always required: the literal `werft-web`."
+          : "Required with a cookie session: the literal `werft-web`.",
+      schema: { type: "string", enum: ["werft-web"] },
     });
   }
   const success = route.success;

@@ -6,7 +6,7 @@ const base = {
   EXECUTION_EGRESS_PROXY_URL: "http://egress-proxy:3128",
   S3_BUCKET: "claude-sessions",
   WORKER_GATEWAY_URL: "http://host.docker.internal:3000",
-  WORKER_IMAGE: "agent-platform-worker:dev",
+  WORKER_IMAGE: "werft-worker:dev",
 };
 
 describe("localDockerConfigFromEnv", () => {
@@ -30,7 +30,7 @@ describe("localDockerConfigFromEnv", () => {
       workspaceDir: "/workspace",
       workspaceGcMinAgeMs: 3_600_000,
       workspaceQuota: {
-        helperImage: "agent-platform-worker:dev",
+        helperImage: "werft-worker:dev",
         inodes: 1_000_000,
         mode: "enforced",
         sizeBytes: 4096 * 1024 * 1024,
@@ -51,7 +51,7 @@ describe("localDockerConfigFromEnv", () => {
         EXECUTION_WORKSPACE_QUOTA_MB: "1024",
       }).workspaceQuota,
     ).toEqual({
-      helperImage: "agent-platform-worker:dev",
+      helperImage: "werft-worker:dev",
       inodes: 1_000_000,
       mode: "enforced",
       sizeBytes: 1024 * 1024 * 1024,
@@ -244,7 +244,7 @@ describe("localDockerConfigFromEnv", () => {
       "EXECUTION_DOCKER_NETWORK_ALLOWLIST",
     ]) {
       expect(() =>
-        localDockerConfigFromEnv({ ...base, [name]: "agent-platform-worker" }),
+        localDockerConfigFromEnv({ ...base, [name]: "werft-worker" }),
       ).toThrow(`${name} is no longer read`);
       // An empty line left in an env file asks for nothing.
       expect(() =>

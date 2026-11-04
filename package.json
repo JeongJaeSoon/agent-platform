@@ -1,5 +1,5 @@
 {
-  "name": "agent-platform",
+  "name": "werft",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",
   "packageManager": "bun@1.3.14",

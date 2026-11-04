@@ -67,7 +67,7 @@ users:
     const environment = {
       ...base,
       EXECUTION_BACKEND: "kubernetes",
-      EXECUTION_K8S_NAMESPACE: "agent-platform",
+      EXECUTION_K8S_NAMESPACE: "werft",
       KUBECONFIG: kubeconfig,
     };
     const { execution } = schedulerConfigFromEnv(environment);

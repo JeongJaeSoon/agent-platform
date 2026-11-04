@@ -31,7 +31,7 @@ import {
 export const WEB_SESSION_COOKIE_NAME = "__Host-ap_session";
 /** Cookie-path mutations must also carry this header (03 §3.2 CSRF). */
 export const CSRF_HEADER_NAME = "x-requested-with";
-export const CSRF_HEADER_VALUE = "agent-platform-web";
+export const CSRF_HEADER_VALUE = "werft-web";
 
 export const LOGIN_LOCKOUT_ATTEMPTS = 5;
 export const LOGIN_LOCKOUT_WINDOW_MINUTES = 15;

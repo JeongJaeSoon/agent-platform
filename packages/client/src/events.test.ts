@@ -134,7 +134,7 @@ describe("subscribeSessionEvents", () => {
     expect(new URL(request?.url ?? "").pathname).toBe(
       `/v1/sessions/${SESSION}/events`,
     );
-    expect(request?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(request?.headers.get("x-requested-with")).toBe("werft-web");
     expect(request?.headers.get("accept")).toBe("text/event-stream");
     expect(request?.headers.get("last-event-id")).toBeNull();
     expect(run.states).toEqual(["connecting", "open"]);

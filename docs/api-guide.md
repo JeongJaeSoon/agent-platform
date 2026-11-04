@@ -25,13 +25,13 @@ KEY=$(scripts/local.sh key api-guide \
 API=http://127.0.0.1:3000
 AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
 
-DOCS_STATUS=$(curl -sS -o /tmp/agent-platform-api-docs.html -w '%{http_code}' "$API/docs")
-SCALAR_STATUS=$(curl -sS -o /tmp/agent-platform-scalar.js -w '%{http_code}' "$API/docs/scalar.js")
+DOCS_STATUS=$(curl -sS -o /tmp/werft-api-docs.html -w '%{http_code}' "$API/docs")
+SCALAR_STATUS=$(curl -sS -o /tmp/werft-scalar.js -w '%{http_code}' "$API/docs/scalar.js")
 printf 'GET /docs %s, GET /docs/scalar.js %s\n' "$DOCS_STATUS" "$SCALAR_STATUS"
 test "$DOCS_STATUS" = 200
 test "$SCALAR_STATUS" = 200
-grep -q 'src="/docs/scalar.js"' /tmp/agent-platform-api-docs.html
-test -s /tmp/agent-platform-scalar.js
+grep -q 'src="/docs/scalar.js"' /tmp/werft-api-docs.html
+test -s /tmp/werft-scalar.js
 
 wait_for() {
   for _ in $(seq 1 180); do
@@ -320,11 +320,11 @@ curl -sS "$API/v1/receipts/$CLOSE_RECEIPT" "${AUTH[@]}" \
 curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
   -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY" \
   | jq -e --arg receipt "$CLOSE_RECEIPT" '.receipt_id == $receipt'
-CLOSED_STATUS=$(curl -sS -o /tmp/agent-platform-closed.json -w '%{http_code}' \
+CLOSED_STATUS=$(curl -sS -o /tmp/werft-closed.json -w '%{http_code}' \
   "$API/v1/sessions/$CSID/messages" "${AUTH[@]}" \
   -H "Idempotency-Key: $(uuidgen)" --data '{"message":"one more"}')
 test "$CLOSED_STATUS" = 409
-jq -e '.error.code == "SESSION_CLOSED"' /tmp/agent-platform-closed.json
+jq -e '.error.code == "SESSION_CLOSED"' /tmp/werft-closed.json
 ```
 
 **기대 응답.** close는 202와 receipt를 돌려준다. receipt는 실행이 사라진 것을 본 뒤 `succeeded`가 되고, `result.checkpoint_revision`은 세션의 마지막 checkpoint다(turn을 한 번도 돌리지 않은 세션만 null). 그 뒤 메시지·resume·pause·terminate·close·복구 결정은 모두 409 `SESSION_CLOSED`다.
@@ -480,9 +480,9 @@ echo "$outputs" | jq .
 echo "$outputs" | jq -e --arg sid "$SID" '.session_id == $sid and (.items | type == "array")'
 OUT_PATH=$(echo "$outputs" | jq -r '[.items[] | select(.omitted == null)][0].path // empty')
 if [ -n "$OUT_PATH" ]; then
-  curl -sS -o /tmp/agent-platform-output "${AUTH[@]}" \
+  curl -sS -o /tmp/werft-output "${AUTH[@]}" \
     "$API/v1/sessions/$SID/outputs/$(jq -rn --arg path "$OUT_PATH" '$path | @uri')"
-  test "$(shasum -a 256 /tmp/agent-platform-output | cut -d' ' -f1)" = \
+  test "$(shasum -a 256 /tmp/werft-output | cut -d' ' -f1)" = \
     "$(echo "$outputs" | jq -r --arg path "$OUT_PATH" '.items[] | select(.path == $path) | .sha256')"
 fi
 ```

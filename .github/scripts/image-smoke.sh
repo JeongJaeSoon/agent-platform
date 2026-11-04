@@ -9,7 +9,7 @@ image="$2"
 
 # Only containers this run started carry this label, so cleanup never
 # touches anything else on the daemon.
-smoke_label="agent-platform.image-smoke=$$-${RANDOM}"
+smoke_label="werft.image-smoke=$$-${RANDOM}"
 cleanup() {
   ids="$(docker ps -aq --filter "label=${smoke_label}")"
   [ -z "$ids" ] || docker rm -f $ids >/dev/null
