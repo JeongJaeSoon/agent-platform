@@ -2284,6 +2284,14 @@ describe("에이전트 상세", () => {
     for (const value of ["OLD_SECRET_NAME", "NEW_SECRET_NAME", "github-token"])
       expect(dialog.textContent).not.toContain(value);
     expect(dialog.textContent).toContain(`직전 릴리스 ${older.label}와 비교`);
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      document.activeElement ===
+        within(newRow).getByRole("button", {
+          name: "바뀐 것: 허용 저장소 · 자격 증명",
+        }),
+    ).toBe(true);
   });
   test("잘린 메모만 펼침 단추를 갖고, 키보드로 펼치면 줄바꿈해 전체를 보인다", async () => {
     const long = "환불 문의 규칙을 더함. ".repeat(14).trim();

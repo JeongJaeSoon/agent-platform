@@ -4,8 +4,10 @@ import {
   Button,
   Code,
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -128,6 +130,13 @@ export function ReleaseChangesSummary({
           beforeLabel={previous.label}
           afterLabel={release.label}
         />
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              {t("agent.releases.changesClose")}
+            </Button>
+          </DialogClose>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

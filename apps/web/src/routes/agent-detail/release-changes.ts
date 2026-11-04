@@ -51,8 +51,18 @@ export function previousRelease(
 // paths the release builder writes show their values.
 const READABLE_CONFIG =
   /^(permission_mode|provider\.(kind|endpoint)|project_settings(\..+)?)$/;
-const SECRET_KEY =
-  /(^|_)(refs?|keys?|tokens?|secrets?|passwords?|passphrase|credentials?)$|[a-z](Refs?|Keys?|Tokens?|Secrets?|Passwords?|Credentials?)$/;
+// The contracts' key words (`apiKeyRef` → api Key Ref, `API_KEY_REF` → API
+// KEY REF), and their words for a credential or a reference to one.
+const SECRET_WORD =
+  /^(refs?|keys?|tokens?|secrets?|passwords?|passphrase|credentials?)$/i;
+const SECRET_WHOLE_KEY = /^(auth|authorization|env|environment|headers)$/i;
+const secretKey = (key: string) =>
+  SECRET_WHOLE_KEY.test(key) ||
+  key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .some((word) => SECRET_WORD.test(word));
 
 const noFeatures = (features: Record<string, boolean> | undefined) =>
   Object.fromEntries(Object.keys(features ?? {}).map((key) => [key, false]));
@@ -62,7 +72,7 @@ function holdsSecret(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(holdsSecret);
   if (value === null || typeof value !== "object") return false;
   return Object.entries(value).some(
-    ([key, nested]) => SECRET_KEY.test(key) || holdsSecret(nested),
+    ([key, nested]) => secretKey(key) || holdsSecret(nested),
   );
 }
 
@@ -157,9 +167,8 @@ function leafChanges(
     )
       return [];
     const field = { path: prefix === "" ? path : `${prefix}.${path}` };
-    const last = path.split(".").at(-1) ?? "";
     if (
-      SECRET_KEY.test(last) ||
+      path.split(".").some(secretKey) ||
       holdsSecret(a.get(path)) ||
       holdsSecret(b.get(path))
     )

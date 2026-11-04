@@ -243,6 +243,7 @@ export const agentsKo = {
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
   "agent.releases.changed": "변경됨",
+  "agent.releases.changesClose": "닫기",
   "agent.releases.secretsHidden":
     "자격 증명은 값을 보이지 않고 바뀐 것만 알립니다.",
   "agent.releaseCreated":
@@ -661,6 +662,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
   "agent.releases.changed": "Changed",
+  "agent.releases.changesClose": "Close",
   "agent.releases.secretsHidden":
     "Credentials show only that they changed, never their values.",
   "agent.releaseCreated": "Release {release} created. It is not active yet.",
@@ -1073,6 +1075,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.removed": "− {item}",
   "agent.releases.valueChange": "{before} → {after}",
   "agent.releases.changed": "変更あり",
+  "agent.releases.changesClose": "閉じる",
   "agent.releases.secretsHidden":
     "認証情報は値を表示せず、変わったことだけを示します。",
   "agent.releaseCreated":

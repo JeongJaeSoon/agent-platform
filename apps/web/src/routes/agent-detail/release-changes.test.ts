@@ -201,6 +201,34 @@ describe("releaseChanges", () => {
     ]);
   });
 
+  test("a credential key in any case or inside a container shows as changed", () => {
+    for (const settings of [
+      (name: string) => ({ API_KEY_REF: `env:${name}` }),
+      (name: string) => ({ slackBotToken_ref: `env:${name}` }),
+      (name: string) => ({ env: { HOOK: `env:${name}` } }),
+    ]) {
+      const changes = releaseChanges(
+        release({
+          runtime_config_snapshot: {
+            model: "m",
+            project_settings: settings("OLD_NAME"),
+          },
+        }),
+        release({
+          runtime_config_snapshot: {
+            model: "m",
+            project_settings: settings("NEW_NAME"),
+          },
+        }),
+        () => undefined,
+      );
+      expect(changes.map((change) => [change.area, change.kind])).toEqual([
+        ["secrets", "changed"],
+      ]);
+      expect(JSON.stringify(changes)).not.toContain("NAME");
+    }
+  });
+
   test("no GitHub pin compares as its defaults: an explicit default pin changes only the repositories", () => {
     const { github: _dropped, ...unpinned } = before.policy_pins;
     const defaults = release({
