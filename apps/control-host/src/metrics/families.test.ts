@@ -235,34 +235,34 @@ describe("exposition", () => {
       expect(line.startsWith(`${METRIC_PREFIX}_`), line).toBe(true);
     }
     expect(lines).toContain(
-      'agent_platform_sessions{state="awaiting_approval",status="needs_input",admission="active"} 1',
+      'werft_sessions{state="awaiting_approval",status="needs_input",admission="active"} 1',
     );
     expect(lines).toContain(
-      "# TYPE agent_platform_turn_duration_seconds histogram",
+      "# TYPE werft_turn_duration_seconds histogram",
     );
     expect(lines).toContain(
-      'agent_platform_turn_duration_seconds_bucket{status="completed",le="60"} 1',
+      'werft_turn_duration_seconds_bucket{status="completed",le="60"} 1',
     );
     expect(lines).toContain(
-      'agent_platform_turn_duration_seconds_bucket{status="completed",le="+Inf"} 1',
+      'werft_turn_duration_seconds_bucket{status="completed",le="+Inf"} 1',
     );
     expect(lines).toContain(
-      'agent_platform_turn_duration_seconds_sum{status="completed"} 42.5',
+      'werft_turn_duration_seconds_sum{status="completed"} 42.5',
     );
-    expect(lines).toContain('agent_platform_turns_total{status="completed"} 2');
+    expect(lines).toContain('werft_turns_total{status="completed"} 2');
     expect(lines).toContain(
-      'agent_platform_tool_calls{tool="we\\"ird\\\\name",outcome="denied"} 2',
-    );
-    expect(lines).toContain(
-      'agent_platform_provider_cost_usd_total{model="claude-sonnet-5",priced_by="fallback"} 12.500000',
+      'werft_tool_calls{tool="we\\"ird\\\\name",outcome="denied"} 2',
     );
     expect(lines).toContain(
-      'agent_platform_provider_tokens_total{model="claude-sonnet-5",priced_by="table",kind="cache_read"} 7',
+      'werft_provider_cost_usd_total{model="claude-sonnet-5",priced_by="fallback"} 12.500000',
     );
     expect(lines).toContain(
-      "agent_platform_launch_queue_oldest_wait_seconds 17.25",
+      'werft_provider_tokens_total{model="claude-sonnet-5",priced_by="table",kind="cache_read"} 7',
     );
-    expect(lines).toContain("agent_platform_input_queue_oldest_age_seconds 3");
+    expect(lines).toContain(
+      "werft_launch_queue_oldest_wait_seconds 17.25",
+    );
+    expect(lines).toContain("werft_input_queue_oldest_age_seconds 3");
     expect(text).toContain("not Kubernetes infrastructure cost");
   });
 
@@ -278,7 +278,7 @@ describe("exposition", () => {
       firstAt: at(i),
     }));
     expect(renderMetrics(snapshot({ providerUsage }))).toContain(
-      'agent_platform_provider_cost_usd_total{model="other",priced_by="table"} 0.200002',
+      'werft_provider_cost_usd_total{model="other",priced_by="table"} 0.200002',
     );
   });
 });

@@ -3,7 +3,7 @@
   "requests": [
     {
       "data": {
-        "id": "agent_platform.checkpoint.failed",
+        "id": "werft.checkpoint.failed",
         "type": "logs_metrics",
         "attributes": {
           "compute": { "aggregation_type": "count" },
@@ -18,7 +18,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.late",
+        "id": "werft.checkpoint.late",
         "type": "logs_metrics",
         "attributes": {
           "compute": { "aggregation_type": "count" },
@@ -32,7 +32,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.capture.duration_ms",
+        "id": "werft.checkpoint.capture.duration_ms",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -50,7 +50,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.put_count",
+        "id": "werft.checkpoint.put_count",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -68,7 +68,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.uploaded_bytes",
+        "id": "werft.checkpoint.uploaded_bytes",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -86,7 +86,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.reused_count",
+        "id": "werft.checkpoint.reused_count",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -103,7 +103,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.conflict_count",
+        "id": "werft.checkpoint.conflict_count",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -120,7 +120,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.bundle_bytes",
+        "id": "werft.checkpoint.bundle_bytes",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -137,7 +137,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.untracked_bytes",
+        "id": "werft.checkpoint.untracked_bytes",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -154,7 +154,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.untracked_uploads",
+        "id": "werft.checkpoint.untracked_uploads",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -171,7 +171,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.checkpoint.manifest_bytes",
+        "id": "werft.checkpoint.manifest_bytes",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -188,7 +188,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.terminate.acceptance.duration_ms",
+        "id": "werft.terminate.acceptance.duration_ms",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -208,7 +208,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.session.create.duration_ms",
+        "id": "werft.session.create.duration_ms",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -229,7 +229,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.control.effect.duration_ms",
+        "id": "werft.control.effect.duration_ms",
         "type": "logs_metrics",
         "attributes": {
           "compute": {
@@ -249,7 +249,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.launch.failed",
+        "id": "werft.launch.failed",
         "type": "logs_metrics",
         "attributes": {
           "compute": { "aggregation_type": "count" },
@@ -265,7 +265,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.execution.exited",
+        "id": "werft.execution.exited",
         "type": "logs_metrics",
         "attributes": {
           "compute": { "aggregation_type": "count" },
@@ -281,7 +281,7 @@
     },
     {
       "data": {
-        "id": "agent_platform.scheduler.pass_failed",
+        "id": "werft.scheduler.pass_failed",
         "type": "logs_metrics",
         "attributes": {
           "compute": { "aggregation_type": "count" },

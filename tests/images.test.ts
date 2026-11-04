@@ -1972,25 +1972,25 @@ describe("compose layers", () => {
     }
     expect(metricDefinitions.requests.map(({ data }) => data.id)).toEqual(
       expect.arrayContaining([
-        "agent_platform.checkpoint.capture.duration_ms",
-        "agent_platform.checkpoint.bundle_bytes",
-        "agent_platform.checkpoint.untracked_bytes",
-        "agent_platform.checkpoint.untracked_uploads",
-        "agent_platform.checkpoint.manifest_bytes",
-        "agent_platform.checkpoint.put_count",
-        "agent_platform.checkpoint.uploaded_bytes",
-        "agent_platform.checkpoint.reused_count",
-        "agent_platform.checkpoint.conflict_count",
-        "agent_platform.terminate.acceptance.duration_ms",
-        "agent_platform.session.create.duration_ms",
-        "agent_platform.control.effect.duration_ms",
+        "werft.checkpoint.capture.duration_ms",
+        "werft.checkpoint.bundle_bytes",
+        "werft.checkpoint.untracked_bytes",
+        "werft.checkpoint.untracked_uploads",
+        "werft.checkpoint.manifest_bytes",
+        "werft.checkpoint.put_count",
+        "werft.checkpoint.uploaded_bytes",
+        "werft.checkpoint.reused_count",
+        "werft.checkpoint.conflict_count",
+        "werft.terminate.acceptance.duration_ms",
+        "werft.session.create.duration_ms",
+        "werft.control.effect.duration_ms",
       ]),
     );
     for (const id of [
-      "agent_platform.checkpoint.capture.duration_ms",
-      "agent_platform.terminate.acceptance.duration_ms",
-      "agent_platform.session.create.duration_ms",
-      "agent_platform.control.effect.duration_ms",
+      "werft.checkpoint.capture.duration_ms",
+      "werft.terminate.acceptance.duration_ms",
+      "werft.session.create.duration_ms",
+      "werft.control.effect.duration_ms",
     ]) {
       expect(
         metricDefinitions.requests.find(({ data }) => data.id === id)?.data
@@ -2003,12 +2003,12 @@ describe("compose layers", () => {
     expect(
       metricDefinitions.requests.find(
         ({ data }) =>
-          data.id === "agent_platform.terminate.acceptance.duration_ms",
+          data.id === "werft.terminate.acceptance.duration_ms",
       )?.data.attributes.filter.query,
     ).toContain("@event:api.request.completed");
     expect(
       metricDefinitions.requests.find(
-        ({ data }) => data.id === "agent_platform.control.effect.duration_ms",
+        ({ data }) => data.id === "werft.control.effect.duration_ms",
       )?.data.attributes.group_by,
     ).toContainEqual({
       path: "@fields.operation",

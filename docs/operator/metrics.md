@@ -55,21 +55,21 @@ curl -s localhost:9464/metrics
 
 ## 지표
 
-접두어는 `agent_platform_`이다. 코드에서는 `apps/control-host/src/metrics/families.ts`의 `METRIC_PREFIX` 한 곳에서 정한다.
+접두어는 `werft_`이다. 코드에서는 `apps/control-host/src/metrics/families.ts`의 `METRIC_PREFIX` 한 곳에서 정한다.
 
 | 이름 | 타입 | 라벨 | 뜻 |
 |---|---|---|---|
-| `agent_platform_sessions` | gauge | `state`, `status`, `admission` | 세션 수. `state`는 아래 상태표로 정한다. `status`는 API가 보여 주는 상태(`needs_input` 포함), `admission`은 `sessions.admission_state` |
-| `agent_platform_turns_total` | counter | `status` | `completed`·`failed`·`interrupted`·`cancelled`로 끝난 turn 수 |
-| `agent_platform_turn_duration_seconds` | histogram | `status`, `le` | 위 turn 중 시작한 것의 시작부터 끝까지 걸린 시간. bucket 1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600초 |
-| `agent_platform_turns_outcome_unknown` | gauge | 없음 | 실행이 사라져 결과를 모르는 turn 수. 운영자의 복구 결정을 기다린다 |
-| `agent_platform_tool_calls_total` | counter | `tool` | 엔진이 부른 도구 호출 수 |
-| `agent_platform_tool_calls` | gauge | `tool`, `outcome` | 도구 호출 수를 지금의 결과별로. `ok`, `failed`, `denied`, `unknown`(결과가 아직 없음) |
-| `agent_platform_provider_tokens_total` | counter | `model`, `priced_by`, `kind` | provider 호출에서 잰 토큰 수. `kind`는 `input`·`output`·`cache_read`·`cache_creation` |
-| `agent_platform_provider_cost_usd_total` | counter | `model`, `priced_by` | provider 추정 비용(USD). Kubernetes 인프라 비용이 아니다 |
-| `agent_platform_launch_queue_sessions` | gauge | 없음 | worker launch를 기다리는 세션 수 |
-| `agent_platform_launch_queue_oldest_wait_seconds` | gauge | 없음 | launch 대기열에서 가장 오래 기다린 세션의 대기 시간. 비면 0 |
-| `agent_platform_input_queue_oldest_age_seconds` | gauge | 없음 | worker가 아직 가져가지 않은 입력 중 가장 오래된 것의 나이. 비면 0 |
+| `werft_sessions` | gauge | `state`, `status`, `admission` | 세션 수. `state`는 아래 상태표로 정한다. `status`는 API가 보여 주는 상태(`needs_input` 포함), `admission`은 `sessions.admission_state` |
+| `werft_turns_total` | counter | `status` | `completed`·`failed`·`interrupted`·`cancelled`로 끝난 turn 수 |
+| `werft_turn_duration_seconds` | histogram | `status`, `le` | 위 turn 중 시작한 것의 시작부터 끝까지 걸린 시간. bucket 1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600초 |
+| `werft_turns_outcome_unknown` | gauge | 없음 | 실행이 사라져 결과를 모르는 turn 수. 운영자의 복구 결정을 기다린다 |
+| `werft_tool_calls_total` | counter | `tool` | 엔진이 부른 도구 호출 수 |
+| `werft_tool_calls` | gauge | `tool`, `outcome` | 도구 호출 수를 지금의 결과별로. `ok`, `failed`, `denied`, `unknown`(결과가 아직 없음) |
+| `werft_provider_tokens_total` | counter | `model`, `priced_by`, `kind` | provider 호출에서 잰 토큰 수. `kind`는 `input`·`output`·`cache_read`·`cache_creation` |
+| `werft_provider_cost_usd_total` | counter | `model`, `priced_by` | provider 추정 비용(USD). Kubernetes 인프라 비용이 아니다 |
+| `werft_launch_queue_sessions` | gauge | 없음 | worker launch를 기다리는 세션 수 |
+| `werft_launch_queue_oldest_wait_seconds` | gauge | 없음 | launch 대기열에서 가장 오래 기다린 세션의 대기 시간. 비면 0 |
+| `werft_input_queue_oldest_age_seconds` | gauge | 없음 | worker가 아직 가져가지 않은 입력 중 가장 오래된 것의 나이. 비면 0 |
 
 `tool_calls`가 counter가 아니라 gauge인 이유: 도구 결과는 나중에 바뀔 수 있다. 결과 이벤트가 늦게 도착하면 `unknown`이 `ok`나 `failed`가 되고, 더 이른 결과가 뒤에 도착하면 기존 결과를 바꾼다(`packages/db/src/tool-calls.ts`의 projection). counter 값이 줄면 수집기가 reset으로 읽어 증가량이 튄다. 호출 수의 증가량은 `tool_calls_total`로 보고, 결과별 비율은 `tool_calls`로 본다.
 
@@ -100,7 +100,7 @@ curl -s localhost:9464/metrics
 
 - 비용은 `provider_usage.cost_usd`의 합이다. 이 값은 호출을 기록할 때 플랫폼 가격표(`packages/platform/src/limits/model-prices.ts`의 `priceProviderUsage`, `MODEL_PRICES`)가 계산했다. 지표는 단가를 다시 계산하지 않고, 단가 설정도 따로 두지 않는다.
 - `priced_by`는 그 호출의 가격 근거다. `table`(가격표에 있는 모델), `fallback`(가격표에 없는 모델이라 가장 비싼 단가로 계산), `unmetered`(profile이 `billing: none`이라 비용 0). 사내 모델처럼 비용이 0인 호출은 `priced_by="unmetered"`의 토큰 수로 사용량을 본다.
-- **기간 기준은 호출을 기록한 시각(`provider_usage.recorded_at`)이다.** 기간 비용은 `increase(agent_platform_provider_cost_usd_total[1h])`처럼 counter 증가량으로 본다.
+- **기간 기준은 호출을 기록한 시각(`provider_usage.recorded_at`)이다.** 기간 비용은 `increase(werft_provider_cost_usd_total[1h])`처럼 counter 증가량으로 본다.
 - `GET /v1/usage/summary`와 다른 점이 셋 있다. 기간 안에 만들고 기간 안에 과금한 세션만 있으면 둘은 같다(`packages/db/src/metrics-reader.test.ts`).
   - summary는 기간 안에 **만든** 세션(`sessions.created_at`)을 골라 그 세션의 비용 전체를 더한다. 기간 전에 만든 세션이 기간 안에 쓴 비용은 지표에만 있다.
   - summary는 `sessions.cost_usd`를 더한다. 이 값은 세션 비용 상한 칸(99,999,999.999999 USD)에서 멈추지만 호출별 비용은 멈추지 않는다.
@@ -110,7 +110,7 @@ curl -s localhost:9464/metrics
 ### 대기열
 
 - **launch 대기열**: scheduler가 다음 pass에 worker를 띄울 수 있는 세션이다. scheduler와 같은 SQL 조건(`packages/db/src/scheduler-store.ts`의 `awaitingLaunch`)으로 센다. launch 가능한 admission, 실행 회수·takeover 없음, 비용·토큰 상한 안, restore 재시도 시각 지남, 슬롯을 잡은 launch 없음. 상한은 scheduler와 같은 `config.limits`에서 읽는다. 대기 시간은 `unassigned_sessions.signaled_at`부터 잰다.
-- **입력 대기열**: `queue_messages` 중 아무 worker도 가져가지 않았고 보일 시각이 지난 입력이다. compose의 `agent_platform.queue.oldest_age_seconds`와 뜻이 같다.
+- **입력 대기열**: `queue_messages` 중 아무 worker도 가져가지 않았고 보일 시각이 지난 입력이다. compose의 `werft.queue.oldest_age_seconds`와 뜻이 같다.
 
 ## 라벨 규칙
 
@@ -125,9 +125,9 @@ compose의 Datadog overlay는 PostgreSQL custom query로 비슷한 값을 낸다
 
 | compose(DB query) | 이 지표 |
 |---|---|
-| `agent_platform.queue.oldest_age_seconds` | `agent_platform_input_queue_oldest_age_seconds`(같은 뜻) |
-| `agent_platform.provider.cost_usd_1h` | `increase(agent_platform_provider_cost_usd_total[1h])` |
-| `agent_platform.provider.unmetered_tokens_1h` | `increase(agent_platform_provider_tokens_total{priced_by="unmetered"}[1h])`의 합 |
-| `agent_platform.provider.fallback_pricing_count_1h` | 대응 없음(호출 수 대신 `priced_by="fallback"`의 비용·토큰을 본다) |
-| `agent_platform.turn.outcome_unknown_count` | 대응 없음. `agent_platform_turns_outcome_unknown`은 최근 5분에 생긴 수가 아니라 지금 남은 수다 |
-| `agent_platform.checkpoint.pending_age_seconds`, `agent_platform.lease.stale_count` | 대응 없음 |
+| `werft.queue.oldest_age_seconds` | `werft_input_queue_oldest_age_seconds`(같은 뜻) |
+| `werft.provider.cost_usd_1h` | `increase(werft_provider_cost_usd_total[1h])` |
+| `werft.provider.unmetered_tokens_1h` | `increase(werft_provider_tokens_total{priced_by="unmetered"}[1h])`의 합 |
+| `werft.provider.fallback_pricing_count_1h` | 대응 없음(호출 수 대신 `priced_by="fallback"`의 비용·토큰을 본다) |
+| `werft.turn.outcome_unknown_count` | 대응 없음. `werft_turns_outcome_unknown`은 최근 5분에 생긴 수가 아니라 지금 남은 수다 |
+| `werft.checkpoint.pending_age_seconds`, `werft.lease.stale_count` | 대응 없음 |

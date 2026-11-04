@@ -56,7 +56,7 @@ provider:
 - `none` profile로 세션을 만드는 것은 모든 API replica와 모든 scheduler의 `WORKER_IMAGE`를 이 버전으로 올린 뒤에 한다. 옛 API는 `unmetered` 세션의 보고도 가격표로 계산하고, 옛 worker는 claim의 `remaining_budget_usd: null`을 계약 위반으로 거절해 엔진을 띄우지 못한다. 같은 이유로 `unmetered` 세션이 남아 있는 동안에는 API·worker를 옛 버전으로 되돌리지 않는다.
 - 토큰 상한(`SESSION_TOKEN_LIMIT`)과 시간·동시성 상한(`MAX_TURN_SECONDS`, `EXECUTION_SLOT_LIMIT`, `QUEUED_INPUT_LIMIT_PER_SESSION`)은 그대로 걸린다. `unmetered` 행의 토큰도 `sessions.provider_tokens`에 더해진다.
 - API는 endpoint host가 사설 주소(10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, `::1`, fc00::/7, fe80::/10)이거나 공개 DNS에 없는 이름(점 없는 compose 서비스 이름, `localhost`, `.internal`·`.local`·`.localhost`·`.lan`·`.home.arpa`)일 때만 `none`을 받는다. 그 밖이면 기동하지 않는다. egress proxy 쪽에서는 그 host를 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔다.
-- 사설 주소는 필요조건일 뿐이다. 사설망의 LiteLLM도 유료 upstream을 대리할 수 있다. `none` 선언이 맞는지는 운영자가 책임진다. 잘못 선언하면 유료 호출이 비용 상한 없이 나간다. `SESSION_TOKEN_LIMIT`을 설정해 두면 그때도 세션당 토큰은 묶인다. Datadog `agent_platform.provider.unmetered_tokens_1h`(최근 1시간 `unmetered` 행 토큰 합)와 provider 콘솔의 사용량을 같이 본다.
+- 사설 주소는 필요조건일 뿐이다. 사설망의 LiteLLM도 유료 upstream을 대리할 수 있다. `none` 선언이 맞는지는 운영자가 책임진다. 잘못 선언하면 유료 호출이 비용 상한 없이 나간다. `SESSION_TOKEN_LIMIT`을 설정해 두면 그때도 세션당 토큰은 묶인다. Datadog `werft.provider.unmetered_tokens_1h`(최근 1시간 `unmetered` 행 토큰 합)와 provider 콘솔의 사용량을 같이 본다.
 
 ## API 설정
 

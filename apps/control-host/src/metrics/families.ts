@@ -4,7 +4,7 @@
 import { type PlatformMetricsSnapshot, publicStatus } from "@werft-ai/db";
 
 /** The one place the metric prefix is set (94S-1101, decision d95). */
-export const METRIC_PREFIX = "agent_platform";
+export const METRIC_PREFIX = "werft";
 
 /** Upper bounds of the turn-duration histogram; MAX_TURN_SECONDS defaults to 3600. */
 export const TURN_DURATION_BUCKETS = [

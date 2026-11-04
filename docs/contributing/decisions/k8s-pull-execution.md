@@ -273,7 +273,7 @@ KEDA [PostgreSQL scaler](https://keda.sh/docs/latest/scalers/postgresql/)를 쓰
 - ScaledJob은 `scalingStrategy: accurate`, `targetValue: 1`이다. `default`는 `min(max, 대기 수) - 실행 중 Job 수`라서 세션을 받아 오래 도는 Job까지 뺀다. PoC 3a에서 실제로 새 세션이 45초 동안 굶었다(아래 "검증").
 - `pendingPodConditions: [Ready]`를 두고, worker의 readiness probe는 claim이 끝난 뒤에만 Ready가 된다. 그래야 Running이지만 아직 claim하지 않은 Job이 pending으로 세어져 같은 대기 세션에 Job이 두 번 뜨지 않는다([ScaledJob spec](https://keda.sh/docs/2.21/reference/scaledjob-spec/)).
 - Job spec: `parallelism: 1`, `completions: 1`, `backoffLimit: 0`, `restartPolicy: Never`. 재시도로 생긴 새 Pod는 새 UID라 다른 세션을 claim할 수 있으므로 Job 수준 재시도를 쓰지 않는다. 다시 띄우는 일은 다음 poll이 한다.
-- 같은 숫자를 지표로도 낸다. 지금은 대기 세션 수 지표가 없다(`agent_platform.queue.oldest_age_seconds`뿐). 진행 중인 Kubernetes 실행 지표 작업과 하나로 합친다.
+- 같은 숫자를 지표로도 낸다. 지금은 대기 세션 수 지표가 없다(`werft.queue.oldest_age_seconds`뿐). 진행 중인 Kubernetes 실행 지표 작업과 하나로 합친다.
 
 ### 두 상한
 
