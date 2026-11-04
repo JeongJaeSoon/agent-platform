@@ -25,7 +25,7 @@ In short, [Single-server deployment](https://github.com/JeongJaeSoon/agent-platf
 1. Prepare the host. You need Linux, Docker Engine 28 or later, Docker Compose 2.24.6 or later, NTP synchronization, and Docker starting automatically after a reboot. The Docker data root must be mounted on XFS with `prjquota`; otherwise the scheduler's quota check fails and the installation stops. The scripts run from a repository checkout, so the host also needs `git`, `jq`, `curl`, and Bun 1.3.14.
 2. Decide the network path. By default the API stays on loopback and users connect through an SSH tunnel. To expose it under an internal DNS name, use a reverse proxy with TLS and a VPN or IP allowlist, and turn off buffering for the event stream (SSE). Never expose PostgreSQL or the Docker socket.
 3. Prepare an S3 bucket dedicated to this installation. LocalStack on the same host loses objects on reboot, so do not use it as storage for a real server.
-4. Build the three images from the checkout, push them to a registry the host can pull from, and fix the release with their digests. Fix the settings file and the catalog too, and keep secret values only in an env file outside the repository.
+4. Fix the release with the digests of the three published images. If you cannot use them, build from the checkout and push to a registry the host can pull from. Fix the settings file and the catalog too, and keep secret values only in an env file outside the repository.
 5. Install, check `/readyz`, then create the first owner and workspace at `/bootstrap` in the web console.
 6. Issue an API key for each user. The key's owner is the owner of its sessions.
 7. Rehearse backup, upgrade and rollback, and resuming after a reboot in advance.

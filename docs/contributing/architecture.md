@@ -63,7 +63,7 @@ Werft의 모듈과 각 모듈의 책임은 [README](../../README.md)의 모듈 �
 | `apps/storybook` | `packages/ui`의 컴포넌트와 화면 상태를 라이트·다크, 390px까지 보여 주는 Storybook |
 | `infra/compose.core.yml` | 모든 설치가 같이 쓰는 제품 서비스: Postgres, one-shot migration, egress proxy(worker 네트워크는 scheduler가 execution마다 만든다). `apps` profile은 control-host 이미지 하나로 api·scheduler(루프)·reconciler(루프)·slack(루프) role을 띄우고(Docker socket은 scheduler에만. metrics role은 Helm chart만 띄운다) worker 이미지를 smoke한다. 보안 설정은 이 파일에만 있다 |
 | `infra/compose.yml` (+ 루트 `compose.yaml`) | 로컬 스택: core 위에 `infra/compose.local.yml`(named volume에 영속화하는 SeaweedFS S3, 샘플 저장소를 내주는 읽기 전용 fake-git, 앱 이미지 빌드, `fake-model` profile 뒤의 fake Messages API와 API 전용 Secrets Manager `secrets`)을 합친다. 기본은 실제 Messages API이고, `infra/compose.fake-model.yml`을 얹으면 fake Messages API·`secrets`와 `config/fake-model`로 돈다. 루트 `compose.yaml`이 이 파일을 include하므로 루트에서 `docker compose`를 그대로 쓴다. test-ops는 core 위에 `infra/compose.test-ops.yml`, object store layer(기본 LocalStack, 또는 AWS S3)를 얹고 `scripts/test-ops.sh`로 운영한다([test-ops.md](../operator/test-ops.md)) |
-| `apps/*/Dockerfile` | control-host(모든 role과 웹 콘솔 빌드 결과)·worker·egress-proxy 이미지. base는 `oven/bun:1.3.14` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, tag push만 ghcr push |
+| `apps/*/Dockerfile` | control-host(모든 role과 웹 콘솔 빌드 결과)·worker·egress-proxy 이미지. base는 `oven/bun:1.3.14` digest pin, `bun install --frozen-lockfile --production` multi-stage(egress-proxy는 install 없는 한 단계). `.github/workflows/images.yml`이 빌드·smoke·digest artifact, main push와 tag push만 ghcr push |
 
 ## 경계
 

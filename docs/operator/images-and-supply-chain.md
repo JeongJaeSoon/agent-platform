@@ -36,7 +36,16 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 - **검사.** 두 job은 태그 경로의 `publish`·`promote`와 같은 step을 돈다. `build`와 `supply-chain`이 통과한 뒤 다시 빌드해 run 전용 staging tag로 push하고, 그 digest로 smoke, 라이선스 대조, Grype 검사를 돌린다. 세 digest가 모두 통과해야 `main-<12>`로 retag한다(재빌드 없음). `release` 승인은 받지 않는다. 머지가 리뷰이기 때문이다.
 - **`main-<12>`는 digest로 쓴다.** 태그는 commit을 찾는 데만 쓰고, 배포에는 `name@sha256:…`를 적는다. 움직이는 태그는 없다. `sha-<12>`는 `v*` 게시의 태그이고 main 게시는 쓰지 않는다.
-- **세트는 artifact 하나에서 읽는다.** 세 태그는 저장소별로 차례로 쓰이므로, 게시 도중에 태그를 따로 조회하면 세트가 덜 갖춰져 있을 수 있다. 초록 run의 `image-digests-published` artifact에서 이미지마다 JSON 하나로 세 digest를 함께 읽는다. worker의 `runtime`도 여기에 있다. 같은 내용이 run의 job summary에도 남는다. artifact는 보존 기간이 지나면 사라진다.
+- **digest를 읽는다.** 공개 패키지는 GitHub 로그인 없이 태그에서 읽는다. 세 태그는 저장소별로 차례로 쓰이므로, 세 조회가 모두 성공해야 한 세트다.
+
+  ```bash
+  TAG=main-<commit 앞 12자>
+  for app in control-host worker egress-proxy; do
+    docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{json .Manifest.Digest}}'
+  done
+  ```
+
+  GitHub에 로그인할 수 있으면 초록 run의 `image-digests-published` artifact에서 세 digest를 함께 읽어도 된다. 이미지마다 JSON 하나이고, worker의 `runtime`은 여기에만 있다. 같은 내용이 run의 job summary에도 남는다. artifact는 보존 기간이 지나면 사라진다.
 
   ```bash
   jq -r '"\(.image)@\(.digest)"' image-digests-published/*.json
