@@ -724,6 +724,53 @@ integration("agent identities on PostgreSQL", () => {
       expect((await identityRow(linked.identity.id))?.status).toBe("revoked");
     });
 
+    test("a channel binding write holding the identity does not deadlock with the revoke", async () => {
+      const { workspaceId, agentId, key, linked } = await linkedAgent();
+      let holding: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        holding = resolve;
+      });
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // What the binding store does: the identity's share lock first, then
+      // the insert, whose foreign key takes the install's key share.
+      const binding = db.transaction(async (tx) => {
+        await tx
+          .select({ id: agentIdentities.id })
+          .from(agentIdentities)
+          .where(eq(agentIdentities.id, linked.identity.id))
+          .for("share");
+        holding();
+        await gate;
+        await tx.insert(surfaceBindings).values({
+          id: randomUUID(),
+          workspaceId,
+          agentId,
+          installationId: linked.identity.installationId,
+          surfaceKind: "public_channel",
+          externalSurfaceId: "C0RACE",
+          mode: "on",
+          ceilingActions: [],
+          ceilingDisclosure: "full",
+        });
+      });
+      await held;
+      const revoking = installs().revokeInstallation(key);
+      // Let the revoke reach its wait for the identity.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      release();
+
+      await binding;
+      expect(await revoking).toBe("revoked");
+      const rows = await db
+        .select({ revokedAt: surfaceBindings.revokedAt })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.externalSurfaceId, "C0RACE"));
+      expect(rows.map((row) => row.revokedAt instanceof Date)).toEqual([true]);
+    });
+
     test("an install revoked before this fix gets its identity on the next event", async () => {
       const { key, linked } = await linkedAgent();
       await revokeSlackInstallation(db, key);
