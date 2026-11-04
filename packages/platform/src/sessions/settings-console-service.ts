@@ -24,10 +24,10 @@ import type { TeamActor } from "../ports/team-store.ts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
-  CONNECTION_ENDPOINT_DEFAULTS,
   type CatalogMcpServerConfig,
   type CatalogProfileConfig,
   type CatalogRepositoryConfig,
+  CONNECTION_ENDPOINT_DEFAULTS,
 } from "./catalog.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {

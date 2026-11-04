@@ -5,10 +5,10 @@ import { repoRefOf } from "../ports/forge.ts";
 import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
-  CONNECTION_ENDPOINT_DEFAULTS,
   type CatalogMcpServerConfig,
   type CatalogProfileConfig,
   type CatalogRepositoryConfig,
+  CONNECTION_ENDPOINT_DEFAULTS,
   catalogConnectionsSchema,
   describeConfigError,
   isRegisteredGitHubApp,

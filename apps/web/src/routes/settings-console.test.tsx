@@ -142,7 +142,8 @@ describe("모델 연결", () => {
     const user = await setupUser();
     await user.click(await screen.findByRole("button", { name: "연결 추가" }));
     const dialog = await screen.findByRole("dialog");
-    const endpoint = within(dialog).getByLabelText<HTMLInputElement>("엔드포인트");
+    const endpoint =
+      within(dialog).getByLabelText<HTMLInputElement>("엔드포인트");
     const kind = within(dialog).getByLabelText("종류");
     expect(endpoint.value).toBe(OFFICIAL);
     expect(endpoint.required).toBe(false);
