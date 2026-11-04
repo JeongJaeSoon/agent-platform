@@ -607,6 +607,24 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(slackBlock).not.toMatch(/^ {4}ports:/m);
   });
 
+  test("the pass-loop roles, and only they, run Bun with --smol", () => {
+    for (const files of [LOCAL_LAYERS, TEST_OPS_LAYERS]) {
+      const services = layeredServices<ComposeService>(files);
+      for (const role of Object.keys(PASS_LOOP_ROLES))
+        expect(services[role]?.command?.slice(0, 4)).toEqual([
+          "bun",
+          "run",
+          "apps/control-host/src/main.ts",
+          role,
+        ]);
+      for (const [name, service] of Object.entries(services))
+        expect([name, service.environment?.BUN_OPTIONS]).toEqual([
+          name,
+          name in PASS_LOOP_ROLES ? "--smol" : undefined,
+        ]);
+    }
+  });
+
   test("images.yml builds every app and pushes only on tags", () => {
     const workflow = read(".github/workflows/images.yml");
     expect(workflow).toContain("app: [control-host, worker, egress-proxy]");
