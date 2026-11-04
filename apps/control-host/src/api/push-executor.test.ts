@@ -727,6 +727,21 @@ describe("the push's attribution check", () => {
     expect(result.outcome).toMatchObject({ state: "pushed" });
   });
 
+  test("a base branch the check cannot use refuses the push instead of switching the check off", async () => {
+    const catalog = catalogOf({
+      app: { ...appRepository(), branch: "topic./child" },
+    });
+    const job = jobFor(catalog, "app");
+    const result = await run(catalog, job, { issued: [matching] });
+    expect(result.outcome).toMatchObject({
+      state: "failed",
+      refusal: "attribution_mismatch",
+    });
+    expect(
+      (await github.refs("acme", "app"))[`refs/heads/${job.targetBranch}`],
+    ).toBeUndefined();
+  });
+
   test("a session with no issued bundle is not checked", async () => {
     const catalog = catalogOf({ app: appRepository() });
     const result = await run(catalog, jobFor(catalog, "app"), { issued: [] });

@@ -1103,10 +1103,12 @@ describe("WorkerGateway", () => {
     repositories = {};
     expect((await claimOf()).git_author).toBeNull();
     expect(looked).toHaveLength(2);
-    // A ledger that cannot write never holds the claim up.
+    // A ledger that cannot write fails the claim, so the worker asks again
+    // instead of running a session no push could be judged for.
     ledgerDown = true;
-    expect((await claimOf()).git_author).toBeNull();
+    await expect(claimOf()).rejects.toThrow("database down");
     ledgerDown = false;
+    expect((await claimOf()).git_author).toBeNull();
 
     // No author pin on the primary repository yet (decision D11): the claim
     // pins it the way a token issue would, then reads the App back through

@@ -151,10 +151,17 @@ export function createGitPusher(
 
       const checking =
         input.attribution !== undefined &&
-        input.attribution.expectations.length > 0 &&
-        gitRefNameAcceptable(input.attribution.baseRef)
+        input.attribution.expectations.length > 0
           ? input.attribution
           : undefined;
+      // A base ref the check cannot use must stop the push, not switch the
+      // check off.
+      if (checking !== undefined && !gitRefNameAcceptable(checking.baseRef)) {
+        return refused(
+          "attribution_mismatch",
+          "the repository's base branch is not a usable ref for the attribution check",
+        );
+      }
       const listed = await git(
         inRepo([
           "ls-remote",

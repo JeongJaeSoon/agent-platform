@@ -666,9 +666,9 @@ export function createWorkerGateway(deps: {
 
   // What this claim asks the session's commits to carry, kept so a push is
   // judged by what the server issued. A claim without `git` or `git_author`
-  // (an API from before them) asks for nothing checkable, and the claim is
-  // never held up by a failed write: the push then has fewer bundles to
-  // match, and a session with none is not checked.
+  // (an API from before them) asks for nothing checkable. A failed write fails
+  // the claim, which the worker retries: swallowing it would leave a session
+  // with no bundle, and a session with none is not checked at push.
   async function recordIssuedAttribution(
     sessionId: string,
     git: ClaimGit | undefined,
@@ -678,15 +678,11 @@ export function createWorkerGateway(deps: {
     if (ledger === undefined || git === undefined || gitAuthor === undefined) {
       return;
     }
-    try {
-      await ledger.record(sessionId, {
-        author: gitAuthor ?? IMAGE_GIT_AUTHOR,
-        coAuthor: git.co_author ?? null,
-        agentSession: git.session_url ?? sessionId,
-      });
-    } catch {
-      // Left out; see above.
-    }
+    await ledger.record(sessionId, {
+      author: gitAuthor ?? IMAGE_GIT_AUTHOR,
+      coAuthor: git.co_author ?? null,
+      agentSession: git.session_url ?? sessionId,
+    });
   }
 
   // A primary repository with no author pin yet gets the one a token issue

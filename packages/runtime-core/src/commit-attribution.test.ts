@@ -5,6 +5,7 @@ import {
   attributionProblems,
   type CommitFacts,
   parseCommitFacts,
+  rangeAttribution,
 } from "./commit-attribution.ts";
 
 const bot = {
@@ -147,5 +148,37 @@ describe("parseCommitFacts", () => {
 
   test("a malformed record fails the whole parse", () => {
     expect(parseCommitFacts("nope\x1e")).toBeNull();
+  });
+});
+
+describe("rangeAttribution", () => {
+  const record = (c: CommitFacts) =>
+    `${[c.sha, c.authorName, c.authorEmail, c.committerName, c.committerEmail, c.message].join("\x1f")}\x1e`;
+  const run = (commits: CommitFacts[], exitCode = 0) =>
+    rangeAttribution(
+      async () => ({ exitCode, stdout: commits.map(record).join("\n") }),
+      {
+        tip: "b".repeat(40),
+        not: ["c".repeat(40)],
+        expectations: [expected],
+        stripEmails: strip,
+      },
+    );
+
+  test("a wrong ancestor is found though the tip is right", async () => {
+    const ancestor = "1".repeat(40);
+    const result = await run([
+      commit({ sha: ancestor, authorName: "someone" }),
+      commit({ sha: "2".repeat(40) }),
+    ]);
+    expect(result).toEqual({
+      status: "ok",
+      checked: 2,
+      mismatches: [{ commit: ancestor, problems: ["author"] }],
+    });
+  });
+
+  test("a git that fails is unreadable, never clean", async () => {
+    expect(await run([commit()], 128)).toEqual({ status: "unreadable" });
   });
 });

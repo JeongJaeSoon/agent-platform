@@ -372,4 +372,66 @@ describe("werft-repair-attribution", () => {
     expect(git(["log", "-1", "--format=%cI"])).toBe(date);
     expect(date).toContain("2026-01-01");
   });
+
+  test("a local replace ref does not change the tree the repair keeps", () => {
+    remoteTracking(commit("base"));
+    const wrong = commit("feat: replaced");
+    const tree = git(["rev-parse", `${wrong}^{tree}`]);
+    const emptyTree = git(["hash-object", "-t", "tree", "/dev/null"]);
+    const decoy = git(["commit-tree", emptyTree, "-m", "decoy"], {
+      GIT_AUTHOR_NAME: "d",
+      GIT_AUTHOR_EMAIL: "d@d",
+      GIT_COMMITTER_NAME: "d",
+      GIT_COMMITTER_EMAIL: "d@d",
+    });
+    git(["replace", wrong, decoy]);
+    expect(repair().out).toMatch(/^repaired /);
+    expect(
+      git(["rev-parse", "HEAD^{tree}"], { GIT_NO_REPLACE_OBJECTS: "1" }),
+    ).toBe(tree);
+  });
+
+  test("a reference-transaction hook in the repository does not run", () => {
+    remoteTracking(commit("base"));
+    commit("feat: hooked");
+    const marker = join(root, "hook-ran");
+    const hook = join(repo, ".git", "hooks", "reference-transaction");
+    mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+    writeFileSync(hook, `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 });
+    expect(repair().out).toMatch(/^repaired /);
+    expect(Bun.file(marker).size).toBe(0);
+    expect(Bun.spawnSync(["test", "-e", marker]).exitCode).toBe(1);
+  });
+
+  test("a merge whose other parent is a right commit inside the range is kept, not nested", () => {
+    const base = commit("base");
+    remoteTracking(base);
+    repair();
+    git(["checkout", "-q", "-b", "side", base]);
+    commit("side work");
+    expect(repair().out).toMatch(/^repaired /);
+    const side = git(["rev-parse", "HEAD"]);
+    git(["checkout", "-q", "main"]);
+    commit("main work");
+    expect(repair().out).toMatch(/^repaired /);
+    git([
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      `user.name=${BOT.name}`,
+      "-c",
+      `user.email=${BOT.email}`,
+      "merge",
+      "-q",
+      "--no-ff",
+      "-m",
+      `merge side\n\nCo-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>\nAgent-Session: ${SESSION_URL}`,
+      "side",
+    ]);
+    const tip = git(["rev-parse", "HEAD"]);
+    const result = repair();
+    expect(result).toMatchObject({ code: 0, out: "clean" });
+    expect(git(["rev-parse", "HEAD"])).toBe(tip);
+    expect(git(["rev-parse", "HEAD^2"])).toBe(side);
+  });
 });

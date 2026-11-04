@@ -500,18 +500,18 @@ describe("protectedCommits", () => {
     ]);
   });
 
-  test("an earlier checkpoint whose manifest is gone is left out, not an error", async () => {
+  test("an earlier checkpoint whose manifest is gone makes the list unavailable, not shorter", async () => {
     await commitRevision(0);
     await commitRevision(1);
     const first = checkpoints.history[0];
     if (first === undefined) throw new Error("expected a first checkpoint");
     objects.remove(first.manifestRef);
-    expect(
-      await service.protectedCommits({
+    await expect(
+      service.protectedCommits({
         sessionId,
         pointer: checkpoints.pointer(),
       }),
-    ).toEqual([workspaceBundle.commit]);
+    ).rejects.toThrow("protected commits would be incomplete");
   });
 
   test("readPushSource carries the worker's attribution findings to request_push", async () => {

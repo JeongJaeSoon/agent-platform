@@ -1480,15 +1480,11 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verifyAttemptManifest,
 
     /**
-     * The commit a push of the session's latest checkpoint would carry. Only
-     * the pointer's own checkpoint counts: a push never falls back to an
-     * older revision the way a restore may.
-     */
-    /**
      * The workspace commit of the pointer's checkpoint and of up to
      * MAX_PROTECTED_COMMITS - 1 earlier ones, newest first. A checkpoint whose
-     * manifest does not verify is left out: it cannot be the source of a push
-     * either.
+     * manifest does not verify makes the list incomplete, and an incomplete
+     * list could let the repair remake a commit that was pushed: it throws, and
+     * the worker then skips the repair.
      */
     async protectedCommits(input: {
       sessionId: string;
@@ -1507,13 +1503,21 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
           sessionId: input.sessionId,
           verified,
         });
-        if (verdict.status === "verified") {
-          commits.push(verdict.manifest.workspace.gitCommit);
+        if (verdict.status !== "verified") {
+          throw new Error(
+            `checkpoint revision ${pointer.revision} does not verify (${verdict.reason}); the protected commits would be incomplete`,
+          );
         }
+        commits.push(verdict.manifest.workspace.gitCommit);
       }
       return [...new Set(commits)];
     },
 
+    /**
+     * The commit a push of the session's latest checkpoint would carry. Only
+     * the pointer's own checkpoint counts: a push never falls back to an
+     * older revision the way a restore may.
+     */
     async readPushSource(sessionId: string): Promise<PushSourceResult> {
       const pointer = await store.readPointer(sessionId);
       if (pointer === null) return { status: "none" };
