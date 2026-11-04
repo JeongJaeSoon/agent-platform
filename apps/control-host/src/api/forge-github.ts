@@ -1257,7 +1257,7 @@ function githubReason(cause: unknown): {
 /**
  * The connection behind each catalog repository: a GitHub App repository's
  * own App (one connection each), the console's App for `{ kind: github_app }`,
- * and a PAT on github.com. Others (Gitea, GHES with a PAT, bearer, public)
+ * and a PAT on github.com. Others (a non-GitHub host, GHES with a PAT, bearer, public)
  * have none and keep their static credential. Only `{ kind: github_app }`
  * repositories have a reviewer: the console's reviewer App.
  */

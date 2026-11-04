@@ -114,8 +114,8 @@ const catalog: SessionCatalog = withSeededInstallation({
         ref: { value_env: "PAT" },
       },
     },
-    "gitea-app": {
-      url: "https://gitea.invalid/acme/app.git",
+    "other-host-app": {
+      url: "https://git.invalid/acme/app.git",
       branch: "main",
       profiles: ["claude-coding-v1"],
     },
@@ -450,7 +450,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         actions_allow: [],
       },
     });
-    // Gitea is not GitHub; the PAT repository cannot be narrowed.
+    // The other host is not GitHub; the PAT repository cannot be narrowed.
     expect(body.options.repositories).toEqual([
       {
         id: "pat-app",

@@ -65,10 +65,14 @@ const CATALOG = {
         ref: { value_env: "GHES_APP_KEY" },
       },
     },
-    gitea: {
-      url: "https://gitea.example.com/acme/app.git",
+    selfhosted: {
+      url: "https://selfhosted.example.com/acme/app.git",
       branch: "main",
-      auth: { kind: "bearer", value: "static", ref: { value_env: "GITEA" } },
+      auth: {
+        kind: "bearer",
+        value: "static",
+        ref: { value_env: "SELF_HOSTED" },
+      },
     },
     public: { url: "https://example.com/acme/app.git", branch: "main" },
   },
@@ -704,7 +708,7 @@ describe("connections", () => {
   });
 
   test("a repository not on GitHub returns null and writes nothing", async () => {
-    for (const repositoryId of ["gitea", "public"]) {
+    for (const repositoryId of ["selfhosted", "public"]) {
       const { grant, receipts } = harness({ repositoryId });
       expect(await grant({ purpose: "clone" })).toBeNull();
       expect(receipts).toEqual([]);
@@ -895,7 +899,7 @@ describe("another repository than the session's", () => {
   test("lists the repositories a claim attaches", async () => {
     const listed = harness({
       catalog: MULTI,
-      github: settings({ repositories: ["app", "docs", "gitea"] }),
+      github: settings({ repositories: ["app", "docs", "selfhosted"] }),
     });
     expect(await listed.gate.additionalRepositories?.(SESSION)).toEqual([
       "docs",
