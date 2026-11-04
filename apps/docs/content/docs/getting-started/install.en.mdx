@@ -29,14 +29,14 @@ bun run --cwd packages/sdk build:package
 npm pack ./packages/sdk/dist
 ```
 
-This writes `werft-ai-sdk-0.1.0.tgz` to the repository root. Create an app directory next to the repository and install that file there.
+This writes `werft-ai-sdk-0.1.1.tgz` to the repository root. Create an app directory next to the repository and install that file there.
 
 ```sh
 cd ..
 mkdir my-werft-app && cd my-werft-app
 npm init -y
 npm pkg set type=module
-npm install ../werft/werft-ai-sdk-0.1.0.tgz
+npm install ../werft/werft-ai-sdk-0.1.1.tgz
 ```
 
 Once the package is on npm, the last line becomes `npm install @werft-ai/sdk`. The SDK package is under the Apache License 2.0. The server and the rest of the repository are source-available code under the PolyForm Small Business License 1.0.0.

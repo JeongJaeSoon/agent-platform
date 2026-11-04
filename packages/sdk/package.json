@@ -1,7 +1,7 @@
 {
   "name": "@werft-ai/sdk",
   "description": "Werft TypeScript SDK for servers and scripts: sessions, turns, events, approvals and push over an API key",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
