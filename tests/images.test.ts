@@ -510,6 +510,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         template: {
           metadata: { labels: { app: string } };
           spec: {
+            enableServiceLinks?: boolean;
             containers: {
               image: string;
               imagePullPolicy: string;
@@ -529,6 +530,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(deployment?.metadata.name).toBe("fake-git");
     expect(service?.kind).toBe("Service");
     expect(service?.metadata.name).toBe("fake-git");
+    // The Service's link variable would overwrite FAKE_GIT_PORT.
+    expect(deployment?.spec.template.spec.enableServiceLinks).toBe(false);
     expect(service?.spec.ports).toEqual([{ port: 3000 }]);
     expect(service?.spec.selector.app).toBe(
       deployment?.spec.template.metadata.labels.app,

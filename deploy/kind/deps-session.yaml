@@ -16,6 +16,9 @@ spec:
       labels: {app: fake-git}
     spec:
       terminationGracePeriodSeconds: 2
+      # A Service named fake-git injects FAKE_GIT_PORT=tcp://<ip>:3000, which
+      # is the server's own port setting.
+      enableServiceLinks: false
       containers:
         - name: fake-git
           # up.sh replaces this with the chart's images.controlHost, which has git.
