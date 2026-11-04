@@ -278,6 +278,10 @@ describe("app Dockerfiles", () => {
     expect(source).toContain(
       "COPY --chmod=0755 apps/worker/git-hooks/werft-hook /usr/local/share/werft/git-hooks/werft-hook\n",
     );
+    // The hook sources it from its own directory.
+    expect(source).toContain(
+      "COPY --chmod=0644 apps/worker/git-hooks/werft-trailers.sh /usr/local/share/werft/git-hooks/werft-trailers.sh\n",
+    );
     expect(source).toContain(
       "git config --system core.hooksPath /usr/local/share/werft/git-hooks\n",
     );

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type {
   BootstrapClaimResponse,
   RuntimeConfig,
@@ -22,7 +23,11 @@ import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
 import { EngineProcesses } from "./engine-processes.ts";
 import { HttpWorkerGatewayClient } from "./gateway-client.ts";
-import { writeGitTrailers } from "./git-trailers.ts";
+import {
+  gitEnvironmentFor,
+  IMAGE_GIT_HOOKS,
+  writeGitTrailers,
+} from "./git-trailers.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
 import { platformPromptText } from "./platform-prompt.ts";
@@ -62,6 +67,7 @@ export function createWorkerHost(
   const engines =
     overrides.engines ?? new EngineProcesses("/proc", config.runtime.cwd);
   const logger = overrides.logger ?? consoleLogger;
+  const imageHooks = existsSync(IMAGE_GIT_HOOKS) ? IMAGE_GIT_HOOKS : undefined;
   const gateway =
     overrides.gateway ??
     new HttpWorkerGatewayClient({
@@ -111,6 +117,7 @@ export function createWorkerHost(
     },
     gateway,
     gitTrailers: (claim) => writeGitTrailers(config.runtime.home, claim),
+    gitEnvironment: (claim) => gitEnvironmentFor(claim, imageHooks),
     packageManagers: (token, github, privateModules) =>
       writePackageManagerConfig(
         config.runtime.home,
@@ -210,6 +217,9 @@ export function runtimeStart(
       ...mode,
       correlationId,
       ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
+      ...(launch.gitEnvironment === undefined
+        ? {}
+        : { gitEnvironment: launch.gitEnvironment }),
     },
     bindings: {
       ...profile.bindings,

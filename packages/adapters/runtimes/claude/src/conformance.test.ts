@@ -32,6 +32,13 @@ const harness: AdapterConformanceHarness = {
       typeof settings === "object" ? settings.attribution : undefined;
     return { commit: attribution?.commit, pr: attribution?.pr };
   },
+  engineLaunch(gitEnvironment) {
+    const { env, ...rest } = buildSdkOptions(
+      { ...config, gitEnvironment },
+      { onPermission: async () => ({ behavior: "allow" }) },
+    );
+    return { environment: env ?? {}, rest };
+  },
 };
 
 describe("Claude adapter conformance", () => {

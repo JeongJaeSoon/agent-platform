@@ -31,6 +31,7 @@ import {
   type ApprovalRequested,
   type CheckpointLease,
   type CheckpointPreparation,
+  type GitEnvironment,
   type ImageRuntime,
   isOwnershipLost,
   isRetryable,
@@ -84,6 +85,8 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   /** The workspace's, read only when the profile lets the file in. */
   committedInstructions: () => string | null;
   correlationId: string;
+  /** The claim's git settings for the engine (git-trailers.ts gitEnvironmentFor). */
+  gitEnvironment?: GitEnvironment;
   /**
    * The claim's remaining_budget_usd: this run counts its spend from zero.
    * Absent for a profile that is not billed, whose engine runs with no budget.
@@ -154,6 +157,10 @@ export type WorkerHostOptions = {
   approvalCheckpointMs?: number;
   /** Hands the claim's commit author and trailers to the image's git config and hook. */
   gitTrailers?: (claim: BootstrapClaimResponse) => Promise<void>;
+  /** The git settings the claim's engine runs every git under. */
+  gitEnvironment?: (
+    claim: BootstrapClaimResponse,
+  ) => GitEnvironment | undefined;
   /**
    * Sends the engine's own fetches of the session's repositories through
    * their route; true when routes were written.
@@ -509,6 +516,7 @@ export class WorkerHost {
         if (plan !== undefined) this.startAttachments();
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
+          const gitEnvironment = this.options.gitEnvironment?.(claim);
           run = launcher.start({
             ...plan,
             committedInstructions:
@@ -516,6 +524,7 @@ export class WorkerHost {
                 ? plan.committedInstructions
                 : () => this.options.workspace.committedInstructions(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
+            ...(gitEnvironment === undefined ? {} : { gitEnvironment }),
             ...(claim.remaining_budget_usd === null
               ? {}
               : { maxBudgetUsd: claim.remaining_budget_usd }),

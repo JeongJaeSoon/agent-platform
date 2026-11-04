@@ -2,7 +2,7 @@ import {
   CLAUDE_AGENT_SDK_VERSION,
   CLAUDE_CODE_VERSION,
 } from "@werft-ai/runtime-claude-codec";
-import type { TranscriptMirror } from "@werft-ai/runtime-core";
+import type { GitEnvironment, TranscriptMirror } from "@werft-ai/runtime-core";
 
 import type { DriverConfig } from "./driver.ts";
 
@@ -74,6 +74,8 @@ export type ComponentIdentities = {
 export type ClaudeRuntimeConfig = DriverConfig & {
   appendSystemPrompt?: string;
   claudeConfigDir: string;
+  /** Put into the engine's environment as it is; never into its arguments. */
+  gitEnvironment?: GitEnvironment;
   /**
    * Required for every plugin and for every MCP server that is not plain
    * data; a run missing one is refused before it starts, because no

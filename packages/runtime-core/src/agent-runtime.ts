@@ -3,6 +3,7 @@ import type { PermissionMode, RuntimeConfig } from "@werft-ai/contracts";
 import type { AgentRun } from "./agent-run.ts";
 import type { TranscriptMirror } from "./checkpoint-manifest.ts";
 import type { RuntimeDescriptor } from "./descriptor.ts";
+import type { GitEnvironment } from "./git-environment.ts";
 
 export type AgentInput = {
   message: string;
@@ -29,6 +30,13 @@ export type RuntimeMode =
 export type RuntimeStartConfig = RuntimeMode & {
   correlationId: string;
   cwd: string;
+  /**
+   * Git settings every process the engine starts inherits in its
+   * environment (`gitEnvironment`); the adapter puts them there unchanged.
+   * Read from the claim at every start, so never part of a checkpoint's
+   * fingerprint.
+   */
+  gitEnvironment?: GitEnvironment;
   home: string;
   /**
    * The most this run may spend, in USD, as the engine estimates it. The

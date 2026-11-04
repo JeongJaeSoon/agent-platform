@@ -26,6 +26,7 @@ export type * from "./event-codec.ts";
 export type * from "./events.ts";
 export * from "./features.ts";
 export * from "./git-bundle.ts";
+export * from "./git-environment.ts";
 export * from "./image-runtime.ts";
 export * from "./module.ts";
 export * from "./transcript-store.ts";

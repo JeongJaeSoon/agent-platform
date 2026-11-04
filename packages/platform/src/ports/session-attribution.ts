@@ -16,8 +16,14 @@ export type SessionAttributionRecord = {
     /** Their active GitHub link, as GitHub named it at linking; else null. */
     github: { id: string; login: string } | null;
   } | null;
-  /** The workspace's author App registered in the console; null without one. */
+  /**
+   * The console App the session's primary repository is pinned to for
+   * `author`: its bot writes the commits (decision D11). Null without a pin,
+   * or when the pinned connection is gone or holds another App now.
+   */
   authorApp: { slug: string; apiBase: string } | null;
+  /** Whether the primary repository has an author pin at all. */
+  authorPinned: boolean;
 };
 
 export interface SessionAttributionStore {
