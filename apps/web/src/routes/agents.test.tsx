@@ -2027,7 +2027,7 @@ describe("에이전트 상세", () => {
     const identity = screen.getByRole("group", { name: "이름과 설명" });
     expect(
       within(identity).getByText(
-        "사람이 보는 값입니다. 새 버전이나 릴리스 없이 바로 바뀌고, 에이전트의 동작에는 영향이 없습니다.",
+        "새 버전이나 릴리스 없이 바로 바뀌고, 새 세션부터 모델에게 이 에이전트의 이름과 설명으로 전해집니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
       ),
     ).toBeDefined();
     await user.type(within(identity).getByLabelText("설명"), ` ${DESCRIPTION}`);
