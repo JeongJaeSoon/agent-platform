@@ -26,7 +26,7 @@
 - **세션 이벤트** — `events` 표(`schema.ts:1303`)
   - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts:1310`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([observability.md](observability.md)).
   - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts:2364`). 제어 단계의 상태 이벤트는 `packages/db/src/session-events.ts`의 `recordEvent`.
-  - 보존 기간: 무기한. 내용은 지우지 않는다. 오래 쉰 세션의 행은 [세션 이벤트 보관](#세션-이벤트-보관)이 bucket의 object로 옮기고, API는 그 object에서 같은 응답을 읽는다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([api-guide.md](../api-guide.md)).
+  - 보존 기간: 무기한. 내용은 지우지 않는다. 오래 쉰 세션의 행은 [세션 이벤트 보관](#세션-이벤트-보관)이 bucket의 object로 옮기고, API는 그 object에서 같은 응답을 읽는다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)).
   - 삭제 조건: 보관 job이 object를 쓰고, hold를 걸고, 다시 읽어 확인한 뒤에만 그 행을 DB에서 뺀다.
   - 바꾸기: `SESSION_ARCHIVE_AFTER_DAYS`(Helm `sessionArchive.afterDays`)로 옮기기 시작하는 기간을 정한다. 0이면 옮기지 않는다.
 
@@ -191,7 +191,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 
 2. **turn이 끝날 때까지 읽는다.** `GET /v1/sessions/{id}/turns/{turn_id}`의 `status`가 끝 상태(`completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown`, `packages/contracts/src/api/session.ts:52-58`)가 될 때까지 몇 초 간격으로 읽는다. 끝난 turn의 `result`가 `turns.result_json`이다.
 3. **세션 상태를 읽는다.** `GET /v1/sessions/{id}`의 `status`, `admission_state`, `revision`을 본다.
-4. **이벤트를 읽는다.** `GET /v1/sessions/{id}/events`는 SSE다. 처음부터 받아 `event: result`가 나오면 끊는다. `Last-Event-ID`로 이어 받는 법은 [api-guide.md § 5](../api-guide.md#5-sse로-진행-보기와-last-event-id-재연결).
+4. **이벤트를 읽는다.** `GET /v1/sessions/{id}/events`는 SSE다. 처음부터 받아 `event: result`가 나오면 끊는다. `Last-Event-ID`로 이어 받는 법은 [api-guide.md § 5](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#5-sse로-진행-보기와-last-event-id-재연결).
 
    ```sh
    curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" -H "Authorization: Bearer $KEY"

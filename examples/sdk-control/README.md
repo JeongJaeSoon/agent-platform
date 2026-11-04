@@ -1,6 +1,6 @@
 # 세션 제어와 복구
 
-`src/control.ts`는 세션 하나에서 제어 명령을 차례로 돈다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/control.ts`는 세션 하나에서 제어 명령을 차례로 돈다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 1. **interrupt**: 5분 늦게 답하는 turn을 실행 중에 멈춘다. worker는 남아 다음 메시지를 받는다.
 2. **revision**: 맞지 않는 `expected_revision`의 pause는 409 `REVISION_CONFLICT`다. SDK는 revision을 대신 채우거나 다시 보내지 않는다.

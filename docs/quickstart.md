@@ -161,7 +161,7 @@ grep -A1 '^event: question' /tmp/quickstart-events.txt
 
 SSE 스트림이다(`id`·`event`·`data` 한 묶음씩, 15초마다 comment keepalive). 사람이 볼 때는 `--max-time` 없이 열어 두고 Ctrl-C로 닫는다. 연결이 끊기면 backoff 뒤 마지막으로 완전히 받은 이벤트의 `id`를 `Last-Event-ID` 헤더로 보내 재연결한다. 서버는 그 이벤트 **다음**부터 재생한다. `410 CURSOR_EXPIRED`는 cursor가 보존 범위 밖이라는 뜻이므로 세션·turn 상태를 다시 읽어 동기화해야 한다. 지금 서버는 이벤트를 지우지 않아 410을 내지 않지만 클라이언트 계약에는 미리 포함한다.
 
-이벤트 이름은 `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error`다. `result` 이벤트의 `data.session_id`는 플랫폼 세션 id가 아니라 **engine(Claude Code) 세션 id**이며 durable 완료 판정이 아니다. turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `status`가 `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown` 중 하나일 때만 terminal로 판정한다. `completed`는 engine이 turn을 정상 종료했다는 뜻이고 요청한 일을 다 했다는 뜻은 아니다([api-guide 4절](api-guide.md#4-메시지-보내기와-turn-상태-보기)).
+이벤트 이름은 `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error`다. `result` 이벤트의 `data.session_id`는 플랫폼 세션 id가 아니라 **engine(Claude Code) 세션 id**이며 durable 완료 판정이 아니다. turn 조회(`GET /v1/sessions/{id}/turns/{turn_id}`)의 `status`가 `completed`·`failed`·`interrupted`·`cancelled`·`outcome_unknown` 중 하나일 때만 terminal로 판정한다. `completed`는 engine이 turn을 정상 종료했다는 뜻이고 요청한 일을 다 했다는 뜻은 아니다([api-guide 4절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#4-메시지-보내기와-turn-상태-보기)).
 
 ### ③ 대기 중인 요청
 
@@ -277,7 +277,7 @@ get "/v1/sessions/$SID/turns/6" | jq -e '.status == "completed"'
 ```
 
 - terminate는 대기 중인 입력을 취소하고 열린 권한 요청을 닫는다. 실행 중이던 turn은 `outcome_unknown`이 되고 세션은 `status: failed`, `admission_state: recovery_required`다. 도구가 이미 바깥에 한 일은 되돌리지 않는다(`external_effects_reverted: false`).
-- 복구 결정은 `abandon`(turn을 `cancelled`로), `confirm_completed`(checkpoint가 그 turn까지 덮을 때, `evidence_ref` 필수), `close`(세션을 끝냄, 되돌릴 수 없음), `start_fresh`(이전 engine 문맥을 모두 버리고 현재 pointer까지의 checkpoint를 retire하여 아무것도 복원하지 않는 새 Claude Code 세션에서 대기 중인 입력을 실행함), `retry_restore`(checkpoint 복원 실패의 원인을 고친 뒤 실패 횟수를 초기화하고 pointer를 유지해 다음 claim에서 같은 checkpoint를 다시 복원함) 중 하나다. 전체 절차는 [api-guide 7절](api-guide.md#7-outcome_unknownrecovery_required-복구-결정)을 본다. receipt `result.resumable`이 `true`면 resume할 수 있다.
+- 복구 결정은 `abandon`(turn을 `cancelled`로), `confirm_completed`(checkpoint가 그 turn까지 덮을 때, `evidence_ref` 필수), `close`(세션을 끝냄, 되돌릴 수 없음), `start_fresh`(이전 engine 문맥을 모두 버리고 현재 pointer까지의 checkpoint를 retire하여 아무것도 복원하지 않는 새 Claude Code 세션에서 대기 중인 입력을 실행함), `retry_restore`(checkpoint 복원 실패의 원인을 고친 뒤 실패 횟수를 초기화하고 pointer를 유지해 다음 claim에서 같은 checkpoint를 다시 복원함) 중 하나다. 전체 절차는 [api-guide 7절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#7-outcome_unknownrecovery_required-복구-결정)을 본다. receipt `result.resumable`이 `true`면 resume할 수 있다.
 - idle 상태에서 terminate하면 복구 결정 없이 바로 `stopped`이고, 그대로 resume할 수 있다.
 
 ### 로그 보기
@@ -375,7 +375,7 @@ scripts/local.sh up --fake-model           # 실제 Claude 스택이면 옵션 �
 
 `forget-lost-checkpoints`는 API가 거부하는 그 상태, 즉 bucket에 object version이 하나도 없는데 DB에 미회수 checkpoint가 남은 경우에만 동작한다. bucket에 버전이 하나라도 있으면 아무것도 바꾸지 않고 실패한다. 동작하면 남은 checkpoint를 모두 회수된 것(`collected_at`)으로 표시하고 잃은 세션 수와 ID를 출력한다.
 
-- `recovery_required <id>`: 그 checkpoint에서 복원될, 닫히지 않은 세션이다. pause·resume·stop 도중이었거나 이미 `recovery_required`였던 세션도 포함하며, 열려 있던 pause·resume receipt는 실패로 끝난다. 잃은 pointer는 `start_fresh`가 하듯 retire되지만 어느 turn의 문맥도 버린 것으로 치지 않는다. 그래서 세션 상세는 `admission_state: "recovery_required"`이다. worker에 전달돼 끝난 turn(`completed`·`failed`·`interrupted`)이 있으면 `attention`은 `CONTEXT_GAP`(`checkpointed_turn_id: null`)이고, 그런 turn이 없으면 `attention`은 null이다. 이벤트 스트림에는 system `checkpoint_objects_lost`와 `reason: "checkpoint_objects_lost"`인 status가 남는다. resume과 새 메시지는 409 `RECOVERY_REQUIRED`로 거부되고, 아무 일도 없었던 것처럼 새로 시작하지 않는다. 다른 복구 결정으로 `stopped`가 된 뒤의 resume도 409 `CHECKPOINT_UNAVAILABLE`이다. 대기 중인 입력은 남는다. 이전 문맥 없이 이어 가려면 복구 결정 `start_fresh`, 끝내려면 `close`를 보낸다([api-guide 7절](api-guide.md#7-outcome_unknownrecovery_required-복구-결정)). 복원할 checkpoint가 없으므로 `retry_restore`는 거부된다.
+- `recovery_required <id>`: 그 checkpoint에서 복원될, 닫히지 않은 세션이다. pause·resume·stop 도중이었거나 이미 `recovery_required`였던 세션도 포함하며, 열려 있던 pause·resume receipt는 실패로 끝난다. 잃은 pointer는 `start_fresh`가 하듯 retire되지만 어느 turn의 문맥도 버린 것으로 치지 않는다. 그래서 세션 상세는 `admission_state: "recovery_required"`이다. worker에 전달돼 끝난 turn(`completed`·`failed`·`interrupted`)이 있으면 `attention`은 `CONTEXT_GAP`(`checkpointed_turn_id: null`)이고, 그런 turn이 없으면 `attention`은 null이다. 이벤트 스트림에는 system `checkpoint_objects_lost`와 `reason: "checkpoint_objects_lost"`인 status가 남는다. resume과 새 메시지는 409 `RECOVERY_REQUIRED`로 거부되고, 아무 일도 없었던 것처럼 새로 시작하지 않는다. 다른 복구 결정으로 `stopped`가 된 뒤의 resume도 409 `CHECKPOINT_UNAVAILABLE`이다. 대기 중인 입력은 남는다. 이전 문맥 없이 이어 가려면 복구 결정 `start_fresh`, 끝내려면 `close`를 보낸다([api-guide 7절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#7-outcome_unknownrecovery_required-복구-결정)). 복원할 checkpoint가 없으므로 `retry_restore`는 거부된다.
 - `unchanged <id>`: 이미 닫혔거나 `start_fresh`로 checkpoint를 버려 복원할 것이 없는 세션이다.
 
 잃은 checkpoint가 없으면 `No checkpoint is missing from the bucket`만 출력하고 끝난다. 세션까지 모두 지우고 새로 하려면 여전히 `scripts/local.sh reset --fake-model`이다.

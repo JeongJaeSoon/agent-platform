@@ -393,7 +393,7 @@ describe("the e2e compose overlay", () => {
       `compose.yaml:${OVERLAY}`,
     ]);
     expect(read("docs/quickstart.md")).not.toContain("ci-mirror");
-    expect(read("docs/api-guide.md")).not.toContain("ci-mirror");
+    expect(read("apps/docs/content/docs/reference/api-guide.mdx")).not.toContain("ci-mirror");
   });
 });
 

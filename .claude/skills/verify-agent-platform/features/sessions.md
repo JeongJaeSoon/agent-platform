@@ -14,11 +14,11 @@
 - `permission` 파일을 바꾸는 도구는 `needs_input`과 pending request를 만들고 `POST …/answers`로 허용·거절한다.
 - `follow-up` `POST …/messages`로 turn 2.
 - `interrupt`·`pause`·`resume`·`terminate`·`recovery` 세션 제어(`docs/quickstart.md` 3장 ⑥–⑨).
-- `close` 일을 마친 세션을 `POST …/close`(`sessions:control`, `{expected_revision, reason?}`)로 닫는다. 아무것도 죽이지 않고 `admission_state`가 `closed`가 되며, 그 뒤 메시지·제어는 `409 SESSION_CLOSED`. terminate·recovery close와의 차이는 `docs/api-guide.md`.
+- `close` 일을 마친 세션을 `POST …/close`(`sessions:control`, `{expected_revision, reason?}`)로 닫는다. 아무것도 죽이지 않고 `admission_state`가 `closed`가 되며, 그 뒤 메시지·제어는 `409 SESSION_CLOSED`. terminate·recovery close와의 차이는 `apps/docs/content/docs/reference/api-guide.mdx`.
 
 ## How to get to it (user POV)
 
-- HTTP API(`docs/api-guide.md`). 세션 POST는 모두 `Idempotency-Key`가 필요하다.
+- HTTP API(`apps/docs/content/docs/reference/api-guide.mdx`). 세션 POST는 모두 `Idempotency-Key`가 필요하다.
 - 같은 흐름을 사람이 손으로 도는 문서: `docs/quickstart.md` 3장. 자동판: `tests/e2e/alpha-path.e2e.ts`.
 
 ## Driving it with lib.sh

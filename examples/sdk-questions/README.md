@@ -1,6 +1,6 @@
 # 질문과 권한 요청에 답하기
 
-`src/questions.ts`는 세션이 사람에게 묻는 두 가지(`AskUserQuestion`의 질문, 파일 쓰기 같은 도구의 권한 요청)에 스크립트가 답하는 방법을 보여 준다. 저장소 없이 도는 `general` profile을 쓴다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/questions.ts`는 세션이 사람에게 묻는 두 가지(`AskUserQuestion`의 질문, 파일 쓰기 같은 도구의 권한 요청)에 스크립트가 답하는 방법을 보여 준다. 저장소 없이 도는 `general` profile을 쓴다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 1. turn 1의 질문에 `waitForTurn`의 `question` handler가 답한다. 질문과 선택지가 예상한 것과 다르면 `undefined`를 돌려 콘솔이나 Slack의 사람에게 남긴다.
 2. turn 2의 `Write` 권한 요청을 `permission` handler가 사유와 함께 거절한다. 사유는 모델에게 돌아간다.
