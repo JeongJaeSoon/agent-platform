@@ -701,7 +701,7 @@ restore_drill() {
   # With --keep the drill's containers still use it; the tag then stays.
   CLEANUPS+=('docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1 || true')
   [ "$KEEP" = 1 ] \
-    || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/compose.yml" down -v >/dev/null 2>&1')
+    || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/compose.yml" -f "${REPO_ROOT}/infra/compose.gitea.yml" down -v >/dev/null 2>&1')
   if [ "$STORE" = s3 ]; then
     log "restore-drill: $BACKUP_DIR into project $DRILL and bucket $DRILL_BUCKET; log $log_file"
     {
@@ -727,7 +727,7 @@ restore_drill() {
   printf '%s restore-drill by %s: %s from %s into %s: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" \
     "$([ "$status" = 0 ] && echo passed || echo FAILED)" "$BACKUP_DIR" "$DRILL_BUCKET" "$log_file" \
     >> "${STATE_DIR}/history.log"
-  [ "$KEEP" = 0 ] || log "restore-drill: kept project $DRILL; tear it down with docker compose -p $DRILL -f infra/compose.yml down -v"
+  [ "$KEEP" = 0 ] || log "restore-drill: kept project $DRILL; tear it down with docker compose -p $DRILL -f infra/compose.yml -f infra/compose.gitea.yml down -v"
   return "$status"
 }
 

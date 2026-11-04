@@ -65,6 +65,12 @@ compose_restore() {
   docker compose -p "$project" "${files[@]}" -f "$RESTORE_OVERRIDE" "$@"
 }
 
+# True when the backup carries Gitea data; a backup of a local fake-git says
+# `gitea: null`.
+manifest_has_gitea() {
+  [ "$(jq -r '.gitea != null' "$1")" = true ]
+}
+
 # The value of one environment variable inside a running service container,
 # so scripts never guess POSTGRES_USER/POSTGRES_DB from the host environment.
 container_env() {

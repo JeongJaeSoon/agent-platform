@@ -120,7 +120,7 @@ scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-
 8. (Gitea 데이터가 있는 백업만) gitea를 멈추고 `gitea.db`·`app.ini`를 백업본으로 교체, bundle마다 `git clone --mirror`, 빈 repo는 `git init --bare`, `gitea admin regenerate hooks`, 재시작. `app.ini`는 secret(`SECRET_KEY`·`INTERNAL_TOKEN`·`[oauth2] JWT_SECRET`)을 지키려고 통째로 복사하므로 `[server]`의 외부 주소는 원본 것이다. restore override가 gitea에 `GITEA__server__ROOT_URL`·`DOMAIN`·`SSH_DOMAIN`·`SSH_PORT`를 주고, Gitea 이미지 entrypoint의 `environment-to-ini`가 기동할 때마다 이 네 키만 복원 주소(`http://127.0.0.1:<port-base+2>/`, ssh `<port-base+3>`)로 덮어쓴다. 나머지 키와 섹션은 백업본 그대로다. 컨테이너 안 포트인 `HTTP_PORT`(3000)·`SSH_LISTEN_PORT`(22)는 건드리지 않는다. 재시작 뒤 네 값이 실제로 들어갔는지 확인하고, 아니면 실패한다.
 9. `migrate` 서비스를 한 번 돌려 `db.migrate.noop`을 확인한다.
 
-끝나면 접속 정보, 다시 띄우는 명령, 정리 명령(`docker compose -p <project> -f infra/compose.yml down -v`)을 출력한다.
+끝나면 접속 정보, 다시 띄우는 명령, 정리 명령(`docker compose -p <project> -f infra/compose.yml down -v`)을 출력한다. Gitea 데이터가 있는 백업이면 두 명령에 `-f infra/compose.gitea.yml`이 붙는다. 이 파일이 빠진 `down -v`는 복원한 저장소와 Gitea secret이 든 `gitea-data` volume을 남긴다.
 
 복원 project는 **항상 restore override와 같은 `RESTORE_*` 값으로** 다시 띄운다(출력된 "start again" 명령). base 파일만으로 `up`하면 컨테이너가 재생성되며 원본 포트(5432·4566·3001)와 공용 worker network로 되돌아가 원본 설치와 충돌하고, 복원한 Gitea가 있으면 그 `app.ini`는 복원 포트를 계속 광고해 clone URL이 없는 listener를 가리킨다. 복원본을 원본 자리로 승격하는 절차는 아직 없다.
 
@@ -230,7 +230,7 @@ EXECUTION_SLOT_LIMIT=10 QUEUED_INPUT_LIMIT_PER_SESSION=20 STORAGE_LIMIT_BYTES=10
 MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 CHECKPOINT_OBJECT_PROTECTION=locked bun apps/control-host/src/api/server.ts   # + 위와 같은 AWS 자격 증명
 
-# 4. 정리 (복원본만. --rmi local은 복원이 빌드한 migrate 이미지)
+# 4. 정리 (복원본만. --rmi local은 복원이 빌드한 이미지. Gitea 데이터가 있는 백업이면 -f infra/compose.gitea.yml을 더한다)
 docker compose -p ap-restore-1 -f infra/compose.yml down -v --rmi local
 docker compose start api scheduler reconciler maintenance   # 원본을 다시 연다
 ```

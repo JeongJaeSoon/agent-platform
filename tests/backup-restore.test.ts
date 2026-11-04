@@ -172,6 +172,24 @@ describe("the restore's git host", () => {
   test("stays the local fake-git for a backup without", async () => {
     expect(await files("0")).not.toContain("compose.gitea.yml");
   });
+
+  test.each([
+    [{ version: "Gitea version 1.22", dir: "gitea" }, 0],
+    [null, 1],
+  ])("reads manifest gitea %j as exit %d", async (gitea, exitCode) => {
+    const dir = await mkdtemp(join(tmpdir(), "backup-restore-gitea-"));
+    try {
+      const manifest = join(dir, "manifest.json");
+      await writeFile(manifest, JSON.stringify({ gitea }));
+      const result = await bash(
+        `source "${lib}"; manifest_has_gitea "${manifest}"`,
+        repoRoot,
+      );
+      expect(result.exitCode).toBe(exitCode);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
 });
 
 describe("restored gitea address check", () => {

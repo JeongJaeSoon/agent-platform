@@ -79,7 +79,8 @@ verify_checksums "$BACKUP" || die "SHA256SUMS mismatch in $BACKUP; the bundle is
 MANIFEST="$BACKUP/manifest.json"
 schema_check "$MANIFEST" || exit "$EXIT_SCHEMA_MISMATCH"
 BUCKET="${BUCKET:-$(jq -r '.objects.bucket' "$MANIFEST")}"
-RESTORE_GITEA="$(jq -r 'if .gitea == null then 0 else 1 end' "$MANIFEST")"
+RESTORE_GITEA=0
+if manifest_has_gitea "$MANIFEST"; then RESTORE_GITEA=1; fi
 
 # `check_target [--create|--source-bucket <b>]`: the target bucket is new,
 # empty and locked, or the restore stops with the CLI's reason; 4 when it
@@ -287,5 +288,5 @@ restore: done — project '$INTO'
              RESTORE_GITEA_HTTP_PORT=$RESTORE_GITEA_HTTP_PORT RESTORE_GITEA_SSH_PORT=$RESTORE_GITEA_SSH_PORT \\
              POSTGRES_DB=$POSTGRES_DB POSTGRES_USER=$POSTGRES_USER \\
              docker compose -p $INTO -f infra/compose.yml ${GITEA_FILE}-f infra/compose.restore.yml up -d ${SERVICES[*]}
-  tear down  docker compose -p $INTO -f infra/compose.yml down -v
+  tear down  docker compose -p $INTO -f infra/compose.yml ${GITEA_FILE}down -v
 EOF
