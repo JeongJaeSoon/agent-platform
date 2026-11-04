@@ -443,6 +443,11 @@ describe("a push to another repository", () => {
     own: string | null = "sample-app",
     released = ["sample-app", "docs", "tools"],
     policyApproval: PushPolicyApproval | null = null,
+    pinned: PushSourceResult = {
+      status: "ready",
+      revision: 3,
+      gitCommit: "a".repeat(40),
+    },
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
@@ -479,13 +484,7 @@ describe("a push to another repository", () => {
         },
       } as unknown as PushRequestStore,
       catalog: MULTI,
-      source: {
-        readPushSource: async () => ({
-          status: "ready",
-          revision: 3,
-          gitCommit: "a".repeat(40),
-        }),
-      },
+      source: { readPushSource: async () => pinned },
     });
     const actor = {
       caller: testCaller("owner-a"),
@@ -523,6 +522,47 @@ describe("a push to another repository", () => {
     expect(refusals.at(-1)?.result).toMatchObject({ repository_id: "tools" });
     expect(await to("docs")).toBeNull();
     expect(created.map((input) => input.repositoryId)).toEqual(["docs"]);
+  });
+
+  test("a checkpoint whose worker found wrongly attributed commits is refused before a person is asked", async () => {
+    const mismatches = [
+      { commit: "b".repeat(40), problems: ["author" as const] },
+    ];
+    const { to, created, refusals } = pushing(
+      null,
+      "sample-app",
+      undefined,
+      null,
+      {
+        status: "ready",
+        revision: 3,
+        gitCommit: "a".repeat(40),
+        mismatches,
+      },
+    );
+    const error = (await to()) as SessionServiceError;
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect(error.details).toEqual({
+      refusal: "attribution_mismatch",
+      receipt_id: "receipt-1",
+      mismatches,
+    });
+    expect(refusals.at(-1)).toMatchObject({
+      operation: "request_push",
+      refusal: "attribution_mismatch",
+      result: {
+        verdict: "refuse",
+        refusal: "attribution_mismatch",
+        mismatches,
+      },
+    });
+    expect(created).toEqual([]);
+  });
+
+  test("a checkpoint from a worker that checked nothing passes here (the push checks it)", async () => {
+    const { to, created } = pushing(null);
+    expect(await to()).toBeNull();
+    expect(created).toHaveLength(1);
   });
 
   test("a release with approval off approves the session's own repository alone", async () => {

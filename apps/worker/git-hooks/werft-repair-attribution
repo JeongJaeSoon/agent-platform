@@ -1,0 +1,141 @@
+#!/bin/sh
+# Remakes the session's own commits with the attribution the platform issued
+# (design github-agent.md decision 5), using git plumbing only. No rebase,
+# read-tree or merge: those rewrite pushed history, touch the working tree
+# (and with it uncommitted changes), or lose a merge's parents.
+#
+#   werft-repair-attribution <repository> <protected-file>
+#
+# <protected-file> lists, one per line, commits that are never remade (the
+# server's confirmed checkpoints). The boundary is those plus every
+# remote-tracking ref; the range is what HEAD holds beyond it. Each range
+# commit is remade in order with the same tree, the first parent mapped to its
+# remade commit, the other parents as they were, and its message passed
+# through the hook's own function (werft-trailers.sh). Author and committer
+# are the claim's identity, stated on the command line so git's environment
+# and config cannot change them.
+#
+# Nothing is written until the new tip is verified; then one update-ref that
+# only applies if the ref still holds the old tip. The index and working tree
+# are not touched: the tree is unchanged, so uncommitted changes stay the
+# same changes.
+#
+# Prints one line and exits: 0 `clean` or `repaired <old> <new>`, 2
+# `nested_merge <sha>` (a range merge has another range commit as a parent;
+# nothing written), 1 anything else (nothing written).
+set -u
+
+fail() { printf 'failed: %s\n' "$1"; exit 1; }
+
+repo=${1:?repository}
+protected_file=${2:?protected file}
+cd "$repo" || fail "no repository"
+
+here=$(cd "${0%/*}" 2>/dev/null && pwd -P)
+if [ -f "$here/werft-trailers.sh" ]; then
+  trailers=$here/werft-trailers.sh
+else
+  trailers=/usr/local/share/werft/git-hooks/werft-trailers.sh
+fi
+[ -f "$trailers" ] || fail "no werft-trailers.sh"
+# shellcheck disable=SC1090
+. "$trailers"
+
+# The identity is read from the system config (the image includes the claim's
+# identity file there). The worker's own git runs with GIT_CONFIG_NOSYSTEM, so
+# that is lifted for this process.
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL \
+  GIT_AUTHOR_DATE GIT_COMMITTER_DATE GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT \
+  GIT_CONFIG_PARAMETERS
+git rev-parse -q --verify HEAD >/dev/null || { echo clean; exit 0; }
+
+name=$(git config --system --includes --get user.name) || fail "no identity name"
+email=$(git config --system --includes --get user.email) || fail "no identity email"
+[ -n "$name" ] && [ -n "$email" ] || fail "empty identity"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/werft-repair.XXXXXX") || fail "no temp directory"
+trap 'rm -rf "${work:?}"' EXIT
+
+# Protection: local remote-tracking refs and the server's commits. A commit the
+# server named that this repository does not hold is skipped.
+: >"$work/exclude"
+git for-each-ref --format='%(objectname)' refs/remotes >>"$work/exclude"
+if [ -f "$protected_file" ]; then
+  while IFS= read -r sha || [ -n "$sha" ]; do
+    case $sha in
+      [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+      *) continue ;;
+    esac
+    git cat-file -e "$sha^{commit}" 2>/dev/null && printf '%s\n' "$sha" >>"$work/exclude"
+  done <"$protected_file"
+fi
+# shellcheck disable=SC2046
+set -- $(sort -u "$work/exclude")
+old_tip=$(git rev-parse HEAD)
+if [ $# -gt 0 ]; then
+  git rev-list --reverse --topo-order HEAD --not "$@" >"$work/range" || fail "rev-list"
+else
+  git rev-list --reverse --topo-order HEAD >"$work/range" || fail "rev-list"
+fi
+[ -s "$work/range" ] || { echo clean; exit 0; }
+sort "$work/range" >"$work/range.sorted"
+
+mkdir "$work/map" "$work/msg"
+while IFS= read -r c; do
+  # <commit> <parent>...
+  line=$(git rev-list --parents -n 1 "$c") || fail "parents of $c"
+  # shellcheck disable=SC2086
+  set -- $line
+  shift
+  parent_args=""
+  first=1
+  for p in "$@"; do
+    if [ -f "$work/map/$p" ]; then
+      if [ "$first" -eq 0 ]; then printf 'nested_merge %s\n' "$c"; exit 2; fi
+      mapped=$(cat "$work/map/$p")
+    elif grep -qx "$p" "$work/range.sorted"; then
+      # In range but not yet remade cannot happen in topological order.
+      fail "parent $p of $c out of order"
+    else
+      mapped=$p
+    fi
+    parent_args="$parent_args -p $mapped"
+    first=0
+  done
+
+  git cat-file commit "$c" | awk 'f { print } /^$/ && !f { f = 1 }' >"$work/msg/$c" ||
+    fail "message of $c"
+  werft_fix_message "$work/msg/$c" || fail "message fix of $c"
+
+  tree=$(git rev-parse "$c^{tree}") || fail "tree of $c"
+  author_date=$(git log -1 --format=%ad --date=raw "$c")
+  committer_date=$(git log -1 --format=%cd --date=raw "$c")
+  # shellcheck disable=SC2086
+  new=$(GIT_AUTHOR_DATE=$author_date GIT_COMMITTER_DATE=$committer_date \
+    git -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
+    commit-tree "$tree" $parent_args -F "$work/msg/$c") || fail "commit-tree of $c"
+  printf '%s' "$new" >"$work/map/$c"
+
+  # What the new commit must be, checked before anything is written.
+  [ "$(git rev-parse "$new^{tree}")" = "$tree" ] || fail "tree changed at $c"
+  [ "$(git rev-list --parents -n 1 "$new" | wc -w)" -eq "$(($# + 1))" ] ||
+    fail "parent count changed at $c"
+  [ "$(git log -1 --format='%an%n%ae%n%cn%n%ce' "$new")" = "$name
+$email
+$name
+$email" ] || fail "identity not applied at $c"
+done <"$work/range"
+
+new_tip=$(cat "$work/map/$old_tip" 2>/dev/null) || fail "tip not remade"
+if [ "$new_tip" = "$old_tip" ]; then echo clean; exit 0; fi
+[ "$(git rev-parse "$new_tip^{tree}")" = "$(git rev-parse "$old_tip^{tree}")" ] ||
+  fail "tip tree changed"
+
+if branch=$(git symbolic-ref -q HEAD); then
+  git update-ref -m "werft-repair-attribution" "$branch" "$new_tip" "$old_tip" ||
+    fail "the branch moved meanwhile"
+else
+  git update-ref --no-deref -m "werft-repair-attribution" HEAD "$new_tip" "$old_tip" ||
+    fail "HEAD moved meanwhile"
+fi
+printf 'repaired %s %s\n' "$old_tip" "$new_tip"
