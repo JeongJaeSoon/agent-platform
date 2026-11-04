@@ -22,15 +22,15 @@ images:
   pullSecrets: []
   # api, scheduler, reconciler, slack, migrate and checkpoint GC.
   controlHost:
-    repository: ghcr.io/jeongjaesoon/agent-platform-control-host
+    repository: ghcr.io/jeongjaesoon/werft-control-host
     digest: ""
   egressProxy:
-    repository: ghcr.io/jeongjaesoon/agent-platform-egress-proxy
+    repository: ghcr.io/jeongjaesoon/werft-egress-proxy
     digest: ""
   # Not deployed by the chart: the scheduler launches it per session
   # (WORKER_IMAGE).
   worker:
-    repository: ghcr.io/jeongjaesoon/agent-platform-worker
+    repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
     # {engine: claude-agent-sdk, sdkVersion: 0.3.280, cliVersion: 2.1.280,
@@ -42,7 +42,7 @@ images:
   # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and
   # runtime go together, and need images.worker.runtime set.
   workerPrevious:
-    repository: ghcr.io/jeongjaesoon/agent-platform-worker
+    repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""
     runtime: {}
 
@@ -57,7 +57,7 @@ images:
 #   PLATFORM_SECRET_KEY     api and slack, optional: the master key Slack
 #                           secrets are encrypted under (`openssl rand -hex 32`)
 secrets:
-  name: agent-platform
+  name: werft
   # Hand the two AWS keys above to the api and the checkpoint GC. false
   # leaves them out, and the object store signs with the AWS default
   # credential chain instead: IRSA through serviceAccounts.api on EKS.

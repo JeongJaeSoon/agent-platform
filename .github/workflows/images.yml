@@ -36,7 +36,9 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   # Lower-cased in the metadata step: ghcr rejects upper-case repository paths.
-  IMAGE_PREFIX: ${{ github.repository }}
+  # The owner, not github.repository: the images are named werft-*, whatever
+  # the repository is called.
+  IMAGE_PREFIX: ${{ github.repository_owner }}/werft
   # Pulled from the CI mirror, not Docker Hub: the Dockerfiles'
   # own BUN_IMAGE by the same digest, so the image bytes do not change, the
   # BuildKit that setup-buildx-action runs, and the Dockerfile frontend.

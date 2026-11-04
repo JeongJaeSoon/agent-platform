@@ -37,7 +37,7 @@ chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 
 - NetworkPolicy를 강제하는 CNI. 강제하지 않는 CNI에서는 worker 격리가 없다. kind v0.33의 기본 CNI(kindnet)는 강제한다. EKS는 VPC CNI의 network policy agent를 켠다.
 - PostgreSQL 16과 S3 bucket. 기본 보호 모드 `locked`는 versioning과 Object Lock이 켜진 bucket을 요구하고, 아니면 api가 기동을 거부한다.
 - 이미지 셋(control-host, egress-proxy, worker)을 registry에 올리고 digest를 적어 둔다. 게시된 이미지가 없으므로 checkout에서 빌드한다. kind에서는 `deploy/kind/up.sh`가 대신하고, 그 밖에서는 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한 뒤 values의 `images.registry`와 `images.*.repository`를 그 registry로 바꾼다(`values-aws.example.yaml`의 형식). chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
-- `secrets.name`(기본 `agent-platform`) Secret. 키는 아래와 같다. 값은 명령 인자나 셸 history에 남기지 않는다.
+- `secrets.name`(기본 `werft`) Secret. 키는 아래와 같다. 값은 명령 인자나 셸 history에 남기지 않는다.
 
 | 키 | 읽는 곳 |
 |---|---|
@@ -87,22 +87,24 @@ zsh에서는 환경 변수 묶음을 문자열 하나로 넘기면 단어로 나
 namespace와 Secret을 먼저 만든다. Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)에서 만든다. 값이 명령줄에 나오지 않는다. **kind**
 
 ```bash
-kubectl create namespace agent-platform
-kubectl -n agent-platform create secret generic agent-platform --from-file=<secret-dir>
+kubectl create namespace werft
+kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
 설치별 값은 values 파일 하나에 둔다. 최소한 세 이미지의 digest, 카탈로그(`catalog.connections`와 `catalog.repositories`는 하나 이상), checkpoint bucket이 들어간다. `catalog.connections`가 없으면 api와 slack이 `connections.yaml is missing`으로 뜨지 않는다. 기본값과 설명은 `values.yaml`에 있다. 같은 명령이 처음 설치와 업그레이드를 모두 한다. **kind**(`-f deploy/kind/values.yaml -f <digest만 담은 파일>`)
 
 ```bash
-helm upgrade --install agent-platform deploy/helm/agent-platform \
-  --namespace agent-platform -f values-<installation>.yaml --timeout 10m
-kubectl -n agent-platform get job agent-platform-migrate
+helm upgrade --install werft deploy/helm/agent-platform \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+kubectl -n werft get job werft-migrate
 for d in api egress-proxy reconciler scheduler; do
-  kubectl -n agent-platform rollout status deploy/agent-platform-$d --timeout=600s
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
 done
 ```
 
-release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은 `<release>-agent-platform-…`가 된다.
+release 이름에 `werft`가 들어가지 않으면 리소스 이름은 `<release>-werft-…`가 된다.
+
+chart 이름이 `agent-platform`이던 때 설치한 release는 제자리에서 올릴 수 없다. 리소스 이름이 바뀌어 upgrade-check Job이 기존 scheduler를 찾지 못하고 멈춘다. 세션이 끝났는지 확인하고 [제거](#제거)한 뒤 새로 설치한다.
 
 첫 설치가 실패하면(이미지 경로나 pull 권한 오류가 흔하다) 값을 고치고 같은 명령을 다시 돌린다. Helm은 release가 `failed`로 남아 있으므로 이를 upgrade로 처리하고, 그래서 upgrade-check Job이 처음으로 돈다. scheduler Deployment가 없고 DB가 비어 있거나 세션이 없으면 Job이 `proceed`로 끝나고 설치가 이어진다([업그레이드 전 검사](#업그레이드-전-검사)). Deployment까지 만들어진 뒤 실패했다면 재시도는 보통의 upgrade 규칙을 따른다. worker 이미지를 고친 재시도는 여기서 멈추므로(`check_failed`, runtime을 넣었다면 `refused`), 세션을 시작하지 않았다면 [제거](#제거)한 뒤 다시 설치한다.
 
@@ -141,10 +143,10 @@ ingress:
 
 ```bash
 helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
-helm template agent-platform deploy/helm/agent-platform \
+helm template werft deploy/helm/agent-platform \
   -f deploy/helm/agent-platform/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
-helm upgrade --install agent-platform deploy/helm/agent-platform \
-  --namespace agent-platform -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
+helm upgrade --install werft deploy/helm/agent-platform \
+  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
 ```
 
 | 값 | 무엇을 바꾸나 |
@@ -174,19 +176,19 @@ probe는 chart가 정한다. 사람이 확인할 때도 같은 것을 부른다.
 `/livez`는 없다. liveness는 `/healthz`다. **kind**
 
 ```bash
-kubectl -n agent-platform port-forward svc/agent-platform-api 13000:3000 &
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
 curl -fsS -w '\n' http://127.0.0.1:13000/readyz
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
-kubectl -n agent-platform exec deploy/agent-platform-scheduler -- bun run apps/control-host/src/main.ts scheduler --health
-kubectl -n agent-platform exec deploy/agent-platform-reconciler -- bun run apps/control-host/src/main.ts reconciler --health
-kubectl -n agent-platform exec deploy/agent-platform-egress-proxy -- bun run /app/src/healthcheck.ts
+kubectl -n werft exec deploy/werft-scheduler -- bun run apps/control-host/src/main.ts scheduler --health
+kubectl -n werft exec deploy/werft-reconciler -- bun run apps/control-host/src/main.ts reconciler --health
+kubectl -n werft exec deploy/werft-egress-proxy -- bun run /app/src/healthcheck.ts
 ```
 
 port-forward는 끝나면 그 job만 끈다(`kill %1`). AWS에서는 port-forward 대신 Ingress host로 `/readyz`를 부른다(**AWS 전용**).
 
 ## API key, 실행 권한, 카탈로그 권한
 
-compose 설치의 `bun run keys`·`grants`·`catalog-authority`는 api 컨테이너 안에서 돈다. Kubernetes 설치에서는 `:k8s`가 붙은 같은 이름의 script가 `scripts/k8s-api.sh`로 api Pod 안에서 같은 CLI를 돌린다. Pod가 이미 `DATABASE_URL`을 가지고 있어서 비밀값이 운영자 셸을 지나지 않는다. kubectl의 현재 context나 `KUBECONFIG`가 클러스터를, `NAMESPACE`·`RELEASE`(기본 둘 다 `agent-platform`)가 설치를 고른다. **kind**
+compose 설치의 `bun run keys`·`grants`·`catalog-authority`는 api 컨테이너 안에서 돈다. Kubernetes 설치에서는 `:k8s`가 붙은 같은 이름의 script가 `scripts/k8s-api.sh`로 api Pod 안에서 같은 CLI를 돌린다. Pod가 이미 `DATABASE_URL`을 가지고 있어서 비밀값이 운영자 셸을 지나지 않는다. kubectl의 현재 context나 `KUBECONFIG`가 클러스터를, `NAMESPACE`·`RELEASE`(기본 둘 다 `werft`)가 설치를 고른다. **kind**
 
 ```bash
 bun run keys:k8s create <owner_id> --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
@@ -201,14 +203,14 @@ bun run catalog-authority:k8s activate <revision> --expected <revision|none>
 script 없이 부르면 다음과 같다. `deploy/…-api`는 api Pod 하나를 고른다. 세 CLI는 DB만 쓰므로 어느 Pod든 같다.
 
 ```bash
-kubectl -n agent-platform exec deploy/agent-platform-api -c api -- \
+kubectl -n werft exec deploy/werft-api -c api -- \
   bun run apps/control-host/src/api/keys.ts create <owner_id> --scopes sessions:read
 ```
 
 `catalog-authority activate`의 `<revision>`은 api Pod가 기동할 때 남긴 로그(`Session catalog loaded`, `revision`)에 있다. **kind**(`show`만. activate는 카탈로그를 바꾸는 운영 결정이라 돌리지 않았다)
 
 ```bash
-kubectl -n agent-platform logs deploy/agent-platform-api | grep 'Session catalog loaded'
+kubectl -n werft logs deploy/werft-api | grep 'Session catalog loaded'
 ```
 
 ## 업그레이드와 롤백
@@ -216,8 +218,8 @@ kubectl -n agent-platform logs deploy/agent-platform-api | grep 'Session catalog
 업그레이드는 values 파일의 digest를 새 이미지로 바꾸고 설치와 같은 `helm upgrade --install`을 돌린다. migrate hook이 먼저 돌고, 실패하면 Deployment는 그대로다. scheduler는 `Recreate`라서 옛 Pod가 내려간 뒤 새 Pod가 뜬다. 그 사이에는 scheduler pass가 돌지 않는다(새 worker launch와 회수가 멈춘다). **kind**
 
 ```bash
-helm -n agent-platform history agent-platform
-helm -n agent-platform rollback agent-platform <revision> --wait --timeout 10m
+helm -n werft history werft
+helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
 롤백은 migrate hook을 돌리지 않는다(`pre-rollback`이 아니다). DB는 새 schema에 남고, 옛 빌드는 자기보다 앞선 schema에서도 ready가 된다(`/readyz`의 schema 검사는 자기 migration 목록이 적용된 목록의 앞부분과 같은지만 본다). 그래서 롤백할 수 없는 migration은 배포하지 않는다. worker 이미지를 되돌릴 때 checkpoint 호환은 [images-and-supply-chain.md § worker·control-host 롤백과 incremental checkpoint](images-and-supply-chain.md#workercontrol-host-롤백과-incremental-checkpoint)를 먼저 본다.
@@ -244,7 +246,7 @@ worker Pod의 이미지는 scheduler가 launch할 때 정해진다. 이미지는
 `helm upgrade`는 migrate보다 먼저(hook weight -5) `upgrade-check` Job을 대상 릴리스의 api 이미지로 돌린다. Job은 수거되지 않은 checkpoint가 있는 세션마다 포인터의 조합을 읽고, 대상 릴리스의 `images.worker`와 `images.workerPrevious` 어느 쪽으로도 재개할 수 없는 세션을 고른다. 조합을 기록하기 전에 커밋된 포인터도 고른다. 결과는 Job 로그의 JSON 한 줄이다.
 
 ```bash
-kubectl -n agent-platform logs job/agent-platform-upgrade-check
+kubectl -n werft logs job/werft-upgrade-check
 ```
 
 | `verdict` | exit | upgrade | 뜻 |
@@ -279,7 +281,7 @@ Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 w
 **`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
 
 ```bash
-kubectl -n agent-platform exec deploy/agent-platform-api -- env \
+kubectl -n werft exec deploy/werft-api -- env \
   UPGRADE_DEPLOYED_WORKER_IMAGE='<지금 scheduler의 WORKER_IMAGE>' \
   WORKER_IMAGE='<되돌릴 revision의 worker 이미지>' WORKER_IMAGE_RUNTIME='<그 runtime JSON>' \
   WORKER_IMAGE_PREVIOUS='<그 revision의 workerPrevious>' WORKER_IMAGE_PREVIOUS_RUNTIME='<그 runtime JSON>' \
@@ -310,10 +312,10 @@ worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 되돌릴 r
 ## 제거
 
 ```bash
-helm -n agent-platform uninstall agent-platform
+helm -n werft uninstall werft
 ```
 
 **kind**. `helm uninstall`이 남기는 것은 다음과 같다.
 
-- scheduler가 만든 worker Pod, nonce Secret, workspace PVC. 지우기 전에 세션이 끝났는지(또는 checkpoint됐는지) 본다. PVC를 지우면 checkpoint되지 않은 작업이 사라진다. 목록: `kubectl -n agent-platform get pods,secrets,pvc -l app.kubernetes.io/part-of=agent-platform,agent-platform.installation=<installationId>`
-- hook으로 만든 migrate Job과 upgrade-check Job, ExternalSecret과 그것이 쓴 Secret(`creationPolicy: Orphan`). 직접 만든 Secret도 남는다. 남은 Job은 다음 설치를 막지 않는다. 같은 이름의 hook이 돌 때 Helm이 먼저 지운다. 지금 지우려면 `kubectl -n agent-platform delete job agent-platform-migrate agent-platform-upgrade-check --ignore-not-found`를 돌린다.
+- scheduler가 만든 worker Pod, nonce Secret, workspace PVC. 지우기 전에 세션이 끝났는지(또는 checkpoint됐는지) 본다. PVC를 지우면 checkpoint되지 않은 작업이 사라진다. 목록: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=agent-platform,agent-platform.installation=<installationId>`
+- hook으로 만든 migrate Job과 upgrade-check Job, ExternalSecret과 그것이 쓴 Secret(`creationPolicy: Orphan`). 직접 만든 Secret도 남는다. 남은 Job은 다음 설치를 막지 않는다. 같은 이름의 hook이 돌 때 Helm이 먼저 지운다. 지금 지우려면 `kubectl -n werft delete job werft-migrate werft-upgrade-check --ignore-not-found`를 돌린다.

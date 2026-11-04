@@ -5,13 +5,13 @@ installationId: prod
 images:
   registry: 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com
   controlHost:
-    repository: agent-platform-control-host
+    repository: werft-control-host
     digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   egressProxy:
-    repository: agent-platform-egress-proxy
+    repository: werft-egress-proxy
     digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   worker:
-    repository: agent-platform-worker
+    repository: werft-worker
     digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 secrets:

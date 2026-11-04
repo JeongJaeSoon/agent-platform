@@ -37,9 +37,9 @@ mkdir -p "$state"
 
 export EXECUTION_INSTALLATION_ID=soak135
 # One control-host image runs the api, scheduler and reconciler roles.
-export API_IMAGE="agent-platform-control-host:${project}"
-export WORKER_IMAGE="agent-platform-worker:${project}"
-export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
+export API_IMAGE="werft-control-host:${project}"
+export WORKER_IMAGE="werft-worker:${project}"
+export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 compose_files=(-f infra/compose.yml -f scripts/d2-gate/compose.yml -f scripts/soak/compose.yml)
 dc() { docker compose -p "$project" "${compose_files[@]}" --profile apps --profile worker "$@"; }
 

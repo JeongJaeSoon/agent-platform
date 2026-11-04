@@ -126,9 +126,9 @@ out="${E2E_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/e2e.XXXXXX")}"
 mkdir -p "$out/workers"
 
 export EXECUTION_INSTALLATION_ID="e2e${run_id}"
-export API_IMAGE="agent-platform-control-host:${project}"
-export WORKER_IMAGE="agent-platform-worker:${project}"
-export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
+export API_IMAGE="werft-control-host:${project}"
+export WORKER_IMAGE="werft-worker:${project}"
+export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 # The first owner's, for firstOwnerCookie in tests/e2e/client.ts:
 # infra/compose.core.yml passes it to the API.
 export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"

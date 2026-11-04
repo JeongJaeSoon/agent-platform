@@ -62,9 +62,9 @@ mkdir -p "$out/workers"
 record="$out/record.txt"
 
 export EXECUTION_INSTALLATION_ID="${RR_INSTALLATION_ID:-$project}"
-export API_IMAGE="agent-platform-control-host:${project}"
-export WORKER_IMAGE="agent-platform-worker:${project}"
-export EGRESS_PROXY_IMAGE="agent-platform-egress-proxy:${project}"
+export API_IMAGE="werft-control-host:${project}"
+export WORKER_IMAGE="werft-worker:${project}"
+export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 export RESTORE_POSTGRES_PORT="$port_base"
 export RESTORE_LOCALSTACK_PORT="$((port_base + 1))"
 export RESTORE_GIT_HOST_PORT="$((port_base + 2))"
@@ -186,8 +186,8 @@ if [ -n "${RR_IMAGES_FROM:-}" ]; then
   # A tag gone missing must fail the run, not be rebuilt from this checkout.
   build=--no-build
   for repo in control-host worker egress-proxy; do
-    docker tag "agent-platform-${repo}:${from}" "agent-platform-${repo}:${project}" \
-      || fail "project ${from} has no agent-platform-${repo} image"
+    docker tag "werft-${repo}:${from}" "werft-${repo}:${project}" \
+      || fail "project ${from} has no werft-${repo} image"
   done
   # restore.sh runs migrate on the restored project, under its default name.
   for name in "$project" "$restored"; do
