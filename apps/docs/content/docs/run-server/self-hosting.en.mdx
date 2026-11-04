@@ -4,7 +4,7 @@ description: Install and run a Werft server that several people use
 ---
 
 <Callout type="warn">
-There is no official release yet. No `v*` release, packaged Helm chart, or `@werft-ai/sdk` on npm exist. Every merge to `main` publishes the app images as `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`; pin them by digest when you use them ([Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). If you cannot pull those images, check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. Building from source works on both x86_64 and arm64, but the publishing code only produces `linux/amd64` images for now.
+There is no official release yet. No `v*` release or `@werft-ai/sdk` on npm exist. Every merge to `main` publishes the Helm chart, with that run's image digests inside, to `oci://ghcr.io/jeongjaesoon/werft` ([install the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). Every merge to `main` also publishes the app images as `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`; pin them by digest when you use them ([Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). If you cannot pull those images, check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. Building from source works on both x86_64 and arm64, but the publishing code only produces `linux/amd64` images for now.
 </Callout>
 
 This is how you install a Werft server yourself for a team to share. For a server you only try out on your own, [Run a development server](/run-server/dev-server) is enough. The installation and operations documents live in [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) in the repository, written in Korean. This page tells you where to start reading.
@@ -14,7 +14,7 @@ This is how you install a Werft server yourself for a team to share. For a serve
 | Installation | Execution | Document |
 | --- | --- | --- |
 | Single server | Docker Compose, one worker container per session | [Single-server deployment](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md) |
-| Kubernetes | The repository's Helm chart, one worker Pod per session | [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
+| Kubernetes | The published Helm chart, one worker Pod per session | [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
 
 Either way, the server consists of the API (including the web console), a scheduler, a reconciler, an egress proxy, PostgreSQL, and an S3-compatible object store. Neither includes a Git server, so you add the GitHub repositories your sessions use in the console or in a settings document. High availability is out of scope for a single-server installation.
 
@@ -29,6 +29,25 @@ In short, [Single-server deployment](https://github.com/JeongJaeSoon/werft/blob/
 5. Install, check `/readyz`, then create the first owner and workspace at `/bootstrap` in the web console.
 6. Issue an API key for each user. The key's owner is the owner of its sessions.
 7. Rehearse backup, upgrade and rollback, and resuming after a reboot in advance.
+
+## Kubernetes installation steps
+
+Installing the published chart needs no repository checkout. The package downloads without a login, and you always name its exact version. A merge to `main` publishes `<chart version>-main-<12>`, where `<12>` is the first twelve characters of the commit SHA.
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+The three image digests and the worker runtime are inside the package. Prepare PostgreSQL, an S3 bucket, the namespace, the Secret and a values file for your installation as [Kubernetes installation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치) describes, then install. The published images are `linux/amd64` only for now.
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+To move to a new version, follow [upgrading the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기). When the worker image changes you must pass the previous image too, and `--reuse-values` does not apply the new chart's images.
 
 ## Connect to the server
 
