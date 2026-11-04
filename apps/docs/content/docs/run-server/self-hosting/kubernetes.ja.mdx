@@ -59,8 +59,10 @@ config:
   checkpoints:
     bucket: <bucket>
   egress:
-    credentialAllowlist: "api.anthropic.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
 ```
+
+`credentialAllowlist` は既定値をまるごと置き換えます。既定の一覧(provider とパッケージ registry)は残し、リポジトリのホスト(`github.com:443`、ほかの Git ホストを使うならそのホストも)と bucket のホストを後ろに足します。
 
 `config.aws.region` の既定値は `ap-northeast-1` です。別のリージョンの bucket なら変えます。接続、リポジトリ、MCP サーバー、上限は values にありません。設置後に Web コンソールで追加するか、`bun run settings:k8s import` で取り込みます。既定値と説明は `helm show values` にあります。
 

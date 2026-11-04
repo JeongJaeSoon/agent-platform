@@ -59,8 +59,10 @@ config:
   checkpoints:
     bucket: <bucket>
   egress:
-    credentialAllowlist: "api.anthropic.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
 ```
+
+`credentialAllowlist` replaces the whole default. Keep the default list (the provider and the package registries) and append the repository hosts (`github.com:443`, plus any other Git host you use) and the bucket host.
 
 `config.aws.region` defaults to `ap-northeast-1`; change it if your bucket is in another region. Connections, repositories, MCP servers and limits are not in the values file. After the install, add them in the web console or import them with `bun run settings:k8s import`. Defaults and explanations are in `helm show values`.
 
