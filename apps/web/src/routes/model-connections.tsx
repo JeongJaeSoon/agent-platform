@@ -324,7 +324,9 @@ function AddConnection({
       onSubmit={(form) => {
         setError(null);
         const billing = String(form.get("billing"));
-        const named = endpoint.trim();
+        // Only what the person typed goes out; the shown default stays the
+        // server's to fill, so its billing check still runs.
+        const named = (edited ?? "").trim();
         create.mutate({
           id: String(form.get("id")).trim(),
           kind,
@@ -356,8 +358,8 @@ function AddConnection({
           name="kind"
           value={kind}
           onChange={(event) => {
-            // A blank or the old kind's own default was never the person's.
-            if (edited === "" || edited === fallback) setEdited(null);
+            // A cleared field hands the new kind's default back.
+            if (edited === "") setEdited(null);
             setKind(event.target.value === "litellm" ? "litellm" : "anthropic");
           }}
         >

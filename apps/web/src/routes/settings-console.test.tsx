@@ -133,6 +133,30 @@ describe("모델 연결", () => {
       }),
   });
 
+  test("an untouched default is not sent, so the server's own checks on it still run", async () => {
+    const { api } = renderAt("/profiles", {
+      ...routes(me(), null, { anthropic: "https://api.anthropic.com" }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("free")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("id"), "free");
+    await user.selectOptions(within(dialog).getByLabelText("비용 집계"), "none");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("free를 만들었습니다.");
+    expect(writes(api.calls).map((call) => call.body)).toEqual([
+      {
+        id: "free",
+        kind: "anthropic",
+        billing: "none",
+        auth_kind: "api_key",
+        value: "example-key",
+      },
+    ]);
+  });
+
   test("a kind with an official address starts with it filled in; what the person typed survives a kind change", async () => {
     const OFFICIAL = "https://api.anthropic.com";
     const { api } = renderAt("/profiles", {
@@ -162,6 +186,13 @@ describe("모델 연결", () => {
     expect(endpoint.value).toBe("https://proxy.example.com");
     await user.selectOptions(kind, "anthropic");
     expect(endpoint.value).toBe("https://proxy.example.com");
+
+    // Typing the official address is still typing: it survives too.
+    await user.clear(endpoint);
+    await user.type(endpoint, OFFICIAL);
+    await user.selectOptions(kind, "litellm");
+    expect(endpoint.value).toBe(OFFICIAL);
+    await user.selectOptions(kind, "anthropic");
 
     // Cleared, the request leaves the endpoint out for the server's default.
     await user.clear(endpoint);
