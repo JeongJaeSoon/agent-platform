@@ -7,10 +7,10 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | test-ops | Kubernetes 설치 |
 |---|---|
 | env 파일 | Secret(또는 ExternalSecret)과 설치별 values 파일 |
-| 카탈로그 디렉터리 | values의 `catalog`(ConfigMap) |
+| 설정 문서 | `bun run settings:k8s import --document -` |
 | release manifest(digest) | values의 `images.*.digest` |
 | `deploy`·`upgrade` | `helm upgrade --install`. migrate는 hook이 먼저 돌린다 |
-| `key create`·`key revoke`, `grants.ts` | `bun run keys:k8s`·`grants:k8s`·`catalog-authority:k8s` |
+| `key create`·`key revoke`, `grants.ts` | `bun run keys:k8s`·`grants:k8s` |
 | `backup`·`restore-drill` | RDS 백업·스냅샷과 S3 version([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)) |
 | 재시작 복구 | Deployment가 다시 띄운다. 확인은 [health 확인](kubernetes-deployment.md#health-확인) |
 
@@ -133,7 +133,8 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `POSTGRES_PASSWORD` | 무작위 값. `DATABASE_URL`에 escape 없이 들어가므로 영문·숫자·`.` `_` `~` `-`만 쓴다. `preflight`가 다른 문자를 거부한다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
 | `ANTHROPIC_API_KEY` | 운영자 공유 provider key. API에만 간다(아래 "provider key") |
-| `PLATFORM_CATALOG_DIR` | 카탈로그 디렉터리. 기본 예시는 `/etc/agent-platform/catalog`. checkout 안이면 거부한다 |
+| `PLATFORM_SETTINGS_DOCUMENT` | 설정 문서 파일. 기본 예시는 `/etc/agent-platform/settings.json`. checkout 안이면 거부한다 |
+| `PLATFORM_SECRET_KEY` | 64자 hex(`openssl rand -hex 32`). 저장한 자격 증명을 봉인하는 master key다. API와 slack 역할에만 가고, 없으면 `preflight`가 거부한다. 잃으면 저장한 값을 읽지 못한다 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `gitea`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
 | `EXECUTION_WORKSPACE_QUOTA` | `on`. 다른 값이면 거부한다 |
@@ -163,56 +164,57 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 
 ## 카탈로그
 
-`PLATFORM_CATALOG_DIR`에 `connections.yaml`, `repositories.yaml`, `profiles.yaml`을 둔다. `connections.yaml`이 없으면 API가 뜨지 않는다. `profiles.yaml`과 `repositories.yaml`의 `profiles` 배열은 DB가 비어 있는 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. API 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 카탈로그에는 값이 아니라 참조만 적으므로 비밀이 없다. 형식은 `config/` 아래 같은 이름 파일의 주석을 따른다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다. profile의 `provider`는 연결 하나와 똑같아야 돈다.
+`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. 최상위 `profiles`와 저장소의 `profiles` 배열은 표가 빈 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다. profile의 `provider`는 연결 하나와 똑같아야 돈다.
 
-```yaml
-# connections.yaml
-connections:
-  anthropic:
-    kind: anthropic
-    endpoint: https://api.anthropic.com
-    auth:
-      kind: api_key
-      value_env: ANTHROPIC_API_KEY
-```
-
-```yaml
-# profiles.yaml
-profiles:
-  claude-coding:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read, Edit, Write, Glob, Grep, Bash]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.com
-      auth:
-        kind: api_key
-        value_env: ANTHROPIC_API_KEY
-    project_settings:
-      claude_md: true
-```
-
-```yaml
-# repositories.yaml
-repositories:
-  sample-app:
-    url: https://github.com/<owner>/<repo>.git
-    branch: main
-    profiles: [claude-coding]
+```json
+{
+  "version": 1,
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "profiles": ["claude-coding"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
 ```
 
 test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 위 예시는 공개 저장소이고, 비공개 저장소의 인증은 [api-server.md](api-server.md)를 따른다.
 
-카탈로그 revision은 디렉터리 안 모든 파일의 경로와 sha256을 묶은 값이다. release manifest에 적을 값은 다음으로 구한다.
+release manifest에 적을 digest는 문서 파일 바이트의 sha256이다. 다음으로 구한다.
 
 ```bash
-bun run scripts/lib/test-ops.ts catalog-revision /etc/agent-platform/catalog
+bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
 ```
 
+`preflight`는 마운트한 문서가 이 digest와 다르면 거부한다. `deploy`·`upgrade`는 끝에서 `settings import --dry-run`으로 DB가 문서를 모두 담았는지 보고, 더할 것이 남아 있으면 `the database does not hold the settings document`로 멈춘다. 문서의 digest가 그대로면 `upgrade`는 migrate를 다시 돌리지 않는다.
+
 상한 설정은 DB 행이 정본이고 행은 바뀌지 않는다. 설정을 바꿀 때는 `POST /v1/installation-profiles`로 새 버전을 만든다([api-server.md](api-server.md#운영자-카탈로그-agent-profile--repository)).
+
+**파일 카탈로그로 돌던 설치.** 올리기 전에 env 파일에서 `PLATFORM_CATALOG_DIR`을 지우고, 옛 디렉터리를 `PLATFORM_LEGACY_CONFIG_DIR`로 준다. migrate가 그 디렉터리를 한 번 가져온다. master key를 `PLATFORM_SECRET_KEY`로 옮기는 일까지 순서는 [api-server.md](api-server.md#설정-문서-가져오기내보내기)의 "파일 카탈로그에서 옮기기"를 따른다. 가져온 뒤 `settings export`의 결과를 설정 문서로 두면 다음 `upgrade`부터 옛 디렉터리가 필요 없다.
 
 ## release manifest
 
@@ -222,7 +224,7 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 |---|---|
 | `source_commit` | compose 파일을 읽을 commit, 40자 hex |
 | `images.control_host`, `images.worker`, `images.egress_proxy` | `<이름>@sha256:<64자 hex>`. tag만 적은 이미지, 짧은 digest는 거부한다 |
-| `catalog_revision` | 위 `catalog-revision`의 출력 |
+| `settings_digest` | 위 `settings-digest`의 출력 |
 
 ### 이미지를 직접 빌드한다
 
@@ -300,7 +302,7 @@ scripts/test-ops.sh key revoke <key_id>
 
 scope는 [quickstart](../quickstart.md#1-clone과-기동)와 같다. `sessions:approve`가 없으면 권한 요청에 답하지 못해(403) `permission_mode: default` 세션이 첫 파일 변경에서 멈추고, `sessions:control`이 없으면 interrupt·pause·resume·terminate를, `sessions:recover`가 없으면 복구 결정을 못 한다.
 
-평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)와 카탈로그 권한(`catalog-authority.ts`)은 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
+평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)는 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
 
 ```bash
 docker exec agent-platform-test-ops-api-1 bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>

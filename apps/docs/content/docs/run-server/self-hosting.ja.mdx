@@ -16,7 +16,7 @@ Werft サーバーを自分でインストールし、チームで共有する�
 | 単一サーバー | Docker Compose、セッションごとに worker コンテナ | [単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) |
 | Kubernetes | リポジトリの Helm chart、セッションごとに worker Pod | [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md) |
 
-どちらの方式でも、サーバーは API (Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換の object store で構成される。どちらにも Git サーバーは含まれないため、セッションが使う GitHub リポジトリをカタログに自分で書く。単一サーバーのインストールでは HA は対象外である。
+どちらの方式でも、サーバーは API (Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換の object store で構成される。どちらにも Git サーバーは含まれないため、セッションが使う GitHub リポジトリはコンソールか設定ドキュメントで追加する。単一サーバーのインストールでは HA は対象外である。
 
 ## 単一サーバーのインストール手順
 
@@ -25,7 +25,7 @@ Werft サーバーを自分でインストールし、チームで共有する�
 1. ホストを準備する。Linux、Docker Engine 28 以上、Docker Compose 2.24.6 以上、NTP の同期、再起動後の Docker の自動起動が必要である。Docker のデータルートは XFS に `prjquota` 付きで mount されていなければならない。そうでないと scheduler の quota 検査が失敗し、インストールが止まる。スクリプトはリポジトリの checkout で実行するため、ホストには `git`、`jq`、`curl`、Bun 1.3.14 も必要である。
 2. ネットワーク経路を決める。API は loopback に置き、SSH tunnel で接続するのが基本である。内部 DNS で公開するときは、TLS と VPN または IP allowlist を備えた reverse proxy を使い、イベントストリーム (SSE) のために buffering を切る。PostgreSQL と Docker socket は外部に開かない。
 3. このインストール専用の S3 bucket を用意する。同じホストの LocalStack は再起動でオブジェクトを失うため、実サーバーのストレージには使わない。
-4. checkout で 3 つのイメージをビルドし、ホストが取得できる registry に push して、その digest で release を決める。設定ファイルとカタログも決め、秘密の値はリポジトリ外の env ファイルにだけ置く。
+4. checkout で 3 つのイメージをビルドし、ホストが取得できる registry に push して、その digest で release を決める。設定ドキュメントも用意し、秘密の値はリポジトリ外の env ファイルにだけ置く。
 5. インストールして `/readyz` を確認し、Web コンソールの `/bootstrap` で最初の owner と workspace を作成する。
 6. ユーザーごとに API キーを発行する。キーの owner がセッションの owner になる。
 7. バックアップ、アップグレードとロールバック、再起動後の再開を事前に練習する。

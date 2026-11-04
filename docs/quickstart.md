@@ -9,7 +9,7 @@ not run as-is is ```sh or ```text.
 
 저장소를 clone한 머신에서 `scripts/local.sh`로 스택을 띄우고, curl만으로 세션의 전체 경로를 한 번 돈다: 생성 → 이벤트 관찰 → 권한 요청 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume.
 
-로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실행하는 사람의 `ANTHROPIC_API_KEY`로 실제 Messages API를 부르고, key가 없으면 아무것도 띄우지 않는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 API가 `config/fake-model`의 카탈로그를 읽고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
+로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실행하는 사람의 `ANTHROPIC_API_KEY`로 실제 Messages API를 부르고, key가 없으면 아무것도 띄우지 않는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 migrate가 `tests/fixtures/settings/fake-model.json`을 가져오고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 

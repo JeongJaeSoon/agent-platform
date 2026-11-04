@@ -9,14 +9,14 @@ tests/e2e/run.sh --local-model
 ## 준비물
 
 - [quickstart 0장](../quickstart.md#0-준비물)과 같은 Docker·bun.
-- `127.0.0.1:11434`에서 도는 Ollama와 `gemma4:26b-mlx` 모델. 다른 모델을 쓰려면 `config/local-model/profiles.yaml`의 `model`과 `infra/local-model/litellm.yaml`의 `model`을 함께 바꾼다. `profiles.yaml`은 DB가 비어 있을 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다.
+- `127.0.0.1:11434`에서 도는 Ollama와 `gemma4:26b-mlx` 모델. 다른 모델을 쓰려면 `tests/fixtures/settings/local-model.json`의 `model`과 `infra/local-model/litellm.yaml`의 `model`을 함께 바꾼다. 문서의 `profiles`는 표가 비어 있을 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다.
 - Docker를 건드리기 전에 다음 중 하나면 exit 2로 끝난다. Ollama가 응답하지 않을 때, 두 경로가 부르는 모델(위의 두 파일에서 읽는다)이 `/api/tags`에 없을 때(`ollama pull <모델>`을 안내한다), 셸에 `LITELLM_MASTER_KEY`가 없는데 `openssl rand`로 만들지 못할 때.
 
 ## overlay가 바꾸는 것
 
 `infra/compose.local-model.yml`이 로컬 스택 위에 겹친다.
 
-- API가 `config/local-model/`의 카탈로그를 읽는다. profile은 둘이고 같은 모델을 다른 길로 부른다.
+- migrate가 `tests/fixtures/settings/local-model.json`을 가져온다. profile은 둘이고 같은 모델을 다른 길로 부른다.
   - `local-ollama`: Ollama의 Anthropic 호환 `/v1/messages`를 직접 부른다. Ollama는 key를 검사하지 않으므로 `LOCAL_OLLAMA_API_KEY`는 아무 값이면 된다(기본 `ollama-local`).
   - `local-litellm`: overlay의 `litellm` 서비스(LiteLLM proxy, `infra/local-model/litellm.yaml`)를 Bearer로 부르고, LiteLLM이 Ollama로 넘긴다. `LITELLM_MASTER_KEY`는 셸에 없으면 실행마다 새로 만든다.
 - 두 key 모두 이름으로만 전달된다. 값은 API(그리고 LiteLLM)에만 있고 worker는 egress token만 받는다.
