@@ -26,9 +26,18 @@ function service(
     waitMs?: number;
     onSleep?: () => Promise<void> | void;
     readMs?: number;
+    active?: string[];
+    activeProfile?: string;
   } = {},
 ) {
   const store = memoryAttachmentStore(options.attempts, options.attached);
+  if (options.active !== undefined) {
+    store.agent.active = {
+      id: "release-2",
+      profileId: options.activeProfile ?? "p",
+      github: attachGitHub(options.active),
+    };
+  }
   let clock = 0;
   let reads = 0;
   const find = store.find;
@@ -142,6 +151,134 @@ describe("list", () => {
         }).list()
       ).repositories.map((entry) => entry.id),
     ).toEqual(["app", "docs", "tools"]);
+  });
+});
+
+describe("a repository only the agent's active release allows", () => {
+  // The session runs release-1 (app, docs); the owner then allowed tools,
+  // and release-2 became active.
+  const pinned = {
+    release: { id: "release-1", github: attachGitHub(["app", "docs"]) },
+  };
+
+  test("attach refuses it as allowed in a newer release, saying a new session can use it", async () => {
+    const s = service({ context: pinned, active: ["app", "docs", "tools"] });
+    let message = "";
+    const refused = await refusal(
+      s.attach("tools").catch((error: unknown) => {
+        if (error instanceof SessionServiceError) message = error.message;
+        throw error;
+      }),
+    );
+    expect(refused).toEqual({
+      code: "GITHUB_REFUSED",
+      details: {
+        reason_code: "allowed_in_newer_release",
+        receipt_id: "receipt-1",
+      },
+    });
+    expect(message).toContain("new session");
+    expect(message).toContain("does not need to be allowed again");
+    expect(s.store.receipts).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        result: expect.objectContaining({
+          agent_release_id: "release-1",
+          reason_code: "allowed_in_newer_release",
+        }),
+      }),
+    ]);
+    expect(s.store.rows.size).toBe(0);
+    expect(s.store.attached()).toEqual([]);
+  });
+
+  test("one no release allows, or a session already on the active release, stays repository_not_allowed", async () => {
+    for (const [repository, options] of [
+      ["secret", { context: pinned, active: ["app", "docs", "tools"] }],
+      ["tools", { context: pinned, active: ["app", "docs"] }],
+      ["tools", { context: pinned }],
+      [
+        "tools",
+        {
+          context: {
+            release: { id: "release-2", github: attachGitHub(["app"]) },
+          },
+          active: ["app", "docs", "tools"],
+        },
+      ],
+      [
+        "tools",
+        {
+          context: {
+            ...pinned,
+            agent: {
+              id: "agent-1",
+              workspaceId: "owner-a",
+              githubEnabled: false,
+            },
+          },
+          active: ["app", "docs", "tools"],
+        },
+      ],
+    ] as Array<[string, Parameters<typeof service>[0]]>) {
+      expect(
+        (await refusal(service(options).attach(repository))).details,
+      ).toEqual({
+        reason_code: "repository_not_allowed",
+        receipt_id: "receipt-1",
+      });
+    }
+  });
+
+  test("list marks it apart from what the session may attach", async () => {
+    expect(
+      (
+        await service({
+          context: pinned,
+          active: ["app", "tools", "docs"],
+        }).list()
+      ).repositories,
+    ).toEqual([
+      { id: "app", name: "acme/app", branch: "main", status: "primary" },
+      { id: "docs", name: "acme/docs", branch: "trunk", status: "available" },
+      {
+        id: "tools",
+        name: "acme/tools",
+        branch: "main",
+        status: "allowed_in_newer_release",
+      },
+    ]);
+    expect(
+      (await service({ context: pinned }).list()).repositories.map(
+        (entry) => entry.status,
+      ),
+    ).toEqual(["primary", "available"]);
+  });
+
+  test("the active release is judged on its own profile, not the session's", async () => {
+    const onNewProfile = { context: pinned, active: ["app", "lab"] };
+    expect(
+      (
+        await refusal(
+          service({ ...onNewProfile, activeProfile: "q" }).attach("lab"),
+        )
+      ).details,
+    ).toEqual({
+      reason_code: "allowed_in_newer_release",
+      receipt_id: "receipt-1",
+    });
+    expect(
+      (await refusal(service(onNewProfile).attach("lab"))).details,
+    ).toEqual({
+      reason_code: "repository_not_allowed",
+      receipt_id: "receipt-1",
+    });
+  });
+
+  test("an allowed attach never reads the active release", async () => {
+    const s = service({ active: ["app"] });
+    expect((await s.attach("tools")).status).toBe("pending");
+    expect(s.store.agent.activeReads).toBe(0);
   });
 });
 
