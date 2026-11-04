@@ -18,11 +18,13 @@ type Job = {
   needs?: string | string[];
   environment?: string;
   permissions?: Record<string, string>;
+  env?: Record<string, string>;
   steps: Step[];
 };
 type Workflow = {
   on: Record<string, unknown>;
   permissions: Record<string, string>;
+  env?: Record<string, string>;
   jobs: Record<string, Job>;
 };
 
@@ -87,18 +89,26 @@ describe("sdk-release.yml", () => {
       "npm publish ./pkg/*.tgz --provenance --access public",
     );
     expect(runs(build as Job)).not.toContain("npm publish");
-    expect(text).not.toContain("secrets.");
+    expect(text).not.toContain("secrets");
     expect(text).not.toContain("NODE_AUTH_TOKEN");
-    for (const job of Object.values(workflow.jobs))
+    expect(workflow.env).toBeUndefined();
+    for (const job of Object.values(workflow.jobs)) {
+      expect(job.env).toBeUndefined();
       for (const step of job.steps) expect(step.env).toBeUndefined();
+    }
   });
 
   test("publish runs on the Node whose npm supports trusted publishing", () => {
-    const node = publish?.steps.find((s) =>
+    const steps = publish?.steps ?? [];
+    const nodeAt = steps.findIndex((s) =>
       s.uses?.startsWith("actions/setup-node@"),
     );
+    const publishAt = steps.findIndex((s) => s.run?.includes("npm publish"));
+    expect(nodeAt).toBeGreaterThanOrEqual(0);
+    expect(publishAt).toBeGreaterThan(nodeAt);
+    for (const step of steps) expect(step.if).toBeUndefined();
     // Node 24 bundles npm 11, which clears npm's 11.5.1 minimum.
-    expect(node?.with).toEqual({
+    expect(steps[nodeAt]?.with).toEqual({
       "node-version": 24,
       "registry-url": "https://registry.npmjs.org",
     });
