@@ -1,6 +1,6 @@
 /**
  * The installation settings screens: the model settings' connections, the
- * MCP servers, the URL repositories and the home screen's setup steps.
+ * MCP servers and the home screen's setup steps.
  */
 export const settingsKo = {
   "settings.state.active": "사용 중",
@@ -92,26 +92,8 @@ export const settingsKo = {
   "settings.mcp.editWorkspacesFor": "{id} 워크스페이스 바꾸기",
   "settings.mcp.editWorkspacesTitle": "{id}를 쓸 워크스페이스",
 
-  "settings.repos.nav": "URL 저장소",
-  "settings.repos.title": "URL 저장소",
-  "settings.repos.description":
-    "공개 저장소나 토큰으로 읽는 저장소를 URL로 더합니다. 세션이 쓰려면 설치 프로필 새 버전의 저장소 목록에 넣으세요. GitHub App 저장소는 에이전트 GitHub 탭에서 고릅니다.",
-  "settings.repos.add": "저장소 추가",
-  "settings.repos.empty": "URL로 더한 저장소가 없습니다.",
-  "settings.repos.url": "URL",
-  "settings.repos.branch": "기본 브랜치",
-  "settings.repos.auth": "인증",
-  "settings.repos.auth.none": "공개(인증 없음)",
   "settings.repos.auth.bearer": "Bearer 토큰",
-  "settings.repos.auth.basic": "사용자 이름과 토큰",
-  "settings.repos.auth.github_app_explicit": "운영자 GitHub App",
-  "settings.repos.username": "사용자 이름",
   "settings.repos.token": "토큰 값",
-  "settings.repos.editBranch": "브랜치 바꾸기",
-  "settings.repos.editBranchFor": "{id} 브랜치 바꾸기",
-  "settings.repos.editBranchTitle": "{id}의 기본 브랜치",
-  "settings.repos.editBranchDescription":
-    "저장소의 새 버전이 됩니다. URL과 자격 증명은 그대로입니다.",
 
   "home.setup.connection": "모델 연결 추가하기",
   "home.setup.connectionHint":
@@ -214,26 +196,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.mcp.editWorkspacesFor": "Change the workspaces of {id}",
   "settings.mcp.editWorkspacesTitle": "Workspaces that may use {id}",
 
-  "settings.repos.nav": "URL repositories",
-  "settings.repos.title": "URL repositories",
-  "settings.repos.description":
-    "Add a public repository, or one read with a token, by its URL. For sessions to use it, list it in a new version of an installation profile. GitHub App repositories are picked on an agent's GitHub tab.",
-  "settings.repos.add": "Add repository",
-  "settings.repos.empty": "No repositories added by URL.",
-  "settings.repos.url": "URL",
-  "settings.repos.branch": "Default branch",
-  "settings.repos.auth": "Authentication",
-  "settings.repos.auth.none": "Public (no authentication)",
   "settings.repos.auth.bearer": "Bearer token",
-  "settings.repos.auth.basic": "Username and token",
-  "settings.repos.auth.github_app_explicit": "Operator's GitHub App",
-  "settings.repos.username": "Username",
   "settings.repos.token": "Token",
-  "settings.repos.editBranch": "Change branch",
-  "settings.repos.editBranchFor": "Change the branch of {id}",
-  "settings.repos.editBranchTitle": "Default branch of {id}",
-  "settings.repos.editBranchDescription":
-    "This makes a new version of the repository. Its URL and credential stay.",
 
   "home.setup.connection": "Add a model connection",
   "home.setup.connectionHint":
@@ -335,26 +299,8 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.mcp.editWorkspacesFor": "{id} のワークスペースを変える",
   "settings.mcp.editWorkspacesTitle": "{id} を使えるワークスペース",
 
-  "settings.repos.nav": "URL リポジトリ",
-  "settings.repos.title": "URL リポジトリ",
-  "settings.repos.description":
-    "公開リポジトリやトークンで読むリポジトリを URL で追加します。セッションで使うにはインストールのプロファイルの新しいバージョンのリポジトリ一覧に入れてください。GitHub App のリポジトリはエージェントの GitHub タブで選びます。",
-  "settings.repos.add": "リポジトリを追加",
-  "settings.repos.empty": "URL で追加したリポジトリはありません。",
-  "settings.repos.url": "URL",
-  "settings.repos.branch": "デフォルトブランチ",
-  "settings.repos.auth": "認証",
-  "settings.repos.auth.none": "公開（認証なし）",
   "settings.repos.auth.bearer": "Bearer トークン",
-  "settings.repos.auth.basic": "ユーザー名とトークン",
-  "settings.repos.auth.github_app_explicit": "運用者の GitHub App",
-  "settings.repos.username": "ユーザー名",
   "settings.repos.token": "トークンの値",
-  "settings.repos.editBranch": "ブランチを変える",
-  "settings.repos.editBranchFor": "{id} のブランチを変える",
-  "settings.repos.editBranchTitle": "{id} のデフォルトブランチ",
-  "settings.repos.editBranchDescription":
-    "リポジトリの新しいバージョンになります。URL と資格情報はそのままです。",
 
   "home.setup.connection": "モデル接続を追加する",
   "home.setup.connectionHint":

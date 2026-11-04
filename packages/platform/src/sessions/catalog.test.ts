@@ -45,9 +45,14 @@ const configured = {
   },
 };
 const repository = {
-  url: "https://git.example.invalid/team/app.git",
+  url: "https://github.com/team/app.git",
   branch: "main",
   profiles: ["p"],
+  auth: { kind: "github_app" as const },
+};
+const resolvedRepository = {
+  ...repository,
+  auth: { kind: "github_app" as const, registered: true as const },
 };
 const env = { ANTHROPIC_KEY_MAIN: "resolved-key" };
 
@@ -88,7 +93,7 @@ describe("catalog config schema", () => {
       project_settings: { claude_md: false },
     };
     expect(catalog.profiles.p).toEqual(expected);
-    expect(catalog.repositories.app).toEqual(repository);
+    expect(catalog.repositories.app).toEqual(resolvedRepository);
     // What the worker protocol carries is neither the value nor where it
     // came from: only the upstream and the proxy's token.
     expect(runtimeProviderOf(expected, "wep_t")).toEqual({
@@ -260,6 +265,21 @@ describe("catalog config schema", () => {
           ],
         ],
       });
+    }
+  });
+
+  test("a repository takes only a GitHub App: no auth, none, basic and bearer are refused", () => {
+    for (const auth of [
+      undefined,
+      { kind: "none" },
+      { kind: "basic", username: "reader", value_env: "REPO_TOKEN" },
+      { kind: "bearer", value_env: "REPO_TOKEN" },
+    ]) {
+      expect(
+        sessionCatalogConfigSchema.safeParse(
+          config(configured, { app: { ...repository, auth } }),
+        ).success,
+      ).toBe(false);
     }
   });
 
@@ -577,9 +597,21 @@ describe("catalog config schema", () => {
       "http://fake-git:3000/agent/sample.git",
     ]) {
       expect(
-        load(config(configured, { app: { ...repository, url } })).repositories
-          .app?.url,
-      ).toBe(url);
+        sessionCatalogConfigSchema.safeParse(
+          config(configured, {
+            app: {
+              ...repository,
+              url,
+              auth: {
+                kind: "github_app",
+                app_id: 101,
+                installation_id: 202,
+                value_env: "GITHUB_APP_KEY",
+              },
+            },
+          }),
+        ).success,
+      ).toBe(true);
     }
   });
 });
@@ -758,14 +790,7 @@ describe("repository mode", () => {
 
 describe("the catalog view (94S-791)", () => {
   test("holds where each credential comes from, never a value, and pins the same profiles", () => {
-    const parsed = sessionCatalogConfigSchema.parse(
-      config(configured, {
-        app: {
-          ...repository,
-          auth: { kind: "bearer", value_env: "GIT_TOKEN" },
-        },
-      }),
-    );
+    const parsed = sessionCatalogConfigSchema.parse(config());
     const asked: string[] = [];
     const view = sessionCatalogView(parsed);
     expect(asked).toEqual([]);
@@ -878,7 +903,7 @@ describe("profile fingerprint", () => {
       config({ ...configured, models: ["claude-opus-5-5"] }),
     );
     expect(repositoryBinding("app", catalog.repositories.app as never)).toBe(
-      "sha256:c8954e2d28652f1630adf031f84b8446160fc6fc9712c7d5fe153d8998feacce",
+      "sha256:7a4b42bbd44080fb8be864feee0526426cede9b6de453ed5537ce4de4123358e",
     );
   });
 });
@@ -910,7 +935,9 @@ describe("allowedPair", () => {
         other: { ...repository, profiles: ["q"] },
       },
     });
-    expect(allowedPair(catalog, "p", "app")?.repository).toEqual(repository);
+    expect(allowedPair(catalog, "p", "app")?.repository).toEqual(
+      resolvedRepository,
+    );
     expect(allowedPair(catalog, "p", "other")).toBeNull();
     expect(allowedPair(catalog, "q", "other")).not.toBeNull();
     expect(allowedPair(catalog, "missing", "app")).toBeNull();

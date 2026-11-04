@@ -300,21 +300,10 @@ describe("connectionsOf", () => {
           ref: { value_env: "P" },
         },
       },
-      selfHosted: {
-        ...base,
-        url: "http://git.internal:3000/agent/sample.git",
-        auth: {
-          kind: "basic",
-          username: "agent",
-          value: "self-hosted-token-fixture",
-          ref: { value_env: "G" },
-        },
-      },
-      public: { ...base, url: "https://github.com/acme/open.git" },
     },
   };
 
-  test("an App or a github.com PAT has an author connection; a self-hosted host, public repositories and the reviewer role have none", async () => {
+  test("an App has an author connection; the reviewer role and a missing repository have none", async () => {
     const connections = connectionsOf(catalog);
     expect(connections("app", "author")).toMatchObject({
       kind: "fixed",
@@ -337,8 +326,6 @@ describe("connectionsOf", () => {
       fixedOf(connections("app", "author")),
     );
     expect(connections("app", "reviewer")).toBeNull();
-    expect(connections("selfHosted", "author")).toBeNull();
-    expect(connections("public", "author")).toBeNull();
     expect(connections("missing", "author")).toBeNull();
   });
 });
@@ -528,7 +515,6 @@ describe("the App registered in the console", () => {
             url: "https://github.com/acme/app.git",
             auth: { kind: "github_app", registered: true },
           },
-          open: { branch: "main", url: "https://github.com/acme/open.git" },
         },
       },
       { registered: (role) => registered.connections(role) },
@@ -548,8 +534,6 @@ describe("the App registered in the console", () => {
     reviewerOn = true;
     await registered.refresh();
     expect(firstCandidateOf(connections("app", "reviewer"))?.appId).toBe(202);
-    expect(connections("open", "author")).toBeNull();
-    expect(connections("open", "reviewer")).toBeNull();
   });
 
   test("a repository the console adds after startup uses the registered App", async () => {

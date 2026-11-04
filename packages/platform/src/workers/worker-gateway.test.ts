@@ -736,6 +736,7 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
             profiles: ["other"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -855,6 +856,7 @@ describe("WorkerGateway", () => {
         url: "https://example.invalid/app.git",
         branch: "main",
         profiles: ["claude-coding-v1", "other"],
+        auth: { kind: "github_app", registered: true },
       }),
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
@@ -3247,23 +3249,6 @@ describe("authorizeEgress through a forge", () => {
       purpose: "repository",
     });
     expect(github.asked).toHaveLength(1);
-  });
-
-  test("with no gate, an agent's session has nothing to hold it to the workspace ceiling", async () => {
-    const offGitHub: CatalogRepository = {
-      ...pat,
-      url: "https://example.invalid/app.git",
-    };
-    await gateway(offGitHub).authorizeEgress({
-      token: "tok",
-      purpose: "repository",
-    });
-    await expect(
-      gateway(offGitHub, undefined, { source: "agent" }).authorizeEgress({
-        token: "tok",
-        purpose: "repository",
-      }),
-    ).rejects.toMatchObject({ status: 409 });
   });
 
   test("another repository's route asks the gate for that repository and goes to its url", async () => {

@@ -103,22 +103,6 @@ const catalog: SessionCatalog = withSeededInstallation({
       profiles: ["claude-coding-v1", "claude-optional-v1"],
       auth: { kind: "github_app", registered: true },
     },
-    "pat-app": {
-      url: "https://github.com/acme/pat-app",
-      branch: "main",
-      profiles: ["claude-coding-v1"],
-      auth: {
-        kind: "basic",
-        username: "x-access-token",
-        value: "pat-value",
-        ref: { value_env: "PAT" },
-      },
-    },
-    "other-host-app": {
-      url: "https://git.invalid/acme/app.git",
-      branch: "main",
-      profiles: ["claude-coding-v1"],
-    },
   },
 });
 
@@ -450,15 +434,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         actions_allow: [],
       },
     });
-    // The other host is not GitHub; the PAT repository cannot be narrowed.
     expect(body.options.repositories).toEqual([
-      {
-        id: "pat-app",
-        url: "https://github.com/acme/pat-app",
-        available: false,
-        reason: "app_required",
-        installed: { author: null, reviewer: null },
-      },
       {
         id: "sample-app",
         url: "https://github.com/acme/sample-app",
