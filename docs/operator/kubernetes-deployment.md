@@ -98,7 +98,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
   --namespace werft -f values-<installation>.yaml --timeout 10m
 ```
 
-설치별 values 파일에는 `images.worker`·`images.controlHost`·`images.egressProxy`의 digest를 쓰지 않는다. 쓰면 다음 chart의 값을 계속 덮는다. 게시본은 `linux/amd64`뿐이라 arm64 노드에서는 뜨지 않는다.
+설치별 values 파일에는 `images.worker`·`images.controlHost`·`images.egressProxy`의 digest를 쓰지 않는다. 쓰면 다음 chart의 값을 계속 덮는다. 게시본의 digest는 `linux/amd64`와 `linux/arm64`를 담는 index라 노드가 자기 아키텍처를 받는다. kind 설치 검사는 amd64에서만 돈다.
 
 ### 직접 설치
 

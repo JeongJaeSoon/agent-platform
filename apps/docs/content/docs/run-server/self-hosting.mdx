@@ -4,7 +4,7 @@ description: 여러 사람이 쓰는 Werft 서버를 설치하고 운영한다
 ---
 
 <Callout type="warn">
-아직 공식 릴리스가 없다. `v*` 릴리스가 없다. Helm chart는 `main` 머지마다 그 run의 이미지 digest를 담아 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다([게시 chart로 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). 앱 이미지는 `main` 머지마다 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시되고, 쓸 때는 digest로 고정한다([이미지와 공급망](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). 이 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)하고, checkout의 compose 파일이나 chart로 설치한다. 직접 빌드는 x86_64와 arm64 모두 되지만, 게시 코드는 아직 `linux/amd64` 이미지만 만든다.
+아직 공식 릴리스가 없다. `v*` 릴리스가 없다. Helm chart는 `main` 머지마다 그 run의 이미지 digest를 담아 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다([게시 chart로 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). 앱 이미지는 `main` 머지마다 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시되고, 쓸 때는 digest로 고정한다([이미지와 공급망](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). 이 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)하고, checkout의 compose 파일이나 chart로 설치한다. 게시 이미지와 직접 빌드는 모두 x86_64와 arm64를 지원한다.
 </Callout>
 
 Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치·운영 문서의 본문은 저장소의 [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator)에 있고, 이 페이지는 어디서부터 읽을지 안내한다.
@@ -40,7 +40,7 @@ helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
 ```
 
-세 이미지의 digest와 worker runtime은 패키지에 들어 있다. PostgreSQL, S3 bucket, namespace, Secret, 설치별 values 파일을 [Kubernetes 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)대로 준비한 뒤 설치한다. 게시 이미지는 지금 `linux/amd64`뿐이다.
+세 이미지의 digest와 worker runtime은 패키지에 들어 있다. PostgreSQL, S3 bucket, namespace, Secret, 설치별 values 파일을 [Kubernetes 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)대로 준비한 뒤 설치한다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담으므로 노드가 자기 아키텍처를 받는다.
 
 ```bash
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
