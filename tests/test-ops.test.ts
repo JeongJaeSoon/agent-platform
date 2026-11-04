@@ -26,6 +26,7 @@ import {
   probeRoundTrip,
   probeStore,
   type RenderedModel,
+  renderRefusal,
   upgradeImpact,
 } from "../scripts/lib/test-ops.ts";
 import {
@@ -312,6 +313,38 @@ exit 0
     ).toBeNull();
   });
 
+  test("a port compose refuses reaches the operator without its value", async () => {
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh\necho 'invalid hostPort: bad-port-marker' >&2\nexit 1\n`,
+      { mode: 0o755 },
+    );
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    await mkdir(join(dir, "state"));
+    await writeFile(
+      join(dir, "state", "current.json"),
+      JSON.stringify(manifest),
+    );
+    await writeFile(
+      join(dir, "state", "installation"),
+      "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+    );
+    const result = await run(["status"], env);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("one port from 1 to 65535");
+    expect(result.stderr).toContain("compose refused the installation");
+    expect(result.stderr).not.toContain("bad-port-marker");
+  });
+
+  test("reseed checks the render before it stops anything", async () => {
+    const source = await readFile(script, "utf8");
+    const reseed = source.slice(source.indexOf("\nreseed() {"));
+    expect(reseed.indexOf("check_render")).toBeGreaterThan(-1);
+    expect(reseed.indexOf("check_render")).toBeLessThan(
+      reseed.indexOf("stop_writers"),
+    );
+  });
+
   test("checks /readyz at the URL the render names", async () => {
     const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
     await mkdir(join(dir, "state"));
@@ -345,6 +378,21 @@ exit 0
     expect(await readFile(requests, "utf8")).toContain(
       "http://127.0.0.1:13000/readyz",
     );
+  });
+});
+
+describe("compose's refusal of a render", () => {
+  test("drops the port it quotes and keeps everything else", () => {
+    expect(
+      renderRefusal(
+        "invalid hostPort: bad-port-marker\ninvalid IP address: 127.0.0.1:bad\n",
+      ),
+    ).toBe(
+      "a TEST_OPS_*_PORT setting must be one port from 1 to 65535\n".repeat(2),
+    );
+    const required =
+      "error while interpolating services.api: required variable API_IMAGE is missing a value: API_IMAGE must name the released control-host image\n";
+    expect(renderRefusal(required)).toBe(required);
   });
 });
 
@@ -511,6 +559,82 @@ describe("rendered installation", () => {
   );
 
   test(
+    "preflight refuses to move the port of a running LocalStack, not to keep it",
+    async () => {
+      const model = render("localstack", {
+        TEST_OPS_LOCALSTACK_PORT: "14566",
+      });
+      await checkRender(model, {
+        runningLocalstackPort: "14566",
+        store: "localstack",
+      });
+      await expect(
+        checkRender(model, {
+          runningLocalstackPort: "4566",
+          store: "localstack",
+        }),
+      ).rejects.toThrow("LocalStack runs on port 4566");
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the shell's preflight compares the running port with the render",
+    async () => {
+      const head = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "HEAD"])
+        .stdout.toString()
+        .trim();
+      const dirty = Bun.spawnSync([
+        "git",
+        "-C",
+        repoRoot,
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]).stdout.toString();
+      // The checkout check comes first; a working tree with edits stops there.
+      if (dirty !== "") return;
+      const dir = await mkdtemp(join(tmpdir(), "test-ops-"));
+      const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+      manifest.source_commit = head;
+      manifest.catalog_revision = await catalogRevision(catalog);
+      await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
+      await writeFile(join(dir, "settings"), "EXECUTION_INSTALLATION_ID=t\n", {
+        mode: 0o600,
+      });
+      await writeFile(
+        join(dir, "render.json"),
+        JSON.stringify(
+          render("localstack", { TEST_OPS_LOCALSTACK_PORT: "14566" }),
+        ),
+      );
+      await mkdir(join(dir, "bin"));
+      await writeFile(
+        join(dir, "bin", "docker"),
+        `#!/bin/sh
+case "$*" in
+  version*) echo 29.0.0 ;;
+  "compose version"*) echo 2.30.0 ;;
+  *" config --format json") cat "${join(dir, "render.json")}" ;;
+  *" port localstack 4566") echo 127.0.0.1:4566 ;;
+esac
+exit 0
+`,
+        { mode: 0o755 },
+      );
+      const result = await run(["preflight", join(dir, "release.json")], {
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        TEST_OPS_ENV_FILE: join(dir, "settings"),
+        TEST_OPS_STATE_DIR: join(dir, "state"),
+      });
+      await rm(dir, { force: true, recursive: true });
+      expect(result.stderr).toContain("LocalStack runs on port 4566");
+      expect(result.exitCode).toBe(1);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
     "the s3 store has no LocalStack, so its port setting changes nothing",
     async () => {
       const model = render("s3", { TEST_OPS_LOCALSTACK_PORT: "14566" });
@@ -567,8 +691,9 @@ describe("rendered installation", () => {
     "3000-3001",
     "3000:3000",
     "3000/udp",
+    "bad:port:marker",
   ])(
-    "preflight refuses the port %p without showing a secret",
+    "preflight refuses the port %p without showing it or a secret",
     async (value) => {
       for (const name of [
         "TEST_OPS_API_PORT",
@@ -576,7 +701,7 @@ describe("rendered installation", () => {
         "TEST_OPS_LOCALSTACK_PORT",
       ]) {
         const result = compose("localstack", { [name]: value });
-        let refusal = result.stderr.toString();
+        let refusal = renderRefusal(result.stderr.toString());
         if (result.exitCode === 0) {
           const model = JSON.parse(result.stdout.toString()) as RenderedModel;
           refusal = await checkRender(model, { store: "localstack" }).then(
@@ -584,10 +709,11 @@ describe("rendered installation", () => {
             (error: Error) => error.message,
           );
         }
-        expect({ name, refused: refusal !== "" }).toEqual({
+        expect({ name, refusal }).toEqual({
           name,
-          refused: true,
+          refusal: expect.stringContaining("one port from 1 to 65535"),
         });
+        expect(refusal).not.toContain(value);
         expect(refusal).not.toContain(filler("p"));
         expect(refusal).not.toContain(filler("t"));
         expect(refusal).not.toContain(filler("s"));

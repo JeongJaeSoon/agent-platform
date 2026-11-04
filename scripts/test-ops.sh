@@ -258,8 +258,22 @@ ops_compose() {
 # The installation as its containers get it. Held in memory only: it
 # carries the secrets.
 render() {
-  RENDER="$(ops_compose config --format json)" || die "compose refused the installation's settings (above)"
+  local errors status=0
+  errors="$(mktemp)"
+  RENDER="$(ops_compose config --format json 2>"$errors")" || status=$?
+  if [ "$status" != 0 ]; then
+    bun_script "$HELPER" render-refusal "$errors" >&2 || true
+    rm -f "$errors"
+    die "compose refused the installation's settings (above)"
+  fi
+  cat "$errors" >&2
+  rm -f "$errors"
   API_URL="$(printf '%s' "$RENDER" | jq -r '.["x-test-ops-api-url"] // empty')"
+}
+
+check_render() {
+  with_render check-render --store "$STORE" --catalog-revision "$CATALOG_REVISION" "$@" >/dev/null \
+    || die "the settings are not a test-ops installation's (above)"
 }
 
 # One value a service gets, for the settings that are not secrets.
@@ -306,7 +320,7 @@ version_at_least() {
 # The loaded manifest against this host. The workspace quota itself is the
 # scheduler's own probe at startup (deploy and upgrade wait for it).
 preflight() {
-  local head engine compose_version
+  local head engine compose_version running_port=""
   require_tools docker jq bun git curl
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   [ "$head" = "$SOURCE_COMMIT" ] \
@@ -321,8 +335,11 @@ preflight() {
   render
   # Before the bucket is touched with what may be another installation's settings.
   [ ! -e "$IDENTITY" ] || check_identity
-  with_render check-render --store "$STORE" --catalog-revision "$CATALOG_REVISION" >/dev/null \
-    || die "the settings are not a test-ops installation's (above)"
+  # Reseed alone moves a running LocalStack: it puts the objects back.
+  if [ "$STORE" = localstack ]; then
+    running_port="$(ops_compose port localstack 4566 2>/dev/null)" || running_port=""
+  fi
+  check_render ${running_port:+--localstack-port "${running_port##*:}"}
   if [ "$STORE" = s3 ]; then
     with_render probe-store || die "the bucket or the API's S3 key failed (above)"
   else
@@ -618,6 +635,7 @@ reseed() {
   render
   check_identity
   [ "$STORE" = localstack ] || die "reseed refills a LocalStack installation's bucket; this one is on $STORE"
+  check_render
   [ -r "$BACKUP_DIR/manifest.json" ] || die "$BACKUP_DIR is not a backup (no manifest.json)"
   verify_checksums "$BACKUP_DIR" || die "SHA256SUMS mismatch in $BACKUP_DIR; the bundle is damaged or edited"
   schema_check "$BACKUP_DIR/manifest.json" || die "the backup's schema is not this release's"

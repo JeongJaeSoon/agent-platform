@@ -3,7 +3,8 @@
  *
  *   bun run scripts/lib/test-ops.ts manifest <release.json>
  *   bun run scripts/lib/test-ops.ts catalog-revision <dir>
- *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev>] < rendered.json
+ *   bun run scripts/lib/test-ops.ts render-refusal <stderr-file>
+ *   bun run scripts/lib/test-ops.ts check-render --store <localstack|s3> [--catalog-revision <rev> [--localstack-port <running>]] < rendered.json
  *   bun run scripts/lib/test-ops.ts probe-store < rendered.json
  *   bun run scripts/lib/test-ops.ts upgrade-impact <verify-exit> <verify-output> <uncollected>
  *   bun run scripts/lib/test-ops.ts upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output>
@@ -194,10 +195,23 @@ function apiUrlProblems(value: string, apiPort: string | undefined): string[] {
     : [];
 }
 
+const PORT_REFUSAL =
+  /invalid (?:hostPort|containerPort|proto|IP address)|no port specified/i;
+
+/** Compose's stderr, with the lines that quote a refused port replaced. */
+export function renderRefusal(stderr: string): string {
+  return stderr.replace(/^.*$/gm, (line) =>
+    PORT_REFUSAL.test(line)
+      ? "a TEST_OPS_*_PORT setting must be one port from 1 to 65535"
+      : line,
+  );
+}
+
 /**
  * Refuses a render that is not a test-ops installation: one that runs or
  * builds a local dependency, names an image by tag, publishes beyond
- * loopback or anything but one free port per service, checks the API
+ * loopback or anything but one free port per service, moves the port of the
+ * running LocalStack, whose recreation loses every object, checks the API
  * anywhere but the port it publishes, loosens the API's modes, builds a DSN a
  * password breaks, points the API at another object store than `store`,
  * leaves workers without a route to it, runs workspaces without quota, or
@@ -208,6 +222,7 @@ export async function checkRender(
   model: RenderedModel,
   options: {
     readonly catalogRevision?: string;
+    readonly runningLocalstackPort?: string;
     readonly store: ObjectStoreMode;
   },
 ): Promise<string> {
@@ -244,6 +259,14 @@ export async function checkRender(
       publishers.set(published, name);
     }
   }
+  const running = options.runningLocalstackPort;
+  if (
+    running !== undefined &&
+    services.localstack?.ports?.[0]?.published !== running
+  )
+    problems.push(
+      `LocalStack runs on port ${running}, and moving it loses every object: keep the port, or take backup --stop and reseed (docs/operator/test-ops.md)`,
+    );
   for (const required of ["api", "scheduler", "egress-proxy", "postgres"])
     if (!(required in services))
       problems.push(`service ${required} is missing`);
@@ -590,19 +613,36 @@ async function main(argv: readonly string[]): Promise<number> {
       console.log(await catalogRevision(dir));
       return 0;
     }
+    case "render-refusal": {
+      const [file] = args;
+      if (!file || args.length > 1) return usage();
+      process.stdout.write(renderRefusal(await readFile(file, "utf8")));
+      return 0;
+    }
     case "check-render": {
-      const [storeFlag, store, revisionFlag, revision, ...rest] = args;
+      const [
+        storeFlag,
+        store,
+        revisionFlag,
+        revision,
+        portFlag,
+        port,
+        ...rest
+      ] = args;
       if (
         storeFlag !== "--store" ||
         !OBJECT_STORE_MODES.includes(store as ObjectStoreMode) ||
         rest.length > 0 ||
         (revisionFlag !== undefined &&
-          (revisionFlag !== "--catalog-revision" || revision === undefined))
+          (revisionFlag !== "--catalog-revision" || revision === undefined)) ||
+        (portFlag !== undefined &&
+          (portFlag !== "--localstack-port" || port === undefined))
       )
         return usage();
       console.log(
         await checkRender(await stdinModel(), {
           ...(revision === undefined ? {} : { catalogRevision: revision }),
+          ...(port === undefined ? {} : { runningLocalstackPort: port }),
           store: store as ObjectStoreMode,
         }),
       );
@@ -699,7 +739,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
 function usage(): number {
   console.error(
-    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | check-render --store <localstack|s3> [--catalog-revision <rev>] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
+    "usage: test-ops.ts manifest <file> | catalog-revision <dir> | render-refusal <stderr-file> | check-render --store <localstack|s3> [--catalog-revision <rev> [--localstack-port <running>]] | probe-store | upgrade-impact <verify-exit> <verify-output> <uncollected> | upgrade-previous <uncollected> <target-exit> <target-output> <previous-exit> <previous-output> | upgrade-gate <from-worker> <to-worker> <affected> [<approved>]",
   );
   return 2;
 }
