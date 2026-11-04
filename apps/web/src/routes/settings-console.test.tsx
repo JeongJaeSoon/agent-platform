@@ -117,12 +117,107 @@ describe("모델 연결", () => {
     }),
   ];
 
-  const routes = (signedIn = me(), hosts: string[] | null = null) => ({
+  const routes = (
+    signedIn = me(),
+    hosts: string[] | null = null,
+    defaults: Record<string, string> = {},
+  ) => ({
     "GET /v1/auth/me": () => json(200, signedIn),
     "GET /v1/profiles": () =>
       json(200, { items: [imported("coding-claude"), imported("general")] }),
     [`GET ${CONNECTIONS}`]: () =>
-      json(200, { items: listed, credential_hosts: hosts }),
+      json(200, {
+        items: listed,
+        credential_hosts: hosts,
+        endpoint_defaults: defaults,
+      }),
+  });
+
+  test("an untouched default is not sent, so the server's own checks on it still run", async () => {
+    const { api } = renderAt("/profiles", {
+      ...routes(me(), null, { anthropic: "https://api.anthropic.com" }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("free")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("id"), "free");
+    await user.selectOptions(
+      within(dialog).getByLabelText("비용 집계"),
+      "none",
+    );
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("free를 만들었습니다.");
+    expect(writes(api.calls).map((call) => call.body)).toEqual([
+      {
+        id: "free",
+        kind: "anthropic",
+        billing: "none",
+        auth_kind: "api_key",
+        value: "example-key",
+      },
+    ]);
+  });
+
+  test("a kind with an official address starts with it filled in; what the person typed survives a kind change", async () => {
+    const OFFICIAL = "https://api.anthropic.com";
+    const { api } = renderAt("/profiles", {
+      ...routes(me(), null, { anthropic: OFFICIAL }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("official")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    const endpoint =
+      within(dialog).getByLabelText<HTMLInputElement>("엔드포인트");
+    const kind = within(dialog).getByLabelText("종류");
+    expect(endpoint.value).toBe(OFFICIAL);
+    expect(endpoint.required).toBe(false);
+
+    // The default is not the person's: a kind without one empties the field.
+    await user.selectOptions(kind, "litellm");
+    expect(endpoint.value).toBe("");
+    expect(endpoint.required).toBe(true);
+    await user.selectOptions(kind, "anthropic");
+    expect(endpoint.value).toBe(OFFICIAL);
+
+    // A typed value stays when the kind changes, both ways.
+    await user.clear(endpoint);
+    await user.type(endpoint, "https://proxy.example.com");
+    await user.selectOptions(kind, "litellm");
+    expect(endpoint.value).toBe("https://proxy.example.com");
+    await user.selectOptions(kind, "anthropic");
+    expect(endpoint.value).toBe("https://proxy.example.com");
+
+    // Typing the official address is still typing: it survives too.
+    await user.clear(endpoint);
+    await user.type(endpoint, OFFICIAL);
+    await user.selectOptions(kind, "litellm");
+    expect(endpoint.value).toBe(OFFICIAL);
+    await user.selectOptions(kind, "anthropic");
+
+    // Cleared, the request leaves the endpoint out for the server's default.
+    await user.clear(endpoint);
+    await user.type(within(dialog).getByLabelText("id"), "official");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("official를 만들었습니다.");
+    expect(
+      writes(api.calls).map((call) => [call.method, call.path, call.body]),
+    ).toEqual([
+      [
+        "POST",
+        CONNECTIONS,
+        {
+          id: "official",
+          kind: "anthropic",
+          billing: "per_token",
+          auth_kind: "api_key",
+          value: "example-key",
+        },
+      ],
+    ]);
   });
 
   test("the owner sees imported and console connections alike, and what each may do", async () => {

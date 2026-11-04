@@ -126,6 +126,8 @@ export const listSettingsConnectionsResponseSchema = z
      * not refused.
      */
     credential_hosts: z.array(z.string()).nullable(),
+    /** The endpoint a kind takes when it is left empty, by kind. */
+    endpoint_defaults: z.record(z.string(), z.string()),
   })
   .strict();
 
@@ -168,7 +170,8 @@ export const createSettingsConnectionRequestSchema = z
   .object({
     id: consoleEntryId,
     kind: z.enum(["anthropic", "litellm"]),
-    endpoint: z.string().min(1),
+    /** Empty takes the kind's default; a kind with none is refused. */
+    endpoint: z.string().optional(),
     billing: z.enum(["per_token", "none"]).optional(),
     /** `bearer` only for litellm. */
     auth_kind: z.enum(["api_key", "bearer"]),

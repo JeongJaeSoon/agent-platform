@@ -1,8 +1,8 @@
 # TypeScript SDK (`@werft-ai/sdk`)
 
-서버와 스크립트에서 API key로 세션을 다루는 TypeScript SDK다. 위치는 `packages/sdk`이고, npm 패키지 이름은 `@werft-ai/sdk`(버전 0.x)이며 아직 게시되지 않았다. Node 20.3 이상과 Bun에서 돈다. 이 디렉터리와 npm 배포본은 [Apache License 2.0](../packages/sdk/LICENSE)을 따른다. 저장소의 나머지는 PolyForm Small Business 1.0.0이다([README 라이선스](../README.md#라이선스)).
+서버와 스크립트에서 API key로 세션을 다루는 TypeScript SDK다. 위치는 `packages/sdk`이고, npm 패키지 이름은 `@werft-ai/sdk`(버전 0.x)다. Node 20.3 이상과 Bun에서 돈다. 이 디렉터리와 npm 배포본은 [Apache License 2.0](../packages/sdk/LICENSE)을 따른다. 저장소의 나머지는 PolyForm Small Business 1.0.0이다([README 라이선스](../README.md#라이선스)).
 
-아직 npm에 없으므로 `npm install @werft-ai/sdk`는 E404로 실패한다. 저장소 밖에서는 [설치 안내](../apps/docs/content/docs/getting-started/install.mdx)대로 저장소에서 빌드한 tarball로 설치하고, 저장소 안에서는 workspace의 `@werft-ai/sdk`를 가져온다. 빌드·검사·배포 절차는 [packages/sdk/README.md](../packages/sdk/README.md)에 있다.
+저장소 밖에서는 [설치 안내](../apps/docs/content/docs/getting-started/install.mdx)대로 `npm install @werft-ai/sdk`로 설치하고, 저장소 안에서는 workspace의 `@werft-ai/sdk`를 가져온다. 빌드·검사·배포 절차는 [packages/sdk/README.md](../packages/sdk/README.md)에 있다.
 
 HTTP API 자체의 규칙(scope, Idempotency-Key, 오류 코드, 이벤트 스트림)은 [API 유즈케이스 가이드](api-guide.md)가 정본이다. 이 문서는 SDK가 그 규칙을 어떻게 감싸는지만 적는다.
 

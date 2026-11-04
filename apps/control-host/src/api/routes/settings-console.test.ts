@@ -169,6 +169,7 @@ describe("GET /v1/installation/settings/{kind}", () => {
             },
           ],
           credential_hosts: null,
+          endpoint_defaults: { anthropic: "https://api.anthropic.com" },
         }),
       },
       "GET",

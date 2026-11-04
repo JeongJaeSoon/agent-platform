@@ -32,7 +32,7 @@ const rows = (table: HTMLElement) =>
 
 const NO_CONNECTIONS = {
   "GET /v1/installation/settings/connections": () =>
-    json(200, { items: [], credential_hosts: null }),
+    json(200, { items: [], credential_hosts: null, endpoint_defaults: {} }),
 };
 
 function routes(items: ProfileSummary[], signedIn = me()) {

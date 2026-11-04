@@ -125,6 +125,40 @@ describe("parseSettingsDocument", () => {
     expect(settingsDocumentDigest(exported)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
+  test("an entry with no endpoint takes its kind's default, and a kind with none is refused", () => {
+    const document = (entry: Record<string, unknown>) => ({
+      version: 1,
+      connections: { c: entry },
+    });
+    const auth = { kind: "api_key", value_env: "ANTHROPIC_API_KEY" };
+    const expected = "https://api.anthropic.com";
+    for (const open of [{}, { endpoint: "" }, { endpoint: "  " }]) {
+      const entries = parseSettingsDocument(
+        document({ kind: "anthropic", auth, ...open }),
+      );
+      expect(entries.connections.c).toMatchObject({ endpoint: expected });
+      // The resolved value is concrete, so an export reads back unchanged.
+      expect(
+        parseSettingsDocument(settingsDocumentOf(entries)).connections,
+      ).toEqual(entries.connections);
+    }
+    expect(
+      parseSettingsDocument(
+        document({ kind: "anthropic", auth, endpoint: "http://proxy:4000" }),
+      ).connections.c,
+    ).toMatchObject({ endpoint: "http://proxy:4000" });
+    expect(() =>
+      parseSettingsDocument(
+        document({ kind: "litellm", auth: { kind: "bearer", value_env: "K" } }),
+      ),
+    ).toThrow(SettingsDocumentError);
+    expect(() =>
+      parseSettingsDocument(
+        document({ kind: "anthropic", auth, billing: "none" }),
+      ),
+    ).toThrow(SettingsDocumentError);
+  });
+
   test("an export without a stored value's last4 still holds no value", () => {
     const text = JSON.stringify(
       settingsDocumentOf(parseSettingsDocument(DOCUMENT)),
