@@ -2,7 +2,7 @@ name: CI image mirror
 
 # Copies every third-party image CI pulls — service containers, the images
 # the Docker suites start, the dind daemon of `workspace-quota` — from Docker
-# Hub to ghcr.io/<owner>/agent-platform-ci/<name>, byte for byte: the copy
+# Hub to ghcr.io/<owner>/werft-ci/<name>, byte for byte: the copy
 # keeps the upstream digest, so ci.yml pins the very digest Docker Hub
 # publishes and the daemon verifies it on every pull. Docker Hub is
 # then out of the CI path: its anonymous rate limit had already failed
@@ -116,7 +116,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # ghcr rejects upper-case repository paths.
-          target="ghcr.io/${OWNER,,}/agent-platform-ci/${NAME}"
+          target="ghcr.io/${OWNER,,}/werft-ci/${NAME}"
           echo "$GH_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           # --preserve-digests fails the copy rather than re-encode anything.
           skopeo copy --all --preserve-digests --retry-times 3 \
