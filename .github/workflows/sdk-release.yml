@@ -8,8 +8,24 @@ name: sdk-release
 # A failed publish is retried with Re-run failed jobs on the same run. The
 # steps a person takes around a release are in packages/sdk/README.md
 # (빌드와 배포).
+# A push to main that touches the SDK also publishes a prerelease,
+# <package version>-main.<12 hex of the commit>, under the dist-tag `main`
+# (`publish-main`). Only a release moves `latest`.
 on:
   pull_request:
+    paths:
+      - packages/sdk/**
+      - packages/client/**
+      - packages/contracts/**
+      - examples/**
+      - scripts/sdk-pack-smoke.ts
+      - bun.lock
+      - .github/actions/bun-setup/**
+      - .github/workflows/sdk-release.yml
+  push:
+    branches: [main]
+    # The same paths as pull_request, written twice: Actions anchors are not
+    # relied on here.
     paths:
       - packages/sdk/**
       - packages/client/**
@@ -87,8 +103,24 @@ jobs:
           version=$(node -p 'require("./packages/sdk/package.json").version')
           grep -qx "export const SDK_VERSION = \"${version}\";" packages/sdk/src/version.ts \
             || { echo "::error::packages/sdk/src/version.ts SDK_VERSION is not ${version}"; exit 1; }
+      # Before the build, so the bundle's SDK_VERSION and the manifest agree.
+      # Only in this checkout; nothing is committed.
+      - if: github.event_name == 'push'
+        name: Stamp the main prerelease version
+        run: |
+          base=$(node -p 'require("./packages/sdk/package.json").version')
+          case "$base" in
+            ''|*[!0-9.]*) echo "::error::packages/sdk version ${base} is not a stable x.y.z"; exit 1 ;;
+          esac
+          version="${base}-main.${GITHUB_SHA:0:12}"
+          node -e 'const fs = require("fs"); const v = process.argv[1]; const p = "packages/sdk/package.json"; const j = JSON.parse(fs.readFileSync(p, "utf8")); j.version = v; fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n"); const f = "packages/sdk/src/version.ts"; fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace(/SDK_VERSION = "[^"]*"/, `SDK_VERSION = "${v}"`));' "$version"
       - name: Build the package
         run: bun run --cwd packages/sdk build:package
+      - name: The bundle reports the version it is published as
+        run: |
+          version=$(node -p 'require("./packages/sdk/dist/package.json").version')
+          grep -qF "\"${version}\"" packages/sdk/dist/index.js \
+            || { echo "::error::packages/sdk/dist/index.js does not carry ${version}"; exit 1; }
       - name: Install, type-check and run the sample in an empty project
         run: bun scripts/sdk-pack-smoke.ts
       - name: Pack
@@ -154,3 +186,68 @@ jobs:
           registry-url: https://registry.npmjs.org
       # `./` keeps npm from reading `pkg/<name>.tgz` as a GitHub `user/repo`.
       - run: npm publish ./pkg/*.tgz --provenance --access public
+
+  # The prerelease path. npm's registration for this file and environment has
+  # no prerelease-only setting, so the only fence is this job: the version
+  # check below and the literal `--tag main`. Both live in this file, which a
+  # reviewed change to main can edit; this job does not keep the stable
+  # version behind the `release` approval, review of main does. `vars` keeps
+  # it skipped until the `sdk-prerelease` environment and its npm registration
+  # exist; without them the first publish fails with ENEEDAUTH. No checkout.
+  publish-main:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SDK_PRERELEASE == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: sdk-prerelease
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdk-package
+          path: pkg
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # A run for a commit that is no longer the head of main must not move
+      # `main` back, and a rerun of a published commit must not fail on a
+      # version npm already has. A lookup that errors stops the job; only an
+      # E404 reads as "not published yet".
+      - id: check
+        name: This commit's prerelease can be published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ] \
+            || fail "a prerelease publishes from a push to main, not ${GITHUB_EVENT_NAME} on ${GITHUB_REF}"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "GITHUB_SHA is not a commit hash"
+          set -- pkg/*.tgz
+          [ "$#" -eq 1 ] && [ -f "$1" ] || fail "expected one tarball in pkg"
+          manifest=$(tar -xzOf "$1" package/package.json) || fail "could not read package.json from $1"
+          fields=$(printf '%s' "$manifest" | node -e 'const m = JSON.parse(require("fs").readFileSync(0, "utf8")); console.log([m.name, m.version, m.publishConfig?.tag ?? ""].join(" "))') \
+            || fail "package.json in $1 is not JSON"
+          read -r name version tag <<< "$fields"
+          [ "$name" = "@werft-ai/sdk" ] || fail "tarball is ${name}, not @werft-ai/sdk"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-main\.${GITHUB_SHA:0:12}$ ]] \
+            || fail "version ${version} is not <x.y.z>-main.${GITHUB_SHA:0:12}"
+          [ -z "$tag" ] || fail "package.json publishConfig.tag is ${tag}"
+          head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha) \
+            || fail "could not read the head of main"
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice::${GITHUB_SHA} is not the head of main (${head}); not publishing"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if seen=$(npm view "${name}@${version}" version 2>&1); then
+            echo "::notice::${name}@${version} is already on npm; not publishing"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$seen" | grep -q E404 || fail "could not look up ${name}@${version}: ${seen}"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.publish == 'true'
+        run: npm publish ./pkg/*.tgz --tag main --provenance --access public
