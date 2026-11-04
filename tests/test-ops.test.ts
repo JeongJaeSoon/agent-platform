@@ -508,12 +508,21 @@ describe("rendered installation", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
-  test(
-    "the API URL may name a proxy in front of the installation",
-    async () => {
-      const url = "https://ops.example.test";
+  test.each(["https://ops.example.test", "https://ops.example.test:443"])(
+    "the API URL may name a proxy in front of the installation: %p",
+    async (url) => {
       const model = render("localstack", { TEST_OPS_API_URL: url });
       expect(model["x-test-ops-api-url"]).toBe(url);
+      await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "an API port that is its scheme's default passes",
+    async () => {
+      const model = render("localstack", { TEST_OPS_API_PORT: "80" });
+      expect(model["x-test-ops-api-url"]).toBe("http://127.0.0.1:80");
       await checkRender(model, { store: "localstack" });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
@@ -571,6 +580,8 @@ describe("rendered installation", () => {
     ["http://127.0.0.1:3000/", "must be scheme://host[:port]"],
     ["http://127.0.0.1:3000/api", "must be scheme://host[:port]"],
     ["http://127.0.0.1:3000?x=1", "must be scheme://host[:port]"],
+    ["http://127.0.0.1:3000#x", "must be scheme://host[:port]"],
+    ["http://ops.example.test:0", "must be scheme://host[:port]"],
     ["http://127.0.0.1:13000", "must use the published API port 3000"],
     ["http://localhost:13000", "must use the published API port 3000"],
     ["http://[::1]:13000", "must use the published API port 3000"],

@@ -186,8 +186,8 @@ function apiUrlProblems(value: string, apiPort: string | undefined): string[] {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:")
     return ["TEST_OPS_API_URL must be http or https"];
-  if (value !== url.origin) return form;
   const port = url.port || (url.protocol === "http:" ? "80" : "443");
+  if (!/^[a-z]+:\/\/[^/\\?#@\s]+$/i.test(value) || !isPort(port)) return form;
   return LOOPBACK_HOSTS.includes(url.hostname) && port !== apiPort
     ? [`TEST_OPS_API_URL must use the published API port ${apiPort}`]
     : [];
