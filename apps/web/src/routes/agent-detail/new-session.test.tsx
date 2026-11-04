@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import type { ApiClient } from "@werft-ai/client";
 import type {
   AgentDetail,
   AuthMeResponse,
   ProfileSummary,
 } from "@werft-ai/contracts";
+import {
+  agentSessionListsFilter,
+  sessionsQuery,
+  waitingSessionsQuery,
+  withQueryScope,
+} from "@werft-ai/core";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { agentsEn, agentsJa, agentsKo } from "../../i18n/agents.ts";
 import { AGENT_ID, agentServer } from "../../test-support/fake-agents.ts";
@@ -13,6 +20,7 @@ import {
   me,
   memberMe,
   RECEIPT_ID,
+  SCOPE,
 } from "../../test-support/fake-api.ts";
 import { appHarness } from "../../test-support/render-app.tsx";
 
@@ -21,6 +29,8 @@ const { renderAt, screen, waitFor, within } = await appHarness();
 const DETAIL = `/agents/${AGENT_ID}`;
 const PATH = `/v1/agents/${AGENT_ID}`;
 const SESSION_ID = "aaaaaaaa-1111-4222-8333-444444444444";
+const NEWER_RELEASE =
+  "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const BUTTON = "이 에이전트로 새 세션";
 const SUBMIT = "세션 시작";
 const MESSAGE = "첫 메시지";
@@ -218,7 +228,7 @@ describe("이 에이전트로 새 세션", () => {
     ];
     const first = server.detail();
     let served = first;
-    const { api, history } = renderAt(DETAIL, {
+    const { api, history, services } = renderAt(DETAIL, {
       ...meAs(me()),
       ...server.routes,
       [`GET ${PATH}`]: () => json(200, served),
@@ -231,7 +241,8 @@ describe("이 에이전트로 새 세션", () => {
     await send();
     await within(dialog).findByRole("alert");
     // The release moved on while the first answer was lost.
-    served = withRelease(first, { id: "rel-newer" });
+    served = withRelease(first, { id: NEWER_RELEASE });
+    await services.queryClient.invalidateQueries();
     await send();
     await waitFor(() =>
       expect(within(dialog).getByRole("alert").textContent).toBe(
@@ -252,7 +263,103 @@ describe("이 에이전트로 새 세션", () => {
     expect(keys[1]).toBe(keys[0] as string);
     expect(keys[2]).toBe(keys[0] as string);
     expect(keys[3] === keys[0]).toBe(false);
+    expect(sent[1]?.body).toEqual(sent[0]?.body);
     expect(sent[2]?.body).toEqual(sent[0]?.body);
+    expect(sent[3]?.body).toEqual({
+      agent_release_id: NEWER_RELEASE,
+      message: "요약해 줘",
+    });
+  });
+
+  test("응답을 못 받은 뒤 메시지를 고치면 새 키로 고친 본문을 보낸다", async () => {
+    const server = await released("optional");
+    const answers = [
+      () => {
+        throw new TypeError("connection lost");
+      },
+      created,
+    ];
+    const { api, history } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "POST /v1/sessions": () => (answers.shift() as () => Response)(),
+    });
+    const { user, dialog } = await openDialog();
+    const field = within(dialog).getByLabelText(MESSAGE);
+    await user.type(field, "요약해 줘");
+    const send = async () =>
+      user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await send();
+    await within(dialog).findByRole("alert");
+    await user.type(field, " 짧게");
+    await send();
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    const sent = api.calls.filter(
+      (call) => call.method === "POST" && call.path === "/v1/sessions",
+    );
+    expect(sent).toHaveLength(2);
+    expect(
+      sent[1]?.headers.get("Idempotency-Key") ===
+        sent[0]?.headers.get("Idempotency-Key"),
+    ).toBe(false);
+    expect(sent[1]?.body).toEqual({
+      agent_release_id: server.detail().active_release?.id,
+      message: "요약해 줘 짧게",
+    });
+  });
+
+  test("보낸 뒤 답이 오기 전에는 Esc로도 취소로도 닫히지 않고, 답이 오면 이동한다", async () => {
+    const server = await released("optional");
+    let answer: (response: Response) => void = () => undefined;
+    const { history } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "POST /v1/sessions": () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await within(dialog).findByRole("button", { name: "시작하는 중…" });
+    await user.keyboard("{Escape}");
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("dialog") === null).toBe(false);
+    answer(created());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+  });
+
+  test("세션을 만들면 세션 목록과 답변 대기, 에이전트의 세션 목록을 새로 읽게 한다", async () => {
+    const server = await released("optional");
+    const { history, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "POST /v1/sessions": created,
+    });
+    const { queryClient } = services;
+    const client = withQueryScope({} as ApiClient, SCOPE);
+    const invalidate = queryClient.invalidateQueries.bind(queryClient);
+    const invalidated: unknown[] = [];
+    queryClient.invalidateQueries = ((filters) => {
+      invalidated.push(filters?.queryKey);
+      return invalidate(filters);
+    }) as typeof queryClient.invalidateQueries;
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    expect(invalidated).toContainEqual(sessionsQuery(client).queryKey);
+    expect(invalidated).toContainEqual(waitingSessionsQuery(client).queryKey);
+    expect(invalidated).toContainEqual(
+      agentSessionListsFilter(client).queryKey,
+    );
   });
 
   describe("시작할 수 없는 상태마다 이유가 보인다", () => {
