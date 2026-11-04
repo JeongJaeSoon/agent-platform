@@ -12272,7 +12272,7 @@ export interface operations {
                 /**
                  * @example {
                  *       "state": "state-from-the-redirect",
-                 *       "installation_id": 176243287
+                 *       "installation_id": 7654323
                  *     }
                  */
                 "application/json": components["schemas"]["CompleteGitHubInstallationRequest"];
@@ -12289,7 +12289,7 @@ export interface operations {
                     /**
                      * @example {
                      *       "connection_id": "6f1b8c1e-3a4d-4f0a-9c7e-2b5d8e9f0a1b",
-                     *       "installation_id": 176243287,
+                     *       "installation_id": 7654323,
                      *       "recorded": true
                      *     }
                      */
