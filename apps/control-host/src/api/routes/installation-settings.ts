@@ -1,17 +1,32 @@
 import {
+  createSettingsConnectionRequestSchema,
+  createSettingsMcpServerRequestSchema,
+  createSettingsRepositoryRequestSchema,
   exportSettingsResponseSchema,
   importSettingsQuerySchema,
   importSettingsResponseSchema,
+  listSettingsConnectionsResponseSchema,
+  listSettingsMcpServersResponseSchema,
+  listSettingsRepositoriesResponseSchema,
+  setSettingsCredentialRequestSchema,
+  setSettingsMcpServerRequestSchema,
+  setSettingsRepositoryRequestSchema,
+  settingsChangeResponseSchema,
   settingsDocumentSchema,
+  settingsIdParamsSchema,
 } from "@werft-ai/contracts";
-import type { SettingsDocumentService } from "@werft-ai/platform";
+import type {
+  SettingsConsoleService,
+  SettingsDocumentService,
+  SettingsKind,
+} from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
 } from "../app.ts";
-import { mapped, requireQuery } from "./errors.ts";
+import { mapped, requireParams, requireQuery } from "./errors.ts";
 
 export function registerInstallationSettingsRoutes(
   router: ApiRouter,
@@ -31,5 +46,122 @@ export function registerInstallationSettingsRoutes(
       }),
     );
     return jsonWithSchema(context, importSettingsResponseSchema, imported);
+  });
+}
+
+const KINDS = [
+  ["Connection", "connection"],
+  ["McpServer", "mcp"],
+  ["Repository", "repository"],
+] as const satisfies ReadonlyArray<readonly [string, SettingsKind]>;
+
+export function registerSettingsConsoleRoutes(
+  router: ApiRouter,
+  settings: SettingsConsoleService,
+) {
+  apiRoute(router, "listSettingsConnections", async (context) => {
+    const listed = await mapped(() =>
+      settings.listConnections(context.get("caller")),
+    );
+    return jsonWithSchema(
+      context,
+      listSettingsConnectionsResponseSchema,
+      listed,
+    );
+  });
+  apiRoute(router, "listSettingsMcpServers", async (context) => {
+    const listed = await mapped(() =>
+      settings.listMcpServers(context.get("caller")),
+    );
+    return jsonWithSchema(
+      context,
+      listSettingsMcpServersResponseSchema,
+      listed,
+    );
+  });
+  apiRoute(router, "listSettingsRepositories", async (context) => {
+    const listed = await mapped(() =>
+      settings.listRepositories(context.get("caller")),
+    );
+    return jsonWithSchema(
+      context,
+      listSettingsRepositoriesResponseSchema,
+      listed,
+    );
+  });
+
+  apiRoute(router, "createSettingsConnection", async (context) => {
+    const body = await parseJsonBody(
+      context,
+      createSettingsConnectionRequestSchema,
+    );
+    const made = await mapped(() =>
+      settings.createConnection(context.get("caller"), body),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
+  });
+  apiRoute(router, "createSettingsMcpServer", async (context) => {
+    const body = await parseJsonBody(
+      context,
+      createSettingsMcpServerRequestSchema,
+    );
+    const made = await mapped(() =>
+      settings.createMcpServer(context.get("caller"), body),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
+  });
+  apiRoute(router, "createSettingsRepository", async (context) => {
+    const body = await parseJsonBody(
+      context,
+      createSettingsRepositoryRequestSchema,
+    );
+    const made = await mapped(() =>
+      settings.createRepository(context.get("caller"), body),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
+  });
+
+  for (const [name, kind] of KINDS) {
+    apiRoute(router, `setSettings${name}Credential`, async (context) => {
+      const { id } = requireParams(context, settingsIdParamsSchema);
+      const body = await parseJsonBody(
+        context,
+        setSettingsCredentialRequestSchema,
+      );
+      const changed = await mapped(() =>
+        settings.setCredential(context.get("caller"), kind, id, body.value),
+      );
+      return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+    });
+    apiRoute(router, `disableSettings${name}`, async (context) => {
+      const { id } = requireParams(context, settingsIdParamsSchema);
+      const changed = await mapped(() =>
+        settings.disable(context.get("caller"), kind, id),
+      );
+      return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+    });
+  }
+
+  apiRoute(router, "setSettingsMcpServer", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      setSettingsMcpServerRequestSchema,
+    );
+    const changed = await mapped(() =>
+      settings.setMcpWorkspaces(context.get("caller"), id, body.workspaces),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
+  });
+  apiRoute(router, "setSettingsRepository", async (context) => {
+    const { id } = requireParams(context, settingsIdParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      setSettingsRepositoryRequestSchema,
+    );
+    const changed = await mapped(() =>
+      settings.setRepositoryBranch(context.get("caller"), id, body.branch),
+    );
+    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
   });
 }

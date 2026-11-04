@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ReceiptActor } from "@werft-ai/contracts";
+import type { ReceiptActor, ReceiptOperation } from "@werft-ai/contracts";
 import {
   type CatalogRepositoryConfig,
   credentialSourceOf,
@@ -8,12 +8,15 @@ import {
   planSettingsImport,
   repositoryAuthKindOf,
   repositoryNameOf,
+  type SecretKey,
+  type SettingsConsoleResult,
   type SettingsDocumentStore,
   type SettingsEntries,
   type SettingsImportAdd,
+  type SettingsKind,
   type TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
@@ -25,6 +28,7 @@ import {
   secretValues,
   workspaces,
 } from "./schema.ts";
+import { writeSecretInTx } from "./secret-values.ts";
 
 const PURPOSE = "settings_credential";
 
@@ -122,6 +126,7 @@ async function insertRow(
   tx: Database,
   add: SettingsImportAdd,
   createdBy: string | null,
+  origin: "import" | "console" = "import",
 ): Promise<void> {
   const source = credentialSourceOf(add.entry);
   switch (add.kind) {
@@ -131,7 +136,7 @@ async function insertRow(
         definition: add.entry,
         // A provider always names a credential.
         credentialSource: source ?? "external",
-        origin: "import",
+        origin,
         createdBy,
       });
       return;
@@ -153,7 +158,7 @@ async function insertRow(
         credentialSource: own ? source : null,
         // The console App's rows hold no GitHub id until a pick fills it,
         // which the table takes from a seeded row only.
-        source: authKind === "github_app" ? "seed" : "import",
+        source: authKind === "github_app" ? "seed" : origin,
         createdBy,
         updatedBy: createdBy,
       });
@@ -167,7 +172,7 @@ async function insertRow(
         auth: add.entry.auth,
         credentialSource: source ?? "external",
         workspaces: [...add.entry.workspaces],
-        origin: "import",
+        origin,
         createdBy,
       });
       return;
@@ -213,8 +218,12 @@ function auditOf(add: SettingsImportAdd): Record<string, unknown> {
 
 export function createPostgresSettingsDocumentStore(
   db: Database,
+  /** Null when the secret store is off: no console write seals a value. */
+  key: SecretKey | null = null,
 ): SettingsDocumentStore {
   return {
+    ...listRowsIn(db),
+    ...consoleWrites(db, key),
     exportEntries() {
       return db.transaction(
         async (tx) => {
@@ -302,6 +311,437 @@ export function createPostgresSettingsDocumentStore(
 }
 
 async function liveOwner(tx: Database, actor: TeamActor): Promise<boolean> {
+  return liveIn(tx, actor, ["owner"]);
+}
+
+async function liveIn(
+  tx: Database,
+  actor: TeamActor,
+  roles: readonly string[],
+): Promise<boolean> {
   const [me] = await lockPeople(tx, actor.workspaceId, [actor.userId]);
-  return me?.live === true && me.role === "owner";
+  return me?.live === true && roles.includes(me.role);
+}
+
+/** Who may write each kind (settings-replace-file-catalog.md §3). */
+const WRITERS: Record<SettingsKind, readonly string[]> = {
+  connection: ["owner"],
+  mcp: ["owner"],
+  repository: ["owner", "admin"],
+};
+
+async function lockWriters(tx: Database): Promise<void> {
+  // The import's order: the repository writers' lock, the generation, rows.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('catalog-repositories'))`,
+  );
+  await lockSettingsGeneration(tx);
+}
+
+type HeldRow = {
+  entry: unknown;
+  credentialSource: string | null;
+  disabled: boolean;
+};
+
+/** The row under its lock, as an entry, or null. */
+async function heldRow(
+  tx: Database,
+  kind: SettingsKind,
+  id: string,
+): Promise<HeldRow | null> {
+  switch (kind) {
+    case "connection": {
+      const [row] = await tx
+        .select()
+        .from(providerConnections)
+        .where(eq(providerConnections.id, id))
+        .for("update");
+      return row
+        ? {
+            entry: row.definition,
+            credentialSource: row.credentialSource,
+            disabled: row.disabledAt !== null,
+          }
+        : null;
+    }
+    case "mcp": {
+      const [row] = await tx
+        .select()
+        .from(mcpServers)
+        .where(eq(mcpServers.id, id))
+        .for("update");
+      return row
+        ? {
+            entry: mcpEntryOf(row),
+            credentialSource: row.credentialSource,
+            disabled: row.disabledAt !== null,
+          }
+        : null;
+    }
+    case "repository": {
+      const [row] = await tx
+        .select()
+        .from(catalogRepositories)
+        .where(
+          and(
+            eq(catalogRepositories.id, id),
+            ne(catalogRepositories.authKind, "github_app"),
+          ),
+        )
+        .for("update");
+      return row
+        ? {
+            entry: repositoryEntryOf(row),
+            credentialSource: row.credentialSource,
+            disabled: row.removedAt !== null,
+          }
+        : null;
+    }
+  }
+}
+
+function ownStoredOf(kind: SettingsKind, id: string, held: HeldRow): boolean {
+  const auth = isRecord(held.entry) ? held.entry.auth : undefined;
+  return (
+    held.credentialSource === "stored" &&
+    isRecord(auth) &&
+    auth.stored === `${kind}:${id}`
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function consoleReceipt(
+  tx: Database,
+  actor: TeamActor,
+  operation: ReceiptOperation,
+  result: Record<string, unknown>,
+): Promise<string> {
+  const id = randomUUID();
+  await tx.insert(receipts).values({
+    id,
+    ownerId: actor.principal.ownerId,
+    actor: receiptActorOf(actor.principal),
+    operation,
+    targetRef: {
+      resource: { kind: "workspace", id: actor.workspaceId },
+      workspace_id: actor.workspaceId,
+    },
+    result,
+    status: "succeeded",
+    requestId: actor.principal.requestId ?? null,
+  });
+  return id;
+}
+
+const CREATED: Record<SettingsKind, ReceiptOperation> = {
+  connection: "create_connection",
+  mcp: "create_mcp_server",
+  repository: "add_repository",
+};
+const DISABLED: Record<SettingsKind, ReceiptOperation> = {
+  connection: "disable_connection",
+  mcp: "disable_mcp_server",
+  repository: "remove_repository",
+};
+const TARGET: Record<SettingsKind, string> = {
+  connection: "connection_id",
+  mcp: "mcp_server_id",
+  repository: "repository_id",
+};
+
+function consoleWrites(
+  db: Database,
+  key: SecretKey | null,
+): Pick<
+  SettingsDocumentStore,
+  "create" | "setValue" | "disable" | "setMcpWorkspaces" | "setRepositoryBranch"
+> {
+  const sealIn = async (
+    tx: Database,
+    owner: { kind: SettingsKind; id: string },
+    value: string,
+    actor: TeamActor,
+  ): Promise<void> => {
+    if (key === null) {
+      throw new Error("the secret store is off: no value can be stored");
+    }
+    const workspaceId = await firstWorkspace(tx);
+    if (workspaceId === null) {
+      throw new Error("no workspace yet to keep a stored value under");
+    }
+    await writeSecretInTx(
+      tx,
+      key,
+      {
+        workspaceId,
+        owner: { kind: owner.kind, id: owner.id },
+        purpose: PURPOSE,
+      },
+      value,
+      actor.userId,
+    );
+  };
+
+  /** The locks, then the actor's role for `kind`, then `write`. */
+  const asWriter = (
+    kind: SettingsKind,
+    actor: TeamActor,
+    write: (tx: Database) => Promise<SettingsConsoleResult>,
+  ): Promise<SettingsConsoleResult> =>
+    db.transaction(async (tx) => {
+      await lockWriters(tx);
+      if (!(await liveIn(tx, actor, WRITERS[kind]))) {
+        return { outcome: "actor_inactive" as const };
+      }
+      return write(tx);
+    });
+
+  return {
+    create(add, value, actor) {
+      return asWriter(add.kind, actor, async (tx) => {
+        const plan = planSettingsImport(
+          {
+            connections:
+              add.kind === "connection" ? { [add.id]: add.entry } : {},
+            repositories:
+              add.kind === "repository" ? { [add.id]: add.entry } : {},
+            mcp_servers: add.kind === "mcp" ? { [add.id]: add.entry } : {},
+          },
+          await existingIn(tx, await firstWorkspace(tx)),
+          { allowExternal: false },
+        );
+        // Anything but one add: the id was ever taken, or a value is
+        // already sealed under it; the console never brings a reference.
+        if (plan.add.length !== 1 || plan.refused_external.length > 0) {
+          return { outcome: "conflict" as const, reason: "already_exists" };
+        }
+        const stored = credentialSourceOf(add.entry) === "stored";
+        if (stored !== (value !== null)) {
+          throw new Error(
+            "a console entry is stored exactly when it has a value",
+          );
+        }
+        await insertRow(tx, add, actor.userId, "console");
+        if (value !== null) await sealIn(tx, add, value, actor);
+        const receiptId = await consoleReceipt(tx, actor, CREATED[add.kind], {
+          ...auditOf(add),
+          source: "console",
+        });
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    setValue(owner, value, actor) {
+      return asWriter(owner.kind, actor, async (tx) => {
+        const held = await heldRow(tx, owner.kind, owner.id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (held.disabled) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        if (!ownStoredOf(owner.kind, owner.id, held)) {
+          return { outcome: "conflict" as const, reason: "not_stored" };
+        }
+        await sealIn(tx, owner, value, actor);
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          "set_settings_credential",
+          {
+            [TARGET[owner.kind]]: owner.id,
+            last4: value.slice(-4),
+          },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    disable(owner, actor) {
+      return asWriter(owner.kind, actor, async (tx) => {
+        const held = await heldRow(tx, owner.kind, owner.id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (held.disabled) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        const at = sql`now()`;
+        switch (owner.kind) {
+          case "connection":
+            await tx
+              .update(providerConnections)
+              .set({ disabledAt: at, disabledBy: actor.userId })
+              .where(eq(providerConnections.id, owner.id));
+            break;
+          case "mcp":
+            await tx
+              .update(mcpServers)
+              .set({ disabledAt: at, disabledBy: actor.userId })
+              .where(eq(mcpServers.id, owner.id));
+            break;
+          case "repository":
+            await tx
+              .update(catalogRepositories)
+              .set({
+                removedAt: at,
+                removedBy: actor.userId,
+                updatedBy: actor.userId,
+                updatedAt: at,
+              })
+              .where(eq(catalogRepositories.id, owner.id));
+            break;
+        }
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          DISABLED[owner.kind],
+          {
+            [TARGET[owner.kind]]: owner.id,
+            source: "console",
+          },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    setMcpWorkspaces(id, workspaces, actor) {
+      return asWriter("mcp", actor, async (tx) => {
+        const held = await heldRow(tx, "mcp", id);
+        if (held === null) return { outcome: "not_found" as const };
+        if (held.disabled) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        // §2: an operator's reference is shown and disabled, nothing more.
+        if (!ownStoredOf("mcp", id, held)) {
+          return { outcome: "conflict" as const, reason: "not_stored" };
+        }
+        const before = isRecord(held.entry) ? held.entry.workspaces : null;
+        await tx
+          .update(mcpServers)
+          .set({ workspaces: [...workspaces] })
+          .where(eq(mcpServers.id, id));
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          "set_mcp_server_workspaces",
+          { mcp_server_id: id, before, workspaces: [...workspaces] },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+
+    setRepositoryBranch(id, branch, actor) {
+      return asWriter("repository", actor, async (tx) => {
+        const [held] = await tx
+          .select()
+          .from(catalogRepositories)
+          .where(
+            and(
+              eq(catalogRepositories.id, id),
+              ne(catalogRepositories.authKind, "github_app"),
+            ),
+          )
+          .for("update");
+        if (!held) return { outcome: "not_found" as const };
+        if (held.removedAt !== null) {
+          return { outcome: "conflict" as const, reason: "disabled" };
+        }
+        // §2: an operator's reference is shown and disabled, nothing more.
+        if (
+          held.credentialSource !== null &&
+          !ownStoredOf("repository", id, {
+            entry: repositoryEntryOf(held),
+            credentialSource: held.credentialSource,
+            disabled: false,
+          })
+        ) {
+          return { outcome: "conflict" as const, reason: "not_stored" };
+        }
+        const [row] = await tx
+          .update(catalogRepositories)
+          .set({
+            branch,
+            version: held.version + 1,
+            updatedBy: actor.userId,
+            updatedAt: sql`now()`,
+          })
+          .where(eq(catalogRepositories.id, id))
+          .returning();
+        if (!row) throw new Error("catalog repository update returned no row");
+        const receiptId = await consoleReceipt(
+          tx,
+          actor,
+          "set_repository_branch",
+          {
+            repository_id: id,
+            url: row.url,
+            branch,
+            before: held.branch,
+            version: row.version,
+          },
+        );
+        return { outcome: "done" as const, receiptId };
+      });
+    },
+  };
+}
+
+function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
+  return {
+    listRows(kind) {
+      return db.transaction(
+        async (tx) => {
+          const last4 = await storedLast4(tx, await firstWorkspace(tx));
+          const value = (id: string) => last4.get(`${kind}:${id}`) ?? null;
+          switch (kind) {
+            case "connection":
+              return (
+                await tx
+                  .select()
+                  .from(providerConnections)
+                  .orderBy(asc(providerConnections.id))
+              ).map((row) => ({
+                id: row.id,
+                entry: row.definition,
+                origin: row.origin,
+                last4: value(row.id),
+                createdAt: row.createdAt,
+                disabledAt: row.disabledAt,
+              }));
+            case "mcp":
+              return (
+                await tx.select().from(mcpServers).orderBy(asc(mcpServers.id))
+              ).map((row) => ({
+                id: row.id,
+                entry: mcpEntryOf(row),
+                origin: row.origin,
+                last4: value(row.id),
+                createdAt: row.createdAt,
+                disabledAt: row.disabledAt,
+              }));
+            case "repository":
+              return (
+                await tx
+                  .select()
+                  .from(catalogRepositories)
+                  .where(ne(catalogRepositories.authKind, "github_app"))
+                  .orderBy(asc(catalogRepositories.id))
+              ).map((row) => ({
+                id: row.id,
+                entry: repositoryEntryOf(row),
+                origin:
+                  row.source === "console"
+                    ? ("console" as const)
+                    : ("import" as const),
+                last4: value(row.id),
+                createdAt: row.createdAt,
+                disabledAt: row.removedAt,
+              }));
+          }
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
+    },
+  };
 }
