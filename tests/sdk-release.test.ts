@@ -598,7 +598,7 @@ esac
     ],
     [
       "a version with a trailing newline",
-      sdk(`0.1.2-main.${short}\n`, { publishConfig: { tag: "latest" } }),
+      sdk(`0.1.2-main.${short}\n`),
       {},
       "not valid for a prerelease",
     ],
