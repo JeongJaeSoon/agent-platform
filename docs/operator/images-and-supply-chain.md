@@ -58,7 +58,7 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 - **받기.** index의 digest로 받으면 Docker가 호스트의 아키텍처를 고른다. 패키지가 비공개이면 `docker login ghcr.io`가 먼저다.
 
   ```bash
-  docker pull "ghcr.io/jeongjaesoon/werft-worker@sha256:<위에서 읽은 digest>"
+  docker pull "ghcr.io/jeongjaesoon/werft-worker@<위에서 읽은 digest>"
   ```
 
 ### 저장소 관리자: `v*` 태그로 게시
