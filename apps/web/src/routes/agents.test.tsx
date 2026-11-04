@@ -1175,7 +1175,7 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("식별자"), "billing");
     expect(
       screen.getByText(
-        "사람이 읽는 소개입니다. 목록과 상세 화면에 보이고, 에이전트의 동작에는 쓰이지 않습니다.",
+        "목록과 상세 화면에 보이고, 이름과 함께 세션의 에이전트에게도 그대로 전달됩니다. 바꾼 값은 새 세션부터 적용됩니다.",
       ),
     ).toBeDefined();
     await user.type(screen.getByLabelText("설명 (선택)"), ` ${DESCRIPTION} `);

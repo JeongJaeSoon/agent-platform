@@ -55,7 +55,7 @@ export const agentsKo = {
   "agents.description": "설명",
   "agents.descriptionOptional": "설명 (선택)",
   "agents.descriptionHint":
-    "사람이 읽는 소개입니다. 목록과 상세 화면에 보이고, 에이전트의 동작에는 쓰이지 않습니다.",
+    "목록과 상세 화면에 보이고, 이름과 함께 세션의 에이전트에게도 그대로 전달됩니다. 바꾼 값은 새 세션부터 적용됩니다.",
   "agents.slugHint":
     "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
   "agents.slugLocked": "초안으로 저장해 식별자는 더 바꿀 수 없습니다",
@@ -473,7 +473,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.description": "Description",
   "agents.descriptionOptional": "Description (optional)",
   "agents.descriptionHint":
-    "An introduction for people. It shows in the list and on the agent's page and does not affect how the agent behaves.",
+    "It shows in the list and on the agent's page, and is passed to the agent in each session as written, with its name. A change applies from the next new session.",
   "agents.slugHint":
     "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
   "agents.slugLocked":
@@ -884,7 +884,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.description": "説明",
   "agents.descriptionOptional": "説明（任意）",
   "agents.descriptionHint":
-    "人が読むための紹介です。一覧と詳細画面に表示され、エージェントの動作には使われません。",
+    "一覧と詳細画面に表示され、名前とあわせてセッションのエージェントにもそのまま渡されます。変更は次に始まるセッションから反映されます。",
   "agents.slugHint":
     "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
   "agents.slugLocked": "下書きを保存したため、識別子は変更できません",

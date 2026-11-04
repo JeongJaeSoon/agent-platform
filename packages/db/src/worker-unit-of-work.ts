@@ -1439,6 +1439,7 @@ async function bindingOf(
     mcp: await sessionMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
     ...(await releaseRunOf(tx, session)),
+    platformPrompt: session.platformPrompt,
     grants: await unspentGrants(tx, session.id, attempt.id),
   };
 }

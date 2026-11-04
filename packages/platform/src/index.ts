@@ -117,6 +117,7 @@ export * from "./sessions/interrupt-service.ts";
 export * from "./sessions/outcome-refresher.ts";
 export * from "./sessions/output-service.ts";
 export * from "./sessions/pending-service.ts";
+export * from "./sessions/platform-prompt.ts";
 export * from "./sessions/profile-registry.ts";
 export * from "./sessions/profile-tools.ts";
 export * from "./sessions/pull-request-service.ts";
