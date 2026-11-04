@@ -134,7 +134,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
 | `ANTHROPIC_API_KEY` | 운영자 공유 provider key. API에만 간다(아래 "provider key") |
 | `PLATFORM_CATALOG_DIR` | 카탈로그 디렉터리. 기본 예시는 `/etc/agent-platform/catalog`. checkout 안이면 거부한다 |
-| `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443`. `s3`: `api.anthropic.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
+| `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `gitea`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
 | `EXECUTION_WORKSPACE_QUOTA` | `on`. 다른 값이면 거부한다 |
 

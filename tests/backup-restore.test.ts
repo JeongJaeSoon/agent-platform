@@ -198,6 +198,7 @@ describe("restore.sh on an older manifest v1", () => {
     run: (result: Awaited<ReturnType<typeof bash>>) => void,
   ) => {
     const dir = await mkdtemp(join(tmpdir(), "backup-restore-gitea-"));
+    const bin = await mkdtemp(join(tmpdir(), "backup-restore-bin-"));
     try {
       await writeFile(
         join(dir, "manifest.json"),
@@ -213,14 +214,19 @@ describe("restore.sh on an older manifest v1", () => {
         }),
       );
       await bash(`source "${lib}"; write_checksums "${dir}"`, repoRoot);
+      // An empty docker: no project exists, so --check-only runs to its end.
+      await writeFile(join(bin, "docker"), "#!/bin/sh\nexit 0\n", {
+        mode: 0o755,
+      });
       run(
         await bash(
-          `scripts/restore.sh "${dir}" --into backup-restore-test --check-only`,
+          `PATH="${bin}:$PATH" scripts/restore.sh "${dir}" --into backup-restore-test --check-only`,
           repoRoot,
         ),
       );
     } finally {
       await rm(dir, { force: true, recursive: true });
+      await rm(bin, { force: true, recursive: true });
     }
   };
 
@@ -248,6 +254,8 @@ describe("restore.sh on an older manifest v1", () => {
       await restoreManifest(fields, (result) => {
         expect(result.stderr).not.toContain("Gitea");
         expect(result.stderr).toContain("backup matches checkout head");
+        expect(result.stderr).toContain("checks passed");
+        expect(result.exitCode).toBe(0);
       });
     },
     30_000,
