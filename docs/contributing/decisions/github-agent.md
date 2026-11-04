@@ -177,7 +177,7 @@ D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도�
 
 ### 결정 11. 같은 역할에 App 여럿
 
-- 오너 원문(2026-11-02, 오케스트레이터 경유): "결정필요 추천대로 해줘". 아래 1~5가 그 다섯 건이다. 설계 근거는 GitHub 연결 설정 재설계안(repo 밖 `~/share/owner-checks/github-settings-ui-20261102/design.md` 6·7절)과 그 설계에 대한 Codex 의견 두 번(같은 디렉터리 `codex-1.md`·`codex-2.md`)이다.
+- 오너 원문(2026-11-02, 오케스트레이터 경유): "결정필요 추천대로 해줘". 아래 1~5가 그 다섯 건이다. 설계 근거는 GitHub 연결 설정 재설계안(repo 밖 문서 6·7절)과 그 설계에 대한 Codex 의견 두 번이다.
 - 이전 결정: 역할(작성용·리뷰용)마다 App 연결 하나였다(결정 1, [4절](#github_apps-0192-열-추가)의 `UNIQUE (workspace_id, role)`, [6절](#6-api)의 `…/github-apps/{role}`). 바뀐 이유: 한 워크스페이스가 저장소마다 다른 App(조직마다 App, 저장소 묶음마다 App)을 써야 하는 경우를 받지 못했다. 오너가 추천안대로 바꿨다.
 - 이 절은 위 결정 1·2, [GA-4에서 정한 것](#ga-4에서-정한-것), 3절 게이트, 4절, 6절, [GA-5에서 정한 것](#ga-5에서-정한-것), [GA-3에서 정한 것](#ga-3에서-정한-것) 가운데 "역할마다 App 하나"를 전제한 문장을 대체한다. 둘이 다르면 이 절이 맞다. 그 문장들은 이렇게 읽는다.
   - "작성용 App"이 OAuth를 뜻하는 곳(GA-4의 Client ID·client secret·`no_author_app`)은 아래 3의 연결이다. `client_id` 채우기는 `GET …/github-apps/{connectionId}`와 목록 조회에서도 한다.
@@ -547,7 +547,7 @@ export const agentGitHubSchema = z.object({
 
 ## 7. 화면
 
-시안은 GA-MOCKUP이 만든 오너 확인용 사본이다(repo 밖 `~/share/owner-checks/github-agent-20261030/mockups/`, 목차 `index.html`, 결정별 대응표 `decisions.md`). 화면 이름은 그 파일 이름이다. A는 에이전트 GitHub 탭(`a-default`, `a-nogh`, `a-noreview`, `a-ceiling`), B는 연동 계정(`b-unlinked`, `b-linked`), C는 GitHub 연결 설정(`c-default`, `c-noreview`, `c-member`)이다. 화면 PR(GA-3·GA-4·GA-6)은 이 절과 시안을 같이 기준으로 삼는다. 둘이 다르면 이 문서를 먼저 고친다. 시안과 이 문서가 다른 곳은 하나다. 시안 A는 저장소 후보를 "작성용 App을 쓰는 설치된 저장소"로 그렸다. 이 문서는 거기에 릴리스 프로필이 허용하는 것(`allowedPair`)이라는 조건을 더하고 PAT 저장소를 뺀다([결정 8](#결정-8-에이전트별-저장소-범위)). 탭은 프로필이 허용하지 않는 저장소를 이유와 함께 비활성으로 보인다.
+시안은 GA-MOCKUP이 만든 오너 확인용 사본이다(repo 밖 시안 모음). 화면 이름은 그 시안의 파일 이름이다. A는 에이전트 GitHub 탭(`a-default`, `a-nogh`, `a-noreview`, `a-ceiling`), B는 연동 계정(`b-unlinked`, `b-linked`), C는 GitHub 연결 설정(`c-default`, `c-noreview`, `c-member`)이다. 화면 PR(GA-3·GA-4·GA-6)은 이 절과 시안을 같이 기준으로 삼는다. 둘이 다르면 이 문서를 먼저 고친다. 시안과 이 문서가 다른 곳은 하나다. 시안 A는 저장소 후보를 "작성용 App을 쓰는 설치된 저장소"로 그렸다. 이 문서는 거기에 릴리스 프로필이 허용하는 것(`allowedPair`)이라는 조건을 더하고 PAT 저장소를 뺀다([결정 8](#결정-8-에이전트별-저장소-범위)). 탭은 프로필이 허용하지 않는 저장소를 이유와 함께 비활성으로 보인다.
 
 ### 에이전트 상세 GitHub 탭
 
@@ -581,7 +581,7 @@ export const agentGitHubSchema = z.object({
 
 ### 설정 > 워크스페이스 > GitHub 연결
 
-`/settings/workspace/github`(`router.tsx:355`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 `~/share/owner-checks/github-settings-ui-20261102/v3/design-v3.md` 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
+`/settings/workspace/github`(`router.tsx:355`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 설계 문서 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
 
 1. **GitHub 카드**
    - 머리: GitHub 타일, "App N개 · 계정 N곳", 주 버튼 **조직 추가**. App이 여럿이면 설치할 App을 고르는 메뉴가 열린다. 콘솔이 일회용 상태(`POST …/github-apps/{connectionId}/installations/start`)를 만들어 그 App의 설치 화면으로 보내고, 돌아오면 `POST …/github-apps/installations/complete`로 연결한 사람을 남긴다.

@@ -52,14 +52,6 @@ export function formatMessage({ key, params }: TurnEventMessage): string {
   );
 }
 
-export const TIMELINE_MESSAGES = {
-  label: "Session events",
-  empty: "No events yet.",
-  connecting: "Connecting…",
-  closed: "Disconnected. Showing events so far.",
-  turn: (turnId: string) => `turn ${turnId}`,
-};
-
 // Fixed ids and times, as in the other stories: no clocks, no randomness.
 const START = Date.parse("2026-10-21T01:00:00.000Z");
 

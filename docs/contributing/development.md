@@ -120,28 +120,9 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 
 실행마다 시각, namespace별 판단, 지운 namespace 목록(`reap deleted: …`)을 출력한다. `down`이 하나라도 실패하면 나머지를 마저 본 뒤 0이 아닌 값으로 끝난다.
 
-이 Mac에서는 LaunchAgent `dev.94soon.agent-platform.preview-reap`이 15분마다 `reap`을 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀌므로, `reap` 전용 detached checkout `~/.cache/agent-platform/preview-reap/checkout`을 만들어 거기서 돌린다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 `reap`을 돌린다. 그 checkout은 손으로 고치지 않는다.
+`reap`을 주기적으로 돌리려면 작업용 worktree가 아니라 `reap` 전용 detached checkout에서 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀐다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 `reap`을 돌린다. 그 checkout은 손으로 고치지 않는다.
 
-```bash
-# 이 저장소의 아무 checkout에서
-git fetch origin
-git worktree add --detach ~/.cache/agent-platform/preview-reap/checkout origin/main
-mkdir -p ~/Library/Logs/agent-platform
-sed -e "s|@CHECKOUT@|$HOME/.cache/agent-platform/preview-reap/checkout|g" -e "s|@HOME@|$HOME|g" \
-  deploy/preview/preview-reap.plist > ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-plutil -lint ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-
-launchctl print gui/$(id -u)/dev.94soon.agent-platform.preview-reap   # 상태·마지막 종료 코드
-tail ~/Library/Logs/agent-platform/preview-reap.log                    # 실행 기록
-
-# 해제
-launchctl bootout gui/$(id -u)/dev.94soon.agent-platform.preview-reap
-rm ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-git worktree remove ~/.cache/agent-platform/preview-reap/checkout
-```
-
-설치하면 바로 한 번 돌고, 그 뒤 15분마다 돈다. gh는 로그인한 사용자의 keychain 토큰을 쓰므로 GUI 세션의 LaunchAgent로만 설치한다. 로그는 지워지지 않고 쌓이니 필요하면 손으로 비운다.
+gh는 로그인한 사용자의 인증을 쓰므로, 주기 실행은 그 사용자의 세션에서 도는 스케줄러(예: 15분 간격)로 건다.
 
 ## 테스트·스크립트 배치
 
