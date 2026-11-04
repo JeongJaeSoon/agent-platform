@@ -101,7 +101,7 @@ GitHub Packages bot token([결정](../contributing/decisions/github-packages-bot
 | `GITHUB_PACKAGES_NPM_URL` | `https://npm.pkg.github.com` | `github-npm` route의 upstream |
 | `GITHUB_PACKAGES_RUBYGEMS_URL` | `https://rubygems.pkg.github.com` | `github-rubygems` route의 upstream |
 
-`WERFT_API_KEY`·`WERFT_BASE_URL`은 서버 설정이 아니다. TypeScript SDK(`packages/sdk`)를 쓰는 호출자 쪽 스크립트가 읽는 값이고, SDK 예제는 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`도 읽는다([TypeScript SDK](../sdk.md)).
+`WERFT_API_KEY`·`WERFT_BASE_URL`은 서버 설정이 아니다. TypeScript SDK(`packages/sdk`)를 쓰는 호출자 쪽 스크립트가 읽는 값이고, SDK 예제는 `WERFT_PROFILE_ID`·`WERFT_REPOSITORY_ID`도 읽는다([클라이언트 설정과 오류](https://jeongjaesoon.github.io/werft/ko/getting-started/client/)).
 
 ## scheduler·worker 컨테이너·egress 설정
 

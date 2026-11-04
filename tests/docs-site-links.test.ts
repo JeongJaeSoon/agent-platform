@@ -41,8 +41,9 @@ const ALLOWED: Record<string, string> = {
     "contributor rules for building screens; the Storybook introduction links its source of truth",
   "examples/LICENSE": "license file of the sample code",
   "docs/quickstart.md":
-    "the restart section has no site page; CI runs this file as written",
-  "docs/contributing": "contributor documents stay in the repository",
+    "the full local-stack runbook (session lap, restart, scripted prompts) that CI runs as written; the site's dev-server page carries the reader steps and the site links there",
+  "docs/contributing":
+    "developer-only: repository setup, CI and design records for contributors; the site contributing page lists them",
   "docs/contributing/architecture.md": "contributor document",
   "docs/contributing/ci.md": "contributor document",
   "docs/contributing/development.md": "contributor document",

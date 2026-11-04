@@ -20,7 +20,7 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **목적.** Bearer API key를 발급하고, 이후 유즈케이스에 필요한 최소 scope를 한 번에 확인한다. 읽기·세션 입력·승인·제어·복구는 각각 `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control`, `sessions:recover`로 나뉜다.
 
-**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
+**순서.** 로컬 스택을 key 없이 도는 fake 모델(`--fake-model`, [개발용 서버 실행](/run-server/dev-server))로 띄우고 key를 발급한 뒤, `GET /v1`으로 key가 유효한지 확인한다. 운영에서는 플랫폼 관리자가 발급한 key를 `KEY`에 넣고 `scripts/local.sh` 두 줄은 생략한다.
 
 ```bash
 scripts/local.sh up --fake-model
@@ -507,4 +507,4 @@ scripts/local.sh down
 
 **기대 응답.** `local.sh: deleted`가 출력되고 로컬 세션·checkpoint·key가 삭제된다.
 
-**흔한 오류.** 다른 project나 installation을 수동 Docker 명령으로 지우지 않는다. 기본 포트를 다른 스택이 쓰고 있다면 이 예시를 시작하지 말고 [quickstart의 포트 점검](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#0-준비물)을 먼저 따른다.
+**흔한 오류.** 다른 project나 installation을 수동 Docker 명령으로 지우지 않는다. 기본 포트를 다른 스택이 쓰고 있다면 이 예시를 시작하지 말고 [개발용 서버 실행의 포트 점검](/run-server/dev-server#준비물)을 먼저 따른다.
