@@ -95,6 +95,8 @@ integration("workspace profile versions on PostgreSQL", () => {
         tools: ["Read"],
         permission_mode: "plan",
       },
+      deny: null,
+      toolCatalogId: null,
     });
   }
 
@@ -137,6 +139,53 @@ integration("workspace profile versions on PostgreSQL", () => {
     expect(written[0]?.targetRef).toEqual({
       resource: { kind: "workspace", id: workspaceId },
       workspace_id: workspaceId,
+    });
+  });
+
+  test("a deny-made version keeps its columns and receipt, and a save checked against an older latest is taken", async () => {
+    const { workspaceId } = await workspace();
+    const owner = await person(workspaceId, "owner");
+    const write = (previousVersion: number | null) =>
+      store().create({
+        actor: acting(owner),
+        receiptId: randomUUID(),
+        name: "denying",
+        baseProfileId: "claude-coding-real",
+        base: {
+          fingerprint: "fp-1",
+          runtimeVersion: "0.3.270",
+          billing: "metered",
+          repositoryMode: "required",
+        },
+        narrowing: {
+          model: "claude-sonnet-5",
+          models: ["claude-sonnet-5"],
+          tools: ["Read"],
+          permission_mode: "plan",
+        },
+        deny: ["Bash"],
+        toolCatalogId: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+        previousVersion,
+      });
+    const first = await write(null);
+    expect(first).toMatchObject({
+      outcome: "created",
+      record: {
+        version: 1,
+        tools: ["Read"],
+        deny: ["Bash"],
+        tool_catalog_id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+      },
+    });
+    expect(await write(null)).toEqual({ outcome: "version_taken" });
+    expect((await write(1)).outcome).toBe("created");
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.ownerId, workspaceId));
+    expect(receipt?.result).toMatchObject({
+      deny: ["Bash"],
+      tool_catalog_id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
     });
   });
 

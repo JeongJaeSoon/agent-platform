@@ -32,6 +32,8 @@ function recordOf(
     base_runtime_version: row.baseRuntimeVersion,
     base_billing: row.baseBilling as "metered" | "none",
     base_repository_mode: row.baseRepositoryMode as RepositoryMode,
+    deny: row.deny,
+    tool_catalog_id: row.toolCatalogId,
     created_by: row.createdBy,
     created_at: row.createdAt,
     retired_by: row.retiredBy,
@@ -51,6 +53,7 @@ async function writeReceipt(
     id: string;
     operation: "create_workspace_profile" | "retire_workspace_profile";
     record: WorkspaceProfileRecord;
+    previousDenyDrift?: boolean | undefined;
   },
 ) {
   await tx.insert(receipts).values({
@@ -67,6 +70,13 @@ async function writeReceipt(
       name: input.record.name,
       version: input.record.version,
       base_profile_id: input.record.base_profile_id,
+      ...(input.operation === "create_workspace_profile"
+        ? {
+            deny: input.record.deny ?? null,
+            tool_catalog_id: input.record.tool_catalog_id ?? null,
+            ...(input.previousDenyDrift ? { previous_deny_drift: true } : {}),
+          }
+        : {}),
     },
     status: "succeeded",
     requestId: actor.principal.requestId ?? null,
@@ -114,6 +124,12 @@ export function createPostgresWorkspaceProfileStore(
                 eq(workspaceProfiles.name, input.name),
               ),
             );
+          if (
+            input.previousVersion !== undefined &&
+            (latest?.version ?? null) !== input.previousVersion
+          ) {
+            return { outcome: "version_taken" as const };
+          }
           const version = (latest?.version ?? 0) + 1;
           const [row] = await tx
             .insert(workspaceProfiles)
@@ -130,6 +146,8 @@ export function createPostgresWorkspaceProfileStore(
               model: input.narrowing.model,
               models: input.narrowing.models,
               tools: input.narrowing.tools,
+              deny: input.deny,
+              toolCatalogId: input.toolCatalogId,
               permissionMode: input.narrowing.permission_mode,
               createdBy: actor.userId,
             })
@@ -140,6 +158,7 @@ export function createPostgresWorkspaceProfileStore(
             id: input.receiptId,
             operation: "create_workspace_profile",
             record,
+            previousDenyDrift: input.previousDenyDrift,
           });
           return { outcome: "created" as const, record };
         });

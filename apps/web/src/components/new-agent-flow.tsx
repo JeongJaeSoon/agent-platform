@@ -76,7 +76,7 @@ import {
 import { Notice } from "./auth-page.tsx";
 import { LoadFailure } from "./load-failure.tsx";
 import { useTeamChoices } from "./managing-team.tsx";
-import { ProfileOptions, pickable } from "./profile-options.tsx";
+import { ProfileOptions, pickable, profileLabel } from "./profile-options.tsx";
 import { StepHeading, useStepMoved } from "./step-heading.tsx";
 
 const SlackConnect = lazyRouteComponent(
@@ -862,18 +862,10 @@ function ReleaseForm({
   const runsCard = (profile: ProfileSummary) =>
     cardModel === undefined || profile.models.includes(cardModel);
   // The job step's preview, else the same default it showed.
+  const offered = (p: ProfileSummary) => releasable(p) && runsCard(p);
   const first =
-    profiles.find(
-      (p) =>
-        p.id === previewId &&
-        releasable(p) &&
-        cardModel !== undefined &&
-        runsCard(p),
-    ) ??
-    profiles.find(
-      (p) => releasable(p) && cardModel !== undefined && runsCard(p),
-    ) ??
-    profiles.find(releasable);
+    profiles.find((p) => p.id === previewId && offered(p)) ??
+    profiles.find(offered);
   const fallback = first?.id ?? "";
   const form = useStepForm(agentReleaseStep, {
     defaultValues: { runtime_profile_id: fallback, repository_id: "" },
@@ -883,13 +875,13 @@ function ReleaseForm({
     name: "runtime_profile_id",
   });
   const picked = profiles.find((p) => p.id === chosen);
-  const profileModel = picked?.model;
+  const stillOffered = picked !== undefined && offered(picked);
   const { setValue } = form;
-  // A refetch can retire the picked version under the open form.
+  // A refetch can retire, drop or narrow the picked one under the open form.
   useEffect(() => {
-    if (picked !== undefined && !releasable(picked) && chosen !== fallback)
+    if (!stillOffered && chosen !== fallback)
       setValue("runtime_profile_id", fallback);
-  }, [picked, chosen, fallback, setValue]);
+  }, [stillOffered, chosen, fallback, setValue]);
   const { errors, isSubmitting } = form.formState;
   const release = async ({
     runtime_profile_id,
@@ -939,18 +931,13 @@ function ReleaseForm({
         <NativeSelect {...form.register("runtime_profile_id")}>
           <ProfileOptions
             profiles={profiles}
-            usable={releasable}
-            label={(profile) => {
-              const label = t(
-                runsCard(profile)
-                  ? "agent.releases.profileOption"
-                  : "agent.releases.profileOptionMismatch",
-                { profile: profile.id, model: profile.model },
-              );
-              return needsRepository(profile)
-                ? `${label} · ${t("agents.flow.repositoryRequired")}`
-                : label;
-            }}
+            usable={offered}
+            fits={runsCard}
+            label={(profile) =>
+              needsRepository(profile)
+                ? `${profileLabel(t, profile)} · ${t("agents.flow.repositoryRequired")}`
+                : profileLabel(t, profile)
+            }
           />
         </NativeSelect>
         <FieldDescription>{t("agent.releases.profileHint")}</FieldDescription>
@@ -962,19 +949,6 @@ function ReleaseForm({
         <FieldDescription>
           {t("agent.releases.profileUnlisted")}
         </FieldDescription>
-        {cardModel !== undefined &&
-        profileModel !== undefined &&
-        picked !== undefined &&
-        !runsCard(picked) ? (
-          <Alert variant="amber">
-            <FieldDescription>
-              {t("agent.releases.modelMismatch", {
-                card: cardModel,
-                profile: profileModel,
-              })}
-            </FieldDescription>
-          </Alert>
-        ) : null}
         <FieldError>{errors.runtime_profile_id?.message}</FieldError>
       </Field>
       <Alerts lines={formAlerts(errors, ["runtime_profile_id"])} />

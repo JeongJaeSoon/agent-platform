@@ -314,6 +314,7 @@ function deps(): SlackInteractionDeps {
           // The card's language, not the presser's ("en"): it was posted so.
           locale: "ja",
           linkUrl: "https://console.example/sessions/x",
+          decidedVia: display.decidedByUserId === null ? null : "slack",
           deciderSlackUserId: display.decidedByUserId === USER ? LINKED : null,
           display,
         };
@@ -454,13 +455,13 @@ describe("Slack interactions", () => {
     expect(update.blocks[0]?.type).toBe("context");
     // The presser reads English; the card was posted in Japanese.
     expect(update.blocks[0]?.elements.map((e) => e.text)).toEqual([
-      // This press settled it, so the line names Slack's path, no "Web".
-      `:white_check_mark: <@${LINKED}>さんが許可しました`,
+      // Decided in Slack, so the line names no "Web".
+      `:white_check_mark: *許可済み* · <@${LINKED}>`,
       "コマンド実行: ls",
       "<https://console.example/sessions/x|Webで開く>",
     ]);
     expect(settledText()).toContain(`<@${LINKED}>`);
-    expect(settledText()).toContain("許可しました");
+    expect(settledText()).toContain("許可済み");
   });
 
   test("a card no outbox row posted is left as it is", async () => {
@@ -623,7 +624,7 @@ describe("Slack interactions", () => {
     expect(called("answer")).toHaveLength(2);
     expect(decided.size).toBe(1);
     expect(called("update")).toHaveLength(2);
-    expect(settledText()).toContain("許可しました");
+    expect(settledText()).toContain("許可済み");
   });
 
   test("Slack is answered before a press's work runs", async () => {
@@ -892,9 +893,9 @@ describe("Slack interactions", () => {
     });
     // The typed answer was the presser's to see; the thread sees that one was given.
     expect(JSON.stringify(update)).not.toContain("MySQL");
-    expect(JSON.stringify(update.blocks)).toContain(
-      "Which database?: 直接入力した回答",
-    );
+    // The question stays whole, the typed answer only as "直接入力".
+    expect(JSON.stringify(update.blocks)).toContain('"text":"Which database?"');
+    expect(JSON.stringify(update.blocks)).toContain('"text":"直接入力を選択"');
   });
 
   test("an empty or forged modal answer keeps the modal open with an error", async () => {

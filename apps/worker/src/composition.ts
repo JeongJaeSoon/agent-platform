@@ -30,6 +30,7 @@ import {
 } from "./git-trailers.ts";
 import { createWorkerObjectStore, ObjectStoreToken } from "./object-store.ts";
 import { writePackageManagerConfig } from "./package-managers.ts";
+import { platformPromptText } from "./platform-prompt.ts";
 import { writeRepositoryRoutes } from "./repository-routes.ts";
 import { scrubbingLogger } from "./secret-scrubber.ts";
 import { SessionCheckpoints } from "./session-checkpoints.ts";
@@ -268,6 +269,14 @@ export function runtimeProfile(
     bindings: { principal: owner, provider },
     bundle: {
       instructions: [
+        ...(runtimeConfig.platform_prompt === undefined
+          ? []
+          : [
+              {
+                scope: "platform" as const,
+                text: platformPromptText(runtimeConfig.platform_prompt),
+              },
+            ]),
         ...(launch.workspace?.repository === null
           ? [{ scope: "platform" as const, text: OUT_DIRECTORY_PROMPT }]
           : []),

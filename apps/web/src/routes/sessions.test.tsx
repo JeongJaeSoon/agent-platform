@@ -699,6 +699,7 @@ describe("sessions list", () => {
                 name: "Release helper",
                 release_version_no: 2,
                 release_label: "2026-10-30_14:30:28",
+                release_is_active: true,
               },
               created_by: { user_id: OTHER_ID, display_name: "김하나" },
             }),
@@ -2342,7 +2343,7 @@ describe("session profile", () => {
     await user.keyboard("next step{Control>}{Enter}{/Control}");
     expect(
       await screen.findByText(
-        "운영자가 이 세션의 실행 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
+        "운영자가 이 세션의 프로필을 차단해 지시를 받지 않습니다. 차단이 풀리면 다시 보낼 수 있습니다.",
       ),
     ).toBeTruthy();
   });
@@ -3227,5 +3228,51 @@ describe("session share", () => {
       ),
     );
     expect(block.textContent).not.toContain("워크스페이스(");
+  });
+});
+
+describe("session release", () => {
+  const agent = (releaseIsActive: boolean | null) => ({
+    id: OTHER_ID,
+    name: "Release helper",
+    release_version_no: 2,
+    release_label: "2026-10-30_14:30:28",
+    release_is_active: releaseIsActive,
+  });
+  const shownFor = async (over: Partial<SessionDetail>) => {
+    const view = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, { ...detail, ...over }),
+    });
+    const block = await screen.findByRole("region", {
+      name: "이 세션이 쓰는 릴리스",
+    });
+    const text = block.textContent;
+    view.container.remove();
+    return text;
+  };
+
+  test("a session pinned to a release the agent no longer runs says so", async () => {
+    expect(await shownFor({ agent: agent(false) })).toBe(
+      "이 세션이 쓰는 릴리스2026-10-30_14:30:28활성 릴리스 아님이 세션은 시작할 때의 릴리스를 계속 씁니다. 에이전트의 지금 설정은 새 세션부터 쓰입니다.",
+    );
+  });
+
+  test("the active release is marked active, and an older server's null claims neither", async () => {
+    expect(await shownFor({ agent: agent(true) })).toBe(
+      "이 세션이 쓰는 릴리스2026-10-30_14:30:28활성 릴리스",
+    );
+    expect(await shownFor({ agent: agent(null) })).toBe(
+      "이 세션이 쓰는 릴리스2026-10-30_14:30:28",
+    );
+  });
+
+  test("a session without an agent shows no release block", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    expect(await screen.findByText("답변 대기")).toBeTruthy();
+    expect(
+      screen.queryByRole("region", { name: "이 세션이 쓰는 릴리스" }),
+    ).toBeNull();
   });
 });

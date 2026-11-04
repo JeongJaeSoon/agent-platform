@@ -964,8 +964,22 @@
     {
       "idx": 228,
       "version": "7",
-      "when": 1793743027656,
-      "tag": "0228_pin_by_claim",
+      "when": 1793741176419,
+      "tag": "0228_slack_card_settle",
+      "breakpoints": true
+    },
+    {
+      "idx": 229,
+      "version": "7",
+      "when": 1793753726101,
+      "tag": "0229_session_platform_prompt",
+      "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793756043009,
+      "tag": "0230_pin_by_claim",
       "breakpoints": true
     }
   ]

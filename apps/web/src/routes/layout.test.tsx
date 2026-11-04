@@ -59,7 +59,7 @@ describe("app shell", () => {
       ["에이전트", "/agents"],
     ],
     [
-      ["실행 프로필", "/profiles"],
+      ["프로필", "/profiles"],
       ["사용량·한도", "/operations"],
       ["성과", "/achievements"],
       ["구성원", "/members"],
@@ -75,7 +75,7 @@ describe("app shell", () => {
       [
         MANAGER_NAV[0],
         [
-          ["실행 프로필", "/profiles"],
+          ["프로필", "/profiles"],
           ["사용량·한도", "/operations"],
           ["성과", "/achievements"],
         ],
@@ -173,7 +173,7 @@ describe("app shell", () => {
       "GET /v1/auth/me": () => json(200, memberMe()),
     });
     const nav = await screen.findByRole("navigation", { name: "주요 메뉴" });
-    await within(nav).findByRole("link", { name: "실행 프로필" });
+    await within(nav).findByRole("link", { name: "프로필" });
     expect(within(nav).queryByRole("link", { name: "구성원" })).toBeNull();
     const [header] = screen.getAllByRole("banner");
     await waitFor(() => expect(header?.textContent).toBe("메뉴 열기구성원"));
@@ -183,7 +183,7 @@ describe("app shell", () => {
     ["/operations", "사용량·한도"],
     ["/operations/limits", "사용량·한도"],
     ["/achievements", "성과"],
-    ["/profiles", "실행 프로필"],
+    ["/profiles", "프로필"],
   ] as const) {
     test(`${path} is named ${title} in the top bar and the page head`, async () => {
       renderAt(path, signedIn);
@@ -716,7 +716,7 @@ describe("focus after a page change", () => {
     const { history } = renderAt("/agents", signedIn);
     await screen.findByRole("heading", { level: 1, name: "에이전트" });
     await history.push("/profiles");
-    await screen.findByRole("heading", { level: 1, name: "실행 프로필" });
+    await screen.findByRole("heading", { level: 1, name: "프로필" });
     const region = screen.getByRole("region", { name: "사용자 메뉴" });
     const user = await setupUser();
     within(region).getByRole("button", { name: /Owner/ }).focus();

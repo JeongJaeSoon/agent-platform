@@ -46,8 +46,13 @@ export type EditorStart =
       readonly base: ProfileSummary;
     };
 
-type Draft = Omit<CreateWorkspaceProfileRequest, "name"> & {
+// This form still saves an allow list.
+type Draft = Omit<
+  CreateWorkspaceProfileRequest,
+  "name" | "tools" | "deny" | "accept_added_tools"
+> & {
   readonly name: string;
+  readonly tools: string[];
 };
 
 const EDITOR_FIELDS = [

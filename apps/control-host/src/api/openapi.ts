@@ -1026,6 +1026,7 @@ const EXAMPLE_SESSION_SUMMARY = {
     name: "Checkout fixer",
     release_version_no: 3,
     release_label: "2026-10-11_17:00:00",
+    release_is_active: true,
   },
   created_by: {
     user_id: "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -5694,7 +5695,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save a new version of a workspace profile",
     description:
-      "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Writes a `create_workspace_profile` receipt.",
+      "Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. Writes a `create_workspace_profile` receipt.",
     auth: "session",
     body: "CreateWorkspaceProfileRequest",
     requestExample: {
@@ -6087,7 +6088,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "What a new installation ceiling may name",
     description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in. The installation's connections by id, `kind` and `billing` (never an endpoint or a credential reference), the installed runtimes with the permission modes each accepts, the catalog repositories, and whether `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` lets a ceiling run `bypassPermissions` here.",
+      "The operator (`profile.installation.manage`, the workspace owner), signed in. The installation's connections by id, `kind` and `billing` (never an endpoint or a credential reference), the installed runtimes with the permission modes each accepts, the catalog repositories, the built-in tool catalogs a `deny` names (one entry per runtime version spelling, SDK and engine build), and whether `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` lets a ceiling run `bypassPermissions` here.",
     auth: "session",
     success: {
       status: 200,
@@ -6111,6 +6112,19 @@ export const API_ROUTE_DECLARATIONS = [
           },
         ],
         repositories: [{ id: "sample-app" }],
+        tool_catalogs: [
+          {
+            id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+            runtime_kind: "claude_agent_sdk",
+            runtime_version: "0.3.270",
+            tools: [
+              { name: "Read", boundary: "local" },
+              { name: "Bash", boundary: "local" },
+              { name: "WebFetch", boundary: "egress" },
+              { name: "WebSearch", boundary: "provider" },
+            ],
+          },
+        ],
         unattended_allowed: false,
       },
     },
@@ -6123,7 +6137,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save a new version of an installation ceiling",
     description:
-      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Writes a `create_installation_profile` receipt.",
+      "The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `mcp_tool` or `tool_pattern` (`Bash(rm:*)`: whole tool names only). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.",
     auth: "session",
     body: "CreateInstallationProfileRequest",
     requestExample: {

@@ -26,6 +26,13 @@ export type InstallationProfileRecord = {
    */
   repository_ids: string[] | null;
   github_app_repositories: GitHubAppRepositories;
+  /**
+   * The tools blocked when it was made with a deny, as named in the tool
+   * catalog `tool_catalog_id`; null (or absent, before T1b) from an allow
+   * list. Outside `definition` and the fingerprint.
+   */
+  deny?: string[] | null;
+  tool_catalog_id?: string | null;
   previous_id: string | null;
   created_by: string | null;
   created_at: Date;
@@ -66,8 +73,13 @@ export type CreateInstallationProfileInput = {
   repository_ids: string[];
   /** Null: `previousId`'s value, or `listed` without one. */
   github_app_repositories: GitHubAppRepositories | null;
+  /** Both null for a ceiling made from an allow list. */
+  deny: string[] | null;
+  toolCatalogId: string | null;
   /** Named in the receipt. */
   connectionId: string;
+  /** Named in the receipt: the previous version's deny column read otherwise. */
+  previousDenyDrift?: boolean;
 };
 
 export type CreateInstallationProfileResult =

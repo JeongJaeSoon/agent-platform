@@ -45,10 +45,13 @@ import {
   verifySlackSignature,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
-import { slackOutboxText } from "./slack-outbox.ts";
+import {
+  SLACK_CARD_SETTLE_TIMING,
+  settleSlackCards,
+  slackOutboxText,
+} from "./slack-outbox.ts";
 import {
   SLACK_PROMPT_MESSAGES,
-  type SlackDecisionPath,
   type SlackPromptResult,
   slackNoticeView,
   slackOptionAnswer,
@@ -58,7 +61,7 @@ import {
 } from "./slack-prompts.ts";
 
 /** Redraws the card; `via` is "slack" when this press settled it. */
-type SettleCard = (via?: SlackDecisionPath) => Promise<void>;
+type SettleCard = () => Promise<void>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -96,7 +99,7 @@ export type SlackInteractionDeps = {
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
-  outbox: Pick<SlackOutboxStore, "readerLocale" | "promptCard">;
+  outbox: Pick<SlackOutboxStore, "readerLocale" | "promptCard" | "cards">;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
   logger: SlackInboxLogger;
@@ -197,15 +200,31 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   /**
    * Redraws a card from its request as stored, in the language it was
    * posted in, so whoever pressed and whatever the message held, the
-   * settled card is the same.
+   * settled card is the same. With the card store, the press marks the row
+   * due and runs the drain's writer on it now, under the same lease and
+   * fence; a lease it cannot take leaves the row to the next pass.
    */
   async function settle(
     pressed: Pressed,
     ts: string,
     value: SlackInteractionValue,
-    via?: SlackDecisionPath,
   ) {
     try {
+      const cards = deps.outbox.cards;
+      if (cards !== undefined) {
+        const only = { channelId: pressed.channelId, slackTs: ts };
+        if (!(await cards.markDueAt(only))) return;
+        await settleSlackCards({
+          store: cards,
+          slack: deps.slack,
+          botToken: async () => pressed.botToken,
+          logger: deps.logger,
+          batchSize: 1,
+          deadline: Date.now() + SLACK_CARD_SETTLE_TIMING.leaseMs,
+          only,
+        });
+        return;
+      }
       const posted = await deps.outbox.promptCard({
         sessionId: value.s,
         requestId: value.r,
@@ -220,7 +239,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         });
         return;
       }
-      const card = slackSettledCard(posted, via ?? null);
+      const card = slackSettledCard(posted);
       if (card === null) return;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
@@ -368,7 +387,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await card();
       return "already";
     }
-    await card("slack");
+    await card();
     return "answered";
   }
 
@@ -493,7 +512,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     if (!queued) {
       await tell(pressed, SLACK_PROMPT_MESSAGES[pressed.locale].followUpFailed);
     }
-    await card("slack");
+    await card();
     return decision === "approve" ? "approved" : "rejected";
   }
 
@@ -581,8 +600,8 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   const cardOf =
     (pressed: Pressed, payload: SlackBlockActionsPayload) =>
     (value: SlackInteractionValue): SettleCard =>
-    (via) =>
-      settle(pressed, payload.message.ts, value, via);
+    () =>
+      settle(pressed, payload.message.ts, value);
 
   async function fillView(
     pressed: Pressed,
@@ -780,7 +799,7 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
                 admitted,
                 value,
                 { kind: "question", answers: parsed.answers },
-                (via) => settle(pressed, metadata.m, value, via),
+                () => settle(pressed, metadata.m, value),
               ),
             ),
           );

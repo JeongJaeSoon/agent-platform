@@ -8,7 +8,6 @@ import type {
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
 import {
-  Alert,
   Badge,
   Button,
   Code,
@@ -53,12 +52,18 @@ import {
 } from "../../api/queries.ts";
 import { useHasPermission, useRole } from "../../auth/guard.tsx";
 import { useManagesAgent } from "../../components/agent-access.tsx";
+import { chosenProfile } from "../../components/agent-card-form.tsx";
 import type { Outcome } from "../../components/outcome.tsx";
-import { ProfileOptions, pickable } from "../../components/profile-options.tsx";
+import {
+  ProfileOptions,
+  runsModel,
+} from "../../components/profile-options.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import { previousRelease, releaseChanges } from "./release-changes.ts";
+import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // Version, status, activated, card, profile, repository, by, note, actions;
@@ -68,6 +73,14 @@ const COLUMNS = [
   "minmax(10rem,1.4fr) 96px minmax(0,1.2fr) 72px minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 120px",
   "minmax(0,1fr) 120px",
 ] as const;
+
+/** The profile the agent runs on now: its active release's, else its newest. */
+export function releasedProfile(detail: AgentDetail): string | undefined {
+  const active = detail.releases.find(
+    (release) => release.id === detail.agent.active_release_id,
+  );
+  return (active ?? detail.releases.at(-1))?.runtime_profile_id;
+}
 
 export function Releases({
   detail,
@@ -79,8 +92,13 @@ export function Releases({
   activating,
   onActivate,
   shown,
+  profileId,
+  onProfileChange,
 }: {
   readonly detail: AgentDetail;
+  /** The profile picked here or in the card editor; unset, the released one. */
+  readonly profileId: string | undefined;
+  readonly onProfileChange: (profileId: string) => void;
   /** The version to release; null offers the latest. */
   readonly picked: string | null;
   readonly onPick: (versionId: string) => void;
@@ -101,18 +119,12 @@ export function Releases({
   const latest = latestVersion(detail);
   const versionId = picked ?? latest?.id ?? "";
   const profiles = useQuery({ ...profilesQuery(client), enabled: manages });
-  const [chosen, setProfile] = useState(
-    detail.releases.at(-1)?.runtime_profile_id ?? "",
-  );
   const cardModel = detail.versions.find((v) => v.id === versionId)?.card.model;
-  // A profile the catalog no longer has cannot be released again; without
-  // a usable choice, offer one that runs the card's model.
   const items = profiles.data?.items ?? [];
-  const usable = items.filter(pickable);
-  const profile = usable.some((item) => item.id === chosen)
-    ? chosen
-    : ((usable.find((item) => item.model === cardModel) ?? usable[0])?.id ??
-      "");
+  // The card editor's checklist resolves the same way, so both show one profile.
+  const profile =
+    chosenProfile(items, cardModel ?? "", profileId ?? releasedProfile(detail))
+      ?.id ?? "";
   const [chosenRepository, setRepository] = useState(
     detail.releases.at(-1)?.repository_id ?? "",
   );
@@ -151,14 +163,7 @@ export function Releases({
   const ordered = [...detail.releases].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
-  // The server refuses a release whose profile runs another model than the
-  // card names; say so before the request.
-  const profileModel = items.find((item) => item.id === profile)?.model;
-  const mismatch =
-    cardModel !== undefined &&
-    profileModel !== undefined &&
-    cardModel !== profileModel;
-
+  const cards = new Map(detail.versions.map((v) => [v.id, v.card]));
   const release = useMutation<CreateAgentReleaseResponse, ApiError>({
     mutationFn: () =>
       unwrap(
@@ -254,7 +259,7 @@ export function Releases({
                     profiles={items}
                     cardModel={cardModel}
                     value={profile}
-                    onChange={setProfile}
+                    onChange={onProfileChange}
                   />
                 )}
                 {repositoryMode === undefined ||
@@ -273,16 +278,6 @@ export function Releases({
                     onChange={setRepository}
                   />
                 )}
-                {mismatch ? (
-                  <Alert asChild variant="amber">
-                    <output>
-                      {t("agent.releases.modelMismatch", {
-                        card: cardModel,
-                        profile: profileModel,
-                      })}
-                    </output>
-                  </Alert>
-                ) : null}
                 <DialogFooter>
                   <DialogClose asChild>
                     <Button type="button" variant="outline">
@@ -418,6 +413,19 @@ export function Releases({
               const by =
                 (item.created_by ? names.get(item.created_by) : undefined) ??
                 t("agent.releases.byMember");
+              const previous = previousRelease(detail.releases, item);
+              const changes = (
+                <ReleaseChangesSummary
+                  release={item}
+                  previous={previous}
+                  changes={
+                    previous
+                      ? releaseChanges(previous, item, (id) => cards.get(id))
+                      : []
+                  }
+                  by={item.created_by ? by : t("agent.releases.byUnknown")}
+                />
+              );
               const note = item.note ? (
                 <ReleaseNote note={item.note} />
               ) : (
@@ -453,6 +461,7 @@ export function Releases({
                       >
                         {name}
                       </Text>
+                      {changes}
                       {/* GridTable's narrowAt={860}, where the other columns drop. */}
                       <span className="hidden [@container(max-width:860px)]:flex">
                         {status}
@@ -604,16 +613,14 @@ function ProfileSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
+        {value === "" ? (
+          <NativeSelectOption value="" disabled>
+            {t("agents.flow.noProfile")}
+          </NativeSelectOption>
+        ) : null}
         <ProfileOptions
           profiles={profiles}
-          label={(profile) =>
-            t(
-              cardModel !== undefined && profile.model !== cardModel
-                ? "agent.releases.profileOptionMismatch"
-                : "agent.releases.profileOption",
-              { profile: profile.id, model: profile.model },
-            )
-          }
+          fits={(profile) => runsModel(profile, cardModel)}
         />
       </NativeSelect>
       <FieldDescription>{hint}</FieldDescription>

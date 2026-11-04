@@ -25,7 +25,7 @@ export const agentsKo = {
   "agents.tabs.all": "전체",
   "agents.tabs.administered": "관리하는 에이전트",
   "agents.cards.release": "릴리스",
-  "agents.cards.profile": "실행 프로필",
+  "agents.cards.profile": "프로필",
   "agents.cards.notReleased": "릴리스 전",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "자격 증명",
@@ -55,7 +55,7 @@ export const agentsKo = {
   "agents.description": "설명",
   "agents.descriptionOptional": "설명 (선택)",
   "agents.descriptionHint":
-    "사람이 읽는 소개입니다. 목록과 상세 화면에 보이고, 에이전트의 동작에는 쓰이지 않습니다.",
+    "목록과 상세 화면에 보이고, 이름과 함께 세션의 에이전트에게도 그대로 전달됩니다. 바꾼 값은 새 세션부터 적용됩니다.",
   "agents.slugHint":
     "이 워크스페이스에서 에이전트를 구분하는 이름으로, 목록과 상세 화면에 보이고 다른 에이전트와 겹칠 수 없습니다. 영문 소문자, 숫자, 하이픈(-). 이름에서 채워지고 고칠 수 있습니다. 저장한 뒤에는 바꿀 수 없습니다",
   "agents.slugLocked": "초안으로 저장해 식별자는 더 바꿀 수 없습니다",
@@ -81,7 +81,7 @@ export const agentsKo = {
     "저장소 없이 릴리스할 수 있는 프로필이 없습니다",
   "agents.flow.noProfile": "릴리스할 수 있는 프로필이 없습니다",
   "agents.flow.noProfileHint":
-    "쓸 수 있는 실행 프로필이 생기면 에이전트 상세의 릴리스 탭에서 릴리스합니다.",
+    "쓸 수 있는 프로필이 생기면 에이전트 상세의 릴리스 탭에서 릴리스합니다.",
   "agents.flow.activateIntro": "켜면 새 세션이 이 릴리스로 시작합니다.",
   "agents.flow.turnOn": "에이전트 켜기",
   "agents.flow.activating": "켜는 중…",
@@ -104,12 +104,12 @@ export const agentsKo = {
   "agentCard.modelHint":
     "릴리스할 때 고르는 프로필의 모델과 정확히 같아야 합니다",
   "agentCard.tools": "쓸 수 있는 도구",
-  "agentCard.toolsAll": "릴리스할 때 프로필이 허용하는 도구 전부",
+  "agentCard.toolsAll": "릴리스할 때 프로필이 막지 않은 도구 전부",
   "agentCard.toolsAllHint":
-    "릴리스를 만들 때 그 프로필의 도구로 정해집니다. 프로필에 나중에 더한 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만 씁니다.",
-  "agentCard.previewProfile": "도구를 보여 줄 프로필",
+    "릴리스를 만들 때 그 프로필이 막지 않은 도구로 정해집니다. 프로필 새 버전에서 막기를 푼 도구는 새 릴리스부터 들어갑니다. 끄면 아래에서 체크한 도구만 씁니다.",
+  "agentCard.previewProfile": "프로필",
   "agentCard.previewProfileHint":
-    "이 프로필의 도구 목록에서 고릅니다. 카드에는 저장하지 않습니다.",
+    "이 프로필의 도구에서 고르고, 새 릴리스도 이 프로필로 만듭니다. 카드에는 저장하지 않습니다.",
   "agentCard.noPreview": "이 모델을 돌리는 프로필이 없어 고를 도구가 없습니다.",
   "agentCard.toolOutside": "프로필에 없는 도구 · 끌 수만 있습니다",
   "agentCard.toolForbidden": "금지 도구 · 아래에서 지우면 고를 수 있습니다",
@@ -183,8 +183,7 @@ export const agentsKo = {
   "agent.releases.version": "버전",
   "agent.releases.profile": "프로필",
   "agent.releases.profileHint":
-    "각 프로필과 그 프로필이 쓰는 모델. 카드 모델과 같은 모델의 프로필만 릴리스할 수 있습니다",
-  "agent.releases.profileOption": "{profile} · {model}",
+    "각 프로필과 그 프로필의 기본 모델. 카드 모델을 실행할 수 있는 프로필만 릴리스할 수 있습니다",
   "agent.releases.profileUnlisted":
     "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
   "agent.releases.repository": "저장소",
@@ -206,6 +205,47 @@ export const agentsKo = {
   "agent.releases.activate": "활성화",
   "agent.releases.activating": "활성화하는 중…",
   "agent.releases.activateFor": "{release} 활성화",
+  "agent.releases.byUnknown": "작성자 정보 없음",
+  "agent.releases.changesFirst": "첫 릴리스",
+  "agent.releases.changesNone": "직전 릴리스와 같음",
+  "agent.releases.changesSummary": "바뀐 것: {areas}",
+  "agent.releases.changesTitle": "{release}에서 바뀐 것",
+  "agent.releases.changesAgainst":
+    "직전 릴리스 {previous}와 비교 · {by} · {at}",
+  "agent.releases.area.repositories": "허용 저장소",
+  "agent.releases.area.model": "모델",
+  "agent.releases.area.tools": "도구·MCP",
+  "agent.releases.area.prompt": "프롬프트",
+  "agent.releases.area.settings": "설정 값",
+  "agent.releases.area.secrets": "자격 증명",
+  "agent.releases.field.repositories": "허용 저장소",
+  "agent.releases.field.defaultRepository": "기본 저장소",
+  "agent.releases.field.model": "모델",
+  "agent.releases.field.tools": "쓸 수 있는 도구",
+  "agent.releases.field.cardTools": "카드가 고른 도구",
+  "agent.releases.field.forbidden": "금지한 도구",
+  "agent.releases.field.mcpServers": "MCP 서버",
+  "agent.releases.field.mcpTools": "MCP 도구",
+  "agent.releases.field.toolPolicy": "도구별 정책",
+  "agent.releases.field.instructions": "에이전트 지시문",
+  "agent.releases.field.profile": "프로필",
+  "agent.releases.field.profileDigest": "프로필 설정",
+  "agent.releases.field.pushApproval": "푸시 승인",
+  "agent.releases.field.actionsAllow": "허용한 워크플로",
+  "agent.releases.field.rules": "카드 규칙",
+  "agent.releases.field.language": "카드 언어",
+  "agent.releases.field.credentials": "자격 증명 이름",
+  "agent.releases.field.card": "카드의 다른 칸",
+  "agent.releases.absent.none": "없음",
+  "agent.releases.absent.profileRepositories": "프로필이 허용하는 저장소 전체",
+  "agent.releases.absent.profileTools": "프로필이 허용하는 도구 전체",
+  "agent.releases.added": "+ {item}",
+  "agent.releases.removed": "− {item}",
+  "agent.releases.valueChange": "{before} → {after}",
+  "agent.releases.changed": "변경됨",
+  "agent.releases.changesClose": "닫기",
+  "agent.releases.secretsHidden":
+    "자격 증명은 값을 보이지 않고 바뀐 것만 알립니다.",
   "agent.releaseCreated":
     "릴리스를 만들었습니다({release}). 아직 활성화되지 않았습니다.",
   "agent.releaseExisted":
@@ -275,8 +315,7 @@ export const agentsKo = {
   "agent.ready.credentialsUnknown": "연결 상태를 불러오지 못했습니다.",
   "agent.ready.release": "릴리스 만들기",
   "agent.ready.releaseDone": "릴리스 {count}개가 있습니다.",
-  "agent.ready.releaseTodo":
-    "릴리스 탭에서 버전과 실행 프로필로 릴리스를 만듭니다.",
+  "agent.ready.releaseTodo": "릴리스 탭에서 버전과 프로필로 릴리스를 만듭니다.",
   "agent.ready.activate": "활성화",
   "agent.ready.notRunnable":
     "에이전트가 {status} 상태라 새 세션이 이 에이전트를 쓰지 않습니다.",
@@ -404,7 +443,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.all": "All",
   "agents.tabs.administered": "Agents I manage",
   "agents.cards.release": "Release",
-  "agents.cards.profile": "Runtime profile",
+  "agents.cards.profile": "Profile",
   "agents.cards.notReleased": "Not released",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "Credentials",
@@ -434,7 +473,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.description": "Description",
   "agents.descriptionOptional": "Description (optional)",
   "agents.descriptionHint":
-    "An introduction for people. It shows in the list and on the agent's page and does not affect how the agent behaves.",
+    "It shows in the list and on the agent's page, and is passed to the agent in each session as written, with its name. A change applies from the next new session.",
   "agents.slugHint":
     "Tells this agent apart in the workspace, shows in the list and on its page, and no other agent can use it. Lowercase letters, digits and hyphens (-). Filled in from the name; you can change it. Cannot be changed once saved.",
   "agents.slugLocked":
@@ -461,7 +500,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "No profile can be released without a repository",
   "agents.flow.noProfile": "No profile can be released",
   "agents.flow.noProfileHint":
-    "Once a usable runtime profile exists, release from the agent's Releases tab.",
+    "Once a usable profile exists, release from the agent's Releases tab.",
   "agents.flow.activateIntro":
     "Once it is on, new sessions start with this release.",
   "agents.flow.turnOn": "Turn the agent on",
@@ -484,12 +523,12 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agentCard.modelHint":
     "It must be exactly the model of the profile you pick when releasing",
   "agentCard.tools": "Tools it may use",
-  "agentCard.toolsAll": "Every tool the profile allows at release",
+  "agentCard.toolsAll": "Every tool the profile does not block at release",
   "agentCard.toolsAllHint":
-    "The tools are fixed from the profile when a release is made. Tools added to the profile later come in with a new release. Turn this off to use only the tools checked below.",
-  "agentCard.previewProfile": "Profile to choose tools from",
+    "The tools are fixed when a release is made: every tool its profile does not block. A tool unblocked in a new profile version comes in with a new release. Turn this off to use only the tools checked below.",
+  "agentCard.previewProfile": "Profile",
   "agentCard.previewProfileHint":
-    "The list shows this profile's tools. It is not saved on the card.",
+    "You choose from this profile's tools, and a new release uses this profile. It is not saved on the card.",
   "agentCard.noPreview":
     "No profile runs this model, so there are no tools to choose.",
   "agentCard.toolOutside": "Not in the profile · can only be turned off",
@@ -563,8 +602,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.version": "Version",
   "agent.releases.profile": "Profile",
   "agent.releases.profileHint":
-    "Each profile is shown with its model. Choose a profile that uses the same model as the card.",
-  "agent.releases.profileOption": "{profile} · {model}",
+    "Each profile is shown with its default model. Choose a profile that can run the card's model.",
   "agent.releases.profileUnlisted":
     "A profile's permission mode is not shown on this screen yet.",
   "agent.releases.repository": "Repository",
@@ -585,6 +623,48 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.releases.activate": "Activate",
   "agent.releases.activating": "Activating…",
   "agent.releases.activateFor": "Activate {release}",
+  "agent.releases.byUnknown": "Author not recorded",
+  "agent.releases.changesFirst": "First release",
+  "agent.releases.changesNone": "Same as the previous release",
+  "agent.releases.changesSummary": "Changed: {areas}",
+  "agent.releases.changesTitle": "What changed in {release}",
+  "agent.releases.changesAgainst":
+    "Compared with the previous release {previous} · {by} · {at}",
+  "agent.releases.area.repositories": "Allowed repositories",
+  "agent.releases.area.model": "Model",
+  "agent.releases.area.tools": "Tools and MCP",
+  "agent.releases.area.prompt": "Prompt",
+  "agent.releases.area.settings": "Settings",
+  "agent.releases.area.secrets": "Credentials",
+  "agent.releases.field.repositories": "Allowed repositories",
+  "agent.releases.field.defaultRepository": "Default repository",
+  "agent.releases.field.model": "Model",
+  "agent.releases.field.tools": "Available tools",
+  "agent.releases.field.cardTools": "Tools the card picks",
+  "agent.releases.field.forbidden": "Forbidden tools",
+  "agent.releases.field.mcpServers": "MCP servers",
+  "agent.releases.field.mcpTools": "MCP tools",
+  "agent.releases.field.toolPolicy": "Per-tool policy",
+  "agent.releases.field.instructions": "Agent instructions",
+  "agent.releases.field.profile": "Profile",
+  "agent.releases.field.profileDigest": "Profile settings",
+  "agent.releases.field.pushApproval": "Push approval",
+  "agent.releases.field.actionsAllow": "Allowed workflows",
+  "agent.releases.field.rules": "Card rules",
+  "agent.releases.field.language": "Card language",
+  "agent.releases.field.credentials": "Credential names",
+  "agent.releases.field.card": "Other card fields",
+  "agent.releases.absent.none": "None",
+  "agent.releases.absent.profileRepositories":
+    "Every repository the profile allows",
+  "agent.releases.absent.profileTools": "Every tool the profile allows",
+  "agent.releases.added": "+ {item}",
+  "agent.releases.removed": "− {item}",
+  "agent.releases.valueChange": "{before} → {after}",
+  "agent.releases.changed": "Changed",
+  "agent.releases.changesClose": "Close",
+  "agent.releases.secretsHidden":
+    "Credentials show only that they changed, never their values.",
   "agent.releaseCreated": "Release {release} created. It is not active yet.",
   "agent.releaseExisted":
     "A release with the same content already exists, so that one is used. Activate it if it is not active yet.",
@@ -653,7 +733,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.ready.release": "Create a release",
   "agent.ready.releaseDone": "Releases created: {count}.",
   "agent.ready.releaseTodo":
-    "On the Release tab, create a release from a version and a runtime profile.",
+    "On the Release tab, create a release from a version and a profile.",
   "agent.ready.activate": "Activate",
   "agent.ready.notRunnable":
     "The agent is {status}, so new sessions do not use it.",
@@ -774,7 +854,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.tabs.all": "すべて",
   "agents.tabs.administered": "管理しているエージェント",
   "agents.cards.release": "リリース",
-  "agents.cards.profile": "実行プロファイル",
+  "agents.cards.profile": "プロファイル",
   "agents.cards.notReleased": "未リリース",
   "agents.cards.mcp": "MCP",
   "agents.cards.credentials": "認証情報",
@@ -804,7 +884,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agents.description": "説明",
   "agents.descriptionOptional": "説明（任意）",
   "agents.descriptionHint":
-    "人が読むための紹介です。一覧と詳細画面に表示され、エージェントの動作には使われません。",
+    "一覧と詳細画面に表示され、名前とあわせてセッションのエージェントにもそのまま渡されます。変更は次に始まるセッションから反映されます。",
   "agents.slugHint":
     "このワークスペースでエージェントを区別する名前で、一覧と詳細画面に表示され、ほかのエージェントと重複できません。英小文字・数字・ハイフン（-）。名前から自動入力され、変更できます。保存後は変更できません",
   "agents.slugLocked": "下書きを保存したため、識別子は変更できません",
@@ -830,7 +910,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "リポジトリなしでリリースできるプロファイルがありません",
   "agents.flow.noProfile": "リリースできるプロファイルがありません",
   "agents.flow.noProfileHint":
-    "使える実行プロファイルができたら、エージェント詳細のリリースタブでリリースします。",
+    "使えるプロファイルができたら、エージェント詳細のリリースタブでリリースします。",
   "agents.flow.activateIntro":
     "有効にすると、新しいセッションはこのリリースで開始します。",
   "agents.flow.turnOn": "エージェントを有効化",
@@ -854,12 +934,13 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agentCard.modelHint":
     "リリース時に選ぶプロファイルのモデルと完全に一致している必要があります",
   "agentCard.tools": "使用できるツール",
-  "agentCard.toolsAll": "リリース時にプロファイルで許可されたすべてのツール",
+  "agentCard.toolsAll":
+    "リリース時にプロファイルがブロックしていないすべてのツール",
   "agentCard.toolsAllHint":
-    "リリースを作成するときにそのプロファイルのツールに固定されます。後からプロファイルに追加したツールは新しいリリースから入ります。オフにすると、下でチェックしたツールだけを使います。",
-  "agentCard.previewProfile": "ツールを表示するプロファイル",
+    "リリースを作成するときに、そのプロファイルがブロックしていないツールに固定されます。プロファイルの新しいバージョンでブロックを外したツールは、新しいリリースから入ります。オフにすると、下でチェックしたツールだけを使います。",
+  "agentCard.previewProfile": "プロファイル",
   "agentCard.previewProfileHint":
-    "このプロファイルのツール一覧から選びます。カードには保存しません。",
+    "このプロファイルのツールから選び、新しいリリースもこのプロファイルで作ります。カードには保存しません。",
   "agentCard.noPreview":
     "このモデルを実行するプロファイルがないため、選べるツールがありません。",
   "agentCard.toolOutside": "プロファイルにないツール · オフにのみできます",
@@ -934,8 +1015,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.version": "バージョン",
   "agent.releases.profile": "プロファイル",
   "agent.releases.profileHint":
-    "各プロファイルと使用するモデルを表示しています。カードと同じモデルを使うプロファイルを選択してください。",
-  "agent.releases.profileOption": "{profile} · {model}",
+    "各プロファイルと既定のモデルを表示しています。カードのモデルを実行できるプロファイルを選択してください。",
   "agent.releases.profileUnlisted":
     "プロファイルの権限モードは、この画面にはまだ表示されません。",
   "agent.releases.repository": "リポジトリ",
@@ -957,6 +1037,48 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.releases.activate": "有効化",
   "agent.releases.activating": "有効化中…",
   "agent.releases.activateFor": "{release}を有効化",
+  "agent.releases.byUnknown": "作成者の記録なし",
+  "agent.releases.changesFirst": "最初のリリース",
+  "agent.releases.changesNone": "直前のリリースと同じ",
+  "agent.releases.changesSummary": "変更: {areas}",
+  "agent.releases.changesTitle": "{release}の変更内容",
+  "agent.releases.changesAgainst":
+    "直前のリリース {previous} との比較 · {by} · {at}",
+  "agent.releases.area.repositories": "許可リポジトリ",
+  "agent.releases.area.model": "モデル",
+  "agent.releases.area.tools": "ツール・MCP",
+  "agent.releases.area.prompt": "プロンプト",
+  "agent.releases.area.settings": "設定値",
+  "agent.releases.area.secrets": "認証情報",
+  "agent.releases.field.repositories": "許可リポジトリ",
+  "agent.releases.field.defaultRepository": "既定のリポジトリ",
+  "agent.releases.field.model": "モデル",
+  "agent.releases.field.tools": "使えるツール",
+  "agent.releases.field.cardTools": "カードが選んだツール",
+  "agent.releases.field.forbidden": "禁止したツール",
+  "agent.releases.field.mcpServers": "MCP サーバー",
+  "agent.releases.field.mcpTools": "MCP ツール",
+  "agent.releases.field.toolPolicy": "ツールごとのポリシー",
+  "agent.releases.field.instructions": "エージェント指示文",
+  "agent.releases.field.profile": "プロファイル",
+  "agent.releases.field.profileDigest": "プロファイルの設定",
+  "agent.releases.field.pushApproval": "プッシュ承認",
+  "agent.releases.field.actionsAllow": "許可したワークフロー",
+  "agent.releases.field.rules": "カードのルール",
+  "agent.releases.field.language": "カードの言語",
+  "agent.releases.field.credentials": "認証情報の名前",
+  "agent.releases.field.card": "カードのその他の項目",
+  "agent.releases.absent.none": "なし",
+  "agent.releases.absent.profileRepositories":
+    "プロファイルが許可するすべてのリポジトリ",
+  "agent.releases.absent.profileTools": "プロファイルが許可するすべてのツール",
+  "agent.releases.added": "+ {item}",
+  "agent.releases.removed": "− {item}",
+  "agent.releases.valueChange": "{before} → {after}",
+  "agent.releases.changed": "変更あり",
+  "agent.releases.changesClose": "閉じる",
+  "agent.releases.secretsHidden":
+    "認証情報は値を表示せず、変わったことだけを示します。",
   "agent.releaseCreated":
     "リリース {release} を作成しました。まだ有効ではありません。",
   "agent.releaseExisted":
@@ -1024,7 +1146,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.ready.release": "リリースの作成",
   "agent.ready.releaseDone": "リリースが{count}件あります。",
   "agent.ready.releaseTodo":
-    "リリースタブで、バージョンと実行プロファイルからリリースを作成します。",
+    "リリースタブで、バージョンとプロファイルからリリースを作成します。",
   "agent.ready.activate": "有効化",
   "agent.ready.notRunnable":
     "エージェントが「{status}」のため、新しいセッションはこのエージェントを使いません。",

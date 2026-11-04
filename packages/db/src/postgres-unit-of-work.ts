@@ -317,6 +317,7 @@ export function createPostgresSessionUnitOfWork(
           model: input.model ?? null,
           unmetered: input.unmetered ?? false,
           agentReleaseId: input.agentReleaseId ?? null,
+          platformPrompt: input.platformPrompt ?? null,
           permissionWaitOverride: input.permissionWait ?? null,
           workspaceId: actor?.workspaceId ?? null,
           createdByUserId: actor?.userId ?? null,
@@ -877,6 +878,7 @@ export function createPostgresSessionReader(
               releaseId: agentReleases.id,
               id: agents.id,
               name: agents.name,
+              activeReleaseId: agents.activeReleaseId,
               release_version_no: agentVersions.versionNo,
               createdAt: agentReleases.createdAt,
               earlier: earlierInSecond(agentReleases),
@@ -932,6 +934,7 @@ export function createPostgresSessionReader(
               name: release.name,
               release_version_no: release.release_version_no,
               release_label: releaseLabel(release.createdAt, release.earlier),
+              release_is_active: release.activeReleaseId === release.releaseId,
             }
           : null,
         created_by:

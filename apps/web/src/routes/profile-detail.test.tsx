@@ -175,7 +175,7 @@ const dangers = () =>
     (item) => item.textContent,
   );
 
-describe("실행 프로필 상세", () => {
+describe("프로필 상세", () => {
   test("a workspace row opens its version with settings, record, history and the agents on it", async () => {
     const { history, api } = renderAt("/profiles", catalog());
     const user = await setupUser();

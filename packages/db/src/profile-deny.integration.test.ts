@@ -126,10 +126,18 @@ integration("profile deny migration over an installation's rows", () => {
           `UPDATE ${table} SET deny = '["Bash"]', tool_catalog_id = 'claude_agent_sdk@0.3.270'`,
         );
       }
+      // Read beside what runs, never in it: the rest of each row is as before.
+      const columns = {
+        deny: ["Bash"],
+        tool_catalog_id: "claude_agent_sdk@0.3.270",
+      };
       expect({
         ceilings: await ceilings.listAll(),
         versions: await versions.listAll(),
-      }).toEqual(read);
+      }).toEqual({
+        ceilings: read.ceilings.map((row) => ({ ...row, ...columns })),
+        versions: read.versions.map((row) => ({ ...row, ...columns })),
+      });
 
       for (const table of ["installation_profiles", "workspace_profiles"]) {
         for (const set of [
