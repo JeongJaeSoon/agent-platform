@@ -311,6 +311,41 @@ exit 0
       ),
     ).toBeNull();
   });
+
+  test("checks /readyz at the URL the render names", async () => {
+    const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+    await mkdir(join(dir, "state"));
+    await writeFile(
+      join(dir, "state", "current.json"),
+      JSON.stringify(manifest),
+    );
+    await writeFile(
+      join(dir, "state", "installation"),
+      "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+    );
+    const render = JSON.stringify({
+      "x-test-ops-api-url": "http://127.0.0.1:13000",
+      services: {
+        scheduler: { environment: { EXECUTION_INSTALLATION_ID: "t" } },
+      },
+    });
+    const requests = join(dir, "curl-calls");
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh\ncase "$*" in *" config --format json") echo '${render}' ;; esac\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    await writeFile(
+      join(dir, "bin", "curl"),
+      `#!/bin/sh\necho "$*" >> "${requests}"\necho '{"status":"ready"}'\n`,
+      { mode: 0o755 },
+    );
+    const result = await run(["status"], env);
+    expect(result.stdout).toContain('readyz: {"status":"ready"}');
+    expect(await readFile(requests, "utf8")).toContain(
+      "http://127.0.0.1:13000/readyz",
+    );
+  });
 });
 
 describe("release manifest", () => {
@@ -370,13 +405,14 @@ describe("rendered installation", () => {
     await rm(catalog, { force: true, recursive: true });
   });
 
+  // Placeholders only: the render never leaves this process.
+  const filler = (c: string) => c.repeat(16);
+
   /** The real layers rendered as scripts/test-ops.sh renders them. */
-  function render(store: ObjectStoreMode): RenderedModel {
+  function compose(store: ObjectStoreMode, settings: Record<string, string>) {
     const { PATH = "", HOME = "" } = Bun.env;
     const digest = (c: string) => `@sha256:${c.repeat(64)}`;
-    // Placeholders only: the render never leaves this process.
-    const filler = (c: string) => c.repeat(16);
-    const result = Bun.spawnSync(
+    return Bun.spawnSync(
       [
         "docker",
         "compose",
@@ -416,12 +452,156 @@ describe("rendered installation", () => {
                 EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443",
                 EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "localstack:4566",
               }),
+          ...settings,
         },
       },
     );
+  }
+
+  function render(
+    store: ObjectStoreMode,
+    settings: Record<string, string> = {},
+  ): RenderedModel {
+    const result = compose(store, settings);
     expect(result.stderr.toString()).toBe("");
     return JSON.parse(result.stdout.toString()) as RenderedModel;
   }
+
+  const published = (model: RenderedModel, service: string) =>
+    model.services?.[service]?.ports?.map((port) => ({
+      host_ip: port.host_ip,
+      published: port.published,
+      target: port.target,
+    }));
+
+  test(
+    "without settings the API and postgres keep their loopback ports",
+    () => {
+      const model = render("localstack");
+      expect(published(model, "api")).toEqual([
+        { host_ip: "127.0.0.1", published: "3000", target: 3000 },
+      ]);
+      expect(published(model, "postgres")).toEqual([
+        { host_ip: "127.0.0.1", published: "5432", target: 5432 },
+      ]);
+      expect(model["x-test-ops-api-url"]).toBe("http://127.0.0.1:3000");
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the API port moves the published port and the URL together, on loopback",
+    async () => {
+      const model = render("localstack", {
+        TEST_OPS_API_PORT: "13000",
+        TEST_OPS_POSTGRES_PORT: "15432",
+      });
+      expect(published(model, "api")).toEqual([
+        { host_ip: "127.0.0.1", published: "13000", target: 3000 },
+      ]);
+      expect(published(model, "postgres")).toEqual([
+        { host_ip: "127.0.0.1", published: "15432", target: 5432 },
+      ]);
+      expect(model["x-test-ops-api-url"]).toBe("http://127.0.0.1:13000");
+      await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "the API URL may name a proxy in front of the installation",
+    async () => {
+      const url = "https://ops.example.test";
+      const model = render("localstack", { TEST_OPS_API_URL: url });
+      expect(model["x-test-ops-api-url"]).toBe(url);
+      await checkRender(model, { store: "localstack" });
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test.each([
+    "0",
+    "65536",
+    "70000",
+    "abc",
+    "3000-3001",
+    "3000:3000",
+    "3000/udp",
+  ])(
+    "preflight refuses the port %p without showing a secret",
+    async (value) => {
+      for (const name of ["TEST_OPS_API_PORT", "TEST_OPS_POSTGRES_PORT"]) {
+        const result = compose("localstack", { [name]: value });
+        let refusal = result.stderr.toString();
+        if (result.exitCode === 0) {
+          const model = JSON.parse(result.stdout.toString()) as RenderedModel;
+          refusal = await checkRender(model, { store: "localstack" }).then(
+            () => "",
+            (error: Error) => error.message,
+          );
+        }
+        expect({ name, refused: refusal !== "" }).toEqual({
+          name,
+          refused: true,
+        });
+        expect(refusal).not.toContain(filler("p"));
+        expect(refusal).not.toContain(filler("t"));
+      }
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "preflight refuses one port for two services",
+    async () => {
+      const model = render("localstack", {
+        TEST_OPS_API_PORT: "15432",
+        TEST_OPS_POSTGRES_PORT: "15432",
+      });
+      await expect(checkRender(model, { store: "localstack" })).rejects.toThrow(
+        "services api and postgres both publish port 15432",
+      );
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test.each([
+    ["not a url", "must be scheme://host[:port]"],
+    ["ftp://127.0.0.1:3000", "must be http or https"],
+    ["http://127.0.0.1:3000/", "must be scheme://host[:port]"],
+    ["http://127.0.0.1:3000/api", "must be scheme://host[:port]"],
+    ["http://127.0.0.1:3000?x=1", "must be scheme://host[:port]"],
+    ["http://127.0.0.1:13000", "must use the published API port 3000"],
+    ["http://localhost:13000", "must use the published API port 3000"],
+    ["http://[::1]:13000", "must use the published API port 3000"],
+  ])(
+    "preflight refuses the API URL %p",
+    async (url, message) => {
+      await expect(
+        checkRender(render("localstack", { TEST_OPS_API_URL: url }), {
+          store: "localstack",
+        }),
+      ).rejects.toThrow(message);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "preflight never quotes the API URL, which can carry a credential",
+    async () => {
+      const url = `http://operator:${filler("p")}@127.0.0.1:3000`;
+      const message = await checkRender(
+        render("localstack", { TEST_OPS_API_URL: url }),
+        { store: "localstack" },
+      ).then(
+        () => "",
+        (error: Error) => error.message,
+      );
+      expect(message).toContain("must be scheme://host[:port]");
+      expect(message).not.toContain(filler("p"));
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
 
   test.each(["localstack", "s3"] as const)(
     "the test-ops layers on %s pass, and the mounted catalog is what the manifest names",
