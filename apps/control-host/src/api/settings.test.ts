@@ -30,26 +30,27 @@ const PLAN = {
 
 function fakeStore(result: SettingsImportResult) {
   const asked: Array<Parameters<SettingsDocumentStore["importEntries"]>> = [];
-  const store: SettingsDocumentStore = {
-    exportEntries: async () => ({
-      entries: {
-        connections: {
-          main: {
-            kind: "anthropic",
-            endpoint: "https://api.anthropic.invalid",
-            auth: { kind: "api_key", stored: "connection:main" },
+  const store: Pick<SettingsDocumentStore, "exportEntries" | "importEntries"> =
+    {
+      exportEntries: async () => ({
+        entries: {
+          connections: {
+            main: {
+              kind: "anthropic",
+              endpoint: "https://api.anthropic.invalid",
+              auth: { kind: "api_key", stored: "connection:main" },
+            },
           },
+          repositories: {},
+          mcp_servers: {},
         },
-        repositories: {},
-        mcp_servers: {},
+        last4: new Map([["connection:main", "wxyz"]]),
+      }),
+      importEntries: async (...args) => {
+        asked.push(args);
+        return result;
       },
-      last4: new Map([["connection:main", "wxyz"]]),
-    }),
-    importEntries: async (...args) => {
-      asked.push(args);
-      return result;
-    },
-  };
+    };
   return { store, asked };
 }
 

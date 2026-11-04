@@ -1175,7 +1175,7 @@ describe("새 에이전트", () => {
     await user.type(screen.getByLabelText("식별자"), "billing");
     expect(
       screen.getByText(
-        "목록과 상세 화면에 보이고, 이름과 함께 세션의 에이전트에게도 그대로 전달됩니다. 바꾼 값은 새 세션부터 적용됩니다.",
+        "목록과 상세 화면에 보입니다. 설치에서 플랫폼 안내를 켜 두었다면 이름과 함께 모델에게도 그대로 전해지고, 바꾼 값은 새 세션부터 적용됩니다.",
       ),
     ).toBeDefined();
     await user.type(screen.getByLabelText("설명 (선택)"), ` ${DESCRIPTION} `);
@@ -2027,7 +2027,7 @@ describe("에이전트 상세", () => {
     const identity = screen.getByRole("group", { name: "이름과 설명" });
     expect(
       within(identity).getByText(
-        "사람이 보는 값입니다. 새 버전이나 릴리스 없이 바로 바뀌고, 에이전트의 동작에는 영향이 없습니다.",
+        "새 버전이나 릴리스 없이 바로 바뀝니다. 설치에서 플랫폼 안내를 켜 두었다면 새 세션부터 모델도 이 값을 에이전트의 이름과 설명으로 읽습니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
       ),
     ).toBeDefined();
     await user.type(within(identity).getByLabelText("설명"), ` ${DESCRIPTION}`);

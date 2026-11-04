@@ -28,15 +28,38 @@ const unrecorded: UpgradeSession = {
   pointer: { kind: "unrecorded" },
 };
 
+const noRuntime = {
+  WORKER_IMAGE_RUNTIME: undefined,
+  WORKER_IMAGE_PREVIOUS: undefined,
+  WORKER_IMAGE_PREVIOUS_RUNTIME: undefined,
+};
+// What the chart renders on a real cluster with no scheduler Deployment.
+const nothingDeployed = {
+  ...noRuntime,
+  UPGRADE_DEPLOYED_WORKER_IMAGE: "",
+  UPGRADE_DEPLOYED_STATE: "absent",
+};
+// What it renders for a release deployed on one image with no runtime, the
+// same values upgraded.
+const sameOneImage = {
+  ...noRuntime,
+  UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n1",
+  UPGRADE_DEPLOYED_STATE: "unpinned",
+};
+
 async function run(
   overrides: Partial<UpgradeCheckEnvironment>,
   listSessions: () => Promise<readonly UpgradeSession[]> = async () => [],
+  databaseUnused: () => Promise<boolean> = async () => {
+    throw new Error("the database use was read");
+  },
 ) {
   const lines: string[] = [];
   const code = await runUpgradeCheck({
     environment: { ...environment, ...overrides },
     logger: createLogger({ sinks: [{ write() {} }] }),
     listSessions,
+    databaseUnused,
     write: (line) => lines.push(line),
   });
   expect(lines).toHaveLength(1);
@@ -133,5 +156,144 @@ describe("runUpgradeCheck", () => {
     expect(output.verdict).toBe("check_failed");
     expect(output.reason).toContain(reason);
     expect(read).toBe(false);
+  });
+
+  describe("a release with no scheduler Deployment", () => {
+    test("proceeds on an unused database, needing no runtime", async () => {
+      const { code, output } = await run(
+        nothingDeployed,
+        async () => {
+          throw new Error("sessions were read");
+        },
+        async () => true,
+      );
+      expect(code).toBe(0);
+      expect(output).toEqual({
+        verdict: "proceed",
+        deployedWorker: null,
+        targetWorker: "worker@sha256:n1",
+        targetPreviousWorker: null,
+        affected: [],
+        approved: [],
+      });
+    });
+
+    test("is check_failed on a database something used, even with sessions approved", async () => {
+      const { code, output } = await run(
+        { ...nothingDeployed, UPGRADE_APPROVED_SESSIONS: '["s-1"]' },
+        async () => [],
+        async () => false,
+      );
+      expect(code).toBe(1);
+      expect(output.verdict).toBe("check_failed");
+      expect(output.reason).toContain("the database has been used");
+    });
+
+    test("is check_failed when the database cannot be read", async () => {
+      const { code, output } = await run(
+        nothingDeployed,
+        async () => [],
+        async () => {
+          throw new Error("connect ECONNREFUSED");
+        },
+      );
+      expect(code).toBe(1);
+      expect(output.verdict).toBe("check_failed");
+      expect(output.reason).toContain("ECONNREFUSED");
+    });
+
+    test("refuses an approval left in the values", async () => {
+      const { code, output } = await run(
+        { ...nothingDeployed, UPGRADE_APPROVED_SESSIONS: '["s-1"]' },
+        async () => [],
+        async () => true,
+      );
+      expect(code).toBe(2);
+      expect(output.verdict).toBe("refused");
+      expect(output.reason).toContain("must be empty");
+    });
+
+    test.each([
+      ["with a previous image and no runtime", { WORKER_IMAGE_PREVIOUS: "w" }],
+      ["with a malformed runtime", { WORKER_IMAGE_RUNTIME: "{" }],
+    ])("is check_failed %s", async (_, overrides) => {
+      const { code, output } = await run(
+        { ...nothingDeployed, ...overrides },
+        async () => [],
+        async () => true,
+      );
+      expect(code).toBe(1);
+      expect(output.verdict).toBe("check_failed");
+    });
+  });
+
+  test.each([
+    ["no state, as `helm template` renders", ""],
+    ["no state, as an older chart renders", undefined],
+    ["a state that does not say absent", "unpinned"],
+  ])("an empty deployed image with %s is check_failed", async (_, state) => {
+    const { code, output } = await run(
+      { ...nothingDeployed, UPGRADE_DEPLOYED_STATE: state },
+      async () => [],
+      async () => true,
+    );
+    expect(code).toBe(1);
+    expect(output.reason).toContain("could not be read");
+  });
+
+  describe("no target runtime", () => {
+    test("proceeds when one image stays and none was pinned", async () => {
+      const { code, output } = await run(sameOneImage);
+      expect(code).toBe(0);
+      expect(output).toEqual({
+        verdict: "proceed",
+        deployedWorker: "worker@sha256:n1",
+        targetWorker: "worker@sha256:n1",
+        targetPreviousWorker: null,
+        affected: [],
+        approved: [],
+      });
+    });
+
+    test("still reads the database, which stops it when unreadable", async () => {
+      const { code, output } = await run(sameOneImage, async () => {
+        throw new Error("connect ECONNREFUSED");
+      });
+      expect(code).toBe(1);
+      expect(output.reason).toContain("ECONNREFUSED");
+    });
+
+    test("refuses an approval left in the values", async () => {
+      const { code, output } = await run({
+        ...sameOneImage,
+        UPGRADE_APPROVED_SESSIONS: '["s-1"]',
+      });
+      expect(code).toBe(2);
+      expect(output.reason).toContain("must be empty");
+    });
+
+    test.each([
+      [
+        "the worker image changes",
+        { ...sameOneImage, WORKER_IMAGE: "worker@sha256:n2" },
+      ],
+      [
+        "the deployed release had a runtime or previous image to drop",
+        { ...sameOneImage, UPGRADE_DEPLOYED_STATE: "" },
+      ],
+      [
+        "the chart says nothing about the deployed release",
+        { ...sameOneImage, UPGRADE_DEPLOYED_STATE: undefined },
+      ],
+      [
+        "the target keeps a previous image",
+        { ...sameOneImage, WORKER_IMAGE_PREVIOUS: "worker@sha256:n" },
+      ],
+    ])("is check_failed when %s", async (_, overrides) => {
+      const { code, output } = await run(overrides);
+      expect(code).toBe(1);
+      expect(output.verdict).toBe("check_failed");
+      expect(output.reason).toContain("WORKER_IMAGE_RUNTIME is not set");
+    });
   });
 });

@@ -30,10 +30,16 @@ const rows = (table: HTMLElement) =>
       ),
     );
 
+const NO_CONNECTIONS = {
+  "GET /v1/installation/settings/connections": () =>
+    json(200, { items: [], credential_hosts: null }),
+};
+
 function routes(items: ProfileSummary[], signedIn = me()) {
   return {
     "GET /v1/auth/me": () => json(200, signedIn),
     "GET /v1/profiles": () => json(200, { items }),
+    ...NO_CONNECTIONS,
   };
 }
 
@@ -71,7 +77,7 @@ describe("프로필", () => {
       [
         "coding-claude설치 프로필 · v1",
         "v1",
-        "설치 프로필",
+        "설치 프로필파일",
         "—",
         "claude-sonnet-5",
         "acceptEdits",
@@ -81,7 +87,7 @@ describe("프로필", () => {
       [
         "general-read설치 프로필 · v1",
         "v1",
-        "설치 프로필",
+        "설치 프로필파일",
         "—",
         "claude-haiku-5",
         "default",
@@ -148,7 +154,7 @@ describe("프로필", () => {
       rows(table)
         .slice(1)
         .map((row) => row[2]),
-    ).toEqual(["설치 프로필", "설치 프로필", "워크스페이스 프로필"]);
+    ).toEqual(["설치 프로필파일", "설치 프로필파일", "워크스페이스 프로필"]);
   });
 
   test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
@@ -259,12 +265,16 @@ describe("프로필", () => {
       ]),
     );
     const table = await screen.findByRole("table", { name: "프로필" });
-    expect(
-      Array.from(table.querySelectorAll("[data-slot=badge]"), (badge) => [
+    const badges = Array.from(
+      table.querySelectorAll("[data-slot=badge]"),
+      (badge) => [
         badge.textContent,
         badge.className.match(/--ap-tone-(\w+)-bg/)?.[1],
-      ]),
-    ).toEqual([
+      ],
+    );
+    // Each ceiling also says where it came from: these from the file catalog.
+    expect(badges.filter(([text]) => text === "파일").length).toBe(6);
+    expect(badges.filter(([text]) => text !== "파일")).toEqual([
       ["연결 없음", "danger"],
       ["이 설치에서 꺼짐", "danger"],
       ["설정이 바뀜", "danger"],
@@ -307,6 +317,7 @@ describe("프로필", () => {
         failing
           ? apiError(500, "INTERNAL", "boom")
           : json(200, { items: [CODING] }),
+      ...NO_CONNECTIONS,
     });
     const retry = await screen.findByRole("button", { name: "다시 시도" });
     failing = false;

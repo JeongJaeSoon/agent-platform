@@ -150,6 +150,16 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 
 `compose.test-ops.yml`과 `compose.test-ops.s3.yml`은 위 값을 `${X:?}`로 요구하기만 한다. 하나라도 비면 compose가 렌더를 거부하고 core의 로컬 기본값으로 뜨는 일이 없다. 설치 상한(`EXECUTION_SLOT_LIMIT`, `SESSION_COST_LIMIT_USD` 등)은 넣지 않으면 core 기본값을 쓴다.
 
+호스트 포트가 이미 쓰이면 env 파일에 다음을 넣는다. 값을 주지 않으면 기본값을 쓴다. 어떤 값이든 `127.0.0.1`에만 열린다.
+
+| 변수 | 기본값 | 값 |
+|---|---|---|
+| `TEST_OPS_API_PORT` | `3000` | API와 웹 콘솔의 호스트 포트. 1~65535 |
+| `TEST_OPS_POSTGRES_PORT` | `5432` | postgres의 호스트 포트. 1~65535 |
+| `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | `deploy`·`upgrade`·`status`가 `/readyz`를 확인하는 주소. 포트를 따라가므로 호스트 앞에 프록시를 둘 때만 그 호스트 이름으로 넣는다. `scheme://host[:port]` 형식이고 경로와 끝의 `/`는 쓰지 않는다 |
+
+`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL, 게시한 API 포트와 다른 포트를 쓰는 IP 주소·`localhost` URL을 거부한다. 오류 문구에 URL 값은 넣지 않는다. 이미 배포한 설치의 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. 이 문서의 3000과 5432는 기본값이다. 값을 바꾸면 터널과 `curl` 명령의 포트도 함께 바꾼다.
+
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
 
 | 변수 | 기본값 |
@@ -264,7 +274,7 @@ scripts/test-ops.sh deploy release.json      # LocalStack
 
 1. env 파일 권한, manifest 형식, checkout의 commit과 로컬 변경
 2. Docker Engine 28 이상, compose v2.24.6 이상
-3. 렌더된 compose: 로컬 전용 서비스가 없고(`localstack`에서는 LocalStack 하나만 허용), 무엇도 build하지 않고, 모든 이미지가 digest이고, 포트가 loopback이고, API가 `api-key` 인증과 `locked` object store로 뜨고, postgres 값이 URL-safe이고, API가 고른 저장소를 가리키고(`localstack`: `http://localstack:4566`과 `claude-sessions`, `s3`: endpoint 없음), credential allowlist에 그 저장소가 있고 다른 로컬 서비스가 없고, workspace quota가 켜져 있고, 카탈로그가 checkout 밖에서 manifest의 revision으로 mount되는지
+3. 렌더된 compose: 로컬 전용 서비스가 없고(`localstack`에서는 LocalStack 하나만 허용), 무엇도 build하지 않고, 모든 이미지가 digest이고, 포트가 loopback이고 서비스마다 겹치지 않는 포트 하나이고, API 확인 주소가 게시한 포트와 맞고, API가 `api-key` 인증과 `locked` object store로 뜨고, postgres 값이 URL-safe이고, API가 고른 저장소를 가리키고(`localstack`: `http://localstack:4566`과 `claude-sessions`, `s3`: endpoint 없음), credential allowlist에 그 저장소가 있고 다른 로컬 서비스가 없고, workspace quota가 켜져 있고, 카탈로그가 checkout 밖에서 manifest의 revision으로 mount되는지
 4. `s3`에서만. bucket: API가 기동할 때 하는 검사(versioning, Object Lock, `AES256`)
 5. `s3`에서만. API 자격 증명의 임시 객체 왕복: `test-ops-preflight/` 아래 scratch key에 create-only put(If-None-Match) → legal hold → hold 확인과 version 읽기 → hold 해제 → version 삭제. 실패하면 그 단계의 S3 action 이름을 출력한다. API의 기동 검사는 bucket 설정만 읽으므로 쓰기·hold·GC 권한은 이 단계가 증명한다
 
@@ -280,14 +290,14 @@ bootstrap은 live owner가 없을 때 한 번만 통과한다. 같은 토큰을 
 
 ## 접근
 
-API(3000)는 호스트 loopback에만 열려 있다. 사용자는 SSH 터널로 들어온다.
+API(기본 3000, `TEST_OPS_API_PORT`)는 호스트 loopback에만 열려 있다. 사용자는 SSH 터널로 들어온다. 포트를 바꿨으면 터널의 `127.0.0.1:` 뒤 숫자를 그 값으로 쓴다.
 
 ```bash
 ssh -N -L 3000:127.0.0.1:3000 <user>@<test-ops-host>
 curl -fsS http://127.0.0.1:3000/readyz
 ```
 
-postgres(5432)도 loopback에만 열려 있다. 운영자만 호스트에서 쓴다.
+postgres(기본 5432, `TEST_OPS_POSTGRES_PORT`)도 loopback에만 열려 있다. 운영자만 호스트에서 쓴다.
 
 ## API key 발급과 폐기
 
