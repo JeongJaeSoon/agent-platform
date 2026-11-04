@@ -66,6 +66,9 @@ function harness(
     updatePullRequestBody: async () => {
       throw new Error("not used");
     },
+    setPullRequestState: async () => {
+      throw new Error("not used");
+    },
     upsertComment: async () => {
       throw new Error("not used");
     },

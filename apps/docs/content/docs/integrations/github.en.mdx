@@ -86,6 +86,8 @@ Titles, bodies, and comments are sanitized before they are sent to GitHub. Lines
 
 The platform adds a tail to the end of the PR body: the session id and commit, the session's address, the agent and release, and who started the session and how. Push to the branch again and ask for the PR again, and only the tail changes to the new commit; the text a person wrote above it stays.
 
+The agent in a session does the same work with built-in MCP tools: `open_pull_request` opens the PR, `update_pull_request` changes its title and body, and `comment_pull_request` comments on it. `close_pull_request` and `reopen_pull_request` close a PR that a push request of this session opened, without merging it, and reopen it. No person approves these. The agent cannot close a PR from another session, or one in a repository it is not allowed. Closing a closed PR, or reopening an open one, changes nothing and answers `changed: false`. A merged PR is refused with `PULL_REQUEST_MERGED`. Closing does not delete the `agent/<session-id>` branch, so the PR can be reopened.
+
 ## Attaching a repository mid-session
 
 While it works, the agent attaches another repository with the built-in MCP tool `attach_repository({ repository_id })`. It can attach only repositories listed in the agent release's GitHub settings (`github.repositories`) that the profile allows. No person approves it; writing to that repository still goes through push request approval, and a person approves pushes to an attached repository even for an agent with push approval off. The agent sees which repositories it can attach with `list_repositories` (its own `primary`, attached ones `attached`, `pending` or `failed`, and attachable ones `available`). A session keeps the release it started with, so a repository added only to a later active release is listed apart as `allowed_in_newer_release`, and `attach_repository` refuses it with `allowed_in_newer_release` instead of `repository_not_allowed`. It does not need to be allowed again: a new session (in Slack, a new thread) can attach it.
@@ -172,4 +174,4 @@ Reference: [`GET /v1/sessions/{id}/push-requests`](/reference/http-api/push-requ
 ## Next steps
 
 - [Slack](/integrations/slack)
-- [receipt](/approvals/receipt): opening a PR and commenting also leave a receipt (`open_pull_request`, `comment_pull_request`)
+- [receipt](/approvals/receipt): opening, commenting on, closing and reopening a PR also leave a receipt (`open_pull_request`, `comment_pull_request`, `close_pull_request`, `reopen_pull_request`)

@@ -99,6 +99,7 @@ function fakeApi(): GitHubApi {
     createPullRequest: unused,
     getPullRequest: unused,
     updatePullRequestBody: unused,
+    setPullRequestState: unused,
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,

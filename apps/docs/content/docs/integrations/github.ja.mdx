@@ -86,6 +86,8 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/pull-request/comments" \
 
 PR 本文の末尾には、プラットフォームが書く末尾ブロックが付く。セッション id とコミット、セッションのアドレス、エージェントとリリース、誰がどの経路で開始したかが入る。そのブランチにもう一度 push して PR をもう一度要求すると、末尾ブロックだけが新しいコミットに変わり、その上に人が書いた本文はそのまま残る。
 
+セッションの中のエージェントは、組み込み MCP ツールで同じことをする。`open_pull_request` で開き、`update_pull_request` でタイトルと本文を直し、`comment_pull_request` でコメントする。`close_pull_request` と `reopen_pull_request` で、このセッションの push 要求が開いた PR をマージせずに閉じ、また開く。人の承認は受けない。ほかのセッションの PR や、許可されていないリポジトリの PR は閉じられない。閉じた PR を閉じたり、開いている PR を再オープンしたりすると、何も変えずに `changed: false` で答える。マージ済みの PR は `PULL_REQUEST_MERGED` で拒否する。閉じても `agent/<session-id>` ブランチは消さない。そのため再オープンできる。
+
 ## セッションの途中でリポジトリを付ける
 
 エージェントは作業の途中で、内蔵 MCP ツール `attach_repository({ repository_id })` で別のリポジトリを付ける。付けられるのは、エージェントのリリースの GitHub 設定（`github.repositories`）にあり、プロファイルが許可するリポジトリだけだ。人の承認は受けない。そのリポジトリへの書き込みは、これまでどおり push 要求の承認を通り、push 承認を切ったエージェントでも付けたリポジトリへの push は人が承認する。付けられるリポジトリはエージェントが `list_repositories` で見る(自分のリポジトリ `primary`、付けたもの `attached`・`pending`・`failed`、付けられるもの `available`)。セッションは始めたときのリリースを使い続ける。そのため、あとで有効なリリースにだけ加えたリポジトリは `allowed_in_newer_release` として別に表示され、`attach_repository` も `repository_not_allowed` ではなく `allowed_in_newer_release` で拒否する。もう一度許可する必要はなく、新しいセッション(Slack では新しいスレッド)で付けられる。
@@ -172,4 +174,4 @@ curl -sS "$API/v1/sessions/$SID/push-requests/$FAILED/pull-request" \
 ## 次のステップ
 
 - [Slack](/integrations/slack)
-- [receipt](/approvals/receipt): PR を開く操作とコメントも receipt(`open_pull_request`, `comment_pull_request`)を残す
+- [receipt](/approvals/receipt): PR を開く・コメントする・閉じる・再オープンする操作も receipt(`open_pull_request`, `comment_pull_request`, `close_pull_request`, `reopen_pull_request`)を残す

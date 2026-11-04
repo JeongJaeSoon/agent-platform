@@ -78,6 +78,11 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     pushRequestId: string;
     body: unknown;
   }> = [];
+  const states: Array<{
+    sessionId: string;
+    pushRequestId: string;
+    state: string;
+  }> = [];
   const policies: AuthorizationPolicy[] = [];
   const control: {
     pushRefusal: "no_checkpoint" | "request_open" | null;
@@ -99,6 +104,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     createPullRequest: unused,
     getPullRequest: unused,
     updatePullRequestBody: unused,
+    setPullRequestState: unused,
     upsertComment: unused,
     dispatchWorkflow: async () => ({
       id: 42,
@@ -178,6 +184,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         },
         update: unused,
         comment: unused,
+        setState: async (_actor, sessionId, pushRequestId, state) => {
+          states.push({ sessionId, pushRequestId, state });
+          return { state, changed: true } as never;
+        },
       },
       githubWork: createGitHubWorkService({
         authorization,
@@ -229,6 +239,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     dispatches,
     pushes,
     opened,
+    states,
     policies,
     gate,
     workStore,
@@ -291,6 +302,8 @@ describe("tools/list", () => {
       "open_pull_request",
       "update_pull_request",
       "comment_pull_request",
+      "close_pull_request",
+      "reopen_pull_request",
       "list_repositories",
       "attach_repository",
     ]);
@@ -302,6 +315,8 @@ describe("tools/list", () => {
       "open_pull_request",
       "update_pull_request",
       "comment_pull_request",
+      "close_pull_request",
+      "reopen_pull_request",
       "dispatch_workflow",
       "get_workflow_run",
       "rerun_workflow",
@@ -654,6 +669,35 @@ describe("update_pull_request", () => {
         }),
       ),
     ).toMatchObject({ isError: true, body: { code: "VALIDATION_ERROR" } });
+  });
+});
+
+describe("close_pull_request and reopen_pull_request", () => {
+  const PUSH = "55555555-5555-4555-8555-555555555555";
+
+  test("close asks for closed and reopen for open, on the grant's session", async () => {
+    const h = harness();
+    expect(
+      payload(await h.call("close_pull_request", { push_request_id: PUSH })),
+    ).toEqual({ body: { state: "closed", changed: true } });
+    expect(
+      payload(await h.call("reopen_pull_request", { push_request_id: PUSH })),
+    ).toEqual({ body: { state: "open", changed: true } });
+    expect(h.states).toEqual([
+      { sessionId: SESSION, pushRequestId: PUSH, state: "closed" },
+      { sessionId: SESSION, pushRequestId: PUSH, state: "open" },
+    ]);
+  });
+
+  test("take a push request id and nothing else", async () => {
+    const h = harness();
+    for (const args of [{}, { push_request_id: PUSH, number: 7 }]) {
+      expect(payload(await h.call("close_pull_request", args))).toMatchObject({
+        isError: true,
+        body: { code: "VALIDATION_ERROR" },
+      });
+    }
+    expect(h.states).toEqual([]);
   });
 });
 

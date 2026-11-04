@@ -14,6 +14,7 @@ import {
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
   type GitHubApi,
+  GitHubCallError,
   type GitHubGate,
   GitHubGateError,
   type GitHubWork,
@@ -112,6 +113,7 @@ function harness(
   const titles = new Map<number, string>();
   const warnings: string[] = [];
   const receipts: PullRequestReceipt[] = [];
+  const dueAgain: string[] = [];
   const saved: PullRequest[] = [];
   const calls: string[] = [];
   const sourceReads: string[] = [];
@@ -145,6 +147,11 @@ function harness(
       receipts.push(input);
       return `receipt-${receipts.length}`;
     },
+    recordStateChange: async ({ url, ...input }) => {
+      receipts.push(input);
+      dueAgain.push(url);
+      return `receipt-${receipts.length}`;
+    },
     savePullRequest: async (input) => {
       receipts.push({ ...input, operation: "open_pull_request" } as never);
       const pullRequest: PullRequest = {
@@ -175,6 +182,8 @@ function harness(
   }> = [];
   const comments: Array<{ marker: string; body: string }> = [];
   let failing = false;
+  let readStatus: number | null = null;
+  let patchAnswer: ForgePullRequest["state"] | null = null;
   let gateRefusal = options.gateRefusal ?? null;
   const works: GitHubWork[] = [];
   const fail = () => {
@@ -223,7 +232,46 @@ function harness(
       };
       return { ...open, created: true };
     },
-    getPullRequest: unused,
+    getPullRequest: async (number) => {
+      calls.push(`read ${number}`);
+      if (readStatus !== null) {
+        throw new GitHubCallError("pull request read", readStatus, null);
+      }
+      if (open?.number !== number) {
+        throw new GitHubCallError("pull request read", 404, null);
+      }
+      return {
+        pullRequest: {
+          ...open,
+          title: "t",
+          mergeCommitSha: null,
+          additions: null,
+          deletions: null,
+          changedFiles: null,
+          commits: null,
+        },
+        rateLimit: {
+          limit: null,
+          remaining: null,
+          reset: null,
+          retryAfterSeconds: null,
+        },
+      };
+    },
+    setPullRequestState: async (number, state) => {
+      calls.push(`state ${number} ${state}`);
+      fail();
+      if (open === null || open.number !== number) {
+        throw new ForgeCredentialError("GitHub call failed (404)");
+      }
+      const now = patchAnswer ?? state;
+      open = {
+        ...open,
+        state: now,
+        closedAt: now === "closed" ? "2026-11-04T00:00:00Z" : null,
+      };
+      return open;
+    },
     updatePullRequestBody: async (number, edit, title) => {
       calls.push(`update ${number}`);
       fail();
@@ -294,6 +342,20 @@ function harness(
     comments,
     setOpen: (pull: Omit<ForgePullRequest, "mergedAt" | "closedAt">) => {
       open = { ...pull, mergedAt: null, closedAt: null };
+    },
+    dueAgain,
+    forgePullRequest: () => open,
+    /** GitHub answers every state change with this state. */
+    answerState: (state: ForgePullRequest["state"]) => {
+      patchAnswer = state;
+    },
+    merge: () => {
+      if (open !== null) {
+        open = { ...open, state: "closed", mergedAt: "2026-11-04T00:00:00Z" };
+      }
+    },
+    failRead: (status: number | null) => {
+      readStatus = status;
     },
     failForge: () => {
       failing = true;
@@ -876,6 +938,257 @@ describe("updating the pull request", () => {
   });
 });
 
+describe("closing and reopening the pull request", () => {
+  const OTHER_SESSION = "33333333-3333-4333-8333-333333333333";
+  const OTHER_PUSH = "44444444-4444-4444-8444-444444444444";
+  const recorded: PullRequest = {
+    push_request_id: PUSH,
+    session_id: SESSION,
+    repository_id: "app",
+    number: 7,
+    url: "https://github.com/acme/app/pull/7",
+    head: HEAD,
+    base: "develop",
+    created_at: "2026-10-13T00:00:00.000Z",
+    receipt_id: "receipt-0",
+  };
+  const withPullRequest = (options: Parameters<typeof harness>[0] = {}) => {
+    const h = harness(options);
+    h.saved.push(recorded);
+    h.setOpen({ ...recorded, state: "open" });
+    return h;
+  };
+
+  test("closes, then reopens, the pull request this session's push request has, each with a receipt", async () => {
+    const h = withPullRequest();
+    expect(await h.service.setState(actor, SESSION, PUSH, "closed")).toEqual({
+      pull_request: recorded,
+      state: "closed",
+      changed: true,
+      receipt_id: "receipt-1",
+    });
+    expect(h.forgePullRequest()?.state).toBe("closed");
+    expect(await h.service.setState(actor, SESSION, PUSH, "open")).toEqual({
+      pull_request: recorded,
+      state: "open",
+      changed: true,
+      receipt_id: "receipt-2",
+    });
+    expect(h.forgePullRequest()?.state).toBe("open");
+    expect(h.calls).toEqual([
+      "read 7",
+      "state 7 closed",
+      "read 7",
+      "state 7 open",
+    ]);
+    expect(h.receipts).toEqual([
+      expect.objectContaining({
+        operation: "close_pull_request",
+        pushRequestId: PUSH,
+        result: expect.objectContaining({
+          verdict: "allow",
+          refusal: null,
+          push_request_id: PUSH,
+          repository_id: "app",
+          number: 7,
+          url: recorded.url,
+          head: HEAD,
+          state: "closed",
+          changed: true,
+        }),
+      }),
+      expect.objectContaining({
+        operation: "reopen_pull_request",
+        result: expect.objectContaining({
+          verdict: "allow",
+          state: "open",
+          changed: true,
+        }),
+      }),
+    ]);
+    expect(h.works.map((work) => work.purpose)).toEqual([
+      "pull_request",
+      "pull_request",
+    ]);
+    // Each change makes the outcome due again, however long it was closed.
+    expect(h.dueAgain).toEqual([recorded.url, recorded.url]);
+  });
+
+  test("the state and changed come from GitHub's answer, not from the request", async () => {
+    const h = withPullRequest();
+    h.answerState("open");
+    expect(
+      await h.service.setState(actor, SESSION, PUSH, "closed"),
+    ).toMatchObject({ state: "open", changed: false });
+    expect(h.calls).toEqual(["read 7", "state 7 closed"]);
+    expect(h.receipts.at(-1)?.result).toMatchObject({
+      verdict: "allow",
+      state: "open",
+      changed: false,
+    });
+    expect(h.dueAgain).toEqual([]);
+  });
+
+  test("a pull request already in that state is answered unchanged, with a receipt and no write", async () => {
+    const h = withPullRequest();
+    expect(
+      await h.service.setState(actor, SESSION, PUSH, "open"),
+    ).toMatchObject({ state: "open", changed: false });
+    await h.service.setState(actor, SESSION, PUSH, "closed");
+    expect(
+      await h.service.setState(actor, SESSION, PUSH, "closed"),
+    ).toMatchObject({ state: "closed", changed: false });
+    expect(h.calls).toEqual(["read 7", "read 7", "state 7 closed", "read 7"]);
+    expect(h.dueAgain).toEqual([recorded.url]);
+    expect(h.receipts.map((receipt) => receipt.result)).toEqual([
+      expect.objectContaining({
+        verdict: "allow",
+        state: "open",
+        changed: false,
+      }),
+      expect.objectContaining({
+        verdict: "allow",
+        state: "closed",
+        changed: true,
+      }),
+      expect.objectContaining({
+        verdict: "allow",
+        state: "closed",
+        changed: false,
+      }),
+    ]);
+  });
+
+  test("another session's push request, or one this session does not have, is NOT_FOUND before GitHub is asked", async () => {
+    for (const [session, push] of [
+      [OTHER_SESSION, PUSH],
+      [SESSION, OTHER_PUSH],
+    ] as const) {
+      const h = withPullRequest();
+      expect(
+        await refusal(h.service.setState(actor, session, push, "closed")),
+      ).toMatchObject({ code: "NOT_FOUND", details: { refusal: "not_found" } });
+      expect(h.calls).toEqual([]);
+      expect(h.works).toEqual([]);
+      expect(h.receipts).toEqual([
+        expect.objectContaining({
+          operation: "close_pull_request",
+          sessionId: session,
+          result: expect.objectContaining({
+            verdict: "refuse",
+            refusal: "not_found",
+          }),
+        }),
+      ]);
+    }
+  });
+
+  test("a repository the catalog or the release no longer allows is refused before GitHub is asked", async () => {
+    const moved = withPullRequest({ binding: "moved" });
+    expect(
+      await refusal(moved.service.setState(actor, SESSION, PUSH, "closed")),
+    ).toMatchObject({
+      code: "CATALOG_MISMATCH",
+      details: { refusal: "catalog_changed" },
+    });
+    expect(moved.calls).toEqual([]);
+
+    const refused = withPullRequest({ gateRefusal: "repository_not_allowed" });
+    expect(
+      await refusal(refused.service.setState(actor, SESSION, PUSH, "open")),
+    ).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: {
+        refusal: "github_refused",
+        reason_code: "repository_not_allowed",
+      },
+    });
+    expect(refused.calls).toEqual([]);
+    expect(refused.receipts.at(-1)).toMatchObject({
+      operation: "reopen_pull_request",
+      result: {
+        verdict: "refuse",
+        refusal: "github_refused",
+        reason_code: "repository_not_allowed",
+        number: 7,
+      },
+    });
+  });
+
+  test("needs the pull request first", async () => {
+    const h = harness();
+    expect(
+      await refusal(h.service.setState(actor, SESSION, PUSH, "closed")),
+    ).toMatchObject({
+      code: "PULL_REQUEST_MISSING",
+      details: { refusal: "no_pull_request" },
+    });
+    expect(h.calls).toEqual([]);
+  });
+
+  test("a merged pull request is PULL_REQUEST_MERGED either way, and nothing is written", async () => {
+    for (const state of ["closed", "open"] as const) {
+      const h = withPullRequest();
+      h.merge();
+      expect(
+        await refusal(h.service.setState(actor, SESSION, PUSH, state)),
+      ).toMatchObject({
+        code: "PULL_REQUEST_MERGED",
+        details: { refusal: "pull_request_merged" },
+      });
+      expect(h.calls).toEqual(["read 7"]);
+      expect(h.receipts.at(-1)?.result).toMatchObject({
+        verdict: "refuse",
+        refusal: "pull_request_merged",
+        state: "closed",
+      });
+    }
+  });
+
+  test("GitHub's pull request on another head, or none at that number, is no_pull_request", async () => {
+    const moved = withPullRequest();
+    moved.setOpen({ ...recorded, head: "feature", state: "open" });
+    expect(
+      (await refusal(moved.service.setState(actor, SESSION, PUSH, "closed")))
+        .details,
+    ).toMatchObject({ refusal: "no_pull_request" });
+
+    const gone = withPullRequest();
+    gone.failRead(404);
+    expect(
+      (await refusal(gone.service.setState(actor, SESSION, PUSH, "closed")))
+        .details,
+    ).toMatchObject({ refusal: "no_pull_request" });
+    expect([...moved.calls, ...gone.calls]).toEqual(["read 7", "read 7"]);
+  });
+
+  test("a read or a write GitHub fails is forge_failed with a receipt", async () => {
+    const reading = withPullRequest();
+    reading.failRead(502);
+    expect(
+      await refusal(reading.service.setState(actor, SESSION, PUSH, "closed")),
+    ).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { refusal: "forge_failed" },
+    });
+
+    const writing = withPullRequest();
+    writing.failForge();
+    expect(
+      await refusal(writing.service.setState(actor, SESSION, PUSH, "closed")),
+    ).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      details: { refusal: "forge_failed" },
+    });
+    expect(writing.receipts.at(-1)?.result).toMatchObject({
+      verdict: "refuse",
+      refusal: "forge_failed",
+      state: "open",
+    });
+    expect(writing.forgePullRequest()?.state).toBe("open");
+  });
+});
+
 describe("a caller that may submit to the session", () => {
   const AGENT = "019a0000-0000-7000-8000-0000000000c1";
   const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
@@ -961,6 +1274,62 @@ describe("a caller that may submit to the session", () => {
       details: { refusal: "not_pushed", push_request_state: "pushing" },
     });
     expect(pushing.calls).toEqual([]);
+  });
+
+  test("an agent key closes and reopens the pull request of a pushed request only, and not on another agent's session", async () => {
+    const pushed = harness({ authorization: policy });
+    pushed.saved.push(pulled);
+    pushed.setOpen({ ...pulled, state: "open" });
+    await pushed.service.setState(submitter, SESSION, PUSH, "closed");
+    await pushed.service.setState(submitter, SESSION, PUSH, "open");
+    expect(pushed.calls).toEqual([
+      "read 7",
+      "state 7 closed",
+      "read 7",
+      "state 7 open",
+    ]);
+    expect(pushed.receipts[0]?.actor).toMatchObject({
+      principal: { kind: "api_key", id: "agent-key-1" },
+      agent_id: AGENT,
+    });
+
+    const pushing = harness({ authorization: policy, state: "pushing" });
+    pushing.saved.push(pulled);
+    expect(
+      await refusal(
+        pushing.service.setState(submitter, SESSION, PUSH, "closed"),
+      ),
+    ).toMatchObject({
+      code: "PUSH_NOT_PUSHED",
+      details: { refusal: "not_pushed", push_request_state: "pushing" },
+    });
+    expect(pushing.calls).toEqual([]);
+
+    const otherAgent = createAuthorizationPolicy({
+      identity: {
+        reread: async ({ principal }) => ({
+          status: "ok",
+          principal,
+          keyAgentId: "019a0000-0000-7000-8000-0000000000c2",
+        }),
+      },
+      agents: {
+        agentOf: async () => AGENT,
+        isAdmin: async () => false,
+      },
+    });
+    const foreign = harness({ authorization: otherAgent });
+    foreign.saved.push(pulled);
+    foreign.setOpen({ ...pulled, state: "open" });
+    expect(
+      (
+        await refusal(
+          foreign.service.setState(submitter, SESSION, PUSH, "closed"),
+        )
+      ).code,
+    ).toBe("FORBIDDEN");
+    expect(foreign.calls).toEqual([]);
+    expect(foreign.forgePullRequest()?.state).toBe("open");
   });
 
   test("a submitter cannot open or comment for a request that is not pushed, where an approver may comment", async () => {
