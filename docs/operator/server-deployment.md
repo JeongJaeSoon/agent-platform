@@ -22,7 +22,7 @@
 - [ ] Docker 서비스가 호스트 재부팅 뒤 자동으로 시작하도록 설정됐다.
 - [ ] 방화벽은 SSH와 선택한 TLS endpoint만 허용한다. API, PostgreSQL 포트와 Docker socket은 인터넷에 열지 않는다.
 - [ ] `git`, `jq`, `curl`, Bun 1.3.14가 있고 checkout에서 dependency 설치를 마칠 수 있다.
-- [ ] 직접 빌드한 이미지를 둘 registry가 있고, 호스트가 거기서 이미지를 받을 수 있다. registry에 token이 필요하면 최소 권한으로 만들어 `docker login`에 stdin으로 전달하고 명령 인자, shell history, 로그에 값을 남기지 않는다.
+- [ ] 호스트가 `ghcr.io`의 게시된 이미지를 받을 수 있다. 직접 빌드한다면 이미지를 둘 registry가 있고 호스트가 거기서 받을 수 있다. registry에 token이 필요하면 최소 권한으로 만들어 `docker login`에 stdin으로 전달하고 명령 인자, shell history, 로그에 값을 남기지 않는다.
 
 Docker socket은 scheduler 컨테이너가 worker를 관리할 때만 read/write로 사용한다. 호스트 TCP socket을 켜거나 reverse proxy로 전달하지 않는다.
 

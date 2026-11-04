@@ -39,7 +39,7 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 - **digest를 읽는다.** 공개 패키지는 GitHub 로그인 없이 태그에서 읽는다. 세 태그는 저장소별로 차례로 쓰이므로, 세 조회가 모두 성공해야 한 세트다.
 
   ```bash
-  TAG=main-<commit 앞 12자>
+  TAG="main-$(git rev-parse HEAD | cut -c1-12)"   # 배포할 commit의 checkout에서
   for app in control-host worker egress-proxy; do
     docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{json .Manifest.Digest}}'
   done
@@ -58,7 +58,7 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 ### 저장소 관리자: `v*` 태그로 게시
 
-이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한다.
+이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [게시된 이미지](test-ops.md#게시된-이미지를-쓸-때)를 쓴다.
 
 지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다. Helm chart를 게시하는 경로는 없다.
 

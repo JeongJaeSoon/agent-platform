@@ -42,7 +42,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 | 항목 | 요구 | 확인 |
 |---|---|---|
-| OS | Linux(x86_64 또는 arm64). Dockerfile은 두 아키텍처를 모두 빌드하므로 직접 빌드는 둘 다 된다. `v*` 태그의 게시 코드는 `linux/amd64` 이미지만 만든다 | |
+| OS | Linux(x86_64 또는 arm64). Dockerfile은 두 아키텍처를 모두 빌드하므로 직접 빌드는 둘 다 된다. 게시 코드는 `linux/amd64` 이미지만 만든다 | |
 | Docker Engine | 28 이상. worker 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다 | `preflight`가 거부한다 |
 | docker compose | v2.24.6 이상. 복원 훈련의 overlay가 include 위에 얹힌다 | `preflight`가 거부한다 |
 | 디스크 | Docker 데이터 루트가 xfs이고 `prjquota`로 마운트돼 있어야 한다. worker workspace volume에 용량·inode 상한을 건다 | scheduler가 기동할 때 quota probe를 돌린다. 실패하면 scheduler가 unhealthy가 되고 `deploy`·`upgrade`가 멈춘다 |
