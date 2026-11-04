@@ -63,7 +63,7 @@ async function prebuiltStyles(): Promise<string> {
   // fix `utilities` before `base` and let theme.css's border colour win.
   // No preflight: the kit must not reset the host app's global styles.
   const input = [
-    "@layer theme, base, components, utilities, ap;",
+    "@layer theme, base, components, utilities, werft;",
     '@import "tailwindcss/theme.css" layer(theme);',
     '@import "tailwindcss/utilities.css" layer(utilities) source(none);',
     '@import "./theme.css";',

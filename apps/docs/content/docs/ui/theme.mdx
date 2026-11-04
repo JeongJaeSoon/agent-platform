@@ -48,7 +48,7 @@ document.documentElement.dataset.theme = "dark";
 
 ## 덮어쓰기
 
-`tokens.css`와 `styles.css`의 규칙은 `@layer ap` 안에 있고, 이 layer는 Tailwind의 `utilities` 뒤에 온다. 그래서 다음 두 가지가 정해진다.
+`tokens.css`와 `styles.css`의 규칙은 `@layer werft` 안에 있고, 이 layer는 Tailwind의 `utilities` 뒤에 온다. 그래서 다음 두 가지가 정해진다.
 
 - `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, `ReceiptLink`는 자기 클래스로 그린다. 여기에 `className`으로 넘긴 Tailwind 유틸리티는 같은 속성이면 적용되지 않는다.
 - layer 밖에 쓴 앱의 CSS는 이 규칙들을 이긴다. 모양을 바꾸려면 layer 밖 CSS로 덮는다.

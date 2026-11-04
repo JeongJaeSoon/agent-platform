@@ -35,15 +35,15 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
   여기서 나온다. 쓰는 쪽 CSS는
   `tailwindcss`·`styles.css`·`theme.css` 순으로 import하고 `@source`로 이 패키지의 `src`를 스캔해야 한다
   (`apps/web/src/styles.css`가 예다). Tailwind 없이 쓰면 primitive는 모양 없이 그려진다.
-- **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer ap` 안에 있다. `tokens.css`가
-  `@layer theme, base, components, utilities, ap;`로 순서를 정하므로, 이 파일과 Tailwind 중 무엇을 먼저 import하든 `ap-*`
+- **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer werft` 안에 있다. `tokens.css`가
+  `@layer theme, base, components, utilities, werft;`로 순서를 정하므로, 이 파일과 Tailwind 중 무엇을 먼저 import하든 `werft-*`
   규칙은 Tailwind 유틸리티를 이기고 쓰는 쪽 앱의 layer 밖 규칙에는 진다. 쓰는 쪽 앱이 이 파일보다 먼저 layer 순서를
   선언하면 그 순서가 이긴다. 그때도 `ap`는 `utilities` 뒤에 두어야 한다. `ConfirmDialog`는 앞의 성질로 shadcn Dialog 위에서 기존 모양과
-  reduced-motion 규칙을 유지한다. 그래서 `ap-*` 클래스를 그리는 컴포넌트(`ConfirmDialog`·`DestructiveActionDialog`·
+  reduced-motion 규칙을 유지한다. 그래서 `werft-*` 클래스를 그리는 컴포넌트(`ConfirmDialog`·`DestructiveActionDialog`·
   `EmptyState`·`ErrorState`·`Skeleton`, 그리고 `@werft-ai/react/components`의 `StatusLabel`·`ReceiptSummary`·`ReceiptLink`)에 `className`으로 넘긴 유틸리티는
   BEM 규칙과 같은 속성이면 적용되지 않는다. 바꾸려면 쓰는 쪽 앱의 layer 밖 CSS로 덮는다. BEM 클래스는 화면을 옮기면서
   (W11·W17) 지운다.
-- **box-sizing.** `styles.css`가 키트 요소(`ap-*` 클래스와 `data-slot`)에만 `border-box`를 건다. Tailwind preflight가 없는
+- **box-sizing.** `styles.css`가 키트 요소(`werft-*` 클래스와 `data-slot`)에만 `border-box`를 건다. Tailwind preflight가 없는
   앱에서도 `Input` 높이가 콘솔과 같다.
 
 ## 공개 API
@@ -55,7 +55,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 | `@werft-ai/ui` | 세 층 전부. 지금 import는 대부분 이것이다 |
 | `@werft-ai/ui/primitives` | primitives 층만 |
 | `@werft-ai/ui/patterns` | patterns 층만 |
-| `@werft-ai/ui/styles.css` | 워크스페이스에서는 소스 그대로 폰트·토큰·`ap-*` 규칙. 배포물에서는 미리 빌드한 CSS(폰트 없음, 전역 `border-color` 포함. 아래 "배포 산출물") |
+| `@werft-ai/ui/styles.css` | 워크스페이스에서는 소스 그대로 폰트·토큰·`werft-*` 규칙. 배포물에서는 미리 빌드한 CSS(폰트 없음, 전역 `border-color` 포함. 아래 "배포 산출물") |
 | `@werft-ai/ui/theme.css` | Tailwind v4가 토큰을 유틸리티로 쓰게 잇는 `@theme inline` |
 | `@werft-ai/ui/tokens.css` | `--werft-*` 변수만 |
 
@@ -78,18 +78,18 @@ bun scripts/ui-pack-smoke.ts              # 빈 Vite+React 앱에 설치해 렌�
 `scripts/build-package.ts`가 `dist/`를 처음부터 다시 만든다. 게시는 하지 않는다. 레지스트리 설정이 없고, 게시는 사람이 정한다.
 
 - JS·d.ts: tsdown(unbundle)이 소스 파일마다 `.js`·`.d.ts` 하나씩 만든다. `__fixtures__`·`test-support`·테스트는 빠진다.
-- `styles.css`: Tailwind CLI로 미리 빌드한 CSS. 토큰·`ap-*` 규칙·키트가 쓰는 유틸리티가 들어 있어 Tailwind 없는 앱도
+- `styles.css`: Tailwind CLI로 미리 빌드한 CSS. 토큰·`werft-*` 규칙·키트가 쓰는 유틸리티가 들어 있어 Tailwind 없는 앱도
   `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다. preflight는 넣지 않는다. 다만 함께 빌드되는 `theme.css`의
   `@layer base` 규칙이 모든 요소(`*`·`::before`·`::after`)의 `border-color`를 `--werft-color-border`로 정한다. 쓰는 쪽 앱의
   전역 스타일 중 이것 하나는 바뀌며, 앱의 layer 밖 CSS는 이 규칙을 이긴다.
   대신 키트가 기대하는 preflight 규칙(box-sizing·border 너비와 모양·margin·padding, 링크·목록·제목·미디어, 폼 요소의
-  font·color·배경·radius)을 키트 요소(`ap-*` 클래스와 `[data-slot]`)와 그 안쪽에만 specificity 0으로 건다. 이게 없으면
+  font·color·배경·radius)을 키트 요소(`werft-*` 클래스와 `[data-slot]`)와 그 안쪽에만 specificity 0으로 건다. 이게 없으면
   브라우저 기본 스타일이 `<button>`에 2px outset 테두리나 회색 배경을, `asChild` 링크에 밑줄을 그린다. 키트 안에 넣은
   앱 마크업도 브라우저 기본 margin·밑줄이 빠지지만, 앱 CSS는 레이어 밖이라 항상 이긴다. 테두리 색은 `theme.css` 기본값을 쓴다.
 - `tokens.css`·`theme.css`: 소스 그대로. Tailwind v4 앱은 `styles.css` 뒤에 `theme.css`를 import하면 같은 유틸리티 이름을 쓸 수 있다.
 - 폰트는 싣지 않는다. `styles.css`의 `fonts.css` import를 빼고 빌드하므로 `--werft-font-sans`·`--werft-font-mono`는 쓰는 쪽 앱이
   Geist·Pretendard를 로드하지 않으면 시스템 폰트로 떨어진다. `pretendard`도 배포 package.json의 의존성이 아니다.
-  `--werft-font-sans`는 `ap-*` 요소에만 걸리고 버튼 같은 컨트롤은 앱 글꼴을 물려받으므로, 앱이 `body`(또는 `:root`)에
+  `--werft-font-sans`는 `werft-*` 요소에만 걸리고 버튼 같은 컨트롤은 앱 글꼴을 물려받으므로, 앱이 `body`(또는 `:root`)에
   글꼴을 주지 않으면 브라우저 기본 serif로 그려진다. 앱 CSS에 `body { font-family: var(--werft-font-sans); }` 한 줄을 둔다.
 - `package.json`: 저장소 것에서 만든다. exports는 `dist` 파일을 가리키고 `./test-support/*`는 뺀다. `react`·`react-dom`은 peer 그대로다.
 - `LICENSE`: 저장소 루트 것을 복사한다.

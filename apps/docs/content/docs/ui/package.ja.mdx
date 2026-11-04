@@ -63,7 +63,7 @@ import { Button, Card } from "@werft-ai/ui";
 
 ## フォント
 
-パッケージにフォントは含まれていない。書体のリストは `--werft-font-sans`(Geist、Pretendard Variable の順)と `--werft-font-mono`(Geist Mono から)にあるが、`styles.css` はこの変数をキットの `ap-*` 要素にしか当てない。ボタンやセグメントコントロールなどのコントロールはアプリの書体を継承するため、アプリが `body`(または `:root`)に書体を指定しないと、ブラウザ既定の書体(多くは Times のような serif)で描画される。アプリの CSS に 1 行を置く。
+パッケージにフォントは含まれていない。書体のリストは `--werft-font-sans`(Geist、Pretendard Variable の順)と `--werft-font-mono`(Geist Mono から)にあるが、`styles.css` はこの変数をキットの `werft-*` 要素にしか当てない。ボタンやセグメントコントロールなどのコントロールはアプリの書体を継承するため、アプリが `body`(または `:root`)に書体を指定しないと、ブラウザ既定の書体(多くは Times のような serif)で描画される。アプリの CSS に 1 行を置く。
 
 ```css title="src/app.css"
 body { font-family: var(--werft-font-sans); }

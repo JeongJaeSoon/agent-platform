@@ -109,10 +109,10 @@ export function ConfirmDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Radix wires aria-labelledby/aria-describedby to the Title and
-          Description below, and owns Escape and the focus trap. The `ap-*`
+          Description below, and owns Escape and the focus trap. The `werft-*`
           classes are unlayered, so they win over the primitive's utilities
           and the dialog keeps its look and its reduced-motion rule. The
-          utilities reset below are the ones `ap-*` does not set: Tailwind's
+          utilities reset below are the ones `werft-*` does not set: Tailwind's
           `translate` would stack on `.werft-dialog`'s `transform`, and the
           title and description would shrink to shadcn's type scale. */}
       <DialogContent

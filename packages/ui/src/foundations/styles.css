@@ -9,7 +9,7 @@
 @import "./tokens.css";
 
 /* Rules live in the `ap` layer; tokens.css explains its place in the cascade. */
-@layer ap {
+@layer werft {
   /*
    * Widths here are outer widths. Without this, the dialog's padding and
    * border pushed its 360px cap out to 378px and scrolled the page sideways —
@@ -19,12 +19,12 @@
    * match scopes it to this package's components (BEM classes and shadcn's
    * `data-slot`) and what they render inside, such as ApprovalCard's `<pre>`.
    */
-  :where([class^="ap-"], [class*=" ap-"], [data-slot]),
-  :where([class^="ap-"], [class*=" ap-"], [data-slot]) *,
-  :where([class^="ap-"], [class*=" ap-"], [data-slot])::before,
-  :where([class^="ap-"], [class*=" ap-"], [data-slot]) *::before,
-  :where([class^="ap-"], [class*=" ap-"], [data-slot])::after,
-  :where([class^="ap-"], [class*=" ap-"], [data-slot]) *::after {
+  :where([class^="werft-"], [class*=" werft-"], [data-slot]),
+  :where([class^="werft-"], [class*=" werft-"], [data-slot]) *,
+  :where([class^="werft-"], [class*=" werft-"], [data-slot])::before,
+  :where([class^="werft-"], [class*=" werft-"], [data-slot]) *::before,
+  :where([class^="werft-"], [class*=" werft-"], [data-slot])::after,
+  :where([class^="werft-"], [class*=" werft-"], [data-slot]) *::after {
     box-sizing: border-box;
   }
 

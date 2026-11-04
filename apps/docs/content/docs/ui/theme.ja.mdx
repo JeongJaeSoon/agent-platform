@@ -48,7 +48,7 @@ document.documentElement.dataset.theme = "dark";
 
 ## 上書き
 
-`tokens.css` と `styles.css` のルールは `@layer ap` の中にあり、この layer は Tailwind の `utilities` の後ろに来る。そのため、次の二つが決まる。
+`tokens.css` と `styles.css` のルールは `@layer werft` の中にあり、この layer は Tailwind の `utilities` の後ろに来る。そのため、次の二つが決まる。
 
 - `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, `ReceiptLink` は自分のクラスで描画する。これらに `className` で渡した Tailwind のユーティリティは、同じプロパティであれば適用されない。
 - layer の外に書いたアプリの CSS は、これらのルールに勝つ。見た目を変えるには、layer 外の CSS で上書きする。

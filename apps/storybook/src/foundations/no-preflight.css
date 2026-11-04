@@ -7,7 +7,7 @@
  * Theme applies. The workspace styles.css still imports fonts.css, which the
  * prebuilt one leaves out.
  */
-@layer theme, base, components, utilities, ap;
+@layer theme, base, components, utilities, werft;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "@werft-ai/ui/theme.css";

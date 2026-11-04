@@ -48,7 +48,7 @@ The components do not use Tailwind's `dark:` variant. `dark:` cannot see the `da
 
 ## Overriding
 
-The rules in `tokens.css` and `styles.css` live inside `@layer ap`, and this layer comes after Tailwind's `utilities`. That settles two things.
+The rules in `tokens.css` and `styles.css` live inside `@layer werft`, and this layer comes after Tailwind's `utilities`. That settles two things.
 
 - `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, and `ReceiptLink` render with their own classes. A Tailwind utility passed to them through `className` does not apply if it sets the same property.
 - The app's CSS written outside the layer wins over these rules. To change the look, override it with CSS outside the layer.

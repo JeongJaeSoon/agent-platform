@@ -43,7 +43,7 @@ function parse(css: string): Declaration[] {
       const selector = stack.pop() ?? "";
       // Every rule sits in the `ap` layer; only the at-rules inside it matter.
       const atRules = stack.filter(
-        (entry) => entry.startsWith("@") && entry !== "@layer ap",
+        (entry) => entry.startsWith("@") && entry !== "@layer werft",
       );
       for (const entry of buffer.split(";")) {
         const [property, ...rest] = entry.split(":");
@@ -151,7 +151,7 @@ function outsideApLayer(css: string): string {
   const body = stripComments(css)
     .replace(/@(import|layer)[^{;]*;/g, "")
     .trim();
-  if (!body.startsWith("@layer ap {")) return body;
+  if (!body.startsWith("@layer werft {")) return body;
   let depth = 0;
   for (const [index, character] of [...body].entries()) {
     if (character === "{") depth += 1;
@@ -190,7 +190,7 @@ describe("이름공간", () => {
 
   test("ap layer가 Tailwind layer 뒤에 온다", () => {
     expect(stripComments(TOKENS)).toContain(
-      "@layer theme, base, components, utilities, ap;",
+      "@layer theme, base, components, utilities, werft;",
     );
   });
 
