@@ -128,7 +128,7 @@ describe("images.yml", () => {
       );
     }
     const builds = steps("docker/build-push-action");
-    expect(builds.length).toBe(2);
+    expect(builds.length).toBe(3);
     for (const build of builds)
       expect(build.with?.["build-args"]).toBe(
         `BUN_IMAGE=${expression("env.BUN_IMAGE")}\n` +
@@ -144,7 +144,7 @@ describe("images.yml", () => {
       mirrored: true,
     });
     const setups = steps("docker/setup-buildx-action");
-    expect(setups.length).toBe(3);
+    expect(setups.length).toBe(5);
     for (const setup of setups)
       expect(setup.with?.["driver-opts"]).toBe(
         `image=${expression("env.BUILDKIT_IMAGE")}`,

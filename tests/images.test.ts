@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
@@ -775,50 +783,303 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     }
   });
 
-  test("images.yml builds every app and pushes only on tags", () => {
-    const workflow = read(".github/workflows/images.yml");
-    expect(workflow).toContain("app: [control-host, worker, egress-proxy]");
-    expect(workflow).toContain('test "$(ls staged/*.json | wc -l)" -eq 3');
-    expect(workflow).toContain('tags: ["v*"]');
-    // The PR-facing job never pushes and never holds package write; only
-    // the tag-gated job does.
-    const [buildJob, publishJob] = workflow.split("\n  publish:\n");
-    expect(buildJob).toContain("push: false");
-    expect(buildJob).not.toContain("packages: write");
-    // `workflow_dispatch` may name any ref, tags included, so the event is
-    // part of the gate, and only a v* tag qualifies.
-    expect(publishJob).not.toContain("github.ref_type == 'tag'");
-    expect(publishJob).toContain(
-      "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
-    );
-    // Version tags appear only in `promote`, after every staged digest
-    // passed its smoke; a rerun on a different digest is refused.
-    const promoteJob = publishJob.slice(publishJob.indexOf("\n  promote:\n"));
-    expect(
-      publishJob.slice(0, publishJob.indexOf("\n  promote:\n")),
-    ).not.toContain('GITHUB_REF_NAME}"');
-    expect(promoteJob).toContain("docker buildx imagetools create");
-    expect(promoteJob).toContain("refusing to move it");
-    expect(promoteJob).toContain("after promotion");
-    // A single-manifest source must be retagged as is, not wrapped in an
-    // index whose digest differs from the staged one.
-    expect(promoteJob).toContain("imagetools create --prefer-index=false");
-    // Promotions serialize repository-wide; the tag check is not atomic.
-    expect(promoteJob).toContain("group: images-promote");
-    expect(promoteJob).toContain("cancel-in-progress: false");
-    // A lookup that fails for any reason but "not found" must abort, not
-    // read as "tag absent".
-    expect(promoteJob).toContain("could not look up");
-    expect(promoteJob).not.toMatch(/imagetools inspect[^\n]*\|\| true/);
-    expect(publishJob).toContain("packages: write");
-    expect(publishJob).toContain("push: true");
-    expect(publishJob).toContain("environment: release");
-    expect(publishJob).toContain("git merge-base --is-ancestor");
-    // Both jobs smoke through the same script; publish smokes what it pushed.
-    expect(buildJob).toContain(".github/scripts/image-smoke.sh");
-    expect(publishJob).toContain(
-      'image-smoke.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
-    );
+  describe("images.yml publishing", () => {
+    type Step = { uses?: string; run?: string; with?: Record<string, unknown> };
+    type Job = {
+      if?: string;
+      needs?: string | string[];
+      environment?: string;
+      concurrency?: { group: string; "cancel-in-progress": boolean };
+      permissions?: Record<string, string>;
+      steps: Step[];
+    };
+    const text = read(".github/workflows/images.yml");
+    const { jobs, permissions, on, concurrency } = Bun.YAML.parse(text) as {
+      jobs: Record<string, Job>;
+      permissions: Record<string, string>;
+      on: { push: { tags: string[] } };
+      concurrency: { group: string; "cancel-in-progress": string };
+    };
+    const writers = Object.entries(jobs)
+      .filter(([, job]) => job.permissions?.packages === "write")
+      .map(([name]) => name);
+    const runsOf = (job: Job | undefined) =>
+      (job?.steps ?? []).map((step) => step.run ?? "").join("\n");
+    /** `${{ <body> }}`, spelled so the linter does not read a template slot. */
+    const expression = (body: string) => `\${{ ${body} }}`;
+
+    /** A job `if` of plain context checks; any other term is refused. */
+    const passes = (
+      condition: string | undefined,
+      run: { event: string; ref: string },
+    ) =>
+      (condition ?? "").split(" && ").every((term) => {
+        const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
+        if (prefix) return run.ref.startsWith(prefix[1] ?? "");
+        const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
+        if (!equal) throw new Error(`unexpected term: ${term}`);
+        return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
+      });
+
+    test("builds every app without package write", () => {
+      expect(text).toContain("app: [control-host, worker, egress-proxy]");
+      expect(on.push.tags).toEqual(["v*"]);
+      expect(permissions).toEqual({ contents: "read" });
+      expect(writers.sort()).toEqual([
+        "promote",
+        "promote-main",
+        "publish",
+        "publish-main",
+      ]);
+      expect(jobs.build?.steps.map((step) => step.with?.push)).toContain(false);
+      expect(runsOf(jobs.build)).toContain(".github/scripts/image-smoke.sh");
+    });
+
+    test.each([
+      ["push", "refs/heads/main", ["promote-main", "publish-main"]],
+      ["push", "refs/tags/v1.2.3", ["promote", "publish"]],
+      ["push", "refs/heads/feature", []],
+      ["push", "refs/tags/sdk-v0.1.0", []],
+      ["pull_request", "refs/pull/1/merge", []],
+      ["schedule", "refs/heads/main", []],
+      ["workflow_dispatch", "refs/heads/main", []],
+      ["workflow_dispatch", "refs/tags/v1.2.3", []],
+    ] as const)("%s of %s publishes through %j", (event, ref, expected) => {
+      expect(
+        writers.filter((name) => passes(jobs[name]?.if, { event, ref })).sort(),
+      ).toEqual([...expected]);
+    });
+
+    test("the images follow the owner rather than a spelled namespace", () => {
+      expect(text).toContain(
+        "IMAGE_PREFIX: $" + "{{ github.repository_owner }}/werft\n",
+      );
+    });
+
+    test("only the tag path waits for the release environment", () => {
+      expect(jobs.publish?.environment).toBe("release");
+      expect(jobs.promote?.environment).toBe("release");
+      expect(jobs["publish-main"]?.environment).toBeUndefined();
+      expect(jobs["promote-main"]?.environment).toBeUndefined();
+    });
+
+    test("both paths run one list of steps and promote after every image", () => {
+      expect(jobs["publish-main"]?.steps).toEqual(jobs.publish?.steps ?? []);
+      expect(jobs["promote-main"]?.steps).toEqual(jobs.promote?.steps ?? []);
+      expect(jobs.promote?.needs).toBe("publish");
+      expect(jobs["promote-main"]?.needs).toBe("publish-main");
+      const publish = runsOf(jobs.publish);
+      expect(publish).toContain("git merge-base --is-ancestor");
+      expect(publish).toContain(
+        'image-smoke.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
+      );
+      // Only the digest going out needs its sources on record.
+      expect(publish).toContain(
+        'image-licenses.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}" publish',
+      );
+      expect(runsOf(jobs.build)).toContain(
+        'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"\n',
+      );
+      expect(
+        jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
+      ).toEqual([true]);
+      expect(
+        jobs.publish?.steps.flatMap((step) => step.with?.tags ?? []),
+      ).toEqual([expression("steps.meta.outputs.staging")]);
+      expect(runsOf(jobs.promote)).toContain("image-promote.sh staged digests");
+      // The digests of a run, for whatever reads them next.
+      expect(
+        jobs.promote?.steps.flatMap((step) => step.with?.name ?? []),
+      ).toEqual(["image-digests-published"]);
+    });
+
+    test("a later merge neither drops nor interrupts a main commit", () => {
+      // A commit's own group, or the next merge replaces its pending run.
+      const mainPush =
+        "github.event_name == 'push' && github.ref == 'refs/heads/main'";
+      expect(concurrency.group).toContain(`(${mainPush} && github.sha)`);
+      expect(concurrency["cancel-in-progress"]).toBe(
+        expression(`!(${mainPush})`),
+      );
+      // Tag promotions serialize repository-wide; two v* tags on one commit
+      // share sha-<12>, and the tag check is not atomic.
+      expect(jobs.promote?.concurrency).toEqual({
+        group: "images-promote",
+        "cancel-in-progress": false,
+      });
+      // In that group a queued entry would replace another merge's promotion.
+      expect(jobs["promote-main"]?.concurrency).toBeUndefined();
+    });
+  });
+
+  describe("image-promote.sh", () => {
+    const apps3 = ["control-host", "egress-proxy", "worker"];
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const digest = (app: string, build = "a") => `sha256:${build}-${app}`;
+    const imageOf = (app: string) => `ghcr.io/o/werft-${app}`;
+
+    // A registry of one file per tag. `create` logs its arguments, and fails
+    // for the image FAKE_CREATE_FAILS names.
+    const fakeDocker = `#!/usr/bin/env bash
+set -euo pipefail
+file() { printf '%s/tags/%s' "$FAKE" "$(printf '%s' "$1" | tr '/:' '__')"; }
+case "$3" in
+  inspect)
+    if [ -n "\${FAKE_LOOKUP_FAILS:-}" ]; then echo "$FAKE_LOOKUP_FAILS" >&2; exit 1; fi
+    if [ -f "$(file "$4")" ]; then printf '"%s"\\n' "$(cat "$(file "$4")")"; exit 0; fi
+    echo "$4: not found" >&2
+    exit 1
+    ;;
+  create)
+    shift 3
+    echo "$*" >>"$FAKE/creates"
+    prefer="$1"; shift
+    [ "$prefer" = --prefer-index=false ]
+    targets=()
+    while [ "$1" = -t ]; do targets+=("$2"); shift 2; done
+    source_digest="\${1#*@}"
+    if [ -n "\${FAKE_CREATE_FAILS:-}" ] && [[ "$1" == *"$FAKE_CREATE_FAILS"* ]]; then exit 1; fi
+    for target in "\${targets[@]}"; do
+      printf '%s' "\${FAKE_WRITES:-$source_digest}" >"$(file "$target")"
+    done
+    ;;
+  *) exit 64 ;;
+esac
+`;
+
+    const registry = () => {
+      const directory = mkdtempSync(join(tmpdir(), "image-promote-"));
+      mkdirSync(join(directory, "bin"));
+      mkdirSync(join(directory, "tags"));
+      mkdirSync(join(directory, "staged"));
+      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      for (const app of apps3)
+        writeFileSync(
+          join(directory, "staged", `${app}.json`),
+          JSON.stringify({ app, image: imageOf(app), digest: digest(app) }),
+        );
+      const tagFile = (app: string, tag: string) =>
+        join(directory, "tags", `${imageOf(app)}:${tag}`.replace(/[/:]/g, "_"));
+      const promote = (env: Record<string, string> = {}) => {
+        const run = Bun.spawnSync(
+          [
+            "bash",
+            join(root, ".github/scripts/image-promote.sh"),
+            join(directory, "staged"),
+            join(directory, "published"),
+          ],
+          {
+            env: {
+              PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+              FAKE: directory,
+              GITHUB_SHA: sha,
+              GITHUB_REF: "refs/heads/main",
+              GITHUB_REF_NAME: "main",
+              ...env,
+            },
+          },
+        );
+        return {
+          code: run.exitCode,
+          out: `${run.stdout.toString()}${run.stderr.toString()}`,
+        };
+      };
+      const tagged = () => readdirSync(join(directory, "tags")).sort();
+      const published = () =>
+        existsSync(join(directory, "published"))
+          ? readdirSync(join(directory, "published")).sort()
+          : [];
+      const record = (app: string) =>
+        JSON.parse(
+          readFileSync(join(directory, "published", `${app}.json`), "utf8"),
+        ) as { promoted: boolean; tags: string[]; digest: string };
+      const creates = () => {
+        const log = join(directory, "creates");
+        return existsSync(log) ? readFileSync(log, "utf8") : "";
+      };
+      return { promote, tagFile, tagged, published, record, creates };
+    };
+    const main = `main-${sha.slice(0, 12)}`;
+
+    test("a main run writes main-<12>, never a sha tag, and records the set", () => {
+      const store = registry();
+      expect(store.promote().code).toBe(0);
+      expect(store.tagged()).toEqual(
+        apps3.map((app) => `ghcr.io_o_werft-${app}_${main}`),
+      );
+      expect(store.published()).toEqual(apps3.map((app) => `${app}.json`));
+      expect(store.record("worker")).toMatchObject({
+        promoted: true,
+        tags: [main],
+        digest: digest("worker"),
+      });
+      expect(store.creates()).toContain("--prefer-index=false");
+    });
+
+    test("a v* run writes its version and sha tags, never main-<12>", () => {
+      const store = registry();
+      const run = store.promote({
+        GITHUB_REF: "refs/tags/v1.2.3",
+        GITHUB_REF_NAME: "v1.2.3",
+      });
+      expect(run.code).toBe(0);
+      expect(store.record("worker").tags).toEqual([
+        "v1.2.3",
+        `sha-${sha.slice(0, 12)}`,
+      ]);
+      expect(store.tagged().filter((tag) => tag.includes("main-"))).toEqual([]);
+    });
+
+    test("any other ref writes nothing", () => {
+      const store = registry();
+      const run = store.promote({
+        GITHUB_REF: "refs/heads/feature",
+        GITHUB_REF_NAME: "feature",
+      });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("nothing is promoted");
+      expect(store.creates()).toBe("");
+    });
+
+    test("a tag on another digest stops the promotion before any write", () => {
+      const store = registry();
+      writeFileSync(store.tagFile("worker", main), digest("worker", "older"));
+      const run = store.promote();
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("refusing to move it");
+      expect(store.creates()).toBe("");
+      expect(store.published()).toEqual([]);
+      expect(readFileSync(store.tagFile("worker", main), "utf8")).toBe(
+        digest("worker", "older"),
+      );
+    });
+
+    test("a lookup that fails for another reason does not read as absent", () => {
+      const store = registry();
+      const run = store.promote({ FAKE_LOOKUP_FAILS: "500 upstream" });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("could not look up");
+      expect(store.creates()).toBe("");
+    });
+
+    test("a half-promoted set completes on the same digests", () => {
+      const store = registry();
+      const first = store.promote({ FAKE_CREATE_FAILS: "werft-egress-proxy" });
+      expect(first.code).toBe(1);
+      expect(store.tagged()).toEqual([`ghcr.io_o_werft-control-host_${main}`]);
+      expect(store.published()).toEqual([]);
+      expect(store.promote().code).toBe(0);
+      expect(store.tagged().length).toBe(3);
+      expect(store.published().length).toBe(3);
+    });
+
+    test("a tag that reads back wrong is not published", () => {
+      const store = registry();
+      const run = store.promote({ FAKE_WRITES: "sha256:wrapped-index" });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("after promotion");
+      expect(store.published()).toEqual([]);
+    });
   });
 
   test("the API is bound to loopback and authenticated in compose", () => {

@@ -4,7 +4,7 @@ description: 複数の人が使う Werft サーバーをインストールして
 ---
 
 <Callout type="warn">
-現在、公式に公開されたパッケージはなく、リポジトリから直接ビルドする必要がある。`v*` リリース、公開済みのアプリイメージ、Helm chart パッケージ、npm の `@werft-ai/sdk` はまだない。リポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、タグの公開コードは今のところ `linux/amd64` イメージしか作らない。
+公式リリースはまだない。`v*` リリース、Helm chart パッケージ、npm の `@werft-ai/sdk` はない。アプリイメージは `main` へのマージごとに `ghcr.io/jeongjaesoon/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。このイメージを取得できない場合はリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、公開コードは今のところ `linux/amd64` イメージしか作らない。
 </Callout>
 
 Werft サーバーを自分でインストールし、チームで共有する方法である。一人で試すだけのサーバーなら[開発用サーバーの実行](/run-server/dev-server)で足りる。インストールと運用のドキュメントの本文はリポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) にあり、韓国語で書かれている。このページはどこから読むかを案内する。
@@ -25,7 +25,7 @@ Werft サーバーを自分でインストールし、チームで共有する�
 1. ホストを準備する。Linux、Docker Engine 28 以上、Docker Compose 2.24.6 以上、NTP の同期、再起動後の Docker の自動起動が必要である。Docker のデータルートは XFS に `prjquota` 付きで mount されていなければならない。そうでないと scheduler の quota 検査が失敗し、インストールが止まる。スクリプトはリポジトリの checkout で実行するため、ホストには `git`、`jq`、`curl`、Bun 1.3.14 も必要である。
 2. ネットワーク経路を決める。API は loopback に置き、SSH tunnel で接続するのが基本である。内部 DNS で公開するときは、TLS と VPN または IP allowlist を備えた reverse proxy を使い、イベントストリーム (SSE) のために buffering を切る。PostgreSQL と Docker socket は外部に開かない。
 3. このインストール専用の S3 bucket を用意する。同じホストの LocalStack は再起動でオブジェクトを失うため、実サーバーのストレージには使わない。
-4. checkout で 3 つのイメージをビルドし、ホストが取得できる registry に push して、その digest で release を決める。設定ドキュメントも用意し、秘密の値はリポジトリ外の env ファイルにだけ置く。
+4. 公開された 3 つのイメージの digest で release を決める。公開イメージを使えない場合は checkout でビルドし、ホストが取得できる registry に push する。設定ドキュメントも用意し、秘密の値はリポジトリ外の env ファイルにだけ置く。
 5. インストールして `/readyz` を確認し、Web コンソールの `/bootstrap` で最初の owner と workspace を作成する。
 6. ユーザーごとに API キーを発行する。キーの owner がセッションの owner になる。
 7. バックアップ、アップグレードとロールバック、再起動後の再開を事前に練習する。
