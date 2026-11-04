@@ -1,0 +1,72 @@
+---
+title: SDK samples
+description: Small CLI samples that call the SDK for real, one per use case, and which sample uses which API
+---
+
+A set of small CLIs that call `@werft-ai/sdk` ([TypeScript SDK](/sdk)) for real, one per use case. Each sample has a runnable file in `src/` and a unit test that runs against a fake API. The README in the sample directory lists the key and scopes it needs, the run command and the output seen on a real stack. This directory follows the same [Apache License 2.0](https://github.com/JeongJaeSoon/werft/blob/main/examples/LICENSE) as the SDK.
+
+| Sample | What it shows | Key |
+| --- | --- | --- |
+| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | Creating a client and rejection at creation, key scopes, the profile catalog, version constants | Any key (`sessions:read`) |
+| [sdk-inventory](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-inventory) | Search, filters and pages of the session list; detail, usage and sharing scope | Personal key (`read`, `write`, `control`) |
+| [sdk-events](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-events) | The event stream, resuming from a saved cursor, turn list pages | Agent key (`read`, `write`, `control`) |
+| [sdk-reliability](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-reliability) | Idempotency-Key replay, retrying a lost response, error classes | Personal key (`read`, `write`, `control`) |
+| [sdk-questions](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-questions) | Answering questions, denying and allowing permissions, handling an open request once, a different answer to the same request | Personal key (`read`, `write`, `approve`, `control`) |
+| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt, pause and resume, changing the profile, a recovery decision after terminate | Personal key (`read`, `write`, `control`, `recover`) |
+| [sdk-close](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-close) | A close blocked by an open question and `CLOSE_BLOCKED`, cancelling queued input | Personal key (`read`, `write`, `approve`, `control`) |
+| [sdk-push](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-push) | Requesting, rejecting and approving a push, the push result, opening a PR and commenting | Agent key + approver's personal key (`approve`) |
+| [sdk-approver](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-approver) | Run a session with an agent key, have a separate approver answer a permission request, then close | Agent key + approver's personal key (`approve`) |
+
+## Setup
+
+Run `bun install --frozen-lockfile` at the repository root. The samples use the workspace's `@werft-ai/sdk`, and the root `tsconfig.json` type-checks them. Outside the repository, install with [`npm install @werft-ai/sdk`](/getting-started/install) and run the same files with Node 22.18 or later (`node discover.ts`) or with Bun. The runnable files use only `@werft-ai/sdk` and Node built-in modules. Use the SDK from a server or a script, and never put an API key in a browser.
+
+1. Start your own stack with `scripts/local.sh up --fake-model` ([Quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md)). No real model key is needed. The `GATE-SPEC` in a message is a script the FAKE model replays, so do not use it with a real model.
+2. Sign in to the web console as an owner.
+3. Issue a personal key in the console under Settings → API keys, with the scopes of that sample. An owner can grant all five scopes.
+4. For the samples that need an agent key (`sdk-events`, `sdk-push`, `sdk-approver`), create an agent in the console, create and enable a release with the `claude-coding-local` profile and the `sample-app` repository, then issue that agent's key with `sessions:read`, `sessions:write` and `sessions:control`. An agent key cannot be given `sessions:approve`, so a separate personal key does the approving.
+
+Each sample's README lists its environment variables. Only two are used by all of them. Never paste a key into source, a README or output.
+
+| Environment variable | Value |
+| --- | --- |
+| `WERFT_BASE_URL` | The API URL of your stack (for example `http://127.0.0.1:3000`) |
+| `WERFT_API_KEY` | The key for that sample |
+
+```sh
+export WERFT_BASE_URL=http://127.0.0.1:3000
+read -rs WERFT_API_KEY && export WERFT_API_KEY
+bun examples/sdk-discovery/src/discover.ts
+```
+
+Each sample exits with code 1 on failure, and for an API error it writes the code, message and request ID to stderr. A session it created is closed at the end so the worker is returned. A failed run leaves the session as it is, so check it in the console with the printed session ID and close it.
+
+The unit tests run with `bun test examples`. They start the sample CLIs as they are, run them against the fake `/v1` of [testing/sample-server.ts](https://github.com/JeongJaeSoon/werft/blob/main/examples/testing/sample-server.ts), and check the output and the requests sent. CI runs these tests and the type check, and the `sdk-release` workflow installs the npm release into an empty project and type-checks every sample's runnable file without `skipLibCheck`. CI has no run against a real stack. One sample takes tens of seconds to several minutes including worker startup, `sdk-close` waits for the 60-second drain, and the `e2e` job (`tests/e2e`) already checks the whole session path on the same stack.
+
+## Which sample uses which API
+
+| SDK public API | Samples |
+| --- | --- |
+| `new Werft(options)`: `baseUrl`, `apiKey`, `maxRetries`, `timeoutMs`, `defaultHeaders`, `fetch`, rejection at creation | discovery, reliability |
+| `withOptions` | discovery, reliability, push, approver |
+| `root.get`, `auth.me`, `profiles.list`, `limits.get` | discovery |
+| `SDK_VERSION`, `API_SPEC_VERSION`, `SUPPORTED_SSE_SCHEMA_VERSIONS` | discovery |
+| `sessions.create` | Every session sample (`agent_release_id`: events, push, approver / `title`: inventory / a profile with no repository: questions) |
+| `sessions.get`, `sessions.list` (`q`, `relation`, `status`, `limit`, `nextPage`, `for await`) | inventory (list), every session sample (detail) |
+| `sessions.usage`, `sessions.share` | inventory |
+| `sessions.messages.send` | events, reliability, questions, control, close, approver |
+| `sessions.turns.get`, `sessions.turns.list` | events, reliability, control, close |
+| `sessions.events.stream` (`lastEventId`, `close()`, `signal`) | events, approver (`events` of `waitForTurn`) |
+| `sessions.requests.list`, `sessions.requests.answer` | questions, close |
+| `sessions.interrupt`, `pause`, `resume`, `terminate`, `changeProfile`, `recoveryDecisions.create` | control |
+| `sessions.close` | Every session sample |
+| `sessions.pushRequests.create`, `list`, `get`, `approve`, `reject`, `openPullRequest`, `commentPullRequest` | push |
+| `receipts.get` | questions, control, close, push (through `waitForReceipt`) |
+| `waitForTurn` (`onRequest`, `onAnswer`, `events`), `answerPending` | questions, close, push, approver |
+| `waitForReceipt`, `waitForPushRequest` | `waitForReceipt`: every session sample / `waitForPushRequest`: push |
+| `closeResult`, `closeBlocked`, `isClosing`, `CLOSE_BLOCKED`, `SESSION_ADMISSION_CLOSING`, `SESSION_CLOSING` | close (`closeResult`: approver too) |
+| `isApiError`, `APIError` fields (`status`, `code`, `retryable`, `requestId`, `details`) | Every sample |
+| `WerftError`, `ConnectionError`, `TimeoutError`, `AbortedError`, `idempotencyKey`, `attempts` | reliability |
+| `TurnBlockedError` | control |
+
+The types (`ClientOptions`, `Page`, `EventStream`, `StreamOptions`, `RequestOptions`, `MutationOptions`, `PendingRequestHandlers`, `WaitForTurnOptions`, `AnswerOutcome`, `CloseParams`, `CloseReceiptResult`, `CloseBlockedAttention`, `ClientErrorCode`) are used by the samples above alongside the values.
