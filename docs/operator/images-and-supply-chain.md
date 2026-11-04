@@ -30,6 +30,16 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 `.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag의 **push 이벤트**에서만(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/<owner>/agent-platform-<app>`으로 게시한다. 두 job만 package write 권한을 가지며 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 세 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 아직 없고, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
 
+### 저장소 관리자: `v*` 태그로 게시
+
+이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한다.
+
+지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았고, 게시된 앱 이미지도 없다. `main` 머지는 이미지를 CI 안에서 빌드·검사만 하고 올리지 않는다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다. Helm chart를 게시하는 경로는 없다.
+
+1. `main`의 검증된 commit에 `v*` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다.
+2. `publish`·`promote` job이 `release` environment 승인을 받고 끝나는지 본다.
+3. 초록 run의 `image-digests-published` artifact에서 세 이미지의 digest를 읽는다.
+
 ### worker 안에서 만든 commit의 작성자
 
 worker 이미지는 git system 설정(`/etc/gitconfig`)에 `user.name=Werft`, `user.email=noreply@werft.invalid`를 둔다. 그래서 Claude가 workspace에서 만든 commit은 저장소나 세션이 따로 정하지 않는 한 author와 committer가 모두 `Werft <noreply@werft.invalid>`다. 이 값이 없으면 git이 commit을 거부하고, Claude는 사용자에게 이름과 주소를 묻는다. `.invalid`는 어디에도 배달되지 않는 예약 도메인이라 실제 사람의 주소와 겹치지 않는다. checkpoint의 내부 commit은 이 값을 쓰지 않는다(`checkpoint@werft.invalid`). 같은 system 설정은 그 뒤에 `include.path=~/.werft/git-identity`를 둔다. 세션 저장소가 콘솔의 작성용 GitHub App을 쓰면 worker가 그 파일에 App bot 계정(`<slug>[bot]`)을 써서 기본값을 덮는다([GitHub 계정 연결](api-server.md#github-계정-연결)의 "commit 작성자"). 파일이 없으면 include는 건너뛴다.
