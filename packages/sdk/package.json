@@ -10,12 +10,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JeongJaeSoon/agent-platform.git",
+    "url": "git+https://github.com/JeongJaeSoon/werft.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://jeongjaesoon.github.io/agent-platform/",
+  "homepage": "https://jeongjaesoon.github.io/werft/",
   "bugs": {
-    "url": "https://github.com/JeongJaeSoon/agent-platform/issues"
+    "url": "https://github.com/JeongJaeSoon/werft/issues"
   },
   "keywords": [
     "werft",

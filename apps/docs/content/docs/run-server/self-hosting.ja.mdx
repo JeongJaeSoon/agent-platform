@@ -4,23 +4,23 @@ description: 複数の人が使う Werft サーバーをインストールして
 ---
 
 <Callout type="warn">
-現在、公式に公開されたパッケージはなく、リポジトリから直接ビルドする必要がある。`v*` リリース、公開済みのアプリイメージ、Helm chart パッケージ、npm の `@werft-ai/sdk` はまだない。リポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、タグの公開コードは今のところ `linux/amd64` イメージしか作らない。
+現在、公式に公開されたパッケージはなく、リポジトリから直接ビルドする必要がある。`v*` リリース、公開済みのアプリイメージ、Helm chart パッケージ、npm の `@werft-ai/sdk` はまだない。リポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、タグの公開コードは今のところ `linux/amd64` イメージしか作らない。
 </Callout>
 
-Werft サーバーを自分でインストールし、チームで共有する方法である。一人で試すだけのサーバーなら[開発用サーバーの実行](/run-server/dev-server)で足りる。インストールと運用のドキュメントの本文はリポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/agent-platform/tree/main/docs/operator) にあり、韓国語で書かれている。このページはどこから読むかを案内する。
+Werft サーバーを自分でインストールし、チームで共有する方法である。一人で試すだけのサーバーなら[開発用サーバーの実行](/run-server/dev-server)で足りる。インストールと運用のドキュメントの本文はリポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) にあり、韓国語で書かれている。このページはどこから読むかを案内する。
 
 ## インストール方式を選ぶ
 
 | 方式 | 実行基盤 | ドキュメント |
 | --- | --- | --- |
-| 単一サーバー | Docker Compose、セッションごとに worker コンテナ | [単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) |
-| Kubernetes | リポジトリの Helm chart、セッションごとに worker Pod | [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md) |
+| 単一サーバー | Docker Compose、セッションごとに worker コンテナ | [単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md) |
+| Kubernetes | リポジトリの Helm chart、セッションごとに worker Pod | [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
 
 どちらの方式でも、サーバーは API (Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換の object store で構成される。どちらにも Git サーバーは含まれないため、セッションが使う GitHub リポジトリをカタログに自分で書く。単一サーバーのインストールでは HA は対象外である。
 
 ## 単一サーバーのインストール手順
 
-[単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md)の手順を要約すると次のとおりである。コマンドと失敗からの復旧は、そのドキュメントとそこからリンクされている runbook に従う。
+[単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)の手順を要約すると次のとおりである。コマンドと失敗からの復旧は、そのドキュメントとそこからリンクされている runbook に従う。
 
 1. ホストを準備する。Linux、Docker Engine 28 以上、Docker Compose 2.24.6 以上、NTP の同期、再起動後の Docker の自動起動が必要である。Docker のデータルートは XFS に `prjquota` 付きで mount されていなければならない。そうでないと scheduler の quota 検査が失敗し、インストールが止まる。スクリプトはリポジトリの checkout で実行するため、ホストには `git`、`jq`、`curl`、Bun 1.3.14 も必要である。
 2. ネットワーク経路を決める。API は loopback に置き、SSH tunnel で接続するのが基本である。内部 DNS で公開するときは、TLS と VPN または IP allowlist を備えた reverse proxy を使い、イベントストリーム (SSE) のために buffering を切る。PostgreSQL と Docker socket は外部に開かない。
@@ -36,28 +36,28 @@ SDK と HTTP API は、サーバーのアドレスと API キーでサーバー�
 
 ## インストールと設定
 
-- [単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md)
-- [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md)
-- [設定リファレンス](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/configuration.md)
-- [API サーバー: カタログ、認証情報、checkpoint ストレージ、認証と権限](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/api-server.md)
-- [データベース接続と遅いクエリ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/database.md)
-- [イメージとサプライチェーン](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/images-and-supply-chain.md)
+- [単一サーバーへのデプロイ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)
+- [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md)
+- [設定リファレンス](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [API サーバー: カタログ、認証情報、checkpoint ストレージ、認証と権限](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
+- [データベース接続と遅いクエリ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/database.md)
+- [イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
 
 ## 実行基盤
 
-- [実行基盤と worker の分離](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/execution.md)
-- [Kubernetes 実行 backend](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-backend.md)
-- [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/capacity.md)
+- [実行基盤と worker の分離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
+- [Kubernetes 実行 backend](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-backend.md)
+- [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
 
 ## データと監視
 
-- [プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/data-retention.md)
-- [バックアップと復元 (compose インストール)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/backup-restore.md)
-- [セッションデータの流れ](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/observability.md)
-- [プラットフォームのメトリクス (Kubernetes)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/metrics.md)
-- [Datadog 監視の基準](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/monitoring-datadog.md)
+- [プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
+- [バックアップと復元 (compose インストール)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
+- [セッションデータの流れ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/observability.md)
+- [プラットフォームのメトリクス (Kubernetes)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/metrics.md)
+- [Datadog 監視の基準](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)
 
 ## サンプルと runbook
 
-- [SDK サンプルの実行設定](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/sdk-sample.md)
-- [test-ops 運用 runbook](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md)
+- [SDK サンプルの実行設定](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/sdk-sample.md)
+- [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)
