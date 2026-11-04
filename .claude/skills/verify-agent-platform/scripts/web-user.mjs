@@ -275,6 +275,8 @@ switch (cmd) {
         "mention",
         "plain",
         "reply",
+        "uninstall",
+        "uninstall-late",
       ].includes(mode)
     )
       throw new Error("agent UUID and event mode required");
