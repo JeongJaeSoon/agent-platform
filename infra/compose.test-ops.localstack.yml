@@ -12,6 +12,9 @@ services:
     extends:
       file: compose.localstack.yml
       service: localstack
+  egress-proxy:
+    environment:
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:?EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST must name localstack:4566}
   api:
     environment:
       AWS_ENDPOINT_URL: http://localstack:4566

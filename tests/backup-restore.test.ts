@@ -155,118 +155,111 @@ describe("restore schema gate", () => {
   });
 });
 
-describe("the restore's git host", () => {
-  const files = async (restoreGitea: string) => {
+describe("a new backup's manifest", () => {
+  const manifest = async () => {
     const result = await bash(
-      `source "${lib}"; docker() { printf '%s\\n' "$*"; }; compose_restore fixture config`,
+      `source "${lib}"
+       docker() { return 0; }
+       PROJECT=fixture PG_VERSION=16 HEAD_TAG=fixture PG_DB=sessions PG_USER=postgres
+       BUCKET=claude-sessions ENDPOINT= OBJECT_COUNT=0 APPLIED_JSON='[]'
+       IMAGES_JSON="$(manifest_images fixture)"
+       backup_manifest`,
       repoRoot,
-      { RESTORE_GITEA: restoreGitea },
     );
-    return result.stdout;
+    expect(result.exitCode).toBe(0);
+    return JSON.parse(result.stdout) as Record<string, unknown>;
   };
 
-  test("is a Gitea for a backup that holds Gitea data", async () => {
-    expect(await files("1")).toContain("/infra/compose.gitea.yml -f ");
-  });
-
-  test("stays the local fake-git for a backup without", async () => {
-    expect(await files("0")).not.toContain("compose.gitea.yml");
-  });
-
-  test.each([
-    [{ version: "Gitea version 1.22", dir: "gitea" }, 0],
-    [null, 1],
-  ])("reads manifest gitea %j as exit %d", async (gitea, exitCode) => {
-    const dir = await mkdtemp(join(tmpdir(), "backup-restore-gitea-"));
-    try {
-      const manifest = join(dir, "manifest.json");
-      await writeFile(manifest, JSON.stringify({ gitea }));
-      const result = await bash(
-        `source "${lib}"; manifest_has_gitea "${manifest}"`,
-        repoRoot,
-      );
-      expect(result.exitCode).toBe(exitCode);
-    } finally {
-      await rm(dir, { force: true, recursive: true });
-    }
+  test("names no git host, its repositories or its image", async () => {
+    const written = await manifest();
+    expect(Object.keys(written).sort()).toEqual([
+      "created_at",
+      "db",
+      "images",
+      "objects",
+      "schema",
+      "source",
+      "version",
+    ]);
+    expect(Object.keys(written.images as object).sort()).toEqual([
+      "api",
+      "egress-proxy",
+      "localstack",
+      "postgres",
+      "scheduler",
+      "worker",
+    ]);
   });
 });
 
-describe("restored gitea address check", () => {
-  const appIni = (server: string) =>
-    [
-      "APP_NAME = Gitea",
-      "",
-      "[server]",
-      server,
-      "HTTP_PORT = 3000",
-      "SSH_LISTEN_PORT = 22",
-      "",
-      "[security]",
-      "INSTALL_LOCK = true",
-      "",
-    ].join("\n");
-
-  const addressIs = async (ini: string) => {
-    const dir = await mkdtemp(join(tmpdir(), "backup-restore-ini-"));
+describe("restore.sh on an older manifest v1", () => {
+  const restoreManifest = async (
+    fields: Record<string, unknown>,
+    run: (result: Awaited<ReturnType<typeof bash>>) => void,
+  ) => {
+    const dir = await mkdtemp(join(tmpdir(), "backup-restore-gitea-"));
+    const bin = await mkdtemp(join(tmpdir(), "backup-restore-bin-"));
     try {
-      await writeFile(join(dir, "app.ini"), ini);
-      return await bash(
-        `source "${lib}"; gitea_address_is 25434 25435 < "${join(dir, "app.ini")}"`,
-        repoRoot,
+      await writeFile(
+        join(dir, "manifest.json"),
+        JSON.stringify({
+          version: 1,
+          schema: {
+            head_tag: "fixture",
+            applied: await checkoutMigrations(),
+          },
+          objects: { bucket: "claude-sessions", count: 0 },
+          source: { project: "fixture", checkout_commit: "abc1234" },
+          ...fields,
+        }),
+      );
+      await bash(`source "${lib}"; write_checksums "${dir}"`, repoRoot);
+      // An empty docker: no project exists, so --check-only runs to its end.
+      await writeFile(join(bin, "docker"), "#!/bin/sh\nexit 0\n", {
+        mode: 0o755,
+      });
+      run(
+        await bash(
+          `PATH="${bin}:$PATH" scripts/restore.sh "${dir}" --into backup-restore-test --check-only`,
+          repoRoot,
+        ),
       );
     } finally {
       await rm(dir, { force: true, recursive: true });
+      await rm(bin, { force: true, recursive: true });
     }
   };
 
-  test("accepts the restore address as environment-to-ini writes it", async () => {
-    const result = await addressIs(
-      appIni(
-        [
-          "DOMAIN = 127.0.0.1",
-          "SSH_DOMAIN = 127.0.0.1",
-          "ROOT_URL = http://127.0.0.1:25434/",
-          "SSH_PORT = 25435",
-        ].join("\n"),
-      ),
+  test("refuses one with Gitea data, naming the checkout that restores it", async () => {
+    await restoreManifest(
+      {
+        gitea: { version: "Gitea version 1.22", dir: "gitea" },
+        repos: { bundled: [], empty: [], dir: "repos" },
+      },
+      (result) => {
+        expect(result.stderr).toContain("this backup holds Gitea data");
+        expect(result.stderr).toContain("commit abc1234");
+        expect(result.stderr).not.toContain("checks passed");
+        expect(result.exitCode).toBe(3);
+      },
     );
-    expect(result.exitCode).toBe(0);
-  });
+  }, 30_000);
 
-  test("refuses the source's address left in place", async () => {
-    const result = await addressIs(
-      appIni(
-        [
-          "DOMAIN = example.test",
-          "SSH_DOMAIN = example.test",
-          "ROOT_URL = http://example.test:3001/",
-          "SSH_PORT = 2222",
-        ].join("\n"),
-      ),
-    );
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain(
-      "does not say ROOT_URL=http://127.0.0.1:25434/",
-    );
-  });
-
-  test("does not take the right values from another section or a comment", async () => {
-    const result = await addressIs(
-      [
-        "[server]",
-        "; ROOT_URL = http://127.0.0.1:25434/",
-        "DOMAIN = 127.0.0.1",
-        "SSH_DOMAIN = 127.0.0.1",
-        "SSH_PORT = 25435",
-        "[server.extra]",
-        "ROOT_URL = http://127.0.0.1:25434/",
-        "",
-      ].join("\n"),
-    );
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("does not say ROOT_URL=");
-  });
+  test.each([
+    ["`gitea: null`", { gitea: null, repos: { bundled: [], empty: [] } }],
+    ["no `gitea` at all", {}],
+  ])(
+    "takes one with %s",
+    async (_name, fields) => {
+      await restoreManifest(fields, (result) => {
+        expect(result.stderr).not.toContain("Gitea");
+        expect(result.stderr).toContain("backup matches checkout head");
+        expect(result.stderr).toContain("checks passed");
+        expect(result.exitCode).toBe(0);
+      });
+    },
+    30_000,
+  );
 });
 
 describe("restore.sh preflight", () => {
@@ -595,8 +588,6 @@ describe("backup.sh writers", () => {
         "for last; do :; done",
         'case "$*" in',
         '  *" ps -q --status running "*) case " $FAKE_RUNNING " in *" $last "*) echo "cid-$last" ;; esac ;;',
-        '  *" ps -aq gitea") echo cid-gitea ;;',
-        '  "inspect -f {{range .Mounts}}"*) printf "%s\\n" "$FAKE_GITEA_VOLUME" ;;',
         '  "volume inspect "*) [ -n "$FAKE_LEFT_VOLUME" ] ;;',
         '  "ps -q -a --filter label=com.docker.compose.project=fixture --filter label=com.docker.compose.service=scheduler")',
         '    [ -z "$FAKE_INSTALLATION" ] || echo cid-scheduler ;;',
@@ -624,8 +615,7 @@ describe("backup.sh writers", () => {
       `PATH="${join(dir, "bin")}:$PATH" scripts/backup.sh --project fixture --out "${out}" ${args.join(" ")}`,
       repoRoot,
       {
-        FAKE_RUNNING: "postgres localstack gitea",
-        FAKE_GITEA_VOLUME: "fixture_gitea-data",
+        FAKE_RUNNING: "postgres localstack",
         ...env,
       },
     );
@@ -640,7 +630,7 @@ describe("backup.sh writers", () => {
 
   test("refuses while the api runs, before writing anything", async () => {
     const result = await backup({
-      FAKE_RUNNING: "postgres localstack gitea api scheduler",
+      FAKE_RUNNING: "postgres localstack api scheduler",
     });
     expect(result.stderr).toContain(
       "writers are running: api scheduler; stop them first",
@@ -649,37 +639,25 @@ describe("backup.sh writers", () => {
     expect(await written()).toEqual([]);
   }, 30_000);
 
-  test("a stopped Gitea stops the backup: its data would be missing", async () => {
-    const result = await backup({ FAKE_RUNNING: "postgres localstack" });
-    expect(result.stderr).toContain(
-      "service 'gitea' of project 'fixture' is not running",
-    );
-    expect(result.exitCode).toBe(1);
-  }, 30_000);
-
-  test("a git host with no volume at /data is not waited for", async () => {
-    const result = await backup({
-      FAKE_RUNNING: "postgres localstack api",
-      FAKE_GITEA_VOLUME: "",
-    });
+  test("does not wait for a git host", async () => {
+    const result = await backup({ FAKE_RUNNING: "postgres localstack api" });
     expect(result.stderr).toContain("writers are running: api");
     expect(result.stderr).not.toContain("gitea-data");
   }, 30_000);
 
-  test("names a Gitea volume nothing mounts any more, which it leaves out", async () => {
+  test("names a Gitea volume left from an older stack, which it leaves out", async () => {
     const result = await backup({
       FAKE_RUNNING: "postgres localstack api",
-      FAKE_GITEA_VOLUME: "",
       FAKE_LEFT_VOLUME: "1",
     });
     expect(result.stderr).toContain(
-      "volume fixture_gitea-data exists but no container mounts it",
+      "volume fixture_gitea-data is left out of this backup",
     );
   }, 30_000);
 
   test("refuses while the reconciler runs", async () => {
     const result = await backup({
-      FAKE_RUNNING: "postgres localstack gitea reconciler",
+      FAKE_RUNNING: "postgres localstack reconciler",
     });
     expect(result.stderr).toContain(
       "writers are running: reconciler; stop them first",
@@ -710,7 +688,7 @@ describe("backup.sh writers", () => {
 
   test("--allow-running-writers warns and goes on; the failed run is left as .failed, never as a backup", async () => {
     const result = await backup(
-      { FAKE_RUNNING: "postgres localstack gitea api" },
+      { FAKE_RUNNING: "postgres localstack api" },
       "--allow-running-writers",
     );
     expect(result.stderr).toContain("warning — writers are running: api");

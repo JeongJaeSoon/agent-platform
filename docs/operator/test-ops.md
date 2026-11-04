@@ -33,9 +33,9 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 ### LocalStack의 한계
 
-- **LocalStack은 S3를 메모리에만 둔다.** LocalStack 컨테이너나 Docker, 호스트가 재시작되면 checkpoint object가 모두 사라진다. DB와 Gitea는 volume에 있으므로 남는다.
+- **LocalStack은 S3를 메모리에만 둔다.** LocalStack 컨테이너나 Docker, 호스트가 재시작되면 checkpoint object가 모두 사라진다. DB는 volume에 있으므로 남는다.
 - 그러면 DB에는 미수거 checkpoint가 있는데 bucket에는 object version이 하나도 없는 상태가 된다. 이때 API가 기동을 거부한다(로그 `Checkpoint bucket claude-sessions holds no object version, …`). 로그의 `scripts/local.sh reset` 안내는 로컬 스택용이고, test-ops에서는 아래 "재시작"의 `reseed`나 `reset`으로 푼다.
-- 복구할 수 있는 것은 마지막 백업까지다. 백업 뒤에 생긴 checkpoint가 있으면 `reseed`가 거부하므로 `reset`밖에 없다. 초기화하면 세션·checkpoint·API key·Gitea 저장소가 모두 지워진다.
+- 복구할 수 있는 것은 마지막 백업까지다. 백업 뒤에 생긴 checkpoint가 있으면 `reseed`가 거부하므로 `reset`밖에 없다. 초기화하면 세션·checkpoint·API key가 모두 지워진다.
 - 그래서 **장기 보관이 필요한 세션을 두지 않는다.** 사용자에게도 언제든 초기화될 수 있는 환경이라고 알린다.
 
 ## 호스트 요구 사항
@@ -49,7 +49,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | 도구 | git, jq, curl, 그리고 checkout에서 `bun install --frozen-lockfile`을 마친 bun 1.3.14 | S3 검사와 백업은 호스트에서 checkout의 S3 어댑터로 한다 |
 | checkout | 배포할 release의 `source_commit`에 있고 로컬 변경이 없는 이 저장소 | `preflight`가 거부한다 |
 
-compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + `infra/compose.gitea.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
+compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
 
 ## AWS 준비(`s3`에서만)
 
@@ -134,8 +134,8 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
 | `ANTHROPIC_API_KEY` | 운영자 공유 provider key. API에만 간다(아래 "provider key") |
 | `PLATFORM_CATALOG_DIR` | 카탈로그 디렉터리. 기본 예시는 `/etc/agent-platform/catalog`. checkout 안이면 거부한다 |
-| `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443`. `s3`: `api.anthropic.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
-| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `gitea:3000,localstack:4566`. `localstack:4566`이 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: `gitea:3000`. 어느 쪽이든 다른 로컬 전용 서비스(`fake-messages`, `secrets`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
+| `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `gitea`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
 | `EXECUTION_WORKSPACE_QUOTA` | `on`. 다른 값이면 거부한다 |
 
 `s3`에서만 다음을 더 채운다. `localstack`에서는 비워 둔다. API는 LocalStack의 `claude-sessions` bucket에 LocalStack용 고정 key로 붙고, `S3_BUCKET`을 다른 값으로 두면 `preflight`가 거부한다.
@@ -199,10 +199,12 @@ profiles:
 # repositories.yaml
 repositories:
   sample-app:
-    url: http://gitea:3000/agent/sample-app.git
+    url: https://github.com/<owner>/<repo>.git
     branch: main
     profiles: [claude-coding]
 ```
+
+test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 위 예시는 공개 저장소이고, 비공개 저장소의 인증은 [api-server.md](api-server.md)를 따른다.
 
 카탈로그 revision은 디렉터리 안 모든 파일의 경로와 sha256을 묶은 값이다. release manifest에 적을 값은 다음으로 구한다.
 
@@ -264,23 +266,6 @@ scripts/test-ops.sh deploy release.json      # LocalStack
 
 그다음 `up -d --wait`로 api·scheduler·reconciler와 그 의존 서비스를 띄우고 healthcheck를 기다린다. scheduler의 첫 pass가 network isolation과 workspace quota probe를 돈다. 실패하면 scheduler·api 로그 끝부분을 출력하고 멈춘다.
 
-Gitea에는 계정도 저장소도 없다. 관리 계정은 컨테이너 안 CLI로 만든다. 출력의 `generated random password is '…'`가 그 계정의 비밀번호다.
-
-```bash
-docker exec -u git agent-platform-test-ops-gitea-1 gitea admin user create \
-  --username agent --email agent@agent-platform.invalid --random-password --admin
-```
-
-저장소는 CLI로 만들 수 없으므로 웹 UI(3001, 아래 "접근")나 API로 만든다. 위 카탈로그 예시는 저장소 credential을 적지 않으므로 저장소를 public으로 만든다. API로 만들 때는 위 비밀번호를 `read -rs`로 받아 쓴다.
-
-```bash
-read -rs GITEA_AGENT_PW
-curl -fsS --user "agent:$GITEA_AGENT_PW" -H 'Content-Type: application/json' \
-  -d '{"name":"sample-app","auto_init":true,"default_branch":"main","private":false}' \
-  http://127.0.0.1:3001/api/v1/user/repos
-unset GITEA_AGENT_PW
-```
-
 ### 첫 owner
 
 웹 콘솔은 API와 같은 주소(3000)에서 열린다. 아래 "접근"의 터널을 연 뒤 `http://localhost:3000/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`, owner의 email·이름·비밀번호, workspace 이름·slug를 넣으면 첫 owner와 workspace가 생기고, 그 계정으로 `/login`에 로그인한다. 토큰은 env 파일을 연 편집기에서 복사해 붙이고 터미널에 출력하지 않는다. env 파일에 넣지 않았다면 `docker logs agent-platform-test-ops-api-1 2>&1 | grep '^BOOTSTRAP_TOKEN='`의 값을 쓴다(그 경우 로그 열람 권한을 운영자로 제한한다).
@@ -289,10 +274,10 @@ bootstrap은 live owner가 없을 때 한 번만 통과한다. 같은 토큰을 
 
 ## 접근
 
-API(3000)와 Gitea 웹(3001)은 호스트 loopback에만 열려 있다. 사용자는 SSH 터널로 들어온다.
+API(3000)는 호스트 loopback에만 열려 있다. 사용자는 SSH 터널로 들어온다.
 
 ```bash
-ssh -N -L 3000:127.0.0.1:3000 -L 3001:127.0.0.1:3001 <user>@<test-ops-host>
+ssh -N -L 3000:127.0.0.1:3000 <user>@<test-ops-host>
 curl -fsS http://127.0.0.1:3000/readyz
 ```
 
@@ -349,6 +334,16 @@ scripts/test-ops.sh upgrade release-new.json
 
 되돌리기는 이전 manifest로 `upgrade`하는 것이다. worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다. 업그레이드 전에는 백업을 한 번 찍는다.
 
+### 내장 Gitea를 쓰던 설치
+
+내장 Gitea를 뺀 release로 올리기 전에 다음을 한다. `upgrade`는 Gitea를 대신 지우지도 옮기지도 않는다.
+
+1. 남길 저장소를 GitHub로 옮기고, 카탈로그의 저장소 URL을 바꾼다. 카탈로그의 URL이 세션에 기록된 URL과 달라지면 그 세션은 `CATALOG_MISMATCH`로 새 입력을 받지 못한다.
+2. env 파일의 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에서 `gitea:3000`을 뺀다. 남아 있으면 preflight가 거부한다.
+3. 이전 release의 checkout에서 마지막 백업을 뜬다. 새 release의 백업에는 Gitea가 들어가지 않고, Gitea가 든 백업은 새 release에서 복원되지 않는다([backup-restore.md](backup-restore.md#내장-gitea를-쓰던-때의-백업)).
+4. `upgrade`한다. 서비스 정의가 사라져도 기존 컨테이너는 그대로 돌고 3001을 계속 연다. 확인한 뒤 `docker rm -f <project>-gitea-1`로 내린다.
+5. `<project>_gitea-data` volume은 자동으로 지워지지 않는다. `reset`도 지우지 않는다. 저장소를 다 옮겼다고 확인한 뒤에 운영자가 `docker volume rm`으로 지운다. 이 volume이 남아 있으면 `deploy`가 같은 project를 거부한다.
+
 ## 백업
 
 ```bash
@@ -356,10 +351,10 @@ scripts/test-ops.sh backup
 ```
 
 1. 신규 접수를 멈춘다: api, scheduler, reconciler를 멈추고, scheduler가 띄운 worker 컨테이너(`agent-platform.installation=<id>` label)도 멈춘다. 진행 중이던 턴은 끊기고, 다시 열린 뒤 reconciler가 lease 만료로 회수한다.
-2. `scripts/backup.sh`로 DB·checkpoint object·Gitea를 `$TEST_OPS_STATE_DIR/backups/backup-<시각>`에 묶는다. object는 `localstack`이면 설치의 LocalStack에서(`--object-store localstack`), `s3`면 API의 자격 증명으로 bucket에서(`--object-store env`) 읽는다. backup.sh가 writer가 남았는지 스스로 다시 보고, 남았으면 거부한다. 실패한 백업은 `.failed`로 남고 성공본 이름을 얻지 못한다.
+2. `scripts/backup.sh`로 DB·checkpoint object를 `$TEST_OPS_STATE_DIR/backups/backup-<시각>`에 묶는다. object는 `localstack`이면 설치의 LocalStack에서(`--object-store localstack`), `s3`면 API의 자격 증명으로 bucket에서(`--object-store env`) 읽는다. backup.sh가 writer가 남았는지 스스로 다시 보고, 남았으면 거부한다. 실패한 백업은 `.failed`로 남고 성공본 이름을 얻지 못한다.
 3. 성공하든 실패하든 멈춘 서비스를 그대로(재생성 없이) 다시 연다. 다시 열지 못하면 백업이 성공했어도 명령은 실패로 끝난다. `status`로 확인하고 원인을 고친 뒤, `current.json`의 사본으로 `upgrade`를 부르면 같은 release로 다시 뜬다. `--stop`을 붙이면 다시 열지 않는다(아래 "재시작").
 
-주기: 매일 한 번, 사용이 적은 시간에. 그리고 업그레이드 직전. `localstack`에서는 백업이 재시작 뒤 되살릴 수 있는 유일한 사본이므로 주기를 지킨다. 백업 디렉터리에는 Gitea 설정의 비밀과 DB 전체가 들어 있다. `0700`으로 두고, 호스트 밖 보관소에 암호화해 복사한다. checkpoint GC는 백업과 겹치면 안 된다. 백업 중에는 API가 멈춰 있으므로 GC를 부를 수 없다.
+주기: 매일 한 번, 사용이 적은 시간에. 그리고 업그레이드 직전. `localstack`에서는 백업이 재시작 뒤 되살릴 수 있는 유일한 사본이므로 주기를 지킨다. 백업 디렉터리에는 DB 전체가 들어 있다. `0700`으로 두고, 호스트 밖 보관소에 암호화해 복사한다. checkpoint GC는 백업과 겹치면 안 된다. 백업 중에는 API가 멈춰 있으므로 GC를 부를 수 없다.
 
 ## 재시작
 
@@ -393,7 +388,7 @@ scripts/test-ops.sh reset --yes
 scripts/test-ops.sh deploy /var/lib/agent-platform/test-ops/reset-<시각>.json
 ```
 
-`reset`은 이 설치의 컨테이너와 volume(DB, Gitea, LocalStack), scheduler가 만든 worker 컨테이너·네트워크·workspace volume을 모두 지운다. 배포했던 manifest는 `reset-<시각>.json`으로 남긴다. API key도 DB와 함께 지워지므로 다시 발급하고, Gitea 관리 계정과 저장소도 다시 만든다. 저장소를 바꾸려면 두 번째 줄에서 `TEST_OPS_OBJECT_STORE`를 준다.
+`reset`은 이 설치의 컨테이너와 volume(DB, LocalStack), scheduler가 만든 worker 컨테이너·네트워크·workspace volume을 모두 지운다. 배포했던 manifest는 `reset-<시각>.json`으로 남긴다. API key도 DB와 함께 지워지므로 다시 발급한다. 저장소를 바꾸려면 두 번째 줄에서 `TEST_OPS_OBJECT_STORE`를 준다.
 
 ### `s3`
 
@@ -419,7 +414,7 @@ aws s3api put-bucket-encryption --bucket "$drill" --server-side-encryption-confi
 scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<시각> --bucket "$drill"
 ```
 
-`restore-drill`은 `<project>-drill-<시각>-<무작위>` project에 postgres·LocalStack·Gitea를 25432–25435 포트(`--port-base`로 바꾼다. `s3`에서는 LocalStack 없이)로 띄워 복원하고, `scripts/verify-restore.sh`로 모든 checkpoint pointer를 version 단위로 대조한다. 출력은 `restore-drills/<project>.log`에 남고, 판정(passed/FAILED)은 `history.log`에 한 줄 남는다. 끝나면 훈련 project를 지운다. 들여다보려면 `--keep`을 붙인다. migrate는 배포한 control-host 이미지로 돈다.
+`restore-drill`은 `<project>-drill-<시각>-<무작위>` project에 postgres·LocalStack을 25432·25433 포트(`--port-base`로 바꾼다. `s3`에서는 LocalStack 없이)로 띄워 복원하고, `scripts/verify-restore.sh`로 모든 checkpoint pointer를 version 단위로 대조한다. 출력은 `restore-drills/<project>.log`에 남고, 판정(passed/FAILED)은 `history.log`에 한 줄 남는다. 끝나면 훈련 project를 지운다. 들여다보려면 `--keep`을 붙인다. migrate는 배포한 control-host 이미지로 돈다.
 
 주기: 한 달에 한 번, 그리고 업그레이드 뒤 첫 백업마다. `s3`에서 훈련 bucket의 object에는 legal hold가 걸려 있다. bucket을 지우려면 version마다 hold를 풀고(`aws s3api put-object-legal-hold --legal-hold Status=OFF --version-id …`) version을 지운 뒤 bucket을 지운다.
 

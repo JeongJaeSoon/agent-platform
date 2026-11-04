@@ -44,7 +44,6 @@ docker compose \
   --env-file /etc/agent-platform/datadog.env \
   -f infra/compose.core.yml \
   -f infra/compose.test-ops.yml \
-  -f infra/compose.gitea.yml \
   -f infra/compose.test-ops.s3.yml \
   -f infra/compose.datadog.yml \
   --profile apps up -d

@@ -11,7 +11,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/infra/compose.yml"
 RESTORE_OVERRIDE="${REPO_ROOT}/infra/compose.restore.yml"
-GITEA_OVERLAY="${REPO_ROOT}/infra/compose.gitea.yml"
 MIGRATIONS_DIR="${REPO_ROOT}/packages/db/migrations"
 BACKUP_MANIFEST_VERSION=1
 
@@ -55,20 +54,64 @@ compose() {
 }
 
 # Same, with the restore override layered on. Port and network variables come
-# from the caller's environment (restore.sh exports them). RESTORE_GITEA=1:
-# the backup holds Gitea data, so the git host is a Gitea, not the local one.
+# from the caller's environment (restore.sh exports them).
 compose_restore() {
   local project="$1"
   shift
-  local files=(-f "$COMPOSE_FILE")
-  [ "${RESTORE_GITEA:-0}" != 1 ] || files+=(-f "$GITEA_OVERLAY")
-  docker compose -p "$project" "${files[@]}" -f "$RESTORE_OVERRIDE" "$@"
+  docker compose -p "$project" -f "$COMPOSE_FILE" -f "$RESTORE_OVERRIDE" "$@"
 }
 
-# True when the backup carries Gitea data; a backup of a local fake-git says
-# `gitea: null`.
-manifest_has_gitea() {
-  [ "$(jq -r '.gitea != null' "$1")" = true ]
+# The image each service ran, as manifest JSON. api/worker/scheduler are
+# not_built until the installation runs them. Restore does not need them;
+# tests/e2e/restore-resume.sh compares the worker's here with the image of the
+# worker that produced the checkpoint.
+manifest_images() {
+  local project="$1" images='{}' service cid image image_id digests entry
+  for service in postgres localstack egress-proxy api worker scheduler; do
+    cid="$(compose "$project" ps -aq "$service" 2>/dev/null | head -n1 || true)"
+    if [ -n "$cid" ]; then
+      image="$(docker inspect -f '{{.Config.Image}}' "$cid")"
+      image_id="$(docker inspect -f '{{.Image}}' "$cid")"
+      digests="$(docker image inspect -f '{{join .RepoDigests ","}}' "$image_id" 2>/dev/null || true)"
+      entry="$(jq -n --arg image "$image" --arg id "$image_id" --arg digests "$digests" \
+        '{status: "present", image: $image, id: $id, repo_digests: ($digests | split(",") | map(select(. != "")))}')"
+    else
+      # Left explicit rather than omitted: a later image build must not be
+      # written back here as if it had produced this backup.
+      entry='{"status": "not_built", "image": null, "id": null, "repo_digests": []}'
+    fi
+    images="$(printf '%s' "$images" | jq --arg s "$service" --argjson e "$entry" '. + {($s): $e}')"
+  done
+  printf '%s' "$images"
+}
+
+# manifest.json from backup.sh's variables, on stdout.
+backup_manifest() {
+  jq -n \
+    --argjson version "$BACKUP_MANIFEST_VERSION" \
+    --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg source_project "$PROJECT" \
+    --arg source_commit "$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    --argjson source_dirty "$([ -z "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ] && echo false || echo true)" \
+    --arg pg_version "$PG_VERSION" \
+    --arg head_tag "$HEAD_TAG" \
+    --argjson applied "$APPLIED_JSON" \
+    --arg pg_db "$PG_DB" \
+    --arg pg_user "$PG_USER" \
+    --arg store "$OBJECT_STORE" \
+    --arg bucket "$BUCKET" \
+    --arg endpoint "$ENDPOINT" \
+    --argjson object_count "$OBJECT_COUNT" \
+    --argjson images "$IMAGES_JSON" \
+    '{
+      version: $version,
+      created_at: $created_at,
+      source: { project: $source_project, checkout_commit: $source_commit, checkout_dirty: $source_dirty },
+      schema: { head_tag: $head_tag, applied: $applied },
+      db: { name: $pg_db, user: $pg_user, file: "db.sql", server: $pg_version },
+      objects: { store: $store, bucket: $bucket, endpoint: $endpoint, count: $object_count, dir: "objects" },
+      images: $images
+    }'
 }
 
 # The value of one environment variable inside a running service container,
@@ -237,6 +280,19 @@ schema_check() {
   return "$EXIT_SCHEMA_MISMATCH"
 }
 
+# A backup taken from a Gitea (manifest `gitea` not null) holds repositories
+# this checkout has nowhere to put. The commit it names is a candidate, not a
+# promise: it can be `unknown`, and a dirty checkout's changes were not kept.
+no_gitea_data() {
+  local manifest="$1" commit
+  [ "$(jq -r '.gitea != null' "$manifest")" = true ] || return 0
+  commit="$(jq -r '.source.checkout_commit // "unknown"' "$manifest")"
+  [ "$(jq -r '.source.checkout_dirty // false' "$manifest")" != true ] || commit="$commit (with local changes)"
+  log "restore: this backup holds Gitea data (repos/ and gitea/), which this checkout cannot restore"
+  log "restore: use a checkout from before Gitea's removal at schema head $(jq -r '.schema.head_tag // "?"' "$manifest"); the backup was taken at commit $commit"
+  return "$EXIT_SCHEMA_MISMATCH"
+}
+
 # `unbundle_chain <bare-repository> <commit> <bundle>...`: a checkpoint's
 # bundles, oldest first, fetched into one empty repository the way a restore
 # stacks them. An incremental bundle needs commits only an earlier
@@ -280,33 +336,6 @@ unbundle_chain() {
     echo "the last bundle's refs/checkpoint/worktree is $worktree, not $commit"
     return 1
   fi
-}
-
-# One section of an ini file on stdin as `key=value` lines, trimmed of the
-# spaces Gitea's writer puts around `=`. A key of the same name in another
-# section is not printed.
-ini_section() {
-  awk -v want="[$1]" '
-    /^[[:space:]]*\[/ { line = $0; gsub(/[[:space:]]/, "", line); in_section = (line == want); next }
-    /^[[:space:]]*[;#]/ { next }
-    in_section && /=/ {
-      key = $0; sub(/[[:space:]]*=.*/, "", key); sub(/^[[:space:]]*/, "", key)
-      value = $0; sub(/^[^=]*=[[:space:]]*/, "", value); sub(/[[:space:]]*$/, "", value)
-      print key "=" value
-    }'
-}
-
-# True when the Gitea app.ini on stdin gives the restored installation's own
-# address (loopback, the given published ports) as its external one.
-gitea_address_is() {
-  local http_port="$1" ssh_port="$2" server want
-  server="$(ini_section server)"
-  for want in "ROOT_URL=http://127.0.0.1:${http_port}/" DOMAIN=127.0.0.1 SSH_DOMAIN=127.0.0.1 "SSH_PORT=${ssh_port}"; do
-    if ! printf '%s\n' "$server" | grep -qxF "$want"; then
-      log "gitea: app.ini [server] does not say $want"
-      return 1
-    fi
-  done
 }
 
 # True when the compose project already owns any container, volume or network.

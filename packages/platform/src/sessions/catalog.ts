@@ -252,8 +252,8 @@ export const catalogProfileConfigSchema = z
   );
 
 // How the egress proxy logs in to the repository host for this
-// repository's read-only route. `basic` carries a login (Gitea and
-// GitHub take a token as the password; a GitHub PAT goes under the username
+// repository's read-only route. `basic` carries a login (git hosts take a
+// token as the password; a GitHub PAT goes under the username
 // `x-access-token`); `bearer` carries none. The value is
 // never handed to a worker: what a worker holds is an attempt-scoped token
 // for the proxy's route. Give it a read-only, non-admin account.

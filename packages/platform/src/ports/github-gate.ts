@@ -188,8 +188,9 @@ export class GitHubUnavailableError extends Error {
 
 export interface GitHubGate {
   /**
-   * Null when the session's repository is not on GitHub (Gitea, a bearer
-   * token, a public repository): the caller keeps the catalog's credential.
+   * Null when the session's repository is not on GitHub (another host, a
+   * bearer token, a public repository): the caller keeps the catalog's
+   * credential.
    * Refuses with GitHubGateError before any GitHub call.
    */
   grant(work: GitHubWork): Promise<GitHubGrant | null>;

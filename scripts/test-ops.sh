@@ -253,7 +253,7 @@ ops_compose() {
     WORKER_IMAGE_PREVIOUS_RUNTIME="$WORKER_IMAGE_PREVIOUS_RUNTIME" \
     docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" --profile apps \
     -f "${REPO_ROOT}/infra/compose.core.yml" -f "${REPO_ROOT}/infra/compose.test-ops.yml" \
-    -f "${REPO_ROOT}/infra/compose.gitea.yml" -f "${REPO_ROOT}/infra/compose.test-ops.${STORE}.yml" "$@"
+    -f "${REPO_ROOT}/infra/compose.test-ops.${STORE}.yml" "$@"
 }
 
 # The installation as its containers get it. Held in memory only: it
@@ -654,9 +654,11 @@ reseed() {
   log "reseed: $restored objects back in $bucket; the installation is up"
 }
 
-# Everything of this installation goes: containers, volumes (database, Gitea,
-# and in LocalStack whatever is left), the workers and workspace volumes the
-# scheduler made, and the recorded release. Keys are gone with the database.
+# Everything of this installation goes: containers, volumes (database, and in
+# LocalStack whatever is left), the workers and workspace volumes the scheduler
+# made, and the recorded release. Keys are gone with the database. A Gitea
+# volume from an older release is not deleted: no backup of this checkout holds
+# it, so it may be the last copy.
 reset() {
   local installation old
   take_lock
@@ -674,6 +676,8 @@ reset() {
   rm -f "$IDENTITY" "$PENDING"
   printf '%s reset by %s: project %s, release %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$PROJECT" "$old" \
     >> "${STATE_DIR}/history.log"
+  ! docker volume inspect "${PROJECT}_gitea-data" >/dev/null 2>&1 \
+    || log "reset: warning — volume ${PROJECT}_gitea-data stays: no backup holds it. Copy what matters, then remove it, or deploy refuses this project"
   log "reset: done; deploy again with scripts/test-ops.sh deploy $old, then issue keys again"
 }
 
@@ -701,7 +705,7 @@ restore_drill() {
   # With --keep the drill's containers still use it; the tag then stays.
   CLEANUPS+=('docker rmi "$MIGRATE_IMAGE" >/dev/null 2>&1 || true')
   [ "$KEEP" = 1 ] \
-    || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/compose.yml" -f "${REPO_ROOT}/infra/compose.gitea.yml" down -v >/dev/null 2>&1')
+    || CLEANUPS+=('docker compose -p "$DRILL" -f "${REPO_ROOT}/infra/compose.yml" down -v >/dev/null 2>&1')
   if [ "$STORE" = s3 ]; then
     log "restore-drill: $BACKUP_DIR into project $DRILL and bucket $DRILL_BUCKET; log $log_file"
     {
@@ -727,7 +731,7 @@ restore_drill() {
   printf '%s restore-drill by %s: %s from %s into %s: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" \
     "$([ "$status" = 0 ] && echo passed || echo FAILED)" "$BACKUP_DIR" "$DRILL_BUCKET" "$log_file" \
     >> "${STATE_DIR}/history.log"
-  [ "$KEEP" = 0 ] || log "restore-drill: kept project $DRILL; tear it down with docker compose -p $DRILL -f infra/compose.yml -f infra/compose.gitea.yml down -v"
+  [ "$KEEP" = 0 ] || log "restore-drill: kept project $DRILL; tear it down with docker compose -p $DRILL -f infra/compose.yml down -v"
   return "$status"
 }
 
