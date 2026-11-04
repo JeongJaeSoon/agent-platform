@@ -8,9 +8,14 @@ import {
 } from "@werft-ai/contracts";
 import type {
   NeutralizeEvent,
+  SlackCardClaim,
+  SlackCardFence,
+  SlackCardRendered,
+  SlackCardSettleStore,
   SlackOutboxFence,
   SlackOutboxStore,
   SlackPendingPrompt,
+  SlackPromptCard,
   SlackUnansweredTurn,
   SlackUnpostedInstruction,
 } from "@werft-ai/platform";
@@ -121,19 +126,7 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
 // turn's notice from before the cards, any of its turn's. Checked again at
 // claim, since a row can wait out a backoff after any of it changed.
 const addressed = (db: Database, row: SQL) => sql`(
-  CASE WHEN ${row}.kind = 'input_notice' AND ${row}.dedupe_key LIKE 'prompt:%' THEN EXISTS (
-    ${actionableRequest(db, promptRequestId(row, "prompt:"), sql`${row}.session_id`)}
-  ) WHEN ${row}.kind = 'input_notice' AND ${row}.dedupe_key LIKE 'push:%' THEN EXISTS (
-    SELECT 1 FROM push_requests p
-    WHERE p.id::text = ${promptRequestId(row, "push:")}
-      AND p.session_id = ${row}.session_id
-      AND p.state = 'requested'
-  ) WHEN ${row}.kind = 'input_notice' THEN EXISTS (
-    SELECT 1 FROM ${turns}
-    WHERE ${turns.sessionId} = ${row}.session_id
-      AND ${turns.sequence} = split_part(${row}.dedupe_key, ':', 3)::int
-      AND EXISTS (${actionableOfTurn(db)})
-  ) ELSE true END
+  ${requestWaits(db, row)}
   AND EXISTS (
     SELECT 1 FROM slack_installations i
     WHERE i.id = ${row}.installation_id AND i.status <> 'revoked'
@@ -148,6 +141,25 @@ const addressed = (db: Database, row: SQL) => sql`(
       AND NOT l.muted
       AND l.visibility = 'full'
   ))
+)`;
+
+// An input notice's request still waits on a person: a card's own request,
+// or, for a turn's notice from before the cards, any of its turn's. The
+// same rule the card's buttons stay up under (design slack-approval-ui §4).
+const requestWaits = (db: Database, row: SQL) => sql`(
+  CASE WHEN ${row}.kind = 'input_notice' AND ${row}.dedupe_key LIKE 'prompt:%' THEN EXISTS (
+    ${actionableRequest(db, promptRequestId(row, "prompt:"), sql`${row}.session_id`)}
+  ) WHEN ${row}.kind = 'input_notice' AND ${row}.dedupe_key LIKE 'push:%' THEN EXISTS (
+    SELECT 1 FROM push_requests p
+    WHERE p.id::text = ${promptRequestId(row, "push:")}
+      AND p.session_id = ${row}.session_id
+      AND p.state = 'requested'
+  ) WHEN ${row}.kind = 'input_notice' THEN EXISTS (
+    SELECT 1 FROM ${turns}
+    WHERE ${turns.sessionId} = ${row}.session_id
+      AND ${turns.sequence} = split_part(${row}.dedupe_key, ':', 3)::int
+      AND EXISTS (${actionableOfTurn(db)})
+  ) ELSE true END
 )`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -180,6 +192,398 @@ function questionPrompt({
         },
       ]
     : [];
+}
+
+/**
+ * A posted card's request as stored, for its redraw: in the card's own
+ * language, with where and by whom it was decided. Null for a key that
+ * names no card, or a request outside the owner's sessions.
+ */
+async function promptCardOf(
+  db: Database,
+  row: {
+    ownerId: string;
+    workspaceId: string;
+    teamId: string;
+    dedupeKey: string;
+    body: unknown;
+    sessionId: string;
+  },
+): Promise<SlackPromptCard | null> {
+  const [prefix, , ...rest] = row.dedupeKey.split(":");
+  const requestId = rest.join(":");
+  let display: SlackPromptCard["display"] | null = null;
+  let decidedVia: SlackPromptCard["decidedVia"] = null;
+  let pushRevisions: SlackPromptCard["pushRevisions"];
+  if (prefix === "push") {
+    const push = await createPostgresPushRequests(db).displayOf(
+      row.ownerId,
+      row.sessionId,
+      requestId,
+    );
+    if (push === null) return null;
+    display = { kind: "push", ...push };
+    const [facts] = await db
+      .select({
+        principal: sql<
+          string | null
+        >`${pushRequests.decidedBy} -> 'principal' ->> 'kind'`,
+        request: pushRequests.checkpointRevision,
+        session: sessions.checkpointRevision,
+      })
+      .from(pushRequests)
+      .innerJoin(sessions, eq(sessions.id, pushRequests.sessionId))
+      .where(eq(pushRequests.id, requestId.toLowerCase()))
+      .limit(1);
+    if (facts !== undefined) {
+      // A Slack press decides as the installation; anyone else is the web's.
+      decidedVia =
+        facts.principal === null
+          ? null
+          : facts.principal === "installation"
+            ? "slack"
+            : "web";
+      pushRevisions = { session: facts.session, request: facts.request };
+    }
+  } else if (prefix === "prompt") {
+    display = await createPostgresPendingRequests(db).displayOf(
+      row.ownerId,
+      row.sessionId,
+      requestId,
+    );
+    if (display === null) return null;
+    const [facts] = await db
+      .select({ surface: pendingRequests.answerSurface })
+      .from(pendingRequests)
+      .where(
+        and(
+          eq(pendingRequests.requestId, requestId),
+          eq(pendingRequests.sessionId, row.sessionId),
+        ),
+      )
+      .limit(1);
+    const surface = facts?.surface ?? null;
+    decidedVia =
+      surface === null ? null : surface === "slack" ? "slack" : "web";
+  }
+  if (display === null) return null;
+  let deciderSlackUserId: string | null = null;
+  if (display.decidedByUserId !== null) {
+    const [linked] = await db
+      .select({ slackUserId: linkedAccounts.externalUserId })
+      .from(linkedAccounts)
+      .where(
+        and(
+          eq(linkedAccounts.workspaceId, row.workspaceId),
+          eq(linkedAccounts.userId, display.decidedByUserId),
+          eq(linkedAccounts.provider, "slack"),
+          eq(linkedAccounts.externalTenant, row.teamId),
+          eq(linkedAccounts.status, "active"),
+        ),
+      )
+      .limit(1);
+    deciderSlackUserId = linked?.slackUserId ?? null;
+  }
+  const body = row.body as { locale?: UserLocale; link_url?: string };
+  return {
+    locale: body.locale ?? DEFAULT_USER_LOCALE,
+    linkUrl: body.link_url ?? null,
+    decidedVia,
+    deciderSlackUserId,
+    display,
+    ...(pushRevisions === undefined ? {} : { pushRevisions }),
+  };
+}
+
+type Raw = Record<string, unknown>;
+
+const rowsOf = async (db: Database, query: SQL) =>
+  ((await db.execute(query)) as unknown as { rows: Raw[] }).rows;
+
+const ms = (value: number) => sql`make_interval(secs => ${value / 1000})`;
+
+// The sent cards a redraw may still be owed (slack_outbox_settle_idx).
+const SENT_CARD = sql`
+  o.kind = 'input_notice' AND o.status = 'sent' AND o.slack_ts IS NOT NULL
+  AND o.settle_state IS DISTINCT FROM 'abandoned'`;
+
+const SHOWS_CHOICE = sql`coalesce(o.settle_rendered, 'open') IN ('open', 'reject_only')`;
+
+const cardFenced = (fence: SlackCardFence) =>
+  sql`id = ${fence.id} AND settle_claim_token = ${fence.claimToken}`;
+
+const CARD_RELEASED = sql`
+  settle_claim_token = NULL, settle_lease_expires_at = NULL,
+  settle_inflight_at = NULL`;
+
+// What a drawn card leaves the row: open or reject-only waits for the next
+// change, an end state is final.
+const settledAs = (rendered: SQL) =>
+  sql`CASE WHEN coalesce(${rendered}, 'open') IN ('open', 'reject_only') THEN NULL ELSE 'settled' END`;
+
+/** The `slack` role's redraws of posted cards (design slack-approval-ui §4). */
+export function createPostgresSlackCardSettleStore(
+  db: Database,
+): SlackCardSettleStore {
+  // Design §4 rule 6, as the thread status writer has it.
+  const recordUncertain = (start: SQL, windowMs: number) => sql`
+    settle_uncertain_rev = settle_uncertain_rev + 1,
+    settle_uncertain_latest_at = greatest(settle_uncertain_latest_at, ${start}),
+    settle_next_at = greatest(settle_next_at, greatest(settle_uncertain_latest_at, ${start}) + ${ms(windowMs)})`;
+
+  const markDueWhere = async (where: SQL) =>
+    (
+      await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox o SET settle_state = 'due'
+          WHERE ${SENT_CARD} AND ${where}
+          RETURNING o.id`,
+      )
+    ).length;
+
+  return {
+    markDue() {
+      return markDueWhere(
+        sql`o.settle_state IS NULL AND ${SHOWS_CHOICE}
+          AND NOT ${requestWaits(db, sql.raw("o"))}`,
+      );
+    },
+
+    async markDueAt(card) {
+      return (
+        (await markDueWhere(
+          sql`o.channel_id = ${card.channelId} AND o.slack_ts = ${card.slackTs}`,
+        )) > 0
+      );
+    },
+
+    async markDueById(id) {
+      return (
+        (await markDueWhere(sql`o.id = ${id} AND o.settle_state IS NULL`)) > 0
+      );
+    },
+
+    async openPushCards({ limit, afterSeq }) {
+      const rows = await rowsOf(
+        db,
+        sql`
+          SELECT o.id, o.seq, o.session_id, coalesce(o.settle_rendered, 'open') AS rendered,
+            s.checkpoint_revision AS session_revision,
+            p.checkpoint_revision, p.git_commit
+          FROM slack_outbox o
+          JOIN push_requests p
+            ON p.id::text = ${promptRequestId(sql.raw("o"), "push:")}
+            AND p.session_id = o.session_id
+          JOIN sessions s ON s.id = o.session_id
+          WHERE ${SENT_CARD} AND o.settle_state IS NULL
+            AND o.dedupe_key LIKE 'push:%' AND p.state = 'requested'
+            AND ${SHOWS_CHOICE}
+            AND (s.checkpoint_revision IS DISTINCT FROM p.checkpoint_revision
+              OR o.settle_rendered = 'reject_only')
+            AND (${afterSeq}::bigint IS NULL OR o.seq > ${afterSeq}::bigint)
+          ORDER BY o.seq
+          LIMIT ${limit}`,
+      );
+      return rows.map((row) => ({
+        id: row.id as string,
+        seq: Number(row.seq),
+        sessionId: row.session_id as string,
+        rendered: row.rendered as "open" | "reject_only",
+        sessionCheckpointRevision:
+          row.session_revision === null ? null : Number(row.session_revision),
+        checkpointRevision: Number(row.checkpoint_revision),
+        gitCommit: row.git_commit as string,
+      }));
+    },
+
+    async expireInflight({ graceMs, windowMs }) {
+      const rows = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox SET
+            ${recordUncertain(sql`settle_inflight_at`, windowMs)},
+            ${CARD_RELEASED}
+          WHERE settle_inflight_at IS NOT NULL
+            AND settle_lease_expires_at + ${ms(graceMs)} <= now()
+          RETURNING id`,
+      );
+      return rows.length;
+    },
+
+    async claim({ limit, leaseMs, graceMs, only }) {
+      const rows = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox st SET
+            settle_claim_token = gen_random_uuid(),
+            settle_lease_expires_at = now() + ${ms(leaseMs)}
+          FROM (
+            SELECT o.id, o.settle_claim_token IS NOT NULL AS inherited
+            FROM slack_outbox o
+            WHERE ${SENT_CARD}
+              AND o.settle_inflight_at IS NULL
+              AND (o.settle_claim_token IS NULL
+                OR o.settle_lease_expires_at + ${ms(graceMs)} <= now())
+              AND (o.settle_next_at IS NULL OR o.settle_next_at <= now())
+              AND (o.settle_state = 'due' OR o.settle_uncertain_latest_at IS NOT NULL)
+              ${only === undefined ? sql`` : sql`AND o.channel_id = ${only.channelId} AND o.slack_ts = ${only.slackTs}`}
+            ORDER BY o.settle_next_at NULLS FIRST, o.seq
+            LIMIT ${limit}
+            FOR UPDATE OF o SKIP LOCKED
+          ) pick
+          WHERE st.id = pick.id
+          RETURNING st.id, st.settle_claim_token, st.workspace_id,
+            st.slack_app_id, st.session_id, st.channel_id, st.slack_ts,
+            st.dedupe_key, st.body, st.settle_rendered, st.settle_uncertain_rev,
+            st.settle_uncertain_latest_at IS NOT NULL AS uncertain,
+            pick.inherited, st.settle_attempts`,
+      );
+      return rows.map(
+        (row): SlackCardClaim => ({
+          id: row.id as string,
+          claimToken: row.settle_claim_token as string,
+          workspaceId: row.workspace_id as string,
+          slackAppId: row.slack_app_id as string,
+          sessionId: (row.session_id as string | null) ?? null,
+          channelId: row.channel_id as string,
+          slackTs: row.slack_ts as string,
+          dedupeKey: row.dedupe_key as string,
+          body: row.body as SlackCardClaim["body"],
+          rendered: (row.settle_rendered as SlackCardRendered | null) ?? null,
+          uncertainRev: Number(row.settle_uncertain_rev),
+          uncertain: Boolean(row.uncertain),
+          inherited: Boolean(row.inherited),
+          attempts: Number(row.settle_attempts),
+        }),
+      );
+    },
+
+    async card(claim) {
+      const [row] = await db
+        .select({
+          ownerId: sessions.ownerId,
+          workspaceId: slackOutbox.workspaceId,
+          teamId: slackInstallations.teamId,
+          dedupeKey: slackOutbox.dedupeKey,
+          body: slackOutbox.body,
+          sessionId: slackOutbox.sessionId,
+        })
+        .from(slackOutbox)
+        .innerJoin(sessions, eq(sessions.id, slackOutbox.sessionId))
+        .innerJoin(
+          slackInstallations,
+          eq(slackInstallations.id, slackOutbox.installationId),
+        )
+        .where(eq(slackOutbox.id, claim.id))
+        .limit(1);
+      if (!row || row.sessionId === null) return null;
+      return promptCardOf(db, { ...row, sessionId: row.sessionId });
+    },
+
+    async turnWaits(claim) {
+      const [row] = await rowsOf(
+        db,
+        sql`SELECT ${requestWaits(db, sql.raw("o"))} AS waits
+          FROM slack_outbox o WHERE o.id = ${claim.id}`,
+      );
+      return Boolean(row?.waits);
+    },
+
+    async beginSend(fence, minLeaseLeftMs) {
+      const [row] = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox SET settle_inflight_at = now()
+          WHERE ${cardFenced(fence)}
+            AND settle_lease_expires_at > now() + ${ms(minLeaseLeftMs)}
+          RETURNING settle_inflight_at`,
+      );
+      return row === undefined
+        ? null
+        : new Date(row.settle_inflight_at as string);
+    },
+
+    async finish(fence, sent) {
+      // settle_inflight_at is this edit's own start, to the microsecond.
+      const clears = sql`settle_uncertain_rev = ${sent.uncertainRev}
+        AND settle_inflight_at >= settle_uncertain_latest_at + ${ms(sent.windowMs)}`;
+      const rows = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox SET
+            settle_rendered = ${sent.rendered},
+            settle_state = ${settledAs(sql`${sent.rendered}::text`)},
+            settle_error = NULL,
+            settle_uncertain_latest_at = CASE WHEN ${clears}
+              THEN NULL ELSE settle_uncertain_latest_at END,
+            settle_next_at = CASE WHEN ${clears}
+              THEN NULL ELSE settle_next_at END,
+            ${CARD_RELEASED}
+          WHERE ${cardFenced(fence)} AND settle_inflight_at IS NOT NULL
+          RETURNING id`,
+      );
+      return rows.length > 0;
+    },
+
+    async skip(fence) {
+      const rows = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox SET
+            settle_state = ${settledAs(sql`settle_rendered`)},
+            ${CARD_RELEASED}
+          WHERE ${cardFenced(fence)}
+          RETURNING id`,
+      );
+      return rows.length > 0;
+    },
+
+    async uncertain(fence, startedAt, windowMs) {
+      // The row's own start while the lease is still this writer's; the
+      // writer's reading of it otherwise.
+      const mine = sql`settle_claim_token = ${fence.claimToken}`;
+      const start = sql`coalesce(
+        CASE WHEN ${mine} THEN settle_inflight_at END,
+        ${startedAt.toISOString()}::timestamptz)`;
+      await db.execute(sql`
+        UPDATE slack_outbox SET
+          ${recordUncertain(start, windowMs)},
+          settle_inflight_at = CASE WHEN ${mine} THEN NULL ELSE settle_inflight_at END,
+          settle_lease_expires_at = CASE WHEN ${mine} THEN NULL ELSE settle_lease_expires_at END,
+          settle_claim_token = CASE WHEN ${mine} THEN NULL ELSE settle_claim_token END
+        WHERE id = ${fence.id}`);
+    },
+
+    async defer(fence, input) {
+      const rows = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox SET
+            settle_next_at = greatest(settle_next_at, now() + ${ms(input.retryInMs)}),
+            settle_attempts = settle_attempts + ${input.failed ? 1 : 0},
+            settle_error = coalesce(${input.error}::text, settle_error),
+            ${CARD_RELEASED}
+          WHERE ${cardFenced(fence)}
+          RETURNING id`,
+      );
+      return rows.length > 0;
+    },
+
+    async abandon(fence, error) {
+      const rows = await rowsOf(
+        db,
+        sql`
+          UPDATE slack_outbox SET
+            settle_state = 'abandoned',
+            settle_error = ${error},
+            ${CARD_RELEASED}
+          WHERE ${cardFenced(fence)}
+          RETURNING id`,
+      );
+      return rows.length > 0;
+    },
+  };
 }
 
 export function createPostgresSlackOutboxStore(
@@ -717,48 +1121,15 @@ export function createPostgresSlackOutboxStore(
         .limit(1);
       if (!row) return null;
       // slackPromptDedupeKey: `<prefix>:<link id>:<request id>`.
-      const [prefix, , ...rest] = row.dedupeKey.split(":");
+      const [, , ...rest] = row.dedupeKey.split(":");
       if (rest.join(":") !== input.requestId) return null;
-      const display =
-        prefix === "push"
-          ? await createPostgresPushRequests(db)
-              .displayOf(row.ownerId, input.sessionId, input.requestId)
-              .then((push) =>
-                push === null ? null : { kind: "push" as const, ...push },
-              )
-          : prefix === "prompt"
-            ? await createPostgresPendingRequests(db).displayOf(
-                row.ownerId,
-                input.sessionId,
-                input.requestId,
-              )
-            : null;
-      if (display === null) return null;
-      let deciderSlackUserId: string | null = null;
-      if (display.decidedByUserId !== null) {
-        const [linked] = await db
-          .select({ slackUserId: linkedAccounts.externalUserId })
-          .from(linkedAccounts)
-          .where(
-            and(
-              eq(linkedAccounts.workspaceId, row.workspaceId),
-              eq(linkedAccounts.userId, display.decidedByUserId),
-              eq(linkedAccounts.provider, "slack"),
-              eq(linkedAccounts.externalTenant, row.teamId),
-              eq(linkedAccounts.status, "active"),
-            ),
-          )
-          .limit(1);
-        deciderSlackUserId = linked?.slackUserId ?? null;
-      }
-      const body = row.body as { locale?: UserLocale; link_url?: string };
-      return {
-        locale: body.locale ?? DEFAULT_USER_LOCALE,
-        linkUrl: body.link_url ?? null,
-        deciderSlackUserId,
-        display,
-      };
+      return promptCardOf(db, {
+        ...row,
+        sessionId: input.sessionId.toLowerCase(),
+      });
     },
+
+    cards: createPostgresSlackCardSettleStore(db),
 
     async expireSending() {
       return db
@@ -860,6 +1231,8 @@ export function createPostgresSlackOutboxStore(
               status: "sent" as const,
               slackTs: outcome.slackTs,
               errorCode: null,
+              // A posted card shows its buttons until its request moves on.
+              settleRendered: sql`CASE WHEN ${t.kind} = 'input_notice' THEN 'open' ELSE ${t.settleRendered} END`,
             }
           : outcome.status === "pending"
             ? {

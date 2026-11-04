@@ -11,8 +11,10 @@ import {
   type SlackPrompt,
   type SlackPromptResult,
   slackCardText,
+  slackDoneCard,
   slackPromptMessage,
   slackQuestionAnswers,
+  slackRejectOnlyCard,
   slackSettledCard,
 } from "./slack-prompts.ts";
 
@@ -389,15 +391,17 @@ describe("Slack prompt cards", () => {
       for (const word of [
         copy.rawInput,
         copy.details,
-        copy.freeTextGiven,
-        copy.manyAnswered,
+        copy.typedAnswer,
+        copy.pushStale,
+        copy.done,
         copy.answerOnWeb,
         copy.openConsole,
       ]) {
         expect(word).not.toBe("");
       }
       expect(copy.rawInput).toContain("{tool}");
-      expect(copy.manyAnswered).toContain("{n}");
+      expect(copy.chosen.slack).toContain("{answer}");
+      expect(copy.chosen.web).toContain("{answer}");
     }
   });
 });
@@ -473,6 +477,7 @@ const card = (
 ): SlackPromptCard => ({
   locale: "ko",
   linkUrl: LINK,
+  decidedVia: "slack",
   deciderSlackUserId: "U0DECIDER",
   display,
   ...extra,
@@ -540,61 +545,64 @@ describe("slackSettledCard", () => {
     ).toBeNull();
   });
 
-  test("an allowed tool: one context line, who decided, the request, the link", () => {
+  test("an allowed tool: one context line, how it ended, who, the request, the link", () => {
     const settled = slackSettledCard(card(askedTool()));
     expect(settledLine(settled)).toEqual([
-      ":white_check_mark: <@U0DECIDER>님이 허용했어요",
+      ":white_check_mark: *허용됨* · <@U0DECIDER>",
       "명령 실행: npm test",
       `<${LINK}|웹에서 열기>`,
     ]);
     expect(settled?.text).toBe(
-      `<@U0DECIDER>님이 허용했어요\n명령 실행: npm test\n<${LINK}|웹에서 열기>`,
+      `*허용됨* · <@U0DECIDER>\n명령 실행: npm test\n<${LINK}|웹에서 열기>`,
     );
   });
 
-  test("the path, when the caller knows it, is named with the decider", () => {
+  test("the path comes from the stored decision; the decider follows as a bare mention", () => {
     const line = (
-      via: "slack" | "web" | null,
+      decidedVia: "slack" | "web" | null,
       deciderSlackUserId: string | null,
       locale: UserLocale = "ko",
     ) =>
       settledLine(
         slackSettledCard(
-          card(askedTool(), { deciderSlackUserId, locale }),
-          via,
+          card(askedTool(), { decidedVia, deciderSlackUserId, locale }),
         ),
       )[0];
     expect(line("web", "U0DECIDER")).toBe(
-      ":white_check_mark: <@U0DECIDER>님이 웹에서 허용했어요",
+      ":white_check_mark: *웹에서 허용됨* · <@U0DECIDER>",
     );
     expect(line("slack", "U0DECIDER")).toBe(
-      ":white_check_mark: <@U0DECIDER>님이 허용했어요",
+      ":white_check_mark: *허용됨* · <@U0DECIDER>",
     );
-    // No linked Slack account: the path alone, or the result alone.
-    expect(line("web", null)).toBe(":white_check_mark: 웹에서 허용했어요");
+    // No linked Slack account: the result and path alone.
+    expect(line("web", null)).toBe(":white_check_mark: *웹에서 허용됨*");
     expect(line(null, null)).toBe(":white_check_mark: *허용됨*");
-    expect(line("slack", null)).toBe(":white_check_mark: *허용됨*");
-    // A malformed id is no mention, and no dangling "님이".
+    // A malformed id is no mention, and leaves no dangling separator.
     expect(line(null, "<!channel>")).toBe(":white_check_mark: *허용됨*");
     expect(line("web", "U0DECIDER", "ja")).toBe(
-      ":white_check_mark: <@U0DECIDER>さんがWebで許可しました",
+      ":white_check_mark: *Webで許可済み* · <@U0DECIDER>",
     );
     expect(line("web", "U0DECIDER", "en")).toBe(
-      ":white_check_mark: Allowed on the web by <@U0DECIDER>",
+      ":white_check_mark: *Allowed on the web* · <@U0DECIDER>",
     );
+    // No honorific glued to a mention Slack draws as a name.
+    expect(line("slack", "U0DECIDER")).not.toContain("님");
     expect(
       slackSettledCard(
-        card(askedTool(), { deciderSlackUserId: "U0DECIDER", linkUrl: null }),
-        "web",
+        card(askedTool(), {
+          decidedVia: "web",
+          deciderSlackUserId: "U0DECIDER",
+          linkUrl: null,
+        }),
       )?.text,
     ).toBe(
-      "<@U0DECIDER>님이 웹에서 허용했어요\n명령 실행: npm test\n웹 콘솔에서 확인해 주세요",
+      "*웹에서 허용됨* · <@U0DECIDER>\n명령 실행: npm test\n웹 콘솔에서 확인해 주세요",
     );
     // The text reads as the block does, in every language.
     for (const [locale, sentence] of [
-      ["ko", "<@U0DECIDER>님이 웹에서 push를 거절했어요"],
-      ["ja", "<@U0DECIDER>さんがWebでpushを却下しました"],
-      ["en", "Push rejected on the web by <@U0DECIDER>"],
+      ["ko", "*웹에서 push 거절됨* · <@U0DECIDER>"],
+      ["ja", "*Webでpush却下済み* · <@U0DECIDER>"],
+      ["en", "*Push rejected on the web* · <@U0DECIDER>"],
     ] as const) {
       const settled = slackSettledCard(
         card(
@@ -608,29 +616,26 @@ describe("slackSettledCard", () => {
             decidedByUserId: base.decidedByUserId,
             createdAt: "2026-11-03T00:00:00Z",
           },
-          { locale, linkUrl: null },
+          { locale, linkUrl: null, decidedVia: "web" },
         ),
-        "web",
       );
       expect(settled?.text.split("\n")[0]).toBe(sentence);
       expect(settledLine(settled)[0]).toBe(`:no_entry_sign: ${sentence}`);
     }
   });
 
-  test("every language has a line for every decided result and path", () => {
+  test("every language has a web line for every decided result", () => {
     for (const locale of USER_LOCALE_VALUES as readonly UserLocale[]) {
       const copy = SLACK_PROMPT_MESSAGES[locale];
-      expect(copy.who).toContain("{mention}");
-      for (const path of ["slack", "web"] as const) {
-        for (const result of [
-          "allowed",
-          "denied",
-          "answered",
-          "approved",
-          "rejected",
-        ] as const) {
-          expect(copy.settledBy[path][result]).toContain("{who}");
-        }
+      for (const result of [
+        "allowed",
+        "denied",
+        "answered",
+        "approved",
+        "rejected",
+      ] as const) {
+        expect(copy.settledOnWeb[result]).not.toBe("");
+        expect(copy.settledOnWeb[result]).not.toBe(copy.settled[result]);
       }
     }
   });
@@ -657,42 +662,125 @@ describe("slackSettledCard", () => {
     }
   });
 
-  test("an answered question shows the chosen labels, never a typed answer", () => {
-    const lines = settledLine(
-      slackSettledCard(
-        card(askedQuestion({ selected_option_ids: ["o1"], typed: true })),
-      ),
-    );
-    expect(lines[0]).toBe(":speech_balloon: <@U0DECIDER>님이 답했어요");
-    expect(lines[1]).toBe(`Which branch?: ${HOSTILE} 1, 직접 입력한 답`);
-    const many = slackSettledCard(
+  test("an answered question keeps its full text with the answer under it", () => {
+    const long = `${"Which branch should the README change go on, ".repeat(3)}?`;
+    const settled = slackSettledCard(
       card(
-        askedQuestion({ selected_option_ids: ["o0"], typed: false }, [
-          question(2),
-          { ...question(2), question_id: "q-2" },
+        askedQuestion({ selected_option_ids: ["o1"], typed: false }, [
+          question(2, { prompt: long }),
         ]),
       ),
     );
-    expect(settledLine(many)[1]).toBe("질문 2개에 답했어요");
+    expect(settled?.blocks).toEqual([
+      {
+        type: "section",
+        text: { type: "plain_text", text: long, emoji: false },
+      },
+      {
+        type: "context",
+        elements: [
+          { type: "mrkdwn", text: ":speech_balloon:" },
+          {
+            type: "plain_text",
+            text: `${HOSTILE} 1 선택됨`,
+            emoji: false,
+          },
+          { type: "mrkdwn", text: "· <@U0DECIDER>" },
+          { type: "mrkdwn", text: `<${LINK}|웹에서 열기>` },
+        ],
+      },
+    ]);
+    // The question is no longer cut to its head.
+    expect(JSON.stringify(settled?.blocks)).toContain(long);
   });
 
-  test("a question answered on the web names the path, who, and the labels only", () => {
-    for (const [locale, sentence, typed] of [
-      ["ko", "<@U0DECIDER>님이 웹에서 답했어요", "직접 입력한 답"],
-      ["ja", "<@U0DECIDER>さんがWebで回答しました", "直接入力した回答"],
-      ["en", "Answered on the web by <@U0DECIDER>", "A typed answer"],
+  test("a question answered on the web: `웹에서 <label> 선택됨 · who`, a typed answer only as 직접 입력", () => {
+    for (const [locale, answer] of [
+      ["ko", `웹에서 ${HOSTILE} 1, 직접 입력 선택됨`],
+      ["ja", `Webで${HOSTILE} 1, 直接入力を選択`],
+      ["en", `Chose ${HOSTILE} 1, a typed answer on the web`],
     ] as const) {
       const settled = slackSettledCard(
         card(askedQuestion({ selected_option_ids: ["o1"], typed: true }), {
           locale,
+          decidedVia: "web",
         }),
-        "web",
       );
-      expect(settledLine(settled).slice(0, 2)).toEqual([
-        `:speech_balloon: ${sentence}`,
-        `Which branch?: ${HOSTILE} 1, ${typed}`,
+      const [section, context] = settled?.blocks as {
+        type: string;
+        text?: { text: string };
+        elements?: { type: string; text: string }[];
+      }[];
+      expect(section?.text?.text).toBe("Which branch?");
+      expect(context?.elements?.map((element) => element.text)).toEqual([
+        ":speech_balloon:",
+        answer,
+        "· <@U0DECIDER>",
+        `<${LINK}|${SLACK_PROMPT_MESSAGES[locale].link}>`,
       ]);
+      // The label is model text: plain text in the block, escaped in `text`.
+      expect(context?.elements?.[1]?.type).toBe("plain_text");
+      expect(settled?.text).not.toContain("<!channel>");
     }
+  });
+
+  test("several answered questions each keep their text and answer, then one footer", () => {
+    const settled = slackSettledCard(
+      card(
+        {
+          ...askedQuestion({ selected_option_ids: ["o0"], typed: false }, [
+            question(2, { prompt: "First?" }),
+            { ...question(2, { prompt: "Second?" }), question_id: "q-2" },
+          ]),
+          answers: [
+            { question_id: "q-1", selected_option_ids: ["o0"], typed: false },
+            { question_id: "q-2", selected_option_ids: [], typed: true },
+          ],
+        } as PendingRequestDisplay,
+        { decidedVia: "web" },
+      ),
+    );
+    const texts = (
+      settled?.blocks as {
+        text?: { text: string };
+        elements?: { text: string }[];
+      }[]
+    ).map(
+      (block) =>
+        block.text?.text ?? block.elements?.map((e) => e.text).join(" | "),
+    );
+    expect(texts).toEqual([
+      "First?",
+      `${HOSTILE} 0 선택됨`,
+      "Second?",
+      "직접 입력 선택됨",
+      `:speech_balloon: *웹에서 답함* · <@U0DECIDER> | <${LINK}|웹에서 열기>`,
+    ]);
+  });
+
+  test("an expired question keeps its text over the result line", () => {
+    const settled = slackSettledCard(
+      card({
+        ...askedQuestion({ selected_option_ids: [], typed: false }),
+        answers: [],
+        state: "closed",
+        decidedByUserId: null,
+        closedReason: "expired",
+      } as PendingRequestDisplay),
+    );
+    const texts = (
+      settled?.blocks as {
+        text?: { text: string };
+        elements?: { text: string }[];
+      }[]
+    ).map(
+      (block) =>
+        block.text?.text ?? block.elements?.map((e) => e.text).join(" | "),
+    );
+    expect(texts).toEqual([
+      "Which branch?",
+      `:hourglass: *만료됨* | <${LINK}|웹에서 열기>`,
+    ]);
   });
 
   test("a decided push names the repository, the short commit and the branch", () => {
@@ -715,11 +803,11 @@ describe("slackSettledCard", () => {
         ),
       );
     expect(decided("pushed").slice(0, 2)).toEqual([
-      ":white_check_mark: Push approved by <@U0DECIDER>",
+      ":white_check_mark: *Push approved* · <@U0DECIDER>",
       "JeongJaeSoon/werft-sandbox ← abcdef1 · agent/x",
     ]);
     expect(decided("rejected")[0]).toBe(
-      ":no_entry_sign: Push rejected by <@U0DECIDER>",
+      ":no_entry_sign: *Push rejected* · <@U0DECIDER>",
     );
   });
 
@@ -737,11 +825,64 @@ describe("slackSettledCard", () => {
       expect(mrkdwnTexts(settled?.blocks ?? [])).not.toContain("<!channel>");
       expect(settled?.text).not.toContain("<!channel>");
       expect(settledLine(settled)[0]).toContain(
-        SLACK_PROMPT_MESSAGES[locale].settledBy.slack.allowed.replace(
-          "{who}",
-          "",
-        ),
+        SLACK_PROMPT_MESSAGES[locale].settled.allowed,
       );
     }
+  });
+});
+
+describe("slackRejectOnlyCard", () => {
+  test("a push the checkpoint moved past keeps only Reject, with the reason", () => {
+    const pushCard = card({
+      kind: "push",
+      repositoryId: "repo-1",
+      repositoryName: "JeongJaeSoon/werft-sandbox",
+      targetBranch: "agent/x",
+      gitCommit: "abcdef1".padEnd(40, "0"),
+      state: "requested",
+      decidedByUserId: null,
+      createdAt: "2026-11-03T00:00:00Z",
+    }) as Parameters<typeof slackRejectOnlyCard>[0];
+    const stale = slackRejectOnlyCard(pushCard, {
+      sessionId: SESSION,
+      requestId: "push-1",
+    });
+    const [context, actions] = stale.blocks as {
+      type: string;
+      elements: {
+        type: string;
+        text: unknown;
+        action_id?: string;
+        style?: string;
+      }[];
+    }[];
+    expect(context?.elements.map((element) => element.text)).toEqual([
+      ":warning: *새 커밋이 생겨 이 push는 승인할 수 없어요*",
+      "JeongJaeSoon/werft-sandbox ← abcdef1",
+    ]);
+    expect(actions?.type).toBe("actions");
+    expect(actions?.elements.map((element) => element.style)).toEqual([
+      "danger",
+    ]);
+    expect(stale.text.split("\n")[0]).toBe(
+      "새 커밋이 생겨 이 push는 승인할 수 없어요",
+    );
+  });
+});
+
+describe("slackDoneCard", () => {
+  test("a turn's notice from before the cards ends as one handled line", () => {
+    expect(slackDoneCard("en", LINK)).toEqual({
+      text: `Handled\n<${LINK}|Open on the web>`,
+      blocks: [
+        {
+          type: "context",
+          elements: [
+            { type: "mrkdwn", text: ":white_circle: *Handled*" },
+            { type: "mrkdwn", text: `<${LINK}|Open on the web>` },
+          ],
+        },
+      ],
+    });
   });
 });
