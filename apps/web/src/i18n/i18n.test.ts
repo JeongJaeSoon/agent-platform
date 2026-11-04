@@ -98,12 +98,20 @@ describe("i18n", () => {
     }
   });
 
-  // The platform paragraph puts both values in the session prompt, so the
-  // hint sends the agent's role to the field that holds it, by that label.
-  test("the name and description hint points at the agent instructions field", () => {
+  // The platform paragraph is off by default, so a hint without the condition
+  // is wrong on a default installation.
+  test("name and description hints say the model reads them only with platform guidance on", () => {
+    const condition = {
+      ko: "플랫폼 안내",
+      ja: "プラットフォーム案内",
+      en: "platform guidance",
+    } as const;
     for (const locale of LOCALES) {
-      expect(catalogs[locale]["agent.card.identityHint"]).toContain(
-        catalogs[locale]["agentCard.agentInstructions"],
+      const catalog = catalogs[locale];
+      expect(catalog["agent.card.identityHint"]).toContain(condition[locale]);
+      expect(catalog["agents.descriptionHint"]).toContain(condition[locale]);
+      expect(catalog["agent.card.identityHint"]).toContain(
+        catalog["agentCard.agentInstructions"],
       );
     }
   });
