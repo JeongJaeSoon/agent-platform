@@ -60,7 +60,7 @@ description: 이름·설명과 에이전트 지시문의 차이, 지시문 쓰�
 | `rules` | | `{id, text, source}` 목록. `source`는 `user` 또는 `correction` |
 | `role`·`instructions` | | 이전 카드의 값. 모델에 전달되지 않는다. 새 카드에는 보내지 않는다 |
 
-이름(1~120자)과 설명(0~2,000자)은 카드가 아니라 에이전트의 필드다. `POST /v1/agents`와 `PATCH /v1/agents/{id}`에 `name`·`description`으로 보낸다.
+이름(1자부터 120자까지)과 설명(2,000자까지)은 카드가 아니라 에이전트의 필드다. `POST /v1/agents`와 `PATCH /v1/agents/{id}`에 `name`·`description`으로 보낸다.
 
 ## 웹 콘솔에서 도구 고르기
 
