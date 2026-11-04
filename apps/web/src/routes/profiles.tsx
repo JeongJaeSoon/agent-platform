@@ -37,7 +37,6 @@ import {
 } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import { ModelConnections } from "./model-connections.tsx";
-import { OriginBadge } from "./settings-entries.tsx";
 
 // Name, version, kind, base, default model, permission mode, blocked tools,
 // state; a phone keeps the name and the state, and the name cell says the kind.
@@ -363,18 +362,9 @@ function ProfileRow({
         </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
-          <Text as="span" variant="meta">
-            {t(`profiles.kind.${kind}`)}
-          </Text>
-          {profile.installation ? (
-            <OriginBadge
-              origin={
-                profile.installation.origin === "catalog" ? "file" : "console"
-              }
-            />
-          ) : null}
-        </div>
+        <Text as="span" variant="meta">
+          {t(`profiles.kind.${kind}`)}
+        </Text>
       </GridTableCell>
       <GridTableCell hideNarrow>
         <Code className="wrap-anywhere">

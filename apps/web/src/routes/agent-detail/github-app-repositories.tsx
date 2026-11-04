@@ -18,7 +18,6 @@ const PICK_REFUSALS: Partial<Record<string, MessageKey>> = {
   not_installed: "github.repo.pickHint",
   no_author_app: "github.repo.pickNoApp",
   name_held: "github.repo.pickNameHeld",
-  file_repository: "github.repo.pickFileHeld",
 };
 
 /**

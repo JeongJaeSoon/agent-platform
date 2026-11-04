@@ -3,21 +3,15 @@
  * MCP servers, the URL repositories and the home screen's setup steps.
  */
 export const settingsKo = {
-  "settings.origin.file": "파일",
-  "settings.origin.import": "가져옴",
-  "settings.origin.console": "콘솔",
   "settings.state.active": "사용 중",
   "settings.state.needs_value": "값 필요",
   "settings.state.unresolved": "자격 증명 확인 안 됨",
   "settings.state.disabled": "사용 중지됨",
-  "settings.state.shadowed": "파일이 우선",
   "settings.credential.stored": "저장 값 ••••{last4}",
   "settings.credential.storedEmpty": "저장 값 없음",
   "settings.credential.env": "환경 변수 {name}",
   "settings.credential.secret": "Secrets Manager {name}",
   "settings.credential.none": "인증 없음",
-  "settings.fileRow":
-    "운영자 파일의 항목입니다. 파일을 고쳐야 바뀌고, 설정 문서로 가져오면 콘솔에서 관리합니다.",
   "settings.externalRow":
     "운영자 참조입니다. 콘솔에서는 보기와 사용 중지만 됩니다.",
   "settings.immutable":
@@ -54,7 +48,6 @@ export const settingsKo = {
   "settings.done.changed": "{id}를 바꿨습니다.",
   "settings.error.already_exists":
     "이미 쓴 id입니다. 사용 중지한 id도 다시 쓸 수 없습니다.",
-  "settings.error.file_entry": "운영자 파일이 가진 id입니다. 다른 id를 쓰세요.",
   "settings.error.not_stored":
     "운영자 참조는 콘솔에서 보기와 사용 중지만 됩니다.",
   "settings.error.disabled": "사용 중지된 항목입니다.",
@@ -130,21 +123,15 @@ export const settingsKo = {
 } as const;
 
 export const settingsEn: Record<keyof typeof settingsKo, string> = {
-  "settings.origin.file": "File",
-  "settings.origin.import": "Imported",
-  "settings.origin.console": "Console",
   "settings.state.active": "Active",
   "settings.state.needs_value": "Needs a value",
   "settings.state.unresolved": "Credential unresolved",
   "settings.state.disabled": "Disabled",
-  "settings.state.shadowed": "File wins",
   "settings.credential.stored": "Stored value ••••{last4}",
   "settings.credential.storedEmpty": "No stored value",
   "settings.credential.env": "Env {name}",
   "settings.credential.secret": "Secrets Manager {name}",
   "settings.credential.none": "No authentication",
-  "settings.fileRow":
-    "From the operator's file. It changes in the file; once imported as a settings document, the console manages it.",
   "settings.externalRow":
     "An operator's reference. The console only shows and disables it.",
   "settings.immutable":
@@ -181,8 +168,6 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.done.changed": "{id} was changed.",
   "settings.error.already_exists":
     "This id was used already. A disabled id is never used again either.",
-  "settings.error.file_entry":
-    "The operator's file holds this id. Use another one.",
   "settings.error.not_stored":
     "An operator's reference can only be shown and disabled in the console.",
   "settings.error.disabled": "This entry is disabled.",
@@ -260,21 +245,15 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
 };
 
 export const settingsJa: Record<keyof typeof settingsKo, string> = {
-  "settings.origin.file": "ファイル",
-  "settings.origin.import": "インポート",
-  "settings.origin.console": "コンソール",
   "settings.state.active": "使用中",
   "settings.state.needs_value": "値が必要",
   "settings.state.unresolved": "資格情報を確認できない",
   "settings.state.disabled": "使用停止",
-  "settings.state.shadowed": "ファイルが優先",
   "settings.credential.stored": "保存値 ••••{last4}",
   "settings.credential.storedEmpty": "保存値なし",
   "settings.credential.env": "環境変数 {name}",
   "settings.credential.secret": "Secrets Manager {name}",
   "settings.credential.none": "認証なし",
-  "settings.fileRow":
-    "運用者ファイルの項目です。ファイルを直すと変わり、設定ドキュメントとしてインポートするとコンソールで管理します。",
   "settings.externalRow":
     "運用者の参照です。コンソールでは表示と使用停止だけできます。",
   "settings.immutable":
@@ -311,8 +290,6 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.done.changed": "{id} を変更しました。",
   "settings.error.already_exists":
     "使用済みの id です。使用停止した id も再利用できません。",
-  "settings.error.file_entry":
-    "運用者ファイルが持つ id です。別の id を使ってください。",
   "settings.error.not_stored":
     "運用者の参照はコンソールでは表示と使用停止だけできます。",
   "settings.error.disabled": "使用停止した項目です。",
