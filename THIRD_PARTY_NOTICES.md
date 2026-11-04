@@ -11,7 +11,7 @@
 ### Bun 1.3.14 (`/usr/local/bin/bun`)
 
 - **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/bun-v1.3.14/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.
-- **빌드.** oven-sh/bun commit `0d9b296af33f2b851fcbf4df3e9ec89751734ba4`(`bun --revision`)이다. images.yml이 빌드한 이미지(linux/amd64)마다 이 값을 확인한다.
+- **빌드.** oven-sh/bun commit `0d9b296af33f2b851fcbf4df3e9ec89751734ba4`(`bun --revision`)이다. images.yml이 빌드한 이미지(linux/amd64, linux/arm64)마다 이 값을 확인한다.
 - **LGPL-2.1 구성요소.** Bun은 아래 라이브러리를 정적으로 링크한다. LGPL-2.1 전문은 이미지 안 `/usr/share/common-licenses/LGPL-2.1`에 있다.
   - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/5488984d20e0dbfe4be2c3ba8fb18eb81a5e0e8b
   - TinyCC: https://github.com/oven-sh/tinycc/tree/12882eee073cfe5c7621bcfadf679e1372d4537b
@@ -20,7 +20,7 @@
 ### Debian 패키지와 대응 소스
 
 - **라이선스.** 각 패키지의 저작권 표시와 라이선스 조건은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL·Apache-2.0처럼 여러 패키지가 쓰는 라이선스는 이 파일이 전문 대신 `/usr/share/common-licenses/`의 사본을 가리킨다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.
-- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지, snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. snapshot에 없는 소스는 PR·main·매일 실행에서 경고이고, 릴리스(tag)에서는 실패다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.
+- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지 확인하고, 게시할 때 snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. 없다고 답한 소스가 있으면 게시하지 않는다. 답을 받지 못한 소스는 main 게시에서 경고로 남고, 릴리스(tag)에서는 게시를 막는다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.
 - **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 ca-certificates(MPL-2.0·GPL-2.0+)·git(GPL-2.0)·tini(MIT), worker는 ca-certificates·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.
 
 ### Git LFS 3.8.1 (worker, `/usr/local/bin/git-lfs`)
@@ -39,7 +39,7 @@
 
 - **권리와 조건.** `@anthropic-ai/claude-agent-sdk@0.3.270`과 그 플랫폼 빌드가 싣는 `claude` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.
 - **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.
-- **내장 런타임.** 이 실행 파일은 Bun 1.4.3 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64)마다 실행 파일 안의 `Bun v<버전>` 표시로 이 버전을 확인한다.
+- **내장 런타임.** 이 실행 파일은 Bun 1.4.3 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64, linux/arm64)마다 실행 파일 안의 `Bun v<버전>` 표시로 이 버전을 확인한다.
 
 ## 배포 조건이 붙은 구성요소
 
