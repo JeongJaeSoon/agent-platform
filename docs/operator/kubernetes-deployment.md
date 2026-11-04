@@ -1,8 +1,8 @@
 # Kubernetes 설치 (Helm chart)
 
-main을 Kubernetes에 올리는 절차다. chart는 `deploy/helm/agent-platform`에 있고, 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](kubernetes-backend.md), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
+main을 Kubernetes에 올리는 절차다. chart의 소스는 `deploy/helm/agent-platform`에 있고, `main` 머지와 `v*` 태그마다 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다. 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 chart의 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](kubernetes-backend.md), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
-**현재 상태:** chart 패키지가 아직 없다. chart는 저장소 checkout의 경로로 설치한다. 앱 이미지는 `main` 머지마다 [`main-<12>` 태그로 게시](images-and-supply-chain.md#main-머지마다-게시되는-이미지)되므로 그 digest를 쓴다(아래 "준비"). `values.yaml` 기본값은 digest가 비어 있어 그대로는 render가 실패한다.
+**현재 상태:** 공식 릴리스(`v*` 태그)는 아직 없다. `main` 머지마다 게시되는 chart에는 그 run의 이미지 digest와 worker runtime이 들어 있어, 저장소 checkout 없이 [게시 chart로 설치](#게시-chart로-설치)한다. 저장소의 `values.yaml`은 digest가 비어 있어 checkout의 경로로 설치할 때는 digest를 직접 넣어야 한다. 그대로는 render가 실패한다.
 
 Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [server-deployment.md](server-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
@@ -35,7 +35,7 @@ chart는 Git 서버도 만들지 않는다. 설정 문서의 저장소에는 Pod
 
 - NetworkPolicy를 강제하는 CNI. 강제하지 않는 CNI에서는 worker 격리가 없다. kind v0.33의 기본 CNI(kindnet)는 강제한다. EKS는 VPC CNI의 network policy agent를 켠다.
 - PostgreSQL 16과 S3 bucket. 기본 보호 모드 `locked`는 versioning과 Object Lock이 켜진 bucket을 요구하고, 아니면 api가 기동을 거부한다.
-- 이미지 셋(control-host, egress-proxy, worker)의 digest를 적어 둔다. `values.yaml` 기본 이름이 게시 위치이므로 [게시된 이미지의 digest](test-ops.md#게시된-이미지를-쓸-때)만 채우면 된다. 게시본은 `linux/amd64`뿐이다. kind에서는 `deploy/kind/up.sh`가 checkout에서 빌드해 대신하고, 게시본을 쓸 수 없으면 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한 뒤 values의 `images.registry`와 `images.*.repository`를 그 registry로 바꾼다(`values-aws.example.yaml`의 형식). chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
+- 게시 chart로 설치하면 이미지 digest는 chart에 들어 있으므로 이 항목은 건너뛴다. checkout의 chart로 설치할 때는 이미지 셋(control-host, egress-proxy, worker)의 digest를 적어 둔다. `values.yaml` 기본 이름이 게시 위치이므로 [게시된 이미지의 digest](test-ops.md#게시된-이미지를-쓸-때)만 채우면 된다. 게시본은 `linux/amd64`뿐이다. kind에서는 `deploy/kind/up.sh`가 checkout에서 빌드해 대신하고, 게시본을 쓸 수 없으면 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한 뒤 values의 `images.registry`와 `images.*.repository`를 그 registry로 바꾼다(`values-aws.example.yaml`의 형식). chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
 - `secrets.name`(기본 `werft`) Secret. 키는 아래와 같다. 값은 명령 인자나 셸 history에 남기지 않는다.
 
 | 키 | 읽는 곳 |
@@ -80,6 +80,25 @@ deploy/kind/up.sh down     # NAMESPACE만 지운다. 클러스터는 남는다
 ```
 
 zsh에서는 환경 변수 묶음을 문자열 하나로 넘기면 단어로 나뉘지 않으므로 위처럼 `export A=… B=…`로 준다. namespace 범위 밖에 남는 것은 빌드한 이미지 태그뿐이다. smoke의 contract 단계는 무작위 이름의 `ap-ct-*`·`ap-it-*` namespace를 따로 만들고 끝나면 지운다(`K8S_BACKEND_TEST_KEEP=1`이면 남긴다). smoke는 다른 것이 없는 전용 namespace에서 돌린다. 이미 있던 namespace는 지우지 않지만, 그 안의 probe Pod(`k8s-smoke-worker`, `k8s-smoke-control`)는 지우고 다시 만든다.
+
+### 게시 chart로 설치
+
+저장소 checkout이 없어도 된다. 버전은 항상 `--version`으로 정확히 적는다. 릴리스는 태그에서 `v` 없이(`v1.2.3`이면 `1.2.3`), `main` 머지는 `<Chart 버전>-main-<12>`이고 `<12>`는 commit SHA의 앞 12자다. `main` 버전끼리의 순서에는 뜻이 없다(프리릴리스 비교가 SHA 문자열을 비교한다). 그래서 `--devel`로 "최신"을 고르지 않고, [Images run](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml)에서 머지한 commit을 찾아 적는다. 패키지는 익명으로 받는다.
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+`images`의 digest와 `images.worker.runtime`이 그 run이 게시한 값이다. 패키지 하나가 세 이미지와 runtime을 함께 묶으므로 values에 다시 적지 않는다. 다음 절의 namespace, Secret, 설치별 values 파일을 준비한 뒤 chart 경로만 바꿔 설치한다.
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+설치별 values 파일에는 `images.worker`·`images.controlHost`·`images.egressProxy`의 digest를 쓰지 않는다. 쓰면 다음 chart의 값을 계속 덮는다. 게시본은 `linux/amd64`뿐이라 arm64 노드에서는 뜨지 않는다.
 
 ### 직접 설치
 
@@ -214,7 +233,7 @@ kubectl -n werft logs deploy/werft-api | grep 'Session catalog loaded'
 
 ## 업그레이드와 롤백
 
-업그레이드는 values 파일의 digest를 새 이미지로 바꾸고 설치와 같은 `helm upgrade --install`을 돌린다. migrate hook이 먼저 돌고, 실패하면 Deployment는 그대로다. scheduler는 `Recreate`라서 옛 Pod가 내려간 뒤 새 Pod가 뜬다. 그 사이에는 scheduler pass가 돌지 않는다(새 worker launch와 회수가 멈춘다). **kind**
+업그레이드는 checkout 설치라면 values 파일의 digest를 새 이미지로 바꾸고, 게시 chart 설치라면 [새 chart 버전으로 올린 뒤](#게시-chart를-올리기) 설치와 같은 `helm upgrade --install`을 돌린다. migrate hook이 먼저 돌고, 실패하면 Deployment는 그대로다. scheduler는 `Recreate`라서 옛 Pod가 내려간 뒤 새 Pod가 뜬다. 그 사이에는 scheduler pass가 돌지 않는다(새 worker launch와 회수가 멈춘다). **kind**
 
 ```bash
 helm -n werft history werft
@@ -230,6 +249,39 @@ worker Pod의 이미지는 scheduler가 launch할 때 정해진다. 이미지는
 - worker가 보내는 protocol 필드를 더하거나 checkpoint manifest에 필드를 더하는 릴리스는 `images.controlHost`만 바꾼 upgrade를 먼저 하고, `images.worker`는 다음 upgrade에서 바꾼다. 한 번의 upgrade로는 새 worker가 옛 api보다 먼저 뜨지 않는다는 보장이 없다. 필드별 순서는 [images-and-supply-chain.md § worker protocol 필드를 걷어내는 순서](images-and-supply-chain.md#worker-protocol-필드를-걷어내는-순서)에 있다.
 - DB 변경은 [images-and-supply-chain.md § DB 스키마를 바꾸는 순서](images-and-supply-chain.md#db-스키마를-바꾸는-순서)의 확장→전환→정리를 따른다. migrate hook이 rollout보다 먼저 돌기 때문에 옛 api와 옛 worker가 새 schema 위에서 돈다.
 - 새 control-host와 직전 릴리스 worker 이미지의 조합은 CI가 아직 검사하지 않는다. 릴리스 전에 kind나 시험 설치에서 직접 확인한다. `images.controlHost`만 새 digest로, `images.worker`는 직전 릴리스 digest로 둔 values로 upgrade하고, 세션 하나가 turn 1을 끝내는지 본다. 그 세션의 worker Pod를 `kubectl delete pod`로 지운 뒤 입력을 하나 더 보내 새 Pod가 checkpoint에서 이어 turn 2를 끝내는지 본다. api 로그에 worker 요청의 400 `BAD_REQUEST`가 없어야 한다. `deploy/kind/up.sh`는 `images.worker`를 `--set`으로 덮으므로 `EXTRA_VALUES`로는 worker 이미지를 바꾸지 못한다. 직접 `helm upgrade`한다.
+
+### 게시 chart를 올리기
+
+게시 chart는 `images.worker.runtime`을 담고 `images.workerPrevious`는 비워 둔다. 직전 이미지는 chart가 알 수 없고 설치마다 다르기 때문이다. worker digest가 바뀌는 upgrade는 대상의 `images.workerPrevious`가 지금 배포된 이미지가 아니면 `refused`로 멈추고, 승인으로도 넘길 수 없다([업그레이드 전 검사](#업그레이드-전-검사)). 그래서 지금 이미지를 파일로 저장해 함께 넘긴다.
+
+```bash
+VERSION=<새 버전>
+DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+CURRENT="$(helm -n werft get values werft --all --revision "$DEPLOYED" -o json | jq -r '.images.worker.digest')"
+TARGET="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | awk '/^  worker:/ {found = 1} found && /digest:/ {print $2; exit}')"
+echo "deployed ${CURRENT}"
+echo "target   ${TARGET}"
+PREVIOUS=worker-previous.json
+if [ -n "$TARGET" ] && [ "$CURRENT" != "$TARGET" ]; then
+  PREVIOUS=worker-previous.next.json
+  helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
+    | jq '{images: {workerPrevious: .images.worker}}' > "$PREVIOUS"
+fi
+set -- -f values-<installation>.yaml
+if [ -f "$PREVIOUS" ]; then set -- "$@" -f "$PREVIOUS"; fi
+if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft "$@" --timeout 10m; then
+  if [ "$PREVIOUS" != worker-previous.json ]; then mv "$PREVIOUS" worker-previous.json; fi
+fi
+```
+
+`--revision`을 빼면 실패한 upgrade가 있을 때 그 revision의 값, 즉 올리려던 이미지가 나온다. worker digest가 다르면 지금 이미지를 후보 파일에 쓰고, upgrade가 성공한 뒤에만 `worker-previous.json`을 그 파일로 바꾼다. 실패한 upgrade는 보존 파일을 건드리지 않는다. digest가 같으면 있던 파일을 그대로 넘긴다. 처음 설치한 뒤 worker가 그대로인 upgrade에는 아직 넘길 파일이 없고, 그래도 된다.
+
+- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade는 세션을 비교하지 않고 `proceed`이므로, 이 파일을 빠뜨리면 경고 없이 지원 창이 줄고 옛 조합으로 남은 세션은 재개 때 `recovery_required`로 멈출 수 있다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
+- `--reuse-values`를 쓰지 않는다. 옛 chart의 값을 기본값으로 쓰므로 새 chart 버전인데 이미지는 그대로 남는다.
+- `helm get values --all` 전체를 values 파일로 넘기지 않는다. 옛 digest가 새 chart의 값을 덮는다. `.images.worker`만 꺼낸다.
+- `v*` 태그에서 게시한 chart도 같은 절차를 따른다.
 
 ### 파일 카탈로그에서 올리기
 
