@@ -10,6 +10,17 @@ const stateOf = (profile: ProfileSummary) =>
 export const pickable = (profile: ProfileSummary) =>
   stateOf(profile) === "usable";
 
+/** Whether a session may start on a release pinned to it: retiring spares those. */
+export const startable = (profile: ProfileSummary) => {
+  const state = stateOf(profile);
+  return (
+    state === undefined ||
+    state === "usable" ||
+    state === "retired" ||
+    state === "base_retired"
+  );
+};
+
 /** Whether a release of a card naming `model` may run on it, as the server checks. */
 export const runsModel = (
   profile: ProfileSummary,
