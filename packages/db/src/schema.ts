@@ -12,6 +12,7 @@ import {
   AGENT_IDENTITY_STATUS_VALUES,
   AGENT_STATUS_VALUES,
   BINDING_MODE_VALUES,
+  GITHUB_POLICY_SOURCE_VALUES,
   GITHUB_PULL_REQUEST_OUTCOME_STATE_VALUES,
   GITHUB_REVIEW_OUTCOME_STATE_VALUES,
   type GitHubAppRole,
@@ -21,8 +22,10 @@ import {
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
   type PlatformPrompt,
+  PUSH_APPROVAL_BASIS_VALUES,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
+  REPOSITORY_SCOPE_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
   SESSION_OUTCOME_TYPE_VALUES,
   SESSION_STATUS_VALUES,
@@ -670,6 +673,9 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
     .primaryKey()
     .references(() => workspaces.id),
   ceiling: jsonb().$type<GitHubCeiling>().notNull(),
+  // The repositories agent sessions and `repository_scope = workspace`
+  // profiles may reach. Null allows none. `revision` covers it.
+  repositoryCeiling: jsonb("repository_ceiling").$type<unknown>(),
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),
@@ -1337,9 +1343,18 @@ export const sessions = pgTable(
     // against the profile and the installation cap whenever a request is
     // registered; null means none given.
     permissionWaitOverride: jsonb("permission_wait_override"),
+    // Whose GitHub policy the session runs on, fixed at create: `release`
+    // its pinned release's, `agent` the agent's settings row at every use.
+    githubPolicySource: text("github_policy_source")
+      .notNull()
+      .default("release"),
   },
   (table) => [
     check("sessions_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
+    check(
+      "sessions_github_policy_source_check",
+      sql`${table.githubPolicySource} IN (${sql.raw(sqlList(GITHUB_POLICY_SOURCE_VALUES))})`,
+    ),
     check(
       "sessions_pause_reason_check",
       sql`${table.pauseReason} IS NULL OR (${table.pauseReason} IN ('awaiting_input') AND ${table.admissionState} IN ('pausing', 'paused'))`,
@@ -2252,8 +2267,16 @@ export const pushRequests = pgTable(
     repositoryBinding: text("repository_binding"),
     pushAttempts: integer("push_attempts").notNull().default(0),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    // Null on rows from before these and while undecided. A `policy`
+    // approval is judged again before it runs; a person's stands.
+    approvalBasis: text("approval_basis"),
+    approvalSettingsRevision: integer("approval_settings_revision"),
   },
   (table) => [
+    check(
+      "push_requests_approval_basis_check",
+      sql`${table.approvalBasis} IS NULL OR ${table.approvalBasis} IN (${sql.raw(sqlList(PUSH_APPROVAL_BASIS_VALUES))})`,
+    ),
     check(
       "push_requests_state_check",
       sql`${table.state} IN (${sql.raw(sqlList(PUSH_REQUEST_STATE_VALUES))})`,
@@ -3130,6 +3153,45 @@ export const agentAdmins = pgTable(
       foreignColumns: [memberships.workspaceId, memberships.userId],
     }),
     index("agent_admins_user_idx").on(table.workspaceId, table.userId),
+  ],
+);
+
+// What an agent's GitHub work may reach, read at every use and in no version:
+// sessions with `github_policy_source = 'agent'` follow a change at once.
+// `agents.github_enabled` stays the switch. No row: the agent's sessions run
+// on their release.
+export const agentGitHubSettings = pgTable(
+  "agent_github_settings",
+  {
+    agentId: uuid("agent_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
+    repositories: jsonb().$type<string[]>().notNull(),
+    pushApproval: boolean("push_approval").notNull(),
+    features: jsonb().$type<GitHubCeiling>().notNull(),
+    actionsAllow: jsonb("actions_allow").$type<unknown[]>().notNull(),
+    // A session named no repository starts on this one.
+    startRepositoryId: text("start_repository_id"),
+    revision: integer().notNull().default(1),
+    /** No foreign key: the row outlives the account. */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "agent_github_settings_agent_fk",
+      columns: [table.workspaceId, table.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+    }),
+    check(
+      "agent_github_settings_repositories_check",
+      sql`jsonb_typeof(${table.repositories}) = 'array' AND jsonb_array_length(${table.repositories}) <= 32`,
+    ),
+    check(
+      "agent_github_settings_start_check",
+      sql`${table.startRepositoryId} IS NULL OR ${table.repositories} ? ${table.startRepositoryId}`,
+    ),
   ],
 );
 
@@ -4306,6 +4368,9 @@ export const installationProfiles = pgTable(
     githubAppRepositories: text("github_app_repositories")
       .notNull()
       .default("listed"),
+    // Stored, so every image reads a row alike: `profile` judges repositories
+    // by the columns above, `workspace` by the workspace's repository ceiling.
+    repositoryScope: text("repository_scope").notNull().default("profile"),
     // The built-in tools blocked, as named in the tool catalog
     // `tool_catalog_id`. Outside `definition` and the fingerprint: an
     // image from before reads the definition strictly, and the digests
@@ -4330,6 +4395,10 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_origin_check",
       sql`${table.origin} IN ('catalog', 'console')`,
+    ),
+    check(
+      "installation_profiles_repository_scope_check",
+      sql`${table.repositoryScope} IN (${sql.raw(sqlList(REPOSITORY_SCOPE_VALUES))})`,
     ),
     check(
       "installation_profiles_name_check",
