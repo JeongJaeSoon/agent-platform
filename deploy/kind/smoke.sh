@@ -3,18 +3,24 @@
 # up.sh and checks, through the public API and kubectl, that the kubernetes
 # execution backend and the worker NetworkPolicy hold on a real cluster.
 #
-#   1. install      up.sh: chart up, /readyz and /docs 200
-#   2. session      one session reaches turn 1 completed in a worker Pod the
+#   1. failed-install  on a fresh cluster with the fake model and no
+#                   EXTRA_VALUES: up.sh with a migrate Job that cannot be
+#                   scheduled leaves a failed release and no Deployment
+#   2. install      up.sh: chart up, /readyz and /docs 200. After step 1 this
+#                   is the retry, which upgrade-check must let through
+#   3. session      one session reaches turn 1 completed in a worker Pod the
 #                   scheduler launched, with sample-app cloned from the git
 #                   host and its usage recorded
-#   3. reclaim      after terminate, the session's worker Pod, nonce Secret
+#   4. reclaim      after terminate, the session's worker Pod, nonce Secret
 #                   and workspace PVC are gone
-#   4. egress       a Pod with the worker labels reaches the egress proxy
+#   5. egress       a Pod with the worker labels reaches the egress proxy
 #                   (3128, 3129) and nothing else: api 3000, authorizer 3100,
 #                   postgres, localstack, cloud metadata and DNS are blocked;
 #                   an unlabelled Pod gets the opposite answers (the proxy
 #                   admits workers alone), so the network itself is up
-#   5. contract     the KubernetesBackend contract and integration suites
+#   6. upgrade      a helm upgrade with the same values, no worker runtime set,
+#                   passes upgrade-check and the api stays ready
+#   7. contract     the KubernetesBackend contract and integration suites
 #                   (K8S_BACKEND_TEST=1) against this cluster
 #
 #   deploy/kind/smoke.sh        run all of it; delete the cluster and registry
@@ -116,10 +122,53 @@ finish() {
 }
 trap finish EXIT
 
+# The verdict line of the upgrade-check Job the last upgrade ran.
+upgrade_check_verdict() {
+  local verdict
+  verdict="$(k logs "job/${fullname}-upgrade-check" | jq -c 'select(.verdict)')"
+  echo "upgrade-check: ${verdict}"
+  echo "$verdict" | jq -e "$1" >/dev/null || fail "upgrade-check did not say $1"
+}
+helm_status() {
+  helm status "$RELEASE" --namespace "$NAMESPACE" -o json | jq -r .info.status
+}
+
+# up.sh takes one EXTRA_VALUES file, and KIND_MODEL=real refuses a second run.
+retried=""
+if [ -n "$created" ] && [ "$KIND_MODEL" = fake ] && [ -z "${EXTRA_VALUES:-}" ]; then
+  step failed-install
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  cat >"$STATE_DIR/smoke-failed-install.yaml" <<'EOF'
+migrate:
+  activeDeadlineSeconds: 30
+  resources:
+    requests: {cpu: "1000"}
+EOF
+  if EXTRA_VALUES="$STATE_DIR/smoke-failed-install.yaml" "$here/up.sh"; then
+    fail "the install succeeded with a migrate Job no node can hold"
+  fi
+  # up.sh fails for other reasons too; only this failure is the one wanted.
+  [ "$(helm_status)" = failed ] || fail "the release is $(helm_status), not failed"
+  k get job "${fullname}-migrate" -o json |
+    jq -e '.status.conditions[]? | select(.type == "Failed" and .reason == "DeadlineExceeded")' ||
+    fail "the migrate Job did not hit its deadline"
+  [ -n "$(k get events --field-selector reason=FailedScheduling -o name)" ] ||
+    fail "the migrate Pod was never refused a node"
+  [ -z "$(k get deploy "${fullname}-scheduler" -o name --ignore-not-found)" ] ||
+    fail "the failed install left a scheduler Deployment"
+  retried=1
+  pass
+fi
+
 step install
 "$here/up.sh"
 # up.sh needed it for KIND_MODEL=real; nothing after this does.
 unset ANTHROPIC_API_KEY
+if [ -n "$retried" ]; then
+  [ "$(helm_status)" = deployed ] || fail "the retry left the release $(helm_status)"
+  upgrade_check_verdict '.verdict == "proceed" and .deployedWorker == null'
+fi
 pass
 
 step session
@@ -289,6 +338,19 @@ check k8s-smoke-control "authorizer ${authorizer}:3100" blocked $(tcp "$authoriz
 check k8s-smoke-worker "metadata 169.254.169.254:80" blocked $(tcp 169.254.169.254 80)
 k delete pod k8s-smoke-worker k8s-smoke-control --wait=false >/dev/null
 [ "$bad" = 0 ] || fail "a connection above is not what the NetworkPolicy should allow"
+pass
+
+step upgrade
+# Not --reuse-values: it keeps the catalog's `null`s, which delete a chart
+# default, as entries the api refuses to start on.
+helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$STATE_DIR/smoke-release-values.json"
+helm upgrade "$RELEASE" "$root/deploy/helm/agent-platform" \
+  --namespace "$NAMESPACE" -f "$STATE_DIR/smoke-release-values.json" --timeout 10m
+[ "$(helm_status)" = deployed ] || fail "the upgrade left the release $(helm_status)"
+upgrade_check_verdict '.verdict == "proceed" and .deployedWorker == .targetWorker'
+k rollout status "deploy/${fullname}-api" --timeout=300s
+# The values did not change, so no Pod did and the forward still holds.
+curl -sS --fail-with-body "$API/readyz" | jq -c .
 pass
 
 step contract
