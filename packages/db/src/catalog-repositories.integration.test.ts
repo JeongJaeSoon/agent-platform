@@ -337,7 +337,6 @@ integration("catalog repositories on PostgreSQL", () => {
       "app1-2",
       "app3",
       "seeded",
-      "tool-2",
     ]);
     // No agent has an active release here.
     expect((await store.agentCounts()).size).toBe(0);

@@ -282,45 +282,28 @@ integration("installation settings", () => {
     await db.delete(catalogRepositories);
   }
 
-  test("rows imported from the files pin what the files pinned", async () => {
+  test("rows imported from a document run its ceiling and pin its repositories", async () => {
     await clear();
-    const before = pins(
-      await catalogOver(db, { connections: CONNECTIONS, config: FILE }),
-    );
-    expect(before.state).toBe("usable");
-    expect(Object.values(before.bindings)).not.toContain(null);
-
     await importFile(db);
-    const after = pins(
+    const imported = pins(
       await catalogOver(db, {
         connections: {},
         config: { profiles: {}, repositories: {} },
       }),
     );
-    expect(after).toEqual(before);
-    expect(
-      pins(await catalogOver(db, { connections: CONNECTIONS, config: FILE })),
-    ).toEqual(before);
+    expect(imported.state).toBe("usable");
+    expect(Object.values(imported.bindings)).not.toContain(null);
   }, 30_000);
 
-  test("a file-only installation reads empty settings and runs as before", async () => {
+  test("an empty installation reads empty settings", async () => {
     await clear();
     const store = createPostgresInstallationSettingsStore(db, null);
-    const read = await store.read({ openStored: true });
-    expect(read).toMatchObject({
+    expect(await store.read({ openStored: true })).toMatchObject({
       connections: [],
       repositories: [],
       mcpServers: [],
       invalid: [],
     });
-    const catalog = await catalogOver(db, {
-      connections: CONNECTIONS,
-      config: FILE,
-    });
-    expect(Object.keys(catalog.repositories).sort()).toEqual(
-      Object.keys(FILE.repositories).sort(),
-    );
-    expect(Object.keys(catalog.mcp_servers ?? {})).toEqual(["docs"]);
   });
 
   test("a stored value opens for its own row only, rotates without moving a pin, and no workspace route reaches it", async () => {

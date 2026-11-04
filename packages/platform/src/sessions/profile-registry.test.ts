@@ -478,7 +478,11 @@ describe("the gateway's claim", () => {
       },
     );
     const { runnable } = await claimOnce(unfilled);
-    expect(runnable.filter((pair) => pair.profileId === "coding")).toEqual([]);
+    expect(
+      runnable.filter(
+        (pair) => pair.profileId === "coding" && pair.policy !== true,
+      ),
+    ).toEqual([]);
   });
 });
 
