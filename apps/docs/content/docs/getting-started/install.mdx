@@ -29,14 +29,14 @@ bun run --cwd packages/sdk build:package
 npm pack ./packages/sdk/dist
 ```
 
-저장소 루트에 `werft-ai-sdk-0.1.0.tgz`가 생긴다. 저장소 옆에 앱 디렉터리를 만들고 그 파일을 설치한다.
+저장소 루트에 `werft-ai-sdk-0.1.1.tgz`가 생긴다. 저장소 옆에 앱 디렉터리를 만들고 그 파일을 설치한다.
 
 ```sh
 cd ..
 mkdir my-werft-app && cd my-werft-app
 npm init -y
 npm pkg set type=module
-npm install ../werft/werft-ai-sdk-0.1.0.tgz
+npm install ../werft/werft-ai-sdk-0.1.1.tgz
 ```
 
 npm에 올라가면 마지막 줄이 `npm install @werft-ai/sdk`로 바뀐다. SDK 패키지는 Apache License 2.0이다. 서버와 저장소의 나머지는 PolyForm Small Business License 1.0.0을 따르는 source-available 코드다.
