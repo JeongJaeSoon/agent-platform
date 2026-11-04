@@ -38,6 +38,25 @@ describe("refusalFromServiceError, in the order of catalog 5.7", () => {
     });
   });
 
+  test("1b. a push refused for a commit's attribution keeps its code and the commits to repair", () => {
+    const mismatches = [{ commit: "a".repeat(40), problems: ["author"] }];
+    expect(
+      refusalFromServiceError(
+        "request_push",
+        err("FORBIDDEN", {
+          refusal: "attribution_mismatch",
+          receipt_id: "r",
+          mismatches,
+        }),
+      ),
+    ).toEqual({
+      code: "attribution_mismatch",
+      by: "platform",
+      retryable: false,
+      details: { receipt_id: "r", mismatches },
+    });
+  });
+
   test("2. else details.reason_code, when the tool lists it", () => {
     expect(
       refusalFromServiceError(
