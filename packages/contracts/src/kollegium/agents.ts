@@ -383,6 +383,124 @@ export const agentGitHubSchema = z
   .strict();
 
 /**
+ * The agent's own GitHub settings, not pinned on any release. Unlike a pin
+ * the list may be empty: switched on, with no repository yet.
+ */
+export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
+  repositories: z.array(z.string().min(1).max(128)).max(32),
+});
+
+/** Whose GitHub policy a session runs on, fixed when it starts. */
+export const GITHUB_POLICY_SOURCE_VALUES = ["release", "agent"] as const;
+export type GitHubPolicySource = (typeof GITHUB_POLICY_SOURCE_VALUES)[number];
+
+/** Which ceiling judges a profile's repositories. */
+export const REPOSITORY_SCOPE_VALUES = ["profile", "workspace"] as const;
+export type RepositoryScope = (typeof REPOSITORY_SCOPE_VALUES)[number];
+
+/** An `agent_github_settings` row; the jsonb columns as read, unparsed. */
+export type AgentGitHubSettingsRow = {
+  repositories: unknown;
+  pushApproval: boolean;
+  features: unknown;
+  actionsAllow: unknown;
+  startRepositoryId: string | null;
+  revision: number;
+};
+
+/** What an agent session reads when it has no row: nothing, a person asked. */
+export const GITHUB_POLICY_CLOSED: AgentGitHub = {
+  repositories: [],
+  push_approval: true,
+  features: {
+    workflows: false,
+    actions: false,
+    checks: false,
+    issues: false,
+    review: false,
+  },
+  actions_allow: [],
+};
+
+export type EffectiveGitHubPolicy = {
+  source: GitHubPolicySource;
+  /**
+   * Null only on a release from before GitHub settings: no list applies and
+   * a person approves each push. Closed is GITHUB_POLICY_CLOSED, never null.
+   */
+  settings: AgentGitHub | "invalid" | null;
+  /** The agent's start repository; a release's is `repository_id`. */
+  startRepositoryId: string | null;
+  agentSettingsRevision: number | null;
+};
+
+/**
+ * The one answer to what GitHub work a session may do (design
+ * profile-github 4.2). Everything that judges a session's GitHub work reads
+ * this: an `agent` session the agent's row now, a `release` session the pin
+ * it started on. A value this image cannot read is "invalid", which every
+ * reader refuses.
+ */
+export function effectiveGitHubPolicy(input: {
+  /** `sessions.github_policy_source`. */
+  source: unknown;
+  /** `policy_pins -> 'github'`. */
+  releasePin: unknown;
+  agentRow: AgentGitHubSettingsRow | null;
+}): EffectiveGitHubPolicy {
+  const unset = { startRepositoryId: null, agentSettingsRevision: null };
+  if (input.source === "release") {
+    if (input.releasePin === null || input.releasePin === undefined) {
+      return { source: "release", settings: null, ...unset };
+    }
+    const pin = agentGitHubSchema.safeParse(input.releasePin);
+    return {
+      source: "release",
+      settings: pin.success ? pin.data : "invalid",
+      ...unset,
+    };
+  }
+  if (input.source !== "agent") {
+    return { source: "agent", settings: "invalid", ...unset };
+  }
+  const { agentRow } = input;
+  if (agentRow === null) {
+    return { source: "agent", settings: GITHUB_POLICY_CLOSED, ...unset };
+  }
+  const settings = agentGitHubSettingsSchema.safeParse({
+    repositories: agentRow.repositories,
+    push_approval: agentRow.pushApproval,
+    features: agentRow.features,
+    actions_allow: agentRow.actionsAllow,
+  });
+  return settings.success
+    ? {
+        source: "agent",
+        settings: settings.data,
+        startRepositoryId: agentRow.startRepositoryId,
+        agentSettingsRevision: agentRow.revision,
+      }
+    : {
+        source: "agent",
+        settings: "invalid",
+        startRepositoryId: null,
+        agentSettingsRevision: agentRow.revision,
+      };
+}
+
+/** The policy a session started now would run on: the agent's row, if any. */
+export function newSessionGitHubPolicy(
+  agentRow: AgentGitHubSettingsRow | null,
+  releasePin: unknown,
+): EffectiveGitHubPolicy {
+  return effectiveGitHubPolicy({
+    source: agentRow === null ? "release" : "agent",
+    releasePin,
+    agentRow,
+  });
+}
+
+/**
  * The tool policy a release runs under, resolved: `per_tool` names every
  * effective tool, plus any MCP tool the card named. `default.mcp` covers the
  * MCP tools a remote server only reveals at run time.

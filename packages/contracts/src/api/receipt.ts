@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { GITHUB_POLICY_SOURCE_VALUES } from "../kollegium/agents.ts";
 import {
   receiptActorSchema,
   resourceRefSchema,
@@ -236,6 +237,20 @@ export const receiptAcceptedResponseSchema = z.object({
   receipt_id: receiptIdSchema,
   receipt_status: receiptStatusSchema,
 });
+
+/**
+ * What the receipt of a session's GitHub work adds to `agent_release_id`:
+ * the policy that decided, which under an `agent` session is not the
+ * release. Absent on receipts from before, which read as `release`.
+ */
+export const githubPolicyReceiptFieldsSchema = z.object({
+  policy_source: z.enum(GITHUB_POLICY_SOURCE_VALUES).optional(),
+  agent_settings_revision: z.number().int().nullable().optional(),
+  workspace_ceiling_revision: z.number().int().nullable().optional(),
+});
+export type GitHubPolicyReceiptFields = z.infer<
+  typeof githubPolicyReceiptFieldsSchema
+>;
 
 export const terminateReceiptResultSchema = z.object({
   execution_gone: z.boolean(),

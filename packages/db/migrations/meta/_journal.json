@@ -981,6 +981,13 @@
       "when": 1793756043009,
       "tag": "0230_pin_by_claim",
       "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1793777433042,
+      "tag": "0231_agent_github_settings",
+      "breakpoints": true
     }
   ]
 }
