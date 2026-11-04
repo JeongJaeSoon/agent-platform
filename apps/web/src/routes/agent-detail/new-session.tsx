@@ -154,6 +154,9 @@ export function NewSessionButton({
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [blank, setBlank] = useState(false);
+  // An answer that never came may still have made the session. Sending the
+  // same key and the same body gets that session back; the release may have
+  // changed by then, and the server hashes the whole body.
   const unanswered = useRef<Attempt | null>(null);
   const create = useMutation<CreateSessionResponse, ApiError, Attempt>({
     mutationFn: ({ key, body }) =>
@@ -164,6 +167,7 @@ export function NewSessionButton({
         }),
       ) as Promise<CreateSessionResponse>,
     onSuccess: async (created) => {
+      unanswered.current = null;
       void queryClient.invalidateQueries({
         ...sessionsQuery(client),
         exact: true,

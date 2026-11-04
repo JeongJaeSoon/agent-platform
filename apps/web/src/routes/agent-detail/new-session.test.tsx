@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { InvalidateQueryFilters } from "@tanstack/react-query";
 import type { ApiClient } from "@werft-ai/client";
 import type {
   AgentDetail,
@@ -341,9 +342,9 @@ describe("이 에이전트로 새 세션", () => {
     const { queryClient } = services;
     const client = withQueryScope({} as ApiClient, SCOPE);
     const invalidate = queryClient.invalidateQueries.bind(queryClient);
-    const invalidated: unknown[] = [];
+    const invalidated: (InvalidateQueryFilters | undefined)[] = [];
     queryClient.invalidateQueries = ((filters) => {
-      invalidated.push(filters?.queryKey);
+      invalidated.push(filters);
       return invalidate(filters);
     }) as typeof queryClient.invalidateQueries;
     const { user, dialog } = await openDialog();
@@ -352,11 +353,15 @@ describe("이 에이전트로 새 세션", () => {
     await waitFor(() =>
       expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
     );
-    expect(invalidated).toContainEqual(sessionsQuery(client).queryKey);
-    expect(invalidated).toContainEqual(waitingSessionsQuery(client).queryKey);
-    expect(invalidated).toContainEqual(
-      agentSessionListsFilter(client).queryKey,
-    );
+    const sent = (key: unknown) =>
+      invalidated.filter(
+        (filters) => JSON.stringify(filters?.queryKey) === JSON.stringify(key),
+      );
+    expect(sent(sessionsQuery(client).queryKey)[0]?.exact).toBe(true);
+    expect(sent(waitingSessionsQuery(client).queryKey)[0]?.exact).toBe(true);
+    // Every agent's list sits under this key, so it must match as a prefix.
+    const lists = agentSessionListsFilter(client);
+    expect(sent(lists.queryKey)).toEqual([lists]);
   });
 
   describe("시작할 수 없는 상태마다 이유가 보인다", () => {
