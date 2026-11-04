@@ -35,6 +35,10 @@
 # EXTRA_VALUES names one more values file, laid over all the others (for example
 # fewer replicas on a laptop).
 #
+# CHART_PACKAGE names a packaged chart (.github/scripts/chart-package.ts) to
+# install instead of the checkout's, with the images its values name: nothing
+# is built. KIND_MODEL stays none.
+#
 # CI pulls nothing from Docker Hub (docs/contributing/ci.md § 서드파티 이미지 미러):
 #   KIND_NODE_IMAGE, REGISTRY_IMAGE  the node and registry images
 #   KIND_IMAGE_MIRROR                prefix the stand-ins' images are pulled
@@ -96,6 +100,10 @@ case "$KIND_MODEL" in
   none | fake | real) ;;
   *) echo "KIND_MODEL must be none, fake or real, not '${KIND_MODEL}'" >&2; exit 1 ;;
 esac
+if [ -n "${CHART_PACKAGE:-}" ] && [ "$KIND_MODEL" != none ]; then
+  echo "CHART_PACKAGE needs KIND_MODEL=none: a session needs the images this script builds" >&2
+  exit 1
+fi
 # It goes into a sed replacement below.
 if ! [[ "${KIND_IMAGE_MIRROR:-}" =~ ^[a-z0-9./:-]*$ ]]; then
   echo "KIND_IMAGE_MIRROR must be a registry path, not '${KIND_IMAGE_MIRROR}'" >&2
@@ -165,9 +173,20 @@ publish() {
   docker push -q "$ref" >/dev/null || return
   docker inspect --format '{{index .RepoDigests 0}}' "$ref" | sed 's/.*@//'
 }
-control_host_digest="$(publish control-host)"
-egress_proxy_digest="$(publish egress-proxy)"
-worker_digest="$(publish worker)"
+image_values=()
+if [ -z "${CHART_PACKAGE:-}" ]; then
+  control_host_digest="$(publish control-host)"
+  egress_proxy_digest="$(publish egress-proxy)"
+  worker_digest="$(publish worker)"
+  image_values=(
+    --set "images.controlHost.repository=${image_repo}-control-host"
+    --set "images.controlHost.digest=${control_host_digest}"
+    --set "images.egressProxy.repository=${image_repo}-egress-proxy"
+    --set "images.egressProxy.digest=${egress_proxy_digest}"
+    --set "images.worker.repository=${image_repo}-worker"
+    --set "images.worker.digest=${worker_digest}"
+  )
+fi
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "$NAMESPACE" create configmap localstack-init \
@@ -244,17 +263,12 @@ chart="$root/deploy/helm/agent-platform"
 chart_name="$(sed -n 's/^name: //p' "$chart/Chart.yaml")"
 
 # Helm waits for the migrate hook, and the rollouts below for the rest.
-helm upgrade --install "$RELEASE" "$chart" \
+helm upgrade --install "$RELEASE" "${CHART_PACKAGE:-$chart}" \
   --namespace "$NAMESPACE" \
   "${values[@]}" \
   ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
   --set "secrets.name=werft" \
-  --set "images.controlHost.repository=${image_repo}-control-host" \
-  --set "images.controlHost.digest=${control_host_digest}" \
-  --set "images.egressProxy.repository=${image_repo}-egress-proxy" \
-  --set "images.egressProxy.digest=${egress_proxy_digest}" \
-  --set "images.worker.repository=${image_repo}-worker" \
-  --set "images.worker.digest=${worker_digest}" \
+  ${image_values[@]+"${image_values[@]}"} \
   --timeout 10m
 
 fullname="$RELEASE"
