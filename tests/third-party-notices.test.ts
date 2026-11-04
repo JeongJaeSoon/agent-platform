@@ -498,23 +498,115 @@ describe("Debian corresponding source", () => {
     ]);
   });
 
-  test("no budget asks about every source, four at a time", async () => {
-    let running = 0;
-    let most = 0;
+  const sources = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      source: `source-${index}`,
+      version: "1",
+    }));
+  const noPause = async () => {};
+
+  test("what stays unanswered is asked again until it answers", async () => {
+    const asked: string[] = [];
+    let pauses = 0;
     const answers = await snapshotAnswers(
-      Array.from({ length: 9 }, (_, index) => ({
-        source: `source-${index}`,
-        version: "1",
-      })),
-      undefined,
+      sources(3),
+      60_000,
+      async (source) => {
+        asked.push(source);
+        return source === "source-1" && asked.length < 6
+          ? "unreachable"
+          : "held";
+      },
       async () => {
-        running += 1;
-        most = Math.max(most, running);
-        await Bun.sleep(1);
-        running -= 1;
-        return "held";
+        pauses += 1;
       },
     );
+    expect(answers).toEqual(["held", "held", "held"]);
+    expect(asked).toEqual([
+      "source-0",
+      "source-1",
+      "source-2",
+      "source-1",
+      "source-1",
+      "source-1",
+    ]);
+    expect(pauses).toBe(3);
+  });
+
+  test("a held source is not asked again, and one no is not believed", async () => {
+    const counts = new Map<string, number>();
+    const answers = await snapshotAnswers(
+      sources(2),
+      60_000,
+      async (source) => {
+        const count = (counts.get(source) ?? 0) + 1;
+        counts.set(source, count);
+        if (source === "source-0") return "held";
+        return count === 1 ? "missing" : "held";
+      },
+      noPause,
+    );
+    expect(answers).toEqual(["held", "held"]);
+    expect(counts.get("source-0")).toBe(1);
+    expect(counts.get("source-1")).toBe(2);
+  });
+
+  test("a second no ends the asking, and silence does not erase a no", async () => {
+    const denied = new Map<string, number>();
+    const answers = await snapshotAnswers(
+      sources(2),
+      30,
+      async (source) => {
+        await Bun.sleep(1);
+        const count = (denied.get(source) ?? 0) + 1;
+        denied.set(source, count);
+        if (source === "source-0") return "missing";
+        return count === 1 ? "missing" : "unreachable";
+      },
+      noPause,
+    );
+    expect(answers).toEqual(["missing", "missing"]);
+    expect(denied.get("source-0")).toBe(2);
+    expect(denied.get("source-1")).toBeGreaterThan(2);
+  });
+
+  test("a budget that runs out with a no reports the no", async () => {
+    const answers = await snapshotAnswers(
+      sources(2),
+      5,
+      async (source) => {
+        await Bun.sleep(10);
+        return source === "source-0" ? "missing" : "unreachable";
+      },
+      noPause,
+    );
+    expect(answers).toEqual(["missing", "unreachable"]);
+  });
+
+  test("a request never outlives the budget", async () => {
+    const timeouts: number[] = [];
+    await snapshotAnswers(
+      sources(1),
+      1000,
+      async (_, __, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        return "held";
+      },
+      noPause,
+    );
+    expect(timeouts[0]).toBeLessThanOrEqual(1000);
+  });
+
+  test("the first pass asks about every source, four at a time", async () => {
+    let running = 0;
+    let most = 0;
+    const answers = await snapshotAnswers(sources(9), 60_000, async () => {
+      running += 1;
+      most = Math.max(most, running);
+      await Bun.sleep(1);
+      running -= 1;
+      return "held";
+    });
     expect(answers).toEqual(Array(9).fill("held"));
     expect(most).toBe(4);
   });
@@ -526,9 +618,10 @@ describe("Debian corresponding source", () => {
         { env: { PATH: process.env.PATH ?? "" } },
       ).exitCode;
     const listed = join(root, "README.md");
-    expect(check("--snapshot-check", listed)).toBe(2);
-    expect(check("--snapshot-check", listed, "nonsense")).toBe(2);
-    expect(check("--snapshot-check", listed, "0")).toBe(2);
+    expect(check("--snapshot-check", "240")).toBe(2);
+    expect(check("--snapshot-check", "240", listed)).toBe(2);
+    expect(check("--snapshot-check", "nonsense", listed)).toBe(2);
+    expect(check("--snapshot-check", "0", listed)).toBe(2);
   });
 
   test("GPL-family mentions in a copyright file", () => {

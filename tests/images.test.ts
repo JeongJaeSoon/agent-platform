@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -806,6 +807,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       environment?: string;
       concurrency?: { group: string; "cancel-in-progress": boolean };
       permissions?: Record<string, string>;
+      "runs-on"?: string;
+      "timeout-minutes"?: number;
+      strategy?: { matrix: { app: string[]; arch: string[] } };
       steps: Step[];
     };
     const text = read(".github/workflows/images.yml");
@@ -843,6 +847,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(writers.sort()).toEqual([
         "chart-publish",
         "chart-publish-main",
+        "index",
+        "index-main",
         "promote",
         "promote-main",
         "publish",
@@ -852,13 +858,64 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(".github/scripts/image-smoke.sh");
     });
 
+    test("every image builds and publishes on a runner of each arch", () => {
+      const runner = expression(
+        "matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'",
+      );
+      for (const name of ["build", "publish", "publish-main"]) {
+        const job = jobs[name];
+        expect(job?.strategy?.matrix).toEqual({
+          app: ["control-host", "worker", "egress-proxy"],
+          arch: ["amd64", "arm64"],
+        });
+        expect(job?.["runs-on"]).toBe(runner);
+        const build = job?.steps.find((step) =>
+          step.uses?.startsWith("docker/build-push-action@"),
+        );
+        expect(build?.with?.platforms).toBe(
+          `linux/${expression("matrix.arch")}`,
+        );
+        // One scope per arch, or each build evicts the other's layers.
+        expect(build?.with?.["cache-from"]).toBe(
+          `type=gha,scope=images-${expression("matrix.app")}-${expression("matrix.arch")}`,
+        );
+      }
+    });
+
+    test("nothing of one arch overwrites the other's", () => {
+      const perArch = `${expression("matrix.app")}-${expression("matrix.arch")}`;
+      const uploads = (job: Job | undefined) =>
+        (job?.steps ?? [])
+          .filter((step) => step.uses?.startsWith("actions/upload-artifact@"))
+          .map((step) => [step.with?.name, step.with?.path]);
+      expect(uploads(jobs.build)).toEqual([
+        [`vulnerabilities-${perArch}`, `vulnerabilities/${perArch}.*`],
+        [`image-digest-${perArch}`, `digests/${perArch}.json`],
+      ]);
+      expect(uploads(jobs.publish)).toEqual([
+        [`arch-digest-${perArch}`, `arch-staged/${perArch}.json`],
+        [`debian-sources-${perArch}`, `debian-sources/${perArch}.md`],
+      ]);
+      expect(runsOf(jobs.publish)).toContain(
+        "staging=$" +
+          "{name}:staging-$" +
+          "{GITHUB_RUN_ID}-$" +
+          "{GITHUB_RUN_ATTEMPT}-$" +
+          '{ARCH}"',
+      );
+    });
+
     test.each([
       [
         "push",
         "refs/heads/main",
-        ["chart-publish-main", "promote-main", "publish-main"],
+        ["chart-publish-main", "index-main", "promote-main", "publish-main"],
       ],
-      ["push", "refs/tags/v1.2.3", ["chart-publish", "promote", "publish"]],
+      [
+        "push",
+        "refs/tags/v1.2.3",
+        ["chart-publish", "index", "promote", "publish"],
+      ],
       ["push", "refs/heads/feature", []],
       ["push", "refs/tags/sdk-v0.1.0", []],
       ["pull_request", "refs/pull/1/merge", []],
@@ -878,12 +935,32 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     test("only the tag path waits for the release environment", () => {
-      expect(jobs.publish?.environment).toBe("release");
-      expect(jobs.promote?.environment).toBe("release");
-      expect(jobs["chart-publish"]?.environment).toBe("release");
-      expect(jobs["publish-main"]?.environment).toBeUndefined();
-      expect(jobs["promote-main"]?.environment).toBeUndefined();
-      expect(jobs["chart-publish-main"]?.environment).toBeUndefined();
+      for (const name of ["publish", "index", "promote", "chart-publish"]) {
+        expect(jobs[name]?.environment).toBe("release");
+        expect(jobs[`${name}-main`]?.environment).toBeUndefined();
+      }
+    });
+
+    test("the sources job holds no write, so it needs no approval", () => {
+      for (const name of ["sources", "sources-main"]) {
+        expect(jobs[name]?.permissions).toBeUndefined();
+        expect(jobs[name]?.environment).toBeUndefined();
+      }
+      expect(jobs["sources-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs.sources?.if).toBe(jobs.publish?.if);
+    });
+
+    test.each([
+      ["main", "sources-main"],
+      ["release", "sources"],
+    ])("the %s budget leaves %s time to report an outage", (mode, name) => {
+      const script = read(".github/scripts/image-sources.sh");
+      const budget = Number(
+        new RegExp(`${mode}\\) budget=(\\d+)`).exec(script)?.[1],
+      );
+      const timeout = jobs[name]?.["timeout-minutes"] ?? 0;
+      expect(budget).toBeGreaterThan(0);
+      expect(budget + 300).toBeLessThanOrEqual(timeout * 60);
     });
 
     test("the chart follows its own path's promotion, and installs before it is pushed", () => {
@@ -942,50 +1019,61 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     test("both paths run one list of steps and promote after every image", () => {
-      expect(jobs["publish-main"]?.steps).toEqual(jobs.publish?.steps ?? []);
-      expect(jobs["promote-main"]?.steps).toEqual(jobs.promote?.steps ?? []);
-      expect(jobs.promote?.needs).toBe("publish");
-      expect(jobs["promote-main"]?.needs).toBe("publish-main");
+      for (const name of ["publish", "sources", "index", "promote"]) {
+        expect(jobs[`${name}-main`]?.steps).toEqual(jobs[name]?.steps ?? []);
+      }
+      // A chain per path: one job needing both would be skipped with the path
+      // that did not run, and always() would pass a failed one.
+      expect(jobs.sources?.needs).toBe("publish");
+      expect(jobs.index?.needs).toBe("sources");
+      expect(jobs.promote?.needs).toBe("index");
+      expect(jobs["sources-main"]?.needs).toBe("publish-main");
+      expect(jobs["index-main"]?.needs).toBe("sources-main");
+      expect(jobs["promote-main"]?.needs).toBe("index-main");
       const publish = runsOf(jobs.publish);
       expect(publish).toContain("git merge-base --is-ancestor");
       expect(publish).toContain(
         'image-smoke.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
       );
-      // Only the digest going out needs its sources on record.
       expect(publish).toContain(
-        'image-licenses.sh "$APP" "$' +
+        'image-licenses.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
+      );
+      expect(publish).toContain(
+        'image-scan.sh "$' +
+          "{APP}-$" +
+          '{ARCH}" "$' +
           "{NAME}@$" +
-          '{DIGEST}" "$LICENSE_MODE"',
+          '{DIGEST}"',
       );
       expect(runsOf(jobs.build)).toContain(
-        'image-licenses.sh "$APP" "$' +
-          "{NAME}:sha-$" +
-          '{GITHUB_SHA::12}" "$LICENSE_MODE"',
+        'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"',
       );
-      const licenseMode = (job: Job | undefined) =>
-        job?.steps.flatMap((step) => step.env?.LICENSE_MODE ?? []);
       // Shared steps: the tag path stays strict by the ref, not by the job.
-      expect(licenseMode(jobs.publish)).toEqual([
-        expression(
-          "github.ref == 'refs/heads/main' && 'publish-main' || 'publish'",
-        ),
+      expect(
+        jobs.sources?.steps.flatMap((step) => step.env?.SOURCES_MODE ?? []),
+      ).toEqual([
+        expression("github.ref == 'refs/heads/main' && 'main' || 'release'"),
       ]);
-      expect(licenseMode(jobs.build)).toEqual([
-        expression(
-          "github.event_name == 'push' && github.ref == 'refs/heads/main' && 'skip-snapshot' || 'build'",
-        ),
-      ]);
+      expect(runsOf(jobs.sources)).toContain(
+        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"',
+      );
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
       ).toEqual([true]);
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.tags ?? []),
       ).toEqual([expression("steps.meta.outputs.staging")]);
+      expect(runsOf(jobs.index)).toContain(
+        "image-index.sh arch-staged unverified-sources staged",
+      );
       expect(runsOf(jobs.promote)).toContain("image-promote.sh staged digests");
       // The digests of a run, for whatever reads them next.
       expect(
+        jobs.index?.steps.flatMap((step) => step.with?.name ?? []),
+      ).toEqual(["unverified-sources", "staged-digests"]);
+      expect(
         jobs.promote?.steps.flatMap((step) => step.with?.name ?? []),
-      ).toEqual(["image-digests-published"]);
+      ).toEqual(["staged-digests", "image-digests-published"]);
     });
 
     test("a later merge neither drops nor interrupts a main commit", () => {
@@ -1340,31 +1428,45 @@ esac
     });
   });
 
-  describe("image-licenses.sh snapshot modes", () => {
-    const urls = [
-      "https://snapshot.debian.org/package/acl/2.3.2-2/",
-      "https://snapshot.debian.org/package/apt/3.0.3/",
-    ];
-    const fakeDocker = `#!/usr/bin/env bash
-case "$*" in
-  *--snapshot-check*)
-    echo "$*" >"$FAKE/check"
-    printf '%b' "$FAKE_STDERR" >&2
-    exit "$FAKE_EXIT"
-    ;;
-esac
+  describe("image-sources.sh", () => {
+    const shared = "https://snapshot.debian.org/package/acl/2.3.2-2/";
+    const workerOnly = "https://snapshot.debian.org/package/gh/1/";
+    const fakeBun = `#!/usr/bin/env bash
+echo "$*" >"$FAKE/check"
+printf '%b' "$FAKE_STDERR" >&2
+exit "$FAKE_EXIT"
 `;
-    const run = (mode: string | undefined, exit: number, stderr = "") => {
-      const directory = mkdtempSync(join(tmpdir(), "image-licenses-"));
+    const lists = ["control-host", "worker", "egress-proxy"].flatMap((app) =>
+      ["amd64", "arm64"].map((arch) => ({ app, arch })),
+    );
+    const run = (
+      mode: string,
+      exit: number,
+      stderr = "",
+      skip?: { app: string; arch: string },
+    ) => {
+      const directory = mkdtempSync(join(tmpdir(), "image-sources-"));
       mkdirSync(join(directory, "bin"));
-      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      mkdirSync(join(directory, "lists"));
+      writeFileSync(join(directory, "bin/bun"), fakeBun, { mode: 0o755 });
+      for (const { app, arch } of lists) {
+        if (skip?.app === app && skip.arch === arch) continue;
+        writeFileSync(
+          join(directory, "lists", `${app}-${arch}.md`),
+          `| acl | 2.3.2-2 | acl |  | ${shared} |\n${
+            app === "worker" && arch === "arm64"
+              ? `| gh | 1 | gh |  | ${workerOnly} |\n`
+              : ""
+          }`,
+        );
+      }
       const result = Bun.spawnSync(
         [
           "bash",
-          join(root, ".github/scripts/image-licenses.sh"),
-          "worker",
-          "image@sha256:a",
-          ...(mode === undefined ? [] : [mode]),
+          join(root, ".github/scripts/image-sources.sh"),
+          "lists",
+          "results",
+          mode,
         ],
         {
           cwd: directory,
@@ -1377,76 +1479,263 @@ esac
           },
         },
       );
-      const listed = join(directory, "unverified-sources/worker.txt");
       const textOf = (path: string) =>
         existsSync(path) ? readFileSync(path, "utf8") : undefined;
+      const listed = (app: string) => {
+        const text = textOf(join(directory, "results", `${app}.json`));
+        return text === undefined ? undefined : JSON.parse(text);
+      };
       return {
         code: result.exitCode,
         out: `${result.stdout.toString()}${result.stderr.toString()}`,
-        listed: textOf(listed),
+        listed,
         summary: textOf(join(directory, "summary")),
         check: textOf(join(directory, "check")),
       };
     };
-    const unreachable = urls.map((url) => `unreachable: ${url}\n`).join("");
+    const unreachable = `unreachable: ${shared}\nunreachable: ${workerOnly}\n`;
 
-    test("a main build goes out without answers, and says which", () => {
-      const result = run("publish-main", 3, unreachable);
-      expect(result.code).toBe(0);
-      expect(result.listed).toBe(`${urls.join("\n")}\n`);
-      expect(result.summary).toContain("2 sources unverified");
-      expect(result.summary).toContain(`- ${urls[0]}`);
-      expect(result.out).toContain("::warning::worker");
-      expect(result.check).toEndWith("/app/DEBIAN_SOURCES.md 240\n");
+    test("every image's list goes to one check", () => {
+      const { check } = run("main", 0);
+      expect(check).toStartWith(
+        "scripts/third-party-notices.ts --snapshot-check 600 lists/control-host-amd64.md lists/control-host-arm64.md ",
+      );
+      expect(check).toEndWith("lists/egress-proxy-arm64.md\n");
+      expect(check?.split(" ").filter((word) => word.endsWith(".md")).length)
+        // The last word ends in a newline.
+        .toBe(5);
     });
 
-    test("a clean main check leaves an empty list, not none", () => {
-      const result = run("publish-main", 0);
+    test("a main build goes out without answers, each image with its own", () => {
+      const result = run("main", 3, unreachable);
       expect(result.code).toBe(0);
-      expect(result.listed).toBe("");
+      expect(result.listed("worker")).toEqual([shared, workerOnly]);
+      expect(result.listed("control-host")).toEqual([shared]);
+      expect(result.summary).toContain("### worker: 2 sources unverified");
+      expect(result.summary).toContain(`- ${workerOnly}`);
+      expect(result.out).toContain("::warning::worker");
+    });
+
+    test("a clean check leaves an empty list per image, not none", () => {
+      const result = run("main", 0);
+      expect(result.code).toBe(0);
+      for (const { app } of lists) expect(result.listed(app)).toEqual([]);
     });
 
     test("a main build stops on a denied source, also among unanswered ones", () => {
       const result = run(
-        "publish-main",
+        "main",
         1,
-        `missing: ${urls[0]}\nunreachable: ${urls[1]}\n`,
+        `missing: ${shared}\nunreachable: ${workerOnly}\n`,
       );
       expect(result.code).toBe(1);
-      expect(result.out).toContain("::error::worker");
+      expect(result.out).toContain("::error::");
+      expect(result.listed("worker")).toBeUndefined();
     });
 
-    test("only exit 3 is forgiven: docker and timeouts are not", () => {
-      for (const exit of [2, 125, 124, 137]) {
-        expect(run("publish-main", exit, unreachable).code).toBe(1);
+    test("only exit 3 is forgiven, and only on main", () => {
+      for (const exit of [2, 124, 137]) {
+        expect(run("main", exit, unreachable).code).toBe(1);
       }
+      const refused = run("release", 3, unreachable);
+      expect(refused.code).toBe(1);
+      expect(refused.listed("worker")).toBeUndefined();
+      const clean = run("release", 0);
+      expect(clean.code).toBe(0);
+      expect(clean.check).toContain("--snapshot-check 1800 ");
+      expect(clean.listed("worker")).toEqual([]);
     });
 
     test("exit 3 with no list stops instead of recording none", () => {
-      expect(run("publish-main", 3).code).toBe(1);
+      expect(run("main", 3).code).toBe(1);
     });
 
-    test("a release needs every answer and has no budget", () => {
-      const refused = run("publish", 3, unreachable);
-      expect(refused.code).toBe(1);
-      const clean = run("publish", 0);
-      expect(clean.code).toBe(0);
-      expect(clean.listed).toBe("");
-      expect(clean.check).toEndWith("/app/DEBIAN_SOURCES.md\n");
-    });
-
-    test("a build only warns, and a main push build does not ask", () => {
-      const build = run(undefined, 1);
-      expect(build.code).toBe(0);
-      expect(build.out).toContain("::warning::worker");
-      expect(build.listed).toBeUndefined();
-      const skipped = run("skip-snapshot", 1);
-      expect(skipped.code).toBe(0);
-      expect(skipped.check).toBeUndefined();
+    test("a list that did not arrive stops before anything is asked", () => {
+      const result = run("main", 0, "", { app: "worker", arch: "arm64" });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("no source list for worker on arm64");
+      expect(result.check).toBeUndefined();
     });
 
     test("an unknown mode is refused", () => {
-      expect(run("publish-mian", 0).code).toBe(2);
+      expect(run("relaese", 0).code).toBe(2);
+    });
+  });
+
+  describe("image-index.sh", () => {
+    const apps3 = ["control-host", "worker", "egress-proxy"];
+    const imageOf = (app: string) => `ghcr.io/o/werft-${app}`;
+    const child = (app: string, arch: string) => `sha256:${arch}-${app}`;
+    const indexOf = (app: string) => `sha256:index-${app}`;
+
+    // `create` logs its arguments; the index it writes names what it was given
+    // unless FAKE_MANIFESTS says otherwise.
+    const fakeDocker = `#!/usr/bin/env bash
+set -euo pipefail
+case "$3" in
+  create)
+    echo "\${*:4}" >>"$FAKE/creates"
+    [ -z "\${FAKE_CREATE_FAILS:-}" ] || exit 1
+    ;;
+  inspect)
+    case "$4" in
+      --raw)
+        app="$5"; app="\${app#*werft-}"; app="\${app%@*}"
+        printf '%s' "\${FAKE_MANIFESTS:-[[\\"amd64\\",\\"sha256:amd64-$app\\"],[\\"arm64\\",\\"sha256:arm64-$app\\"]]}" |
+          jq '{manifests: map({platform: {os: "linux", architecture: .[0]}, digest: .[1]})}'
+        ;;
+      *)
+        app="$4"; app="\${app#*werft-}"; app="\${app%:*}"
+        printf '"sha256:index-%s"\\n' "$app"
+        ;;
+    esac
+    ;;
+  *) exit 64 ;;
+esac
+`;
+    const run = (
+      env: Record<string, string> = {},
+      change?: (directory: string) => void,
+    ) => {
+      const directory = mkdtempSync(join(tmpdir(), "image-index-"));
+      mkdirSync(join(directory, "bin"));
+      mkdirSync(join(directory, "arches"));
+      mkdirSync(join(directory, "unverified"));
+      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      for (const app of apps3) {
+        for (const arch of ["amd64", "arm64"]) {
+          writeFileSync(
+            join(directory, "arches", `${app}-${arch}.json`),
+            JSON.stringify({
+              app,
+              arch,
+              image: imageOf(app),
+              base: "bun",
+              commit: "abc",
+              ref: "refs/heads/main",
+              promoted: false,
+              digest: child(app, arch),
+              imageId: `sha256:config-${arch}`,
+              runtime: app === "worker" ? { engine: "claude" } : null,
+            }),
+          );
+        }
+        writeFileSync(
+          join(directory, "unverified", `${app}.json`),
+          app === "worker" ? '["https://snapshot/a/"]' : "[]",
+        );
+      }
+      change?.(directory);
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(root, ".github/scripts/image-index.sh"),
+          join(directory, "arches"),
+          join(directory, "unverified"),
+          join(directory, "staged"),
+        ],
+        {
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            GITHUB_RUN_ID: "7",
+            GITHUB_RUN_ATTEMPT: "1",
+            ...env,
+          },
+        },
+      );
+      const stagedFile = (app: string) =>
+        join(directory, "staged", `${app}.json`);
+      const creates = join(directory, "creates");
+      return {
+        code: result.exitCode,
+        out: `${result.stdout.toString()}${result.stderr.toString()}`,
+        record: (app: string) =>
+          JSON.parse(readFileSync(stagedFile(app), "utf8")),
+        hasRecord: (app: string) => existsSync(stagedFile(app)),
+        creates: existsSync(creates) ? readFileSync(creates, "utf8") : "",
+      };
+    };
+
+    test("each image gets one index on its staging tag, amd64 first", () => {
+      const result = run();
+      expect(result.code).toBe(0);
+      for (const app of apps3) {
+        expect(result.creates).toContain(
+          `-t ${imageOf(app)}:staging-7-1 ${imageOf(app)}@${child(app, "amd64")} ${imageOf(app)}@${child(app, "arm64")}\n`,
+        );
+      }
+    });
+
+    test("the record promote reads names the index and keeps each arch", () => {
+      const record = run().record("worker");
+      expect(record).toEqual({
+        app: "worker",
+        image: imageOf("worker"),
+        base: "bun",
+        commit: "abc",
+        ref: "refs/heads/main",
+        promoted: false,
+        digest: indexOf("worker"),
+        runtime: { engine: "claude" },
+        platforms: {
+          amd64: {
+            digest: child("worker", "amd64"),
+            imageId: "sha256:config-amd64",
+          },
+          arm64: {
+            digest: child("worker", "arm64"),
+            imageId: "sha256:config-arm64",
+          },
+        },
+        unverifiedSources: ["https://snapshot/a/"],
+      });
+    });
+
+    test.each([
+      ["a digest that is not the smoked one", '[["amd64","sha256:other"]]'],
+      [
+        "a third platform",
+        '[["amd64","sha256:amd64-control-host"],["arm64","sha256:arm64-control-host"],["riscv64","sha256:r"]]',
+      ],
+    ])("an index with %s is not staged", (_, manifests) => {
+      const result = run({ FAKE_MANIFESTS: manifests });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("expected");
+      expect(result.hasRecord("control-host")).toBe(false);
+    });
+
+    test("two arches of different builds are not joined", () => {
+      const result = run({}, (directory) => {
+        const path = join(directory, "arches/worker-arm64.json");
+        const record = JSON.parse(readFileSync(path, "utf8"));
+        writeFileSync(
+          path,
+          JSON.stringify({ ...record, runtime: { engine: "other" } }),
+        );
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("worker: amd64 and arm64 differ in runtime");
+      expect(result.creates).not.toContain("werft-worker");
+    });
+
+    test("a missing arch or source list stops it", () => {
+      const noArch = run({}, (directory) =>
+        rmSync(join(directory, "arches/egress-proxy-arm64.json")),
+      );
+      expect(noArch.code).not.toBe(0);
+      expect(noArch.creates).toBe("");
+      const noList = run({}, (directory) =>
+        rmSync(join(directory, "unverified/worker.json")),
+      );
+      expect(noList.code).toBe(1);
+      expect(noList.out).toContain("worker.json is missing");
+    });
+
+    test("a failed create stages nothing", () => {
+      const result = run({ FAKE_CREATE_FAILS: "1" });
+      expect(result.code).toBe(1);
+      expect(result.hasRecord("control-host")).toBe(false);
     });
   });
 

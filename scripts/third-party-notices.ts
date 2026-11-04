@@ -580,7 +580,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     `### Bun ${base.bun} (\`/usr/local/bin/bun\`)`,
     "",
     `- **라이선스.** Bun 자체는 MIT다. 함께 링크된 라이브러리와 각각의 라이선스는 https://github.com/oven-sh/bun/blob/${tag}/LICENSE.md 에 있다. 이미지에는 Oven이 배포한 실행 파일이 수정 없이 들어 있다.`,
-    `- **빌드.** oven-sh/bun commit \`${build?.revision ?? UNREVIEWED}\`(\`bun --revision\`)이다. images.yml이 빌드한 이미지(linux/amd64)마다 이 값을 확인한다.`,
+    `- **빌드.** oven-sh/bun commit \`${build?.revision ?? UNREVIEWED}\`(\`bun --revision\`)이다. images.yml이 빌드한 이미지(linux/amd64, linux/arm64)마다 이 값을 확인한다.`,
     "- **LGPL-2.1 구성요소.** Bun은 아래 라이브러리를 정적으로 링크한다. LGPL-2.1 전문은 이미지 안 `/usr/share/common-licenses/LGPL-2.1`에 있다.",
     `  - JavaScriptCore·WebCore(WebKit): https://github.com/oven-sh/WebKit/tree/${build?.webkit ?? UNREVIEWED}`,
     `  - TinyCC: https://github.com/oven-sh/tinycc/tree/${build?.tinycc ?? UNREVIEWED}`,
@@ -589,7 +589,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "### Debian 패키지와 대응 소스",
     "",
     "- **라이선스.** 각 패키지의 저작권 표시와 라이선스 조건은 이미지 안 `/usr/share/doc/<패키지>/copyright`에 있다. GPL·LGPL·Apache-2.0처럼 여러 패키지가 쓰는 라이선스는 이 파일이 전문 대신 `/usr/share/common-licenses/`의 사본을 가리킨다. images.yml이 빌드한 이미지마다 설치된 모든 패키지에 copyright 파일이 있는지 확인한다.",
-    "- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지, snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. snapshot에 없는 소스는 PR·main·매일 실행에서 경고이고, 릴리스(tag)에서는 실패다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.",
+    "- **대응 소스.** 이미지마다 `/app/DEBIAN_SOURCES.md`가 설치된 모든 Debian 패키지의 source package 이름과 정확한 버전, 그 소스가 보관된 https://snapshot.debian.org/ 주소를 적는다. GPL·LGPL 패키지도 모두 여기에 들어 있다. 이 목록은 빌드할 때 그 이미지의 dpkg 데이터베이스에서 만든다(`bun scripts/third-party-notices.ts --debian-sources`). images.yml은 빌드한 이미지마다 목록이 실제 설치 상태와 같은지 확인하고, 게시할 때 snapshot.debian.org가 각 소스를 실제로 갖고 있는지 확인한다. 없다고 답한 소스가 있으면 게시하지 않는다. 답을 받지 못한 소스는 main 게시에서 경고로 남고, 릴리스(tag)에서는 게시를 막는다. `apt-get upgrade` 때문에 빌드마다 버전이 달라질 수 있어, 목록은 저장소가 아니라 이미지에 둔다.",
     "- **Dockerfile이 추가로 설치하는 Debian 패키지.** control-host는 ca-certificates(MPL-2.0·GPL-2.0+)·git(GPL-2.0)·tini(MIT), worker는 ca-certificates·git·tini·xfsprogs(GPL-2.0·LGPL-2.1)다. egress-proxy는 추가 패키지가 없다.",
     "",
     `### Git LFS ${GIT_LFS_VERSION} (worker, \`/usr/local/bin/git-lfs\`)`,
@@ -612,7 +612,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
       "",
       `- **권리와 조건.** \`${AGENT_SDK}@${sdk.version}\`과 그 플랫폼 빌드가 싣는 \`claude\` 실행 파일은 오픈소스가 아니다. © Anthropic PBC. All rights reserved. 이용 조건은 Anthropic Commercial Terms of Service(https://www.anthropic.com/legal/commercial-terms)와 Claude Code 법률 고지(https://code.claude.com/docs/en/legal-and-compliance)를 따른다.`,
       "- **싣는 방식.** Anthropic이 npm에 게시한 실행 파일을 수정하지 않고 그대로 싣는다. musl 빌드만 이미지에서 뺀다.",
-      `- **내장 런타임.** 이 실행 파일은 Bun ${embedded} 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64)마다 실행 파일 안의 \`Bun v<버전>\` 표시로 이 버전을 확인한다.`,
+      `- **내장 런타임.** 이 실행 파일은 Bun ${embedded} 런타임을 내장한다. 따라서 JavaScriptCore(LGPL-2.1)도 정적으로 링크되어 있다. images.yml이 worker 이미지(linux/amd64, linux/arm64)마다 실행 파일 안의 \`Bun v<버전>\` 표시로 이 버전을 확인한다.`,
     );
   }
   return `${lines.join("\n")}\n`;
@@ -960,61 +960,100 @@ export function parseDebianSources(
 
 type SnapshotAnswer = "held" | "missing" | "unreachable";
 
+const SNAPSHOT_REQUEST_MS = 30_000;
+const SNAPSHOT_ROUND_PAUSE_MS = [15_000, 30_000, 60_000];
+// One "no" can come from a service mid-outage; a release fails on it.
+const SNAPSHOT_DENIALS_TO_BELIEVE = 2;
+
 /**
  * Whether snapshot.debian.org holds a source package version, by its
- * machine-readable srcfiles listing: 404 is a definite no, anything else that
- * is not a listing is no answer.
+ * machine-readable srcfiles listing: 404 or an empty listing says no, anything
+ * else that is not a listing is no answer.
  */
 async function snapshotHolds(
   source: string,
   version: string,
+  timeoutMs: number,
 ): Promise<SnapshotAnswer> {
   const url = `https://snapshot.debian.org/mr/package/${encodeURIComponent(source)}/${encodeURIComponent(version)}/srcfiles`;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (response.status === 404) return "missing";
-      if (response.ok) {
-        const body = (await response.json()) as { result?: unknown[] };
-        return (body.result?.length ?? 0) > 0 ? "held" : "missing";
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (response.status === 404) return "missing";
+    if (response.ok) {
+      const { result } = (await response.json()) as { result?: unknown };
+      if (Array.isArray(result)) {
+        return result.length > 0 ? "held" : "missing";
       }
-    } catch {
-      // No answer; try once more.
     }
+  } catch {
+    // No answer; the next round asks again.
   }
   return "unreachable";
 }
 
 /**
- * The answer for each wanted source, a few at a time: snapshot.debian.org is a
- * volunteer service. Past `budgetMs` the remaining sources count as unreachable
- * without being asked, so an outage ends with an answer and not a job timeout.
+ * The answer for each wanted source, four at a time: snapshot.debian.org is a
+ * volunteer service that sheds load with 503s and 504s. What stays open is
+ * asked again in later rounds until `budgetMs` runs out, so an outage ends with
+ * an answer and not a job timeout. A later `held` overrides a denial, and a
+ * later silence does not erase one.
  */
 export async function snapshotAnswers(
   wanted: { source: string; version: string }[],
-  budgetMs = Number.POSITIVE_INFINITY,
+  budgetMs: number,
   holds: typeof snapshotHolds = snapshotHolds,
+  pause: (ms: number) => Promise<unknown> = Bun.sleep,
 ): Promise<SnapshotAnswer[]> {
   const deadline = Date.now() + budgetMs;
-  const answers: SnapshotAnswer[] = [];
-  for (let at = 0; at < wanted.length; at += 4) {
-    const batch = wanted.slice(at, at + 4);
-    const results =
-      Date.now() < deadline
-        ? await Promise.all(
-            batch.map(({ source, version }) => holds(source, version)),
-          )
-        : batch.map((): SnapshotAnswer => "unreachable");
-    results.forEach((answer, index) => {
-      const { source, version } = batch[index] as (typeof batch)[number];
-      if (answer !== "held") {
-        console.error(`${answer}: ${snapshotUrl(source, version)}`);
-      }
-    });
-    answers.push(...results);
+  const answers = wanted.map((): SnapshotAnswer => "unreachable");
+  const denials = wanted.map(() => 0);
+  const open = () =>
+    wanted.flatMap((_, index) =>
+      answers[index] !== "held" &&
+      (denials[index] as number) < SNAPSHOT_DENIALS_TO_BELIEVE
+        ? [index]
+        : [],
+    );
+  for (let round = 0; ; round += 1) {
+    const asking = open();
+    for (let at = 0; at < asking.length; at += 4) {
+      const left = deadline - Date.now();
+      if (left <= 0) break;
+      const batch = asking.slice(at, at + 4);
+      const results = await Promise.all(
+        batch.map((index) => {
+          const { source, version } = wanted[index] as (typeof wanted)[number];
+          return holds(source, version, Math.min(SNAPSHOT_REQUEST_MS, left));
+        }),
+      );
+      results.forEach((answer, position) => {
+        const index = batch[position] as number;
+        if (answer === "unreachable") return;
+        answers[index] = answer;
+        if (answer === "missing") {
+          denials[index] = (denials[index] as number) + 1;
+        }
+      });
+    }
+    const unanswered = open().length;
+    const left = deadline - Date.now();
+    console.log(`round ${round + 1}: ${unanswered} sources still open`);
+    if (unanswered === 0 || left <= 0) break;
+    await pause(
+      Math.min(
+        SNAPSHOT_ROUND_PAUSE_MS[round] ??
+          (SNAPSHOT_ROUND_PAUSE_MS.at(-1) as number),
+        left,
+      ),
+    );
   }
+  answers.forEach((answer, index) => {
+    if (answer === "held") return;
+    const { source, version } = wanted[index] as (typeof wanted)[number];
+    console.error(`${answer}: ${snapshotUrl(source, version)}`);
+  });
   return answers;
 }
 
@@ -1155,31 +1194,34 @@ async function main(argv: string[]): Promise<number> {
   }
 
   // Exit 1 when snapshot.debian.org lacks a listed source, 3 when it did not
-  // answer for one; image-licenses.sh decides what either means for a build.
+  // answer for one; image-sources.sh decides what either means for a publish.
   if (mode === "--snapshot-check") {
-    const [file, budget] = rest;
-    const budgetSeconds = budget === undefined ? undefined : Number(budget);
-    if (
-      file === undefined ||
-      (budgetSeconds !== undefined && !(budgetSeconds > 0))
-    ) {
+    const [budget, ...files] = rest;
+    const budgetSeconds = Number(budget);
+    if (files.length === 0 || !(budgetSeconds > 0)) {
       console.error(
-        "usage: third-party-notices.ts --snapshot-check <file> [budget seconds]",
+        "usage: third-party-notices.ts --snapshot-check <budget seconds> <file>...",
       );
       return 2;
     }
-    const wanted = parseDebianSources(readFileSync(file, "utf8"));
-    if (wanted.length === 0) {
-      console.error(`no sources listed in ${file}`);
-      return 2;
+    const wanted = new Map<string, { source: string; version: string }>();
+    for (const file of files) {
+      const listed = parseDebianSources(readFileSync(file, "utf8"));
+      if (listed.length === 0) {
+        console.error(`no sources listed in ${file}`);
+        return 2;
+      }
+      for (const entry of listed) {
+        wanted.set(`${entry.source} ${entry.version}`, entry);
+      }
     }
     const answers = await snapshotAnswers(
-      wanted,
-      budgetSeconds === undefined ? undefined : budgetSeconds * 1000,
+      [...wanted.values()],
+      budgetSeconds * 1000,
     );
     const held = answers.filter((answer) => answer === "held").length;
     console.log(
-      `snapshot.debian.org holds ${held} of ${wanted.length} sources in ${file}`,
+      `snapshot.debian.org holds ${held} of ${wanted.size} sources in ${files.length} lists`,
     );
     if (answers.includes("missing")) return 1;
     return answers.includes("unreachable") ? 3 : 0;

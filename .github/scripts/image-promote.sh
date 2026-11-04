@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Retags a run's staged digests: `image-promote.sh <staged dir> <published dir>`.
 #
-# <staged dir> holds one JSON per image from the publish job. Which tags are
+# <staged dir> holds one JSON per image from the index job, its digest a
+# multi-arch index. Which tags are
 # written depends on what the run was started by, so a main run can never
 # write a version or sha tag. A tag that already names a different digest fails
 # the promotion before any tag is written, so one tag never mixes images from
 # two build attempts. A half-promoted set (failure between repositories) is
-# completed with "Re-run failed jobs" on the same run while its staged-digest
-# artifacts still exist: the publish jobs are not rerun, and the tags written
-# before the failure name exactly those digests. A full rerun builds again (the
+# completed with "Re-run failed jobs" on the same run while its staged-digests
+# artifact still exists: the publish and index jobs are not rerun, and the tags
+# written before the failure name exactly those digests. A full rerun builds again (the
 # apt layer is not pinned) and is refused by design. The lookup fails closed:
 # only a confirmed "not found" counts as absent. After tagging, every reference
 # is read back and must name its candidate before <published dir> is written.
@@ -73,10 +74,10 @@ for file in "$staged"/*.json; do
   for tag in "${tags[@]}"; do
     targets+=(-t "${name}:${tag}")
   done
-  # The staged image is a single manifest (provenance off); without
-  # --prefer-index=false buildx wraps it in a new index, the tag gets a digest
-  # the readback below would reject, and the written tag then blocks every
-  # rerun. Verified against registry:2.
+  # --prefer-index=false: a copy, never a new index around the source, whose
+  # digest the readback below would reject and whose tag would block every
+  # rerun. An index source is copied as it is either way; verified against
+  # registry:2, as was the wrapping of a single manifest without the flag.
   docker buildx imagetools create --prefer-index=false "${targets[@]}" "${name}@${digest}"
 done
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Known vulnerabilities in one app image
-# `image-scan.sh <app> <image ref> <result dir>`.
+# Known vulnerabilities in one app image, on a runner of its architecture:
+# `image-scan.sh <app>-<arch> <image ref> <result dir>`.
 #
 # Grype over the whole image: Debian packages and the npm packages under
 # /app. A release binary pinned by version and checksum rather than a
 # third-party action, whose tags can be moved under us. The log gets the
 # unfiltered table. High and critical findings go to the step summary and to
-# <result dir>/<app>.json, split by whether a fix is available; only the
+# <result dir>/<app>-<arch>.json, split by whether a fix is available; only the
 # fixable ones that .github/vulnerability-exceptions.json does not cover
-# count, and <result dir>/<app>.txt says `clean` or `found <n>`.
+# count, and <result dir>/<app>-<arch>.txt says `clean` or `found <n>`.
 #
 # Findings never fail this script: whether they fail anything is the
 # caller's policy (the `supply-chain` job and `publish` in images.yml). A
@@ -22,15 +22,29 @@ results="$3"
 exceptions="$(dirname "$0")/../vulnerability-exceptions.json"
 
 GRYPE_VERSION=0.119.0
-GRYPE_SHA256=3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
 
 mkdir -p "$results"
 result=error
 work="$(mktemp -d)"
 trap 'echo "$result" >"${results}/${app}.txt"; rm -rf "$work"' EXIT
 
+case "$(uname -m)" in
+  x86_64)
+    GRYPE_ARCH=amd64
+    GRYPE_SHA256=3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
+    ;;
+  aarch64)
+    GRYPE_ARCH=arm64
+    GRYPE_SHA256=29f0ec7c549ddb0e2b6a0ca714851f7399438afc399b80c12808e065edc9a8f8
+    ;;
+  *)
+    echo "::error::no grype pinned for $(uname -m)"
+    exit 1
+    ;;
+esac
+
 curl -fsSL --retry 3 -o "${work}/grype.tar.gz" \
-  "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+  "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${GRYPE_ARCH}.tar.gz"
 (cd "$work" && echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c - && tar -xzf grype.tar.gz grype)
 
 # Grype refuses a database older than five days on its own, so a stale one

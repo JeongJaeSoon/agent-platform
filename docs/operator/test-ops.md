@@ -42,7 +42,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 
 | 항목 | 요구 | 확인 |
 |---|---|---|
-| OS | Linux(x86_64 또는 arm64). Dockerfile은 두 아키텍처를 모두 빌드하므로 직접 빌드는 둘 다 된다. 게시 코드는 `linux/amd64` 이미지만 만든다 | |
+| OS | Linux(x86_64 또는 arm64). 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담는다. Dockerfile도 두 아키텍처를 모두 빌드한다 | |
 | Docker Engine | 28 이상. worker 네트워크가 `gateway_mode_ipv4=isolated`를 쓴다 | `preflight`가 거부한다 |
 | docker compose | v2.24.6 이상. 복원 훈련의 overlay가 include 위에 얹힌다 | `preflight`가 거부한다 |
 | 디스크 | Docker 데이터 루트가 xfs이고 `prjquota`로 마운트돼 있어야 한다. worker workspace volume에 용량·inode 상한을 건다 | scheduler가 기동할 때 quota probe를 돌린다. 실패하면 scheduler가 unhealthy가 되고 `deploy`·`upgrade`가 멈춘다 |
@@ -241,7 +241,7 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 
 ### 이미지를 직접 빌드한다
 
-[게시된 이미지](#게시된-이미지를-쓸-때)를 쓸 수 없을 때의 경로다(다른 아키텍처, 게시되지 않은 commit). `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 이미지는 빌드한 머신의 아키텍처로 만들어지므로 호스트와 같은 아키텍처에서 빌드한다. 인수 리허설은 호스트 loopback의 registry(`127.0.0.1:5000`)로 이렇게 했다.
+[게시된 이미지](#게시된-이미지를-쓸-때)를 쓸 수 없을 때의 경로다(amd64·arm64가 아닌 호스트, 게시되지 않은 commit). `source_commit`의 checkout에서 세 이미지를 빌드해 호스트가 받을 수 있는 registry에 올리고, push가 돌려준 digest를 manifest에 적는다. 이미지는 빌드한 머신의 아키텍처로 만들어지므로 호스트와 같은 아키텍처에서 빌드한다. 인수 리허설은 호스트 loopback의 registry(`127.0.0.1:5000`)로 이렇게 했다.
 
 ```bash
 R=<registry>   # 예: 127.0.0.1:5000
@@ -256,9 +256,9 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ### 게시된 이미지를 쓸 때
 
-`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`뿐이다.
+`main` 머지마다 Images workflow(`.github/workflows/images.yml`)가 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `v*` 릴리스는 아직 없다. 설치하는 운영자는 태그를 달지 않는다. 태그와 게시는 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)다. 게시본은 `linux/amd64`와 `linux/arm64`를 담는 index다.
 
-digest는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 읽고, manifest에는 digest로 적는다. GitHub에 로그인할 수 있으면 초록 run의 `image-digests-published` artifact에서도 읽는다. `staged-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
+digest는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 읽고, manifest에는 digest로 적는다. GitHub에 로그인할 수 있으면 초록 run의 `image-digests-published` artifact에서도 읽는다. `staged-digests`와 `arch-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.
 
 ## 배포
 
