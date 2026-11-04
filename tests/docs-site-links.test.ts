@@ -39,10 +39,7 @@ function repoPath(refAndPath: string): string {
 const ALLOWED: Record<string, string> = {
   "packages/ui/README.md":
     "contributor rules for building screens; the Storybook introduction links its source of truth",
-  "docs/api-guide.md": "no site page yet",
-  examples: "no site page yet",
-  "examples/README.md": "no site page yet",
-  "examples/sdk-approver/README.md": "no site page yet",
+  "examples/LICENSE": "license file of the sample code",
   "docs/quickstart.md":
     "the restart section has no site page; CI runs this file as written",
   "docs/contributing": "contributor documents stay in the repository",
@@ -56,6 +53,7 @@ const ALLOWED: Record<string, string> = {
 };
 const ALLOWED_PREFIXES: Record<string, string> = {
   "docs/operator/": "self-hosting pages are split separately",
+  "examples/sdk-": "sample code directories and their per-sample READMEs",
 };
 
 const SCANNED = [
