@@ -536,7 +536,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agents.flow.stay": "Keep editing",
   "agentCard.agentInstructions": "Agent instructions",
   "agentCard.agentInstructionsHint":
-    "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session. Skip years of experience and inflated titles: give the scope in one line, and allowed actions as concrete verbs with a reason. Example: Analyze payment incidents. Read logs and summarize the cause. Do not change code, because the owning team reviews every change.",
+    "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session. Skip years of experience and inflated adjectives: give the scope in one line, and allowed actions as concrete verbs with a reason. Example: Analyze payment incidents. Read logs and summarize the cause. Do not change code, because the owning team reviews every change.",
   "agentCard.earlierInstructions": "Earlier instructions (never applied)",
   "agentCard.importEarlier": "Copy into agent instructions",
   "agentCard.language": "Reply language",

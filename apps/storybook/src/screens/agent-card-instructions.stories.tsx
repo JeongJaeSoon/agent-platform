@@ -24,7 +24,7 @@ const COPY: Record<Locale, { readonly label: string; readonly hint: string }> =
     },
     en: {
       label: "Agent instructions",
-      hint: "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session. Skip years of experience and inflated titles: give the scope in one line, and allowed actions as concrete verbs with a reason. Example: Analyze payment incidents. Read logs and summarize the cause. Do not change code, because the owning team reviews every change.",
+      hint: "Added to the system prompt of every session of this agent: what you would put in a CLAUDE.md or AGENTS.md. Saving makes a new version; sessions use it once that version is released and turned on, starting with the next new session. Skip years of experience and inflated adjectives: give the scope in one line, and allowed actions as concrete verbs with a reason. Example: Analyze payment incidents. Read logs and summarize the cause. Do not change code, because the owning team reviews every change.",
     },
     ja: {
       label: "エージェント指示文",
