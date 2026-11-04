@@ -109,8 +109,15 @@ integration("the readers of an agent's GitHub settings", () => {
          workspace_id, agent_release_id, created_by_user_id,
          github_policy_source, checkpoint_revision)
        VALUES ($1, $2, 'https://github.com/acme/app.git', 'main', 'sample-app',
-         $2, $3, $4, $5, 1)`,
-      [sessionId, workspaceId, releaseId, userId, options.source ?? "release"],
+         $3, $4, $5, $6, 1)`,
+      [
+        sessionId,
+        workspaceId,
+        workspaceId,
+        releaseId,
+        userId,
+        options.source ?? "release",
+      ],
     );
     return { workspaceId, agentId, releaseId, sessionId };
   }

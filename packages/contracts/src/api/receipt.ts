@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { GITHUB_POLICY_SOURCE_VALUES } from "../kollegium/agents.ts";
 import {
   type EffectiveGitHubPolicy,
   GITHUB_POLICY_SOURCE_VALUES,
