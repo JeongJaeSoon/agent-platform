@@ -12,7 +12,7 @@ import type {
   SettingsCredentialView,
   SettingsEntryState,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -130,7 +130,7 @@ export function useSettingsWrite<V>(
   },
 ) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   return useMutation<SettingsChangeResponse, ApiError, V>({

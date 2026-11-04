@@ -10,7 +10,7 @@ import type {
   ProfileSummary,
   WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -102,7 +102,7 @@ function lineOf(
 export function ProfileDetailScreen() {
   const { t } = useI18n();
   const { profileId } = useParams({ from: "/authed/profiles/$profileId" });
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const manages = useHasPermission("workspace.manage");
@@ -966,7 +966,7 @@ function Narrowings({
 /** Agents whose active release names this profile. */
 function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   // The server refuses the list to anyone else; they ask for none.
   const lists = useHasPermission("agent.manage");
   const agents = useInfiniteQuery({

@@ -16,7 +16,7 @@ import {
   DetailRailSection,
   SessionStatusLabel,
 } from "../components/index.ts";
-import { useAgentPlatform } from "../provider.tsx";
+import { useWerft } from "../provider.tsx";
 import {
   usePendingRequests,
   useSession,
@@ -110,7 +110,7 @@ function RailBody({
   readonly onClose: () => void;
 }) {
   const { t } = useBlockText();
-  const { renderLink, client } = useAgentPlatform();
+  const { renderLink, client } = useWerft();
   const queryClient = useQueryClient();
   const titleRef = useRef<HTMLHeadingElement>(null);
   const id = listed.id;

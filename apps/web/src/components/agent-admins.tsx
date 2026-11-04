@@ -10,7 +10,7 @@ import type {
   AgentAdminChangeResponse,
   AgentAdminKind,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Avatar,
   avatarInitials,
@@ -102,7 +102,7 @@ function AdminList({
 }) {
   const manages = useManagesAgent();
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const admins = useQuery(agentAdminsQuery(client, agentId));
@@ -461,7 +461,7 @@ export function AdministeredAgents({
   readonly showEmpty: boolean;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("agent.admin.manage");
   const administered = useQuery({
     ...administeredAgentsQuery(client),

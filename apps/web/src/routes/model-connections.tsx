@@ -5,7 +5,7 @@ import type {
   ProfileSummary,
   SettingsConnection,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -67,7 +67,7 @@ export function ModelConnections({
   readonly profiles: readonly ProfileSummary[];
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const owns = useHasPermission("installation.settings.manage");
   const connections = useQuery(settingsConnectionsQuery(client, owns));
   const [outcome, setOutcome] = useState<Outcome | null>(null);

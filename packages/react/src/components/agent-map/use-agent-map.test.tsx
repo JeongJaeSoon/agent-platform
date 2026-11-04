@@ -9,7 +9,7 @@ import { setupDom } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
 
 const { renderHook, waitFor, act } = await setupDom();
-const { AgentPlatformProvider } = await import("../../provider.tsx");
+const { WerftProvider } = await import("../../provider.tsx");
 const { buildRunTree, runNodesOf, useAgentMapBoard, useSessionRunTree } =
   await import("./index.ts");
 
@@ -55,9 +55,9 @@ function harness() {
     fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <AgentPlatformProvider client={client} locale="ko" renderLink={() => null}>
+    <WerftProvider client={client} locale="ko" renderLink={() => null}>
       {children}
-    </AgentPlatformProvider>
+    </WerftProvider>
   );
   return {
     wrapper,
@@ -125,13 +125,9 @@ describe("useAgentMapBoard", () => {
     let locale: "ko" | "en" = "ko";
     const client = createApiClient({ baseUrl: "https://console.test" });
     const wrapper = ({ children }: { children: ReactNode }) => (
-      <AgentPlatformProvider
-        client={client}
-        locale={locale}
-        renderLink={() => null}
-      >
+      <WerftProvider client={client} locale={locale} renderLink={() => null}>
         {children}
-      </AgentPlatformProvider>
+      </WerftProvider>
     );
     let readAt = T0 + 2 * 60_000;
     const hook = renderHook(() => useAgentMapBoard(list, readAt), { wrapper });

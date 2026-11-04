@@ -10,7 +10,7 @@ import {
 } from "react-hook-form";
 import type { z } from "zod";
 import type { ModuleMessages } from "../messages/index.ts";
-import { useAgentPlatform } from "../provider.tsx";
+import { useWerft } from "../provider.tsx";
 import { issueText } from "./issues.ts";
 
 export type StepSchema = z.ZodType<FieldValues, FieldValues>;
@@ -83,7 +83,7 @@ export function useStepForm<S extends StepSchema>(
   schema: S,
   props: Omit<UseFormProps<z.input<S>, unknown, z.output<S>>, "resolver"> = {},
 ): StepForm<S> {
-  const { messages } = useAgentPlatform();
+  const { messages } = useWerft();
   const resolver = useMemo(
     () => stepResolver(schema, messages),
     [schema, messages],

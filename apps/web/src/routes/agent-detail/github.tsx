@@ -8,7 +8,7 @@ import {
 } from "@werft-ai/client";
 import type { AgentDetail } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertActions,
@@ -249,7 +249,7 @@ function Activity({
   readonly detail: AgentDetail;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const activity = useQuery({
     queryKey: [...githubKey(client, agentId), "activity"],
     queryFn: () =>
@@ -309,7 +309,7 @@ function EnabledRow({
   readonly notify: Notify;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
   const [confirming, setConfirming] = useState(false);
@@ -471,7 +471,7 @@ function GitHubSettings({
   readonly sectionKeys: (keys: readonly SectionKey[]) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -1154,7 +1154,7 @@ export default function GitHubTab({
   readonly detail: AgentDetail;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const { notify, toast } = useToast();
   const agentId = detail.agent.id;
   const github = useQuery({

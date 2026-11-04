@@ -19,7 +19,7 @@ description: "SessionList と SessionDetail でセッション一覧とセッシ
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createApiClient } from "@werft-ai/client";
 import {
-  AgentPlatformProvider,
+  WerftProvider,
   QueryScopeProvider,
   queryScopeOf,
   type RenderLink,
@@ -56,7 +56,7 @@ function SignedIn({ children }: { children: ReactNode }) {
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="ko"
         renderLink={renderLink}
@@ -75,13 +75,13 @@ createRoot(document.getElementById("root") as HTMLElement).render(
             )}
           </SignedIn>
         </main>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   </StrictMode>,
 );
 ```
 
-- `AgentPlatformProvider` は、ブロックと hook が読むクライアント、言語(`ko`, `ja`, `en`)、リンク関数を保持する。`QueryClientProvider` の内側に置く。
+- `WerftProvider` は、ブロックと hook が読むクライアント、言語(`ko`, `ja`, `en`)、リンク関数を保持する。`QueryClientProvider` の内側に置く。
 - ブロックはログインした人とワークスペースごとにキャッシュする。`SignedIn` のように `useMe()` の応答を `queryScopeOf` でスコープに変えて `QueryScopeProvider` に渡し、ブロックはその内側に置く。外側に置くと、ブロックは最初の描画でエラーを出す。ログイン前で `useMe()` が 401 で失敗すると、ブロックの代わりに `renderError` で再試行を出す。別の人がログインしてスコープが変わると、内側のツリーを描き直し、前の人のキャッシュを消す。
 - `renderLink` は、ブロックがセッションへのリンクを描画するときに呼ばれる。URL はアプリが決める。ルーターを使うアプリなら、そのルーターの `Link` を返す。
 - `loading` と `renderError` はブロックごとに渡す。文言もアプリのものである。

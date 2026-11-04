@@ -6,7 +6,7 @@ import type {
   CreateAgentReleaseResponse,
   ProfileSummary,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -112,7 +112,7 @@ export function Releases({
   readonly shown: boolean;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const manages = useManagesAgent();

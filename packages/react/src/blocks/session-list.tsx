@@ -8,7 +8,7 @@ import {
   type SessionRowMessages,
   SessionTable,
 } from "../components/index.ts";
-import { useAgentPlatform } from "../provider.tsx";
+import { useWerft } from "../provider.tsx";
 import { useSessions } from "../sessions.ts";
 import { useBlockText } from "./text.ts";
 
@@ -100,7 +100,7 @@ export function WaitingSessions({
   renderError,
 }: NamedSessionListProps) {
   const { t } = useBlockText();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const waiting = useQuery(waitingSessionsQuery(client));
 
   if (waiting.data === undefined) {
@@ -124,7 +124,7 @@ function Sessions({
   readonly label?: string;
 }) {
   const { t, locale } = useBlockText();
-  const { renderLink } = useAgentPlatform();
+  const { renderLink } = useWerft();
   const messages: SessionRowMessages = {
     status: (status) => t(`sessions.status.${status}`),
     admission: (state) => t(`sessions.admission.${state}`),

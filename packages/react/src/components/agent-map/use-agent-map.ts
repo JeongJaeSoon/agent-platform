@@ -6,7 +6,7 @@ import {
 import type { ListSessionsResponse } from "@werft-ai/contracts";
 import { useEffect, useRef, useState } from "react";
 
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import { createRunTreeBuilder, type RunTree } from "../../run-tree.ts";
 import {
   arrangeBoard,
@@ -30,7 +30,7 @@ export function useAgentMapBoard(
   readAt: number,
   override?: Partial<AgentMapMessages>,
 ) {
-  const { locale } = useAgentPlatform();
+  const { locale } = useWerft();
   const messages = useAgentMapMessages(override);
   const [tidied, setTidied] = useState(0);
   // Placing a read advances the memory, so each (read, tidy) is placed once;
@@ -117,7 +117,7 @@ function placeBoard(
  * burst of frames (the replay on connect) rebuilds the tree once.
  */
 export function useSessionRunTree(id: string | null) {
-  const { client, onUnauthorized, eventRetry } = useAgentPlatform();
+  const { client, onUnauthorized, eventRetry } = useWerft();
   const [tree, setTree] = useState<RunTree | null>(null);
   const [state, setState] = useState<StreamState>("connecting");
 

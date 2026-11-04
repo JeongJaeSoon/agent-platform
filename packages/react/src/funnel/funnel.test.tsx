@@ -3,12 +3,12 @@ import type { ApiClient } from "@werft-ai/client";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  AgentPlatformProvider,
   createFunnel,
   type FunnelRouter,
   type Locale,
   type StepperOptions,
   useStepper,
+  WerftProvider,
 } from "../index.ts";
 
 // A server render runs the guards against the stored step without a DOM;
@@ -108,13 +108,13 @@ function stepper(options: StepperOptions, locale: Locale = "ko") {
     return null;
   }
   const wrap = (node: ReactNode) => (
-    <AgentPlatformProvider
+    <WerftProvider
       client={{} as ApiClient}
       locale={locale}
       renderLink={({ children }) => children}
     >
       {node}
-    </AgentPlatformProvider>
+    </WerftProvider>
   );
   renderToStaticMarkup(wrap(<Probe />));
   if (!state) throw new Error("useStepper did not run");

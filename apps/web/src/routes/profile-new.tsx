@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import type { ProfileSummary } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -66,7 +66,7 @@ export function ProfileNewScreen() {
   const { t } = useI18n();
   const search = profileNewSearch(useSearch({ from: "/authed/profiles/new" }));
   const navigate = useNavigate();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspace = useMe()?.workspace;
   const manages = useHasPermission("workspace.manage");

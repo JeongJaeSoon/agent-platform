@@ -4,7 +4,7 @@ import type {
   GitHubAppRole,
   GitHubSettingsConnection,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -238,7 +238,7 @@ export function AddAppDialog({
   readonly onAdded: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const [appRole, setAppRole] = useState<GitHubAppRole>("author");
@@ -419,7 +419,7 @@ export function NewKeyDialog({
   readonly onSaved: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const own = useDialogError(onOutcome);

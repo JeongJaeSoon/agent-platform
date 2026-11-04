@@ -7,7 +7,7 @@ import type { MapNode, MapSession } from "./types.ts";
 
 const { render } = await setupDom();
 // After setupDom: these load @werft-ai/ui (see detail-layout.test.tsx).
-const { AgentPlatformProvider } = await import("../../provider.tsx");
+const { WerftProvider } = await import("../../provider.tsx");
 const {
   AgentMap,
   AgentMapPage,
@@ -73,7 +73,7 @@ const NODES: readonly MapNode[] = [
 
 function withProvider(node: ReactNode, locale: "ko" | "en" = "ko") {
   return (
-    <AgentPlatformProvider
+    <WerftProvider
       client={{} as ApiClient}
       locale={locale}
       renderLink={({ to, id, children, className }) => (
@@ -83,7 +83,7 @@ function withProvider(node: ReactNode, locale: "ko" | "en" = "ko") {
       )}
     >
       {node}
-    </AgentPlatformProvider>
+    </WerftProvider>
   );
 }
 

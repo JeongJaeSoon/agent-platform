@@ -27,7 +27,7 @@ import {
   useState,
 } from "react";
 import { useMinute } from "../components/session/use-minute.ts";
-import { useAgentPlatform } from "../provider.tsx";
+import { useWerft } from "../provider.tsx";
 import type { PendingRail } from "./pending-rail.tsx";
 import {
   type ApprovalLayout,
@@ -135,7 +135,7 @@ export function ApprovalInbox({
   rail,
 }: ApprovalInboxProps) {
   const { t } = useBlockText();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const titleId = useId();
   const waiting = useQuery(waitingSessionsQuery(client));
@@ -373,7 +373,7 @@ function WaitingSession({
   readonly onOpen?: ((opener: HTMLElement) => void) | undefined;
 }) {
   const { t } = useBlockText();
-  const { renderLink, client } = useAgentPlatform();
+  const { renderLink, client } = useWerft();
   const queryClient = useQueryClient();
   const pending = useQuery(pendingRequestsQuery(client, session.id));
   const link = renderLink({

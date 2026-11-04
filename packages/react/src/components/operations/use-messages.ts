@@ -1,4 +1,4 @@
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import {
   OPERATIONS_MESSAGES,
   type OperationsFormat,
@@ -15,7 +15,7 @@ export function useOperationsMessages<P extends Part>(
   readonly messages: OperationsMessages[P];
   readonly format: OperationsFormat;
 } {
-  const { locale } = useAgentPlatform();
+  const { locale } = useWerft();
   const defaults = OPERATIONS_MESSAGES[locale];
   return {
     messages: { ...defaults[part], ...override },

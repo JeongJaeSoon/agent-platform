@@ -36,7 +36,7 @@ import {
   waitingSessionsQuery,
 } from "@werft-ai/core";
 import { useEffect, useState } from "react";
-import { useAgentPlatform } from "./provider.tsx";
+import { useWerft } from "./provider.tsx";
 
 /*
  * The session screens' data: what to fetch and when, and nothing about how it
@@ -48,27 +48,27 @@ import { useAgentPlatform } from "./provider.tsx";
 const EVENT_WINDOW = 200;
 
 export function useSessions() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useInfiniteQuery(sessionsQuery(client));
 }
 
 export function useSession(id: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery(sessionQuery(client, id));
 }
 
 export function useSessionUsage(id: string, enabled: boolean) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({ ...sessionUsageQuery(client, id), enabled });
 }
 
 export function usePendingRequests(id: string, enabled: boolean) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({ ...pendingRequestsQuery(client, id), enabled });
 }
 
 export function useSessionTurns(id: string, enabled: boolean) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({ ...sessionTurnsQuery(client, id), enabled });
 }
 
@@ -92,7 +92,7 @@ const commandParams = (id: string, context: MutationFunctionContext) => ({
 
 /** Moves the session onto another profile from its next turn on. */
 export function useChangeSessionProfile(id: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   return useMutation<unknown, ApiError, ChangeSessionProfileRequest>({
     onMutate: newCommand,
@@ -160,7 +160,7 @@ type Body = components["schemas"];
 
 /** Answers one of the session's pending permission or question requests. */
 export function useAnswer(id: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   return useMutation<
     PostSessionAnswerResponse,
@@ -182,7 +182,7 @@ export function useAnswer(id: string) {
 
 /** Queues a message as the session's next turn. */
 export function useSendMessage(id: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   return useMutation<
     PostSessionMessageResponse,
@@ -216,7 +216,7 @@ export type SessionControl =
 
 /** Interrupts a running turn, or pauses, terminates or resumes the session. */
 export function useSessionControl(id: string) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   return useMutation<
     ReceiptAcceptedResponse | TerminateSessionResponse,
@@ -318,7 +318,7 @@ export function eventToolCallId(
  * queries it makes stale.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
-  const { client, onUnauthorized, eventRetry } = useAgentPlatform();
+  const { client, onUnauthorized, eventRetry } = useWerft();
   const queryClient = useQueryClient();
   const [events, setEvents] = useState<readonly SessionEventFrame[]>([]);
   const [state, setState] = useState<EventStreamState>("connecting");
