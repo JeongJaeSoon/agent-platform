@@ -1,7 +1,8 @@
 # What a session needs beyond deps.yaml, for smoke.sh (KIND_MODEL fake or
-# real): the sample repository the catalog names, as compose's gitea and
-# gitea-init serve it. Workers reach it only through the egress proxy's
-# repository route.
+# real): the repositories the catalogs name, read-only and rebuilt on every
+# start from the same fixed commits, as compose's local git host serves them.
+# The name and port stay: session records keep the repo_url they started with.
+# Workers reach it only through the egress proxy's repository route.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,54 +16,19 @@ spec:
     metadata:
       labels: {app: gitea}
     spec:
-      # init-sample-repo.sh calls http://gitea:3000; here that is this Pod.
-      hostAliases:
-        - ip: 127.0.0.1
-          hostnames: [gitea]
       terminationGracePeriodSeconds: 2
       containers:
-        - name: gitea
-          image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
-          env:
-            - {name: GITEA__database__DB_TYPE, value: sqlite3}
-            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
-            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+        - name: fake-git
+          # up.sh replaces this with the chart's images.controlHost, which has git.
+          image: CONTROL_HOST_IMAGE
+          imagePullPolicy: IfNotPresent
+          # args, not command: the image's init stays PID 1.
+          args: ["bun", "run", "packages/testkit/src/fake-git-main.ts", "sample-app", "gate-app"]
           ports:
             - containerPort: 3000
           readinessProbe:
-            httpGet: {path: /api/v1/version, port: 3000}
+            httpGet: {path: /healthz, port: 3000}
             periodSeconds: 5
-          volumeMounts:
-            - name: data
-              mountPath: /data
-        # compose's gitea-init, kept running so the Pod is Ready only once
-        # the repository exists.
-        - name: init
-          image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-          command:
-            - sh
-            - -c
-            - >-
-              until wget -q -O /dev/null http://127.0.0.1:3000/api/v1/version; do sleep 2; done;
-              sh /init/init-sample-repo.sh && exec sleep 2147483647
-          readinessProbe:
-            exec:
-              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/v1/repos/agent/sample-app"]
-            periodSeconds: 5
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: init
-              mountPath: /init
-      volumes:
-        - name: data
-          emptyDir: {}
-        - name: init
-          configMap:
-            name: gitea-init
 ---
 apiVersion: v1
 kind: Service

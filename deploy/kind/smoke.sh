@@ -5,7 +5,8 @@
 #
 #   1. install      up.sh: chart up, /readyz and /docs 200
 #   2. session      one session reaches turn 1 completed in a worker Pod the
-#                   scheduler launched, with its usage recorded
+#                   scheduler launched, with sample-app cloned from the git
+#                   host and its usage recorded
 #   3. reclaim      after terminate, the session's worker Pod, nonce Secret
 #                   and workspace PVC are gone
 #   4. egress       a Pod with the worker labels reaches the egress proxy
@@ -181,6 +182,11 @@ echo "turn 1: ${turn}"
 [ -n "${pod_listing:-}" ] || fail "no Pod labelled ${workers} ran the session"
 echo "worker Pod the scheduler launched:"
 echo "$pod_listing"
+# A turn can complete without its workspace, so ask the git host itself.
+clones="$(k exec deploy/gitea -- bun -e 'console.log(await (await fetch("http://127.0.0.1:3000/requests")).text())')"
+echo "$clones" | jq -c '[.[] | select(.path | contains("sample-app"))]'
+echo "$clones" | jq -e 'any(.[]; .path == "/agent/sample-app.git/git-upload-pack" and .status == 200)' >/dev/null ||
+  fail "the git host served no clone of sample-app"
 usage="$(get "/v1/sessions/${sid}/usage")"
 echo "$usage" | jq -c '{token_count, cost: .cost | {amount_usd, kind, reported_turn_count}}'
 echo "$usage" | jq -e '.token_count > 0 and .cost.reported_turn_count >= 1' >/dev/null ||

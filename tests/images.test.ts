@@ -492,6 +492,85 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     }
   });
 
+  test("the kind git host keeps the name, port and paths of the example catalogs", () => {
+    type Manifest = {
+      kind: string;
+      metadata: { name: string };
+      spec: {
+        selector: { app?: string };
+        ports: { port: number }[];
+        template: {
+          metadata: { labels: { app: string } };
+          spec: {
+            containers: {
+              image: string;
+              imagePullPolicy: string;
+              command?: string[];
+              args: string[];
+              readinessProbe: { httpGet: { path: string; port: number } };
+            }[];
+          };
+        };
+      };
+    };
+    const session = read("deploy/kind/deps-session.yaml");
+    const [deployment, service] = session
+      .split(/^---$/m)
+      .map((document) => Bun.YAML.parse(document) as Manifest);
+    expect(deployment?.kind).toBe("Deployment");
+    expect(deployment?.metadata.name).toBe("gitea");
+    expect(service?.kind).toBe("Service");
+    expect(service?.metadata.name).toBe("gitea");
+    expect(service?.spec.ports).toEqual([{ port: 3000 }]);
+    expect(service?.spec.selector.app).toBe(
+      deployment?.spec.template.metadata.labels.app,
+    );
+
+    const containers = deployment?.spec.template.spec.containers ?? [];
+    expect(containers).toHaveLength(1);
+    const [gitHost] = containers;
+    expect(gitHost?.image).toBe("CONTROL_HOST_IMAGE");
+    expect(gitHost?.imagePullPolicy).toBe(
+      (
+        Bun.YAML.parse(read("deploy/helm/agent-platform/values.yaml")) as {
+          images: { pullPolicy: string };
+        }
+      ).images.pullPolicy,
+    );
+    expect(gitHost?.command).toBeUndefined();
+    expect(gitHost?.args).toEqual([
+      "bun",
+      "run",
+      "packages/testkit/src/fake-git-main.ts",
+      "sample-app",
+      "gate-app",
+    ]);
+    expect(gitHost?.readinessProbe.httpGet).toEqual({
+      path: "/healthz",
+      port: 3000,
+    });
+    expect(read("deploy/kind/up.sh")).toContain(
+      "s#CONTROL_HOST_IMAGE#$" +
+        "{image_repo}-control-host@$" +
+        "{control_host_digest}#",
+    );
+
+    const { catalog } = Bun.YAML.parse(
+      read("deploy/helm/agent-platform/values.yaml"),
+    ) as { catalog: { repositories: Record<string, { url: string }> } };
+    expect(catalog.repositories["sample-app"]?.url).toBe(
+      "http://gitea:3000/agent/sample-app.git",
+    );
+    for (const model of ["fake", "real"]) {
+      const { config } = Bun.YAML.parse(
+        read(`deploy/kind/values-${model}-model.yaml`),
+      ) as { config: { egress: { credentialPrivateAllowlist: string } } };
+      expect(config.egress.credentialPrivateAllowlist.split(",")).toContain(
+        "gitea:3000",
+      );
+    }
+  });
+
   const apiBlock = compose.slice(
     compose.indexOf("\n  api:"),
     compose.indexOf("\n  worker:"),
