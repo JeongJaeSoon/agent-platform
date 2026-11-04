@@ -30,7 +30,7 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 
-`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 `linux/amd64`와 `linux/arm64`로, 아키텍처마다 그 아키텍처의 runner에서 빌드한다. worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>-<arch>` artifact로 남긴다. 게시는 `main` push와 `v*` tag push에서만 일어난다. `main` push는 아래 [main 머지마다 게시되는 이미지](#main-머지마다-게시되는-이미지)를 본다. `v*` tag의 **push 이벤트**에서는(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`index`·`promote` job이 `ghcr.io/jeongjaesoon/werft-<app>`으로 게시한다. package write 권한은 게시 job만 가진다. 세 job은 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지·아키텍처마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시킨다. `sources`는 여섯 이미지의 Debian 소스가 snapshot.debian.org에 있는지 묻는다. package write도 environment도 없다. `index`는 이미지마다 두 digest를 index 하나로 묶어 run 전용 staging tag에 올리고, index가 정확히 그 두 digest를 가리키는지 확인한다. `promote`는 세 index가 준비된 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged index digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 staged artifact가 남아 있는 동안 **같은 run의 "Re-run failed jobs"**로 채운다(publish·index job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 아직 없고, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 `linux/amd64`와 `linux/arm64`로, 아키텍처마다 그 아키텍처의 runner에서 빌드한다. worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>-<arch>` artifact로 남긴다. 게시는 `main` push와 `v*` tag push에서만 일어난다. `main` push는 아래 [main 머지마다 게시되는 이미지](#main-머지마다-게시되는-이미지)를 본다. `v*` tag의 **push 이벤트**에서는(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`index`·`promote` job이 `ghcr.io/jeongjaesoon/werft-<app>`으로 게시한다. package write 권한은 게시 job만 가진다. 세 job은 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지·아키텍처마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시킨다. `sources`는 여섯 이미지의 Debian 소스가 snapshot.debian.org에 있는지 묻는다. package write도 environment도 없다. `index`는 이미지마다 두 digest를 index 하나로 묶어 run 전용 staging tag에 올리고, index가 정확히 그 두 digest를 가리키는지 확인한다. `promote`는 세 index가 준비된 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged index digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 staged artifact가 남아 있는 동안 **같은 run의 "Re-run failed jobs"**로 채운다(publish·index job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 담는 소비자용 기록은 태그의 GitHub Release에 붙는 [`release-manifest.json`](#릴리스-manifest-읽기)이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
 
 ### main 머지마다 게시되는 이미지
 
@@ -48,11 +48,7 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
   done
   ```
 
-  이 digest는 두 아키텍처를 담는 index의 digest다. GitHub에 로그인할 수 있으면 초록 run의 `image-digests-published` artifact에서 세 digest를 함께 읽어도 된다. 이미지마다 JSON 하나이고, worker의 `runtime`은 여기에만 있다. `digest`는 index, `platforms.<arch>.digest`는 그 아키텍처의 manifest, `platforms.<arch>.imageId`는 그 config digest다. 같은 내용이 run의 job summary에도 남는다. artifact는 보존 기간이 지나면 사라진다.
-
-  ```bash
-  jq -r '"\(.image)@\(.digest)"' image-digests-published/*.json
-  ```
+  이 digest는 두 아키텍처를 담는 index의 digest다. `main` 머지는 Release를 만들지 않는다. 릴리스(`v*` 태그)의 세 digest는 [릴리스 manifest](#릴리스-manifest-읽기)에서 읽는다.
 
 - **덮어쓰지 않는다.** 쓰기 전에 세 태그를 모두 조회해, 태그가 이미 다른 digest를 가리키면 아무 태그도 쓰지 않고 실패한다. 같은 digest면 재실행으로 보고 통과한다. 조회가 "없음" 외의 이유로 실패하면 중단한다. 같은 run을 전체 재실행하면 다시 빌드하므로 digest가 달라질 수 있고, 그때는 거부되어 먼저 올린 이미지가 그대로 남는다. 세트가 반만 태그됐을 때는 staged artifact가 남아 있는 동안 "Re-run failed jobs"로 같은 digest를 채운다.
 - **`main-<12>`는 릴리스가 아니다.** 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. `sources-main`은 여섯 이미지의 소스를 합쳐 한 번만 묻고, 답을 못 받은 소스를 10분까지 다시 묻는다. 그래도 답하지 않은 소스는 경고로 넘기고, 그 목록을 run의 job summary와 `image-digests-published` JSON의 `unverifiedSources`에 남긴다. 빈 배열은 모두 확인됐다는 뜻이고, 필드가 없는 옛 JSON은 기록이 없다는 뜻이다. 답하지 않은 소스가 실제로 없을 가능성은 남는다. 공식 릴리스(`v*` 태그)는 모든 소스의 보관을 확인해야 게시된다. `sources`는 30분까지 묻고, 그래도 남으면 실패한다. 이때는 서비스가 돌아온 뒤 "Re-run failed jobs"로 그 job만 다시 돌린다.
@@ -72,9 +68,39 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 1. `main`의 검증된 commit에 `vX.Y.Z` 또는 `vX.Y.Z-<프리릴리스>` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다. 다른 꼴의 태그(`v1`, `v1.2.3+build`)는 이미지만 나가고 `chart` job에서 실패한다.
 2. `publish`·`index`·`promote`·`chart-publish` job이 `release` environment 승인을 받고 끝나는지 본다. 승인은 이 순서로 따로 네 번 요청된다. `publish`와 `index` 사이의 `sources`는 승인 없이 돌고 30분까지 걸릴 수 있다.
-3. 초록 run의 `image-digests-published` artifact에서 세 이미지의 digest를 읽고, `helm show chart oci://ghcr.io/jeongjaesoon/werft --version X.Y.Z`로 chart를 확인한다.
+3. `chart-publish`가 끝나면 `release` job이 태그의 GitHub Release를 만들고 `release-manifest.json`을 붙인다. 이 job은 승인을 따로 받지 않는다. 앞선 네 번의 승인이 이미 지났고, `contents: write`는 이 job만 가진다. Release는 draft로 만들어 manifest를 올리고 다시 읽어 본 뒤에야 공개한다. [릴리스 manifest 읽기](#릴리스-manifest-읽기)의 명령으로 digest와 chart 버전을 확인한다.
+4. 같은 태그를 "Re-run failed jobs"로 다시 돌려도 안전하다. 이미 붙은 manifest와 내용이 같으면 통과하고, 다르면 실패하며 덮어쓰지 않는다. Release 생성이나 업로드가 중간에 끊겼으면 같은 방법으로 마저 채운다. 이미지가 같은 태그로 다시 빌드돼 digest가 달라지는 경우는 `promote`가 먼저 거부한다.
 
 릴리스 뒤에는 `Chart.yaml`의 `version`을 다음 버전으로 올린다. `main` chart 버전은 이 값 뒤에 붙으므로, 그래야 프리릴리스가 방금 낸 릴리스보다 뒤로 정렬된다.
+
+### 릴리스 manifest 읽기
+
+`v*` 태그마다 GitHub Release가 하나 생기고, 파일 `release-manifest.json`이 붙는다. 운영자는 run이나 artifact를 찾지 않는다. 저장소 checkout도 필요 없고 `gh`와 `jq`면 된다. 아직 `v*` 태그를 단 적이 없어 Release는 없다. 아래 `TAG`는 Release가 생긴 뒤의 태그다.
+
+```bash
+TAG=v0.1.0   # 읽을 릴리스 태그
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
+jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # 배포에 쓰는 세 digest
+jq -c .workerRuntime release-manifest.json                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart 위치와 버전
+helm show chart "$(jq -r .chart.ref release-manifest.json)" --version "$(jq -r .chart.version release-manifest.json)"
+```
+
+저장소가 공개이므로 `gh` 없이 `curl -fsSLO https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json`으로도 받는다. 레지스트리와 대조하려면 digest 하나를 `docker buildx imagetools inspect <이미지>@<digest>`에 넣는다.
+
+| 필드 | 값 |
+|---|---|
+| `schema` | manifest 형식 버전. 지금은 `1` |
+| `tag`, `commit` | 릴리스 태그와 그 commit(40자 hex) |
+| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`. `<app>`은 `control-host`, `worker`, `egress-proxy` |
+| `images.<app>.digest` | 두 아키텍처를 담는 index의 digest. 배포는 이 값으로 고정한다 |
+| `images.<app>.platforms.amd64`, `.arm64` | 그 아키텍처의 manifest digest |
+| `workerRuntime` | worker 이미지가 담은 Claude 실행 환경(`engine`, `sdkVersion`, `cliVersion`, `profileDigestScheme`) |
+| `chart.name`, `chart.version`, `chart.appVersion`, `chart.ref` | 같은 run이 게시한 chart. `chart.ref`는 `oci://` 위치 |
+
+값은 `promote`가 레지스트리에서 다시 읽어 확인한 digest와, `chart-publish`가 로그인 없이 읽어 확인한 chart에서 온다. manifest를 만들 때 chart 패키지의 `Chart.yaml`·`values.yaml`이 같은 digest와 버전을 담는지도 대조한다. 한번 붙은 manifest는 바뀌지 않는다. 같은 태그를 다시 돌려 다른 내용이 나오면 job이 실패한다.
+
+설치하는 운영자는 이 manifest에서 [test-ops release manifest](test-ops.md#release-manifest)의 이미지 줄을 얻는다.
 
 ### Helm chart 게시
 

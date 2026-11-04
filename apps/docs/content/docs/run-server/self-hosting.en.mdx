@@ -4,7 +4,7 @@ description: Install and run a Werft server that several people use
 ---
 
 <Callout type="warn">
-There is no official release yet. No `v*` release exists. Every merge to `main` publishes the Helm chart, with that run's image digests inside, to `oci://ghcr.io/jeongjaesoon/werft` ([install the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). Every merge to `main` also publishes the app images as `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`; pin them by digest when you use them ([Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). If you cannot pull those images, check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. The published images and a build from source both support x86_64 and arm64.
+There is no official release yet. No `v*` release exists. Once one does, its GitHub Release carries `release-manifest.json`, which holds the three image digests, the worker runtime and the chart version ([Read the release manifest](#read-the-release-manifest)). Every merge to `main` publishes the Helm chart, with that run's image digests inside, to `oci://ghcr.io/jeongjaesoon/werft` ([install the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). Every merge to `main` also publishes the app images as `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`; pin them by digest when you use them ([Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). If you cannot pull those images, check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. The published images and a build from source both support x86_64 and arm64.
 </Callout>
 
 This is how you install a Werft server yourself for a team to share. For a server you only try out on your own, [Run a development server](/run-server/dev-server) is enough. The installation and operations documents live in [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) in the repository, written in Korean. This page tells you where to start reading.
@@ -17,6 +17,20 @@ This is how you install a Werft server yourself for a team to share. For a serve
 | Kubernetes | The published Helm chart, one worker Pod per session | [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
 
 Either way, the server consists of the API (including the web console), a scheduler, a reconciler, an egress proxy, PostgreSQL, and an S3-compatible object store. Neither includes a Git server, so you add the GitHub repositories your sessions use in the console or in a settings document. High availability is out of scope for a single-server installation.
+
+## Read the release manifest
+
+Every release (`v*` tag) gets a GitHub Release with `release-manifest.json` attached. Read it with `gh` and `jq`; no repository checkout is needed. The commands below apply once the first release exists.
+
+```bash
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
+jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # the three digests to deploy
+jq -c .workerRuntime release-manifest.json                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart location and version
+```
+
+Each digest is that of the index holding both architectures, and a deployment pins it. An attached manifest never changes. For the fields and how to check them, see [Read the release manifest](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기).
 
 ## Single-server installation steps
 

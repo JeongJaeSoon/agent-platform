@@ -4,7 +4,7 @@ description: 複数の人が使う Werft サーバーをインストールして
 ---
 
 <Callout type="warn">
-公式リリースはまだない。`v*` リリースはない。Helm chart は `main` へのマージごとに、その run のイメージ digest を含めて `oci://ghcr.io/jeongjaesoon/werft` に公開される([公開 chart でインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치))。アプリイメージは `main` へのマージごとに `ghcr.io/jeongjaesoon/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。このイメージを取得できない場合はリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。公開イメージと直接ビルドは、どちらも x86_64 と arm64 に対応している。
+公式リリースはまだない。`v*` リリースはない。リリースができると、その GitHub Release に 3 つのイメージの digest、worker runtime、chart バージョンを含む `release-manifest.json` が付く([リリース manifest を読む](#リリース-manifest-を読む))。Helm chart は `main` へのマージごとに、その run のイメージ digest を含めて `oci://ghcr.io/jeongjaesoon/werft` に公開される([公開 chart でインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치))。アプリイメージは `main` へのマージごとに `ghcr.io/jeongjaesoon/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。このイメージを取得できない場合はリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。公開イメージと直接ビルドは、どちらも x86_64 と arm64 に対応している。
 </Callout>
 
 Werft サーバーを自分でインストールし、チームで共有する方法である。一人で試すだけのサーバーなら[開発用サーバーの実行](/run-server/dev-server)で足りる。インストールと運用のドキュメントの本文はリポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) にあり、韓国語で書かれている。このページはどこから読むかを案内する。
@@ -17,6 +17,20 @@ Werft サーバーを自分でインストールし、チームで共有する�
 | Kubernetes | 公開された Helm chart、セッションごとに worker Pod | [Kubernetes へのインストール (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
 
 どちらの方式でも、サーバーは API (Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換の object store で構成される。どちらにも Git サーバーは含まれないため、セッションが使う GitHub リポジトリはコンソールか設定ドキュメントで追加する。単一サーバーのインストールでは HA は対象外である。
+
+## リリース manifest を読む
+
+リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。リポジトリを checkout せず、`gh` と `jq` で読む。以下は最初のリリースができた後のコマンドである。
+
+```bash
+TAG=v0.1.0   # 読むリリースのタグ
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
+jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # デプロイに使う 3 つの digest
+jq -c .workerRuntime release-manifest.json                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart の場所とバージョン
+```
+
+digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기)を見る。
 
 ## 単一サーバーのインストール手順
 

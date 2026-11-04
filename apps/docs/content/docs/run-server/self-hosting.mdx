@@ -4,7 +4,7 @@ description: 여러 사람이 쓰는 Werft 서버를 설치하고 운영한다
 ---
 
 <Callout type="warn">
-아직 공식 릴리스가 없다. `v*` 릴리스가 없다. Helm chart는 `main` 머지마다 그 run의 이미지 digest를 담아 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다([게시 chart로 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). 앱 이미지는 `main` 머지마다 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시되고, 쓸 때는 digest로 고정한다([이미지와 공급망](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). 이 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)하고, checkout의 compose 파일이나 chart로 설치한다. 게시 이미지와 직접 빌드는 모두 x86_64와 arm64를 지원한다.
+아직 공식 릴리스가 없다. `v*` 릴리스가 없다. 릴리스가 생기면 그 GitHub Release에 세 이미지 digest, worker runtime, chart 버전을 담은 `release-manifest.json`이 붙는다([릴리스 manifest 읽기](#릴리스-manifest-읽기)). Helm chart는 `main` 머지마다 그 run의 이미지 digest를 담아 `oci://ghcr.io/jeongjaesoon/werft`로 게시된다([게시 chart로 설치](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). 앱 이미지는 `main` 머지마다 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시되고, 쓸 때는 digest로 고정한다([이미지와 공급망](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). 이 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)하고, checkout의 compose 파일이나 chart로 설치한다. 게시 이미지와 직접 빌드는 모두 x86_64와 arm64를 지원한다.
 </Callout>
 
 Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치·운영 문서의 본문은 저장소의 [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator)에 있고, 이 페이지는 어디서부터 읽을지 안내한다.
@@ -17,6 +17,20 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 | Kubernetes | 게시된 Helm chart, 세션마다 worker Pod | [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
 
 어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. 어느 방식에도 Git 서버는 없으므로 세션이 쓸 GitHub 저장소는 콘솔이나 설정 문서로 더한다. 단일 서버 설치에서 HA는 범위 밖이다.
+
+## 릴리스 manifest 읽기
+
+릴리스(`v*` 태그)마다 GitHub Release가 생기고 `release-manifest.json`이 붙는다. 저장소 checkout 없이 `gh`와 `jq`로 읽는다. 아래는 첫 릴리스가 생긴 뒤의 명령이다.
+
+```bash
+TAG=v0.1.0   # 읽을 릴리스 태그
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
+jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # 배포에 쓰는 세 digest
+jq -c .workerRuntime release-manifest.json                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart 위치와 버전
+```
+
+digest는 두 아키텍처를 담는 index의 digest이고, 배포는 이 값으로 고정한다. 한번 붙은 manifest는 바뀌지 않는다. 필드와 확인 방법은 [릴리스 manifest 읽기](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기)를 본다.
 
 ## 단일 서버 설치 순서
 
