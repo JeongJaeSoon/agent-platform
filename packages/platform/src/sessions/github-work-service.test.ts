@@ -124,6 +124,7 @@ function harness(
           agentId: "agent-1",
           agentReleaseId: "release-1",
           repositoryId: "app",
+          policy: {},
         },
       };
       return grant;

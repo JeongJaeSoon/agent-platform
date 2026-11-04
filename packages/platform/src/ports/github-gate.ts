@@ -1,11 +1,14 @@
 import type {
   AgentGitHub,
+  EffectiveGitHubPolicy,
   GitHubAppRole,
   GitHubCeiling,
+  GitHubPolicyReceiptFields,
   GitHubPurpose,
   GitHubRefusal,
   GitHubReviewEvent,
   ReceiptActor,
+  RepositoryCeiling,
 } from "@werft-ai/contracts";
 import type {
   ForgeComment,
@@ -159,6 +162,8 @@ export type GitHubWorkContext = {
   agentId: string | null;
   agentReleaseId: string | null;
   repositoryId: string;
+  /** The policy that allowed it, for the receipts of the work. */
+  policy: GitHubPolicyReceiptFields;
 };
 
 /** A refusal before any GitHub call; its receipt is already written. */
@@ -218,13 +223,15 @@ export type GitHubSessionContext = {
     workspaceId: string;
     githubEnabled: boolean;
   } | null;
-  release: {
-    id: string;
-    /** Absent: the release predates GitHub settings. "invalid": unparseable. */
-    github: AgentGitHub | "invalid" | null;
-  } | null;
+  release: { id: string } | null;
+  /** What judges the session's GitHub work: read nothing else for it. */
+  policy: EffectiveGitHubPolicy;
   /** The agent workspace's ceiling; all false without a settings row. */
   ceiling: GitHubCeiling;
+  /** The session workspace's repositories; null allows none. */
+  repositoryCeiling: RepositoryCeiling | null;
+  /** `github_workspace_settings.revision`; 0 without a row. */
+  ceilingRevision: number;
 };
 
 export type GitHubDispatchRecord = {

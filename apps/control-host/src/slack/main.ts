@@ -1,6 +1,7 @@
 import { integerSetting } from "@werft-ai/contracts/settings";
 import * as schema from "@werft-ai/db";
 import {
+  agentGitHubSettingsOf,
   createDatabaseAgentAuthority,
   createDatabaseIdentityReader,
   createPostgresAgentAccessSetting,
@@ -26,6 +27,8 @@ import {
   createPostgresWorkspaceProfileStore,
   type Database,
   getSlackAppSettings,
+  newSessionGitHubReaders,
+  workspaceRepositoryCeiling,
 } from "@werft-ai/db";
 import {
   createEnforcedPool,
@@ -39,7 +42,6 @@ import {
 } from "@werft-ai/observability";
 import {
   agentPromptIdentity,
-  allowedRun,
   type CatalogRepository,
   type Connections,
   createAuthorizationPolicy,
@@ -57,6 +59,7 @@ import {
   isRegisteredGitHubApp,
   platformPromptRevisionFromEnv,
   profileCatalog,
+  releaseStartable,
   resolveAgentRelease,
   type SecretKey,
   type SessionCatalogConfig,
@@ -261,6 +264,7 @@ export function slackSessionHandler(deps: {
         ),
       promptIdentity: (workspaceId, releaseId) =>
         agentPromptIdentity(agentStore, workspaceId, releaseId),
+      ...newSessionGitHubReaders(db),
     },
     promptRevision: platformPromptRevisionFromEnv(environment),
     credentials,
@@ -290,11 +294,12 @@ export function slackSessionHandler(deps: {
       const release = await agentStore.findRelease(workspaceId, releaseId);
       return (
         release !== null &&
-        allowedRun(
+        !releaseStartable(
           catalog,
-          release.runtime_profile_id,
-          release.repository_id,
-        ) === null
+          release,
+          await agentGitHubSettingsOf(db, release.agent_id),
+          await workspaceRepositoryCeiling(db, workspaceId),
+        )
       );
     },
     slack: createSlackBotApi({

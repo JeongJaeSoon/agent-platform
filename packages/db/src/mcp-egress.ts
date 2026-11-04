@@ -1,7 +1,9 @@
 import {
-  type AgentGitHub,
-  agentGitHubSchema,
+  effectiveGitHubPolicy,
+  GITHUB_MCP_FIXED_TOOLS,
   githubMcpToolNames,
+  githubMcpTools,
+  githubPolicySourceOf,
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import {
@@ -13,10 +15,12 @@ import {
   type SessionGitHubMcp,
   type SessionMcp,
 } from "@werft-ai/platform";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 import { markPushContinuation, runningTurnOf } from "./push-continuations.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentGitHubSettings,
   agentReleases,
   agents,
   agentVersions,
@@ -85,37 +89,38 @@ export async function sessionMcpOf(
   };
 }
 
-async function releaseGitHubOf(
-  executor: Database,
-  releaseId: string,
-): Promise<{ agentId: string; github: AgentGitHub | null } | null> {
-  const [release] = await executor
-    .select({
-      agentId: agentReleases.agentId,
-      policyPins: agentReleases.policyPins,
-    })
-    .from(agentReleases)
-    .where(eq(agentReleases.id, releaseId))
-    .limit(1);
-  if (!release) return null;
-  const pinned = (release.policyPins as { github?: unknown }).github;
-  const parsed =
-    pinned === undefined ? null : agentGitHubSchema.safeParse(pinned);
-  // A pin this image cannot read exposes nothing rather than guessing.
-  return { agentId: release.agentId, github: parsed?.data ?? null };
-}
-
-/** The built-in `github` server a claimed session's release attaches. */
+/**
+ * The built-in `github` server of a claimed session. A `release` session gets
+ * what its pin exposes. Any other is attached whole whatever its settings say
+ * now: they may change under a running session, and each call judges them.
+ */
 export async function sessionGitHubMcpOf(
   executor: Database,
-  session: { agentReleaseId: string | null },
+  session: { agentReleaseId: string | null; githubPolicySource: string },
 ): Promise<SessionGitHubMcp | null> {
   if (session.agentReleaseId === null) return null;
-  const release = await releaseGitHubOf(executor, session.agentReleaseId);
-  if (release?.github == null) return null;
+  if (githubPolicySourceOf(session.githubPolicySource) !== "release") {
+    return {
+      releaseId: session.agentReleaseId,
+      tools: githubMcpToolNames(GITHUB_MCP_FIXED_TOOLS),
+    };
+  }
+  const [release] = await executor
+    .select({ pin: sql<unknown>`${agentReleases.policyPins} -> 'github'` })
+    .from(agentReleases)
+    .where(eq(agentReleases.id, session.agentReleaseId))
+    .limit(1);
+  if (!release) return null;
+  const { settings } = effectiveGitHubPolicy({
+    source: "release",
+    releasePin: release.pin,
+    agentRow: null,
+  });
+  // A pin this image cannot read exposes nothing rather than guessing.
+  if (settings === null || settings === "invalid") return null;
   return {
     releaseId: session.agentReleaseId,
-    tools: githubMcpToolNames(release.github),
+    tools: githubMcpToolNames(githubMcpTools(settings)),
   };
 }
 
@@ -150,25 +155,29 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
           agentReleaseId: sessions.agentReleaseId,
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
+          agentId: agentReleases.agentId,
+          enabled: agents.githubEnabled,
+          ...githubPolicyColumns,
         })
         .from(sessions)
+        .innerJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+        .leftJoin(agents, eq(agents.id, agentReleases.agentId))
+        .leftJoin(
+          agentGitHubSettings,
+          eq(agentGitHubSettings.agentId, agents.id),
+        )
         .where(eq(sessions.id, sessionId))
         .limit(1);
       if (!session || session.agentReleaseId === null) return null;
-      const release = await releaseGitHubOf(db, session.agentReleaseId);
-      if (release === null) return null;
-      const [agent] = await db
-        .select({ enabled: agents.githubEnabled })
-        .from(agents)
-        .where(eq(agents.id, release.agentId))
-        .limit(1);
+      const policy = githubPolicyOfRow(session);
       return {
         ownerId: session.ownerId,
-        agentId: release.agentId,
+        agentId: session.agentId,
         releaseId: session.agentReleaseId,
-        github: release.github,
-        enabled: agent?.enabled ?? false,
-        actor: creatorOf(session, release.agentId),
+        source: policy.source,
+        github: policy.settings === "invalid" ? null : policy.settings,
+        enabled: session.enabled ?? false,
+        actor: creatorOf(session, session.agentId),
       };
     },
 

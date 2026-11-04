@@ -253,6 +253,7 @@ integration("achievement judgments on PostgreSQL", () => {
         agentId: null,
         agentReleaseId: null,
         repositoryId: "app",
+        policy: {},
       },
       actor: HUMAN,
       result: { number, event: "APPROVE", review_id: reviewId },
@@ -329,7 +330,8 @@ integration("achievement judgments on PostgreSQL", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: "c".repeat(40),
-      approvedByRelease: null,
+      policyApproval: null,
+      policyFields: {},
     });
     if (created.outcome !== "written") throw new Error("no push request");
     await createPostgresPullRequests(db).savePullRequest({

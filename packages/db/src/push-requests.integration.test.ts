@@ -97,7 +97,8 @@ integration("postgres push requests", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: revision,
       gitCommit: COMMIT,
-      approvedByRelease: null,
+      policyApproval: null,
+      policyFields: {},
     });
 
   const decide = (

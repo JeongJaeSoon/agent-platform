@@ -38,6 +38,7 @@ import {
   type NextInputResult,
   nextPendingReason,
   type PeekFinalizeResult,
+  type PolicyPair,
   type ProviderUsageInput,
   type ProviderUsageResult,
   payloadHash,
@@ -985,10 +986,23 @@ type RunnableFields = Pick<
   | "repositoryId"
   | "repoUrl"
   | "branch"
+  | "githubPolicySource"
 >;
 
 function allowsPair(pair: RunnablePair, session: RunnableFields): boolean {
   if (pair.profileId !== session.profileId) return false;
+  if (pair.policy) {
+    return (
+      (session.githubPolicySource !== "release" || pair.workspaceScoped) &&
+      (session.repositoryMode === "none" ||
+        pair.repositories.some(
+          (repository) =>
+            repository.repositoryId === session.repositoryId &&
+            repository.url === session.repoUrl &&
+            repository.branch === session.branch,
+        ))
+    );
+  }
   if (pair.repositoryId === null) return session.repositoryMode === "none";
   return (
     session.repositoryMode === "repository" &&
@@ -1041,9 +1055,10 @@ function replayableBinding(
 // runnablePairOf.
 export function runnableCondition(all: readonly RunnablePair[]): SQL {
   const withRepository = all.filter(
-    (pair): pair is RepositoryPair => pair.repositoryId !== null,
+    (pair): pair is RepositoryPair => typeof pair.repositoryId === "string",
   );
   const without = all.filter((pair) => pair.repositoryId === null);
+  const policy = all.filter((pair): pair is PolicyPair => pair.policy === true);
   const conditions: SQL[] = [];
   if (withRepository.length > 0) {
     const pairs = sql.join(
@@ -1075,6 +1090,36 @@ export function runnableCondition(all: readonly RunnablePair[]): SQL {
     );
     conditions.push(
       sql`(${sessions.repositoryMode} = 'none' AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${profiles}))))`,
+    );
+  }
+  const [firstPolicy] = policy;
+  if (firstPolicy !== undefined) {
+    const idList = (pairs: readonly PolicyPair[]) =>
+      sql.join(
+        pairs.map((pair) => sql`${pair.profileId}`),
+        sql`, `,
+      );
+    const scoped = policy.filter((pair) => pair.workspaceScoped);
+    const judged =
+      scoped.length === 0
+        ? sql`${sessions.githubPolicySource} <> 'release'`
+        : sql`(${sessions.githubPolicySource} <> 'release' OR ${sessions.profileId} IN (${idList(scoped)}))`;
+    // Every pair holds the same list, so the tuples stay one per repository.
+    const repositories = firstPolicy.repositories.map(
+      (repository) =>
+        sql`(${repository.repositoryId}, ${repository.url}, ${repository.branch})`,
+    );
+    const onRepository =
+      repositories.length === 0
+        ? sql`false`
+        : sql`(${sessions.repositoryId}, ${sessions.repoUrl}, ${sessions.branch}) IN (${sql.join(repositories, sql`, `)})`;
+    const pinned = pinnedCondition(
+      policy,
+      (pair) => sql`${pair.profileId}, ${pair.profileFingerprint}`,
+      sql`${sessions.profileId}, ${sessions.profileFingerprint}`,
+    );
+    conditions.push(
+      sql`(${judged} AND (${sessions.repositoryMode} = 'none' OR ${onRepository}) AND (${pinned} OR (${sessions.profileFingerprint} IS NULL AND ${sessions.profileId} IN (${idList(policy)}))))`,
     );
   }
   if (conditions.length === 0) return sql`false`;
@@ -1610,6 +1655,7 @@ async function issueCredentials(
     | "repositoryMode"
     | "repositoryId"
     | "agentReleaseId"
+    | "githubPolicySource"
   >,
 ) {
   const expiresAt = fromDbNow(input.credentialTtlMs);
@@ -2113,6 +2159,7 @@ export function createPostgresWorkerUnitOfWork(
               ? fenced.session.model
               : fenced.attempt.model,
           repository: sessionRepositoryOf(fenced.session),
+          githubPolicySource: fenced.session.githubPolicySource,
           costUsd: fenced.session.costUsd,
           providerTokens: fenced.session.providerTokens,
         };

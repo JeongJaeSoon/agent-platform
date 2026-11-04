@@ -21,6 +21,7 @@ import {
   repositoryBinding,
   type SessionCatalog,
 } from "@werft-ai/platform";
+import { releasePolicy } from "@werft-ai/platform/testing/github";
 import { hashApiKey } from "../keys.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerPullRequestRoutes } from "./pull-requests.ts";
@@ -54,6 +55,7 @@ function app(
     failing?: "lookup" | "comment";
     authMode?: "none";
     release?: GitHubSessionContext["release"];
+    policy?: GitHubSessionContext["policy"];
   } = {},
 ) {
   const receipts: PullRequestReceipt[] = [];
@@ -154,7 +156,10 @@ function app(
         startedBy: null,
         agent: null,
         release: options.release ?? null,
+        policy: options.policy ?? releasePolicy(null),
         ceiling: GITHUB_CEILING_NONE,
+        repositoryCeiling: null,
+        ceilingRevision: 0,
       }),
       findDispatch: async () => null,
       recordReceipt: async (receipt) => {
@@ -364,7 +369,8 @@ describe("pull request routes", () => {
       details: { refusal: "forge_failed" },
     });
     const invalid = app({
-      release: { id: crypto.randomUUID(), github: "invalid" },
+      release: { id: crypto.randomUUID() },
+      policy: releasePolicy("invalid"),
     });
     expect(await errorOf(post(invalid, "", {}))).toMatchObject({
       status: 409,

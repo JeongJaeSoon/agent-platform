@@ -97,6 +97,7 @@ export type WorkerBinding = {
 // accepted with, and its model the session's unless null (a version 1
 // fingerprint names its model itself).
 export type RepositoryPair = {
+  policy?: never;
   profileId: string;
   profileFingerprint: string;
   model: string | null;
@@ -111,11 +112,33 @@ export type RunnablePair =
   // of repository_mode none, never one whose repository_id is null because
   // it predates the catalog.
   | {
+      policy?: never;
       profileId: string;
       profileFingerprint: string;
       model: string | null;
       repositoryId: null;
-    };
+    }
+  | PolicyPair;
+
+/**
+ * A profile on any catalog repository, or none, for a session the workspace's
+ * ceiling judges (`usesWorkspaceCeiling`): one under the agent's settings, or
+ * on a `workspaceScoped` profile for any session. The claim cannot read that
+ * ceiling, so what holds these to it is the gate, at every grant.
+ */
+export type PolicyPair = {
+  policy: true;
+  profileId: string;
+  profileFingerprint: string;
+  model: string | null;
+  workspaceScoped: boolean;
+  repositoryId?: never;
+  /** The same list on every pair of a catalog read. */
+  repositories: readonly Pick<
+    RepositoryPair,
+    "repositoryId" | "url" | "branch"
+  >[];
+};
 
 export type ClaimInput = {
   runnable: RunnablePair[];
@@ -187,6 +210,7 @@ export type EgressIssue = {
     model: string | null;
     repositoryMode: "repository" | "none";
     repositoryId: string | null;
+    githubPolicySource: string;
     mcp?: SessionMcp | null;
     githubMcp?: SessionGitHubMcp | null;
   }): EgressBindings;
@@ -213,6 +237,7 @@ export type EgressAuthorization =
       // The model the attempt claimed with; null where `binding` names it.
       model: string | null;
       repository: { id: string | null; url: string; branch: string } | null;
+      githubPolicySource: string;
       // What the session has spent as of this answer.
       costUsd: number;
       providerTokens: number;

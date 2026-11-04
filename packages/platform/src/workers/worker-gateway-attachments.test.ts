@@ -17,6 +17,7 @@ import type { CatalogProfile, CatalogRepository } from "../sessions/catalog.ts";
 import { createGitHubGate } from "../sessions/github-gate.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
 import { createRepositoryAttachmentService } from "../sessions/repository-attachment-service.ts";
+import { releasePolicy } from "../testing/github-fakes.ts";
 import { memoryAttachmentStore } from "../testing/repository-attachment-fakes.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
@@ -109,16 +110,16 @@ function wired() {
     repository: null,
     startedBy: null,
     agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: true },
-    release: {
-      id: "release-1",
-      github: {
-        repositories: ["docs", "tools"],
-        push_approval: true,
-        features: GITHUB_CEILING_NONE,
-        actions_allow: [],
-      },
-    },
+    release: { id: "release-1" },
+    policy: releasePolicy({
+      repositories: ["docs", "tools"],
+      push_approval: true,
+      features: GITHUB_CEILING_NONE,
+      actions_allow: [],
+    }),
     ceiling: GITHUB_CEILING_NONE,
+    repositoryCeiling: null,
+    ceilingRevision: 0,
   });
   const gate = createGitHubGate({
     catalog,
@@ -152,6 +153,7 @@ function wired() {
     attemptId: "att_1",
     profileId: "p",
     model: profile.model,
+    githubPolicySource: "release",
     costUsd: 0,
     providerTokens: 0,
     repository: null,
