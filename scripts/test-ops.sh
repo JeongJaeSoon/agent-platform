@@ -54,7 +54,6 @@ PREVIOUS_WORKER="${STATE_DIR}/previous-worker"
 # Each worker image's runtime combination, by digest.
 RUNTIMES_DIR="${STATE_DIR}/worker-runtimes"
 HELPER="${REPO_ROOT}/scripts/lib/test-ops.ts"
-API_URL=http://127.0.0.1:3000
 MIN_ENGINE_MAJOR=28
 # 2.24.6: the restore drill's overlay over an include (compose.restore.yml).
 MIN_COMPOSE=2.24.6
@@ -260,6 +259,7 @@ ops_compose() {
 # carries the secrets.
 render() {
   RENDER="$(ops_compose config --format json)" || die "compose refused the installation's settings (above)"
+  API_URL="$(printf '%s' "$RENDER" | jq -r '.["x-test-ops-api-url"] // empty')"
 }
 
 # One value a service gets, for the settings that are not secrets.
@@ -330,7 +330,7 @@ preflight() {
     # startup, and deploy and upgrade wait for that.
     log "preflight: object store is LocalStack, in memory — a restart loses every checkpoint object (docs/operator/test-ops.md)"
   fi
-  log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, catalog $CATALOG_REVISION"
+  log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, catalog $CATALOG_REVISION, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
 }
 
 # --- lifecycle -------------------------------------------------------------------
