@@ -142,7 +142,10 @@ describe("모델 연결", () => {
     await user.click(await screen.findByRole("button", { name: "연결 추가" }));
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("id"), "free");
-    await user.selectOptions(within(dialog).getByLabelText("비용 집계"), "none");
+    await user.selectOptions(
+      within(dialog).getByLabelText("비용 집계"),
+      "none",
+    );
     await user.type(within(dialog).getByLabelText("키 값"), "example-key");
     await user.click(within(dialog).getByRole("button", { name: "만들기" }));
     await screen.findByText("free를 만들었습니다.");
