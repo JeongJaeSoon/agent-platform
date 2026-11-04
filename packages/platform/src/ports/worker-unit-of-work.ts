@@ -112,6 +112,10 @@ export type ClaimInput = {
   // given up on for a pair missing from it only while it is the revision an
   // operator activated, or none is.
   catalogRevision: string;
+  // The installation settings generation that catalog was read at; absent,
+  // none read yet. A replica behind the database's gives up on nothing:
+  // the row a pair needs may be one it has not read.
+  settingsGeneration?: number;
   // The profile ids whose runnability here is every replica's: this host's
   // runnable profiles and the workspace versions over them. A pinned launch
   // of any other id is not given up on: another replica may have made it

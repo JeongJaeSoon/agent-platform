@@ -26,6 +26,7 @@ import {
   createPostgresPendingRequests,
   createPostgresPullRequests,
   createPostgresPushRequests,
+  createPostgresInstallationSettingsStore,
   createPostgresSecretStore,
   createPostgresSessionAttributionStore,
   createPostgresSessionControl,
@@ -118,7 +119,6 @@ import {
   SessionServiceError,
   unrunnableProfiles,
   WORKSPACE_PROFILE_REFRESH_MS,
-  withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -169,10 +169,16 @@ import { createGitPusher } from "./git-push.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import { githubPackagesConfigFromEnv } from "./github-packages-config.ts";
 import { createGoogleLogin, googleLoginConfigFromEnv } from "./google-login.ts";
+import {
+  fileSettings,
+  leftOutReporter,
+  settingsSource,
+} from "./installation-settings.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { eventNeutralizer, startNeutralFill } from "./neutral-fields.ts";
 import { createApiPool, createProbePool } from "./pool.ts";
 import {
+  importFileSettings,
   SeedProfilesError,
   seedCatalogProfiles,
   seedCatalogRepositories,
@@ -315,10 +321,28 @@ const db = drizzle(pool, { schema });
 const workspaceProfileStore = createPostgresWorkspaceProfileStore(db);
 const installationProfileStore = createPostgresInstallationProfileStore(db);
 const catalogRepositoryStore = createPostgresCatalogRepositoryStore(db);
+const installationSettingsStore = createPostgresInstallationSettingsStore(
+  db,
+  secretKey,
+);
+const installationSettings = settingsSource({
+  store: installationSettingsStore,
+  env: process.env,
+  readSecret: catalogSource.readSecret,
+});
+const reportLeftOut = leftOutReporter((message, fields) =>
+  logger.warn(message, fields),
+);
 const workspaceProfileVersions = createProfileRegistry({
   workspaces: workspaceProfileStore,
   installations: installationProfileStore,
-  repositories: catalogRepositoryStore,
+  settings: {
+    async read() {
+      const snapshot = await installationSettings.read();
+      reportLeftOut(snapshot);
+      return snapshot;
+    },
+  },
   sources: profileSources.sources,
 });
 const runtimeVersions = runtimeVersionsFromEnv(process.env);
@@ -330,7 +354,6 @@ const catalog = profileCatalog(
       : { runtime_versions: runtimeVersions }),
   },
   workspaceProfileVersions,
-  (rows) => withConsoleRepositories(profileSources.catalog.repositories, rows),
 );
 const logCatalog = (message: string): void => {
   logger.info(message, {
@@ -368,6 +391,14 @@ const importProfiles = (): void => {
       seedCatalogRepositories(
         catalogRepositoryStore,
         profileSources.catalog.repositories,
+        logger,
+      ),
+    )
+    // After the repository seed, which runs only on an empty table.
+    .then(() =>
+      importFileSettings(
+        installationSettingsStore,
+        fileSettings(profileSources.config, profileSources.connections),
         logger,
       ),
     )
@@ -705,7 +736,9 @@ const installationProfiles = createInstallationProfileService({
   authorization,
   store: installationProfileStore,
   catalog,
-  connections: profileSources.connections,
+  connections: () =>
+    workspaceProfileVersions.settings?.connections ??
+    profileSources.connections,
   allowUnattended: profileSources.sources.allowUnattended,
   runtimes: installedRuntimes,
 });

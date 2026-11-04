@@ -19,9 +19,9 @@ import {
   catalogRepositoryIds,
   catalogRows,
   createProfileRegistry,
-  credentialRefOf,
   describeConfigError,
   type InstallationProfileStore,
+  type InstallationSettingsStore,
   installationProfileSnapshot,
   ProfileFeatureGate,
   profileCatalog,
@@ -34,6 +34,7 @@ import {
   type SessionCatalogConfig,
   type SnapshotSources,
   sessionCatalogConfigSchema,
+  settingsSnapshot,
   sessionCatalogView,
   type WorkspaceProfileStore,
   workerImageRuntimesFromEnv,
@@ -295,10 +296,13 @@ export async function loadProfileSources(options: {
     }
     if (value) secrets.set(ref.secret_id, value);
   }
+  // A file names no stored value: only the database holds those.
   const lookup = (ref: CredentialRef) =>
     "value_env" in ref
       ? options.env[ref.value_env]
-      : secrets.get(ref.secret_id);
+      : "secret_id" in ref
+        ? secrets.get(ref.secret_id)
+        : undefined;
   // Every connection's credential resolves before the API starts, as every
   // profile's did when profiles carried them.
   for (const { path, ref } of catalogCredentialRefs(
@@ -356,14 +360,23 @@ export async function databaseCatalog(options: {
   dir: string;
   installations: Pick<InstallationProfileStore, "listAll">;
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
+  settings?: Pick<InstallationSettingsStore, "read">;
   credential: () => string;
   env: Record<string, string | undefined>;
 }): Promise<SessionCatalog> {
   const runtimeVersions = runtimeVersionsFromEnv(options.env);
   const config = await readCatalogConfig(options.dir);
+  const { settings, credential } = options;
   const registry = createProfileRegistry({
     workspaces: options.workspaces,
     installations: options.installations,
+    ...(settings === undefined
+      ? {}
+      : {
+          settings: {
+            read: async () => settingsSnapshot(await settings.read(), credential),
+          },
+        }),
     sources: {
       connections: await readConnections(options.dir),
       repositoryIdsOf: catalogRepositoryIds(config.repositories),
@@ -433,11 +446,15 @@ export async function loadSecretKey(options: {
     throw new Error(`${path} is invalid: ${describeConfigError(parsed.error)}`);
   }
   const at = "platform.secret_key";
-  const ref = credentialRefOf(parsed.data.secret_key);
+  const { value_env, secret_id } = parsed.data.secret_key;
+  const ref: CredentialRef =
+    value_env !== undefined
+      ? { value_env }
+      : { secret_id: secret_id as string };
   let value: string | undefined;
   if ("value_env" in ref) {
     value = options.env[ref.value_env];
-  } else {
+  } else if ("secret_id" in ref) {
     try {
       value = await options.readSecret(ref.secret_id);
     } catch (error) {
@@ -451,7 +468,7 @@ export async function loadSecretKey(options: {
   if (!value) throw new CatalogCredentialError(at, ref);
   return SecretKey.fromHex(
     value,
-    `${at} (${"value_env" in ref ? ref.value_env : ref.secret_id})`,
+    `${at} (${value_env ?? secret_id})`,
   );
 }
 

@@ -51,12 +51,13 @@ export function createInstallationProfileService(deps: {
   authorization: AuthorizationPolicy;
   store: Pick<InstallationProfileStore, "create" | "retire" | "setBlocked">;
   catalog: SessionCatalogView & { workspace_profiles: WorkspaceProfiles };
-  connections: Connections;
+  /** As last read: the settings may gain one between two requests. */
+  connections: () => Connections;
   allowUnattended: boolean;
   runtimes: ProfileFeatureGate;
   newId?: () => string;
 }) {
-  const { authorization, store, catalog, connections, runtimes } = deps;
+  const { authorization, store, catalog, runtimes } = deps;
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
   async function operator(caller: Caller): Promise<TeamActor> {
@@ -112,6 +113,7 @@ export function createInstallationProfileService(deps: {
   function definitionOf(
     request: CreateInstallationProfileRequest,
   ): CatalogProfileConfig {
+    const connections = deps.connections();
     if (!Object.hasOwn(connections, request.connection_id)) {
       throw badRequest(
         `Unknown connection ${request.connection_id}`,
@@ -160,7 +162,7 @@ export function createInstallationProfileService(deps: {
     async options(caller: Caller): Promise<InstallationProfileOptionsResponse> {
       await operator(caller);
       return {
-        connections: Object.entries(connections)
+        connections: Object.entries(deps.connections())
           .map(([id, provider]) => ({
             id,
             kind: provider.kind,

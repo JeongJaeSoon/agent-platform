@@ -1,14 +1,24 @@
 import type { SecretPurpose, WorkspaceRole } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
+import { STORED_OWNER_KINDS, type StoredOwnerKind } from "../sessions/catalog.ts";
 
 /**
- * Who a secret belongs to: the workspace itself (the App Configuration
- * Token), one Slack app of it (that app's signing secret, client secret
- * and bot token) or its GitHub App (the private key).
+ * Who a workspace secret belongs to: the workspace itself (the App
+ * Configuration Token), one Slack app of it (that app's signing secret,
+ * client secret and bot token) or its GitHub App (the private key).
  */
-export type SecretOwner =
+export type WorkspaceSecretOwner =
   | { kind: "workspace" }
   | { kind: "slack_app" | "github_app"; id: string };
+
+/**
+ * Also the installation's settings rows (a connection, repository or MCP
+ * server's stored credential): kept under the default workspace for the
+ * table's foreign key, but never the workspace's to read or remove.
+ */
+export type SecretOwner =
+  | WorkspaceSecretOwner
+  | { kind: StoredOwnerKind; id: string };
 
 export type SecretSlot = {
   workspaceId: string;
@@ -20,12 +30,20 @@ export type SecretSlot = {
 export type SecretOwnerRef =
   | "workspace"
   | `slack_app:${string}`
-  | `github_app:${string}`;
+  | `github_app:${string}`
+  | `${StoredOwnerKind}:${string}`;
+
+export function isInstallationSecretOwner(
+  owner: SecretOwner,
+): owner is { kind: StoredOwnerKind; id: string } {
+  return (STORED_OWNER_KINDS as readonly string[]).includes(owner.kind);
+}
 
 export function secretOwnerRef(owner: SecretOwner): SecretOwnerRef {
-  return owner.kind === "workspace"
-    ? "workspace"
-    : `${owner.kind}:${owner.id.toLowerCase()}`;
+  if (owner.kind === "workspace") return "workspace";
+  // Exactly as a definition's `stored` reference names it.
+  if (isInstallationSecretOwner(owner)) return `${owner.kind}:${owner.id}`;
+  return `${owner.kind}:${owner.id.toLowerCase()}`;
 }
 
 /** Everything about a stored secret except its value. */
@@ -59,7 +77,8 @@ export type DeleteSecretResult =
 /**
  * Encrypted runtime secrets (AES-256-GCM under the master key). Values go in
  * and, for server code only, come out; nothing here hands a value to a
- * route. One value per slot: a put replaces it under a new version.
+ * route. One value per slot: a put replaces it under a new version. Only a
+ * workspace's own slots: an installation settings owner is refused.
  */
 export interface SecretStore {
   describe(slot: SecretSlot): Promise<SecretSummary | null>;

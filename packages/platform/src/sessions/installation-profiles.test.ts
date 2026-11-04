@@ -220,7 +220,7 @@ function setup(
     authorization,
     store,
     catalog,
-    connections,
+    connections: () => connections,
     allowUnattended: options.allowUnattended ?? false,
     runtimes: new ProfileFeatureGate(installedDescriptors),
     newId: () => "019a0000-0000-7000-8000-0000000000e1",

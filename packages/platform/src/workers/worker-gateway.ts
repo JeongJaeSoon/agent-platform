@@ -1164,6 +1164,9 @@ export function createWorkerGateway(deps: {
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
         catalogRevision: claimable.revision,
+        ...(catalog.settings_generation === undefined
+          ? {}
+          : { settingsGeneration: catalog.settings_generation }),
         settledProfileIds: claimable.settled,
         costLimitUsd: deps.options.sessionCostLimitUsd,
         tokenLimit,

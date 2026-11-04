@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  isInstallationSecretOwner,
   lastFour,
   openSecret,
   type PutSecretResult,
@@ -153,6 +154,19 @@ function openRow(key: SecretKey, row: Row): string {
   });
 }
 
+/** Every value of one purpose, opened, by owner ref. */
+export async function openSecretsOfPurpose(
+  db: Database,
+  key: SecretKey,
+  purpose: SecretSlot["purpose"],
+): Promise<Map<string, string>> {
+  const rows = await db
+    .select()
+    .from(secretValues)
+    .where(eq(secretValues.purpose, purpose));
+  return new Map(rows.map((row) => [row.ownerRef, openRow(key, row)]));
+}
+
 /**
  * Seals `value` into the slot inside the caller's transaction, so a store
  * that keeps more than the secret (a Slack app's row, the config token's
@@ -285,23 +299,34 @@ async function write(
   }
 }
 
+// The type already says so; this holds for a slot built at runtime too, so
+// no workspace route reaches an installation setting's credential.
+function workspaceSlot(slot: SecretSlot): SecretSlot {
+  if (isInstallationSecretOwner(slot.owner)) {
+    throw new Error(
+      `secret owner ${slot.owner.kind} belongs to the installation's settings, not a workspace`,
+    );
+  }
+  return canonical(slot);
+}
+
 export function createPostgresSecretStore(
   db: Database,
   key: SecretKey,
 ): SecretStore {
   return {
-    describe: (slot) => describeSecret(db, slot),
+    describe: (slot) => describeSecret(db, workspaceSlot(slot)),
 
     async get(slot) {
       const [row] = await db
         .select()
         .from(secretValues)
-        .where(bySlot(canonical(slot)));
+        .where(bySlot(workspaceSlot(slot)));
       return row ? openRow(key, row) : null;
     },
 
     put(named, value, options) {
-      const slot = canonical(named);
+      const slot = workspaceSlot(named);
       return db.transaction(async (tx): Promise<PutSecretResult> => {
         const audit = options?.audit;
         if (audit) {
@@ -341,7 +366,7 @@ export function createPostgresSecretStore(
     },
 
     delete(named, options) {
-      const slot = canonical(named);
+      const slot = workspaceSlot(named);
       return db.transaction(async (tx) => {
         const audit = options?.audit;
         if (audit) {

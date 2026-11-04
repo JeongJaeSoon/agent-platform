@@ -47,19 +47,41 @@ function hasControlCharacter(value: string): boolean {
   return false;
 }
 
+/**
+ * Where a value the console stored sits in `secret_values`: the settings
+ * row that owns it, whose destination never changes.
+ */
+export const STORED_OWNER_KINDS = ["connection", "repository", "mcp"] as const;
+export type StoredOwnerKind = (typeof STORED_OWNER_KINDS)[number];
+const storedRefPattern = new RegExp(
+  `^(${STORED_OWNER_KINDS.join("|")}):[^\\s]+$`,
+);
+
 const credentialRefFields = {
   value_env: z.string().min(1).optional(),
   secret_id: z.string().min(1).optional(),
+  stored: z
+    .string()
+    .regex(storedRefPattern, "must be connection:, repository: or mcp: and an id")
+    .optional(),
 };
+function namesOneRef(auth: {
+  value_env?: string | undefined;
+  secret_id?: string | undefined;
+  stored?: string | undefined;
+}): boolean {
+  return (
+    [auth.value_env, auth.secret_id, auth.stored].filter(
+      (field) => field !== undefined,
+    ).length === 1
+  );
+}
+const ONE_REF_MESSAGE = "name exactly one of value_env, secret_id or stored";
 function credentialRef<K extends z.ZodType<string>>(kind: K) {
   return z
     .object({ kind, ...credentialRefFields })
     .strict()
-    .refine(
-      (auth) =>
-        (auth.value_env === undefined) !== (auth.secret_id === undefined),
-      { message: "name exactly one of value_env or secret_id" },
-    );
+    .refine(namesOneRef, { message: ONE_REF_MESSAGE });
 }
 
 // A credential in a URL would ride every fingerprint, snapshot and claim
@@ -117,7 +139,7 @@ const webUrl = credentialFreeUrl
 // and no dollar limit applies to its sessions. Absent means `per_token`.
 const billingSchema = z.enum(["per_token", "none"]).optional();
 
-const catalogProviderSchema = z.discriminatedUnion("kind", [
+export const catalogProviderSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("anthropic"),
@@ -246,10 +268,7 @@ const staticRepositoryAuthSchema = z
     ...credentialRefFields,
   })
   .strict()
-  .refine(
-    (auth) => (auth.value_env === undefined) !== (auth.secret_id === undefined),
-    { message: "name exactly one of value_env or secret_id" },
-  )
+  .refine(namesOneRef, { message: ONE_REF_MESSAGE })
   .refine((auth) => (auth.kind === "basic") === (auth.username !== undefined), {
     message: "basic needs a username and bearer takes none",
     path: ["username"],
@@ -285,6 +304,8 @@ const githubAppAuthSchema = z
       isRegisteredGitHubApp(auth) ||
       (auth.app_id !== undefined &&
         auth.installation_id !== undefined &&
+        // An explicit App's key is the deployment's, never the console's.
+        auth.stored === undefined &&
         (auth.value_env === undefined) !== (auth.secret_id === undefined)),
     {
       message:
@@ -299,6 +320,7 @@ export function isRegisteredGitHubApp(auth: {
   installation_id?: number | undefined;
   value_env?: string | undefined;
   secret_id?: string | undefined;
+  stored?: string | undefined;
   api_base?: string | undefined;
 }): boolean {
   return (
@@ -307,6 +329,7 @@ export function isRegisteredGitHubApp(auth: {
     auth.installation_id === undefined &&
     auth.value_env === undefined &&
     auth.secret_id === undefined &&
+    auth.stored === undefined &&
     auth.api_base === undefined
   );
 }
@@ -453,7 +476,10 @@ export type RepositoryCredential =
 export type CatalogRepository = Omit<CatalogRepositoryConfig, "auth"> & {
   auth?: RepositoryCredential | undefined;
 };
-export type CredentialRef = { value_env: string } | { secret_id: string };
+export type CredentialRef =
+  | { value_env: string }
+  | { secret_id: string }
+  | { stored: string };
 
 // What the services hold: each credential resolved, its reference kept so
 // the fingerprint can name where it came from without the value.
@@ -487,15 +513,18 @@ export type CatalogProfile = {
       };
 };
 
-export type CatalogMcpServer = Omit<
-  z.infer<typeof catalogMcpServerSchema>,
-  "auth"
-> & { auth: { kind: "bearer"; value: string; ref: CredentialRef } };
+export type CatalogMcpServerConfig = z.infer<typeof catalogMcpServerSchema>;
+export type CatalogMcpServer = Omit<CatalogMcpServerConfig, "auth"> & { auth: { kind: "bearer"; value: string; ref: CredentialRef } };
 
 export type SessionCatalog = {
   profiles: Record<string, CatalogProfile>;
   repositories: Record<string, CatalogRepository>;
-  mcp_servers?: Record<string, CatalogMcpServer>;
+  mcp_servers?: Record<string, CatalogMcpServer> | undefined;
+  /**
+   * The installation settings generation the catalog was read at
+   * (settings_generation); absent for a catalog not read from them.
+   */
+  settings_generation?: number | undefined;
   workspace_profiles?: WorkspaceProfiles;
   installation?: InstallationProfiles;
   runtime_versions?: RuntimeVersions;
@@ -1402,10 +1431,18 @@ export function allowedRun<
 export function credentialRefOf(auth: {
   value_env?: string | undefined;
   secret_id?: string | undefined;
+  stored?: string | undefined;
 }): CredentialRef {
-  return auth.value_env !== undefined
-    ? { value_env: auth.value_env }
-    : { secret_id: auth.secret_id as string };
+  if (auth.value_env !== undefined) return { value_env: auth.value_env };
+  if (auth.stored !== undefined) return { stored: auth.stored };
+  return { secret_id: auth.secret_id as string };
+}
+
+/** The reference as `kind: name`, for a message; never a value. */
+export function describeCredentialRef(ref: CredentialRef): string {
+  if ("value_env" in ref) return `value_env: ${ref.value_env}`;
+  if ("stored" in ref) return `stored: ${ref.stored}`;
+  return `secret_id: ${ref.secret_id}`;
 }
 
 export class CatalogCredentialError extends Error {
@@ -1415,11 +1452,7 @@ export class CatalogCredentialError extends Error {
     readonly ref: CredentialRef,
     reason = "is not set",
   ) {
-    super(
-      "value_env" in ref
-        ? `${path}.value_env: ${ref.value_env} ${reason}`
-        : `${path}.secret_id: ${ref.secret_id} ${reason}`,
-    );
+    super(`${path}.${describeCredentialRef(ref)} ${reason}`);
   }
 }
 

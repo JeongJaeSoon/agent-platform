@@ -27,8 +27,10 @@ import * as schema from "./schema.ts";
 import {
   events,
   executions,
+  providerConnections,
   receipts,
   sessions,
+  settingsGeneration,
   turns,
   unassignedSessions,
   workerLaunches,
@@ -555,9 +557,11 @@ integration("claim against a catalog that dropped the pair", () => {
       launch: { ref: ExecutionRef; nonce: string },
       costLimitUsd = 1_000,
       settledProfileIds: ReadonlySet<string> = new Set([PROFILE_ID]),
+      settingsGeneration?: number,
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
         catalogRevision: "catalog-under-test",
+        ...(settingsGeneration === undefined ? {} : { settingsGeneration }),
         settledProfileIds,
         runnable: [pairAt(REGISTERED)],
         costLimitUsd,
@@ -581,6 +585,14 @@ integration("claim against a catalog that dropped the pair", () => {
         leaseTtlMs: 60_000,
         now: new Date(),
       });
+    }
+
+    async function settingsGenerationNow() {
+      const [row] = await db
+        .select({ generation: settingsGeneration.generation })
+        .from(settingsGeneration);
+      if (!row) throw new Error("no settings generation row");
+      return row.generation;
     }
 
     async function untouched(sessionId: string, ref: ExecutionRef) {
@@ -651,6 +663,35 @@ integration("claim against a catalog that dropped the pair", () => {
       expect(
         (await claim(launch, 1_000, new Set(["op_wide_v1"]))).outcome,
       ).toBe("catalog_mismatch");
+    });
+
+    // The pair may need a connection, repository or MCP server written since
+    // this replica's read; once it has read that generation, it decides.
+    test("installation settings written after this host's read", async () => {
+      const session = await queuedSession(MOVED_TO);
+      const launch = await reserved(session.session_id);
+      const read = await settingsGenerationNow();
+      await db.insert(providerConnections).values({
+        id: `conn_${randomUUID().slice(0, 8)}`,
+        definition: {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.com",
+          auth: { kind: "api_key", value_env: "UNUSED" },
+        },
+        credentialSource: "external",
+        origin: "import",
+      });
+      const now = await settingsGenerationNow();
+      expect(now).toBeGreaterThan(read);
+      expect((await claim(launch, 1_000, undefined, read)).outcome).toBe(
+        "no_session",
+      );
+      // A host that has read no settings yet is behind as well.
+      expect((await claim(launch)).outcome).toBe("no_session");
+      await untouched(session.session_id, launch.ref);
+      expect((await claim(launch, 1_000, undefined, now)).outcome).toBe(
+        "catalog_mismatch",
+      );
     });
 
     test("a session the catalog allows that has spent its budget", async () => {

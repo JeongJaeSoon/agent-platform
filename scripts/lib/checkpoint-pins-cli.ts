@@ -17,6 +17,7 @@ import * as schema from "@werft-ai/db";
 import {
   createPostgresCheckpointStore,
   createPostgresInstallationProfileStore,
+  createPostgresInstallationSettingsStore,
   createPostgresWorkspaceProfileStore,
 } from "@werft-ai/db";
 import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
@@ -331,6 +332,7 @@ async function plans(
       dir: image.configDir,
       installations: createPostgresInstallationProfileStore(db),
       workspaces: createPostgresWorkspaceProfileStore(db),
+      settings: createPostgresInstallationSettingsStore(db, null),
       credential: () => "verify-restore-reads-no-credential",
       env: process.env,
     });

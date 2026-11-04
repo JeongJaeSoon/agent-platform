@@ -8,9 +8,11 @@ import {
   catalogImports,
   catalogRepositoryIds,
   type InstallationProfileStore,
+  type InstallationSettingsStore,
   repoRefOf,
   type SeedRepository,
   type SessionCatalogConfig,
+  type SettingsImport,
 } from "@werft-ai/platform";
 import { stringify as stringifyYaml } from "yaml";
 import { readSeedProfiles } from "./catalog-config.ts";
@@ -104,6 +106,30 @@ export async function seedCatalogRepositories(
   });
   if (seeded.length > 0) {
     logger.info("Repositories seeded", { repositories: seeded });
+  }
+}
+
+/**
+ * Brings the operator files' connections, credential-holding repositories
+ * and MCP servers into the database, each id once: a row already there is
+ * kept, and named when the file now says something else.
+ */
+export async function importFileSettings(
+  store: Pick<InstallationSettingsStore, "importSettings">,
+  entries: SettingsImport,
+  logger: Pick<StructuredLogger, "info" | "warn">,
+): Promise<void> {
+  const { inserted, conflicts } = await store.importSettings(entries);
+  if (inserted.length > 0) {
+    logger.info("Installation settings imported from the files", {
+      entries: inserted,
+    });
+  }
+  if (conflicts.length > 0) {
+    logger.warn(
+      "The files differ from the installation settings for these ids; the database's are kept",
+      { entries: conflicts },
+    );
   }
 }
 

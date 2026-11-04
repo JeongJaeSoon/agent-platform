@@ -5,10 +5,10 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
-  createPostgresCatalogRepositoryStore,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationProfileStore,
+  createPostgresInstallationSettingsStore,
   createPostgresLinkedAccountStore,
   createPostgresSecretStore,
   createPostgresSessionControl,
@@ -37,7 +37,6 @@ import {
 } from "@werft-ai/observability";
 import {
   allowedRun,
-  type CatalogRepository,
   type Connections,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
@@ -51,7 +50,6 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
-  isRegisteredGitHubApp,
   profileCatalog,
   resolveAgentRelease,
   type SecretKey,
@@ -62,7 +60,6 @@ import {
   type SlackNoticeSink,
   sessionCatalogView,
   slackBotToken,
-  withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
@@ -77,6 +74,7 @@ import {
   type SecretReader,
   secretsManagerReader,
 } from "../api/catalog-config.ts";
+import { settingsViewSource } from "../api/installation-settings.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
 import { PASS_LOOP_ROLES, passLoopConfigFromEnv } from "../pass-loop/loop.ts";
@@ -163,33 +161,34 @@ export function slackProfileCatalog(
     createProfileRegistry({
       workspaces: createPostgresWorkspaceProfileStore(db),
       installations: createPostgresInstallationProfileStore(db),
-      repositories: createPostgresCatalogRepositoryStore(db),
+      // The api's settings, so a release they allow runs here too; this
+      // role holds no credential and only checks what a session would name.
+      settings: settingsViewSource(
+        createPostgresInstallationSettingsStore(db, null),
+        () => SLACK_ROLE_CREDENTIAL,
+      ),
       sources: profileViewSources(
         connections,
         config.repositories,
         environment,
       ),
     }),
-    // The api's catalog, so a release the console's repositories allow runs
-    // here too.
-    (rows) => {
-      const view = sessionCatalogView(config).repositories;
-      const file: Record<string, CatalogRepository> = {};
-      for (const [id, repository] of Object.entries(view)) {
-        const auth = config.repositories[id]?.auth;
-        file[id] =
-          auth !== undefined && isRegisteredGitHubApp(auth)
-            ? { ...repository, auth: { kind: "github_app", registered: true } }
-            : repository;
-      }
-      return Object.fromEntries(
-        Object.entries(withConsoleRepositories(file, rows)).map(
-          ([id, { auth: _auth, ...repository }]) => [id, repository],
+    (settings) =>
+      Object.fromEntries(
+        Object.entries(settings.repositories).map(
+          ([id, { auth, ...repository }]) => [
+            id,
+            auth !== undefined && "registered" in auth
+              ? { ...repository, github_app: true as const }
+              : repository,
+          ],
         ),
-      );
-    },
+      ),
   );
 }
+
+// Stands in for every credential in the slack role's settings snapshot.
+const SLACK_ROLE_CREDENTIAL = "slack-role-holds-no-credential";
 
 export function slackSessionHandler(deps: {
   db: Database;
