@@ -261,7 +261,7 @@ describe("planSettingsImport", () => {
     expect(plan.add).toEqual([]);
   });
 
-  describe("a GitHub App repository the console moved to another branch", () => {
+  describe("a repository the console moved to another branch", () => {
     const app = (branch: string) => ({
       url: "https://github.com/acme/app",
       branch,
@@ -279,10 +279,32 @@ describe("planSettingsImport", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { app: app("main") } },
         row(app("develop")),
-        { allowExternal: true, databaseOwnsAppRepositories: true },
+        { allowExternal: true, databaseOwnsRepositories: true },
       );
       expect(plan.conflicts).toEqual([]);
       expect(plan.kept).toEqual(["repository:app"]);
+      expect(plan.add).toEqual([]);
+    });
+
+    test("so does a public one", () => {
+      const { auth: _auth, ...open } = app("main");
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: open } },
+        row({ ...open, branch: "develop" }),
+        { allowExternal: true, databaseOwnsRepositories: true },
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.kept).toEqual(["repository:app"]);
+    });
+
+    test("an old directory's second name for it is dropped, as the seed dropped it", () => {
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { alias: app("main") } },
+        row(app("main")),
+        { allowExternal: true, databaseOwnsRepositories: true },
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.kept).toEqual(["repository:alias"]);
       expect(plan.add).toEqual([]);
     });
 
@@ -301,7 +323,7 @@ describe("planSettingsImport", () => {
       const plan = planSettingsImport(
         { ...incoming, repositories: { app: bare } },
         row(app("develop")),
-        { allowExternal: true, databaseOwnsAppRepositories: true },
+        { allowExternal: true, databaseOwnsRepositories: true },
       );
       expect(plan.conflicts).toEqual(["repository:app"]);
     });

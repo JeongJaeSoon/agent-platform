@@ -8,7 +8,6 @@ import {
   sessionCatalogConfigSchema,
 } from "@werft-ai/platform";
 import { parse as parseYaml } from "yaml";
-import { installedRuntimes } from "./catalog-config.ts";
 
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
@@ -90,7 +89,6 @@ export async function readSeedProfiles(
       `Catalog config in ${dir} is invalid: ${describeConfigError(parsed.error)}`,
     );
   }
-  installedRuntimes.assertProfiles(parsed.data.profiles);
   return parsed.data.profiles;
 }
 

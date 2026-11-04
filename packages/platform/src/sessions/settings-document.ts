@@ -311,9 +311,10 @@ export type SettingsImportPlan = {
   /** New external references, where the caller may not bring one. */
   refused_external: string[];
   /**
-   * From an old catalog directory: GitHub App repositories that differ from
-   * their row. The console already edited these rows while the files stood
-   * still, so the row stays and the difference is no conflict.
+   * From an old catalog directory: repositories that differ from their row,
+   * and second names of a GitHub repository that already has a row. The API
+   * accepted both while the files stood still, so the row stays and neither
+   * is a conflict.
    */
   kept?: string[];
 };
@@ -335,8 +336,9 @@ const sameEntry = (a: unknown, b: unknown) =>
 export function planSettingsImport(
   incoming: SettingsEntries,
   existing: ExistingSettings,
-  rules: { allowExternal: boolean; databaseOwnsAppRepositories?: boolean },
+  rules: { allowExternal: boolean; databaseOwnsRepositories?: boolean },
 ): SettingsImportPlan {
+  const kept: string[] = [];
   const plan: SettingsImportPlan = {
     add: [],
     unchanged: [],
@@ -363,14 +365,11 @@ export function planSettingsImport(
             : sameEntry(row.entry, entry);
         if (!same) {
           const ownedByDatabase =
-            rules.databaseOwnsAppRepositories === true &&
+            rules.databaseOwnsRepositories === true &&
             kind === "repository" &&
             repositoryAuthKindOf(entry as CatalogRepositoryConfig) ===
-              "github_app" &&
-            repositoryAuthKindOf(row.entry as CatalogRepositoryConfig) ===
-              "github_app";
-          if (ownedByDatabase) plan.kept = [...(plan.kept ?? []), ref];
-          else plan.conflicts.push(ref);
+              repositoryAuthKindOf(row.entry as CatalogRepositoryConfig);
+          (ownedByDatabase ? kept : plan.conflicts).push(ref);
           continue;
         }
         if (!row.active) {
@@ -414,14 +413,16 @@ export function planSettingsImport(
     if (repositoryAuthKindOf(add.entry) !== "github_app") return true;
     const fullName = githubFullName(add.entry.url);
     if (appNames.has(fullName)) {
-      plan.conflicts.push(`repository:${add.id}`);
+      (rules.databaseOwnsRepositories === true ? kept : plan.conflicts).push(
+        `repository:${add.id}`,
+      );
       return false;
     }
     appNames.set(fullName, add.id);
     return true;
   });
   plan.conflicts.sort();
-  return plan;
+  return kept.length === 0 ? plan : { ...plan, kept: kept.sort() };
 }
 
 function githubFullName(url: string): string {

@@ -230,7 +230,7 @@ describe("settings CLI", () => {
     expect(options).toEqual({
       dryRun: false,
       allowExternal: true,
-      databaseOwnsAppRepositories: true,
+      databaseOwnsRepositories: true,
       actor: null,
     });
     expect(err.some((line) => line.includes("platform.yaml"))).toBe(true);
@@ -261,9 +261,48 @@ describe("settings CLI", () => {
       output,
     );
     expect(err).toContain(
-      "note: repository:app differs from the file; the database keeps its row",
+      "note: repository:app from the file is not applied; the database keeps its row",
     );
-    expect(asked[0]?.[1]).toHaveProperty("databaseOwnsAppRepositories", true);
+    expect(asked[0]?.[1]).toHaveProperty("databaseOwnsRepositories", true);
+  });
+
+  test("a runtime this image lacks stops a seed, not an upgrade whose table is filled", async () => {
+    const dir = join(root, "other-runtime");
+    await mkdir(dir, { recursive: true });
+    for (const [name, text] of Object.entries(OLD_CATALOG)) {
+      await writeFile(join(dir, name), text);
+    }
+    const profilesFile = await Bun.file(join(dir, "profiles.yaml")).text();
+    await writeFile(
+      join(dir, "profiles.yaml"),
+      profilesFile
+        .replace("claude_agent_sdk", "pi_coding_agent")
+        .replace("permission_mode: default", "permission_mode: auto"),
+    );
+    const command = {
+      command: "import" as const,
+      source: { dir, ifPresent: false },
+      dryRun: true,
+    };
+    const applied = fakeStore({ ...PLAN, outcome: "dry_run", receipt_ids: [] });
+    const { store: empty } = fakeProfiles();
+    await expect(
+      runSettingsCommand(
+        command,
+        { settings: applied.store, profiles: empty },
+        captured().output,
+      ),
+    ).rejects.toThrow("Catalog profile(s) refused");
+    const { store: filled } = fakeProfiles([
+      { id: "older", repository_ids: ["sample-app"] },
+    ] as never);
+    expect(
+      await runSettingsCommand(
+        command,
+        { settings: applied.store, profiles: filled },
+        captured().output,
+      ),
+    ).toBe(true);
   });
 
   test("--if-present skips a missing or empty directory, and only that", async () => {

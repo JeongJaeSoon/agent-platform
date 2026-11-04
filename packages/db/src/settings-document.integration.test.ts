@@ -291,7 +291,7 @@ integration("settings document import and export", () => {
     expect(
       await store().importEntries(entries(), {
         ...operator,
-        databaseOwnsAppRepositories: true,
+        databaseOwnsRepositories: true,
       }),
     ).toMatchObject({
       outcome: "applied",

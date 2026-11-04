@@ -274,8 +274,7 @@ export function createPostgresSettingsDocumentStore(
           await existingIn(tx, workspaceId),
           {
             allowExternal: options.allowExternal,
-            databaseOwnsAppRepositories:
-              options.databaseOwnsAppRepositories === true,
+            databaseOwnsRepositories: options.databaseOwnsRepositories === true,
           },
         );
         if (plan.conflicts.length > 0 || plan.refused_external.length > 0) {

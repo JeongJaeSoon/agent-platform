@@ -162,10 +162,10 @@ async function seedProfiles(
 ): Promise<ProfileSeedReport | null> {
   const { profiles } = seed;
   if (profiles === null) return null;
-  installedRuntimes.assertProfiles(profiles);
   const repositoryIdsOf = catalogRepositoryIds(seed.entries.repositories);
   if (dryRun) {
     const rows = await store.listAll();
+    if (rows.length === 0) installedRuntimes.assertProfiles(profiles);
     const missing = rows.filter((row) => row.repository_ids === null);
     return {
       seed: rows.length === 0 ? Object.keys(profiles).sort() : [],
@@ -176,7 +176,11 @@ async function seedProfiles(
     };
   }
   const result = await store.seedCatalog({
-    entries: async () => catalogImports(profiles),
+    // Asked only while the table is empty: a filled one never reads the seed.
+    entries: async () => {
+      installedRuntimes.assertProfiles(profiles);
+      return catalogImports(profiles);
+    },
     repositoryIdsOf,
   });
   return {
@@ -222,7 +226,7 @@ export async function runSettingsCommand(
   const result = await stores.settings.importEntries(seed.entries, {
     dryRun: command.dryRun,
     allowExternal: true,
-    ...("dir" in source ? { databaseOwnsAppRepositories: true } : {}),
+    ...("dir" in source ? { databaseOwnsRepositories: true } : {}),
     actor: null,
   });
   if (result.outcome === "actor_inactive") {
@@ -237,7 +241,7 @@ export async function runSettingsCommand(
   }
   for (const ref of result.kept ?? []) {
     output.err(
-      `note: ${ref} differs from the file; the database keeps its row`,
+      `note: ${ref} from the file is not applied; the database keeps its row`,
     );
   }
   const profiles = await seedProfiles(stores.profiles, seed, command.dryRun);
