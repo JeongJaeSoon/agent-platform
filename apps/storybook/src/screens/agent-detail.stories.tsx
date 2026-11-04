@@ -182,6 +182,7 @@ export const AgentDetailMemberDraft: Story = {
     await expect(
       canvas.getByText(
         "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+        { ignore: "[hidden]" },
       ),
     ).toBeVisible();
     await expect(
