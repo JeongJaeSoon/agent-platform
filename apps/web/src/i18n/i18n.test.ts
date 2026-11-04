@@ -98,6 +98,16 @@ describe("i18n", () => {
     }
   });
 
+  // The platform paragraph puts both values in the session prompt, so the
+  // hint sends the agent's role to the field that holds it, by that label.
+  test("the name and description hint points at the agent instructions field", () => {
+    for (const locale of LOCALES) {
+      expect(catalogs[locale]["agent.card.identityHint"]).toContain(
+        catalogs[locale]["agentCard.agentInstructions"],
+      );
+    }
+  });
+
   test("every locale has exactly the Korean keys", () => {
     for (const locale of LOCALES) {
       expect(Object.keys(catalogs[locale]).sort()).toEqual(

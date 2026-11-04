@@ -36,19 +36,19 @@ const COPY: Record<
 > = {
   ko: {
     legend: "이름과 설명",
-    hint: "사람이 보는 값입니다. 새 버전이나 릴리스 없이 바로 바뀌고, 에이전트의 동작에는 영향이 없습니다.",
+    hint: "새 버전이나 릴리스 없이 바로 바뀌고, 새 세션부터 모델에게 이 에이전트의 이름과 설명으로 전해집니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
     name: "이름",
     description: "설명",
   },
   en: {
     legend: "Name and description",
-    hint: "For people to read. They change at once, with no new version or release, and do not affect how the agent behaves.",
+    hint: "They change at once, with no new version or release, and new sessions pass them to the model as this agent's name and description. Put what it does and how it behaves in Agent instructions.",
     name: "Name",
     description: "Description",
   },
   ja: {
     legend: "名前と説明",
-    hint: "人が見るための値です。新しいバージョンやリリースなしですぐに変わり、エージェントの動作には影響しません。",
+    hint: "新しいバージョンやリリースなしですぐに変わり、新しいセッションからモデルにこのエージェントの名前と説明として伝わります。任せる仕事と振る舞い方はエージェント指示文に書いてください。",
     name: "名前",
     description: "説明",
   },

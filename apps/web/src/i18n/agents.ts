@@ -148,7 +148,7 @@ export const agentsKo = {
     "이름과 설명은 저장하면 바로 바뀝니다. 실행 설정은 새 버전으로 저장되고, 활성 릴리스는 그대로입니다.",
   "agent.card.identity": "이름과 설명",
   "agent.card.identityHint":
-    "사람이 보는 값입니다. 새 버전이나 릴리스 없이 바로 바뀌고, 에이전트의 동작에는 영향이 없습니다.",
+    "새 버전이나 릴리스 없이 바로 바뀌고, 새 세션부터 모델에게 이 에이전트의 이름과 설명으로 전해집니다. 맡을 일과 행동 방식은 에이전트 지시문에 적으세요.",
   "agent.card.run": "실행 설정",
   "agent.card.runHint":
     "저장하면 새 버전이 생깁니다. 그 버전으로 릴리스를 만들어 켜야 새 세션에 쓰입니다.",
@@ -588,7 +588,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Name and description change as soon as you save. Run settings are saved as a new version; the active release does not change.",
   "agent.card.identity": "Name and description",
   "agent.card.identityHint":
-    "For people to read. They change at once, with no new version or release, and do not affect how the agent behaves.",
+    "They change at once, with no new version or release, and new sessions pass them to the model as this agent's name and description. Put what it does and how it behaves in Agent instructions.",
   "agent.card.run": "Run settings",
   "agent.card.runHint":
     "Saving creates a new version. New sessions use it once a release of that version is turned on.",
@@ -1022,7 +1022,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "名前と説明は保存するとすぐに変わります。実行設定は新しいバージョンとして保存され、有効なリリースは変わりません。",
   "agent.card.identity": "名前と説明",
   "agent.card.identityHint":
-    "人が見るための値です。新しいバージョンやリリースなしですぐに変わり、エージェントの動作には影響しません。",
+    "新しいバージョンやリリースなしですぐに変わり、新しいセッションからモデルにこのエージェントの名前と説明として伝わります。任せる仕事と振る舞い方はエージェント指示文に書いてください。",
   "agent.card.run": "実行設定",
   "agent.card.runHint":
     "保存すると新しいバージョンが作成されます。そのバージョンのリリースを有効にすると、新しいセッションで使われます。",
