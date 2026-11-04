@@ -16,6 +16,7 @@ import {
   repositoryBinding,
   type SessionCatalog,
 } from "@werft-ai/platform";
+import { releasePolicy } from "@werft-ai/platform/testing/github";
 import {
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
@@ -142,6 +143,7 @@ async function run(
     leaseMs?: number;
     /** Absent: a session with no agent or release, as before the gate. */
     release?: GitHubSessionContext["release"];
+    policy?: GitHubSessionContext["policy"];
     /** The porcelain output of a `git push` that fails instead of running. */
     pushRefusedWith?: string;
   } = {},
@@ -169,7 +171,10 @@ async function run(
         startedBy: null,
         agent: null,
         release: options.release ?? null,
+        policy: options.policy ?? releasePolicy(null),
         ceiling: GITHUB_CEILING_NONE,
+        repositoryCeiling: null,
+        ceilingRevision: 0,
       }),
       findDispatch: async () => null,
       recordReceipt: async (receipt) => {
@@ -496,7 +501,8 @@ describe("the platform's push", () => {
     const gitBefore = github.gitRequests.length;
     const tokensBefore = github.tokenRequests.length;
     const result = await run(catalog, job, {
-      release: { id: crypto.randomUUID(), github: "invalid" },
+      release: { id: crypto.randomUUID() },
+      policy: releasePolicy("invalid"),
     });
     expect(result.outcome).toEqual({
       state: "failed",

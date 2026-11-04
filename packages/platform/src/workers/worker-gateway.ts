@@ -42,6 +42,7 @@ import type {
 import {
   ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
+  githubPolicySourceOf,
   githubRefusalStatus,
   MAX_RESTORE_PROFILES,
 } from "@werft-ai/contracts";
@@ -133,6 +134,7 @@ import {
   type SessionMcp,
   sessionProfile,
   type ToolList,
+  usesWorkspaceCeiling,
   type WorkspaceProfiles,
   workspaceCatalogProfiles,
 } from "../sessions/catalog.ts";
@@ -906,11 +908,34 @@ export function createWorkerGateway(deps: {
     }
     return runnableOf;
   }
+  function policyPairs(id: string, profile: CatalogProfile): RunnablePair[] {
+    const repositories = Object.entries(catalog.repositories).map(
+      ([repositoryId, repository]) => ({
+        repositoryId,
+        url: repository.url,
+        branch: repository.branch,
+      }),
+    );
+    return profilePins(profile, acceptedRuntimeVersions(catalog)).map(
+      (pin) => ({
+        policy: true,
+        profileId: id,
+        profileFingerprint: pin.fingerprint,
+        model: pin.model,
+        workspaceScoped: usesWorkspaceCeiling(catalog, id, "release"),
+        repositories,
+      }),
+    );
+  }
   function buildRunnablePairs(
     workspace: ReturnType<typeof workspaceCatalogProfiles<CatalogProfile>>,
   ): RunnablePair[] {
     return [
       ...operatorRunnable(),
+      ...Object.entries(catalog.profiles).flatMap(([id, profile]) =>
+        policyPairs(id, profile),
+      ),
+      ...workspace.flatMap(({ id, profile }) => policyPairs(id, profile)),
       ...workspace.flatMap(({ id, profile }) => [
         ...Object.entries(catalog.repositories).flatMap(
           ([repositoryId, repository]) =>
@@ -1162,10 +1187,17 @@ export function createWorkerGateway(deps: {
     if (session.repositoryMode === "none") {
       // An `optional` session without a repository still reaches the ones
       // it attached; the gate decides each fetch.
+      const reachesNone =
+        repositoryModeOf(profile) === "none" &&
+        (session.profileId === null ||
+          !usesWorkspaceCeiling(
+            catalog,
+            session.profileId,
+            githubPolicySourceOf(session.githubPolicySource),
+          ));
       return {
         provider,
-        repository:
-          repositoryModeOf(profile) === "none" ? null : ATTACHED_ONLY_BINDING,
+        repository: reachesNone ? null : ATTACHED_ONLY_BINDING,
         object_store,
         ...mcpBinding,
       };
@@ -1845,12 +1877,14 @@ export function createWorkerGateway(deps: {
           await additionalRepositoryUpstream(result.sessionId, other),
         );
       }
+      const source = githubPolicySourceOf(result.githubPolicySource);
       const pair =
         id !== null && result.profileId !== null
-          ? allowedPair(catalog, result.profileId, id)
+          ? allowedPair(catalog, result.profileId, id, source)
           : null;
       if (
         id === null ||
+        result.profileId === null ||
         pair === null ||
         pair.repository.url !== url ||
         pair.repository.branch !== branch ||
@@ -1860,6 +1894,10 @@ export function createWorkerGateway(deps: {
       }
       if (deps.github === undefined) {
         if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
+        // Only the gate holds these sessions to the workspace's ceiling.
+        if (usesWorkspaceCeiling(catalog, result.profileId, source)) {
+          moved("session's repository");
+        }
         return grant(repositoryUpstreamOf(pair.repository));
       }
       let issued: GitHubGrant | null;

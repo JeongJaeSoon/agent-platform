@@ -30,6 +30,7 @@ import {
   type SessionCatalog,
   type SessionOutcomeStore,
 } from "@werft-ai/platform";
+import { releasePolicy } from "@werft-ai/platform/testing/github";
 import { type FakeGitHub, startFakeGitHub } from "@werft-ai/testkit";
 import { createGitHubConnection } from "../forge-github.ts";
 import { hashApiKey } from "../keys.ts";
@@ -213,8 +214,11 @@ function app(
               },
               startedBy: null,
               agent: { id: AGENT, workspaceId: "owner-a", githubEnabled: true },
-              release: { id: RELEASE, github: options.settings ?? SETTINGS },
+              release: { id: RELEASE },
+              policy: releasePolicy(options.settings ?? SETTINGS),
               ceiling: options.ceiling ?? ACTIONS_ON,
+              repositoryCeiling: null,
+              ceilingRevision: 0,
             }
           : null,
       findDispatch: async (repositoryId, runId) =>

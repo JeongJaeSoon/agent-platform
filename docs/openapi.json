@@ -11623,7 +11623,6 @@
                 "type": "object",
                 "properties": {
                   "repositories": {
-                    "minItems": 1,
                     "maxItems": 32,
                     "type": "array",
                     "items": {

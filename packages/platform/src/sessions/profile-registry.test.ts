@@ -462,7 +462,7 @@ describe("the gateway's claim", () => {
       },
     );
     const pairs = (await claimOnce(catalog)).runnable
-      .filter((pair) => pair.profileId === "coding")
+      .filter((pair) => pair.profileId === "coding" && pair.policy !== true)
       .map((pair) => pair.repositoryId);
     expect(new Set(pairs)).toEqual(new Set(["docs"]));
     expect(REPOSITORIES["sample-app"]?.profiles).toContain("coding");

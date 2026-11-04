@@ -312,6 +312,7 @@ function harness(
           agentId: null,
           agentReleaseId: null,
           repositoryId: "app",
+          policy: {},
         },
       };
     },

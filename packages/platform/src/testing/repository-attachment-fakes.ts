@@ -11,6 +11,7 @@ import {
   sessionCatalogConfigSchema,
 } from "../sessions/catalog.ts";
 import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import { releasePolicy } from "./github-fakes.ts";
 
 const profile = {
   runtime_kind: RUNTIME_KIND_VALUES[0],
@@ -79,7 +80,8 @@ export function attachmentContext(
     repository: { url: "https://github.com/acme/app.git", branch: "main" },
     startedBy: null,
     agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: true },
-    release: { id: "release-1", github: attachGitHub() },
+    release: { id: "release-1" },
+    policy: releasePolicy(attachGitHub()),
     ceiling: {
       workflows: false,
       actions: false,
@@ -87,6 +89,8 @@ export function attachmentContext(
       issues: false,
       review: false,
     },
+    repositoryCeiling: null,
+    ceilingRevision: 0,
     ...overrides,
   };
 }

@@ -21,6 +21,12 @@ import * as schema from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
+const RELEASE_RECEIPT_FIELDS = {
+  policy_source: "release",
+  agent_settings_revision: null,
+  workspace_ceiling_revision: 0,
+} as const;
+
 const GITHUB = {
   repositories: ["sample-app"],
   features: {
@@ -142,14 +148,22 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repository: { url: "https://github.com/acme/app.git", branch: "main" },
       startedBy: userId,
       agent: { id: agentId, workspaceId, githubEnabled: true },
-      release: { id: releaseId, github: GITHUB },
+      release: { id: releaseId },
+      policy: {
+        source: "release",
+        settings: GITHUB,
+        startRepositoryId: null,
+        agentSettingsRevision: null,
+      },
       ceiling: GITHUB_CEILING_NONE,
+      repositoryCeiling: null,
+      ceilingRevision: 0,
     });
     expect(await store.context(randomUUID())).toBeNull();
 
     const later = await agent(workspaceId, { github: { from: "later" } });
     const laterSession = await session(workspaceId, later.releaseId, null);
-    expect((await store.context(laterSession))?.release?.github).toBe(
+    expect((await store.context(laterSession))?.policy.settings).toBe(
       "invalid",
     );
     expect((await store.context(laterSession))?.startedBy).toBeNull();
@@ -186,6 +200,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       agentId,
       agentReleaseId: releaseId,
       repositoryId: "sample-app",
+      policy: {},
     };
     const receiptId = await store.recordDispatch({
       context,
@@ -246,6 +261,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
         agentId,
         agentReleaseId: releaseId,
         repositoryId: "sample-app",
+        policy: {},
       },
       actor: ownerActor(userId),
       result: { number: 398, event: "APPROVE", review_id: 77 },
@@ -395,9 +411,12 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repositoryId: "sample-app",
       profileId: null,
       attached: null,
+      policySource: "release",
       github: expect.objectContaining({ repositories: ["sample-app"] }),
+      repositoryCeiling: null,
       githubEnabled: true,
-      approvalOffRelease: releaseId,
+      policyApproval: { releaseId, source: "release", settingsRevision: null },
+      policyFields: RELEASE_RECEIPT_FIELDS,
     });
     const created = await pushes.create({
       ownerId: workspaceId,
@@ -409,7 +428,8 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: "a".repeat(40),
-      approvedByRelease: releaseId,
+      policyApproval: found?.policyApproval ?? null,
+      policyFields: found?.policyFields ?? {},
     });
     if (created.outcome !== "written") throw new Error("not written");
     expect(created.request).toMatchObject({ state: "approved" });
@@ -425,9 +445,12 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       repositoryId: "sample-app",
       profileId: null,
       attached: null,
+      policySource: "release",
       github: null,
+      repositoryCeiling: null,
       githubEnabled: true,
-      approvalOffRelease: null,
+      policyApproval: null,
+      policyFields: RELEASE_RECEIPT_FIELDS,
     });
   });
 

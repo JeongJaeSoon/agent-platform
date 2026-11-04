@@ -12,6 +12,7 @@ import {
   sessionIdSchema,
   timestampSchema,
 } from "../shared/index.ts";
+import { githubPolicyReceiptFieldsSchema } from "./receipt.ts";
 
 // requested → approved | rejected is a human decision; approved → pushing →
 // pushed | failed is the platform's push. Only a policy's approval the agent's
@@ -182,6 +183,9 @@ export const PUSH_REFUSAL_VALUES = [
   "unrelated_history",
   // The deciding key is the key that started the session (GA-8).
   "self_approval",
+  // A policy's approval the agent's settings no longer give: it went back to
+  // a person before anything was pushed.
+  "approval_required",
 ] as const;
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 
@@ -219,6 +223,7 @@ export const pushReceiptResultSchema = z.object({
   // A `resolve_push` receipt only: the API key that decided, or null for a
   // person or the policy.
   decider_key: deciderKeySchema.nullable().optional(),
+  ...githubPolicyReceiptFieldsSchema.shape,
 });
 
 export type PushRequestState = (typeof PUSH_REQUEST_STATE_VALUES)[number];

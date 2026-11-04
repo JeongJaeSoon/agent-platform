@@ -25,6 +25,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkspaceKeyStore,
   memberships,
+  newSessionGitHubReaders,
   receipts,
   sessions,
   users,
@@ -148,7 +149,7 @@ integration("API keys by authority over HTTP on PostgreSQL", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
-      releases: agents,
+      releases: { ...agents, ...newSessionGitHubReaders(db) },
       credentials,
     });
     const keys = createApiKeyService({

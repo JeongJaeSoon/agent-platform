@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { agentGitHubSchema } from "../kollegium/agents.ts";
+import {
+  agentGitHubSchema,
+  agentGitHubSettingsSchema,
+} from "../kollegium/agents.ts";
 import { receiptIdSchema } from "../shared/index.ts";
 import { receiptSchema } from "./receipt.ts";
 
@@ -42,8 +45,11 @@ export const agentGitHubResponseSchema = z.object({
   active_release_id: z.string().nullable(),
   /** The active release's repository; it must stay among `repositories`. */
   release_repository_id: z.string().nullable(),
-  /** The active release's `policy_pins.github`. */
-  github: agentGitHubSchema.nullable(),
+  /**
+   * The agent's settings when it has any, else the active release's
+   * `policy_pins.github`. The agent's may list no repository.
+   */
+  github: agentGitHubSettingsSchema.nullable(),
   /**
    * When `github` is null and the release has a repository: what a first
    * save starts from (its repository alone, push approval on, nothing

@@ -1,23 +1,30 @@
 import { createHash, createPrivateKey } from "node:crypto";
 import { isIP } from "node:net";
 import {
+  type AgentGitHubSettingsRow,
+  type AgentRelease,
   type InstallationProfileState as ContractInstallationProfileState,
   canonicalJson,
   credentialRefSchema,
   GITHUB_MCP_SERVER,
   type GitHubAppRepositories,
+  type GitHubPolicySource,
   MCP_TOOL_PREFIX,
   mcpServerIdSchema,
   narrowOnlyPolicy,
+  newSessionGitHubPolicy,
   type ProfileDerivationPolicy,
   permissionModeSchema,
   projectSettingsSchema,
+  type RepositoryCeiling,
   type RepositoryMode,
+  type RepositoryScope,
   type RuntimeConfig,
   type RuntimeKind,
   repositoryModeSchema,
   type runtimeConfigSchema,
   runtimeKindSchema,
+  startRepositoryOf,
   WORKSPACE_PROFILE_POLICY,
   type WorkspaceProfileState,
 } from "@werft-ai/contracts";
@@ -545,6 +552,8 @@ export type InstallationProfileEntry = {
   repository_ids: readonly string[];
   /** `installed` also runs every resolved GitHub App repository; absent is `listed`. */
   github_app_repositories?: GitHubAppRepositories | undefined;
+  /** Absent reads as `profile`: only a stored row can say `workspace`. */
+  repository_scope?: RepositoryScope | undefined;
   /** The row as stored, for listing; absent in a snapshot built without rows. */
   record?: InstallationProfileRecord | undefined;
   /** The row's definition when it still parses, whatever the state. */
@@ -1063,13 +1072,51 @@ export function profileAllowsRepository(
   const ceiling = catalog.installation?.get(
     trustedProfileId(catalog, profileId),
   );
-  if (ceiling === undefined) return false;
+  return ceiling !== undefined && ceilingHolds(catalog, ceiling, repositoryId);
+}
+
+function ceilingHolds(
+  catalog: { repositories: Readonly<Record<string, CatalogRepositoryView>> },
+  ceiling: {
+    repository_ids: readonly string[];
+    github_app_repositories?: GitHubAppRepositories | undefined;
+  },
+  repositoryId: string,
+): boolean {
   if (ceiling.repository_ids.includes(repositoryId)) return true;
   if (ceiling.github_app_repositories !== "installed") return false;
   const repository = Object.hasOwn(catalog.repositories, repositoryId)
     ? catalog.repositories[repositoryId]
     : undefined;
   return repository !== undefined && usesConsoleApp(repository);
+}
+
+/** The workspace's ceiling on a repository; null allows none. */
+export function repositoryInCeiling(
+  catalog: { repositories: Readonly<Record<string, CatalogRepositoryView>> },
+  ceiling: RepositoryCeiling | null,
+  repositoryId: string,
+): boolean {
+  return ceiling !== null && ceilingHolds(catalog, ceiling, repositoryId);
+}
+
+/**
+ * Whether the workspace's repository ceiling, not the profile's, judges the
+ * session: an `agent` session, or a profile that says so. That ceiling is not
+ * in the catalog, so `allowedPair` and `allowedRun` stop at the catalog for
+ * these and the caller that can read it judges it: session start, the gate.
+ */
+export function usesWorkspaceCeiling(
+  catalog: ProfileLookup<CatalogProfileView>,
+  profileId: string | null,
+  source: GitHubPolicySource,
+): boolean {
+  return (
+    source !== "release" ||
+    (profileId !== null &&
+      catalog.installation?.get(trustedProfileId(catalog, profileId))
+        ?.repository_scope === "workspace")
+  );
 }
 
 /** The ceiling's `github_app_repositories`; null for a profile with no ceiling. */
@@ -1412,6 +1459,7 @@ export function allowedPair<
   catalog: ProfileLookup<P> & { repositories: Record<string, R> },
   profileId: string,
   repositoryId: string,
+  source: GitHubPolicySource = "release",
 ): { profile: P; repository: R } | null {
   const profile = catalogProfile(catalog, profileId);
   const repository = Object.hasOwn(catalog.repositories, repositoryId)
@@ -1420,7 +1468,8 @@ export function allowedPair<
   if (
     !profile ||
     !repository ||
-    !profileAllowsRepository(catalog, profileId, repositoryId)
+    (!usesWorkspaceCeiling(catalog, profileId, source) &&
+      !profileAllowsRepository(catalog, profileId, repositoryId))
   ) {
     return null;
   }
@@ -1440,13 +1489,51 @@ export function allowedRun<
   catalog: ProfileLookup<P> & { repositories: Record<string, R> },
   profileId: string,
   repositoryId: string | null,
+  source: GitHubPolicySource = "release",
 ): { profile: P; repository: R | null } | null {
   if (repositoryId !== null)
-    return allowedPair(catalog, profileId, repositoryId);
+    return allowedPair(catalog, profileId, repositoryId, source);
   const profile = catalogProfile(catalog, profileId);
-  return profile && repositoryModeOf(profile) !== "required"
+  return profile &&
+    (usesWorkspaceCeiling(catalog, profileId, source) ||
+      repositoryModeOf(profile) !== "required")
     ? { profile, repository: null }
     : null;
+}
+
+/**
+ * Whether a session of the release that names no repository, as Slack's do,
+ * can start: on the repository its policy starts on, with the agent's list
+ * and the workspace's ceiling applied as `createSession` applies them.
+ */
+export function releaseStartable(
+  catalog: SessionCatalogView,
+  release: Pick<
+    AgentRelease,
+    "runtime_profile_id" | "repository_id" | "policy_pins"
+  >,
+  agentRow: AgentGitHubSettingsRow | null,
+  repositoryCeiling: RepositoryCeiling | null,
+): boolean {
+  const profileId = release.runtime_profile_id;
+  const policy = newSessionGitHubPolicy(agentRow, release.policy_pins.github);
+  const repositoryId = startRepositoryOf(null, policy, release.repository_id);
+  if (policy.source === "agent" && policy.settings === "invalid") return false;
+  if (allowedRun(catalog, profileId, repositoryId, policy.source) === null) {
+    return false;
+  }
+  if (repositoryId === null) return true;
+  if (
+    policy.source === "agent" &&
+    policy.settings !== "invalid" &&
+    !policy.settings?.repositories.includes(repositoryId)
+  ) {
+    return false;
+  }
+  return (
+    !usesWorkspaceCeiling(catalog, profileId, policy.source) ||
+    repositoryInCeiling(catalog, repositoryCeiling, repositoryId)
+  );
 }
 
 export function credentialRefOf(auth: {

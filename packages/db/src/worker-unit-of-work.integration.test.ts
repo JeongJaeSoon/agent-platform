@@ -728,7 +728,7 @@ integration("worker gateway on PostgreSQL", () => {
       branch: "main",
     });
     await pinTo(await release({}));
-    expect((await gate.context(session.session_id))?.release?.github).toBe(
+    expect((await gate.context(session.session_id))?.policy.settings).toBe(
       null,
     );
     expect((await repository()).attempt_id).toBe(claimed.attempt_id);
@@ -736,7 +736,7 @@ integration("worker gateway on PostgreSQL", () => {
     // the gate refuses it for a GitHub repository. This one is not on
     // GitHub, so it keeps the catalog's credential.
     await pinTo(await release({ github: { from: "a later server" } }));
-    expect((await gate.context(session.session_id))?.release?.github).toBe(
+    expect((await gate.context(session.session_id))?.policy.settings).toBe(
       "invalid",
     );
     expect((await repository()).attempt_id).toBe(claimed.attempt_id);

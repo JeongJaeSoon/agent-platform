@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ReceiptActor } from "@werft-ai/contracts";
 import type { GitHubSessionContext } from "../ports/github-gate.ts";
+import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import {
   attachCatalog,
   attachGitHub,
@@ -121,7 +122,7 @@ describe("list", () => {
       {
         agent: { id: "agent-1", workspaceId: "owner-a", githubEnabled: false },
       },
-      { release: { id: "release-1", github: null } },
+      { policy: releasePolicy(null) },
     ]) {
       expect((await service({ context }).list()).repositories).toEqual([
         { id: "app", name: "acme/app", branch: "main", status: "primary" },
@@ -154,11 +155,56 @@ describe("list", () => {
   });
 });
 
+describe("a session under the agent's settings", () => {
+  const ceiling = {
+    repository_ids: ["app", "docs", "secret"],
+    github_app_repositories: "listed" as const,
+  };
+  const under = (settings = attachGitHub(["app", "docs"])) => ({
+    policy: agentPolicy(settings, { revision: 5 }),
+    repositoryCeiling: ceiling,
+    ceilingRevision: 2,
+  });
+  const ids = (list: { repositories: Array<{ id: string }> }) =>
+    list.repositories.map(({ id }) => id);
+
+  test("list and attach read the agent's list and the workspace's ceiling", async () => {
+    const s = service({ context: under() });
+    expect(ids(await s.list())).toEqual(["app", "docs"]);
+    expect(await refusal(s.attach("secret"))).toMatchObject({
+      details: { reason_code: "repository_not_allowed" },
+    });
+    expect(s.store.receipts.at(-1)?.result).toMatchObject({
+      policy_source: "agent",
+      agent_settings_revision: 5,
+      workspace_ceiling_revision: 2,
+    });
+  });
+
+  test("a repository on the list but off the ceiling is not offered", async () => {
+    const s = service({
+      context: { ...under(), repositoryCeiling: null },
+    });
+    expect(ids(await s.list())).toEqual(["app"]);
+  });
+
+  test("has no newer release to wait for: a repository off its list is plainly not allowed", async () => {
+    const s = service({
+      context: under(attachGitHub(["app"])),
+      active: ["app", "docs"],
+    });
+    expect(await refusal(s.attach("docs"))).toMatchObject({
+      details: { reason_code: "repository_not_allowed" },
+    });
+    expect(ids(await s.list())).toEqual(["app"]);
+  });
+});
+
 describe("a repository only the agent's active release allows", () => {
   // The session runs release-1 (app, docs); the owner then allowed tools,
   // and release-2 became active.
   const pinned = {
-    release: { id: "release-1", github: attachGitHub(["app", "docs"]) },
+    policy: releasePolicy(attachGitHub(["app", "docs"])),
   };
 
   test("attach refuses it as allowed in a newer release, saying a new session can use it", async () => {
@@ -201,7 +247,8 @@ describe("a repository only the agent's active release allows", () => {
         "tools",
         {
           context: {
-            release: { id: "release-2", github: attachGitHub(["app"]) },
+            release: { id: "release-2" },
+            policy: releasePolicy(attachGitHub(["app"])),
           },
           active: ["app", "docs", "tools"],
         },
@@ -319,9 +366,9 @@ describe("attach", () => {
     for (const [repository, context] of [
       ["secret", {}],
       ["unknown", {}],
-      ["docs", { release: { id: "r", github: attachGitHub(["app"]) } }],
+      ["docs", { policy: releasePolicy(attachGitHub(["app"])) }],
       ["docs", { agent: { id: "a", workspaceId: "w", githubEnabled: false } }],
-      ["docs", { release: null }],
+      ["docs", { release: null, policy: releasePolicy(null) }],
     ] as Array<[string, Partial<GitHubSessionContext>]>) {
       const s = service({ context });
       expect(await refusal(s.attach(repository))).toEqual({

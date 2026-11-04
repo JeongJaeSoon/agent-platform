@@ -13,6 +13,7 @@ import {
 } from "../musterrolle/policy.ts";
 import type {
   CreatePushRequestInput,
+  PushPolicyApproval,
   PushRefusalRecord,
   PushRequestStore,
 } from "../ports/push-requests.ts";
@@ -142,7 +143,8 @@ describe("push request decisions", () => {
       store: {
         findSession: async () => ({
           repositoryId: "sample-app",
-          approvalOffRelease: null,
+          policyApproval: null,
+          policyFields: {},
         }),
         replayCreate: async () => null,
         recordRefusal: async (input: PushRefusalRecord) => {
@@ -440,7 +442,7 @@ describe("a push to another repository", () => {
     attached: string[] | null,
     own: string | null = "sample-app",
     released = ["sample-app", "docs", "tools"],
-    approvalOffRelease: string | null = null,
+    policyApproval: PushPolicyApproval | null = null,
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
@@ -458,8 +460,14 @@ describe("a push to another repository", () => {
             actions_allow: [],
             push_approval: true,
           },
+          policySource: policyApproval?.source ?? "release",
+          repositoryCeiling: {
+            repository_ids: ["sample-app", "docs", "tools"],
+            github_app_repositories: "listed",
+          },
           githubEnabled: true,
-          approvalOffRelease,
+          policyApproval,
+          policyFields: { policy_source: "release" },
         }),
         recordRefusal: async (input: PushRefusalRecord) => {
           refusals.push(input);
@@ -518,16 +526,48 @@ describe("a push to another repository", () => {
   });
 
   test("a release with approval off approves the session's own repository alone", async () => {
-    const release = "019a0000-0000-7000-8000-0000000000d1";
-    const { to, created } = pushing(["docs"], "sample-app", undefined, release);
+    const approval: PushPolicyApproval = {
+      releaseId: "019a0000-0000-7000-8000-0000000000d1",
+      source: "release",
+      settingsRevision: null,
+    };
+    const { to, created } = pushing(
+      ["docs"],
+      "sample-app",
+      undefined,
+      approval,
+    );
     expect(await to()).toBeNull();
     expect(await to("sample-app")).toBeNull();
     expect(await to("docs")).toBeNull();
     expect(
-      created.map((input) => [input.repositoryId, input.approvedByRelease]),
+      created.map((input) => [input.repositoryId, input.policyApproval]),
     ).toEqual([
-      ["sample-app", release],
-      ["sample-app", release],
+      ["sample-app", approval],
+      ["sample-app", approval],
+      ["docs", null],
+    ]);
+    expect(created[0]?.policyFields).toEqual({ policy_source: "release" });
+  });
+
+  test("an agent's approval-off settings approve the same way, carrying the settings revision", async () => {
+    const approval: PushPolicyApproval = {
+      releaseId: "019a0000-0000-7000-8000-0000000000d1",
+      source: "agent",
+      settingsRevision: 4,
+    };
+    const { to, created } = pushing(
+      ["docs"],
+      "sample-app",
+      undefined,
+      approval,
+    );
+    expect(await to()).toBeNull();
+    expect(await to("docs")).toBeNull();
+    expect(
+      created.map((input) => [input.repositoryId, input.policyApproval]),
+    ).toEqual([
+      ["sample-app", approval],
       ["docs", null],
     ]);
   });
@@ -569,7 +609,7 @@ describe("a push to another repository", () => {
 describe("a release with push_approval off", () => {
   const RELEASE = "019a0000-0000-7000-8000-0000000000d1";
 
-  function creating(approvalOffRelease: string | null) {
+  function creating(releaseId: string | null) {
     const created: CreatePushRequestInput[] = [];
     const push = createPushRequestService({
       authorization: createAuthorizationPolicy(),
@@ -577,18 +617,22 @@ describe("a release with push_approval off", () => {
         replayCreate: async () => null,
         findSession: async () => ({
           repositoryId: "sample-app",
-          approvalOffRelease,
+          policyApproval:
+            releaseId === null
+              ? null
+              : { releaseId, source: "release", settingsRevision: null },
+          policyFields: {},
         }),
         create: async (input: CreatePushRequestInput) => {
           created.push(input);
-          const approved = input.approvedByRelease !== null;
+          const approved = input.policyApproval !== null;
           const resolution = {
             resolved_by:
-              input.approvedByRelease === null
+              input.policyApproval === null
                 ? null
                 : {
                     kind: "policy" as const,
-                    agent_release_id: input.approvedByRelease,
+                    agent_release_id: input.policyApproval.releaseId,
                   },
             resolved_at: approved ? "2026-10-30T00:00:00.000Z" : null,
             resolution_reason: null,
@@ -641,7 +685,7 @@ describe("a release with push_approval off", () => {
   test("creates a request already approved by the release's policy", async () => {
     const { push, actor, created } = creating(RELEASE);
     const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
-    expect(created[0]?.approvedByRelease).toBe(RELEASE);
+    expect(created[0]?.policyApproval?.releaseId).toBe(RELEASE);
     expect(request).toMatchObject({
       state: "approved",
       resolved_by: { kind: "policy", agent_release_id: RELEASE },
@@ -651,7 +695,7 @@ describe("a release with push_approval off", () => {
   test("a release that keeps push approval creates a requested one", async () => {
     const { push, actor, created } = creating(null);
     const request = await push.create(actor, SESSION, { idempotencyKey: "k" });
-    expect(created[0]?.approvedByRelease).toBeNull();
+    expect(created[0]?.policyApproval).toBeNull();
     expect(request.state).toBe("requested");
   });
 });

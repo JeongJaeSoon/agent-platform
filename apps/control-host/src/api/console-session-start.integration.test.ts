@@ -20,6 +20,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkspaceKeyStore,
   memberships,
+  newSessionGitHubReaders,
   receipts,
   sessions,
   users,
@@ -199,7 +200,7 @@ integration("starting an agent's session from the console", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
-      releases: agents,
+      releases: { ...agents, ...newSessionGitHubReaders(db) },
       credentials,
     });
     app = createApiApp({

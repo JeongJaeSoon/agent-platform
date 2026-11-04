@@ -26,6 +26,24 @@ export const githubAppRepositoriesSchema = z.enum(
 export type GitHubAppRepositories = z.infer<typeof githubAppRepositoriesSchema>;
 
 /**
+ * The repositories agent sessions and `repository_scope = workspace` profiles
+ * may reach, with a profile ceiling's two fields.
+ */
+export const repositoryCeilingSchema = z
+  .object({
+    repository_ids: z.array(z.string().min(1).max(128)),
+    github_app_repositories: githubAppRepositoriesSchema,
+  })
+  .strict();
+export type RepositoryCeiling = z.infer<typeof repositoryCeilingSchema>;
+
+/** Null, for no value or one a later image wrote: nothing is allowed. */
+export function repositoryCeilingOf(stored: unknown): RepositoryCeiling | null {
+  const parsed = repositoryCeilingSchema.safeParse(stored);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * Where a profile is defined: the operator's catalog file, or a workspace
  * owner or admin in the console, narrowing one operator profile.
  */

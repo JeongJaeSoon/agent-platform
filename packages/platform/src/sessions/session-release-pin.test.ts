@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   type AgentGitHub,
+  type AgentGitHubSettingsRow,
   type AuthorizationRequest,
   type CreateSessionRequest,
   GITHUB_CEILING_NONE,
+  type RepositoryCeiling,
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
@@ -90,6 +92,9 @@ function setup(
     appendedKeys?: string[];
     /** The release's GitHub settings. */
     github?: AgentGitHub;
+    /** The agent's own settings row. */
+    agentSettings?: AgentGitHubSettingsRow;
+    repositoryCeiling?: RepositoryCeiling;
     promptRevision?: PlatformPromptRevision;
     /** Who promptIdentity finds; absent, the dep is left out. */
     identity?: AgentPromptIdentity | null;
@@ -110,6 +115,8 @@ function setup(
     },
     catalog: options.catalog ?? catalog,
     releases: {
+      agentGitHubSettings: async () => options.agentSettings ?? null,
+      repositoryCeiling: async () => options.repositoryCeiling ?? null,
       async resolveRelease(_workspaceId, releaseId) {
         if (releaseId !== "rel-1" && releaseId !== "rel-app") {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -806,6 +813,113 @@ describe("a session pinned to an agent release", () => {
 
 // docs/contributing/decisions/profile-db.md §6, the attachment table: a new
 // session with no release, against one of a release made before.
+describe("which policy a new session runs on", () => {
+  const ROW: AgentGitHubSettingsRow = {
+    repositories: ["app"],
+    pushApproval: true,
+    features: { ...GITHUB_CEILING_NONE },
+    actionsAllow: [],
+    startRepositoryId: "app",
+    revision: 2,
+  };
+  const CEILING: RepositoryCeiling = {
+    repository_ids: ["app"],
+    github_app_repositories: "listed",
+  };
+  const PIN: AgentGitHub = {
+    repositories: ["app"],
+    push_approval: true,
+    features: GITHUB_CEILING_NONE,
+    actions_allow: [],
+  };
+  const start = async (
+    options: Parameters<typeof setup>[0],
+    sent: Partial<CreateSessionRequest> = {},
+    release = "rel-1",
+  ) => {
+    const run = setup(options);
+    const outcome = await run.service
+      .createSession(run.caller, {
+        idempotencyKey: "k",
+        body: {
+          profile_id: "coding-v1",
+          message: "hi",
+          agent_release_id: release,
+          ...sent,
+        },
+      })
+      .then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+    return { refusal: outcome, accepted: run.accepted[0] };
+  };
+
+  test("no row: the release's, with its repository, as before", async () => {
+    const { refusal, accepted } = await start({ github: PIN }, {}, "rel-app");
+    expect(refusal).toBeNull();
+    expect(accepted).toMatchObject({
+      repository: { id: "app" },
+      githubPolicySource: "release",
+    });
+  });
+
+  test("a row: the agent's, starting on the row's repository", async () => {
+    const { refusal, accepted } = await start({
+      agentSettings: ROW,
+      repositoryCeiling: CEILING,
+    });
+    expect(refusal).toBeNull();
+    expect(accepted).toMatchObject({
+      repository: { id: "app" },
+      githubPolicySource: "agent",
+    });
+  });
+
+  test("a row without a start repository starts on none, even on a required profile", async () => {
+    const { refusal, accepted } = await start({
+      agentSettings: { ...ROW, startRepositoryId: null },
+    });
+    expect(refusal).toBeNull();
+    expect(accepted).toMatchObject({
+      githubPolicySource: "agent",
+    });
+    expect(accepted?.repository).toBe("none");
+  });
+
+  test.each([
+    {
+      name: "off the row's list",
+      options: {
+        agentSettings: { ...ROW, repositories: ["docs"] },
+        repositoryCeiling: CEILING,
+      },
+    },
+    { name: "no workspace ceiling", options: { agentSettings: ROW } },
+    {
+      name: "off the workspace ceiling",
+      options: {
+        agentSettings: ROW,
+        repositoryCeiling: { ...CEILING, repository_ids: ["docs"] },
+      },
+    },
+    {
+      name: "a row this image cannot read",
+      options: {
+        agentSettings: { ...ROW, repositories: "a later shape" },
+        repositoryCeiling: CEILING,
+      },
+    },
+  ])("is refused: $name", async ({ options }) => {
+    const { refusal, accepted } = await start(
+      options as Parameters<typeof setup>[0],
+    );
+    expect(refusal).toBeInstanceOf(SessionServiceError);
+    expect((refusal as SessionServiceError).code).toBe("GITHUB_REFUSED");
+    expect(accepted).toBeUndefined();
+  });
+});
+
 describe("attachment rules", () => {
   const ceiling = (
     state: InstallationProfileState,
@@ -1076,6 +1190,7 @@ function sessionOn(profileId: string): SessionDetailRecord {
     repo_url: "https://example.invalid/app.git",
     branch: "main",
     repository_mode: "repository",
+    github_policy_source: "release",
     profile_fingerprint: null,
   };
 }

@@ -136,6 +136,7 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
         state,
         repository_ids: [...row.repository_ids],
         github_app_repositories: row.github_app_repositories,
+        repository_scope: row.repository_scope,
         record: row,
         definition: parsed ?? undefined,
         connection_id:

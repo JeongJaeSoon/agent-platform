@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentGitHub } from "@werft-ai/contracts";
+import { type AgentGitHub, GITHUB_MCP_FIXED_TOOLS } from "@werft-ai/contracts";
 import type { GitHubMcpSessionState } from "../ports/github-mcp.ts";
 import { verifyGitHubMcpGrant } from "../sessions/github-mcp-server.ts";
 import {
@@ -26,6 +26,7 @@ const state: GitHubMcpSessionState = {
   ownerId: "owner-a",
   agentId: "agent-1",
   releaseId: "rel-1",
+  source: "release",
   github: settings,
   enabled: true,
   actor: {
@@ -84,6 +85,23 @@ describe("createGitHubMcpEgress", () => {
     expect(await egress()(fenced, call(null))).toMatchObject({
       kind: "refused",
     });
+  });
+
+  test("under the agent's settings passes every fixed tool on, switch off or feature off: the server refuses each call", async () => {
+    for (const current of [
+      { source: "agent" as const },
+      { source: "agent" as const, enabled: false },
+    ]) {
+      for (const tool of GITHUB_MCP_FIXED_TOOLS) {
+        expect((await egress(current)(fenced, call(tool))).kind).toBe(
+          "granted",
+        );
+      }
+      expect(await egress(current)(fenced, call("not_a_tool"))).toMatchObject({
+        kind: "refused",
+        status: 403,
+      });
+    }
   });
 
   test("refuses a method outside the tool surface", async () => {

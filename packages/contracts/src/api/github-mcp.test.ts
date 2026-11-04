@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { AgentGitHub } from "../kollegium/agents.ts";
 import { runtimeConfigSchema } from "../worker-protocol/index.ts";
 import {
+  GITHUB_MCP_FIXED_TOOLS,
   GITHUB_MCP_TOOL_ARGUMENTS,
+  type GitHubMcpTool,
   githubMcpToolNames,
   githubMcpTools,
 } from "./github-mcp.ts";
@@ -48,8 +50,11 @@ describe("githubMcpTools", () => {
     expect<string[]>(
       githubMcpTools(settings({ actions: true, review: true })),
     ).toEqual(Object.keys(GITHUB_MCP_TOOL_ARGUMENTS));
-    expect(githubMcpToolNames(settings({ review: true }))).toContain(
-      "mcp__github__submit_review",
+    expect(
+      githubMcpToolNames(githubMcpTools(settings({ review: true }))),
+    ).toContain("mcp__github__submit_review");
+    expect(GITHUB_MCP_FIXED_TOOLS).toEqual(
+      Object.keys(GITHUB_MCP_TOOL_ARGUMENTS) as GitHubMcpTool[],
     );
   });
 
