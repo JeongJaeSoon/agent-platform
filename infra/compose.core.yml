@@ -122,17 +122,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # The example catalog's git host. Its image and command come from the layer
-  # on top: compose.local.yml runs fake-git, compose.gitea.yml a Gitea. The
-  # name and port stay either way: a session record keeps the repo_url it
-  # started with, and the catalog must still match it.
-  gitea:
-    logging: *logging
-    ports:
-      # HTTP clone for this host. Workers clone through the proxy's
-      # repository route (gitea:3000).
-      - "127.0.0.1:3001:3000"
-
   # The only route off every worker network. The scheduler gives each worker
   # an internal network of its own and attaches this container to it under
   # the name in EXECUTION_EGRESS_PROXY_URL; workers are handed it as
@@ -177,7 +166,9 @@ services:
       # Hosts the packages route follows a registry's redirect to. None of
       # today's public registries redirects.
       EGRESS_PACKAGES_REDIRECT_ALLOWLIST: ${EGRESS_PACKAGES_REDIRECT_ALLOWLIST:-}
-      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
+      # Private upstreams belong to the installation: the local layer names
+      # its own, test-ops on LocalStack requires one.
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-}
       EGRESS_AUTHORIZER_TOKEN: *egress-authorizer-token
       LOG_LEVEL: ${LOG_LEVEL:-info}
     extra_hosts:
@@ -343,8 +334,6 @@ services:
       migrate:
         condition: service_completed_successfully
       postgres:
-        condition: service_healthy
-      gitea:
         condition: service_healthy
 
   # Not a long-running service: workers are launched per session by the

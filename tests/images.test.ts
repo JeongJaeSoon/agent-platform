@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
@@ -22,7 +22,6 @@ import {
   CORE,
   DATADOG_OVERLAY,
   FAKE_MODEL,
-  GITEA_OVERLAY,
   LOCAL_LAYERS,
   layeredServices,
   REAL_MODEL,
@@ -415,10 +414,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     const listOf = (value: string | undefined) =>
       (value ?? "").split(",").filter((entry) => entry !== "");
 
-    for (const name of [...forward, ...credential]) {
+    for (const name of [...forward, ...credential])
       expect(composeDefault(name)).toBeDefined();
+    for (const name of [...forward, "EGRESS_CREDENTIAL_ALLOWLIST"])
       expect(example[name]).toBe(composeDefault(name));
-    }
+    // The local layer's default stands unless a .env replaces it.
+    expect(example.EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST).toBeUndefined();
+    expect(servicesOf(CORE)["egress-proxy"]?.environment).toMatchObject({
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:
+        "$" + "{EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-}",
+    });
     const forwarded = forward.flatMap((name) => listOf(composeDefault(name)));
     const routed = credential.flatMap((name) => listOf(composeDefault(name)));
     for (const upstream of upstreams) {
@@ -447,13 +452,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ?.environment;
     const gateForward = forward.flatMap((name) => listOf(gate?.[name]));
     expect(gateForward).toEqual(["gate-gateway:3000"]);
+  });
 
-    // Accounts come from the admin CLI; an open sign-up is a channel
-    // between sessions for anything that reaches Gitea.
-    expect(
-      composeServices(GITEA_OVERLAY).gitea?.environment
-        ?.GITEA__service__DISABLE_REGISTRATION,
-    ).toBe("true");
+  test("no compose layer runs a Gitea, and only the local stack has a git host", () => {
+    for (const file of readdirSync(join(root, "infra"))) {
+      if (file.endsWith(".yml"))
+        expect(read(`infra/${file}`)).not.toMatch(/gitea\/gitea|GITEA__/);
+    }
+    expect(servicesOf(CORE).gitea).toBeUndefined();
+    expect(layeredServices(TEST_OPS_LAYERS).gitea).toBeUndefined();
+    expect(localStack().gitea).toBeDefined();
   });
 
   // Session records keep the repo_url they started with, so the catalogs,
@@ -1019,7 +1027,7 @@ describe("compose layers", () => {
     EXECUTION_WORKSPACE_QUOTA: "on",
     EGRESS_CREDENTIAL_ALLOWLIST:
       "api.anthropic.com:443,test-ops-bucket.s3.ap-northeast-1.amazonaws.com:443",
-    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
+    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "localstack:4566",
   };
   const TEST_OPS_REQUIRED = {
     ...APP_IMAGES,
@@ -1028,6 +1036,8 @@ describe("compose layers", () => {
   };
   // What only the s3 store's layer requires; LocalStack needs none of it.
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+  // And what only LocalStack's does: on s3 no upstream is private.
+  const LOCALSTACK_ONLY = ["EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"];
   const holdsKey = (service: string, variable: string) =>
     service === "api" ||
     (service === "maintenance" && variable.startsWith("AWS_"));
@@ -1215,9 +1225,9 @@ describe("compose layers", () => {
 
   // What a layer may set on a service the core defines. Everything else —
   // users, capabilities, read-only roots, memory limits, mounts, ports,
-  // networks, restart policies, allowlists — stays in the core. The local
-  // layer's command and healthcheck are fake-git's: the core's git host has
-  // neither, because each layer runs a different program there.
+  // networks, restart policies, allowlists — stays in the core. The exception
+  // is EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST, whose entries are each
+  // installation's own hosts; the core's default is empty.
   test.each([
     [
       LOCAL_LAYERS[1],
@@ -1237,6 +1247,7 @@ describe("compose layers", () => {
         "ANTHROPIC_API_KEY",
         "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS",
         "SESSION_PROMPT_REVISION",
+        "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST",
       ],
     ],
     [
@@ -1246,7 +1257,10 @@ describe("compose layers", () => {
         "WORKER_IMAGE",
         ...Object.keys(TEST_OPS_SECRETS),
         ...Object.keys(TEST_OPS_SETTINGS).filter(
-          (name) => name !== "PLATFORM_CATALOG_DIR" && !S3_ONLY.includes(name),
+          (name) =>
+            name !== "PLATFORM_CATALOG_DIR" &&
+            !S3_ONLY.includes(name) &&
+            !LOCALSTACK_ONLY.includes(name),
         ),
       ],
     ],
@@ -1264,7 +1278,12 @@ describe("compose layers", () => {
     [
       TEST_OPS_STORE_LAYERS.localstack,
       ["environment", "depends_on"],
-      ["AWS_ENDPOINT_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+      [
+        "AWS_ENDPOINT_URL",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        ...LOCALSTACK_ONLY,
+      ],
     ],
   ] as const)(
     "%s only adds to the core's services",
@@ -1489,7 +1508,13 @@ describe("compose layers", () => {
   });
 
   test.each([
-    ["s3", S3_LAYERS, Object.keys(TEST_OPS_REQUIRED)],
+    [
+      "s3",
+      S3_LAYERS,
+      Object.keys(TEST_OPS_REQUIRED).filter(
+        (name) => !LOCALSTACK_ONLY.includes(name),
+      ),
+    ],
     [
       "localstack",
       LOCALSTACK_LAYERS,
