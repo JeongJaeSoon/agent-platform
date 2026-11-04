@@ -1,7 +1,7 @@
 #!/bin/sh
 # Creates the repository the example catalog runs sessions against
 # (config/repositories.yaml: sample-app → http://gitea:3000/agent/sample-app.git).
-# Run once per `up` by the compose `gitea-init` service, next to a healthy
+# Run once per `up` by the kind stack's `gitea-init` job, next to a healthy
 # `gitea` and on its data volume; every step is skipped when already done,
 # so a restarted stack keeps its repository and its history.
 #

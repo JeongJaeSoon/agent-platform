@@ -112,7 +112,7 @@ A GitHub account links to one person only. Linking an account someone else alrea
 
 ## On the local stack
 
-The local `sample-app` is a Gitea repository inside the stack, not GitHub, and it has no push credential. So an approved push ends as `failed` with `no_push_credential`, and a PR request returns 409 because the request was never pushed. Check this with a request that ended as `failed` in [Approve](/approvals/approve).
+The local `sample-app` is a repository on the stack's read-only Git server, not GitHub, and it has no push credential. So an approved push ends as `failed` with `no_push_credential`, and a PR request returns 409 because the request was never pushed. Check this with a request that ended as `failed` in [Approve](/approvals/approve).
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

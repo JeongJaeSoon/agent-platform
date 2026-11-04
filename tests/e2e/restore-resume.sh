@@ -24,8 +24,8 @@
 # Everything lands in RR_OUT (default: a fresh temp dir): record.txt (tested
 # SHA, image ids, versions, the comparison table), each step's JSON, both
 # projects' checkpoint rows and manifests, restore and verify logs, compose
-# logs, and every worker's log. The backup itself holds Gitea's secrets and
-# the API key hashes, so only its manifest.json is kept.
+# logs, and every worker's log. The backup itself holds the API key hashes,
+# so only its manifest.json is kept.
 #
 # Knobs: RR_PROJECT (source project; the restored one is <it>r),
 # RR_INSTALLATION_ID (EXECUTION_INSTALLATION_ID for both), RR_PORT_BASE
@@ -102,7 +102,8 @@ cleanup() {
     dst down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
     remove_installation
     docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" \
-      "${project}-migrate:latest" "${restored}-migrate:latest" >/dev/null 2>&1 || true
+      "${project}-migrate:latest" "${restored}-migrate:latest" \
+      "${project}-gitea:latest" "${restored}-gitea:latest" >/dev/null 2>&1 || true
     rm -rf "$out/backup"
   fi
   [ -z "$events_pid" ] || kill "$events_pid" 2>/dev/null || true
@@ -189,10 +190,13 @@ if [ -n "${RR_IMAGES_FROM:-}" ]; then
     docker tag "agent-platform-${repo}:${from}" "agent-platform-${repo}:${project}" \
       || fail "project ${from} has no agent-platform-${repo} image"
   done
-  # restore.sh runs migrate on the restored project, under its own default name.
+  # restore.sh runs migrate and the git host on the restored project, under
+  # its own default names.
   for name in "$project" "$restored"; do
     docker tag "${from}-migrate:latest" "${name}-migrate:latest" \
       || fail "project ${from} has no migrate image"
+    docker tag "${from}-gitea:latest" "${name}-gitea:latest" \
+      || fail "project ${from} has no gitea image"
   done
 fi
 src up -d "$build" >"$out/up-source.log" 2>&1 || { tail -50 "$out/up-source.log" >&2; exit 1; }

@@ -49,7 +49,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | 도구 | git, jq, curl, 그리고 checkout에서 `bun install --frozen-lockfile`을 마친 bun 1.3.14 | S3 검사와 백업은 호스트에서 checkout의 S3 어댑터로 한다 |
 | checkout | 배포할 release의 `source_commit`에 있고 로컬 변경이 없는 이 저장소 | `preflight`가 거부한다 |
 
-compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
+compose 파일(`infra/compose.core.yml` + `infra/compose.test-ops.yml` + `infra/compose.gitea.yml` + object store layer)과 postgres 초기 SQL, LocalStack 초기화 스크립트를 checkout에서 읽으므로, 업그레이드 사이에는 checkout을 배포한 commit에 그대로 둔다.
 
 ## AWS 준비(`s3`에서만)
 

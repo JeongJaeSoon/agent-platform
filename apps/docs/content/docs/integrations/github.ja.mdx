@@ -112,7 +112,7 @@ GitHub アカウント1つは1人にだけ連携される。他の人がすで�
 
 ## ローカルスタックでは
 
-ローカルの `sample-app` は GitHub ではなくスタック内の Gitea リポジトリで、push 用の認証情報がない。そのため承認した push は `no_push_credential` で `failed` になり、PR のリクエストは push されていないリクエストなので 409 になる。[承認](/approvals/approve)で `failed` として終わったリクエストで確認する。
+ローカルの `sample-app` は GitHub ではなくスタック内の読み取り専用 Git サーバーのリポジトリで、push 用の認証情報がない。そのため承認した push は `no_push_credential` で `failed` になり、PR のリクエストは push されていないリクエストなので 409 になる。[承認](/approvals/approve)で `failed` として終わったリクエストで確認する。
 
 <Tabs groupId="client" persist items={["SDK", "HTTP API"]}>
 <Tab>

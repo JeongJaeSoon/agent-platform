@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   type AgentGitHub,
   type AuthorizationRequest,
@@ -1078,3 +1079,32 @@ function sessionOn(profileId: string): SessionDetailRecord {
     profile_fingerprint: null,
   };
 }
+
+// Session records keep the repo_url they started with, so moving the example
+// repository to another host or path would strand every one of them.
+describe("a session recorded on the example git host", () => {
+  const RECORDED = "http://gitea:3000/agent/sample-app.git";
+  const root = join(import.meta.dir, "../../../..");
+
+  test.each([
+    "config",
+    "config/fake-model",
+    "config/fake-model-unattended",
+    "config/local-model",
+  ])("keeps running under %s", async (dir) => {
+    const { repositories } = Bun.YAML.parse(
+      await Bun.file(join(root, dir, "repositories.yaml")).text(),
+    ) as { repositories: Record<string, { url: string; branch: string }> };
+    const example = repositories["sample-app"];
+    if (example === undefined) throw new Error(`${dir} has no sample-app`);
+    const { service, caller } = setup({
+      catalog: {
+        ...catalog,
+        repositories: { app: { ...example, profiles: ["coding-v1"] } },
+      },
+      session: { ...sessionOn("coding-v1"), repo_url: RECORDED },
+    });
+    const { attention } = await service.getSession(caller, SESSION);
+    expect(attention).toBeNull();
+  });
+});

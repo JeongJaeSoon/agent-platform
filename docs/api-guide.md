@@ -501,6 +501,6 @@ fi
 scripts/local.sh down
 ```
 
-**기대 응답.** `local.sh: deleted`가 출력되고 로컬 세션·checkpoint·key·샘플 Gitea 저장소가 삭제된다.
+**기대 응답.** `local.sh: deleted`가 출력되고 로컬 세션·checkpoint·key가 삭제된다.
 
 **흔한 오류.** 다른 project나 installation을 수동 Docker 명령으로 지우지 않는다. 기본 포트를 다른 스택이 쓰고 있다면 이 예시를 시작하지 말고 [quickstart의 포트 점검](quickstart.md#0-준비물)을 먼저 따른다.

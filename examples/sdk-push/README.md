@@ -16,7 +16,7 @@ bun examples/sdk-push/src/push.ts
 
 ## 실행 결과
 
-로컬 FAKE 스택의 `sample-app`(Gitea)은 카탈로그에 push 자격 증명(`auth`)이 없다. 그래서 승인된 push는 `failed`(`no_push_credential`)로 끝나고, PR은 push되지 않은 요청이라 409 `PUSH_NOT_PUSHED`다. 샘플은 이 둘을 이 스택의 예상 결과로 출력하고 종료 코드 0으로 끝난다. 그 밖의 push 실패는 종료 코드 1이다.
+로컬 FAKE 스택의 `sample-app`(읽기 전용 fake-git)은 카탈로그에 push 자격 증명(`auth`)이 없다. 그래서 승인된 push는 `failed`(`no_push_credential`)로 끝나고, PR은 push되지 않은 요청이라 409 `PUSH_NOT_PUSHED`다. 샘플은 이 둘을 이 스택의 예상 결과로 출력하고 종료 코드 0으로 끝난다. 그 밖의 push 실패는 종료 코드 1이다.
 
 ```text
 session …: created
