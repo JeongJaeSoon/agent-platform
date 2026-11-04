@@ -667,8 +667,12 @@ export function createWorkerGateway(deps: {
   // What this claim asks the session's commits to carry, kept so a push is
   // judged by what the server issued. A claim without `git` or `git_author`
   // (an API from before them) asks for nothing checkable. A failed write fails
-  // the claim, which the worker retries: swallowing it would leave a session
-  // with no bundle, and a session with none is not checked at push.
+  // the claim, after the claim itself has committed. A transient storage error
+  // answers 503 and the worker claims again; any other error, such as the
+  // table missing before migration 0232, answers a non-retryable
+  // INTERNAL_ERROR, the worker leaves, and the session returns to the queue
+  // through the startup-failure backoff. Swallowing the error would leave a
+  // session with no bundle, and a session with none is not checked at push.
   async function recordIssuedAttribution(
     sessionId: string,
     git: ClaimGit | undefined,
