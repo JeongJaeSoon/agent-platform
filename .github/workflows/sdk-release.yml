@@ -128,8 +128,8 @@ jobs:
   # The `if` and `build`'s checks are in this file, which a branch or tag can
   # edit, so they do not hold on their own. What holds is `release`'s required
   # reviewer, who must see this run's ref is main: its deployment policy refuses
-  # other branches, but still admits the `v*` and `ui-v*` tags other packages
-  # release from. No checkout: this job publishes the tarball `build` tested,
+  # other branches, but still admits the tag patterns other packages release
+  # from. No checkout: this job publishes the tarball `build` tested,
   # nothing else. npm trusts this workflow's file name and environment as registered on
   # npmjs.com, so renaming either stops publishing until it is registered again.
   publish:

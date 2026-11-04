@@ -51,5 +51,5 @@ console.log(turn.status);
 
 게시 전에 사람이 다음을 준비해 둔다. 둘 중 하나라도 없으면 `publish`가 environment에서 거부되거나 npm 인증 오류로 실패한다.
 
-1. `release` environment의 배포 정책에 브랜치 `main`을 둔다. 수동 실행의 ref는 태그가 아니라 `refs/heads/main`이다. 다른 브랜치나 와일드카드는 두지 않는다. 태그 패턴 `sdk-v*`는 더 쓰지 않으니 지운다. `v*`와 `ui-v*`는 이미지와 `@werft-ai/ui` 게시가 쓰므로 그대로 둔다. `release`에는 required reviewer를 둔다. 없으면 승인 없이 바로 게시된다. 승인자는 승인 전에 그 run의 ref가 `main`인지 본다. workflow 파일의 조건은 브랜치나 태그에서 고칠 수 있고, 정책은 다른 브랜치만 거부할 뿐 `v*`·`ui-v*` 태그에서 수동 실행한 run은 통과시킨다.
+1. `release` environment의 배포 정책에 브랜치 `main`을 둔다. 수동 실행의 ref는 태그가 아니라 `refs/heads/main`이다. 다른 브랜치나 와일드카드는 두지 않는다. 태그 패턴 `sdk-v*`는 더 쓰지 않으니 지운다. 이미지 게시가 쓰는 `v*` 같은 다른 패키지의 태그 패턴은 그대로 둔다. `release`에는 required reviewer를 둔다. 없으면 승인 없이 바로 게시된다. 승인자는 승인 전에 그 run의 ref가 `main`인지 본다. workflow 파일의 조건은 브랜치나 태그에서 고칠 수 있고, 정책은 다른 브랜치만 거부할 뿐 그 태그 패턴에서 수동 실행한 run은 통과시킨다.
 2. npmjs.com의 패키지 설정에 trusted publisher를 등록한다. 값은 GitHub Actions, 저장소 `JeongJaeSoon/werft`, workflow `sdk-release.yml`, environment `release`이고 `Allow npm publish`를 켠다. 값은 대소문자까지 정확히 맞아야 하고, `package.json`의 `repository.url`도 이 저장소와 일치해야 한다. 새 등록은 2일 안에 첫 게시가 성공해야 한다. 그 안에 게시하지 못하면 만료되므로 지우고 다시 만든다. 등록은 고칠 수 없어서 workflow 파일이나 environment, 저장소 이름이 바뀌어도 다시 만든다.
