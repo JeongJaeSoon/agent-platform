@@ -7,10 +7,10 @@ An agent has values people read and values a run uses, and they live in differen
 
 | Value | Where | When you change it | Does the model read it |
 | --- | --- | --- | --- |
-| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | Only where the installation turns on the [platform paragraph](#what-the-model-reads-today) |
+| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | Only in sessions that have the [platform paragraph](#what-the-model-reads-today) |
 | Agent instructions (`agent_instructions`) and the other card fields | Card | Creates a new version. Used by sessions started on a release of that version | The instructions, yes |
 
-Name and description help people recognise the agent in lists and on its page. Where the installation turns on the platform paragraph, the model reads both as written too, so keep them factual. How the agent should work goes in the agent instructions.
+Name and description help people recognise the agent in lists and on its page. In a session that has the platform paragraph, the model reads both as written too, so keep them factual. How the agent should work goes in the agent instructions.
 
 ## Agent instructions
 
@@ -77,7 +77,7 @@ In card editing (the "What it does" step of a new agent, and Edit settings on th
 
 The worker adds these instructions to the model's system prompt, in this order.
 
-1. The platform paragraph, when the installation setting `SESSION_PROMPT_REVISION` is `1`. With the default `0` it is not added.
+1. The platform paragraph, in sessions created while the installation setting `SESSION_PROMPT_REVISION` is `1`. Sessions created with the default `0` do not get it. Changing the setting later leaves existing sessions as they are.
 2. For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
 3. The agent instructions of the session's release.
 4. `CLAUDE.md` at the repository root. When the profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
@@ -92,7 +92,7 @@ The platform paragraph has no sentences that set a role or personality. It holds
 These values are saved when the session is created. Changing the name or description does not change the paragraph of a session in progress.
 
 <Callout type="warn">
-The card's `role`, `instructions`, and `rules` are not passed to the model. On an installation without the platform paragraph, the name, the description, and the card's `language` are not passed either. To set the answer language there, write it in the agent instructions.
+The card's `role`, `instructions`, and `rules` are not passed to the model. A session without the platform paragraph does not get the name, the description, or the card's `language` either. To set the answer language of such a session, write it in the agent instructions.
 </Callout>
 
 ## Editing and versions

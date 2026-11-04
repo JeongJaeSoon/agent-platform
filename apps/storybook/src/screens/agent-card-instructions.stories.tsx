@@ -1,11 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-  Textarea,
-} from "@werft-ai/ui";
+import { AGENT_INSTRUCTIONS_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
+import { Field, FieldDescription, FieldLabel, Textarea } from "@werft-ai/ui";
 import { useId } from "react";
 
 /*
@@ -16,6 +11,10 @@ import { useId } from "react";
  */
 
 type Locale = "ko" | "en" | "ja";
+
+// agent-card-form.tsx AGENT_FORM: the classes that size the label and the hint.
+const AGENT_FORM =
+  "flex w-full flex-col gap-4 rounded-card border bg-card p-4 [&_[data-slot=field-description]]:mt-0! [&_[data-slot=field-description]]:text-caption [&_[data-slot=field-label]]:text-control [&_[data-slot=field][data-orientation=vertical]]:gap-2";
 
 const COPY: Record<Locale, { readonly label: string; readonly hint: string }> =
   {
@@ -37,15 +36,19 @@ function AgentCardInstructionsScreen({ locale }: { readonly locale: Locale }) {
   const { label, hint } = COPY[locale];
   const id = useId();
   return (
-    <form className="max-w-2xl" onSubmit={(event) => event.preventDefault()}>
-      <FieldGroup>
+    <div className="max-w-2xl">
+      <form className={AGENT_FORM} onSubmit={(event) => event.preventDefault()}>
         <Field>
           <FieldLabel htmlFor={id}>{label}</FieldLabel>
-          <Textarea id={id} rows={10} />
+          <Textarea
+            id={id}
+            maxLength={AGENT_INSTRUCTIONS_MAX_LENGTH}
+            rows={10}
+          />
           <FieldDescription>{hint}</FieldDescription>
         </Field>
-      </FieldGroup>
-    </form>
+      </form>
+    </div>
   );
 }
 
