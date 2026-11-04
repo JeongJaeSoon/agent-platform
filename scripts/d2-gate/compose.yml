@@ -34,9 +34,9 @@ services:
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gate-messages:4010,gitea:3000,gate-s3:4566"
   migrate:
     environment:
-      SETTINGS_DOCUMENT: /settings/d2-gate.json
+      SETTINGS_DOCUMENT: /d2-gate/settings.json
     volumes:
-      - ../scripts/d2-gate/settings.json:/settings/d2-gate.json:ro
+      - ../scripts/d2-gate/settings.json:/d2-gate/settings.json:ro
   api:
     ports: !override
       - "127.0.0.1::3000"
