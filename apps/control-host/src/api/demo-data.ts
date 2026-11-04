@@ -272,7 +272,7 @@ export class DemoClient {
     idempotencyKey?: string,
   ): Promise<Response<T>> {
     const headers: Record<string, string> = {
-      "x-requested-with": "agent-platform-web",
+      "x-requested-with": "werft-web",
     };
     if (this.cookie !== "") headers.cookie = this.cookie;
     if (body !== undefined) headers["content-type"] = "application/json";

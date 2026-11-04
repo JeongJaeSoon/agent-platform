@@ -63,8 +63,8 @@ describe("requests", () => {
     await unwrap(client.GET("/v1/auth/me"));
     await unwrap(client.POST("/v1/auth/logout"));
     expect(api.requests.map((r) => r.headers.get("x-requested-with"))).toEqual([
-      "agent-platform-web",
-      "agent-platform-web",
+      "werft-web",
+      "werft-web",
     ]);
   });
 
@@ -94,15 +94,15 @@ describe("requests", () => {
     });
     await unwrap(keyClient.GET("/v1/auth/me", { credentials: "include" }));
     await unwrap(keyClient.request("get", "/v1/auth/me", {}));
-    expect(sent()).toEqual(["agent-platform-web", null]);
+    expect(sent()).toEqual(["werft-web", null]);
     const cookieClient = createApiClient({
       baseUrl: BASE,
       fetch: api.fetch,
-      headers: { "x-requested-with": "agent-platform-web" },
+      headers: { "x-requested-with": "werft-web" },
     });
     await unwrap(cookieClient.GET("/v1/auth/me", { credentials: "omit" }));
     await unwrap(cookieClient.POST("/v1/auth/logout"));
-    expect(sent()).toEqual([null, "agent-platform-web"]);
+    expect(sent()).toEqual([null, "werft-web"]);
   });
 
   test("a failure becomes an ApiError with the server's code and words", async () => {

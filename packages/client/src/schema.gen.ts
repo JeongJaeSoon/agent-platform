@@ -9506,8 +9506,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Always required: the literal `agent-platform-web`. */
-                "X-Requested-With": "agent-platform-web";
+                /** @description Always required: the literal `werft-web`. */
+                "X-Requested-With": "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -9579,7 +9579,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -9663,8 +9663,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Always required: the literal `agent-platform-web`. */
-                "X-Requested-With": "agent-platform-web";
+                /** @description Always required: the literal `werft-web`. */
+                "X-Requested-With": "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -9681,7 +9681,7 @@ export interface operations {
                     "application/json": components["schemas"]["StartGoogleLoginResponse"];
                 };
             };
-            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -9749,8 +9749,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Always required: the literal `agent-platform-web`. */
-                "X-Requested-With": "agent-platform-web";
+                /** @description Always required: the literal `werft-web`. */
+                "X-Requested-With": "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -9801,7 +9801,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10017,8 +10017,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -10072,7 +10072,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10171,8 +10171,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -10225,7 +10225,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10308,8 +10308,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -10362,7 +10362,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10445,8 +10445,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -10511,7 +10511,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10696,8 +10696,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -10774,7 +10774,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -10872,8 +10872,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -10912,7 +10912,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -11102,8 +11102,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -11182,7 +11182,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -11280,8 +11280,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -11320,7 +11320,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -11539,8 +11539,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -11628,7 +11628,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -11726,8 +11726,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -11767,7 +11767,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -11850,8 +11850,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -11921,7 +11921,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -11989,8 +11989,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -12078,7 +12078,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12146,8 +12146,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -12188,7 +12188,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12256,8 +12256,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -12323,7 +12323,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12496,8 +12496,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -12588,7 +12588,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -12851,8 +12851,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -12928,7 +12928,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13098,8 +13098,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -13167,7 +13167,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13434,8 +13434,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -13579,7 +13579,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13808,8 +13808,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -13878,7 +13878,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -13979,8 +13979,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -14049,7 +14049,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -14242,8 +14242,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -14319,7 +14319,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -14402,8 +14402,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -14452,7 +14452,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -14520,8 +14520,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -14611,7 +14611,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -14693,8 +14693,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -14765,7 +14765,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -14851,8 +14851,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -14924,7 +14924,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -15007,8 +15007,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -15038,7 +15038,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. Also when the caller is not a cookie session (an API key). */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. Also when the caller is not a cookie session (an API key). */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -15234,8 +15234,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -15289,7 +15289,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. Also when the caller is not a cookie session (an API key). */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. Also when the caller is not a cookie session (an API key). */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -15495,8 +15495,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -15567,7 +15567,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `repository_not_allowed`: the agent release's GitHub settings do not list `repository_id`, or one of `attached_repository_ids` is the session's own repository, not listed there, or not allowed for the profile, or the list was sent for a session without an agent release or without a repository. No receipt is written: `details.receipt_id` is null.
              */
             403: {
@@ -15950,8 +15950,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -16068,7 +16068,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -16236,8 +16236,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -16290,7 +16290,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -16388,8 +16388,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -16442,7 +16442,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -16595,8 +16595,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -16649,7 +16649,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -16772,8 +16772,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -16826,7 +16826,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -17284,8 +17284,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -17350,7 +17350,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18007,8 +18007,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -18086,7 +18086,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18308,8 +18308,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -18395,7 +18395,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, its profile does not allow, or its agent has GitHub off. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read. Also when the deployment does not authenticate callers (`AUTH_MODE=none`): push requests need a verified credential; and with `details.refusal: repository_not_allowed` when `repository_id` names a repository the session's release does not list, its profile does not allow, or its agent has GitHub off. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18614,8 +18614,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -18708,7 +18708,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18812,8 +18812,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -18906,7 +18906,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -19008,8 +19008,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -19086,7 +19086,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (an App or a github.com PAT).
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (an App or a github.com PAT).
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
             403: {
@@ -19190,8 +19190,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -19274,7 +19274,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
             403: {
@@ -19378,8 +19378,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -19451,7 +19451,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
             403: {
@@ -19695,8 +19695,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -19761,7 +19761,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
             403: {
@@ -20339,8 +20339,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -20380,7 +20380,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -20448,8 +20448,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -20542,7 +20542,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -20640,8 +20640,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -20711,7 +20711,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:write`, checked before the body or the resource is read.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409.
              */
             403: {
@@ -20828,8 +20828,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -20893,7 +20893,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -21011,8 +21011,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -21077,7 +21077,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -21202,8 +21202,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -21268,7 +21268,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -21393,8 +21393,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -21460,7 +21460,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -21583,8 +21583,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -21649,7 +21649,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -21774,8 +21774,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -21839,7 +21839,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:control`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -21965,8 +21965,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -22033,7 +22033,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -22224,8 +22224,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -22277,7 +22277,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
             403: {
@@ -22347,8 +22347,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -22380,7 +22380,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -22463,8 +22463,8 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Always required: the literal `agent-platform-web`. */
-                "X-Requested-With": "agent-platform-web";
+                /** @description Always required: the literal `werft-web`. */
+                "X-Requested-With": "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -22515,7 +22515,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
+            /** @description - `FORBIDDEN`: The request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); every caller must send the header. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -22717,8 +22717,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 user_id: string;
@@ -22772,7 +22772,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
@@ -22877,8 +22877,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 user_id: string;
@@ -22932,7 +22932,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
@@ -23033,8 +23033,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 user_id: string;
@@ -23088,7 +23088,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
@@ -23189,8 +23189,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 user_id: string;
@@ -23244,7 +23244,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `SELF_PROTECTED`: A manager cannot change their own role or disable or enable themselves; another manager does it.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
@@ -23330,8 +23330,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 user_id: string;
@@ -23385,7 +23385,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `OWNER_PROTECTED`: Only an owner may grant the owner role or change an owner's role or access (disable, suspend, enable).
              */
             403: {
@@ -23538,8 +23538,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -23592,7 +23592,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -23690,8 +23690,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -23723,7 +23723,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -23796,8 +23796,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -23848,7 +23848,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -23936,8 +23936,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -23975,7 +23975,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -24043,8 +24043,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -24119,7 +24119,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -24274,8 +24274,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -24309,7 +24309,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -24490,8 +24490,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -24542,7 +24542,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -24804,8 +24804,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -24858,7 +24858,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -24941,8 +24941,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -24995,7 +24995,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25108,8 +25108,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -25162,7 +25162,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25350,8 +25350,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -25404,7 +25404,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25502,8 +25502,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -25538,7 +25538,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25691,8 +25691,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -25745,7 +25745,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -25848,8 +25848,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -25884,7 +25884,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -26037,8 +26037,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -26091,7 +26091,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -26645,8 +26645,8 @@ export interface operations {
             header: {
                 /** @description Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read. */
                 "Idempotency-Key": string;
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -26709,7 +26709,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27091,8 +27091,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -27157,7 +27157,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27255,8 +27255,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -27320,7 +27320,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27622,8 +27622,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -27719,7 +27719,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27822,8 +27822,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -27901,7 +27901,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27984,8 +27984,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -28025,7 +28025,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -28113,8 +28113,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -28232,7 +28232,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -28696,8 +28696,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -28749,7 +28749,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.
              *     - `SCOPE_NOT_GRANTABLE`: The key asks for a scope its issuer does not hold now.
              */
             403: {
@@ -28834,8 +28834,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -28869,7 +28869,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -29040,8 +29040,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -29111,7 +29111,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -29406,8 +29406,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 team_id: string;
@@ -29446,7 +29446,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -29529,8 +29529,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 team_id: string;
@@ -29602,7 +29602,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -29700,8 +29700,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 team_id: string;
@@ -29773,7 +29773,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -29856,8 +29856,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 team_id: string;
@@ -29906,7 +29906,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -29974,8 +29974,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 team_id: string;
@@ -30048,7 +30048,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -30237,8 +30237,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -30320,7 +30320,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -30403,8 +30403,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -30457,7 +30457,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -30525,8 +30525,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -30604,7 +30604,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -30922,8 +30922,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -31023,7 +31023,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31106,8 +31106,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 profile_id: string;
@@ -31174,7 +31174,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31325,8 +31325,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -31396,7 +31396,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31479,8 +31479,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -31553,7 +31553,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31651,8 +31651,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -31700,7 +31700,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -31868,8 +31868,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -31943,7 +31943,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -32029,8 +32029,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -32104,7 +32104,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -32187,8 +32187,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -32238,7 +32238,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -32411,8 +32411,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -32493,7 +32493,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -32576,8 +32576,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 family_id: string;
@@ -32660,7 +32660,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -32758,8 +32758,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 family_id: string;
@@ -32814,7 +32814,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -32882,8 +32882,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 family_id: string;
@@ -32953,7 +32953,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -33135,8 +33135,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -33216,7 +33216,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -33422,8 +33422,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -33553,7 +33553,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -33636,8 +33636,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 profile_id: string;
@@ -33719,7 +33719,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -33787,8 +33787,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 profile_id: string;
@@ -33870,7 +33870,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -33938,8 +33938,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 profile_id: string;
@@ -34021,7 +34021,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34196,8 +34196,8 @@ export interface operations {
                 dry_run?: "true" | "false";
             };
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -34302,7 +34302,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34477,8 +34477,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -34544,7 +34544,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34612,8 +34612,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -34677,7 +34677,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34760,8 +34760,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -34801,7 +34801,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34974,8 +34974,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -35043,7 +35043,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -35111,8 +35111,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -35179,7 +35179,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -35262,8 +35262,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -35327,7 +35327,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -35410,8 +35410,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -35451,7 +35451,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -35622,8 +35622,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path?: never;
             cookie?: never;
@@ -35691,7 +35691,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -35759,8 +35759,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -35824,7 +35824,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -35907,8 +35907,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -35972,7 +35972,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -36055,8 +36055,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Required with a cookie session: the literal `agent-platform-web`. */
-                "X-Requested-With"?: "agent-platform-web";
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
             };
             path: {
                 id: string;
@@ -36096,7 +36096,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: agent-platform-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

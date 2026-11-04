@@ -112,7 +112,7 @@ beforeAll(async () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Requested-With": "agent-platform-web",
+        "X-Requested-With": "werft-web",
       },
       body: JSON.stringify({ email: `${role}@example.com`, password: secret }),
     });
@@ -179,7 +179,7 @@ async function calls(
     {
       headers: {
         Cookie: cookies[role],
-        "X-Requested-With": "agent-platform-web",
+        "X-Requested-With": "werft-web",
       },
     },
   );
@@ -233,7 +233,7 @@ integration(
         {
           headers: {
             Cookie: cookies[role],
-            "X-Requested-With": "agent-platform-web",
+            "X-Requested-With": "werft-web",
           },
         },
       );

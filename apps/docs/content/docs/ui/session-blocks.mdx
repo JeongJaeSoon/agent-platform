@@ -7,7 +7,7 @@ description: "SessionList와 SessionDetail로 세션 목록과 세션 화면을 
 
 ## 블록이 API를 부르는 방식
 
-블록은 `@werft-ai/client`의 클라이언트로 같은 origin의 `/v1`을 부르고, 웹 콘솔의 로그인 cookie로 인증한다. cookie 요청에 필요한 CSRF 헤더(`X-Requested-With: agent-platform-web`)는 클라이언트가 붙인다. 그래서 다음이 필요하다.
+블록은 `@werft-ai/client`의 클라이언트로 같은 origin의 `/v1`을 부르고, 웹 콘솔의 로그인 cookie로 인증한다. cookie 요청에 필요한 CSRF 헤더(`X-Requested-With: werft-web`)는 클라이언트가 붙인다. 그래서 다음이 필요하다.
 
 - 앱과 API가 같은 origin이어야 한다. 개발 중에는 Vite의 `server.proxy`가 `/v1`을 스택으로 넘긴다([설치](/ui/install)의 `vite.config.ts`).
 - 브라우저가 로그인돼 있어야 한다. cookie는 포트를 가리지 않으므로, 같은 브라우저로 `http://127.0.0.1:3000` 웹 콘솔에 로그인하면 `http://127.0.0.1:5173`의 앱 요청에도 그 cookie가 간다.

@@ -148,7 +148,7 @@ describe("workspace shell", () => {
     expect(await screen.findByText("로그아웃했습니다.")).toBeDefined();
     expect(history.location.pathname).toBe("/login");
     const [logout] = callsTo(api.calls, "/v1/auth/logout");
-    expect(logout?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(logout?.headers.get("x-requested-with")).toBe("werft-web");
     expect(services.queryClient.getQueryData(["me"])).toBeUndefined();
   });
   test("로그아웃이 실패하면 로그인된 채로 남고 그렇게 말한다", async () => {

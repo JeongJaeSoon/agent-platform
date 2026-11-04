@@ -53,7 +53,7 @@ describe("초대 수락", () => {
       password: SECRET,
       display_name: "Newcomer",
     });
-    expect(call?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(call?.headers.get("x-requested-with")).toBe("werft-web");
   });
 
   test("계정이 있으면 이름을 묻지 않고, 비밀번호만 보낸다", async () => {

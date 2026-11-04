@@ -39,7 +39,7 @@ type Web = <T>(
 function webAs(cookie: string): Web {
   return async (method, path, body) => {
     const headers: Record<string, string> = {
-      "x-requested-with": "agent-platform-web",
+      "x-requested-with": "werft-web",
     };
     if (cookie !== "") headers.cookie = cookie;
     if (body !== undefined) headers["content-type"] = "application/json";

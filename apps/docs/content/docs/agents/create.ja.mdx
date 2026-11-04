@@ -29,17 +29,17 @@ owner・admin・member のいずれも、エージェントを作成できる。
 ### ログイン
 
 ```sh
-read -rs AP_PASSWORD
-AP_COOKIE=$(curl -sS -o /dev/null -D - "$API/v1/auth/login" \
-  -H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' \
-  -d "$(jq -nc --arg e 'owner@example.test' --arg p "$AP_PASSWORD" '{email: $e, password: $p}')" \
+read -rs WERFT_PASSWORD
+WERFT_COOKIE=$(curl -sS -o /dev/null -D - "$API/v1/auth/login" \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: werft-web' \
+  -d "$(jq -nc --arg e 'owner@example.test' --arg p "$WERFT_PASSWORD" '{email: $e, password: $p}')" \
   | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p')
 ```
 
-ログイン cookie は名前が `__Host-` で始まり `Secure` なので、http では curl の cookie jar に保存されない。そのため応答ヘッダーから取り出し、`Cookie` ヘッダーで送る。状態を変更するリクエストには `X-Requested-With: agent-platform-web` が必要である。
+ログイン cookie は名前が `__Host-` で始まり `Secure` なので、http では curl の cookie jar に保存されない。そのため応答ヘッダーから取り出し、`Cookie` ヘッダーで送る。状態を変更するリクエストには `X-Requested-With: werft-web` が必要である。
 
 ```bash
-WEB=(-H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' -H "Cookie: $AP_COOKIE")
+WEB=(-H 'Content-Type: application/json' -H 'X-Requested-With: werft-web' -H "Cookie: $WERFT_COOKIE")
 curl -sS "$API/v1/auth/me" "${WEB[@]}" | jq '{role: .principal.role, workspace: .workspace.slug}'
 ```
 

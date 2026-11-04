@@ -163,7 +163,7 @@ integration("auth API on PostgreSQL", () => {
     json(
       "/v1/auth/login",
       { email: "owner@example.com", password },
-      { "X-Requested-With": "agent-platform-web" },
+      { "X-Requested-With": "werft-web" },
     );
   const cookieOf = (response: Response) =>
     (response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
@@ -241,7 +241,7 @@ integration("auth API on PostgreSQL", () => {
         email: "ghost@example.com",
         password: PASSWORD,
       },
-      { "X-Requested-With": "agent-platform-web" },
+      { "X-Requested-With": "werft-web" },
     );
     expect(wrong.status).toBe(401);
     expect(unknown.status).toBe(401);
