@@ -7,6 +7,7 @@ import {
   type OpenPullRequestResponse,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
+  type PushRequestState,
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
@@ -113,6 +114,7 @@ export function createPullRequestService(deps: {
     const refuse = async (
       refusal: PullRequestRefusal,
       fields: Partial<PullRequestReceiptResult> = {},
+      pushRequestState?: PushRequestState,
     ): Promise<never> => {
       const receiptId = await store.recordReceipt({
         ...receipt,
@@ -128,6 +130,9 @@ export function createPullRequestService(deps: {
       throw new SessionServiceError(code, message, undefined, {
         refusal,
         receipt_id: receiptId,
+        ...(pushRequestState === undefined
+          ? {}
+          : { push_request_state: pushRequestState }),
         ...(code === "GITHUB_REFUSED"
           ? { reason_code: fields.reason_code ?? refusal }
           : {}),
@@ -295,10 +300,12 @@ export function createPullRequestService(deps: {
         };
       }
       const fields = { repository_id: source.repositoryId };
-      if (source.state !== "pushed") return await refuse("not_pushed", fields);
+      if (source.state !== "pushed") {
+        return await refuse("not_pushed", fields, source.state);
+      }
       const head = source.targetBranch;
       if (!isSessionPushBranch(source.sessionId, head)) {
-        return await refuse("not_pushed", fields);
+        return await refuse("not_pushed", fields, source.state);
       }
       const { forge, base } = await forgeFor(actor, source, refuse);
       const tail = await tailFor(source);
@@ -400,7 +407,7 @@ export function createPullRequestService(deps: {
       );
       if (pullRequest === null) return await refuse("no_pull_request", fields);
       if (submitter && source.state !== "pushed") {
-        return await refuse("not_pushed", fields);
+        return await refuse("not_pushed", fields, source.state);
       }
       const { forge } = await forgeFor(actor, source, (refusal, extra) =>
         refuse(refusal, { ...fields, ...extra }),
@@ -477,7 +484,7 @@ export function createPullRequestService(deps: {
       const fields = { ...found.fields, marker };
       if (pullRequest === null) return await refuse("no_pull_request", fields);
       if (submitter && source.state !== "pushed") {
-        return await refuse("not_pushed", fields);
+        return await refuse("not_pushed", fields, source.state);
       }
       const { forge } = await forgeFor(actor, source, (refusal, extra) =>
         refuse(refusal, { ...fields, ...extra }),
