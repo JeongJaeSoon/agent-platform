@@ -278,6 +278,7 @@ jobs:
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-links.
+              - tests/docs-site-links.
               - tests/e2e/local-model.
               - tests/e2e/real-model.
               - tests/forbidden-terms.
