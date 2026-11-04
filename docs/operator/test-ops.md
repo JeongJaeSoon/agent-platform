@@ -156,9 +156,12 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 |---|---|---|
 | `TEST_OPS_API_PORT` | `3000` | API와 웹 콘솔의 호스트 포트. 1~65535 |
 | `TEST_OPS_POSTGRES_PORT` | `5432` | postgres의 호스트 포트. 1~65535 |
+| `TEST_OPS_LOCALSTACK_PORT` | `4566` | LocalStack의 호스트 포트. 1~65535. `localstack`에서만 쓰고 `s3`에서는 무시한다. API와 worker는 호스트 포트를 거치지 않으므로 `http://localstack:4566`과 `localstack:4566`은 그대로 둔다 |
 | `TEST_OPS_API_URL` | `http://127.0.0.1:<TEST_OPS_API_PORT>` | `deploy`·`upgrade`·`status`가 `/readyz`를 확인하는 주소. 포트를 따라가므로 호스트 앞에 프록시를 둘 때만 그 호스트 이름으로 넣는다. `scheme://host[:port]` 형식이고 경로와 끝의 `/`는 쓰지 않는다 |
 
-`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL, 게시한 API 포트와 다른 포트를 쓰는 IP 주소·`localhost` URL을 거부한다. 오류 문구에 URL 값은 넣지 않는다. 이미 배포한 설치의 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. 이 문서의 3000과 5432는 기본값이다. 값을 바꾸면 터널과 `curl` 명령의 포트도 함께 바꾼다.
+`preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL, 게시한 API 포트와 다른 포트를 쓰는 IP 주소·`localhost` URL을 거부한다. 오류 문구에 포트와 URL 값은 넣지 않는다. 이미 배포한 설치의 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. 이 문서의 3000과 5432는 기본값이다. 값을 바꾸면 터널과 `curl` 명령의 포트도 함께 바꾼다.
+
+`TEST_OPS_LOCALSTACK_PORT`는 `upgrade`로 바꾸지 못한다. compose가 LocalStack 컨테이너를 다시 만들어 object가 모두 사라지므로(위 "LocalStack의 한계") `preflight`가 실행 중인 포트와 다른 값을 거부한다. "계획 재시작"처럼 `scripts/test-ops.sh backup --stop`으로 백업하고, env 파일을 고치고, 그 백업으로 `reseed`를 부른다. `reseed`가 렌더를 검사한 뒤 LocalStack을 새 포트로 띄우고 object를 되살린다.
 
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
 
@@ -386,7 +389,7 @@ scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<시�
 
 `reseed`가 하는 일:
 
-1. manifest의 project·bucket이 이 설치와 같고, 체크섬과 schema가 맞는지 본다.
+1. 렌더가 `preflight`의 렌더 검사를 카탈로그 revision만 빼고 통과하고, manifest의 project·bucket이 이 설치와 같고, 체크섬과 schema가 맞는지 본다.
 2. writer를 멈춘 채 postgres와 LocalStack을 띄운다. LocalStack의 bucket이 비어 있어야 한다. 비어 있지 않으면 재시작이 없었다는 뜻이므로 거부한다.
 3. `scripts/restore.sh`가 새 bucket을 채우는 방식 그대로 object를 올린다: create-only 업로드 뒤, 모든 미수거 checkpoint를 새 version으로 re-pin하고 legal hold를 건다. re-pin은 쓰기 전에 DB의 모든 미수거 checkpoint를 올린 바이트와 대조한다. 백업 뒤에 DB가 바뀌었으면 여기서 거부한다.
 4. object 수가 백업과 같으면 설치를 다시 띄우고 `history.log`에 남긴다.
