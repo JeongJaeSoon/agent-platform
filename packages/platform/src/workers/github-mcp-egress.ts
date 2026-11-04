@@ -1,4 +1,4 @@
-import { githubMcpTools } from "@werft-ai/contracts";
+import { GITHUB_MCP_FIXED_TOOLS, githubMcpTools } from "@werft-ai/contracts";
 import type { GitHubMcpStore } from "../ports/github-mcp.ts";
 import { signGitHubMcpGrant } from "../sessions/github-mcp-server.ts";
 import {
@@ -39,7 +39,9 @@ export function createGitHubMcpEgress(deps: {
     if (state === null || state.github === null) {
       return forbidden("The session's release carries no GitHub settings");
     }
-    if (!state.enabled) {
+    // Under the agent's settings the server refuses each call: a session's
+    // tools stay as they were when it started.
+    if (!state.enabled && state.source === "release") {
       return forbidden("GitHub is turned off for this agent");
     }
     if (state.actor === null) {
@@ -53,11 +55,11 @@ export function createGitHubMcpEgress(deps: {
     ) {
       return forbidden(`JSON-RPC method ${method} is not routed`);
     }
-    if (
-      method === "tools/call" &&
-      (tool === null ||
-        !(githubMcpTools(state.github) as string[]).includes(tool))
-    ) {
+    const exposed: readonly string[] =
+      state.source === "release"
+        ? githubMcpTools(state.github)
+        : GITHUB_MCP_FIXED_TOOLS;
+    if (method === "tools/call" && (tool === null || !exposed.includes(tool))) {
       return forbidden("The release does not expose this GitHub tool");
     }
     const bearer = signGitHubMcpGrant(deps.grantKey, fenced, now());

@@ -127,6 +127,7 @@ export function createGitHubWorkService(deps: {
     session_id: grant.context.sessionId,
     agent_id: grant.context.agentId,
     agent_release_id: grant.context.agentReleaseId,
+    ...grant.context.policy,
     repository_id: grant.context.repositoryId,
     allowed_by: grant.allowedBy,
   });

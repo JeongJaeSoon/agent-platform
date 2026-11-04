@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { GITHUB_POLICY_SOURCE_VALUES } from "../kollegium/agents.ts";
+import {
+  type EffectiveGitHubPolicy,
+  GITHUB_POLICY_SOURCE_VALUES,
+} from "../kollegium/agents.ts";
 import {
   receiptActorSchema,
   resourceRefSchema,
@@ -251,6 +254,17 @@ export const githubPolicyReceiptFieldsSchema = z.object({
 export type GitHubPolicyReceiptFields = z.infer<
   typeof githubPolicyReceiptFieldsSchema
 >;
+
+export function githubPolicyReceiptFields(
+  policy: EffectiveGitHubPolicy,
+  ceilingRevision: number,
+): GitHubPolicyReceiptFields {
+  return {
+    policy_source: policy.source,
+    agent_settings_revision: policy.agentSettingsRevision,
+    workspace_ceiling_revision: ceilingRevision,
+  };
+}
 
 export const terminateReceiptResultSchema = z.object({
   execution_gone: z.boolean(),

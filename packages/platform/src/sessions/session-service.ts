@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   AdmissionState,
+  AgentGitHubSettingsRow,
   AgentRelease,
   ApiErrorCode,
   AuditReadResponse,
@@ -23,6 +24,7 @@ import type {
   PostSessionMessageResponse,
   Receipt,
   RecoveryDecisionRequest,
+  RepositoryCeiling,
   ResumeSessionRequest,
   SessionCredentialUnboundDetails,
   SessionDetail,
@@ -35,7 +37,10 @@ import type {
 } from "@werft-ai/contracts";
 import {
   CREDENTIAL_UNBOUND_GUIDANCE,
+  githubPolicySourceOf,
+  newSessionGitHubPolicy,
   normalizeSessionTitle,
+  startRepositoryOf,
 } from "@werft-ai/contracts";
 import { releaseModel } from "../agents/release-ids.ts";
 import {
@@ -69,10 +74,12 @@ import {
   profileFingerprint,
   profileWithModel,
   refreshWorkspaceProfilesFor,
+  repositoryInCeiling,
   repositoryModeOf,
   runsOnCurrentImage,
   type SessionCatalogView,
   sessionProfile,
+  usesWorkspaceCeiling,
   workspaceProfileRefusal,
 } from "./catalog.ts";
 import {
@@ -393,6 +400,11 @@ export function createSessionService(deps: {
       workspaceId: string,
       releaseId: string,
     ): Promise<AgentPromptIdentity | null>;
+    agentGitHubSettings(
+      agentId: string,
+    ): Promise<AgentGitHubSettingsRow | null>;
+    // Null allows none.
+    repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   };
   // The platform prompt revision new sessions of an agent release get;
   // absent is 0, none.
@@ -429,16 +441,20 @@ export function createSessionService(deps: {
   const now = deps.now ?? (() => new Date());
 
   function runOf(
-    record: Pick<SessionDetailRecord, "repository_mode" | "repository_id">,
+    record: Pick<
+      SessionDetailRecord,
+      "repository_mode" | "repository_id" | "github_policy_source"
+    >,
     profileId: string,
   ) {
+    const source = githubPolicySourceOf(record.github_policy_source);
     if (record.repository_mode === "none") {
-      return allowedRun(catalog, profileId, null);
+      return allowedRun(catalog, profileId, null, source);
     }
     const predatesCatalog = record.repository_id === null;
     return predatesCatalog
       ? null
-      : allowedRun(catalog, profileId, record.repository_id);
+      : allowedRun(catalog, profileId, record.repository_id, source);
   }
 
   async function profileRefusalOf(
@@ -607,6 +623,7 @@ export function createSessionService(deps: {
       repo_url,
       branch,
       repository_mode,
+      github_policy_source,
       profile_fingerprint,
       ...detail
     } = record;
@@ -684,31 +701,57 @@ export function createSessionService(deps: {
       );
       // A pair the catalog does not allow is as unknown as a missing id: the
       // repository did not grant this profile its trust.
-      const repositoryId =
-        input.body.repository_id ?? release?.repository_id ?? null;
+      const policy = newSessionGitHubPolicy(
+        release === null
+          ? null
+          : ((await deps.releases?.agentGitHubSettings(release.agent_id)) ??
+              null),
+        release?.policy_pins.github,
+      );
+      const repositoryId = startRepositoryOf(
+        input.body.repository_id,
+        policy,
+        release?.repository_id,
+      );
       // The gate would refuse its every token; refused here instead of at
       // the first clone.
-      const githubScope = release?.policy_pins.github?.repositories;
       const notAllowed = (message: string) =>
         new SessionServiceError("GITHUB_REFUSED", message, undefined, {
           reason_code: "repository_not_allowed",
           receipt_id: null,
         });
       if (
-        githubScope !== undefined &&
-        repositoryId !== null &&
-        !githubScope.includes(repositoryId)
+        (policy.source === "agent" && policy.settings === "invalid") ||
+        (repositoryId !== null &&
+          policy.settings !== null &&
+          (policy.settings === "invalid" ||
+            !policy.settings.repositories.includes(repositoryId)))
       ) {
         throw notAllowed(
           "The agent's GitHub settings do not include this repository",
         );
+      }
+      const workspaceCeiling = usesWorkspaceCeiling(
+        catalog,
+        profileId,
+        policy.source,
+      );
+      const repositoryCeiling = workspaceCeiling
+        ? ((await deps.releases?.repositoryCeiling(actor.ownerId)) ?? null)
+        : null;
+      if (
+        workspaceCeiling &&
+        repositoryId !== null &&
+        !repositoryInCeiling(catalog, repositoryCeiling, repositoryId)
+      ) {
+        throw notAllowed("The workspace does not allow this repository");
       }
       const sent = input.body.attached_repository_ids;
       const profile = catalogProfile(catalog, profileId);
       const attaches =
         release !== null &&
         profile !== undefined &&
-        repositoryModeOf(profile) !== "none";
+        (policy.source === "agent" || repositoryModeOf(profile) !== "none");
       // Omitted, a session that could attach starts with none attached and
       // attaches what it needs (session-repository-attachment.md decision 2).
       // A null list, kept by rows from before, reaches the release's whole list.
@@ -736,7 +779,9 @@ export function createSessionService(deps: {
                 repositoryId,
                 profileId,
                 attached: null,
-                github: release.policy_pins.github ?? null,
+                policySource: policy.source,
+                github: policy.settings,
+                repositoryCeiling,
                 githubEnabled: true,
               },
               id,
@@ -755,7 +800,7 @@ export function createSessionService(deps: {
       );
       const allowed =
         workspaceRefusal === null
-          ? allowedRun(catalog, profileId, repositoryId)
+          ? allowedRun(catalog, profileId, repositoryId, policy.source)
           : null;
       // A model the profile does not offer is refused like a pair the
       // catalog does not allow; a replay of an earlier acceptance still
@@ -814,6 +859,7 @@ export function createSessionService(deps: {
             }
           : {}),
         ...(release ? { agentReleaseId: release.id } : {}),
+        githubPolicySource: policy.source,
         ...(platformPrompt === undefined ? {} : { platformPrompt }),
         ...(credentialsUnbound ? { credentialsUnbound: true as const } : {}),
         ...(input.shareScope === undefined

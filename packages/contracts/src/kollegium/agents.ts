@@ -394,6 +394,11 @@ export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
 export const GITHUB_POLICY_SOURCE_VALUES = ["release", "agent"] as const;
 export type GitHubPolicySource = (typeof GITHUB_POLICY_SOURCE_VALUES)[number];
 
+/** A stored source. One this image does not know reads as `agent`, closed. */
+export function githubPolicySourceOf(stored: unknown): GitHubPolicySource {
+  return stored === "release" ? "release" : "agent";
+}
+
 /** Which ceiling judges a profile's repositories. */
 export const REPOSITORY_SCOPE_VALUES = ["profile", "workspace"] as const;
 export type RepositoryScope = (typeof REPOSITORY_SCOPE_VALUES)[number];
@@ -498,6 +503,21 @@ export function newSessionGitHubPolicy(
     releasePin,
     agentRow,
   });
+}
+
+/** The repository a session starts on: asked, else what its policy names. */
+export function startRepositoryOf(
+  requested: string | null | undefined,
+  policy: EffectiveGitHubPolicy,
+  releaseRepositoryId: string | null | undefined,
+): string | null {
+  return (
+    requested ??
+    (policy.source === "agent"
+      ? policy.startRepositoryId
+      : releaseRepositoryId) ??
+    null
+  );
 }
 
 /**

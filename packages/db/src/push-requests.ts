@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
-  agentGitHubSchema,
+  type EffectiveGitHubPolicy,
   GITHUB_MCP_TOOL_ARGUMENTS,
   type GitHubMcpTool,
+  githubPolicyReceiptFields,
+  githubPolicySourceOf,
   OPEN_PUSH_REQUEST_STATES,
   type PushDecider,
   type PushReceiptResult,
@@ -10,6 +12,7 @@ import {
   type PushRequestState,
   pushBranchFor,
   type ReceiptActor,
+  repositoryCeilingOf,
 } from "@werft-ai/contracts";
 import {
   PUSH_REFUSAL_ERRORS,
@@ -26,11 +29,14 @@ import {
   type IdempotencyScope,
   lockIdempotencyScope,
 } from "./control-shared.ts";
+import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
 import type { Database } from "./queries.ts";
 import {
+  agentGitHubSettings,
   agentReleases,
   agents,
   catalogRepositories,
+  githubWorkspaceSettings,
   idempotencyKeys,
   pushRequests,
   receipts,
@@ -169,6 +175,67 @@ function resultOf(
   };
 }
 
+// Only an explicit false: no settings, or a shape this image does not know,
+// keeps a person deciding.
+function approvalOff(policy: EffectiveGitHubPolicy): boolean {
+  return (
+    policy.settings !== "invalid" && policy.settings?.push_approval === false
+  );
+}
+
+const claimable = sql`${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now()))`;
+
+/** A policy's approval the session's settings no longer give. */
+async function approvalLapsed(tx: Database, row: Row): Promise<boolean> {
+  if (row.approvalBasis !== "policy") return false;
+  const [session] = await tx
+    .select(githubPolicyColumns)
+    .from(sessions)
+    .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
+    .leftJoin(agents, eq(agents.id, agentReleases.agentId))
+    .leftJoin(agentGitHubSettings, eq(agentGitHubSettings.agentId, agents.id))
+    .where(eq(sessions.id, row.sessionId))
+    .limit(1);
+  if (session === undefined) return false;
+  const policy = githubPolicyOfRow(session);
+  return policy.source === "agent" && !approvalOff(policy);
+}
+
+/** Back to `requested`, for a person; nothing was pushed under this claim. */
+async function returnToPerson(tx: Database, row: Row): Promise<void> {
+  await insertRefusal(tx, {
+    ownerId: row.ownerId,
+    sessionId: row.sessionId,
+    actor: null,
+    operation: "resolve_push",
+    refusal: "approval_required",
+    result: {
+      ...resultOf(row, {
+        action: null,
+        verdict: "refuse",
+        refusal: "approval_required",
+      }),
+      approved_by: (row.decidedBy as PushDecider | null) ?? null,
+      policy_source: "agent",
+      agent_settings_revision: row.approvalSettingsRevision,
+    },
+  });
+  await tx
+    .update(pushRequests)
+    .set({
+      state: "requested",
+      decidedBy: null,
+      decidedAt: null,
+      decisionReason: null,
+      decisionReceiptId: null,
+      approvalBasis: null,
+      approvalSettingsRevision: null,
+      pushStartedAt: null,
+      leaseExpiresAt: null,
+    })
+    .where(eq(pushRequests.id, row.id));
+}
+
 async function insertRefusal(
   tx: Database,
   input: PushRefusalRecord,
@@ -234,15 +301,22 @@ export function createPostgresPushRequests(
           profileId: sessions.profileId,
           attached: sessions.attachedRepositoryIds,
           releaseId: agentReleases.id,
-          // Only an explicit false: a release without GitHub settings, or
-          // with a shape this image does not know, keeps a person deciding.
-          approvalOff: sql<boolean>`coalesce(${agentReleases.policyPins} -> 'github' -> 'push_approval' = 'false'::jsonb, false)`,
-          github: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
           githubEnabled: agents.githubEnabled,
+          repositoryCeiling: githubWorkspaceSettings.repositoryCeiling,
+          ceilingRevision: githubWorkspaceSettings.revision,
+          ...githubPolicyColumns,
         })
         .from(sessions)
         .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
         .leftJoin(agents, eq(agents.id, agentReleases.agentId))
+        .leftJoin(
+          agentGitHubSettings,
+          eq(agentGitHubSettings.agentId, agents.id),
+        )
+        .leftJoin(
+          githubWorkspaceSettings,
+          sql`${githubWorkspaceSettings.workspaceId} = coalesce(${agents.workspaceId}, ${sessions.workspaceId})`,
+        )
         .where(
           and(
             eq(sessions.id, sessionId.toLowerCase()),
@@ -251,19 +325,27 @@ export function createPostgresPushRequests(
         )
         .limit(1);
       if (row === undefined) return null;
-      const github =
-        row.github === null || row.github === undefined
-          ? null
-          : agentGitHubSchema.safeParse(row.github);
+      const policy = githubPolicyOfRow(row);
       return {
         repositoryId: row.repositoryId,
         profileId: row.profileId,
         attached: row.attached,
-        github:
-          github === null ? null : github.success ? github.data : "invalid",
+        policySource: policy.source,
+        github: policy.settings,
+        repositoryCeiling: repositoryCeilingOf(row.repositoryCeiling),
         githubEnabled: row.githubEnabled ?? false,
-        approvalOffRelease:
-          row.approvalOff && row.releaseId !== null ? row.releaseId : null,
+        policyApproval:
+          approvalOff(policy) && row.releaseId !== null
+            ? {
+                releaseId: row.releaseId,
+                source: policy.source,
+                settingsRevision: policy.agentSettingsRevision,
+              }
+            : null,
+        policyFields: githubPolicyReceiptFields(
+          policy,
+          row.ceilingRevision ?? 0,
+        ),
       };
     },
 
@@ -352,6 +434,7 @@ export function createPostgresPushRequests(
             checkpoint_revision: input.checkpointRevision,
             git_commit: input.gitCommit,
             target_branch: targetBranch,
+            ...input.policyFields,
           } satisfies PushReceiptResult,
           actor: input.actor,
         });
@@ -360,18 +443,22 @@ export function createPostgresPushRequests(
           payloadHash: input.payloadHash,
           receiptId,
         });
-        // A release that pushes without a person's approval decides here,
+        // A policy that pushes without a person's approval decides here,
         // in the request's own transaction (design github-agent.md
         // decision 6); the executor sees an approved row as for any other.
+        const approval = input.policyApproval;
         const policy =
-          input.approvedByRelease === null
+          approval === null
             ? null
             : {
                 decider: {
                   kind: "policy",
-                  agent_release_id: input.approvedByRelease,
+                  agent_release_id: approval.releaseId,
+                  policy_source: approval.source,
+                  agent_settings_revision: approval.settingsRevision,
                 } satisfies PushDecider,
                 receiptId: randomUUID(),
+                settingsRevision: approval.settingsRevision,
               };
         if (policy !== null) {
           await tx.insert(receipts).values({
@@ -390,8 +477,9 @@ export function createPostgresPushRequests(
               git_commit: input.gitCommit,
               target_branch: targetBranch,
               approved_by: policy.decider,
+              ...input.policyFields,
             } satisfies PushReceiptResult,
-            // No one decided: the release's policy did.
+            // No one decided: the policy did.
             actor: null,
           });
         }
@@ -415,6 +503,8 @@ export function createPostgresPushRequests(
                   decidedBy: policy.decider,
                   decidedAt: sql`now()`,
                   decisionReceiptId: policy.receiptId,
+                  approvalBasis: "policy",
+                  approvalSettingsRevision: policy.settingsRevision,
                 }),
           })
           .returning();
@@ -549,7 +639,10 @@ export function createPostgresPushRequests(
         // FOR SHARE holds the checkpoint pointer still until the decision
         // commits, so an approval can never land on a moved pointer.
         const [session] = await tx
-          .select({ checkpointRevision: sessions.checkpointRevision })
+          .select({
+            checkpointRevision: sessions.checkpointRevision,
+            githubPolicySource: sessions.githubPolicySource,
+          })
           .from(sessions)
           .where(
             and(
@@ -600,12 +693,15 @@ export function createPostgresPushRequests(
             request_id: row.id,
           },
           status: "succeeded",
-          result: resultOf(row, {
-            action: input.decision,
-            verdict: "allow",
-            refusal: null,
-            decider_key: input.deciderKey ?? null,
-          }),
+          result: {
+            ...resultOf(row, {
+              action: input.decision,
+              verdict: "allow",
+              refusal: null,
+              decider_key: input.deciderKey ?? null,
+            }),
+            policy_source: githubPolicySourceOf(session.githubPolicySource),
+          },
           actor: input.actor,
         });
         await tx.insert(idempotencyKeys).values({
@@ -621,6 +717,8 @@ export function createPostgresPushRequests(
             decidedAt: sql`now()`,
             decisionReason: input.reason,
             decisionReceiptId: receiptId,
+            approvalBasis: "human",
+            approvalSettingsRevision: null,
           })
           .where(eq(pushRequests.id, row.id))
           .returning();
@@ -629,34 +727,46 @@ export function createPostgresPushRequests(
       });
     },
 
-    async claimNextApproved(leaseMs): Promise<PushJob | null> {
-      const [row] = await db
-        .update(pushRequests)
-        .set({
-          state: "pushing",
-          pushStartedAt: sql`now()`,
-          pushAttempts: sql`${pushRequests.pushAttempts} + 1`,
-          leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
-        })
-        .where(
-          eq(
-            pushRequests.id,
-            sql`(SELECT ${pushRequests.id} FROM ${pushRequests} WHERE ${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now())) ORDER BY ${pushRequests.createdAt} LIMIT 1 FOR UPDATE SKIP LOCKED)`,
-          ),
-        )
-        .returning();
-      if (!row) return null;
-      return {
-        id: row.id,
-        ownerId: row.ownerId,
-        sessionId: row.sessionId,
-        repositoryId: row.repositoryId,
-        repositoryBinding: row.repositoryBinding,
-        checkpointRevision: row.checkpointRevision,
-        gitCommit: row.gitCommit,
-        targetBranch: row.targetBranch,
-        attempt: row.pushAttempts,
-      };
+    claimNextApproved(leaseMs): Promise<PushJob | null> {
+      return db.transaction(async (tx) => {
+        // Each lapsed approval leaves the candidates, so this ends.
+        for (;;) {
+          const [candidate] = await tx
+            .select()
+            .from(pushRequests)
+            .where(claimable)
+            .orderBy(pushRequests.createdAt)
+            .limit(1)
+            .for("update", { skipLocked: true });
+          if (!candidate) return null;
+          if (await approvalLapsed(tx, candidate)) {
+            await returnToPerson(tx, candidate);
+            continue;
+          }
+          const [row] = await tx
+            .update(pushRequests)
+            .set({
+              state: "pushing",
+              pushStartedAt: sql`now()`,
+              pushAttempts: sql`${pushRequests.pushAttempts} + 1`,
+              leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+            })
+            .where(eq(pushRequests.id, candidate.id))
+            .returning();
+          if (!row) throw new Error("push request update returned no row");
+          return {
+            id: row.id,
+            ownerId: row.ownerId,
+            sessionId: row.sessionId,
+            repositoryId: row.repositoryId,
+            repositoryBinding: row.repositoryBinding,
+            checkpointRevision: row.checkpointRevision,
+            gitCommit: row.gitCommit,
+            targetBranch: row.targetBranch,
+            attempt: row.pushAttempts,
+          };
+        }
+      });
     },
 
     finish(job, outcome) {
@@ -674,6 +784,11 @@ export function createPostgresPushRequests(
           .limit(1)
           .for("update");
         if (!row) return false;
+        const [session] = await tx
+          .select({ githubPolicySource: sessions.githubPolicySource })
+          .from(sessions)
+          .where(eq(sessions.id, row.sessionId))
+          .limit(1);
         const pushed = outcome.state === "pushed";
         const error = pushed ? null : PUSH_REFUSAL_ERRORS[outcome.refusal];
         const receiptId = randomUUID();
@@ -699,6 +814,8 @@ export function createPostgresPushRequests(
             approved_by: (row.decidedBy as PushDecider | null) ?? null,
             reason_code:
               outcome.state === "failed" ? (outcome.reasonCode ?? null) : null,
+            policy_source: githubPolicySourceOf(session?.githubPolicySource),
+            agent_settings_revision: row.approvalSettingsRevision,
           } satisfies PushReceiptResult,
           error,
         });

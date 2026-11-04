@@ -1,12 +1,17 @@
 import {
   type AgentGitHub,
   additionalRepositoryIdUsable,
+  type GitHubPolicySource,
+  type RepositoryCeiling,
 } from "@werft-ai/contracts";
+import type { GitHubSessionContext } from "../ports/github-gate.ts";
 import {
   allowedPair,
   type CatalogProfileView,
   type CatalogRepositoryView,
   type ProfileLookup,
+  repositoryInCeiling,
+  usesWorkspaceCeiling,
 } from "./catalog.ts";
 
 /**
@@ -21,10 +26,26 @@ export type AdditionalRepositoryContext = {
   profileId: string | null;
   /** The session row's list; null leaves the release's list whole. */
   attached: readonly string[] | null;
+  policySource: GitHubPolicySource;
   /** Null when the session has no agent, or the agent's switch is off. */
   github: AgentGitHub | "invalid" | null;
+  repositoryCeiling: RepositoryCeiling | null;
   githubEnabled: boolean;
 };
+
+export function additionalContextOf(
+  context: GitHubSessionContext,
+): AdditionalRepositoryContext {
+  return {
+    repositoryId: context.repositoryId,
+    profileId: context.profileId,
+    attached: context.attachedRepositoryIds,
+    policySource: context.policy.source,
+    github: context.policy.settings,
+    repositoryCeiling: context.repositoryCeiling,
+    githubEnabled: context.agent?.githubEnabled ?? false,
+  };
+}
 
 export function additionalRepositoryAllowed<
   P extends CatalogProfileView,
@@ -34,7 +55,7 @@ export function additionalRepositoryAllowed<
   context: AdditionalRepositoryContext,
   repositoryId: string,
 ): R | null {
-  const { github, profileId } = context;
+  const { github, profileId, policySource } = context;
   if (
     repositoryId === context.repositoryId ||
     !context.githubEnabled ||
@@ -47,7 +68,16 @@ export function additionalRepositoryAllowed<
   ) {
     return null;
   }
-  return allowedPair(catalog, profileId, repositoryId)?.repository ?? null;
+  if (
+    usesWorkspaceCeiling(catalog, profileId, policySource) &&
+    !repositoryInCeiling(catalog, context.repositoryCeiling, repositoryId)
+  ) {
+    return null;
+  }
+  return (
+    allowedPair(catalog, profileId, repositoryId, policySource)?.repository ??
+    null
+  );
 }
 
 /** Every repository besides its own the session may work on, in list order. */

@@ -1,11 +1,19 @@
-import type { AgentGitHub, ReceiptActor } from "@werft-ai/contracts";
+import type {
+  AgentGitHub,
+  GitHubPolicySource,
+  ReceiptActor,
+} from "@werft-ai/contracts";
 
 /** What the built-in `github` MCP server is judged on, read for every exchange. */
 export type GitHubMcpSessionState = {
   ownerId: string;
   agentId: string;
   releaseId: string;
-  /** The release's `policy_pins.github`; null when it carries none. */
+  source: GitHubPolicySource;
+  /**
+   * `effectiveGitHubPolicy`'s settings. Null when there are none to read,
+   * or none this image can: the server then serves nothing.
+   */
   github: AgentGitHub | null;
   /** `agents.github_enabled` now. */
   enabled: boolean;

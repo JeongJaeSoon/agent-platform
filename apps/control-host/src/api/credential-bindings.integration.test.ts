@@ -28,6 +28,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkspaceKeyStore,
   memberships,
+  newSessionGitHubReaders,
   receipts,
   users,
 } from "@werft-ai/db";
@@ -151,7 +152,7 @@ integration("credential bindings over HTTP on PostgreSQL", () => {
       controls: createPostgresSessionControl(db),
       reader: createPostgresSessionReader(db),
       catalog,
-      releases: agents,
+      releases: { ...agents, ...newSessionGitHubReaders(db) },
       credentials,
     });
     const keys = createApiKeyService({

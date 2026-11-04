@@ -1,9 +1,10 @@
-import type {
-  ListedRepository,
-  ListRepositoriesResponse,
-  ReceiptActor,
-  RepositoryAttachment,
-  RepositoryAttachRefusal,
+import {
+  githubPolicyReceiptFields,
+  type ListedRepository,
+  type ListRepositoriesResponse,
+  type ReceiptActor,
+  type RepositoryAttachment,
+  type RepositoryAttachRefusal,
 } from "@werft-ai/contracts";
 import type {
   GitHubGateStore,
@@ -14,6 +15,7 @@ import type {
   RepositoryAttachmentStore,
 } from "../ports/repository-attachments.ts";
 import {
+  additionalContextOf,
   additionalRepositoriesOf,
   additionalRepositoryAllowed,
 } from "./additional-repositories.ts";
@@ -111,11 +113,19 @@ export function createRepositoryAttachmentService(deps: {
     sessionId: string,
     context: GitHubSessionContext,
   ) {
-    if (context.release === null || !context.agent?.githubEnabled) return [];
+    // An `agent` session has no newer release to wait for: its settings are
+    // the agent's now.
+    if (
+      context.release === null ||
+      context.policy.source !== "release" ||
+      !context.agent?.githubEnabled
+    ) {
+      return [];
+    }
     const active = await store.activeRelease(sessionId);
     if (active === null || active.id === context.release.id) return [];
     return additionalRepositoriesOf(catalog, {
-      repositoryId: context.repositoryId,
+      ...additionalContextOf(context),
       profileId: active.profileId,
       attached: null,
       github: active.github,
@@ -143,11 +153,8 @@ export function createRepositoryAttachmentService(deps: {
       }
       // Without `attached: null` the cap drops what is not attached yet.
       const allowed = additionalRepositoriesOf(catalog, {
-        repositoryId: context.repositoryId,
-        profileId: context.profileId,
+        ...additionalContextOf(context),
         attached: null,
-        github: context.release?.github ?? null,
-        githubEnabled: context.agent?.githubEnabled ?? false,
       });
       const rows = new Map(
         (allowed.length === 0 ? [] : await store.list(sessionId)).map((row) => [
@@ -208,6 +215,7 @@ export function createRepositoryAttachmentService(deps: {
         attempt_id: input.attemptId,
         agent_id: context.agent?.id ?? null,
         agent_release_id: context.release?.id ?? null,
+        ...githubPolicyReceiptFields(context.policy, context.ceilingRevision),
         repository_id: repositoryId,
       };
       const refuse = async (
@@ -243,13 +251,7 @@ export function createRepositoryAttachmentService(deps: {
       // to that list.
       const allowed = additionalRepositoryAllowed(
         catalog,
-        {
-          repositoryId: context.repositoryId,
-          profileId: context.profileId,
-          attached: null,
-          github: context.release?.github ?? null,
-          githubEnabled: context.agent?.githubEnabled ?? false,
-        },
+        { ...additionalContextOf(context), attached: null },
         repositoryId,
       );
       if (allowed === null) {

@@ -1,4 +1,8 @@
-import type { Receipt, WorkspaceRole } from "@werft-ai/contracts";
+import type {
+  AgentGitHubSettingsRow,
+  Receipt,
+  WorkspaceRole,
+} from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 
@@ -11,6 +15,8 @@ export type SetAgentGitHubResult =
 export interface AgentGitHubStore {
   /** Null when the workspace has no such agent. */
   enabled(workspaceId: string, agentId: string): Promise<boolean | null>;
+  /** The agent's own GitHub settings; null without a row. */
+  settings(agentId: string): Promise<AgentGitHubSettingsRow | null>;
   /** Writes `set_agent_github` only when the value changes. */
   setEnabled(input: {
     workspaceId: string;

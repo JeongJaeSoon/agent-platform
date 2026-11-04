@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  agentGitHubSchema,
+  effectiveGitHubPolicy,
   type RepositoryAttachFailure,
 } from "@werft-ai/contracts";
 import type {
@@ -215,15 +215,12 @@ export function createPostgresRepositoryAttachments(
         .limit(1);
       if (row === undefined) return null;
       const { id, profileId } = row;
-      if (row.github === null || row.github === undefined) {
-        return { id, profileId, github: null };
-      }
-      const github = agentGitHubSchema.safeParse(row.github);
-      return {
-        id,
-        profileId,
-        github: github.success ? github.data : "invalid",
-      };
+      const { settings } = effectiveGitHubPolicy({
+        source: "release",
+        releasePin: row.github,
+        agentRow: null,
+      });
+      return { id, profileId, github: settings };
     },
 
     async list(rawSessionId) {

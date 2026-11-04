@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  AgentGitHub,
-  PushRequestState,
-  ReceiptActor,
+import {
+  type AgentGitHub,
+  GITHUB_MCP_FIXED_TOOLS,
+  type PushRequestState,
+  type ReceiptActor,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
 import {
@@ -131,6 +132,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
           agentId: creator.agent_id,
           agentReleaseId: "release-1",
           repositoryId: "app",
+          policy: {},
         },
       };
     },
@@ -208,6 +210,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         ownerId: "owner-a",
         agentId: creator.agent_id ?? "",
         releaseId: "release-1",
+        source: "release",
         github: github(),
         enabled: true,
         actor: creator,
@@ -353,6 +356,78 @@ describe("tools/list", () => {
       );
       expect(answer).toMatchObject({ error: { code: -32001 } });
     }
+  });
+});
+
+describe("a session under the agent's settings", () => {
+  const under = (state: Partial<GitHubMcpSessionState> = {}) =>
+    harness({ source: "agent", github: github(), ...state });
+
+  test("lists the whole fixed surface, whatever the features say", async () => {
+    const answer = await under().handle(
+      grant,
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      "req-1",
+    );
+    expect(toolNames(answer)).toEqual([...GITHUB_MCP_FIXED_TOOLS]);
+  });
+
+  test("the list stays with the agent's switch off; each call is refused", async () => {
+    const h = under({ enabled: false });
+    const answer = await h.handle(
+      grant,
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      "req-1",
+    );
+    expect(toolNames(answer)).toEqual([...GITHUB_MCP_FIXED_TOOLS]);
+    expect(payload(await h.call("request_push", {}))).toMatchObject({
+      isError: true,
+      body: {
+        code: "GITHUB_REFUSED",
+        details: { reason_code: "github_disabled" },
+      },
+    });
+    expect(h.pushes).toEqual([]);
+  });
+
+  test("a tool of a feature off is refused in the turn, not hidden", async () => {
+    const h = under();
+    expect(
+      payload(
+        await h.call("dispatch_workflow", { workflow: "ci.yml", ref: "main" }),
+      ),
+    ).toMatchObject({
+      isError: true,
+      body: {
+        code: "GITHUB_REFUSED",
+        details: { reason_code: "feature_off" },
+      },
+    });
+    expect(h.works).toEqual([]);
+  });
+
+  test("a feature on reaches the gate, unlike the release's tool off", async () => {
+    const on = under({ github: github({ actions: true }) });
+    await on.call("dispatch_workflow", { workflow: "ci.yml", ref: "main" });
+    expect(on.works).toHaveLength(1);
+    const release = harness({ github: github() });
+    expect(
+      payload(
+        await release.call("dispatch_workflow", {
+          workflow: "ci.yml",
+          ref: "main",
+        }),
+      ),
+    ).toMatchObject({ isError: true, body: { code: "FORBIDDEN" } });
+  });
+
+  test("a row that cannot be read gets no tools", async () => {
+    const answer = await under({ github: null }).handle(
+      grant,
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      "req-1",
+    );
+    expect(answer).toMatchObject({ error: { code: -32001 } });
   });
 });
 
@@ -583,6 +658,9 @@ describe("attach_repository", () => {
           attempt_id: "att_1",
           agent_id: "agent-1",
           agent_release_id: "release-1",
+          policy_source: "release",
+          agent_settings_revision: null,
+          workspace_ceiling_revision: 0,
           repository_id: "secret",
           branch: null,
           commit: null,

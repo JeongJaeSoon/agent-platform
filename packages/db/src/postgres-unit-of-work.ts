@@ -309,6 +309,7 @@ export function createPostgresSessionUnitOfWork(
           ownerId: scope.principal,
           ...repository,
           attachedRepositoryIds: input.attachedRepositoryIds ?? null,
+          githubPolicySource: input.githubPolicySource ?? "release",
           title: input.title ?? null,
           titleSource: input.titleSource ?? "derived",
           channel: input.channel ?? null,
@@ -1225,6 +1226,7 @@ export function createPostgresSessionReader(
             repo_url: row.repoUrl,
             branch: row.branch,
             repository_mode: row.repositoryMode,
+            github_policy_source: row.githubPolicySource,
             profile_fingerprint: row.profileFingerprint,
             durability: projectDurability({
               checkpointCommittedAt: row.checkpointCommittedAt,

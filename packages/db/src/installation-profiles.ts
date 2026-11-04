@@ -69,6 +69,9 @@ function recordOf(
     repository_ids: row.repositoryIds,
     github_app_repositories:
       row.githubAppRepositories === "installed" ? "installed" : "listed",
+    // A value this image does not know takes the closed reading.
+    repository_scope:
+      row.repositoryScope === "profile" ? "profile" : "workspace",
     deny: row.deny,
     tool_catalog_id: row.toolCatalogId,
     previous_id: row.previousId,

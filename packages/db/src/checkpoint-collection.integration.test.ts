@@ -117,7 +117,8 @@ integration("checkpoint collection store on PostgreSQL", () => {
         repositoryBinding: "sha256:binding",
         checkpointRevision: revision,
         gitCommit: "a".repeat(40),
-        approvedByRelease: null,
+        policyApproval: null,
+        policyFields: {},
       });
     const first = await pin("k-1", 2);
     if (first.outcome !== "written") throw new Error("not written");
@@ -268,7 +269,8 @@ integration("checkpoint collection store on PostgreSQL", () => {
       repositoryBinding: "sha256:binding",
       checkpointRevision: 2,
       gitCommit: "a".repeat(40),
-      approvedByRelease: null,
+      policyApproval: null,
+      policyFields: {},
     });
     expect(created.outcome).toBe("written");
     await db.execute(

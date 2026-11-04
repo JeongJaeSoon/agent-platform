@@ -1,9 +1,12 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   type AgentGitHub,
+  GITHUB_MCP_FIXED_TOOLS,
   GITHUB_MCP_SERVER,
   GITHUB_MCP_TOOL_ARGUMENTS,
+  GITHUB_MCP_TOOL_FEATURES,
   type GitHubMcpTool,
+  type GitHubPolicySource,
   githubMcpTools,
   type ReceiptActor,
 } from "@werft-ai/contracts";
@@ -232,8 +235,8 @@ export function createGitHubMcpServer(deps: {
   /** The session services, made with the authorization they run under. */
   services: (authorization: AuthorizationPolicy) => GitHubMcpServices;
 }) {
-  const toolList = (github: AgentGitHub) =>
-    githubMcpTools(github).map((name) => ({
+  const toolList = (tools: readonly GitHubMcpTool[]) =>
+    tools.map((name) => ({
       name,
       description: DESCRIPTIONS[name],
       inputSchema: z.toJSONSchema(GITHUB_MCP_TOOL_ARGUMENTS[name], {
@@ -248,10 +251,39 @@ export function createGitHubMcpServer(deps: {
     args: unknown,
     requestId: string,
     github: AgentGitHub,
-    state: { ownerId: string; actor: ReceiptActor },
+    state: {
+      ownerId: string;
+      actor: ReceiptActor;
+      source: GitHubPolicySource;
+      enabled: boolean;
+    },
   ) {
-    if (!githubMcpTools(github).includes(tool)) {
-      return text({ code: "FORBIDDEN", message: `Tool ${tool} is off` }, true);
+    if (state.source === "release") {
+      if (!githubMcpTools(github).includes(tool)) {
+        return text(
+          { code: "FORBIDDEN", message: `Tool ${tool} is off` },
+          true,
+        );
+      }
+    } else {
+      // The tool stays listed so the session's config never moves: its
+      // refusal is the answer, in the model's turn.
+      const feature = GITHUB_MCP_TOOL_FEATURES[tool];
+      const refusal = !state.enabled
+        ? "github_disabled"
+        : feature !== null && !github.features[feature]
+          ? "feature_off"
+          : null;
+      if (refusal !== null) {
+        return text(
+          {
+            code: "GITHUB_REFUSED",
+            message: `GitHub work refused: ${refusal}`,
+            details: { reason_code: refusal },
+          },
+          true,
+        );
+      }
     }
     const parsed = GITHUB_MCP_TOOL_ARGUMENTS[tool].safeParse(args ?? {});
     if (!parsed.success) {
@@ -402,13 +434,19 @@ export function createGitHubMcpServer(deps: {
     if (
       state === null ||
       state.github === null ||
-      !state.enabled ||
+      (!state.enabled && state.source === "release") ||
       state.actor === null
     ) {
       return fail(-32001, "GitHub tools are not available to this session");
     }
     if (message.method === "tools/list") {
-      return answer({ tools: toolList(state.github) });
+      return answer({
+        tools: toolList(
+          state.source === "release"
+            ? githubMcpTools(state.github)
+            : GITHUB_MCP_FIXED_TOOLS,
+        ),
+      });
     }
     const name = params.name;
     if (
@@ -424,7 +462,12 @@ export function createGitHubMcpServer(deps: {
         params.arguments,
         requestId,
         state.github,
-        { ownerId: state.ownerId, actor: state.actor },
+        {
+          ownerId: state.ownerId,
+          actor: state.actor,
+          source: state.source,
+          enabled: state.enabled,
+        },
       ),
     );
   };

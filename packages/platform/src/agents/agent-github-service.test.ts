@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentDetail,
   type AgentGitHub,
+  type AgentGitHubSettingsRow,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
 } from "@werft-ai/contracts";
@@ -103,6 +104,8 @@ const ALL_ON: GitHubCeiling = {
 function serviceWith(input: {
   repository?: string | null;
   github?: AgentGitHub;
+  /** The agent's own settings row. */
+  settings?: AgentGitHubSettingsRow;
   ceiling?: GitHubCeiling;
   author?: Record<string, "read" | "write" | "admin"> | null;
   reviewer?: Record<string, "read" | "write" | "admin"> | null | "none";
@@ -121,6 +124,7 @@ function serviceWith(input: {
         policy_pins: input.github === undefined ? {} : { github: input.github },
       };
   const store: AgentGitHubStore = {
+    settings: () => Promise.resolve(input.settings ?? null),
     async enabled() {
       return true;
     },
@@ -325,6 +329,32 @@ describe("the agent GitHub tab's options", () => {
     );
     expect(saved.github).toEqual(WITH_SETTINGS);
     expect(saved.legacy_defaults).toBeNull();
+  });
+
+  test("an agent's row answers before the release's pin; one that cannot be read shows as none", async () => {
+    const row = {
+      repositories: ["ghe-app"],
+      pushApproval: false,
+      features: { ...GITHUB_CEILING_NONE },
+      actionsAllow: [],
+      startRepositoryId: null,
+      revision: 2,
+    };
+    const read = await serviceWith({
+      github: WITH_SETTINGS,
+      settings: row,
+    }).get(caller, AGENT);
+    expect(read.github).toEqual({
+      repositories: ["ghe-app"],
+      push_approval: false,
+      features: { ...GITHUB_CEILING_NONE },
+      actions_allow: [],
+    });
+    const bad = await serviceWith({
+      github: WITH_SETTINGS,
+      settings: { ...row, repositories: "a later shape" },
+    }).get(caller, AGENT);
+    expect(bad.github).toBeNull();
   });
 
   test("why nothing can be saved: no release, no repository, a PAT repository", async () => {

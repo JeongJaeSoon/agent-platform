@@ -64,7 +64,9 @@ const context = (
   repositoryId: "app",
   profileId: "p",
   attached: null,
+  policySource: "release",
   github: github(["app", "docs", "tools", "other-profile", "origin"]),
+  repositoryCeiling: null,
   githubEnabled: true,
   ...overrides,
 });

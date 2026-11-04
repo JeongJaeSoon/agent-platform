@@ -8,6 +8,7 @@ import {
   GITHUB_CEILING_NONE,
   type GitHubAppRole,
   type GitHubFeatures,
+  newSessionGitHubPolicy,
   type PutAgentGitHubEnabledResponse,
 } from "@werft-ai/contracts";
 import {
@@ -187,7 +188,13 @@ export function createAgentGitHubService(deps: {
       ]);
       if (detail === null || enabled === null) throw NOT_FOUND();
       const release = detail.active_release;
-      const github = release?.policy_pins.github ?? null;
+      const agentRow = await store.settings(agentId);
+      const policy = newSessionGitHubPolicy(
+        agentRow,
+        release?.policy_pins.github,
+      );
+      // Settings this image cannot read are shown as none, never guessed.
+      const github = policy.settings === "invalid" ? null : policy.settings;
       const releaseRepository = release?.repository_id ?? null;
       const entry = (id: string) =>
         Object.hasOwn(catalog.repositories, id)
