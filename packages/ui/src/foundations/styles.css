@@ -8,7 +8,7 @@
 @import "./fonts.css";
 @import "./tokens.css";
 
-/* Rules live in the `ap` layer; tokens.css explains its place in the cascade. */
+/* Rules live in the `werft` layer; tokens.css explains its place in the cascade. */
 @layer werft {
   /*
    * Widths here are outer widths. Without this, the dialog's padding and

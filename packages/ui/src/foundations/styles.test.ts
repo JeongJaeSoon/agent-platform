@@ -41,7 +41,7 @@ function parse(css: string): Declaration[] {
     }
     if (character === "}") {
       const selector = stack.pop() ?? "";
-      // Every rule sits in the `ap` layer; only the at-rules inside it matter.
+      // Every rule sits in the `werft` layer; only the at-rules inside it matter.
       const atRules = stack.filter(
         (entry) => entry.startsWith("@") && entry !== "@layer werft",
       );
@@ -146,7 +146,7 @@ function topLevelArguments(value: string): string[] {
   return args;
 }
 
-/** What is left after the `@import`/`@layer` statements and the `ap` block. */
+/** What is left after the `@import`/`@layer` statements and the `werft` block. */
 function outsideApLayer(css: string): string {
   const body = stripComments(css)
     .replace(/@(import|layer)[^{;]*;/g, "")
@@ -162,7 +162,7 @@ function outsideApLayer(css: string): string {
 }
 
 describe("이름공간", () => {
-  test("키트 규칙은 모두 ap layer 안에 있다", () => {
+  test("키트 규칙은 모두 werft layer 안에 있다", () => {
     expect(outsideApLayer(TOKENS)).toBe("");
     expect(outsideApLayer(STYLES)).toBe("");
   });
@@ -188,7 +188,7 @@ describe("이름공간", () => {
     expect(reads.filter((name) => !name?.startsWith("--werft-"))).toEqual([]);
   });
 
-  test("ap layer가 Tailwind layer 뒤에 온다", () => {
+  test("werft layer가 Tailwind layer 뒤에 온다", () => {
     expect(stripComments(TOKENS)).toContain(
       "@layer theme, base, components, utilities, werft;",
     );

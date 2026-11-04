@@ -38,7 +38,7 @@ Tailwind의 `dark:`는 수동 전환(`data-theme`)을 보지 못하기 때문이
 - **cascade layer.** `tokens.css`와 `styles.css`의 규칙은 모두 `@layer werft` 안에 있다. `tokens.css`가
   `@layer theme, base, components, utilities, werft;`로 순서를 정하므로, 이 파일과 Tailwind 중 무엇을 먼저 import하든 `werft-*`
   규칙은 Tailwind 유틸리티를 이기고 쓰는 쪽 앱의 layer 밖 규칙에는 진다. 쓰는 쪽 앱이 이 파일보다 먼저 layer 순서를
-  선언하면 그 순서가 이긴다. 그때도 `ap`는 `utilities` 뒤에 두어야 한다. `ConfirmDialog`는 앞의 성질로 shadcn Dialog 위에서 기존 모양과
+  선언하면 그 순서가 이긴다. 그때도 `werft`는 `utilities` 뒤에 두어야 한다. `ConfirmDialog`는 앞의 성질로 shadcn Dialog 위에서 기존 모양과
   reduced-motion 규칙을 유지한다. 그래서 `werft-*` 클래스를 그리는 컴포넌트(`ConfirmDialog`·`DestructiveActionDialog`·
   `EmptyState`·`ErrorState`·`Skeleton`, 그리고 `@werft-ai/react/components`의 `StatusLabel`·`ReceiptSummary`·`ReceiptLink`)에 `className`으로 넘긴 유틸리티는
   BEM 규칙과 같은 속성이면 적용되지 않는다. 바꾸려면 쓰는 쪽 앱의 layer 밖 CSS로 덮는다. BEM 클래스는 화면을 옮기면서
