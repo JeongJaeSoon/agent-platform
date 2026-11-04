@@ -1,0 +1,157 @@
+---
+title: "Kubernetes install"
+description: Install Werft on Kubernetes from the published Helm chart and reach /readyz 200
+---
+
+Install Werft on Kubernetes from the published Helm chart. You do not need a repository checkout: one chart carries the digest of all three images and the worker runtime. Follow this page alone until `/readyz` returns 200. To run on one Linux server with Docker Compose, read [Single-server install](/run-server/self-hosting/single-server) instead.
+
+<Callout type="warn">
+There is no `v` tag yet. For now, use the chart `0.1.0-main-<12>` published on every merge to `main`. It is not a release. Once the first `v` tag exists, the chart version is the tag without the `v` (`1.2.3` for `v1.2.3`); change only `VERSION` and the commands stay the same.
+</Callout>
+
+## Requirements
+
+| Item | Requirement |
+| --- | --- |
+| Cluster | Kubernetes with a CNI that enforces NetworkPolicy. Without enforcement, workers are not isolated |
+| Tools | `helm` 3, `kubectl`, `curl` |
+| PostgreSQL | Version 16, reachable from inside the cluster |
+| S3-compatible object store | One bucket. The default protection mode `locked` needs a bucket with versioning, Object Lock and default SSE-S3 (`AES256`) encryption; otherwise the API refuses to start |
+| Network | The cluster can pull the chart and images from `ghcr.io`. The packages need no login |
+
+The chart does not create PostgreSQL, the object store or Secret values. It does not create worker Pods either: the scheduler creates one per session. The published images are an index of `linux/amd64` and `linux/arm64`, so each node pulls its own architecture.
+
+## 1. Choose a version
+
+Always give the version exactly. The chart version of a `main` merge is `0.1.0-main-<12>`, where `<12>` is the first 12 characters of the commit SHA. Order among `main` versions means nothing, so do not pick the latest with `--devel`. Open the [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) and pick the commit of a `main` run that finished green.
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+You should see the `digest` of the three images and `worker.runtime` under `images`. They are inside the chart, so do not repeat them in your values file. If you do, they keep overriding the next chart.
+
+## 2. Create the namespace and Secret
+
+Build the Secret from a directory with one file per key (`0700`, the file name is the key). The values never reach the command line or shell history.
+
+| Key | Value |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection URL |
+| `EGRESS_AUTHORIZER_TOKEN` | A random value. The API and the egress proxy use the same one |
+| `PLATFORM_SECRET_KEY` | 64 hex characters from `openssl rand -hex 32`. It seals stored credentials. Pods do not start without it |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Object store keys. To sign with IRSA instead, leave both out and set `secrets.objectStoreKeys: false` and `serviceAccounts.api.annotations` in your values |
+| `ANTHROPIC_API_KEY` | The Anthropic key sessions use. It goes only to the API |
+
+```bash
+kubectl create namespace werft
+kubectl -n werft create secret generic werft --from-file=<secret-dir>
+```
+
+## 3. Write the values file
+
+Keep installation-specific values in one `values-<installation>.yaml`. At minimum it holds the checkpoint bucket and the route workers use to reach it.
+
+```yaml
+config:
+  checkpoints:
+    bucket: <bucket>
+  egress:
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+```
+
+`credentialAllowlist` replaces the whole default. Keep the default list (the provider and the package registries) and append the repository hosts (`github.com:443`, plus any other Git host you use) and the bucket host.
+
+`config.aws.region` defaults to `ap-northeast-1`; change it if your bucket is in another region. Connections, repositories, MCP servers and limits are not in the values file. After the install, add them in the web console or import them with `bun run settings:k8s import`. Defaults and explanations are in `helm show values`.
+
+## 4. Install
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+The migrate Job raises the schema first. After it finishes, the API, egress proxy, reconciler, scheduler and slack are applied together. If the first install fails on an image path or a pull permission, fix the values and run the same command again.
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+If the release name does not contain `werft`, resource names become `<release>-werft-…`.
+
+## 5. Check
+
+Open the API Service locally and call `/readyz`. Readiness checks the database, the schema and the settings.
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl -fs -o /dev/null http://127.0.0.1:13000/healthz; do sleep 1; done
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+kill "$PF"
+```
+
+If you see `{"status":"ready",…}` and `200`, the install works. `/docs` returns 200 too. Expose it to users through an Ingress. `ingress.enabled: true` and the controller-specific settings are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#aws-값-넣기).
+
+## 6. First owner and API key
+
+Create the first owner and workspace at the web console's `/bootstrap`. When the API Pod starts, it generates a token and prints it to its log as a single `BOOTSTRAP_TOKEN=…` line. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators.
+
+Issue API keys inside the API Pod. The `kubectl exec` form below needs no checkout; the `bun run keys:k8s` shortcut is described in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#api-key-실행-권한-설정-문서).
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/keys.ts create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
+```
+
+The plain key is printed once on stdout and the key id on stderr. Issue a separate owner and key for each user. The SDK and the HTTP API connect with the server address and this key ([SDK install](/getting-started/install)).
+
+## Try it on kind first
+
+To try the same chart on a laptop, start stand-ins for PostgreSQL and the object store in a kind cluster first. The stand-ins are in the repository's `deploy/kind/deps.yaml`, so clone it. They are for trying things out. Never use them as a real server's database or bucket.
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+kind create cluster --name werft-try
+kubectl create namespace werft
+kubectl -n werft create configmap localstack-init \
+  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
+kubectl -n werft apply -f deploy/kind/deps.yaml
+kubectl -n werft create secret generic werft \
+  --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
+  --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
+  --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
+  --from-literal=AWS_ACCESS_KEY_ID=test --from-literal=AWS_SECRET_ACCESS_KEY=test \
+  --from-literal=ANTHROPIC_API_KEY=unused
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f deploy/kind/values.yaml --timeout 10m
+```
+
+Then run the rollout checks of step 4 and the checks of step 5 as written. When you are done, delete the cluster with `kind delete cluster --name werft-try`.
+
+## Upgrade and remove
+
+When an upgrade changes the worker image, you must pass the previous worker image along. Do not use `--reuse-values`: it does not apply the new chart's images. The procedure, the pre-upgrade check and rollback are in [Raising the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기).
+
+```bash
+helm -n werft uninstall werft
+```
+
+`uninstall` leaves the worker Pods the scheduler created, the workspace PVCs and any Secret you made yourself. Deleting a PVC loses work that was not checkpointed, so check first that sessions have ended.
+
+## Next
+
+These pages are written in Korean.
+
+- [Kubernetes install (Helm chart), full page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md): AWS values, web console Ingress, pre-upgrade check
+- [Kubernetes execution backend](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-backend.md)
+- [Capacity](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
+- [Configuration reference](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)

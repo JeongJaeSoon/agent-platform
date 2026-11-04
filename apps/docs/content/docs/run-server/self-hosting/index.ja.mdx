@@ -1,0 +1,52 @@
+---
+title: "セルフホスティング"
+description: 複数人で使う Werft サーバーの設置方法を選ぶ
+---
+
+Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes のページは公開 chart を使って kind で実行して確認しました。単一サーバーのページは最初から最後まで実行して確認していません。
+
+## 設置方法を選ぶ
+
+| 方法 | 実行基盤 | ページ |
+| --- | --- | --- |
+| 単一サーバー | Linux サーバー1台、Docker Compose。セッションごとに worker コンテナ | [単一サーバーの設置](/run-server/self-hosting/single-server) |
+| Kubernetes | 公開された Helm chart。セッションごとに worker Pod | [Kubernetes の設置](/run-server/self-hosting/kubernetes) |
+
+どちらの方法でも、サーバーは API(Web コンソールを含む)、scheduler、reconciler、egress proxy、PostgreSQL、S3 互換のオブジェクトストアで構成されます。Git サーバーはないため、セッションが使う GitHub リポジトリは設定ドキュメントかコンソールで追加します。単一サーバーの設置では HA は対象外です。
+
+## 公開されたパッケージ
+
+設置には自分でビルドしたものではなく、`main` にマージされるたびに公開されるパッケージを使います。
+
+| パッケージ | アドレス | 備考 |
+| --- | --- | --- |
+| イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-egress-proxy` | タグは `main-<12>`。`linux/amd64` と `linux/arm64` を含む index。設置では digest で固定する |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョンは `0.1.0-main-<12>`。イメージの digest と worker runtime を含む |
+| SDK | npm `@werft-ai/sdk` | [SDK のインストール](/getting-started/install) |
+
+パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭12文字です。
+
+<Callout type="warn">
+`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、イメージのタグは `v<バージョン>`、chart のバージョンは `v` を除いた `<バージョン>` になります。設置ページのコマンドは同じままで、単一サーバーでは同じタグを checkout します。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)します。
+</Callout>
+
+## サーバーに接続する
+
+SDK と HTTP API は、サーバーのアドレスと API key で接続します。TypeScript SDK は `baseUrl`(既定値は環境変数 `WERFT_BASE_URL`)と `apiKey`(`WERFT_API_KEY`)を受け取ります。既定のサーバーはないので、アドレスは必ず渡します。詳しいオプションは[クライアントの設定とエラー](/getting-started/client#クライアントのオプション)にあります。
+
+## 設置後の運用
+
+設置・運用ドキュメントの本文は、リポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) にあります。以下のリンクと、設置ページからリンクしている運用ドキュメントは韓国語で書かれています。
+
+- [設定リファレンス](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [API サーバー: カタログ、認証情報、checkpoint ストア、認証と権限](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
+- [データベース接続と遅いクエリ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/database.md)
+- [イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
+- [実行基盤と worker の分離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
+- [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
+- [プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
+- [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
+- [セッションデータの流れ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/observability.md)
+- [プラットフォームのメトリクス(Kubernetes)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/metrics.md)
+- [Datadog の監視基準](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)
+- [SDK サンプルの実行設定](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/sdk-sample.md)
