@@ -170,6 +170,27 @@ describe("placeInstructionFiles", () => {
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe("first\n");
   });
 
+  test("places nothing when the repository's .gitignore re-includes the names", async () => {
+    await writeFile(join(root, ".gitignore"), "!AGENTS.md\n!CLAUDE.md\n");
+    git(["add", ".gitignore"]);
+    git(["commit", "--quiet", "-m", "gitignore"]);
+
+    expect(await place()).toBe("skipped");
+
+    expect(await exists("AGENTS.md")).toBe(false);
+    expect(await exists("CLAUDE.md")).toBe(false);
+  });
+
+  test("stops before writing when the worker is told to stop", async () => {
+    const stop = new AbortController();
+    stop.abort();
+
+    await expect(
+      placeInstructionFiles({ root, text: "x\n", signal: stop.signal }),
+    ).rejects.toThrow();
+    expect(await exists("AGENTS.md")).toBe(false);
+  });
+
   test("leaves an untracked file it did not make", async () => {
     await writeFile(join(root, "AGENTS.md"), "engine notes\n");
 

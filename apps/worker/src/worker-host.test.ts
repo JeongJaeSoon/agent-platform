@@ -264,6 +264,35 @@ describe("WorkerHost turn loop", () => {
     expect(summary.outcome).toBe("idle");
   });
 
+  test("starts no engine when a stop landed while the instruction files were being placed", async () => {
+    let started = false;
+    let release: () => void = () => {};
+    let hostRef: WorkerHost | undefined;
+    const { gateway, host } = harness([{ type: "await-input" }], {
+      placeInstructions: async () => {
+        hostRef?.drain("received SIGTERM");
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return "placed";
+      },
+      wrap: (run) => {
+        started = true;
+        return run;
+      },
+    });
+    hostRef = host;
+    gateway.enqueue("hello");
+
+    const running = host.runLoop();
+    await waitFor(() => hostRef !== undefined, "the host");
+    await Bun.sleep(50);
+    release();
+    await running;
+
+    expect(started).toBe(false);
+  });
+
   test("makes the turn's events durable before it finalizes", async () => {
     const { gateway, host } = harness([
       { type: "await-input" },

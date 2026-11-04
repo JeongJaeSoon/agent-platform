@@ -523,7 +523,6 @@ export class WorkerHost {
         const plan = await this.startUp(claim);
         if (plan !== undefined) this.startAttachments();
         if (plan !== undefined && this.stopping === undefined) {
-          this.engineBudgeted = claim.remaining_budget_usd !== null;
           // A convenience file: the engine's prompt carries the same text.
           await this.options
             .placeInstructions?.(claim, this.preparation.signal)
@@ -537,6 +536,10 @@ export class WorkerHost {
                 reason: describe(error),
               }),
             );
+        }
+        // Again: a stop can land while the files are being placed.
+        if (plan !== undefined && this.stopping === undefined) {
+          this.engineBudgeted = claim.remaining_budget_usd !== null;
           const gitEnvironment = this.options.gitEnvironment?.(claim);
           run = launcher.start({
             ...plan,

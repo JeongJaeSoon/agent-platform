@@ -65,6 +65,7 @@ export async function placeInstructionFiles(input: {
       (await readlink(join(root, LINK))) === CANONICAL);
   if (!agentsOurs || !linkOurs) return "kept";
 
+  signal.throwIfAborted();
   if (!marked) {
     await mkdir(join(gitDir, "info"), { recursive: true });
     await replaceFile(
@@ -73,7 +74,12 @@ export async function placeInstructionFiles(input: {
       `${excludes}${excludes === "" || excludes.endsWith("\n") ? "" : "\n"}${EXCLUDE_MARKER}\n/${CANONICAL}\n/${LINK}\n`,
     );
   }
+  // The repository's own .gitignore can re-include a name (`!AGENTS.md`),
+  // and then the exclude would not keep the file out of a commit or capture.
+  if (!(await ignored(root, [CANONICAL, LINK], signal))) return "skipped";
+  signal.throwIfAborted();
   await replaceFile(gitDir, join(root, CANONICAL), ensureNewline(input.text));
+  signal.throwIfAborted();
   if (link === null) {
     const staged = scratchPath(gitDir);
     try {
@@ -113,6 +119,24 @@ async function replaceFile(
     await rm(staged, { force: true });
     throw error;
   }
+}
+
+async function ignored(
+  root: string,
+  names: string[],
+  signal: AbortSignal,
+): Promise<boolean> {
+  for (const name of names) {
+    const result = await runGit(["check-ignore", "-q", "--", name], {
+      cwd: root,
+      network: null,
+      overrides: [],
+      redact: (text) => text,
+      signal,
+    });
+    if (result.code !== 0) return false;
+  }
+  return true;
 }
 
 async function repositoryTracks(
