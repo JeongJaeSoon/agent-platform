@@ -53,6 +53,7 @@ import { outputsEn, outputsJa, outputsKo } from "./outputs.ts";
 import { preferencesEn, preferencesJa, preferencesKo } from "./preferences.ts";
 import { profilesEn, profilesJa, profilesKo } from "./profiles.ts";
 import { sessionListEn, sessionListJa, sessionListKo } from "./session-list.ts";
+import { settingsEn, settingsJa, settingsKo } from "./settings.ts";
 import { shellEn, shellJa, shellKo } from "./shell.ts";
 import { teamsEn, teamsJa, teamsKo } from "./teams.ts";
 import { usageEn, usageJa, usageKo } from "./usage.ts";
@@ -93,6 +94,24 @@ describe("i18n", () => {
       );
       expect(catalogs[locale]["profiles.title"]).toBe(
         catalogs[locale]["nav.profiles"],
+      );
+    }
+  });
+
+  // The platform paragraph is off by default, so a hint without the condition
+  // is wrong on a default installation.
+  test("name and description hints say the model reads them only with platform guidance on", () => {
+    const condition = {
+      ko: "플랫폼 안내",
+      ja: "プラットフォーム案内",
+      en: "platform guidance",
+    } as const;
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale];
+      expect(catalog["agent.card.identityHint"]).toContain(condition[locale]);
+      expect(catalog["agents.descriptionHint"]).toContain(condition[locale]);
+      expect(catalog["agent.card.identityHint"]).toContain(
+        catalog["agentCard.agentInstructions"],
       );
     }
   });
@@ -186,6 +205,7 @@ describe("i18n", () => {
         preferencesKo,
         errorsKo,
         formsKo,
+        settingsKo,
       ],
       ja: [
         slackJa,
@@ -214,6 +234,7 @@ describe("i18n", () => {
         preferencesJa,
         errorsJa,
         formsJa,
+        settingsJa,
       ],
       en: [
         slackEn,
@@ -242,6 +263,7 @@ describe("i18n", () => {
         preferencesEn,
         errorsEn,
         formsEn,
+        settingsEn,
       ],
     };
     for (const locale of LOCALES) {

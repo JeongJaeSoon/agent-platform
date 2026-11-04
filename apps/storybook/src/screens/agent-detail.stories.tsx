@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Badge, Button, Heading, Skeleton, Text } from "@werft-ai/ui";
-import { expect } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
 
 import {
   AgentNotFound,
@@ -155,7 +155,20 @@ export const AgentDetail: Story = {
       "GitHub",
     ]);
     const start = canvas.getByRole("button", { name: "이 에이전트로 새 세션" });
-    await expect(start).toHaveAttribute("aria-disabled", "true");
+    await expect(start).not.toHaveAttribute("aria-disabled");
+  },
+};
+export const NewSessionDialog: Story = {
+  name: "New session dialog",
+  play: async ({ canvas }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "이 에이전트로 새 세션" }),
+    );
+    const dialog = within(document.body).getByRole("dialog");
+    await expect(within(dialog).getByLabelText("첫 메시지")).toBeVisible();
+    await expect(
+      within(dialog).getByRole("button", { name: "세션 시작" }),
+    ).toBeVisible();
   },
 };
 export const AgentDetailMemberDraft: Story = {
@@ -163,6 +176,15 @@ export const AgentDetailMemberDraft: Story = {
   // A member lacks credential.bind, so the bindings read answers 403.
   args: { state: "draft", viewer: "member", bound: "unknown", sessions: [] },
   play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("button", { name: "이 에이전트로 새 세션" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    await expect(
+      canvas.getByText(
+        "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+        { ignore: "[hidden]" },
+      ),
+    ).toBeVisible();
     await expect(
       canvas.getByText("연결 상태를 불러오지 못했습니다."),
     ).toBeVisible();

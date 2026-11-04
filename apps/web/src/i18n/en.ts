@@ -18,6 +18,7 @@ import { outputsEn } from "./outputs.ts";
 import { preferencesEn } from "./preferences.ts";
 import { profilesEn } from "./profiles.ts";
 import { sessionListEn } from "./session-list.ts";
+import { settingsEn } from "./settings.ts";
 import { shellEn } from "./shell.ts";
 import { teamsEn } from "./teams.ts";
 import { usageEn } from "./usage.ts";
@@ -193,6 +194,7 @@ export const en: Record<MessageKey, string> = {
   ...agentsEn,
   ...modelsEn,
   ...profilesEn,
+  ...settingsEn,
   ...sessionsEn,
   ...sessionListEn,
   ...flowEn,

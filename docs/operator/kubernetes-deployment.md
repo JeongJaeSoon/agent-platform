@@ -2,6 +2,8 @@
 
 main을 Kubernetes에 올리는 절차다. chart는 `deploy/helm/agent-platform`에 있고, 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](kubernetes-backend.md), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
+**현재 상태:** chart 패키지와 게시된 앱 이미지가 아직 없다. chart는 저장소 checkout의 경로로 설치하고, 이미지는 직접 빌드한다(아래 "준비"). `values.yaml` 기본값은 digest가 비어 있어 그대로는 render가 실패한다. digest만 채우고 기본값의 `ghcr.io` 이름을 두면 받을 이미지가 없어 migrate Job이 `ImagePullBackOff`로 멈춘다.
+
 Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [server-deployment.md](server-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
 worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](capacity.md)를 본다.
@@ -34,7 +36,7 @@ chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 
 
 - NetworkPolicy를 강제하는 CNI. 강제하지 않는 CNI에서는 worker 격리가 없다. kind v0.33의 기본 CNI(kindnet)는 강제한다. EKS는 VPC CNI의 network policy agent를 켠다.
 - PostgreSQL 16과 S3 bucket. 기본 보호 모드 `locked`는 versioning과 Object Lock이 켜진 bucket을 요구하고, 아니면 api가 기동을 거부한다.
-- 이미지 셋(control-host, egress-proxy, worker)을 registry에 올리고 digest를 적어 둔다. chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
+- 이미지 셋(control-host, egress-proxy, worker)을 registry에 올리고 digest를 적어 둔다. 게시된 이미지가 없으므로 checkout에서 빌드한다. kind에서는 `deploy/kind/up.sh`가 대신하고, 그 밖에서는 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한 뒤 values의 `images.registry`와 `images.*.repository`를 그 registry로 바꾼다(`values-aws.example.yaml`의 형식). chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
 - `secrets.name`(기본 `agent-platform`) Secret. 키는 아래와 같다. 값은 명령 인자나 셸 history에 남기지 않는다.
 
 | 키 | 읽는 곳 |
@@ -101,6 +103,8 @@ done
 ```
 
 release 이름에 `agent-platform`이 들어가지 않으면 리소스 이름은 `<release>-agent-platform-…`가 된다.
+
+첫 설치가 실패하면(이미지 경로나 pull 권한 오류가 흔하다) 값을 고치고 같은 명령을 다시 돌린다. Helm은 release가 `failed`로 남아 있으므로 이를 upgrade로 처리하고, 그래서 upgrade-check Job이 처음으로 돈다. scheduler Deployment가 없고 DB가 비어 있거나 세션이 없으면 Job이 `proceed`로 끝나고 설치가 이어진다([업그레이드 전 검사](#업그레이드-전-검사)). Deployment까지 만들어진 뒤 실패했다면 재시도는 보통의 upgrade 규칙을 따른다. worker 이미지를 고친 재시도는 여기서 멈추므로(`check_failed`, runtime을 넣었다면 `refused`), 세션을 시작하지 않았다면 [제거](#제거)한 뒤 다시 설치한다.
 
 ## AWS 값 넣기
 
@@ -245,9 +249,22 @@ kubectl -n agent-platform logs job/agent-platform-upgrade-check
 
 | `verdict` | exit | upgrade | 뜻 |
 |---|---|---|---|
-| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나 worker 이미지가 그대로이면 승인 목록이 비어 있어야 한다 |
+| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나, worker 이미지가 그대로이거나, 배포된 적이 없으면 승인 목록이 비어 있어야 한다 |
 | `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). 또는 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
-| `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합(`images.worker.runtime` 등)이 없거나 읽히지 않거나, 배포된 worker 이미지를 알 수 없다. 넘기는 설정은 없다 |
+| `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합이 읽히지 않거나 아래 표대로 필요한데 없거나, 배포된 worker 이미지를 알 수 없다. scheduler Deployment가 없는데 DB에 세션이나 일부 schema가 있어도 여기다. 넘기는 설정은 없다 |
+
+`images.worker.runtime`은 첫 설치에는 없어도 된다. upgrade에서 필요한지는 배포된 상태와 대상 값에 달렸다.
+
+| 배포된 상태 | 대상 | runtime 없을 때 |
+|---|---|---|
+| scheduler Deployment 없음, DB가 비어 있거나 세션 없음(첫 설치 재시도) | 어떤 worker 이미지든, `images.workerPrevious` 없음 | `proceed` |
+| worker 이미지 하나, runtime·직전 이미지 없음 | 같은 worker 이미지, `images.workerPrevious` 없음 | `proceed` |
+| worker 이미지 하나, runtime·직전 이미지 없음 | 다른 worker 이미지 | `check_failed`. 대상에 `images.worker.runtime`과, 지금 이미지를 담은 `images.workerPrevious`를 둔다 |
+| runtime이나 직전 이미지가 있음 | `images.worker.runtime`을 뺀 값 | `check_failed`. 조합 없이는 세션을 검사할 수 없다 |
+
+runtime 값을 얻는 방법은 [configuration.md의 API 설정](configuration.md)에 있다. 최소 values 설치는 runtime 없이 시작하고, worker 이미지를 처음 바꾸는 upgrade에서 두 이미지의 runtime을 함께 넣는다.
+
+`images.worker`를 그대로 두고 `images.workerPrevious`만 빼는 upgrade는 막지 않는다. 같은 이미지 upgrade는 세션을 비교하지 않으므로 `proceed`다. 빠진 이미지의 조합으로 남은 세션은 재개할 때 `recovery_required`로 멈출 수 있으니, 그런 세션이 없을 때만 뺀다.
 
 고른 세션이 재개하지 못해도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인은 세션 상태를 바꾸지 않는다. `no_image`로 고른 세션은 재개할 때 `recovery_required`로 멈춘다. `unrecorded`로 고른 세션은 새 이미지로 뜨고, 복원이 판정해 이어지거나 `recovery_required`로 멈춘다.
 
@@ -257,7 +274,7 @@ helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", 
 
 승인 목록은 release values에 남는다. 다음 upgrade마다 `--set-json 'upgrade.approvedSessions=[]'`로 비우고, 그 upgrade의 목록을 다시 읽고 승인한다. 남은 목록은 그 upgrade의 `affected`와 다르면 `refused`로 멈추지만, 같고 지원 창 조건도 맞으면 그대로 통과한다.
 
-Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. `helm template`과 `--dry-run`에서는 `lookup`이 아무것도 읽지 않으므로 그 렌더로 돌린 Job은 `check_failed`가 된다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
+Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. 위 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 두 값이 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
 
 **`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
 
@@ -299,4 +316,4 @@ helm -n agent-platform uninstall agent-platform
 **kind**. `helm uninstall`이 남기는 것은 다음과 같다.
 
 - scheduler가 만든 worker Pod, nonce Secret, workspace PVC. 지우기 전에 세션이 끝났는지(또는 checkpoint됐는지) 본다. PVC를 지우면 checkpoint되지 않은 작업이 사라진다. 목록: `kubectl -n agent-platform get pods,secrets,pvc -l app.kubernetes.io/part-of=agent-platform,agent-platform.installation=<installationId>`
-- hook으로 만든 migrate Job, ExternalSecret과 그것이 쓴 Secret(`creationPolicy: Orphan`). 직접 만든 Secret도 남는다.
+- hook으로 만든 migrate Job과 upgrade-check Job, ExternalSecret과 그것이 쓴 Secret(`creationPolicy: Orphan`). 직접 만든 Secret도 남는다. 남은 Job은 다음 설치를 막지 않는다. 같은 이름의 hook이 돌 때 Helm이 먼저 지운다. 지금 지우려면 `kubectl -n agent-platform delete job agent-platform-migrate agent-platform-upgrade-check --ignore-not-found`를 돌린다.

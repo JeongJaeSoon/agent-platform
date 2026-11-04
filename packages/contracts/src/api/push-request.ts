@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { GITHUB_POLICY_SOURCE_VALUES } from "../kollegium/agents.ts";
 import { deciderKeySchema } from "../musterrolle/api-keys.ts";
 import { receiptActorSchema } from "../musterrolle/authorization.ts";
 import { githubRefusalSchema } from "../musterrolle/github-settings.ts";
@@ -13,7 +14,8 @@ import {
 } from "../shared/index.ts";
 
 // requested → approved | rejected is a human decision; approved → pushing →
-// pushed | failed is the platform's push. Nothing returns to `requested`.
+// pushed | failed is the platform's push. Only a policy's approval the agent's
+// settings no longer give goes back to `requested`, before it is pushed.
 export const PUSH_REQUEST_STATE_VALUES = [
   "requested",
   "approved",
@@ -82,9 +84,15 @@ export const pushRequestParamsSchema = sessionIdParamsSchema.extend({
   push_request_id: pushRequestIdSchema,
 });
 
+/** What approved a push: a person's decision, or the policy on its own. */
+export const PUSH_APPROVAL_BASIS_VALUES = ["human", "policy"] as const;
+export type PushApprovalBasis = (typeof PUSH_APPROVAL_BASIS_VALUES)[number];
+
 /**
  * Who decided a push: a person or key, or the policy of a release that
- * pushes without a person's approval.
+ * pushes without a person's approval. Under the agent's settings the release
+ * is only the one the session runs; `agent_settings_revision` names the
+ * settings that decided. Absent on deciders written before them.
  */
 export const pushDeciderSchema = z.union([
   receiptActorSchema,
@@ -92,6 +100,8 @@ export const pushDeciderSchema = z.union([
     .object({
       kind: z.literal("policy"),
       agent_release_id: agentReleaseIdSchema,
+      policy_source: z.enum(GITHUB_POLICY_SOURCE_VALUES).optional(),
+      agent_settings_revision: z.number().int().nullable().optional(),
     })
     .strict(),
 ]);

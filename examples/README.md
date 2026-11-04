@@ -16,7 +16,7 @@
 
 ## 준비
 
-저장소 루트에서 `bun install --frozen-lockfile`을 실행한다. 샘플은 workspace의 `@werft-ai/sdk`를 쓰고, 루트 `tsconfig.json`이 타입 검사한다. 저장소 밖에서는 `npm install @werft-ai/sdk`로 설치하고 같은 파일을 Node 22.18 이상(`node discover.ts`)이나 Bun으로 돌린다. 실행 파일은 `@werft-ai/sdk`와 Node 기본 모듈만 쓴다. SDK는 서버나 스크립트에서 쓰고 브라우저에 API key를 넣지 않는다.
+저장소 루트에서 `bun install --frozen-lockfile`을 실행한다. 샘플은 workspace의 `@werft-ai/sdk`를 쓰고, 루트 `tsconfig.json`이 타입 검사한다. 저장소 밖에서는 SDK가 아직 npm에 없으므로 [저장소에서 빌드한 tarball](../apps/docs/content/docs/getting-started/install.mdx)로 설치하고 같은 파일을 Node 22.18 이상(`node discover.ts`)이나 Bun으로 돌린다. 실행 파일은 `@werft-ai/sdk`와 Node 기본 모듈만 쓴다. SDK는 서버나 스크립트에서 쓰고 브라우저에 API key를 넣지 않는다.
 
 1. 자기 스택을 `scripts/local.sh up --fake-model`로 띄운다([Quickstart](../docs/quickstart.md)). 실제 모델 key는 필요 없다. 메시지의 `GATE-SPEC`은 FAKE 모델이 재생하는 대본이라 실제 모델에서는 쓰지 않는다.
 2. 웹 콘솔에서 owner로 로그인한다.

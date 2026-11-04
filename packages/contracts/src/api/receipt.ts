@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { GITHUB_POLICY_SOURCE_VALUES } from "../kollegium/agents.ts";
 import {
   receiptActorSchema,
   resourceRefSchema,
@@ -127,6 +128,15 @@ export const RECEIPT_OPERATION_VALUES = [
   // document; the receipt names references, never a value.
   "import_connection",
   "import_mcp_server",
+  // The console's writes to the same rows: made with a value the owner
+  // typed, a value replaced, disabled for good, an MCP server's workspaces.
+  // A PAT or public repository reuses add_repository and remove_repository.
+  "create_connection",
+  "create_mcp_server",
+  "set_settings_credential",
+  "disable_connection",
+  "disable_mcp_server",
+  "set_mcp_server_workspaces",
   // An agent's pick resolved a GitHub App repository to a new catalog row.
   "resolve_repository",
   // An agent's GitHub switch turned on or off.
@@ -236,6 +246,20 @@ export const receiptAcceptedResponseSchema = z.object({
   receipt_id: receiptIdSchema,
   receipt_status: receiptStatusSchema,
 });
+
+/**
+ * What the receipt of a session's GitHub work adds to `agent_release_id`:
+ * the policy that decided, which under an `agent` session is not the
+ * release. Absent on receipts from before, which read as `release`.
+ */
+export const githubPolicyReceiptFieldsSchema = z.object({
+  policy_source: z.enum(GITHUB_POLICY_SOURCE_VALUES).optional(),
+  agent_settings_revision: z.number().int().nullable().optional(),
+  workspace_ceiling_revision: z.number().int().nullable().optional(),
+});
+export type GitHubPolicyReceiptFields = z.infer<
+  typeof githubPolicyReceiptFieldsSchema
+>;
 
 export const terminateReceiptResultSchema = z.object({
   execution_gone: z.boolean(),

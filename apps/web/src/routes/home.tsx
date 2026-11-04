@@ -71,6 +71,7 @@ import {
   invitesQuery,
   linkedAccountsQuery,
   myTeamsQuery,
+  profilesQuery,
 } from "../api/queries.ts";
 import { useHasPermission, useMe, useRole } from "../auth/guard.tsx";
 import { AdministeredAgents } from "../components/agent-admins.tsx";
@@ -92,6 +93,7 @@ import {
   useSessionOverviewRowMessages,
 } from "./session-overview.tsx";
 import { loadError, useUnavailable } from "./sessions.tsx";
+import { settingsConnectionsQuery } from "./settings-entries.tsx";
 import { duration, usageSummaryQuery } from "./usage.tsx";
 
 // GET /v1/agents' cap on `ids` (contracts AGENT_IDS_MAX); this app imports
@@ -104,7 +106,7 @@ type StepState = "done" | "pending" | "unknown";
 interface Step {
   readonly key: MessageKey;
   readonly state: StepState;
-  readonly to?: "/members" | "/agents" | "/sessions";
+  readonly to?: "/members" | "/agents" | "/sessions" | "/profiles";
   /** Every step says how it gets done, so every row has the same two lines. */
   readonly hint: MessageKey;
 }
@@ -122,6 +124,7 @@ const STEP_ACTION = {
   "/members": "home.checklist.toMembers",
   "/agents": "home.checklist.toAgents",
   "/sessions": "home.checklist.toSessions",
+  "/profiles": "home.setup.toProfiles",
 } as const satisfies Record<NonNullable<Step["to"]>, MessageKey>;
 
 const RECENT_LIMIT = 5;
@@ -239,12 +242,41 @@ export function HomeScreen() {
         ? "unknown"
         : stateOf(members);
   const firstPage = sessions.data?.pages[0];
+  // An empty installation's first steps are the owner's alone.
+  const installs = useHasPermission("installation.settings.manage");
+  const connections = useQuery({
+    ...settingsConnectionsQuery(client, installs),
+    select: (page) => page.items.some((item) => item.state === "active"),
+  });
+  const ceilings = useQuery({
+    ...profilesQuery(client),
+    select: (page) =>
+      page.items.some((item) => item.installation?.state === "usable"),
+    enabled: installs,
+  });
+  const installSteps: readonly Step[] = installs
+    ? [
+        {
+          key: "home.setup.connection",
+          state: stateOf(connections),
+          to: "/profiles",
+          hint: "home.setup.connectionHint",
+        },
+        {
+          key: "home.setup.ceiling",
+          state: stateOf(ceilings),
+          to: "/profiles",
+          hint: "home.setup.ceilingHint",
+        },
+      ]
+    : [];
   const steps: readonly Step[] = [
     {
       key: "home.checklist.admin",
       state: "done",
       hint: "home.checklist.adminHint",
     },
+    ...installSteps,
     {
       key: "home.checklist.invite",
       state: invited,
@@ -285,6 +317,7 @@ export function HomeScreen() {
     [members, invites, agentCounts, sessions].every(
       (query) => !query.isPending,
     ) &&
+    (!installs || (!connections.isPending && !ceilings.isPending)) &&
     steps.some((step) => step.state !== "done");
 
   // The oldest request and each session's wait are read from the same

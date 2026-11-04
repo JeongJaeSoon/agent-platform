@@ -801,7 +801,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
   });
 
   test("the API is bound to loopback and authenticated in compose", () => {
-    expect(compose).toContain('- "127.0.0.1:3000:3000"');
+    expect(compose).toContain(
+      '- "127.0.0.1:$' + '{TEST_OPS_API_PORT:-3000}:3000"',
+    );
     // Workers reach api:3000 through the proxy; `none` would let them pick
     // any owner with X-Owner-Id.
     expect(compose).toContain("AUTH_MODE: $" + "{AUTH_MODE:-api-key}");
@@ -871,11 +873,11 @@ describe("compose publishes nothing beyond loopback and runs pinned images", () 
         .map(([name, service]) => [name, service.ports]),
     );
     expect(published).toEqual({
-      postgres: ["127.0.0.1:5432:5432"],
+      postgres: ["127.0.0.1:$" + "{TEST_OPS_POSTGRES_PORT:-5432}:5432"],
       localstack: ["127.0.0.1:4566:4566"],
       secrets: ["127.0.0.1:4567:4566"],
       "fake-git": ["127.0.0.1:3001:3000"],
-      api: ["127.0.0.1:3000:3000"],
+      api: ["127.0.0.1:$" + "{TEST_OPS_API_PORT:-3000}:3000"],
     });
   });
 
@@ -1415,7 +1417,7 @@ describe("compose layers", () => {
           build: layered?.build?.dockerfile,
           image: layered?.image !== undefined,
           profiles: layered?.profiles,
-          ports: layered?.ports as string[] | undefined,
+          ports: layered?.ports?.map((port) => resolved(String(port))),
           environment:
             layered?.environment &&
             Object.fromEntries(

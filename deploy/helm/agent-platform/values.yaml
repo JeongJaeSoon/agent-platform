@@ -34,7 +34,9 @@ images:
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
     # {engine: claude-agent-sdk, sdkVersion: 0.3.280, cliVersion: 2.1.280,
-    # profileDigestScheme: 1}. Empty launches every session on this image.
+    # profileDigestScheme: 1}. Empty launches every session on this image, and
+    # an upgrade can then keep this image but not replace it
+    # (docs/operator/kubernetes-deployment.md).
     runtime: {}
   # The release before, so a session whose checkpoint the current image
   # cannot restore resumes on it (WORKER_IMAGE_PREVIOUS). Its digest and

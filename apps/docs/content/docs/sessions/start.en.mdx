@@ -5,6 +5,8 @@ description: The fields, response, Idempotency-Key, list, share scope, title, an
 
 A session is a conversation that runs against one profile. If the profile uses a repository, you pick one repository too. When you create a session, the first message is accepted as turn 1, and the scheduler starts a worker container for that session. The scope is `sessions:write`. The SDK examples use the `werft` client made in [Install the SDK](/getting-started/install#create-a-client), and the HTTP API examples use the shell variables `API` (the server address) and `KEY` (the key).
 
+In the web console, press "New session with this agent" on the agent's page and send the first message. The session starts on the active release and its repository, through the same `POST /v1/sessions` with the signed-in person's authority. When the page can tell ahead of time (no active release, paused, no permission and so on), the button is off and the page says why. A refusal known only after sending, such as a missing credential binding, shows its reason in the dialog.
+
 <Callout>
 The `GATE-SPEC {…}` messages in the examples are scripts for the fake model of the [development server](/run-server/dev-server). The fake model calls tools and answers exactly as the script says, so the output is always the same. A server started with a real model will not make the same tool calls or print the same output; send it ordinary instructions instead.
 </Callout>
