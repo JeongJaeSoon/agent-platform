@@ -123,6 +123,7 @@ import {
   createSlackLinkAppService,
   createSlackSecretService,
   createSlackSigningSecrets,
+  createSlackTokenRevoked,
   createSlackWelcome,
   createSurfaceBindingService,
   createTeamService,
@@ -544,10 +545,25 @@ const members = createMemberService({
   authorization,
   store: createPostgresMemberStore(db),
 });
+const slackInstallStore = createPostgresSlackInstallStore(db);
+const slackIdentityStore = createPostgresAgentIdentityStore(db);
 const agentIdentities = createAgentIdentityService({
   authorization,
-  store: createPostgresAgentIdentityStore(db),
+  store: slackIdentityStore,
 });
+// A Slack call answered `token_revoked` with no uninstall event sent.
+const slackTokenRevoked =
+  secretKey === null
+    ? undefined
+    : createSlackTokenRevoked({
+        identities: slackIdentityStore,
+        installs: slackInstallStore,
+        secrets: createPostgresSecretStore(db, secretKey),
+        onError: (error) =>
+          logger.warn("Slack token_revoked could not revoke the install", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      });
 const slackBindings = createSurfaceBindingService({
   authorization,
   store: surfaceBindingStore,
@@ -556,6 +572,7 @@ const slackBindings = createSurfaceBindingService({
     secrets:
       secretKey === null ? null : createPostgresSecretStore(db, secretKey),
     slack: slackBotApi,
+    ...(slackTokenRevoked ? { tokenRevoked: slackTokenRevoked } : {}),
   }),
   ...(slackJoin === null ? {} : { join: slackJoin }),
   ...(slackWelcome === null ? {} : { welcome: slackWelcome }),
@@ -604,6 +621,7 @@ const slackChannels = createSlackChannelSearchService({
   apps: slackAppStore,
   secrets: secretKey === null ? null : createPostgresSecretStore(db, secretKey),
   api: slackBotApi,
+  ...(slackTokenRevoked ? { tokenRevoked: slackTokenRevoked } : {}),
 });
 const slackApps = createSlackAppService({
   authorization,
@@ -654,8 +672,6 @@ if (slackEventsPublicUrl === null) {
     {},
   );
 }
-const slackInstallStore = createPostgresSlackInstallStore(db);
-const slackIdentityStore = createPostgresAgentIdentityStore(db);
 const slackEvents = createSlackEventsService({
   signingSecrets: slackSigningSecrets ?? { forAgent: async () => null },
   inbox: createPostgresSlackInboundEventStore(db),

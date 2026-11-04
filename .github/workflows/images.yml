@@ -113,7 +113,10 @@ jobs:
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
-        run: .github/scripts/image-licenses.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}"
+          # publish-main asks about the digest that goes out; on a main push
+          # this build's answer would only warn about an image nobody gets.
+          LICENSE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'skip-snapshot' || 'build' }}
+        run: .github/scripts/image-licenses.sh "$APP" "${NAME}:sha-${GITHUB_SHA::12}" "$LICENSE_MODE"
 
       # Findings never fail the build: `supply-chain` judges them, so the
       # build's check stays about the build. A scan that cannot run (release
@@ -311,8 +314,9 @@ jobs:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
           DIGEST: ${{ steps.push.outputs.digest }}
+          LICENSE_MODE: ${{ github.ref == 'refs/heads/main' && 'publish-main' || 'publish' }}
         run: |
-          .github/scripts/image-licenses.sh "$APP" "${NAME}@${DIGEST}" publish
+          .github/scripts/image-licenses.sh "$APP" "${NAME}@${DIGEST}" "$LICENSE_MODE"
           .github/scripts/image-scan.sh "$APP" "${NAME}@${DIGEST}" vulnerabilities
           result="$(cat "vulnerabilities/${APP}.txt")"
           if [ "$result" != clean ]; then
@@ -333,15 +337,16 @@ jobs:
               "${NAME}@${DIGEST}" run apps/worker/src/image-runtime.ts \
               <<<'{}' | jq -c 'del(.profiles)')"
           fi
+          unverified="$(jq -Rn '[inputs]' "unverified-sources/${APP}.txt")"
           mkdir -p staged
           jq -n \
             --arg app "$APP" --arg name "$NAME" --arg base "$base" \
             --arg digest "$DIGEST" --arg imageId "$IMAGE_ID" \
             --arg sha "$GITHUB_SHA" --arg ref "$GITHUB_REF" \
-            --argjson runtime "$runtime" \
+            --argjson runtime "$runtime" --argjson unverified "$unverified" \
             '{app: $app, image: $name, base: $base, pushed: true, promoted: false,
               digest: $digest, imageId: $imageId, commit: $sha, ref: $ref,
-              runtime: $runtime}' \
+              runtime: $runtime, unverifiedSources: $unverified}' \
             | tee "staged/${APP}.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

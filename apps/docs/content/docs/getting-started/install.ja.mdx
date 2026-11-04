@@ -29,14 +29,14 @@ bun run --cwd packages/sdk build:package
 npm pack ./packages/sdk/dist
 ```
 
-リポジトリのルートに `werft-ai-sdk-0.1.0.tgz` ができる。リポジトリの隣にアプリのディレクトリを作り、そのファイルをインストールする。
+リポジトリのルートに `werft-ai-sdk-0.1.1.tgz` ができる。リポジトリの隣にアプリのディレクトリを作り、そのファイルをインストールする。
 
 ```sh
 cd ..
 mkdir my-werft-app && cd my-werft-app
 npm init -y
 npm pkg set type=module
-npm install ../werft/werft-ai-sdk-0.1.0.tgz
+npm install ../werft/werft-ai-sdk-0.1.1.tgz
 ```
 
 npm に公開されると、最後の行は `npm install @werft-ai/sdk` に変わる。SDK パッケージは Apache License 2.0 である。サーバーとリポジトリの残りは PolyForm Small Business License 1.0.0 に従う source-available のコードである。

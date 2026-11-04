@@ -36,7 +36,7 @@ console.log(turn.status);
 
 배포는 [.github/workflows/sdk-release.yml](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/sdk-release.yml)이 한다. pull request와 수동 실행은 빌드·검사·pack까지만 하는 dry run이다. main에 있는 커밋에 `sdk-v<버전>` 태그를 push하면, `release` environment 승인 뒤 `npm publish --provenance --access public`으로 그 tarball을 올린다. 실패한 배포는 그 태그의 실행을 다시 돌린다. 토큰은 `release` environment의 `NPM_TOKEN` secret이다. 버전은 `package.json`의 `version`과 `src/version.ts`의 `SDK_VERSION`을 함께 올린다. `tests/sdk-release.test.ts`가 이 게이트를 검사한다.
 
-처음 한 번은 사람이 다음을 준비한다. 둘 다 없으면 첫 태그의 `publish`가 environment에서 거부되거나 401로 실패한다.
+게시 전에 사람이 다음을 준비해 둔다. 둘 중 하나라도 없으면 태그의 `publish`가 environment에서 거부되거나 401로 실패한다.
 
-1. `release` environment의 배포 정책에 태그 패턴 `sdk-v*`를 더한다. 지금 정책은 `v*`뿐이고 `v*`는 `sdk-v0.1.0`에 맞지 않는다.
+1. `release` environment의 배포 정책에 태그 패턴 `sdk-v*`를 둔다. `v*`는 `sdk-v<버전>`에 맞지 않는다.
 2. npm에서 `@werft-ai` scope에 publish 권한이 있는 granular access token을 발급해, `NPM_TOKEN`이라는 이름의 **`release` environment secret**으로 등록한다(`gh secret set NPM_TOKEN --env release`). repository secret으로 두면 어느 브랜치의 어느 워크플로든 읽을 수 있으므로 쓰지 않는다.
