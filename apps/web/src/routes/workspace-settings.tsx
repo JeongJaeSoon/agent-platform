@@ -51,7 +51,7 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 
 // GitHub-style settings (V4-SETTINGS-LAYOUT A): one column of sections, each
 // a title over a rule, labels above their fields and help under them.
-const SECTIONS = "flex flex-col gap-10";
+const SECTIONS = "flex flex-col gap-[var(--ap-space-section)]";
 const ICON = "size-3.5 shrink-0";
 export const SETTINGS_CARD = "flex flex-col gap-4";
 

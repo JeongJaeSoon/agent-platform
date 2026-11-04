@@ -382,17 +382,20 @@ export function ProfileDetailScreen() {
     >
       <Notice>{notice?.on === profile.id ? notice.text : undefined}</Notice>
       {retireError === null || retireOpen ? null : (
-        <Alert variant="red" role="alert">
+        <Alert variant="red" role="alert" className="border-0">
           <AlertDescription>{retireError}</AlertDescription>
         </Alert>
       )}
       {blockError === null || blockOpen ? null : (
-        <Alert variant="red" role="alert">
+        <Alert variant="red" role="alert" className="border-0">
           <AlertDescription>{blockError}</AlertDescription>
         </Alert>
       )}
       {state === "usable" ? null : (
-        <Alert variant={STATE_BADGE[state] === "red" ? "red" : "blue"}>
+        <Alert
+          variant={STATE_BADGE[state] === "red" ? "red" : "blue"}
+          className="border-0"
+        >
           <AlertDescription>
             {t(`profiles.stateReason.${state}`, {
               base: profile.workspace?.base_profile_id ?? "",
@@ -401,7 +404,7 @@ export function ProfileDetailScreen() {
         </Alert>
       )}
       {blockedNew.tools.length === 0 ? null : (
-        <Alert variant="amber">
+        <Alert variant="amber" className="border-0">
           <AlertTitle>
             {t("profiles.tools.blockedNew", {
               count: blockedNew.tools.length,
@@ -498,7 +501,7 @@ export function ProfileDetailScreen() {
         }}
       >
         {retireError === null ? null : (
-          <Alert variant="red" role="alert">
+          <Alert variant="red" role="alert" className="border-0">
             <AlertDescription>{retireError}</AlertDescription>
           </Alert>
         )}
@@ -534,7 +537,7 @@ export function ProfileDetailScreen() {
         }}
       >
         {blockError === null ? null : (
-          <Alert variant="red" role="alert">
+          <Alert variant="red" role="alert" className="border-0">
             <AlertDescription>{blockError}</AlertDescription>
           </Alert>
         )}

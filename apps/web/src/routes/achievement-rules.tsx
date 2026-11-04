@@ -274,7 +274,7 @@ export function AchievementRulesScreen() {
         </ReasonButton>
       }
     >
-      <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-[var(--ap-space-section)]">
         <OutcomeLine outcome={outcome} />
         <JudgeCard reason={reason} onOutcome={setOutcome} />
         {failed ? (
@@ -742,7 +742,7 @@ function returnFocusTo(target: () => HTMLElement | null) {
 
 function DialogError({ error }: { readonly error: string | null }) {
   return error === null ? null : (
-    <Alert variant="red" role="alert">
+    <Alert variant="red" role="alert" className="border-0">
       <AlertDescription>{error}</AlertDescription>
     </Alert>
   );
@@ -778,7 +778,7 @@ function CategoriesCard({
       count={shown.length}
       description={t("achievementRules.category.description")}
     >
-      <div ref={list} className="flex flex-wrap items-center gap-2 px-4 py-3">
+      <div ref={list} className="flex flex-wrap items-center gap-2 py-3">
         <ul className="m-0 contents list-none p-0">
           {shown.map((category) => (
             <li
@@ -1660,7 +1660,7 @@ function RuleEditor({
           </>
         }
       >
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4">
           <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
             <Field>
               <FieldLabel htmlFor={ids.category}>

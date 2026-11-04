@@ -90,9 +90,7 @@ export function SlackApps() {
       ) : apps.isError ? (
         <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
       ) : apps.data.items.length === 0 ? (
-        <Text variant="sub" className="rounded-card border border-dashed p-4">
-          {t("workspace.slackAppsEmpty")}
-        </Text>
+        <Text variant="sub">{t("workspace.slackAppsEmpty")}</Text>
       ) : (
         <AppTable items={apps.data.items} />
       )}

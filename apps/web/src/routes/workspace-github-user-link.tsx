@@ -131,7 +131,7 @@ export function GitHubUserLinkRow({
   return (
     <section
       aria-labelledby={titleId}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border bg-card p-4"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b pb-2"
     >
       <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1">
         <Heading id={titleId} level={2}>

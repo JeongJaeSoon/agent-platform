@@ -409,7 +409,7 @@ export function ProfileEditor({
           ) : null}
 
           {tools === null ? (
-            <Alert variant="amber">
+            <Alert variant="amber" className="border-0">
               <AlertDescription>
                 {t("profiles.tools.baseNoCatalog")}
               </AlertDescription>
@@ -463,7 +463,7 @@ export function ProfileEditor({
             <FieldError>{beside("permission_mode")}</FieldError>
           </Field>
           {bypassChosen ? (
-            <Alert id={riskId} variant="amber">
+            <Alert id={riskId} variant="amber" className="border-0">
               <AlertDescription>
                 {t("profiles.editor.bypassRisk")}
               </AlertDescription>
@@ -525,7 +525,7 @@ export function ProfileEditor({
       />
 
       {banner === null ? null : (
-        <Alert variant="red" role="alert">
+        <Alert variant="red" role="alert" className="border-0">
           <AlertDescription>{banner}</AlertDescription>
         </Alert>
       )}

@@ -198,7 +198,7 @@ export function ProfilesScreen() {
       ) : (
         <div className="flex flex-col gap-[var(--ap-space-block)]">
           {stranded.map((item) => (
-            <Alert key={item.id} variant="red">
+            <Alert key={item.id} variant="red" className="border-0">
               <AlertTitle>
                 {t(
                   item.workspace?.state === "base_missing"
