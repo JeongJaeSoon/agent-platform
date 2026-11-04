@@ -254,8 +254,12 @@ integration("the readers of an agent's GitHub settings", () => {
       github_app_repositories: "listed" as const,
     };
     await pool.query(
-      "INSERT INTO github_workspace_settings (workspace_id, repository_ceiling, revision) VALUES ($1, $2, 3)",
-      [workspaceId, JSON.stringify(ceiling)],
+      "INSERT INTO github_workspace_settings (workspace_id, ceiling, repository_ceiling, revision) VALUES ($1, $2, $3, 3)",
+      [
+        workspaceId,
+        JSON.stringify(GITHUB_CEILING_NONE),
+        JSON.stringify(ceiling),
+      ],
     );
     expect(await workspaceRepositoryCeiling(db, workspaceId)).toEqual(ceiling);
     expect(
