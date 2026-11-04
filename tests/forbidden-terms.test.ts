@@ -156,6 +156,46 @@ describe("forbidden-terms", () => {
     expect(ok.out).toContain("commit messages: 0");
   });
 
+  test("a multi-commit range counts a hit in the middle even when the head is clean", async () => {
+    const dir = await makeRepo("multi", { "a.txt": "ok\n" });
+    const base = await git(dir, "rev-parse", "HEAD");
+    await commit(dir, `middle ${HIT_TEXT}`);
+    const head = await commit(dir, "fine");
+    const r = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      BASE_SHA: base,
+      HEAD_SHA: head,
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("commit messages: 1");
+  });
+
+  test("a PR that merged newer main is not charged for main's commits when BASE_REF is set", async () => {
+    const dir = await makeRepo("merged-main", { "a.txt": "ok\n" });
+    const staleBase = await git(dir, "rev-parse", "HEAD");
+    await git(dir, "checkout", "-q", "-b", "feature");
+    await commit(dir, "feature work");
+    await git(dir, "checkout", "-q", "main");
+    const mainTip = await commit(dir, `already on main ${HIT_TEXT}`);
+    await git(dir, "update-ref", "refs/remotes/origin/main", mainTip);
+    await git(dir, "checkout", "-q", "feature");
+    await git(dir, "merge", "-q", "--no-edit", "main");
+    const head = await git(dir, "rev-parse", "HEAD");
+    const without = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      BASE_SHA: staleBase,
+      HEAD_SHA: head,
+    });
+    expect(without.out).toContain("commit messages: 1");
+    const withRef = await run(dir, {
+      FORBIDDEN_TERMS: SYNTHETIC,
+      BASE_SHA: staleBase,
+      BASE_REF: "main",
+      HEAD_SHA: head,
+    });
+    expect(withRef.out).toContain("commit messages: 0");
+  });
+
   test("a push without a usable before scans the head commit only", async () => {
     const dir = await makeRepo("zero", { "a.txt": "ok\n" });
     await commit(dir, `old ${HIT_TEXT}`);
