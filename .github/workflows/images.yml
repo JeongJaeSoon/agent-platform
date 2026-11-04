@@ -3,8 +3,8 @@ name: Images
 # Builds the three app images (apps/*/Dockerfile) on every pull request and
 # main push, smokes the worker's bundled Claude Code executable, and records
 # every digest as an artifact. A push to main and a v* tag push publish to
-# ghcr.io, and nothing else does. A main push under the werft-ai owner publishes
-# main-<12> tags with no approval; a tag waits for the `release` environment, and its digests are what
+# ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
+# approval; a tag waits for the `release` environment, and its digests are what
 # a release manifest pins (Obsidian deployment.md § 배포·승격·롤백). Registry CD
 # beyond the push is D5.
 #
@@ -390,12 +390,9 @@ jobs:
           path: digests/*.json
           if-no-files-found: error
 
-  # The owner check keeps a main push from creating packages anywhere but the
-  # werft-ai namespace, a fork or the repository's earlier owner included:
-  # a package name cannot be taken back once it is out.
   publish-main:
     needs: [build, supply-chain]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository_owner == 'werft-ai'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -412,7 +409,7 @@ jobs:
   # a queued merge replace another's pending promotion.
   promote-main:
     needs: publish-main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository_owner == 'werft-ai'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

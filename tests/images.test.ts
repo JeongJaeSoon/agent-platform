@@ -820,21 +820,14 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     /** A job `if` of plain context checks; any other term is refused. */
     const passes = (
       condition: string | undefined,
-      run: { event: string; ref: string; owner: string },
+      run: { event: string; ref: string },
     ) =>
       (condition ?? "").split(" && ").every((term) => {
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
-        const equal = term.match(
-          /^github\.(event_name|ref|repository_owner) == '([^']+)'$/,
-        );
+        const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
-        const value = {
-          event_name: run.event,
-          ref: run.ref,
-          repository_owner: run.owner,
-        }[equal[1] ?? ""];
-        return value === equal[2];
+        return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
       });
 
     test("builds every app without package write", () => {
@@ -861,22 +854,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ["workflow_dispatch", "refs/heads/main", []],
       ["workflow_dispatch", "refs/tags/v1.2.3", []],
     ] as const)("%s of %s publishes through %j", (event, ref, expected) => {
-      const owner = "werft-ai";
       expect(
-        writers
-          .filter((name) => passes(jobs[name]?.if, { event, ref, owner }))
-          .sort(),
+        writers.filter((name) => passes(jobs[name]?.if, { event, ref })).sort(),
       ).toEqual([...expected]);
     });
 
-    test("a main push under another owner publishes nothing", () => {
-      const run = {
-        event: "push",
-        ref: "refs/heads/main",
-        owner: "JeongJaeSoon",
-      };
-      expect(writers.filter((name) => passes(jobs[name]?.if, run))).toEqual([]);
-      // Derived, so the images follow the owner rather than a spelled name.
+    test("the images follow the owner rather than a spelled namespace", () => {
       expect(text).toContain(
         "IMAGE_PREFIX: $" + "{{ github.repository_owner }}/werft\n",
       );

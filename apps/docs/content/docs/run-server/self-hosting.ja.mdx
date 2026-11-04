@@ -4,7 +4,7 @@ description: 複数の人が使う Werft サーバーをインストールして
 ---
 
 <Callout type="warn">
-現在、公式に公開されたパッケージはなく、リポジトリから直接ビルドする必要がある。`v*` リリース、Helm chart パッケージ、npm の `@werft-ai/sdk` はまだない。アプリイメージは、リポジトリが `werft-ai` 組織に移った後、`main` へのマージごとに `ghcr.io/werft-ai/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。それまではリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、公開コードは今のところ `linux/amd64` イメージしか作らない。
+公式リリースはまだない。`v*` リリース、Helm chart パッケージ、npm の `@werft-ai/sdk` はない。アプリイメージは `main` へのマージごとに `ghcr.io/jeongjaesoon/werft-<app>:main-<12>` として公開され、使うときは digest で固定する([イメージとサプライチェーン](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지))。このイメージを取得できない場合はリポジトリを checkout して[3 つのイメージを直接ビルド](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)し、checkout の compose ファイルか chart でインストールする。直接ビルドは x86_64 と arm64 のどちらでもできるが、公開コードは今のところ `linux/amd64` イメージしか作らない。
 </Callout>
 
 Werft サーバーを自分でインストールし、チームで共有する方法である。一人で試すだけのサーバーなら[開発用サーバーの実行](/run-server/dev-server)で足りる。インストールと運用のドキュメントの本文はリポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/agent-platform/tree/main/docs/operator) にあり、韓国語で書かれている。このページはどこから読むかを案内する。
