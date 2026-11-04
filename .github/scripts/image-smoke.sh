@@ -162,6 +162,7 @@ assert_published_tree() {
   # A dependency's own tests (zod's) are not ours: node_modules is skipped.
   named="$(docker run --rm --entrypoint find "$image" /app -name node_modules -prune -o \
     \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.stories.tsx' \
+       -o -name '*.snap' -o -name __snapshots__ -o -name pglite-release.ts \
        -o -name storybook -o -name testkit -o -name demo-accounts.ts -o -name demo-data.ts \) -print)"
   echo "test sources and demo files in the image: $(printf '%s' "${listed}${named}" | grep -c . || true)"
   if [ -n "${listed}${named}" ]; then

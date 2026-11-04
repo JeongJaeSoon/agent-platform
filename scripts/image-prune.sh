@@ -33,12 +33,14 @@ matches() {
          -path '*/src/testing' -o \
          -path '*/src/test-support' -o \
          -path '*/__fixtures__' -o \
+         -path '*/__snapshots__' -o \
          -path '*/bench' \
        \) -print -prune \) -o \
     \( -type f \( \
          -name '*.test.ts' -o -name '*.test.tsx' -o \
          -name '*.stories.ts' -o -name '*.stories.tsx' -o \
          -name '*.fixture.ts' -o \
+         -path packages/db/src/pglite-release.ts -o \
          -path '*/src/testing.ts' -o \
          -path packages/adapters/execution/kubernetes/src/fake-client.ts -o \
          -path apps/control-host/src/api/route-error-coverage.ts -o \
