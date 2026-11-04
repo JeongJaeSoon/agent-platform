@@ -52,7 +52,11 @@ const settingsReads = (
   profiles: readonly ProfileSummary[],
 ) => ({
   "GET /v1/installation/settings/connections": () =>
-    json(200, { items: connections, credential_hosts: null }),
+    json(200, {
+      items: connections,
+      credential_hosts: null,
+      endpoint_defaults: {},
+    }),
   "GET /v1/profiles": () => json(200, { items: profiles }),
 });
 
