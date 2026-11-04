@@ -7,6 +7,7 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   githubCeilingSchema,
+  newSessionGitHubPolicy,
   type RepositoryCeiling,
   repositoryCeilingOf,
 } from "@werft-ai/contracts";
@@ -62,8 +63,7 @@ async function readSettings(db: Database, workspaceId: string) {
  * What `githubPolicyOfRow` reads off a session. The query joins
  * `agentGitHubSettings` on the agent of the session's release.
  */
-export const githubPolicyColumns = {
-  githubPolicySource: sessions.githubPolicySource,
+const agentPolicyColumns = {
   releasePin: sql<unknown>`${agentReleases.policyPins} -> 'github'`,
   settingsRepositories: agentGitHubSettings.repositories,
   settingsPushApproval: agentGitHubSettings.pushApproval,
@@ -71,6 +71,11 @@ export const githubPolicyColumns = {
   settingsActionsAllow: agentGitHubSettings.actionsAllow,
   settingsStartRepositoryId: agentGitHubSettings.startRepositoryId,
   settingsRevision: agentGitHubSettings.revision,
+};
+
+export const githubPolicyColumns = {
+  githubPolicySource: sessions.githubPolicySource,
+  ...agentPolicyColumns,
 };
 
 export function agentGitHubSettingsRowOf(row: {
@@ -373,17 +378,8 @@ export function createPostgresGitHubSettingsStore(
     },
 
     async agentsUsing(workspaceId) {
-      // A settings row replaces the active release's pin, as for a new session.
-      const feature = (name: keyof GitHubFeatures) =>
-        sql<number>`count(*) FILTER (WHERE CASE WHEN ${agentGitHubSettings.agentId} IS NULL THEN ${agentReleases.policyPins} -> 'github' -> 'features' ELSE ${agentGitHubSettings.features} END -> ${name} = 'true'::jsonb)::int`;
-      const [row] = await db
-        .select({
-          workflows: feature("workflows"),
-          actions: feature("actions"),
-          checks: feature("checks"),
-          issues: feature("issues"),
-          review: feature("review"),
-        })
+      const rows = await db
+        .select(agentPolicyColumns)
         .from(agents)
         .innerJoin(agentReleases, eq(agentReleases.id, agents.activeReleaseId))
         .leftJoin(
@@ -396,8 +392,21 @@ export function createPostgresGitHubSettingsStore(
             eq(agents.githubEnabled, true),
           ),
         );
+      const policies = rows.map(
+        (row) =>
+          newSessionGitHubPolicy(agentGitHubSettingsRowOf(row), row.releasePin)
+            .settings,
+      );
       return Object.fromEntries(
-        FEATURES.map((name) => [name, row?.[name] ?? 0]),
+        FEATURES.map((name) => [
+          name,
+          policies.filter(
+            (settings) =>
+              settings !== null &&
+              settings !== "invalid" &&
+              settings.features[name],
+          ).length,
+        ]),
       ) as Record<keyof GitHubFeatures, number>;
     },
 

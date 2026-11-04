@@ -1,6 +1,7 @@
 import type {
   AgentGitHubSettingsRow,
   Receipt,
+  RepositoryCeiling,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
@@ -17,6 +18,8 @@ export interface AgentGitHubStore {
   enabled(workspaceId: string, agentId: string): Promise<boolean | null>;
   /** The agent's own GitHub settings; null without a row. */
   settings(agentId: string): Promise<AgentGitHubSettingsRow | null>;
+  /** Null allows none. */
+  repositoryCeiling(workspaceId: string): Promise<RepositoryCeiling | null>;
   /** Writes `set_agent_github` only when the value changes. */
   setEnabled(input: {
     workspaceId: string;

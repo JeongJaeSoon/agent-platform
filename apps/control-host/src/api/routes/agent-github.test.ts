@@ -98,6 +98,7 @@ function appWith(
   const writes: boolean[] = [];
   const store: AgentGitHubStore = {
     settings: () => Promise.resolve(null),
+    repositoryCeiling: () => Promise.resolve(null),
     async enabled(_workspaceId, agentId) {
       return agentId === AGENT ? enabled : null;
     },

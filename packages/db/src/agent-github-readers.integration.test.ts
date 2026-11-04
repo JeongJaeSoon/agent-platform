@@ -17,6 +17,7 @@ import { Pool } from "pg";
 import {
   agentGitHubSettingsOf,
   createPostgresGitHubGateStore,
+  createPostgresGitHubSettingsStore,
   workspaceRepositoryCeiling,
 } from "./github-settings.ts";
 import { createPostgresGitHubMcpStore } from "./mcp-egress.ts";
@@ -120,6 +121,7 @@ integration("the readers of an agent's GitHub settings", () => {
     row: {
       repositories?: unknown[];
       pushApproval?: boolean;
+      features?: object;
       revision?: number;
     },
   ) {
@@ -130,13 +132,14 @@ integration("the readers of an agent's GitHub settings", () => {
        ON CONFLICT (agent_id) DO UPDATE SET
          repositories = EXCLUDED.repositories,
          push_approval = EXCLUDED.push_approval,
+         features = EXCLUDED.features,
          revision = EXCLUDED.revision`,
       [
         agentId,
         workspaceId,
         JSON.stringify(row.repositories ?? ["sample-app"]),
         row.pushApproval ?? true,
-        JSON.stringify(GITHUB_CEILING_NONE),
+        JSON.stringify(row.features ?? GITHUB_CEILING_NONE),
         row.revision ?? 1,
       ],
     );
@@ -251,6 +254,26 @@ integration("the readers of an agent's GitHub settings", () => {
     expect(
       await createPostgresGitHubGateStore(db).context(sessionId),
     ).toMatchObject({ repositoryCeiling: ceiling, ceilingRevision: 3 });
+  });
+
+  test("the feature count reads each agent's policy; a row that cannot be read counts for nothing", async () => {
+    const features = { ...GITHUB_CEILING_NONE, review: true };
+    const { workspaceId, agentId } = await fixture({
+      pins: { github: { ...PIN_OFF, features } },
+    });
+    const store = createPostgresGitHubSettingsStore(db);
+    expect((await store.agentsUsing(workspaceId)).review).toBe(1);
+    await settingsRow(workspaceId, agentId, { features });
+    expect((await store.agentsUsing(workspaceId)).review).toBe(1);
+    await settingsRow(workspaceId, agentId, {
+      features: GITHUB_CEILING_NONE,
+    });
+    expect((await store.agentsUsing(workspaceId)).review).toBe(0);
+    await settingsRow(workspaceId, agentId, {
+      repositories: [1],
+      features,
+    });
+    expect((await store.agentsUsing(workspaceId)).review).toBe(0);
   });
 
   test("the built-in server's state carries the source; a bad row reads as none", async () => {

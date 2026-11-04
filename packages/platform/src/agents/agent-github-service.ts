@@ -34,8 +34,10 @@ import {
   allowedPair,
   catalogProfile,
   GITHUB_API_BASE,
+  repositoryInCeiling,
   repositoryModeOf,
   type SessionCatalog,
+  usesWorkspaceCeiling,
 } from "../sessions/catalog.ts";
 import {
   createGitHubConnectionResolver,
@@ -188,7 +190,10 @@ export function createAgentGitHubService(deps: {
       ]);
       if (detail === null || enabled === null) throw NOT_FOUND();
       const release = detail.active_release;
-      const agentRow = await store.settings(agentId);
+      const [agentRow, repositoryCeiling] = await Promise.all([
+        store.settings(agentId),
+        store.repositoryCeiling(workspaceId),
+      ]);
       const policy = newSessionGitHubPolicy(
         agentRow,
         release?.policy_pins.github,
@@ -208,9 +213,21 @@ export function createAgentGitHubService(deps: {
             .map(async ([id, repository]) => {
               const reason: AgentGitHubRepositoryUnavailable | null =
                 release === null ||
-                allowedPair(catalog, release.runtime_profile_id, id) === null
+                allowedPair(
+                  catalog,
+                  release.runtime_profile_id,
+                  id,
+                  policy.source,
+                ) === null ||
+                (usesWorkspaceCeiling(
+                  catalog,
+                  release.runtime_profile_id,
+                  policy.source,
+                ) &&
+                  !repositoryInCeiling(catalog, repositoryCeiling, id))
                   ? "repository_not_allowed"
-                  : repository.auth?.kind !== "github_app"
+                  : policy.source === "release" &&
+                      repository.auth?.kind !== "github_app"
                     ? "app_required"
                     : null;
               const [author, reviewer] = await Promise.all([

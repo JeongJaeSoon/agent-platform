@@ -5,6 +5,7 @@ import {
   type AgentGitHubSettingsRow,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
+  type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
@@ -106,6 +107,8 @@ function serviceWith(input: {
   github?: AgentGitHub;
   /** The agent's own settings row. */
   settings?: AgentGitHubSettingsRow;
+  repositoryCeiling?: RepositoryCeiling;
+  catalog?: SessionCatalog;
   ceiling?: GitHubCeiling;
   author?: Record<string, "read" | "write" | "admin"> | null;
   reviewer?: Record<string, "read" | "write" | "admin"> | null | "none";
@@ -125,6 +128,7 @@ function serviceWith(input: {
       };
   const store: AgentGitHubStore = {
     settings: () => Promise.resolve(input.settings ?? null),
+    repositoryCeiling: () => Promise.resolve(input.repositoryCeiling ?? null),
     async enabled() {
       return true;
     },
@@ -143,7 +147,7 @@ function serviceWith(input: {
       },
     },
     store,
-    catalog,
+    catalog: input.catalog ?? catalog,
     githubSettings: {
       async get() {
         return { ceiling: input.ceiling ?? ALL_ON, revision: 1 };
@@ -355,6 +359,71 @@ describe("the agent GitHub tab's options", () => {
       settings: { ...row, repositories: "a later shape" },
     }).get(caller, AGENT);
     expect(bad.github).toBeNull();
+  });
+
+  describe("which repositories can be picked, as the gate would answer", () => {
+    const ROW: AgentGitHubSettingsRow = {
+      repositories: ["sample-app"],
+      pushApproval: true,
+      features: { ...GITHUB_CEILING_NONE },
+      actionsAllow: [],
+      startRepositoryId: null,
+      revision: 1,
+    };
+    const CEILING: RepositoryCeiling = {
+      repository_ids: ["elsewhere-app", "pat-app"],
+      github_app_repositories: "listed",
+    };
+    const reasons = async (input: Parameters<typeof serviceWith>[0]) => {
+      const read = await serviceWith(input).get(caller, AGENT);
+      return Object.fromEntries(
+        read.options.repositories.map(({ id, reason }) => [id, reason]),
+      );
+    };
+
+    test("no row: the profile's list and the App, whatever the ceiling says", async () => {
+      expect(await reasons({ repositoryCeiling: CEILING })).toEqual({
+        "elsewhere-app": "repository_not_allowed",
+        "ghe-app": null,
+        "pat-app": "app_required",
+        "sample-app": null,
+      });
+    });
+
+    test("a row: the workspace's ceiling, and a PAT stays on the default work", async () => {
+      expect(
+        await reasons({ settings: ROW, repositoryCeiling: CEILING }),
+      ).toEqual({
+        "elsewhere-app": null,
+        "ghe-app": "repository_not_allowed",
+        "pat-app": null,
+        "sample-app": "repository_not_allowed",
+      });
+    });
+
+    test("a row and no ceiling: nothing can be picked", async () => {
+      expect(Object.values(await reasons({ settings: ROW }))).toEqual(
+        Array(4).fill("repository_not_allowed"),
+      );
+    });
+
+    test("a workspace profile on its release: the ceiling, not the profile's list", async () => {
+      const installation = new Map(catalog.installation);
+      const entry = installation.get(PROFILE);
+      if (entry === undefined) throw new Error("no profile");
+      installation.set(PROFILE, { ...entry, repository_scope: "workspace" });
+      expect(
+        await reasons({
+          catalog: { ...catalog, installation },
+          repositoryCeiling: CEILING,
+        }),
+      ).toEqual({
+        "elsewhere-app": null,
+        "ghe-app": "repository_not_allowed",
+        "pat-app": "app_required",
+        "sample-app": "repository_not_allowed",
+      });
+    });
   });
 
   test("why nothing can be saved: no release, no repository, a PAT repository", async () => {
