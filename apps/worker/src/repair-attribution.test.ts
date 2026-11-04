@@ -403,6 +403,34 @@ describe("werft-repair-attribution", () => {
     expect(Bun.spawnSync(["test", "-e", marker]).exitCode).toBe(1);
   });
 
+  test("repository config the agent wrote cannot make the tool run a program", () => {
+    remoteTracking(commit("base"));
+    const wrong = commit("feat: signed-looking");
+    // A commit with a signature header, so `log.showSignature` would call gpg.
+    const raw = git(["cat-file", "commit", wrong]).replace(
+      /\n\n/,
+      "\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n\n",
+    );
+    const forged = Bun.spawnSync(
+      ["git", "hash-object", "-t", "commit", "-w", "--stdin"],
+      { cwd: repo, env: env(), stdin: new TextEncoder().encode(`${raw}\n`) },
+    )
+      .stdout.toString()
+      .trim();
+    git(["update-ref", "refs/heads/main", forged]);
+    const marker = join(root, "gpg-ran");
+    const program = join(root, "planted");
+    writeFileSync(program, `#!/bin/sh\ntouch ${marker}\nexit 1\n`, {
+      mode: 0o755,
+    });
+    git(["config", "log.showSignature", "true"]);
+    git(["config", "gpg.program", program]);
+    git(["config", "core.fsmonitor", program]);
+    git(["config", "core.pager", program]);
+    expect(repair().out).toMatch(/^repaired /);
+    expect(Bun.spawnSync(["test", "-e", marker]).exitCode).toBe(1);
+  });
+
   test("a merge whose other parent is a right commit inside the range is kept, not nested", () => {
     const base = commit("base");
     remoteTracking(base);
