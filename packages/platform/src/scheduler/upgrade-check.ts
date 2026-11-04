@@ -29,6 +29,27 @@ export type UpgradeAssessment = {
 };
 
 /**
+ * An upgrade that replaces no worker image, `because` naming why. Approvals
+ * stay in the release values, so a stale list must be cleared before any
+ * upgrade: carried to a later one it could approve sessions the operator
+ * never read.
+ */
+export function assessNothingReplaced(
+  approvedSessions: readonly string[],
+  because: string,
+): UpgradeAssessment {
+  const approved = [...new Set(approvedSessions)].sort();
+  return approved.length === 0
+    ? { verdict: "proceed", affected: [], approved: [] }
+    : {
+        verdict: "refused",
+        affected: [],
+        approved,
+        reason: `${because}, so upgrade.approvedSessions must be empty — no longer affected: ${approved.join(" ")}`,
+      };
+}
+
+/**
  * Whether a release may replace the deployed worker image. It goes ahead
  * when the worker image stays, or when it moves within the support window
  * (the target's previous image is the deployed one) and every session it
@@ -43,20 +64,13 @@ export function assessUpgrade(input: {
   readonly sessions: readonly UpgradeSession[];
   readonly approved: readonly string[];
 }): UpgradeAssessment {
-  const approved = [...new Set(input.approved)].sort();
-  // Approvals stay in the release values, so a stale list must be cleared
-  // before any upgrade: carried to a later one it could approve sessions
-  // the operator never read.
   if (input.targetWorker === input.deployedWorker) {
-    return approved.length === 0
-      ? { verdict: "proceed", affected: [], approved: [] }
-      : {
-          verdict: "refused",
-          affected: [],
-          approved,
-          reason: `the worker image does not change, so upgrade.approvedSessions must be empty — no longer affected: ${approved.join(" ")}`,
-        };
+    return assessNothingReplaced(
+      input.approved,
+      "the worker image does not change",
+    );
   }
+  const approved = [...new Set(input.approved)].sort();
   const affected = input.sessions
     .flatMap((session): AffectedSession[] => {
       const reason = unresumable(session, input.runtimes);

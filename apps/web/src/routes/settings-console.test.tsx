@@ -1,0 +1,523 @@
+import { describe, expect, test } from "bun:test";
+import type {
+  SettingsConnection,
+  SettingsMcpServer,
+  SettingsRepository,
+} from "@werft-ai/contracts";
+import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { json, me, memberMe } from "../test-support/fake-api.ts";
+import { imported } from "../test-support/profiles.ts";
+import { appHarness } from "../test-support/render-app.tsx";
+
+const { renderAt, screen, waitFor, within } = await appHarness();
+
+const CHANGE = (id: string) => ({
+  id,
+  receipt_id: "019a0000-0000-7000-8000-0000000000f1",
+});
+
+const AT = "2026-10-01T00:00:00.000Z";
+
+const connection = (
+  id: string,
+  rest: Partial<SettingsConnection> = {},
+): SettingsConnection => ({
+  id,
+  origin: "console",
+  state: "active",
+  kind: "anthropic",
+  endpoint: "https://api.anthropic.com",
+  billing: "per_token",
+  auth_kind: "api_key",
+  credential: { source: "stored", last4: "abcd" },
+  created_at: AT,
+  disabled_at: null,
+  ...rest,
+});
+
+const mcp = (
+  id: string,
+  rest: Partial<SettingsMcpServer> = {},
+): SettingsMcpServer => ({
+  id,
+  origin: "console",
+  state: "active",
+  url: "https://mcp.example.com/sse",
+  credential_ref: "docs",
+  workspaces: ["acme"],
+  credential: { source: "stored", last4: "wxyz" },
+  created_at: AT,
+  disabled_at: null,
+  ...rest,
+});
+
+const repository = (
+  id: string,
+  rest: Partial<SettingsRepository> = {},
+): SettingsRepository => ({
+  id,
+  origin: "console",
+  state: "active",
+  url: "https://git.example.com/acme/docs.git",
+  branch: "main",
+  auth_kind: "none",
+  credential: { source: "none" },
+  created_at: AT,
+  disabled_at: null,
+  ...rest,
+});
+
+const CONNECTIONS = "/v1/installation/settings/connections";
+const MCP = "/v1/installation/settings/mcp-servers";
+const REPOS = "/v1/installation/settings/repositories";
+
+const rowOf = (table: HTMLElement, id: string) => {
+  const row = within(table)
+    .getAllByRole("row")
+    .find((item) => item.textContent?.startsWith(id));
+  if (row === undefined) throw new Error(`no row ${id}`);
+  return row;
+};
+
+/** A dialog's field by its form name, for labels these tests do not spell. */
+const named = (dialog: HTMLElement, name: string) => {
+  const input = dialog.querySelector<HTMLElement>(`[name="${name}"]`);
+  if (input === null) throw new Error(`no field ${name}`);
+  return input;
+};
+
+const writes = <C extends { readonly method: string }>(calls: readonly C[]) =>
+  calls.filter((call) => call.method !== "GET");
+
+/** No row action sits in a cell the narrow layout hides. */
+const expectNarrowActions = (table: HTMLElement) => {
+  const buttons = within(table).getAllByRole("button");
+  expect(buttons.length).toBeGreaterThan(0);
+  for (const button of buttons) {
+    expect(button.closest('[role="cell"]')?.className ?? "").not.toContain(
+      ":hidden",
+    );
+  }
+};
+
+describe("모델 연결", () => {
+  const listed = [
+    connection("anthropic", {
+      origin: "file",
+      credential: { source: "external", value_env: "ANTHROPIC_API_KEY" },
+    }),
+    connection("console-key"),
+    connection("ops-ref", {
+      origin: "import",
+      credential: { source: "external", secret_id: "ops/anthropic" },
+    }),
+    connection("fresh", {
+      credential: { source: "stored", last4: null },
+      state: "needs_value",
+    }),
+  ];
+
+  const routes = (signedIn = me(), hosts: string[] | null = null) => ({
+    "GET /v1/auth/me": () => json(200, signedIn),
+    "GET /v1/profiles": () =>
+      json(200, { items: [imported("coding-claude"), imported("general")] }),
+    [`GET ${CONNECTIONS}`]: () =>
+      json(200, { items: listed, credential_hosts: hosts }),
+  });
+
+  test("the owner sees the file's and the console's connections with where each comes from, and what each may do", async () => {
+    renderAt("/profiles", routes());
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    const file = rowOf(table, "anthropic");
+    expect(file.textContent).toContain("파일");
+    expect(file.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
+    // Both ceilings run over it.
+    expect(file.textContent).toContain("설치 프로필 2개");
+    expect(within(file).queryAllByRole("button")).toEqual([]);
+
+    const stored = rowOf(table, "console-key");
+    expect(stored.textContent).toContain("콘솔");
+    expect(stored.textContent).toContain("••••abcd");
+    expect(
+      within(stored)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["console-key 값 바꾸기", "console-key 사용 중지"]);
+
+    // An operator reference: view and disable only.
+    const ref = rowOf(table, "ops-ref");
+    expect(
+      within(ref)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["ops-ref 사용 중지"]);
+
+    const fresh = rowOf(table, "fresh");
+    expect(fresh.textContent).toContain("값 필요");
+    expect(
+      within(fresh).getByRole("button", { name: "fresh 값 바꾸기" })
+        .textContent,
+    ).toBe("값 넣기");
+  });
+
+  test("a narrow table keeps every row's actions and puts the state beside the id", async () => {
+    renderAt("/profiles", routes());
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    expectNarrowActions(table);
+    const id = within(rowOf(table, "fresh")).getAllByRole("cell")[0];
+    expect(id?.textContent).toContain("값 필요");
+  });
+
+  test("adding one stores the key, says the address cannot change, and warns when its host is off the egress allowlist", async () => {
+    const { api } = renderAt("/profiles", {
+      ...routes(me(), ["api.anthropic.com:443"]),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("litellm-proxy")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("바꾸려면 새 id로 만드세요");
+    // Anthropic takes an API key only.
+    expect(within(dialog).queryByLabelText("인증 방식")).toBeNull();
+    await user.type(within(dialog).getByLabelText("id"), "litellm-proxy");
+    await user.selectOptions(within(dialog).getByLabelText("종류"), "litellm");
+    const endpoint = within(dialog).getByLabelText("엔드포인트");
+    await user.type(endpoint, "https://api.anthropic.com");
+    expect(within(dialog).queryByRole("status")).toBeNull();
+    await user.clear(endpoint);
+    await user.type(endpoint, "https://llm.internal:8443/v1");
+    expect(within(dialog).getByRole("status").textContent).toContain(
+      "llm.internal:8443는 egress",
+    );
+    await user.selectOptions(
+      within(dialog).getByLabelText("인증 방식"),
+      "bearer",
+    );
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("litellm-proxy를 만들었습니다.");
+    expect(
+      writes(api.calls).map((call) => [call.method, call.path, call.body]),
+    ).toEqual([
+      [
+        "POST",
+        CONNECTIONS,
+        {
+          id: "litellm-proxy",
+          kind: "litellm",
+          endpoint: "https://llm.internal:8443/v1",
+          billing: "per_token",
+          auth_kind: "bearer",
+          value: "example-key",
+        },
+      ],
+    ]);
+  });
+
+  test("without the allowlist known, nothing warns", async () => {
+    renderAt("/profiles", routes(me(), null));
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("엔드포인트"),
+      "https://elsewhere.example.com",
+    );
+    expect(within(dialog).queryByRole("status")).toBeNull();
+  });
+
+  test("a new value and a disable each go to their own route; disabling asks first", async () => {
+    const { api } = renderAt("/profiles", {
+      ...routes(),
+      [`POST ${CONNECTIONS}/console-key/credential`]: () =>
+        json(200, CHANGE("console-key")),
+      [`POST ${CONNECTIONS}/console-key/disable`]: () =>
+        json(200, CHANGE("console-key")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "모델 연결" });
+    await user.click(
+      within(table).getByRole("button", { name: "console-key 값 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("값"), "rotated-key");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("console-key의 값을 바꿨습니다.");
+
+    await user.click(
+      within(table).getByRole("button", { name: "console-key 사용 중지" }),
+    );
+    const confirm = await screen.findByRole("dialog");
+    expect(confirm.textContent).toContain("되돌릴 수 없습니다");
+    expect(writes(api.calls).length).toBe(1);
+    await user.click(
+      within(confirm).getByRole("button", { name: "사용 중지" }),
+    );
+    await screen.findByText("console-key를 사용 중지했습니다.");
+    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+      [`${CONNECTIONS}/console-key/credential`, { value: "rotated-key" }],
+      [`${CONNECTIONS}/console-key/disable`, null],
+    ]);
+  });
+
+  test("a refusal names the server's reason", async () => {
+    renderAt("/profiles", {
+      ...routes(),
+      [`POST ${CONNECTIONS}`]: () =>
+        json(409, {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "taken",
+            details: { reason_code: "already_exists" },
+          },
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("id"), "console-key");
+    await user.type(
+      within(dialog).getByLabelText("엔드포인트"),
+      "https://api.anthropic.com",
+    );
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "이미 쓴 id입니다",
+    );
+  });
+
+  test("an admin neither reads the connections nor gets a way to change them", async () => {
+    const { api } = renderAt("/profiles", routes(me(undefined, "admin")));
+    await screen.findByText("모델 연결은 설치 소유자만 보고 바꿉니다.");
+    expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "모델 연결" })).toBeNull();
+    expect(api.calls.some((call) => call.path === CONNECTIONS)).toBe(false);
+  });
+});
+
+describe("MCP 서버", () => {
+  const routes = (signedIn = me()) => ({
+    "GET /v1/auth/me": () => json(200, signedIn),
+    [`GET ${MCP}`]: () =>
+      json(200, {
+        items: [
+          mcp("docs"),
+          mcp("ops", {
+            origin: "import",
+            credential: { source: "external", value_env: "OPS_MCP_TOKEN" },
+          }),
+          mcp("search", { origin: "file", credential: { source: "none" } }),
+        ],
+      }),
+  });
+
+  test("each server shows its tool namespace and nothing that blocks a tool", async () => {
+    renderAt("/settings/workspace/mcp-servers", routes());
+    const table = await screen.findByRole("table", { name: "MCP 서버" });
+    expect(rowOf(table, "docs").textContent).toContain("mcp__docs__*");
+    expect(rowOf(table, "search").textContent).toContain("mcp__search__*");
+    expect(table.textContent).not.toMatch(/차단|block/i);
+    expect(screen.queryAllByRole("checkbox")).toEqual([]);
+    expect(screen.queryAllByRole("switch")).toEqual([]);
+    expect(
+      within(rowOf(table, "docs"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["docs 값 바꾸기", "docs 워크스페이스 바꾸기", "docs 사용 중지"]);
+    // An operator's reference: view and disable only.
+    expect(
+      within(rowOf(table, "ops"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["ops 사용 중지"]);
+    expect(within(rowOf(table, "search")).queryAllByRole("button")).toEqual([]);
+  });
+
+  test("a narrow table keeps every row's actions", async () => {
+    renderAt("/settings/workspace/mcp-servers", routes());
+    expectNarrowActions(await screen.findByRole("table", { name: "MCP 서버" }));
+  });
+
+  test("adding one and changing its workspaces send the slugs as a list", async () => {
+    const { api } = renderAt("/settings/workspace/mcp-servers", {
+      ...routes(),
+      [`POST ${MCP}`]: () => json(201, CHANGE("wiki")),
+      [`PATCH ${MCP}/docs`]: () => json(200, CHANGE("docs")),
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "MCP 서버 추가" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("바꾸려면 새 id로 만드세요");
+    await user.type(within(dialog).getByLabelText("id"), "wiki");
+    await user.type(
+      within(dialog).getByLabelText("URL"),
+      "https://wiki.example.com/mcp",
+    );
+    await user.type(named(dialog, "credential_ref"), "wiki");
+    await user.type(
+      within(dialog).getByLabelText("워크스페이스"),
+      "acme, acme-labs ,",
+    );
+    await user.type(named(dialog, "value"), "example-token");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("wiki를 만들었습니다.");
+
+    const table = screen.getByRole("table", { name: "MCP 서버" });
+    await user.click(
+      within(table).getByRole("button", { name: "docs 워크스페이스 바꾸기" }),
+    );
+    const edit = await screen.findByRole("dialog");
+    const field = within(edit).getByLabelText("워크스페이스");
+    expect((field as HTMLInputElement).value).toBe("acme");
+    await user.clear(field);
+    await user.type(field, "acme,beta");
+    await user.click(within(edit).getByRole("button", { name: "저장" }));
+    await screen.findByText("docs를 바꿨습니다.");
+    expect(
+      writes(api.calls).map((call) => [call.method, call.path, call.body]),
+    ).toEqual([
+      [
+        "POST",
+        MCP,
+        {
+          id: "wiki",
+          url: "https://wiki.example.com/mcp",
+          credential_ref: "wiki",
+          workspaces: ["acme", "acme-labs"],
+          value: "example-token",
+        },
+      ],
+      ["PATCH", `${MCP}/docs`, { workspaces: ["acme", "beta"] }],
+    ]);
+  });
+
+  test("an admin gets the refusal screen and no read", async () => {
+    const { api } = renderAt(
+      "/settings/workspace/mcp-servers",
+      routes(me(undefined, "admin")),
+    );
+    await screen.findByText("이 화면을 볼 권한이 없습니다");
+    expect(api.calls.some((call) => call.path === MCP)).toBe(false);
+  });
+});
+
+describe("URL 저장소", () => {
+  const routes = (signedIn = me()) => ({
+    "GET /v1/auth/me": () => json(200, signedIn),
+    [`GET ${REPOS}`]: () =>
+      json(200, {
+        items: [
+          repository("docs-site"),
+          repository("private", {
+            auth_kind: "basic",
+            username: "bot",
+            credential: { source: "stored", last4: "1234" },
+          }),
+          repository("ops-repo", {
+            origin: "import",
+            auth_kind: "bearer",
+            credential: { source: "external", value_env: "OPS_REPO_TOKEN" },
+          }),
+        ],
+      }),
+  });
+
+  test("a public one and a token one are added by URL", async () => {
+    const { api } = renderAt("/settings/workspace/repositories", {
+      ...routes(me(undefined, "admin")),
+      [`POST ${REPOS}`]: () => json(201, CHANGE("x")),
+    });
+    const user = await setupUser();
+    const add = await screen.findByRole("button", { name: "저장소 추가" });
+    await user.click(add);
+    let dialog = await screen.findByRole("dialog");
+    // Public: no token asked.
+    expect(dialog.querySelector('[name="value"]')).toBeNull();
+    await user.type(within(dialog).getByLabelText("id"), "public-docs");
+    await user.type(
+      within(dialog).getByLabelText("URL"),
+      "https://github.com/acme/docs.git",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await screen.findByText("x를 만들었습니다.");
+
+    await user.click(add);
+    dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText("id"), "gitlab-app");
+    await user.type(
+      within(dialog).getByLabelText("URL"),
+      "https://gitlab.example.com/acme/app.git",
+    );
+    await user.selectOptions(within(dialog).getByLabelText("인증"), "basic");
+    await user.type(within(dialog).getByLabelText("사용자 이름"), "bot");
+    await user.type(named(dialog, "value"), "example-pat");
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    await waitFor(() => expect(writes(api.calls).length).toBe(2));
+    expect(writes(api.calls).map((call) => call.body)).toEqual([
+      {
+        id: "public-docs",
+        url: "https://github.com/acme/docs.git",
+        branch: "main",
+        auth: { kind: "none" },
+      },
+      {
+        id: "gitlab-app",
+        url: "https://gitlab.example.com/acme/app.git",
+        branch: "main",
+        auth: { kind: "basic", username: "bot", value: "example-pat" },
+      },
+    ]);
+  });
+
+  test("the branch changes in place; a public one has no value to replace", async () => {
+    const { api } = renderAt("/settings/workspace/repositories", {
+      ...routes(),
+      [`PATCH ${REPOS}/docs-site`]: () => json(200, CHANGE("docs-site")),
+    });
+    const user = await setupUser();
+    const table = await screen.findByRole("table", { name: "URL 저장소" });
+    expect(
+      within(rowOf(table, "docs-site"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["docs-site 브랜치 바꾸기", "docs-site 사용 중지"]);
+    expect(rowOf(table, "private").textContent).toContain("••••1234");
+    // An operator's token: view and disable only, the branch included.
+    expect(
+      within(rowOf(table, "ops-repo"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["ops-repo 사용 중지"]);
+    await user.click(
+      within(table).getByRole("button", { name: "docs-site 브랜치 바꾸기" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const field = within(dialog).getByLabelText("기본 브랜치");
+    await user.clear(field);
+    await user.type(field, "release");
+    await user.click(within(dialog).getByRole("button", { name: "저장" }));
+    await screen.findByText("docs-site를 바꿨습니다.");
+    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
+      [`${REPOS}/docs-site`, { branch: "release" }],
+    ]);
+  });
+
+  test("a narrow table keeps every row's actions", async () => {
+    renderAt("/settings/workspace/repositories", routes());
+    expectNarrowActions(
+      await screen.findByRole("table", { name: "URL 저장소" }),
+    );
+  });
+
+  test("a member gets the refusal screen and no read", async () => {
+    const { api } = renderAt(
+      "/settings/workspace/repositories",
+      routes(memberMe()),
+    );
+    await screen.findByText("이 화면을 볼 권한이 없습니다");
+    expect(api.calls.some((call) => call.path === REPOS)).toBe(false);
+  });
+});

@@ -73,16 +73,17 @@ const PLAN = {
 function service(result: SettingsImportResult) {
   const asked: Array<Parameters<SettingsDocumentStore["importEntries"]>> = [];
   let reread = 0;
-  const store: SettingsDocumentStore = {
-    exportEntries: async () => ({
-      entries: ENTRIES,
-      last4: new Map([["connection:console", "wxyz"]]),
-    }),
-    importEntries: async (...args) => {
-      asked.push(args);
-      return result;
-    },
-  };
+  const store: Pick<SettingsDocumentStore, "exportEntries" | "importEntries"> =
+    {
+      exportEntries: async () => ({
+        entries: ENTRIES,
+        last4: new Map([["connection:console", "wxyz"]]),
+      }),
+      importEntries: async (...args) => {
+        asked.push(args);
+        return result;
+      },
+    };
   const settings = createSettingsDocumentService({
     authorization: createAuthorizationPolicy({
       agents: { agentOf: async () => null, isAdmin: async () => false },

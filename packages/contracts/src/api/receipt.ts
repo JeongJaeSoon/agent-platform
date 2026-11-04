@@ -128,6 +128,15 @@ export const RECEIPT_OPERATION_VALUES = [
   // document; the receipt names references, never a value.
   "import_connection",
   "import_mcp_server",
+  // The console's writes to the same rows: made with a value the owner
+  // typed, a value replaced, disabled for good, an MCP server's workspaces.
+  // A PAT or public repository reuses add_repository and remove_repository.
+  "create_connection",
+  "create_mcp_server",
+  "set_settings_credential",
+  "disable_connection",
+  "disable_mcp_server",
+  "set_mcp_server_workspaces",
   // An agent's pick resolved a GitHub App repository to a new catalog row.
   "resolve_repository",
   // An agent's GitHub switch turned on or off.

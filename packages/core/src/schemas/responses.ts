@@ -80,6 +80,9 @@ import {
   listSessionOutcomesResponseSchema,
   listSessionOutputsResponseSchema,
   listSessionsResponseSchema,
+  listSettingsConnectionsResponseSchema,
+  listSettingsMcpServersResponseSchema,
+  listSettingsRepositoriesResponseSchema,
   listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
@@ -118,6 +121,7 @@ import {
   setAccessResponseSchema,
   setAgentManagingTeamResponseSchema,
   setSessionShareResponseSchema,
+  settingsChangeResponseSchema,
   slackAppSettingsSchema,
   slackConfigTokenSummarySchema,
   slackEventsResponseSchema,
@@ -378,6 +382,31 @@ export const responseSchemas = {
     installationProfileChangeResponseSchema,
   "GET /v1/installation/settings/export": exportSettingsResponseSchema,
   "POST /v1/installation/settings/import": importSettingsResponseSchema,
+  "GET /v1/installation/settings/connections":
+    listSettingsConnectionsResponseSchema,
+  "POST /v1/installation/settings/connections": settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/credential":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/connections/{id}/disable":
+    settingsChangeResponseSchema,
+  "GET /v1/installation/settings/mcp-servers":
+    listSettingsMcpServersResponseSchema,
+  "POST /v1/installation/settings/mcp-servers": settingsChangeResponseSchema,
+  "PATCH /v1/installation/settings/mcp-servers/{id}":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/mcp-servers/{id}/credential":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/mcp-servers/{id}/disable":
+    settingsChangeResponseSchema,
+  "GET /v1/installation/settings/repositories":
+    listSettingsRepositoriesResponseSchema,
+  "POST /v1/installation/settings/repositories": settingsChangeResponseSchema,
+  "PATCH /v1/installation/settings/repositories/{id}":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/repositories/{id}/credential":
+    settingsChangeResponseSchema,
+  "POST /v1/installation/settings/repositories/{id}/disable":
+    settingsChangeResponseSchema,
   "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,
   "GET /v1/usage/outcomes": usageOutcomesResponseSchema,
