@@ -408,6 +408,7 @@ export function createSlackChannelSearchService(deps: {
                     workspaceId: app.workspaceId,
                     agentId,
                     slackAppId: app.id,
+                    appId: app.appId,
                     failedToken: token,
                     since: startedAt,
                   });
@@ -523,6 +524,7 @@ export function createSlackChannelSearchService(deps: {
                   workspaceId: app.workspaceId,
                   agentId,
                   slackAppId: app.id,
+                  appId: app.appId,
                   failedToken: usedToken,
                   since: startedAt,
                 });

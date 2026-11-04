@@ -40,6 +40,8 @@ export type SlackTokenRevoked = (input: {
   workspaceId: string;
   agentId: string;
   slackAppId: string;
+  /** Slack's id for the app whose token failed; null before it is created. */
+  appId: string | null;
   failedToken: string;
   /** When the failing call began. */
   since: Date;
@@ -58,17 +60,22 @@ export function createSlackTokenRevoked(deps: {
         owner: { kind: "slack_app", id: input.slackAppId },
         purpose: "slack_bot_token",
       });
-      if (current !== input.failedToken) return;
+      if (current !== input.failedToken || input.appId === null) return;
       const rows = await deps.identities.list(
         input.workspaceId,
         input.agentId,
         20,
       );
+      // An agent may hold installs of other apps; only this app's token died.
+      // The store skips an install verified at or after the call began (a
+      // reinstall that raced it): sentAt is a second early because its
+      // check allows for Slack's whole-second event times.
+      const sentAt = new Date(input.since.getTime() - 1000);
       for (const row of rows) {
-        if (row.status !== "active") continue;
+        if (row.status !== "active" || row.appId !== input.appId) continue;
         await deps.installs.revokeInstallation(
           { appId: row.appId, teamId: row.teamId },
-          input.since,
+          sentAt,
         );
       }
     } catch (error) {

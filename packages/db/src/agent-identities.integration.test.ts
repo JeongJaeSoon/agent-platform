@@ -711,6 +711,19 @@ integration("agent identities on PostgreSQL", () => {
       expect((await identityRow(again.identity.id))?.status).toBe("revoked");
     });
 
+    test("a revoke from a failed Slack call leaves an install verified after the call began", async () => {
+      const { key, linked } = await linkedAgent();
+      // The caller passes the call's start less a second.
+      const began = new Date(Date.now() - 1000 - 30_000);
+      expect(await installs().revokeInstallation(key, began)).toBe(
+        "superseded",
+      );
+      expect((await identityRow(linked.identity.id))?.status).toBe("active");
+      const later = new Date(Date.now() + 5_000);
+      expect(await installs().revokeInstallation(key, later)).toBe("revoked");
+      expect((await identityRow(linked.identity.id))?.status).toBe("revoked");
+    });
+
     test("an install revoked before this fix gets its identity on the next event", async () => {
       const { key, linked } = await linkedAgent();
       await revokeSlackInstallation(db, key);

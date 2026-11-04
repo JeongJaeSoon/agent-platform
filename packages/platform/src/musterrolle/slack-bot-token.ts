@@ -72,6 +72,7 @@ export function createSlackChannelKinds(deps: {
               workspaceId,
               agentId,
               slackAppId: app.id,
+              appId: app.appId,
               failedToken: token,
               since: startedAt,
             });

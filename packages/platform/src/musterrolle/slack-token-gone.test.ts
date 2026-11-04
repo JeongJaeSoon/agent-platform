@@ -63,6 +63,7 @@ function world(rows: AgentIdentityRecord[], stored: string | null) {
       workspaceId: WORKSPACE,
       agentId: AGENT,
       slackAppId: SLACK_APP,
+      appId: "A0APP",
       failedToken,
       since: SINCE,
     });
@@ -95,14 +96,29 @@ describe("Slack answered that the bot token is gone", () => {
     ).toEqual([false, false, false]);
   });
 
-  test("revokes the active identity's install, from when the call began", async () => {
+  test("revokes the failed app's active install, skipping one verified since the call began", async () => {
     const { call, revoked } = world(
       [identity("revoked", "T0OLD"), identity("active", "T0LIVE")],
       "xoxb-failed",
     );
     await call("xoxb-failed");
     expect(revoked).toEqual([
-      { key: { appId: "A0APP", teamId: "T0LIVE" }, sentAt: SINCE },
+      {
+        key: { appId: "A0APP", teamId: "T0LIVE" },
+        sentAt: new Date(SINCE.getTime() - 1000),
+      },
+    ]);
+  });
+
+  test("leaves the agent's installs of other apps alone", async () => {
+    const other = { ...identity("active", "T0OTHER"), appId: "A0OTHER" };
+    const { call, revoked } = world(
+      [other, identity("active", "T0LIVE")],
+      "xoxb-failed",
+    );
+    await call("xoxb-failed");
+    expect(revoked.map((row) => row.key)).toEqual([
+      { appId: "A0APP", teamId: "T0LIVE" },
     ]);
   });
 
@@ -137,6 +153,7 @@ describe("Slack answered that the bot token is gone", () => {
       workspaceId: WORKSPACE,
       agentId: AGENT,
       slackAppId: SLACK_APP,
+      appId: "A0APP",
       failedToken: "xoxb-failed",
       since: SINCE,
     });
