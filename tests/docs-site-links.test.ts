@@ -9,7 +9,17 @@ const root = join(import.meta.dir, "..");
 // directory on github.com opens a raw README instead of a site page.
 const SITE = "https://jeongjaesoon.github.io/werft";
 const REPO_DOC =
-  /https:\/\/(?:github\.com\/jeongjaesoon\/werft\/(?:blob|tree|raw)|raw\.githubusercontent\.com\/jeongjaesoon\/werft)\/[^/\s)"'>]+\/([^\s)"'>#?]+)/gi;
+  /https:\/\/(?:github\.com\/jeongjaesoon\/werft\/(?:blob|tree|raw)|raw\.githubusercontent\.com\/jeongjaesoon\/werft)\/([^\s)"'`>#?]+)/gi;
+
+// The captured text is `<ref>/<path>`. A ref may hold slashes (release/next),
+// so the path starts at the first top-level repository name after the ref.
+const REPO_ROOTS = new Set(["docs", "examples", "packages", "apps"]);
+
+function repoPath(refAndPath: string): string {
+  const segments = decodeURIComponent(refAndPath).replace(/\/$/, "").split("/");
+  const root = segments.findIndex((s, i) => i > 0 && REPO_ROOTS.has(s));
+  return segments.slice(root === -1 ? 1 : root).join("/");
+}
 
 // Repository paths that may still be linked, each with the reason there is no
 // site page for it. Drop an entry when its page exists: the stale-entry test
@@ -69,7 +79,7 @@ function repoDocLinks(): { file: string; path: string }[] {
         "",
       );
       for (const match of text.matchAll(REPO_DOC)) {
-        const path = decodeURIComponent(match[1] ?? "").replace(/\/$/, "");
+        const path = repoPath(match[1] ?? "");
         if (isDocTarget(path)) links.push({ file, path });
       }
     }
@@ -118,5 +128,16 @@ describe("Documentation links", () => {
       expect([...url.matchAll(REPO_DOC)]).toHaveLength(1);
     }
     expect(isDocTarget("apps/docs/content/docs/sdk.mdx")).toBe(true);
+
+    const paths = (text: string) =>
+      [...text.matchAll(REPO_DOC)].map((m) => repoPath(m[1] ?? ""));
+    const base = "https://github.com/JeongJaeSoon/werft/blob";
+    expect(paths(`const href = \`${base}/main/docs/api-guide.md\`;`)).toEqual([
+      "docs/api-guide.md",
+    ]);
+    expect(paths(`${base}/release/next/docs/api-guide.md`)).toEqual([
+      "docs/api-guide.md",
+    ]);
+    expect(paths(`${base}/main/README.md`)).toEqual(["README.md"]);
   });
 });
