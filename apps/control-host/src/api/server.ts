@@ -44,6 +44,7 @@ import {
   createPostgresSessionShareStore,
   createPostgresSessionTitleStore,
   createPostgresSessionUnitOfWork,
+  createPostgresSettingsDocumentStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
@@ -105,6 +106,7 @@ import {
   createSessionService,
   createSessionShareService,
   createSessionTitler,
+  createSettingsDocumentService,
   createSlackAppService,
   createSlackBotApi,
   createSlackChannelJoiner,
@@ -223,6 +225,7 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github-work.ts";
+import { registerInstallationSettingsRoutes } from "./routes/installation-settings.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -767,6 +770,11 @@ const installationProfiles = createInstallationProfileService({
   allowUnattended: profileSources.sources.allowUnattended,
   runtimes: installedRuntimes,
 });
+const settingsDocument = createSettingsDocumentService({
+  authorization,
+  store: createPostgresSettingsDocumentStore(db),
+  reread: () => workspaceProfileVersions.refresh().catch(() => undefined),
+});
 const agentAdmins = createAgentAdminService({
   authorization,
   store: createPostgresAgentAdminStore(db),
@@ -1209,6 +1217,7 @@ const app = createApiApp({
     registerReceiptRoutes(router, sessions);
     registerUsageRoutes(router, usage);
     registerProfileRoutes(router, workspaceProfiles, installationProfiles);
+    registerInstallationSettingsRoutes(router, settingsDocument);
     registerAchievementRoutes(router, achievementRules);
     registerSessionAchievementRoutes(
       router,

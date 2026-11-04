@@ -10,7 +10,7 @@ import {
   type SecretOwnerRef,
   type StoredOwnerKind,
 } from "@werft-ai/platform";
-import { and, asc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
@@ -74,6 +74,50 @@ export async function lockSettingsGeneration(tx: Database): Promise<void> {
     .select({ id: settingsGeneration.id })
     .from(settingsGeneration)
     .for("update");
+}
+
+async function ownsStoredValue(
+  tx: Database,
+  owner: { kind: StoredOwnerKind; id: string },
+): Promise<boolean> {
+  const ref = `${owner.kind}:${owner.id}`;
+  const rows =
+    owner.kind === "connection"
+      ? await tx
+          .select({ id: providerConnections.id })
+          .from(providerConnections)
+          .where(
+            and(
+              eq(providerConnections.id, owner.id),
+              eq(providerConnections.credentialSource, "stored"),
+              sql`${providerConnections.definition}->'auth'->>'stored' = ${ref}`,
+            ),
+          )
+          .for("update")
+      : owner.kind === "repository"
+        ? await tx
+            .select({ id: catalogRepositories.id })
+            .from(catalogRepositories)
+            .where(
+              and(
+                eq(catalogRepositories.id, owner.id),
+                eq(catalogRepositories.credentialSource, "stored"),
+                sql`${catalogRepositories.auth}->>'stored' = ${ref}`,
+              ),
+            )
+            .for("update")
+        : await tx
+            .select({ id: mcpServers.id })
+            .from(mcpServers)
+            .where(
+              and(
+                eq(mcpServers.id, owner.id),
+                eq(mcpServers.credentialSource, "stored"),
+                sql`${mcpServers.auth}->>'stored' = ${ref}`,
+              ),
+            )
+            .for("update");
+  return rows.length > 0;
 }
 
 async function secretOwnerWorkspace(tx: Database): Promise<string | null> {
@@ -211,6 +255,14 @@ export function createPostgresInstallationSettingsStore(
         );
       }
       return db.transaction(async (tx) => {
+        await lockSettingsGeneration(tx);
+        // A value is bound to the destination of the row it names; with no
+        // such row, a row made later on that id would take it.
+        if (!(await ownsStoredValue(tx, owner))) {
+          throw new Error(
+            `${owner.kind}:${owner.id} is no settings row that stores its own value`,
+          );
+        }
         const workspaceId = await secretOwnerWorkspace(tx);
         if (workspaceId === null) {
           throw new Error("no workspace yet to keep a stored value under");

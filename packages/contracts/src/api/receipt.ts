@@ -123,6 +123,10 @@ export const RECEIPT_OPERATION_VALUES = [
   "set_repository_branch",
   "remove_repository",
   "import_repository",
+  // A provider connection or remote MCP server brought in by a settings
+  // document; the receipt names references, never a value.
+  "import_connection",
+  "import_mcp_server",
   // An agent's pick resolved a GitHub App repository to a new catalog row.
   "resolve_repository",
   // An agent's GitHub switch turned on or off.
