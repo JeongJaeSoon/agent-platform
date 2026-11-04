@@ -403,6 +403,29 @@ describe("werft-repair-attribution", () => {
     expect(Bun.spawnSync(["test", "-e", marker]).exitCode).toBe(1);
   });
 
+  test("a right commit with a trailing blank line and a signature header keeps its hash", () => {
+    remoteTracking(commit("base"));
+    repair();
+    commit("feat: made right");
+    expect(repair().out).toMatch(/^repaired /);
+    const right = git(["rev-parse", "HEAD"]);
+    // Rebuild it with a signature header and blank lines after the trailers,
+    // the shape `git commit --cleanup=verbatim -S` leaves.
+    const raw = git(["cat-file", "commit", right]).replace(
+      /\n\n/,
+      "\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n\n",
+    );
+    const signed = Bun.spawnSync(
+      ["git", "hash-object", "-t", "commit", "-w", "--stdin"],
+      { cwd: repo, env: env(), stdin: new TextEncoder().encode(`${raw}\n\n`) },
+    )
+      .stdout.toString()
+      .trim();
+    git(["update-ref", "refs/heads/main", signed]);
+    expect(repair()).toMatchObject({ code: 0, out: "clean" });
+    expect(git(["rev-parse", "HEAD"])).toBe(signed);
+  });
+
   test("repository config the agent wrote cannot make the tool run a program", () => {
     remoteTracking(commit("base"));
     const wrong = commit("feat: signed-looking");

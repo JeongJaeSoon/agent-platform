@@ -137,9 +137,11 @@ while IFS= read -r c; do
   werft_fix_message "$work/msg/$c" || fail "message fix of $c"
 
   # A commit that already carries the issued attribution, on unchanged
-  # parents, stays as it is: its hash and any signature survive.
+  # parents, stays as it is: its hash and any signature survive. Blank lines
+  # at the end of the message are not a difference (the function trims them;
+  # $(...) drops them from both sides).
   if [ "$old_parents" = "$new_parents" ] &&
-    cmp -s "$work/msg/$c" "$work/msg/$c.orig" &&
+    [ "$(cat "$work/msg/$c")" = "$(cat "$work/msg/$c.orig")" ] &&
     [ "$(git log -1 --format='%an%n%ae%n%cn%n%ce' "$c")" = "$name
 $email
 $name

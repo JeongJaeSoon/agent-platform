@@ -185,7 +185,7 @@ describe("repairAttribution", () => {
       tool,
       gateway: { protectedCommits: async () => ({ commits: [sha] }) },
     });
-    expect(outcome).toEqual({ status: "repaired" });
+    expect(outcome).toEqual({ status: "repaired", protectedCommits: [sha] });
     expect(readFileSync(argv, "utf8")).toBe(`${repo}\n${sha}\n`);
   });
 
@@ -203,7 +203,7 @@ describe("repairAttribution", () => {
         tool,
         gateway,
       }),
-    ).toEqual({ status: "nested_merge" });
+    ).toEqual({ status: "nested_merge", protectedCommits: [] });
     writeFileSync(tool, "#!/bin/sh\necho 'failed: nope'\nexit 1\n");
     expect(
       await repairAttribution({
@@ -214,7 +214,11 @@ describe("repairAttribution", () => {
         tool,
         gateway,
       }),
-    ).toEqual({ status: "failed", detail: "failed: nope" });
+    ).toEqual({
+      status: "failed",
+      detail: "failed: nope",
+      protectedCommits: [],
+    });
   });
 
   test("with the real tool, a wrong commit is remade and a protected one is not", async () => {
@@ -269,8 +273,38 @@ describe("workspaceMismatches", () => {
         tip: "HEAD",
         expectation,
         stripEmails: [],
+        protectedCommits: [],
       }),
     ).toEqual([{ commit: wrong, problems: ["author", "committer"] }]);
+  });
+
+  test("a protected commit from an earlier claim is not judged against this claim's values", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    const earlier = commit("made under an earlier claim");
+    const wrong = commit("wrong");
+    expect(
+      await workspaceMismatches({
+        root: repo,
+        tip: "HEAD",
+        expectation,
+        stripEmails: [],
+        protectedCommits: [earlier, "f".repeat(40)],
+      }),
+    ).toEqual([{ commit: wrong, problems: ["author", "committer"] }]);
+  });
+
+  test("without the server's protected list there is no advice, the push judges alone", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    commit("wrong");
+    expect(
+      await workspaceMismatches({
+        root: repo,
+        tip: "HEAD",
+        expectation,
+        stripEmails: [],
+        protectedCommits: null,
+      }),
+    ).toEqual([]);
   });
 
   test("commits a remote already holds are not looked at", async () => {
@@ -281,6 +315,7 @@ describe("workspaceMismatches", () => {
         tip: "HEAD",
         expectation,
         stripEmails: [],
+        protectedCommits: [],
       }),
     ).toEqual([]);
   });
@@ -293,6 +328,7 @@ describe("workspaceMismatches", () => {
         tip: "HEAD",
         expectation: null,
         stripEmails: [],
+        protectedCommits: [],
       }),
     ).toEqual([]);
     expect(
@@ -301,6 +337,7 @@ describe("workspaceMismatches", () => {
         tip: "HEAD",
         expectation,
         stripEmails: [],
+        protectedCommits: [],
       }),
     ).toEqual([]);
   });

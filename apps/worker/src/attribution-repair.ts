@@ -21,14 +21,21 @@ export const REPAIR_TOOL_PATH = "/usr/local/bin/werft-repair-attribution";
 const REPAIR_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_MS = 30_000;
 
+/**
+ * Every outcome that ran the tool carries the commits the server protected:
+ * they were made under earlier claims, so they are neither remade nor judged
+ * against this claim's values.
+ */
+type Ran = { protectedCommits: readonly string[] };
+
 export type RepairOutcome =
-  | { status: "clean" }
-  | { status: "repaired" }
+  | ({ status: "clean" } & Ran)
+  | ({ status: "repaired" } & Ran)
   /** Two of the session's commits are parents of one merge; nothing written. */
-  | { status: "nested_merge" }
+  | ({ status: "nested_merge" } & Ran)
   /** Not attempted: no tool, no server answer. The pushes' checks still hold. */
   | { status: "skipped"; reason: string }
-  | { status: "failed"; detail: string };
+  | ({ status: "failed"; detail: string } & Ran);
 
 /**
  * What the claim asked this session's commits to carry, or null when it asked
@@ -98,17 +105,20 @@ export async function repairAttribution(input: {
     });
     const line = stdout.trim();
     return line.startsWith("repaired ")
-      ? { status: "repaired" }
-      : { status: "clean" };
+      ? { status: "repaired", protectedCommits: commits }
+      : { status: "clean", protectedCommits: commits };
   } catch (error) {
     const failure = error as { code?: number; stdout?: string };
-    if (failure.code === 2) return { status: "nested_merge" };
+    if (failure.code === 2) {
+      return { status: "nested_merge", protectedCommits: commits };
+    }
     input.logger.warn("worker.attribution_repair.failed", {
       detail: (failure.stdout ?? "").trim().slice(0, 200),
     });
     return {
       status: "failed",
       detail: (failure.stdout ?? "").trim().slice(0, 200),
+      protectedCommits: commits,
     };
   }
 }
@@ -124,49 +134,69 @@ export async function workspaceMismatches(input: {
   tip: string;
   expectation: AttributionExpectation | null;
   stripEmails: readonly string[];
+  /**
+   * The server's protected commits, made under earlier claims whose values
+   * this worker does not know. Null when the repair did not get them: with
+   * no way to tell those commits apart, the push's own check judges alone.
+   */
+  protectedCommits: readonly string[] | null;
 }): Promise<AttributionMismatch[]> {
-  if (input.expectation === null) return [];
+  if (input.expectation === null || input.protectedCommits === null) return [];
   try {
-    const judged = await rangeAttribution(
-      async (args) => {
-        try {
-          const { stdout } = await run(
-            "git",
-            [
-              "-c",
-              "core.fsmonitor=false",
-              "-c",
-              "core.hooksPath=/dev/null",
-              ...args,
-            ],
-            {
-              cwd: input.root,
-              env: {
-                PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-                GIT_CONFIG_NOSYSTEM: "1",
-                GIT_CONFIG_GLOBAL: "/dev/null",
-                GIT_TERMINAL_PROMPT: "0",
-                LC_ALL: "C",
-              },
-              maxBuffer: 16 * 1024 * 1024,
-              timeout: GIT_TIMEOUT_MS,
+    const git = async (args: readonly string[]) => {
+      try {
+        const { stdout } = await run(
+          "git",
+          [
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "log.showSignature=false",
+            "-c",
+            "gpg.program=/bin/false",
+            "-c",
+            "gpg.ssh.program=/bin/false",
+            "-c",
+            "gpg.x509.program=/bin/false",
+            ...args,
+          ],
+          {
+            cwd: input.root,
+            env: {
+              PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+              GIT_CONFIG_NOSYSTEM: "1",
+              GIT_CONFIG_GLOBAL: "/dev/null",
+              GIT_TERMINAL_PROMPT: "0",
+              LC_ALL: "C",
             },
-          );
-          return { exitCode: 0, stdout };
-        } catch (error) {
-          return {
-            exitCode: (error as { code?: number }).code ?? 1,
-            stdout: "",
-          };
-        }
-      },
-      {
-        tip: input.tip,
-        not: ["--remotes"],
-        expectations: [input.expectation],
-        stripEmails: input.stripEmails,
-      },
-    );
+            maxBuffer: 16 * 1024 * 1024,
+            timeout: GIT_TIMEOUT_MS,
+          },
+        );
+        return { exitCode: 0, stdout };
+      } catch (error) {
+        return {
+          exitCode: (error as { code?: number }).code ?? 1,
+          stdout: "",
+        };
+      }
+    };
+    // Only the ones this repository holds can be excluded.
+    const held: string[] = [];
+    for (const sha of input.protectedCommits) {
+      if (!/^[0-9a-f]{40}$/.test(sha)) continue;
+      if ((await git(["cat-file", "-e", `${sha}^{commit}`])).exitCode === 0) {
+        held.push(sha);
+      }
+    }
+    const judged = await rangeAttribution(git, {
+      tip: input.tip,
+      not: ["--remotes", ...held],
+      expectations: [input.expectation],
+      stripEmails: input.stripEmails,
+    });
     return judged.status === "ok" ? judged.mismatches : [];
   } catch {
     return [];

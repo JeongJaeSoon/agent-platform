@@ -1146,6 +1146,8 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       tip: capture.gitCommit,
       expectation: claimExpectation(bound.claim),
       stripEmails: bound.claim.git_strip ?? [],
+      protectedCommits:
+        repaired.status === "skipped" ? null : repaired.protectedCommits,
     });
     const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
     timer.reused(bases.length);
