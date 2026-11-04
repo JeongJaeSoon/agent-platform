@@ -6417,6 +6417,7 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         items: [SETTINGS_CONNECTION_EXAMPLE],
         credential_hosts: ["api.anthropic.com:443"],
+        endpoint_defaults: { anthropic: "https://api.anthropic.com" },
       },
     },
     errors: [401, 403, 503],
@@ -6427,7 +6428,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "createSettingsConnection",
     tag: "Agents",
     summary: "Make a provider connection with a key typed in",
-    description: `${SETTINGS_OWNER} ${SETTINGS_CREATE} Writes a \`create_connection\` receipt.`,
+    description: `${SETTINGS_OWNER} ${SETTINGS_CREATE} An empty \`endpoint\` is stored as the kind's default from \`endpoint_defaults\`; a kind with none answers \`400\` \`invalid_entry\`. Writes a \`create_connection\` receipt.`,
     auth: "session",
     body: "CreateSettingsConnectionRequest",
     requestExample: {

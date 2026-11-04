@@ -73,7 +73,11 @@ async function refusal(promise: Promise<unknown>) {
     await promise;
   } catch (error) {
     if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
+      return {
+        code: error.code,
+        details: error.details,
+        message: error.message,
+      };
     }
     throw error;
   }
@@ -196,6 +200,46 @@ describe("settings console service", () => {
       ],
     ]);
     expect(rereads()).toBe(1);
+  });
+
+  test("an empty endpoint is stored as the kind's default; a kind with none, or billing none on it, is refused", async () => {
+    for (const endpoint of [undefined, "", "  "]) {
+      const { settings, writes } = service();
+      const { endpoint: _named, ...open } = NEW_CONNECTION;
+      await settings.createConnection(caller("owner"), {
+        ...open,
+        ...(endpoint === undefined ? {} : { endpoint }),
+      });
+      expect(writes[0]?.[1]).toMatchObject({
+        entry: { kind: "anthropic", endpoint: "https://api.anthropic.com" },
+      });
+    }
+    const { settings, writes } = service();
+    const { endpoint: _named, ...open } = NEW_CONNECTION;
+    const litellm = await refusal(
+      settings.createConnection(caller("owner"), {
+        ...open,
+        kind: "litellm",
+      }),
+    );
+    expect(litellm.code).toBe("BAD_REQUEST");
+    expect(litellm.details).toMatchObject({ reason_code: "invalid_entry" });
+    expect(litellm.message).toContain("connections.console");
+    const paid = await refusal(
+      settings.createConnection(caller("owner"), {
+        ...open,
+        billing: "none",
+      }),
+    );
+    expect(paid.details).toMatchObject({ reason_code: "invalid_entry" });
+    expect(writes).toEqual([]);
+  });
+
+  test("the list names each kind's default endpoint", async () => {
+    const { settings } = service();
+    expect(
+      (await settings.listConnections(caller("owner"))).endpoint_defaults,
+    ).toEqual({ anthropic: "https://api.anthropic.com" });
   });
 
   test("an entry the catalog refuses and a closed secret store are refused before the store", async () => {

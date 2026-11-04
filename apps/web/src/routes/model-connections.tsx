@@ -160,6 +160,7 @@ export function ModelConnections({
           open={adding}
           onOpenChange={setAdding}
           hosts={connections.data?.credential_hosts ?? null}
+          defaults={connections.data?.endpoint_defaults ?? {}}
           onOutcome={setOutcome}
         />
       ) : null}
@@ -262,17 +263,24 @@ function AddConnection({
   open,
   onOpenChange,
   hosts,
+  defaults,
   onOutcome,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   /** The egress credential allowlist, when the API knows it. */
   readonly hosts: readonly string[] | null;
+  /** The endpoint each kind takes when left empty, by kind. */
+  readonly defaults: Readonly<Record<string, string>>;
   readonly onOutcome: (outcome: Outcome) => void;
 }) {
   const { t } = useI18n();
   const [kind, setKind] = useState<"anthropic" | "litellm">("anthropic");
-  const [endpoint, setEndpoint] = useState("");
+  // What the person typed; null until they touch the field, so the kind's
+  // default shows through and a kind change can swap it.
+  const [edited, setEdited] = useState<string | null>(null);
+  const fallback = defaults[kind];
+  const endpoint = edited ?? fallback ?? "";
   const [error, setError] = useState<string | null>(null);
   const create = useSettingsWrite(
     "connection",
@@ -303,7 +311,7 @@ function AddConnection({
         setError(null);
         if (!next) {
           setKind("anthropic");
-          setEndpoint("");
+          setEdited(null);
         }
         onOpenChange(next);
       }}
@@ -316,10 +324,12 @@ function AddConnection({
       onSubmit={(form) => {
         setError(null);
         const billing = String(form.get("billing"));
+        const named = endpoint.trim();
         create.mutate({
           id: String(form.get("id")).trim(),
           kind,
-          endpoint: endpoint.trim(),
+          // Left empty, the server fills the kind's default.
+          ...(named === "" ? {} : { endpoint: named }),
           billing: billing === "none" ? "none" : "per_token",
           auth_kind:
             kind === "litellm" && form.get("auth_kind") === "bearer"
@@ -345,9 +355,11 @@ function AddConnection({
         <NativeSelect
           name="kind"
           value={kind}
-          onChange={(event) =>
-            setKind(event.target.value === "litellm" ? "litellm" : "anthropic")
-          }
+          onChange={(event) => {
+            // A blank or the old kind's own default was never the person's.
+            if (edited === "" || edited === fallback) setEdited(null);
+            setKind(event.target.value === "litellm" ? "litellm" : "anthropic");
+          }}
         >
           <NativeSelectOption value="anthropic">anthropic</NativeSelectOption>
           <NativeSelectOption value="litellm">litellm</NativeSelectOption>
@@ -358,12 +370,17 @@ function AddConnection({
         <Input
           name="endpoint"
           type="url"
-          required
+          required={fallback === undefined}
           autoComplete="off"
           spellCheck={false}
           value={endpoint}
-          onChange={(event) => setEndpoint(event.target.value)}
+          onChange={(event) => setEdited(event.target.value)}
         />
+        {fallback === undefined ? null : (
+          <FieldDescription>
+            {t("settings.connections.endpointDefault")}
+          </FieldDescription>
+        )}
       </Field>
       {outside ? (
         <Alert variant="amber" role="status">

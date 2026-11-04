@@ -3,6 +3,9 @@ import { canonicalJsonOfJson } from "@werft-ai/contracts";
 import { z } from "zod";
 import { repoRefOf } from "../ports/forge.ts";
 import {
+  BILLING_NONE_ENDPOINT_MESSAGE,
+  billingFitsEndpoint,
+  CONNECTION_ENDPOINT_DEFAULTS,
   type CatalogMcpServerConfig,
   type CatalogProfileConfig,
   type CatalogRepositoryConfig,
@@ -98,6 +101,44 @@ function ownedAll(
   );
 }
 
+/**
+ * The entry with an empty endpoint given its kind's default, or left out
+ * for the catalog schema to refuse when the kind has none. An endpoint the
+ * entry names stays as it is, so an export reads back unchanged.
+ */
+function endpointOrDefault(id: string, entry: unknown): unknown {
+  if (!isObject(entry)) return entry;
+  const { endpoint: named, ...rest } = entry;
+  const empty =
+    named === undefined || (typeof named === "string" && named.trim() === "");
+  if (!empty) return entry;
+  const endpoint =
+    typeof entry.kind === "string" &&
+    Object.hasOwn(CONNECTION_ENDPOINT_DEFAULTS, entry.kind)
+      ? CONNECTION_ENDPOINT_DEFAULTS[
+          entry.kind as keyof typeof CONNECTION_ENDPOINT_DEFAULTS
+        ]
+      : undefined;
+  if (endpoint === undefined) return rest;
+  if (!billingFitsEndpoint({ billing: entry.billing, endpoint })) {
+    throw new SettingsDocumentError(
+      `The settings document is invalid: connections.${id}.billing: ${BILLING_NONE_ENDPOINT_MESSAGE}`,
+    );
+  }
+  return { ...rest, endpoint };
+}
+
+function resolvedConnections(
+  entries: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(entries).map(([id, entry]) => [
+      id,
+      endpointOrDefault(id, entry),
+    ]),
+  );
+}
+
 /** A document under the file catalog's rules, entries as rows hold them. */
 export function parseSettingsDocument(input: unknown): SettingsEntries {
   const shape = documentShape.safeParse(input);
@@ -108,7 +149,9 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
   }
   const document = shape.data;
   const connections = catalogConnectionsSchema.safeParse(
-    ownedAll("connection", "connections", document.connections),
+    resolvedConnections(
+      ownedAll("connection", "connections", document.connections),
+    ),
   );
   if (!connections.success) {
     throw new SettingsDocumentError(

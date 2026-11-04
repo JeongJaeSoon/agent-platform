@@ -21165,11 +21165,21 @@
                 "type": "null"
               }
             ]
+          },
+          "endpoint_defaults": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "items",
-          "credential_hosts"
+          "credential_hosts",
+          "endpoint_defaults"
         ],
         "additionalProperties": false
       },
@@ -21446,8 +21456,7 @@
             ]
           },
           "endpoint": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           },
           "billing": {
             "type": "string",
@@ -21472,7 +21481,6 @@
         "required": [
           "id",
           "kind",
-          "endpoint",
           "auth_kind",
           "value"
         ],
@@ -78741,7 +78749,10 @@
                   ],
                   "credential_hosts": [
                     "api.anthropic.com:443"
-                  ]
+                  ],
+                  "endpoint_defaults": {
+                    "anthropic": "https://api.anthropic.com"
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ListSettingsConnectionsResponse"
@@ -78868,7 +78879,7 @@
           "Agents"
         ],
         "summary": "Make a provider connection with a key typed in",
-        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503. Writes a `create_connection` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. The credential is the value in the request, sealed under this row alone in the same transaction as the row; a reference to the deployment's env or Secrets Manager is the operator's settings CLI's. The destination never changes after: another one is a new id. An id ever used (disabled rows count) is 409 `already_exists`; an entry the catalog's rules refuse is 400 `invalid_entry`. With the secret store off (no `PLATFORM_SECRET_KEY`) a credential is 503. An empty `endpoint` is stored as the kind's default from `endpoint_defaults`; a kind with none answers `400` `invalid_entry`. Writes a `create_connection` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

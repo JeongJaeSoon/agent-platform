@@ -21,10 +21,13 @@ import type {
   SettingsRow,
 } from "../ports/settings-document-store.ts";
 import type { TeamActor } from "../ports/team-store.ts";
-import type {
-  CatalogMcpServerConfig,
-  CatalogProfileConfig,
-  CatalogRepositoryConfig,
+import {
+  BILLING_NONE_ENDPOINT_MESSAGE,
+  billingFitsEndpoint,
+  CONNECTION_ENDPOINT_DEFAULTS,
+  type CatalogMcpServerConfig,
+  type CatalogProfileConfig,
+  type CatalogRepositoryConfig,
 } from "./catalog.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
@@ -284,6 +287,7 @@ export function createSettingsConsoleService(deps: {
         items,
         credential_hosts:
           deps.credentialHosts === null ? null : [...deps.credentialHosts],
+        endpoint_defaults: { ...CONNECTION_ENDPOINT_DEFAULTS },
       };
     },
 
@@ -348,15 +352,33 @@ export function createSettingsConsoleService(deps: {
       return create(
         caller,
         "connection",
-        () =>
-          parsed("connections", request.id, {
+        () => {
+          const add = parsed("connections", request.id, {
             kind: request.kind,
-            endpoint: request.endpoint,
+            ...(request.endpoint === undefined
+              ? {}
+              : { endpoint: request.endpoint }),
             auth: { kind: request.auth_kind, stored: true },
             ...(request.billing === undefined
               ? {}
               : { billing: request.billing }),
-          }),
+          });
+          // A default is public, the ceiling refuses it with billing none,
+          // and the endpoint never changes: the row would stay unusable. A
+          // named endpoint is the caller's and keeps today's rule.
+          if (
+            (request.endpoint ?? "").trim() === "" &&
+            !billingFitsEndpoint(add.entry as Provider)
+          ) {
+            throw new SessionServiceError(
+              "BAD_REQUEST",
+              `connections.${request.id}.billing: ${BILLING_NONE_ENDPOINT_MESSAGE}`,
+              undefined,
+              { reason_code: "invalid_entry" },
+            );
+          }
+          return add;
+        },
         request.value,
       );
     },
