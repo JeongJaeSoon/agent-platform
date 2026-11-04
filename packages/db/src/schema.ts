@@ -20,6 +20,7 @@ import {
   MEMORY_WRITE_POLICY_VALUES,
   OPEN_PUSH_REQUEST_STATES,
   PERMISSION_MODE_VALUES,
+  type PlatformPrompt,
   PUSH_REQUEST_STATE_VALUES,
   RECEIPT_STATUS_VALUES,
   SESSION_OUTCOME_CHECK_ERROR_VALUES,
@@ -704,8 +705,9 @@ export const catalogRepositoryGitHubApps = pgTable(
       onDelete: "set null",
     }),
     appId: bigint("app_id", { mode: "number" }).notNull(),
+    /** `claim`: made by a claim for its commit author (decision D11). */
     pinnedBy: text("pinned_by")
-      .$type<"selection" | "first_mint" | "admin">()
+      .$type<"selection" | "first_mint" | "admin" | "claim">()
       .notNull(),
     /** No foreign key: the row outlives the account. */
     updatedBy: uuid("updated_by"),
@@ -724,7 +726,7 @@ export const catalogRepositoryGitHubApps = pgTable(
     ),
     check(
       "catalog_repository_github_apps_pinned_by_check",
-      sql`${table.pinnedBy} IN ('selection', 'first_mint', 'admin')`,
+      sql`${table.pinnedBy} IN ('selection', 'first_mint', 'admin', 'claim')`,
     ),
   ],
 );
@@ -1277,6 +1279,11 @@ export const sessions = pgTable(
     agentReleaseId: text("agent_release_id").references(
       (): AnyPgColumn => agentReleases.id,
     ),
+    // `platformPromptSchema`, written with the row and never updated: every
+    // claim hands it to the worker as it is, since it is part of the
+    // checkpoint fingerprint. Null is revision 0, no platform paragraph,
+    // which every row from before it is.
+    platformPrompt: jsonb("platform_prompt").$type<PlatformPrompt>(),
     // What this session's Messages calls cost, as the egress proxy metered
     // them: each is priced and added once (provider_usage), the
     // engine's calls and a tool's alike. An estimate. Sessions from before
@@ -3659,9 +3666,42 @@ export const slackOutbox = pgTable(
       .defaultNow(),
     // Send order: rows enqueued within one clock tick still go in order.
     seq: bigserial({ mode: "number" }).notNull(),
+    // A sent card's redraws once its request moves on (design
+    // slack-approval-ui §4): `due` to redraw, `settled` once an end state
+    // went out, `abandoned` when Slack will take no more edits.
+    settleState: text("settle_state"),
+    /** What the posted card shows now: `open`, `reject_only` or an end state. */
+    settleRendered: text("settle_rendered"),
+    /** Set just before an edit; left behind, its outcome is unknown. */
+    settleInflightAt: timestamp("settle_inflight_at", { withTimezone: true }),
+    settleUncertainRev: integer("settle_uncertain_rev").notNull().default(0),
+    settleUncertainLatestAt: timestamp("settle_uncertain_latest_at", {
+      withTimezone: true,
+    }),
+    settleClaimToken: uuid("settle_claim_token"),
+    settleLeaseExpiresAt: timestamp("settle_lease_expires_at", {
+      withTimezone: true,
+    }),
+    settleAttempts: integer("settle_attempts").notNull().default(0),
+    settleNextAt: timestamp("settle_next_at", { withTimezone: true }),
+    settleError: text("settle_error"),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
+    check(
+      "slack_outbox_settle_state_check",
+      sql`${table.settleState} IN ('due', 'settled', 'abandoned')`,
+    ),
+    check(
+      "slack_outbox_settle_claim_check",
+      sql`(${table.settleClaimToken} IS NULL) = (${table.settleLeaseExpiresAt} IS NULL)`,
+    ),
+    // The cards a redraw may still be owed: few, as an end state leaves it.
+    index("slack_outbox_settle_idx")
+      .on(table.settleNextAt)
+      .where(
+        sql`${table.kind} = 'input_notice' AND ${table.status} = 'sent' AND ${table.settleState} IS DISTINCT FROM 'abandoned' AND (${table.settleState} IS DISTINCT FROM 'settled' OR ${table.settleUncertainLatestAt} IS NOT NULL)`,
+      ),
     foreignKey({
       name: "slack_outbox_agent_fk",
       columns: [table.workspaceId, table.agentId],

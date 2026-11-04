@@ -152,11 +152,12 @@ async function resume(sessionId: string): Promise<unknown> {
         event.event === "tool_result" && event.data.turn_id === next.turn_id,
     )
   ).at(-1);
-  const output = JSON.stringify(result?.data.data ?? null);
   // Written once each before the backup; a replayed turn 2 would append a
   // second beta, a fresh workspace would have no file at all.
-  if (!/alpha(\\)+nbeta/.test(output) || output.split("beta").length !== 2) {
-    throw new Error(`cat hello.txt answered ${output}`);
+  if (result?.data.data.content !== "alpha\nbeta") {
+    throw new Error(
+      `cat hello.txt answered ${JSON.stringify(result?.data.data ?? null)}`,
+    );
   }
   const calls = await modelCalls();
   const replayed = calls.filter((call) => call.spec_id !== AFTER);
@@ -173,7 +174,7 @@ async function resume(sessionId: string): Promise<unknown> {
     restored,
     active,
     turn,
-    cat_output: output,
+    cat_output: result.data.data.content,
     model_calls: calls,
     earlier: await Promise.all(
       BEFORE.map((_, index) => api.turn(sessionId, String(index + 1))),

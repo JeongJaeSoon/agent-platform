@@ -957,6 +957,87 @@ integration("the GitHub App on PostgreSQL", () => {
     await states.issueState(randomBytes(32), state, new Date());
     expect(await states.consumeState(old)).toBeNull();
   });
+
+  test("a claim's pin writes pinned_by claim and its pinned_at_claim receipt in one transaction", async () => {
+    const store = createPostgresGitHubAppStore(db, key);
+    const pins = createPostgresGitHubPinStore(db);
+    const ws = await workspace();
+    const owner = await person(ws, "owner");
+    const a = await stored(
+      await store.put(ws, AUTHOR, profile(131), pemOf(), owner()),
+    );
+    const repositoryId = `claim-${ws.slice(0, 8)}`;
+    const sessionId = randomUUID();
+    const receiptOf = async (id: string) =>
+      (
+        await db
+          .select({
+            ownerId: receipts.ownerId,
+            operation: receipts.operation,
+            status: receipts.status,
+            actor: receipts.actor,
+            result: receipts.result,
+          })
+          .from(receipts)
+          .where(eq(receipts.id, id))
+      )[0];
+
+    const receiptId = randomUUID();
+    expect(
+      await pins.pinFirst({
+        repositoryId,
+        role: "author",
+        connectionId: a.id,
+        appId: 131,
+        pinnedBy: "claim",
+        audit: { sessionId, receiptId },
+      }),
+    ).toMatchObject({ created: true, pin: { pinnedBy: "claim" } });
+    expect(await receiptOf(receiptId)).toEqual({
+      ownerId: ws,
+      operation: "set_repository_github_app",
+      status: "succeeded",
+      actor: null,
+      result: {
+        event: "pinned_at_claim",
+        repository_id: repositoryId,
+        role: "author",
+        pinned_by: "claim",
+        app_id: 131,
+        session_id: sessionId,
+        before: null,
+        after: a.id,
+      },
+    });
+
+    // Already pinned: the pin holds and no second receipt is written.
+    const again = randomUUID();
+    expect(
+      await pins.pinFirst({
+        repositoryId,
+        role: "author",
+        connectionId: a.id,
+        appId: 131,
+        pinnedBy: "claim",
+        audit: { sessionId, receiptId: again },
+      }),
+    ).toMatchObject({ created: false });
+    expect(await receiptOf(again)).toBeUndefined();
+
+    // The receipt failing (its id taken) takes the pin back with it.
+    const other = `claim-b-${ws.slice(0, 8)}`;
+    await expect(
+      pins.pinFirst({
+        repositoryId: other,
+        role: "author",
+        connectionId: a.id,
+        appId: 131,
+        pinnedBy: "claim",
+        audit: { sessionId, receiptId },
+      }),
+    ).rejects.toThrow();
+    expect(await pins.get(other, "author")).toBeNull();
+  });
 });
 
 const audit = (made: SecretAudit) => made.receiptId;

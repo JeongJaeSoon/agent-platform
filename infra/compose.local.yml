@@ -1,7 +1,7 @@
 # The local layer over compose.core.yml: what a machine without
 # test-ops' AWS account needs to run the product. compose.yml merges
 # the two. It adds
-# - the local dependencies: persistent SeaweedFS S3 and the sample repository;
+# - the local dependencies: persistent SeaweedFS S3 and a read-only git host;
 # - the fake Messages API and a separate LocalStack Secrets Manager
 #   the API catalog reads, both off unless
 #   infra/compose.fake-model.yml turns them on;
@@ -119,23 +119,21 @@ services:
       retries: 12
       start_period: 5s
 
-  # One-shot: the example catalog's repository (config/repositories.yaml),
-  # so a fresh `up` can run a session without touching Gitea by hand. Skips
-  # whatever already exists (infra/gitea/init-sample-repo.sh).
-  gitea-init:
-    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
-    profiles: ["apps"]
-    user: git
-    entrypoint: ["/bin/sh", "/init-sample-repo.sh"]
-    environment:
-      # Empty: a random password nobody knows (infra/gitea/init-sample-repo.sh).
-      GITEA_AGENT_PASSWORD: ${GITEA_AGENT_PASSWORD:-}
-    volumes:
-      - gitea-data:/data
-      - ./gitea/init-sample-repo.sh:/init-sample-repo.sh:ro
-    depends_on:
-      gitea:
-        condition: service_healthy
+  # Read-only, and rebuilt on every start from the same fixed commits: the
+  # repository of config/repositories.yaml and the D2 gate's. It runs from the
+  # control-host image because that image has git, and has no `image:` for the
+  # reason migrate below has none.
+  gitea:
+    build:
+      context: ..
+      dockerfile: apps/control-host/Dockerfile
+    command: ["bun", "run", "packages/testkit/src/fake-git-main.ts", "sample-app", "gate-app"]
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://127.0.0.1:3000/healthz'); if (!r.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   # Built from the API's Dockerfile. No `image:` of its own: two services
   # naming one tag race to export it, so this one gets compose's default
@@ -173,6 +171,9 @@ services:
       # this is true (docs/operator/api-server.md); off by default. auto
       # needs no opt-in.
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
+      # This stack builds the API, the Slack role and the worker from one
+      # tree, so every claimant knows the revision (docs/operator/configuration.md).
+      SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
     depends_on:
       localstack:
         condition: service_healthy
@@ -182,6 +183,7 @@ services:
   slack:
     environment:
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
+      SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
 
   maintenance:
     environment:
@@ -208,8 +210,8 @@ services:
         condition: service_healthy
       local-s3-init:
         condition: service_completed_successfully
-      gitea-init:
-        condition: service_completed_successfully
+      gitea:
+        condition: service_healthy
 
 volumes:
   local-s3-data:

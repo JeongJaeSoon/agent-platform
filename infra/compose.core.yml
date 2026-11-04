@@ -52,6 +52,12 @@ x-worker-runtimes:
   current: &worker-image-runtime ${WORKER_IMAGE_RUNTIME:-}
   previous: &worker-image-previous-runtime ${WORKER_IMAGE_PREVIOUS_RUNTIME:-}
 
+# The pass-loop roles (scheduler, reconciler, slack) each run two Bun
+# processes, the loop and its pass child, idle between passes. --smol keeps
+# their heaps smaller for a little more GC time; BUN_OPTIONS reaches the
+# child and the healthcheck too.
+x-pass-loop-bun-options: &pass-loop-bun-options --smol
+
 # Every image is pinned by its multi-arch index digest or is one of the apps
 # built from this repository, so amd64 and arm64 daemons run the same bytes
 # (tests/images.test.ts).
@@ -116,27 +122,16 @@ services:
       postgres:
         condition: service_healthy
 
+  # The example catalog's git host. Its image and command come from the layer
+  # on top: compose.local.yml runs fake-git, compose.gitea.yml a Gitea. The
+  # name and port stay either way: a session record keeps the repo_url it
+  # started with, and the catalog must still match it.
   gitea:
-    image: gitea/gitea:1.22@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
     logging: *logging
-    environment:
-      GITEA__database__DB_TYPE: sqlite3
-      GITEA__security__INSTALL_LOCK: "true"
-      # Accounts come from the admin CLI (gitea-init) only: an open sign-up
-      # would let anyone who reaches Gitea make a channel between sessions.
-      GITEA__service__DISABLE_REGISTRATION: "true"
     ports:
-      # Web UI and HTTP clone for this host. SSH is not published: workers
-      # clone over HTTP through the proxy's repository route (gitea:3000).
+      # HTTP clone for this host. Workers clone through the proxy's
+      # repository route (gitea:3000).
       - "127.0.0.1:3001:3000"
-    volumes:
-      - gitea-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/v1/version >/dev/null"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 10s
 
   # The only route off every worker network. The scheduler gives each worker
   # an internal network of its own and attaches this container to it under
@@ -171,7 +166,7 @@ services:
       # the object store route sends the API-signed request to.
       # On the forward proxy each would be a way round its route: the
       # provider with a key of the worker's own, outside cost accounting;
-      # Gitea without a token; test-ops LocalStack accepts any signature,
+      # the git host without a token; test-ops LocalStack accepts any signature,
       # while local SeaweedFS still needs the route's session authorization.
       # fake-messages:4010 and fake-mcp:4020 are
       # config/fake-model's Messages API and remote MCP server.
@@ -459,6 +454,7 @@ services:
       # Above EXECUTION_DOCKER_STOP_TIMEOUT_SEC + the request timeout.
       SCHEDULER_PASS_TIMEOUT_SEC: ${SCHEDULER_PASS_TIMEOUT_SEC:-180}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BUN_OPTIONS: *pass-loop-bun-options
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -523,6 +519,7 @@ services:
       RECONCILER_HEALTH_STALE_SEC: ${RECONCILER_HEALTH_STALE_SEC:-90}
       RECONCILER_BATCH_SIZE: ${RECONCILER_BATCH_SIZE:-100}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BUN_OPTIONS: *pass-loop-bun-options
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -592,6 +589,7 @@ services:
       <<: *installation-limits
       SLACK_OIDC_REDIRECT_URI: ${SLACK_OIDC_REDIRECT_URI:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      BUN_OPTIONS: *pass-loop-bun-options
       # Slack's outbound calls (94S-792) decrypt bot tokens here.
       PLATFORM_SECRET_KEY:
       PLATFORM_CONFIG_DIR: /app/config
@@ -611,4 +609,3 @@ networks:
 
 volumes:
   postgres-data:
-  gitea-data:

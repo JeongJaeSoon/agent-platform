@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   type AgentGitHub,
   type AuthorizationRequest,
@@ -27,6 +28,10 @@ import {
   workspaceProfileRefusal,
   workspaceProfileState,
 } from "./catalog.ts";
+import type {
+  AgentPromptIdentity,
+  PlatformPromptRevision,
+} from "./platform-prompt.ts";
 import { withSeededInstallation } from "./profile-registry.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
 import {
@@ -85,6 +90,9 @@ function setup(
     appendedKeys?: string[];
     /** The release's GitHub settings. */
     github?: AgentGitHub;
+    promptRevision?: PlatformPromptRevision;
+    /** Who promptIdentity finds; absent, the dep is left out. */
+    identity?: AgentPromptIdentity | null;
   } = {},
 ) {
   const accepted: AcceptSessionInput[] = [];
@@ -116,7 +124,18 @@ function setup(
             options.github === undefined ? {} : { github: options.github },
         };
       },
+      ...(options.identity === undefined
+        ? {}
+        : {
+            promptIdentity: async (workspaceId: string, releaseId: string) =>
+              workspaceId === WORKSPACE && releaseId === "rel-1"
+                ? (options.identity ?? null)
+                : null,
+          }),
     },
+    ...(options.promptRevision === undefined
+      ? {}
+      : { promptRevision: options.promptRevision }),
     inputs: {
       async acceptInputAtomic(input) {
         accepted.push(input);
@@ -213,6 +232,96 @@ describe("a session pinned to an agent release", () => {
       release_id: "rel-1",
     });
     expect(accepted[0]?.agentReleaseId).toBe("rel-1");
+  });
+
+  describe("platform prompt", () => {
+    const named = withSeededInstallation({
+      profiles: { "coding-v1": profile },
+      repositories: {
+        app: {
+          url: "https://github.com/acme/app.git",
+          branch: "main",
+          profiles: ["coding-v1"],
+        },
+        docs: {
+          url: "https://github.com/acme/docs",
+          branch: "main",
+          profiles: ["coding-v1"],
+        },
+        nested: {
+          url: "https://gitlab.invalid/group/sub/repo.git",
+          branch: "main",
+          profiles: ["coding-v1"],
+        },
+      },
+    });
+    const github: AgentGitHub = {
+      repositories: ["app", "docs", "nested", "elsewhere"],
+      push_approval: true,
+      features: GITHUB_CEILING_NONE,
+      actions_allow: [],
+    };
+    const identity: AgentPromptIdentity = {
+      name: "code-review",
+      description: "Reviews pull requests",
+      language: "ko",
+    };
+    const create = async (options: Parameters<typeof setup>[0]) => {
+      const run = setup({ catalog: named, ...options });
+      await run.service.createSession(run.caller, {
+        idempotencyKey: "k",
+        body: { ...body, agent_release_id: "rel-1" },
+      });
+      return run.accepted[0]?.platformPrompt;
+    };
+
+    test("revision 1 snapshots the agent, the surface and the session's repository by GitHub name", async () => {
+      expect(await create({ promptRevision: 1, identity, github })).toEqual({
+        prompt_revision: 1,
+        agent_identity: {
+          name: "code-review",
+          description: "Reviews pull requests",
+        },
+        origin_surface: "console",
+        language: "ko",
+        repository: "acme/app",
+      });
+    });
+
+    test("GitHub settings change nothing in it, and a blank description is none", async () => {
+      expect(await create({ promptRevision: 1, identity })).toEqual(
+        await create({ promptRevision: 1, identity, github }),
+      );
+      expect(
+        await create({
+          promptRevision: 1,
+          identity: { ...identity, description: " \n", language: "en" },
+        }),
+      ).toEqual({
+        prompt_revision: 1,
+        agent_identity: { name: "code-review", description: null },
+        origin_surface: "console",
+        language: "en",
+        repository: "acme/app",
+      });
+    });
+
+    test("revision 0, no identity reader, or an agent that is gone leaves the session at revision 0", async () => {
+      expect(await create({ identity, github })).toBeUndefined();
+      expect(
+        await create({ promptRevision: 0, identity, github }),
+      ).toBeUndefined();
+      expect(await create({ promptRevision: 1, github })).toBeUndefined();
+      expect(
+        await create({ promptRevision: 1, identity: null, github }),
+      ).toBeUndefined();
+      const unpinned = setup({ catalog: named, promptRevision: 1, identity });
+      await unpinned.service.createSession(unpinned.caller, {
+        idempotencyKey: "k",
+        body,
+      });
+      expect(unpinned.accepted[0]?.platformPrompt).toBeUndefined();
+    });
   });
 
   test("a repository outside the release's GitHub repositories is refused as repository_not_allowed before acceptance", async () => {
@@ -970,3 +1079,32 @@ function sessionOn(profileId: string): SessionDetailRecord {
     profile_fingerprint: null,
   };
 }
+
+// Session records keep the repo_url they started with, so moving the example
+// repository to another host or path would strand every one of them.
+describe("a session recorded on the example git host", () => {
+  const RECORDED = "http://gitea:3000/agent/sample-app.git";
+  const root = join(import.meta.dir, "../../../..");
+
+  test.each([
+    "config",
+    "config/fake-model",
+    "config/fake-model-unattended",
+    "config/local-model",
+  ])("keeps running under %s", async (dir) => {
+    const { repositories } = Bun.YAML.parse(
+      await Bun.file(join(root, dir, "repositories.yaml")).text(),
+    ) as { repositories: Record<string, { url: string; branch: string }> };
+    const example = repositories["sample-app"];
+    if (example === undefined) throw new Error(`${dir} has no sample-app`);
+    const { service, caller } = setup({
+      catalog: {
+        ...catalog,
+        repositories: { app: { ...example, profiles: ["coding-v1"] } },
+      },
+      session: { ...sessionOn("coding-v1"), repo_url: RECORDED },
+    });
+    const { attention } = await service.getSession(caller, SESSION);
+    expect(attention).toBeNull();
+  });
+});

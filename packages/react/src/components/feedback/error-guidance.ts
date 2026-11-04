@@ -57,7 +57,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   SCOPE_NOT_GRANTABLE:
     "발급하는 사람이 지금 가진 권한보다 넓은 key는 만들 수 없고, 에이전트 key는 승인 권한을 갖지 못합니다 — scope를 줄여 다시 발급하세요.",
   RELEASE_PROFILE_MISMATCH:
-    "이 release는 다른 실행 프로필로 만들어졌습니다 — release의 실행 프로필로 세션을 만드세요.",
+    "이 release는 다른 프로필로 만들어졌습니다 — release의 프로필로 세션을 만드세요.",
   CREDENTIAL_UNBOUND:
     "연결 설정이 바뀌어 시작하지 못했어요 — 에이전트 관리자에게 문의하세요.",
   CREDENTIAL_REF_IN_USE:
@@ -71,7 +71,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   OWNER_PROTECTED:
     "owner 역할을 주거나 owner의 역할을 바꾸는 일은 owner만 할 수 있습니다 — owner에게 요청하세요.",
   PROFILE_DIGEST_MISMATCH:
-    "이 release를 만든 뒤 실행 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
+    "이 release를 만든 뒤 프로필 설정이 바뀌었습니다 — 같은 버전을 다시 release한 뒤 활성화하세요.",
   PROFILE_BLOCKED:
     "운영자가 이 프로필이나 그 바탕 설치 프로필을 차단했습니다 — 차단이 풀릴 때까지 기다리거나 다른 프로필을 고르세요.",
   ALREADY_EXISTS: "같은 이름이 이미 있습니다 — 다른 slug를 고르세요.",
@@ -101,6 +101,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
   PUSH_NOT_PUSHED:
     "아직 push되지 않은 요청입니다 — push가 끝난 뒤 PR을 여세요.",
   PULL_REQUEST_MISSING: "이 요청으로 연 PR이 없습니다 — PR을 먼저 여세요.",
+  PULL_REQUEST_MERGED: "머지된 PR은 닫거나 다시 열 수 없습니다.",
   GITHUB_REFUSED:
     "플랫폼이 이 GitHub 작업을 막았습니다 — 에이전트의 GitHub 설정을 확인하세요.",
   GITHUB_APP_CONFLICT:
@@ -237,6 +238,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "This request hasn't been pushed yet — open the PR after the push finishes.",
   PULL_REQUEST_MISSING:
     "No PR was opened from this request — open the PR first.",
+  PULL_REQUEST_MERGED: "A merged PR can't be closed or reopened.",
   GITHUB_REFUSED:
     "The platform blocked this GitHub action — check the agent's GitHub settings.",
   GITHUB_APP_CONFLICT:
@@ -336,7 +338,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   SCOPE_NOT_GRANTABLE:
     "発行する人の現在の権限より広い key は作れず、エージェントの key は承認権限を持てません — scope を狭めて発行し直してください。",
   RELEASE_PROFILE_MISMATCH:
-    "この release は別の実行プロファイルで作られました — release の実行プロファイルでセッションを作成してください。",
+    "この release は別のプロファイルで作られました — release のプロファイルでセッションを作成してください。",
   CREDENTIAL_UNBOUND:
     "接続設定が変わったため開始できませんでした — エージェントの管理者に問い合わせてください。",
   CREDENTIAL_REF_IN_USE:
@@ -350,7 +352,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
   OWNER_PROTECTED:
     "owner ロールの付与や owner のロール変更は owner にしかできません — owner に依頼してください。",
   PROFILE_DIGEST_MISMATCH:
-    "この release を作った後に実行プロファイルの設定が変わりました — 同じバージョンを release し直してから有効化してください。",
+    "この release を作った後にプロファイルの設定が変わりました — 同じバージョンを release し直してから有効化してください。",
   PROFILE_BLOCKED:
     "運用者がこのプロファイルか、そのもとになるインストールプロファイルをブロックしました — ブロックが解除されるまで待つか、別のプロファイルを選んでください。",
   ALREADY_EXISTS: "同じ名前がすでにあります — 別の slug を選んでください。",
@@ -386,6 +388,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "まだ push されていないリクエストです — push が終わってから PR を開いてください。",
   PULL_REQUEST_MISSING:
     "このリクエストで開いた PR がありません — 先に PR を開いてください。",
+  PULL_REQUEST_MERGED: "マージ済みの PR は閉じることも再オープンもできません。",
   GITHUB_REFUSED:
     "プラットフォームがこの GitHub 操作をブロックしました — エージェントの GitHub 設定を確認してください。",
   GITHUB_APP_CONFLICT:

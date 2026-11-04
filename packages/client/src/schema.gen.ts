@@ -3102,7 +3102,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of a workspace profile
-         * @description Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Writes a `create_workspace_profile` receipt.
+         * @description Owners and admins (`workspace.manage`), signed in. Narrows the operator profile `base_profile_id`: `models` and `tools` are subsets of the base's, and `permission_mode` the base's or one that leaves more to a person. Anything wider is 400 with `details.field`. Each save makes the next version of `name` with a new id (`ws_<workspace slug>_<name>_v<n>`); earlier versions, and what already runs on them, stay as they were. Two saves of one name at once: the second is 409 REVISION_CONFLICT, and saving again makes the version after. Instead of `tools`, `deny` names the catalog tools to block on top of the base's: the base's tools less `deny` are saved, and a deny that leaves out a tool the base blocks is 400 `base_denies`; the other `deny` and `accept_added_tools` refusals are those of `POST /v1/installation-profiles`, weighed against the latest version of `name`. Writes a `create_workspace_profile` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3410,7 +3410,7 @@ export interface paths {
         };
         /**
          * What a new installation ceiling may name
-         * @description The operator (`profile.installation.manage`, the workspace owner), signed in. The installation's connections by id, `kind` and `billing` (never an endpoint or a credential reference), the installed runtimes with the permission modes each accepts, the catalog repositories, and whether `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` lets a ceiling run `bypassPermissions` here.
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in. The installation's connections by id, `kind` and `billing` (never an endpoint or a credential reference), the installed runtimes with the permission modes each accepts, the catalog repositories, the built-in tool catalogs a `deny` names (one entry per runtime version spelling, SDK and engine build), and whether `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` lets a ceiling run `bypassPermissions` here.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3434,7 +3434,7 @@ export interface paths {
         put?: never;
         /**
          * Save a new version of an installation ceiling
-         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Writes a `create_installation_profile` receipt.
+         * @description The operator (`profile.installation.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Saves the next version of `name` with a new id (`op_<name>_v<n>`) on the connection `connection_id`, whose provider the server copies in; earlier versions, and the workspace profiles and releases on them, stay as they were. A new version of an existing name sends that name's latest id as `previous_id`; anything else is 409 REVISION_CONFLICT (`details.reason_code: stale_previous`, `details.latest_id`), as is the second of two saves at once. A first version may name the ceiling it replaces in `previous_id` (400 `unknown_previous` when there is none). 400 `details.reason_code`: `unknown_connection`, `runtime_not_installed`, `unattended_not_allowed` (`bypassPermissions` while `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` is not `true`), `unknown_repository`, `model_not_in_models` or `invalid_profile`, each with `details.field`. 409 `details.reason_code: id_taken` when the id is already an imported profile's. A ceiling runs against its `repository_ids` and, with `github_app_repositories: installed`, every repository the author GitHub App's installations reach (picked per agent through `POST /v1/agents/{id}/github/repositories`); no other repository. Its built-in tools are named one way: `tools`, kept as given, or `deny`, the tools of the runtime version's catalog (`tool_catalogs` in `GET /v1/installation-profiles/options`) to block, the rest saved as `tools`; `deny: []` blocks none. 400 on `deny` (`details.field: deny`): `no_tool_catalog` (no catalog lists `runtime_version`), `unknown_tool`, `mcp_tool` or `tool_pattern` (`Bash(rm:*)`: whole tool names only). With `previous_id`, a catalog tool that version never weighed (an allow list weighed only what it allowed) runs only when named in `accept_added_tools`, else 400 `added_tool_not_accepted`. Writes a `create_installation_profile` receipt naming the `deny` and `tool_catalog_id` saved.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3784,7 +3784,8 @@ export interface paths {
          *     - `answer`: null; only `status` and `error` change.
          *     - `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.
          *     - `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`; `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.
-         *     - `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.
+         *     - `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).
+         *     - `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, not allowed for the profile, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.
          *     - `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.
          *     - `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.
          *
@@ -4518,7 +4519,12 @@ export interface components {
             base_profile_id: string;
             model: string;
             models: string[];
-            tools: string[];
+            /** @description The built-in tools sessions run, kept as given. Exactly one of `tools` and `deny`. */
+            tools?: string[];
+            /** @description The built-in tools of the runtime version's tool catalog to block; the server stores the rest as `tools`. `[]` blocks none. Exactly one of `tools` and `deny`; 400 for a runtime version with no catalog. */
+            deny?: string[];
+            /** @description With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400. */
+            accept_added_tools?: string[];
             /** @enum {string} */
             permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
         };
@@ -4531,7 +4537,12 @@ export interface components {
             model: string;
             models: string[];
             title_model?: string;
-            tools: string[];
+            /** @description The built-in tools sessions run, kept as given. Exactly one of `tools` and `deny`. */
+            tools?: string[];
+            /** @description The built-in tools of the runtime version's tool catalog to block; the server stores the rest as `tools`. `[]` blocks none. Exactly one of `tools` and `deny`; 400 for a runtime version with no catalog. */
+            deny?: string[];
+            /** @description With `deny`: catalog tools the previous version never weighed that this one may run. Any such tool neither here nor in `deny` is 400. */
+            accept_added_tools?: string[];
             /** @enum {string} */
             permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
             project_settings?: {
@@ -4609,7 +4620,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -4668,7 +4679,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -4678,6 +4689,8 @@ export interface components {
                 release_version_no: number;
                 /** @default null */
                 release_label: string | null;
+                /** @default null */
+                release_is_active: boolean | null;
             } | null;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
@@ -4815,7 +4828,7 @@ export interface components {
              */
             title: string | null;
             /**
-             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
+             * @description The agent the session was created for and the release it is pinned to: `release_version_no` is the card version that release runs, `release_label` the release's label (the Asia/Seoul second it was made, as `2026-10-30_14:30:28`, with `-2`, `-3`, … for a later release of the agent in the same second), `release_is_active` whether that release is the agent's active release when read (false while it has none; a session keeps the release it started on). `name` is the agent's name now, not when the session started. Null for a session created without `agent_release_id`.
              * @default null
              */
             agent: {
@@ -4825,6 +4838,8 @@ export interface components {
                 release_version_no: number;
                 /** @default null */
                 release_label: string | null;
+                /** @default null */
+                release_is_active: boolean | null;
             } | null;
             /**
              * @description Who started the session: the signed-in person, or for an API key the person who created the key. It stays the same after a takeover hands the session to someone else. Null for sessions from before people were recorded and for a key with no creator.
@@ -6342,7 +6357,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "resolve_repository" | "set_agent_github" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "change_profile" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "resolve_repository" | "set_agent_github" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_workspace_profile" | "retire_workspace_profile" | "create_installation_profile" | "retire_installation_profile" | "block_installation_profile" | "unblock_installation_profile" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -6376,7 +6391,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "RELEASE_PROFILE_MISMATCH" | "CREDENTIAL_UNBOUND" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "PROFILE_DIGEST_MISMATCH" | "PROFILE_BLOCKED" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_PROFILE" | "TEAM_MANAGES_AGENTS";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -7626,7 +7641,7 @@ export interface components {
                 model: string;
                 models: string[];
                 tools: string[];
-                /** @description The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list. */
+                /** @description The built-in tools of its runtime version's tool catalog that `tools` leaves out: what it blocks. Null when no catalog lists that version. */
                 deny?: string[] | null;
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
@@ -7694,7 +7709,7 @@ export interface components {
                 model: string;
                 models: string[];
                 tools: string[];
-                /** @description The built-in tools this profile blocks, from which `tools` was worked out. Absent or null on a profile made from an allow list. */
+                /** @description The built-in tools of its runtime version's tool catalog that `tools` leaves out: what it blocks. Null when no catalog lists that version. */
                 deny?: string[] | null;
                 /** @enum {string} */
                 permission_mode: "default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto";
@@ -14987,7 +15002,8 @@ export interface operations {
                      *             "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *             "name": "Checkout fixer",
                      *             "release_version_no": 3,
-                     *             "release_label": "2026-10-11_17:00:00"
+                     *             "release_label": "2026-10-11_17:00:00",
+                     *             "release_is_active": true
                      *           },
                      *           "created_by": {
                      *             "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -15428,7 +15444,8 @@ export interface operations {
                      *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
-                     *         "release_label": "2026-10-11_17:00:00"
+                     *         "release_label": "2026-10-11_17:00:00",
+                     *         "release_is_active": true
                      *       },
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -15583,7 +15600,8 @@ export interface operations {
                      *         "id": "8f6c1d2e-4b3a-4c5d-9e8f-7a6b5c4d3e2f",
                      *         "name": "Checkout fixer",
                      *         "release_version_no": 3,
-                     *         "release_label": "2026-10-11_17:00:00"
+                     *         "release_label": "2026-10-11_17:00:00",
+                     *         "release_is_active": true
                      *       },
                      *       "created_by": {
                      *         "user_id": "1b2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b",
@@ -32934,6 +32952,31 @@ export interface operations {
                      *       "repositories": [
                      *         {
                      *           "id": "sample-app"
+                     *         }
+                     *       ],
+                     *       "tool_catalogs": [
+                     *         {
+                     *           "id": "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+                     *           "runtime_kind": "claude_agent_sdk",
+                     *           "runtime_version": "0.3.270",
+                     *           "tools": [
+                     *             {
+                     *               "name": "Read",
+                     *               "boundary": "local"
+                     *             },
+                     *             {
+                     *               "name": "Bash",
+                     *               "boundary": "local"
+                     *             },
+                     *             {
+                     *               "name": "WebFetch",
+                     *               "boundary": "egress"
+                     *             },
+                     *             {
+                     *               "name": "WebSearch",
+                     *               "boundary": "provider"
+                     *             }
+                     *           ]
                      *         }
                      *       ],
                      *       "unattended_allowed": false

@@ -64,6 +64,17 @@ export const commentPullRequestRequestSchema = z
   })
   .strict();
 
+export const PULL_REQUEST_STATE_VALUES = ["open", "closed"] as const;
+export const pullRequestStateSchema = z.enum(PULL_REQUEST_STATE_VALUES);
+
+export const setPullRequestStateResponseSchema = z.object({
+  pull_request: pullRequestSchema,
+  state: pullRequestStateSchema,
+  // False when the pull request was already in that state.
+  changed: z.boolean(),
+  receipt_id: receiptIdSchema,
+});
+
 export const openPullRequestResponseSchema = z.object({
   pull_request: pullRequestSchema,
   // False when the pull request was already open (or recorded) and this
@@ -104,13 +115,15 @@ export const PULL_REQUEST_REFUSAL_VALUES = [
   "github_settings_unsupported",
   // The GitHub gate refused the token; `reason_code` says why.
   "github_refused",
+  // Closing or reopening a pull request that was merged.
+  "pull_request_merged",
 ] as const;
 export const pullRequestRefusalSchema = z.enum(PULL_REQUEST_REFUSAL_VALUES);
 
 /**
- * `result` of an `open_pull_request`, `update_pull_request` or
- * `comment_pull_request` receipt.
- * Fields the attempt never learned are null.
+ * `result` of an `open_pull_request`, `update_pull_request`,
+ * `comment_pull_request`, `close_pull_request` or `reopen_pull_request`
+ * receipt. Fields the attempt never learned are null.
  */
 export const pullRequestReceiptResultSchema = z.object({
   push_request_id: pushRequestIdSchema.nullable(),
@@ -127,6 +140,10 @@ export const pullRequestReceiptResultSchema = z.object({
   comment_url: z.string().nullable().optional(),
   marker: z.string().nullable().optional(),
   reason_code: pushReasonCodeSchema.nullable().optional(),
+  // A close or reopen receipt only: the state after the call, and whether
+  // this call changed it.
+  state: pullRequestStateSchema.nullable().optional(),
+  changed: z.boolean().nullable().optional(),
 });
 
 export type PullRequest = z.infer<typeof pullRequestSchema>;
@@ -147,6 +164,10 @@ export type OpenPullRequestResponse = z.infer<
 >;
 export type CommentPullRequestResponse = z.infer<
   typeof commentPullRequestResponseSchema
+>;
+export type PullRequestState = z.infer<typeof pullRequestStateSchema>;
+export type SetPullRequestStateResponse = z.infer<
+  typeof setPullRequestStateResponseSchema
 >;
 export type PullRequestRefusal = z.infer<typeof pullRequestRefusalSchema>;
 export type PullRequestReceiptResult = z.infer<

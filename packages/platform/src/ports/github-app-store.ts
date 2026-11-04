@@ -114,8 +114,18 @@ export type GitHubRepositoryPin = {
   /** Null: the pinned connection was removed. */
   connectionId: string | null;
   appId: number;
-  pinnedBy: "selection" | "first_mint" | "admin";
+  pinnedBy: "selection" | "first_mint" | "admin" | "claim";
 };
+
+type PinFirstTarget = {
+  repositoryId: string;
+  role: GitHubAppRole;
+  connectionId: string;
+  appId: number;
+};
+
+/** A claim's pin: for its commit author, so audited with the session. */
+export type ClaimPinAudit = { sessionId: string; receiptId: string };
 
 export type SetGitHubPinResult =
   | { outcome: "stored"; before: string | null; changed: boolean }
@@ -133,20 +143,22 @@ export interface GitHubPinStore {
   list(): Promise<GitHubRepositoryPin[]>;
   /**
    * Pins `connectionId` unless the repository already has a pin for the
-   * role, and answers the pin that holds. A `selection` pin writes its
-   * `set_repository_github_app` receipt with it. `pin` is null when nothing
-   * holds and the connection is no longer `appId` of `role`: nothing is
-   * written.
+   * role, and answers the pin that holds. A `selection` or `claim` pin
+   * writes its `set_repository_github_app` receipt in the same transaction,
+   * so no pin stands unaudited. `pin` is null when nothing holds and the
+   * connection is no longer `appId` of `role`: nothing is written.
    */
-  pinFirst(input: {
-    repositoryId: string;
-    role: GitHubAppRole;
-    connectionId: string;
-    appId: number;
-    pinnedBy: "selection" | "first_mint";
-    /** A selection's actor and receipt; absent for a first mint. */
-    audit?: { ownerId: string; actor: ReceiptActor; receiptId: string };
-  }): Promise<{ pin: GitHubRepositoryPin | null; created: boolean }>;
+  pinFirst(
+    input: PinFirstTarget &
+      (
+        | {
+            pinnedBy: "selection" | "first_mint";
+            /** A selection's actor and receipt; absent for a first mint. */
+            audit?: { ownerId: string; actor: ReceiptActor; receiptId: string };
+          }
+        | { pinnedBy: "claim"; audit: ClaimPinAudit }
+      ),
+  ): Promise<{ pin: GitHubRepositoryPin | null; created: boolean }>;
   /** An admin's change; the connection must be of the workspace and role. */
   set(input: {
     workspaceId: string;

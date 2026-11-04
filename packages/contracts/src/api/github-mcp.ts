@@ -40,6 +40,12 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
   comment_pull_request: commentPullRequestRequestSchema.extend({
     push_request_id: pushRequestIdSchema,
   }),
+  close_pull_request: z
+    .object({ push_request_id: pushRequestIdSchema })
+    .strict(),
+  reopen_pull_request: z
+    .object({ push_request_id: pushRequestIdSchema })
+    .strict(),
   dispatch_workflow: dispatchWorkflowRequestSchema,
   get_workflow_run: z.object({ run_id: runIdSchema }).strict(),
   rerun_workflow: rerunWorkflowRequestSchema.extend({ run_id: runIdSchema }),
@@ -63,6 +69,8 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
   open_pull_request: null,
   update_pull_request: null,
   comment_pull_request: null,
+  close_pull_request: null,
+  reopen_pull_request: null,
   dispatch_workflow: "actions",
   get_workflow_run: "actions",
   rerun_workflow: "actions",
@@ -74,8 +82,11 @@ export const GITHUB_MCP_TOOL_FEATURES: Record<
 /**
  * One repository `list_repositories` names: the session's own (`primary`),
  * one on its attached list (`attached`, or the fetch's `pending`/`failed`),
- * or one the release allows that `attach_repository` would add
- * (`available`). `name` is the URL's path, never its credentials.
+ * one the release allows that `attach_repository` would add
+ * (`available`), or one only the agent's active release allows, which the
+ * session cannot attach because it stays on the release it started with
+ * (`allowed_in_newer_release`). `name` is the URL's path, never its
+ * credentials.
  */
 export const LISTED_REPOSITORY_STATUS_VALUES = [
   "primary",
@@ -83,7 +94,21 @@ export const LISTED_REPOSITORY_STATUS_VALUES = [
   "pending",
   "failed",
   "available",
+  "allowed_in_newer_release",
 ] as const;
+
+/**
+ * `details.reason_code` of an `attach_repository` refused with
+ * `GITHUB_REFUSED`: off the session's release, or off it but allowed by the
+ * agent's active release (a new session can attach it; nothing needs to be
+ * allowed again).
+ */
+export const REPOSITORY_ATTACH_REFUSAL_VALUES = [
+  "repository_not_allowed",
+  "allowed_in_newer_release",
+] as const;
+export type RepositoryAttachRefusal =
+  (typeof REPOSITORY_ATTACH_REFUSAL_VALUES)[number];
 
 export const listedRepositorySchema = z.object({
   id: z.string().min(1),

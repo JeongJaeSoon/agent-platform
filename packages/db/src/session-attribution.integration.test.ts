@@ -184,24 +184,58 @@ integration("session attribution on PostgreSQL", () => {
     expect((await store.attribution(sessionId))?.starter?.github).toBeNull();
   });
 
-  test("names the workspace's author App, never its reviewer or another workspace's", async () => {
+  test("names the App the primary repository is pinned to for author, not just any author App", async () => {
     const ws = await workspace();
     const store = createPostgresSessionAttributionStore(db);
+    const repositoryId = `app-${ws.slice(0, 8)}`;
     const sessionId = await session(ws, { channel: "web" });
-    const app = async (workspaceId: string, role: string, appId: number) =>
-      pool.query(
+    await pool.query("UPDATE sessions SET repository_id = $2 WHERE id = $1", [
+      sessionId,
+      repositoryId,
+    ]);
+    const app = async (workspaceId: string, role: string, appId: number) => {
+      const id = randomUUID();
+      await pool.query(
         `INSERT INTO github_apps (id, workspace_id, app_id, slug, name, html_url, api_base, role)
          VALUES ($1, $2, $3, $4, 'App', 'https://github.com/apps/x', 'https://api.github.com', $5)`,
-        [randomUUID(), workspaceId, appId, `app-${appId}`, role],
+        [id, workspaceId, appId, `app-${appId}`, role],
       );
-    expect((await store.attribution(sessionId))?.authorApp).toBeNull();
-    await app(ws, "reviewer", 2);
-    await app(await workspace(), "author", 3);
-    expect((await store.attribution(sessionId))?.authorApp).toBeNull();
+      return id;
+    };
+    const pin = (role: string, connectionId: string | null, appId: number) =>
+      pool.query(
+        `INSERT INTO catalog_repository_github_apps (repository_id, role, connection_id, app_id, pinned_by)
+         VALUES ($1, $2, $3, $4, 'claim')
+         ON CONFLICT (repository_id, role) DO UPDATE SET connection_id = EXCLUDED.connection_id, app_id = EXCLUDED.app_id`,
+        [repositoryId, role, connectionId, appId],
+      );
+    const read = async () => {
+      const record = await store.attribution(sessionId);
+      return { app: record?.authorApp, pinned: record?.authorPinned };
+    };
+
+    // Two author Apps and no pin: none is guessed.
     await app(ws, "author", 1);
-    expect((await store.attribution(sessionId))?.authorApp).toEqual({
-      slug: "app-1",
-      apiBase: "https://api.github.com",
+    const second = await app(ws, "author", 2);
+    const reviewer = await app(ws, "reviewer", 3);
+    expect(await read()).toEqual({ app: null, pinned: false });
+    await pin("reviewer", reviewer, 3);
+    expect(await read()).toEqual({ app: null, pinned: false });
+
+    await pin("author", second, 2);
+    expect(await read()).toEqual({
+      app: { slug: "app-2", apiBase: "https://api.github.com" },
+      pinned: true,
     });
+    // The pinned connection now holds another App, or is gone: pinned to
+    // nothing usable, and no other App stands in.
+    await pin("author", second, 9);
+    expect(await read()).toEqual({ app: null, pinned: true });
+    await pin("author", null, 2);
+    expect(await read()).toEqual({ app: null, pinned: true });
+    // Another workspace's connection under this repository's pin.
+    const foreign = await app(await workspace(), "author", 4);
+    await pin("author", foreign, 4);
+    expect(await read()).toEqual({ app: null, pinned: true });
   });
 });

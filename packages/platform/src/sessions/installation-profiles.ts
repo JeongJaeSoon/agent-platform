@@ -5,6 +5,7 @@ import {
   PERMISSION_MODE_VALUES,
   type ProfileSummary,
   RUNTIME_KIND_VALUES,
+  runtimeKindSchema,
   type WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
@@ -23,6 +24,11 @@ import {
 } from "./catalog.ts";
 import type { ProfileFeatureGate } from "./feature-gate.ts";
 import { type Connections, definitionFingerprint } from "./profile-registry.ts";
+import {
+  deniedTools,
+  previousChoice,
+  type ToolCatalogs,
+} from "./profile-tools.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import { operatorSummary } from "./workspace-profiles.ts";
 
@@ -33,6 +39,30 @@ const OUTRANKED = () =>
     undefined,
     { reason_code: "role" },
   );
+
+/**
+ * One entry per spelling a profile's runtime version may take, the SDK's
+ * and the engine build's, so the console finds a profile's catalog by it.
+ */
+function optionCatalogs(
+  catalogs: ToolCatalogs,
+): NonNullable<InstallationProfileOptionsResponse["tool_catalogs"]> {
+  return catalogs.all.flatMap((catalog) => {
+    const runtimeKind = runtimeKindSchema.safeParse(catalog.runtimeKind);
+    if (!runtimeKind.success) return [];
+    return [...new Set([catalog.sdkVersion, catalog.engineVersion])].map(
+      (runtimeVersion) => ({
+        id: catalog.id,
+        runtime_kind: runtimeKind.data,
+        runtime_version: runtimeVersion,
+        tools: catalog.tools.map((tool) => ({
+          name: tool.name,
+          boundary: tool.boundary,
+        })),
+      }),
+    );
+  });
+}
 
 const badRequest = (message: string, reason_code: string, field?: string) =>
   new SessionServiceError("BAD_REQUEST", message, undefined, {
@@ -113,8 +143,61 @@ export function createInstallationProfileService(deps: {
     );
   }
 
+  /**
+   * The version `previous_id` names, read now when this replica has not
+   * yet: a deny is weighed against it, so an unread one refuses the save.
+   */
+  async function previousOf(
+    previousId: string,
+  ): Promise<InstallationProfileRecord> {
+    if (!catalog.installation?.get(previousId)?.record) {
+      await catalog.workspace_profiles.refresh();
+    }
+    const record = catalog.installation?.get(previousId)?.record;
+    if (!record) {
+      throw badRequest(
+        `Unknown profile ${previousId}`,
+        "unknown_previous",
+        "previous_id",
+      );
+    }
+    return record;
+  }
+
+  async function toolsOf(request: CreateInstallationProfileRequest) {
+    if (request.deny === undefined) {
+      return { tools: [...new Set(request.tools ?? [])], denied: undefined };
+    }
+    const previous =
+      request.previous_id === undefined
+        ? undefined
+        : await previousOf(request.previous_id);
+    const previousRead =
+      previous &&
+      previousChoice(
+        catalog.tool_catalogs,
+        previous,
+        catalogProfileConfigSchema.safeParse(previous.definition).data?.tools ??
+          [],
+      );
+    const denied = deniedTools({
+      catalog: catalog.tool_catalogs?.for(
+        request.runtime_kind,
+        request.runtime_version,
+      ),
+      deny: request.deny,
+      accept: request.accept_added_tools,
+      previous: previousRead,
+    });
+    return {
+      tools: denied.tools,
+      denied: { ...denied, previousDrift: previousRead?.drift === true },
+    };
+  }
+
   function definitionOf(
     request: CreateInstallationProfileRequest,
+    tools: readonly string[],
   ): CatalogProfileConfig {
     const connections = deps.connections();
     if (!Object.hasOwn(connections, request.connection_id)) {
@@ -139,7 +222,7 @@ export function createInstallationProfileService(deps: {
       ...(request.title_model === undefined
         ? {}
         : { title_model: request.title_model }),
-      tools: [...new Set(request.tools)],
+      tools: [...tools],
       permission_mode: request.permission_mode,
       provider: connections[request.connection_id],
       ...(request.project_settings === undefined
@@ -182,6 +265,9 @@ export function createInstallationProfileService(deps: {
         repositories: Object.keys(catalog.repositories)
           .sort()
           .map((id) => ({ id })),
+        ...(catalog.tool_catalogs === undefined
+          ? {}
+          : { tool_catalogs: optionCatalogs(catalog.tool_catalogs) }),
         unattended_allowed: deps.allowUnattended,
       };
     },
@@ -191,7 +277,8 @@ export function createInstallationProfileService(deps: {
       request: CreateInstallationProfileRequest,
     ): Promise<WorkspaceProfileChangeResponse> {
       const actor = await operator(caller);
-      const definition = definitionOf(request);
+      const { tools, denied } = await toolsOf(request);
+      const definition = definitionOf(request, tools);
       if (
         (OPT_IN_PERMISSION_MODES as readonly string[]).includes(
           definition.permission_mode,
@@ -240,7 +327,10 @@ export function createInstallationProfileService(deps: {
           definition.repository === "none"
             ? "listed"
             : (request.github_app_repositories ?? null),
+        deny: denied?.deny ?? null,
+        toolCatalogId: denied?.toolCatalogId ?? null,
         connectionId: request.connection_id,
+        ...(denied?.previousDrift ? { previousDenyDrift: true } : {}),
       });
       switch (result.outcome) {
         case "actor_inactive":

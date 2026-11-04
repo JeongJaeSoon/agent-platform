@@ -6,6 +6,7 @@ import type {
   ListSessionsQuery,
   ListTurnsQuery,
   PermissionWaitRequest,
+  PlatformPrompt,
   PostSessionMessageResponse,
   Receipt,
   SessionDetail,
@@ -64,6 +65,8 @@ export type AcceptSessionInput = {
   // The agent release the session belongs to, already checked against
   // profileId.
   agentReleaseId?: string;
+  // Stored on the row as it is; absent, the session is revision 0.
+  platformPrompt?: PlatformPrompt;
   // The policy found a name the release uses unbound: only a replay of an
   // earlier acceptance goes through. Without it, the names are rechecked
   // under lock against a concurrent unbind.

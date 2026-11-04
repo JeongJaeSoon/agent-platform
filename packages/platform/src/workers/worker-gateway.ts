@@ -40,6 +40,7 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  ENGINE_COAUTHOR_EMAILS,
   GITHUB_MCP_SERVER,
   githubRefusalStatus,
   MAX_RESTORE_PROFILES,
@@ -66,6 +67,7 @@ import type {
   CheckpointOutputObject,
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
+import { repoRefOf } from "../ports/forge.ts";
 import {
   type GitHubGate,
   GitHubGateError,
@@ -79,7 +81,10 @@ import type {
   WorkerPendingStore,
 } from "../ports/pending-requests.ts";
 import type { RepositoryAttachmentStore } from "../ports/repository-attachments.ts";
-import type { SessionAttributionStore } from "../ports/session-attribution.ts";
+import type {
+  SessionAttributionRecord,
+  SessionAttributionStore,
+} from "../ports/session-attribution.ts";
 import type { SessionTitleStore } from "../ports/session-title-store.ts";
 import type {
   EgressBindings,
@@ -137,6 +142,7 @@ import {
   neutralFieldsOf,
 } from "../sessions/event-codecs.ts";
 import { appBotAuthor, claimGitOf } from "../sessions/git-attribution.ts";
+import type { GitHubConnectionResolver } from "../sessions/github-connection-resolver.ts";
 import {
   hashTitleToken,
   type SessionTitler,
@@ -213,6 +219,13 @@ export type CheckpointProtocol = {
     pointer: CheckpointPointer | null;
   }): Promise<RestorePlanResult>;
 };
+
+// What every config of a session's claim carries from its release and its
+// row, whichever profile and tool list it is for.
+type ReleaseRun = Pick<
+  WorkerBinding,
+  "releaseTools" | "agentInstructions" | "platformPrompt"
+>;
 
 type ToolConfigs = {
   profile: RuntimeConfig;
@@ -545,6 +558,17 @@ export function createWorkerGateway(deps: {
       slug: string;
       apiBase: string;
     }) => Promise<string | null>;
+    // Pins an unpinned primary repository at claim (decision D11). Absent,
+    // such a session's commits keep the image's author.
+    commitPin?: {
+      resolver: Pick<GitHubConnectionResolver, "resolve">;
+      // The pin a claim needed was not made; the claim went on regardless.
+      onFailed: (failure: {
+        sessionId: string;
+        repositoryId: string;
+        reason: string;
+      }) => void;
+    };
   };
   options: WorkerGatewayOptions;
 }) {
@@ -559,7 +583,7 @@ export function createWorkerGateway(deps: {
   // claim is the one an older worker accepts.
   function toolConfigsOf(
     profile: CatalogProfile,
-    release: Pick<WorkerBinding, "releaseTools" | "agentInstructions">,
+    release: ReleaseRun,
     providerToken: string,
     hasRepository: boolean,
   ): ToolConfigs {
@@ -569,6 +593,7 @@ export function createWorkerGateway(deps: {
       runReleaseTools,
     );
     const instructions = release.agentInstructions;
+    const prompt = release.platformPrompt;
     const configOf = (tools: readonly string[]): RuntimeConfig => {
       const config = runtimeConfigOf(
         profile,
@@ -576,9 +601,11 @@ export function createWorkerGateway(deps: {
         hasRepository,
         tools,
       );
-      return instructions
-        ? { ...config, agent_instructions: instructions }
-        : config;
+      return {
+        ...config,
+        ...(instructions ? { agent_instructions: instructions } : {}),
+        ...(prompt ? { platform_prompt: prompt } : {}),
+      };
     };
     return {
       profile: configOf(lists.profile),
@@ -587,25 +614,73 @@ export function createWorkerGateway(deps: {
     };
   }
 
-  // Only a repository on the console's App: that App pushes and opens the
-  // pull request, so its bot is who wrote the commits. Undefined leaves the
-  // field off the claim; null tells the worker to drop an earlier author.
+  // Only a primary repository on a console App: the App it is pinned to
+  // pushes and opens its pull requests, so that App's bot wrote the commits
+  // (decision D11). Undefined leaves the field off the claim; null tells the
+  // worker to use the image's author.
   async function gitAuthorOf(
     attribution: (typeof deps)["attribution"],
-    authorApp: { slug: string; apiBase: string } | null,
+    record: SessionAttributionRecord | null | undefined,
+    sessionId: string,
     repositoryId: string | null,
   ): Promise<ClaimGitAuthor | null | undefined> {
     const lookUp = attribution?.appBotUserId;
-    if (lookUp === undefined) return undefined;
-    const auth =
+    if (attribution === undefined || lookUp === undefined) return undefined;
+    const entry =
       repositoryId === null
         ? undefined
-        : own(catalog.repositories, repositoryId)?.auth;
-    if (authorApp === null || auth === undefined || !("registered" in auth)) {
+        : own(catalog.repositories, repositoryId);
+    if (
+      record == null ||
+      repositoryId === null ||
+      entry?.auth === undefined ||
+      !("registered" in entry.auth)
+    ) {
       return null;
     }
-    const botUserId = await lookUp(authorApp).catch(() => null);
-    return botUserId === null ? null : appBotAuthor(authorApp.slug, botUserId);
+    const app = record.authorPinned
+      ? record.authorApp
+      : await pinAtClaim(attribution, sessionId, repositoryId, entry.url);
+    if (app === null) return null;
+    const botUserId = await lookUp(app).catch(() => null);
+    return botUserId === null ? null : appBotAuthor(app.slug, botUserId);
+  }
+
+  // A primary repository with no author pin yet gets the one a token issue
+  // would leave, chosen the same way, so the commits' bot is the pull
+  // request's. Whatever stops it leaves the image's author: the claim is
+  // never held up for it.
+  async function pinAtClaim(
+    attribution: NonNullable<(typeof deps)["attribution"]>,
+    sessionId: string,
+    repositoryId: string,
+    url: string,
+  ): Promise<{ slug: string; apiBase: string } | null> {
+    const pinning = attribution.commitPin;
+    if (pinning === undefined) return null;
+    const failed = (reason: string) => {
+      pinning.onFailed({ sessionId, repositoryId, reason });
+      return null;
+    };
+    try {
+      const repo = repoRefOf(url);
+      if (repo === null) return failed("no_repo");
+      const choice = await pinning.resolver.resolve(
+        repositoryId,
+        "author",
+        repo,
+        { pin: true, claim: { sessionId, receiptId: randomUUID() } },
+      );
+      if (choice.kind === "refused") return failed(choice.reason);
+      if (choice.kind === "unreachable") return failed(choice.pinState);
+      if (choice.kind === "none") return failed("no_author_app");
+      // Read back through the pin, so a pin another path made first, or a
+      // connection replaced meanwhile, decides as it would for the token.
+      const pinned = await attribution.store.attribution(sessionId);
+      return pinned?.authorApp ?? failed("not_pinned");
+    } catch (error) {
+      return failed(error instanceof Error ? error.name : "error");
+    }
   }
 
   // A hint like hasUndelivered: a failed read waits for the next beat.
@@ -934,7 +1009,7 @@ export function createWorkerGateway(deps: {
     pin: ProfilePin,
     providerToken: string,
     hasRepository: boolean,
-    release: Pick<WorkerBinding, "releaseTools" | "agentInstructions">,
+    release: ReleaseRun,
   ): {
     runtime: SessionRuntime;
     profile_fingerprint: string;
@@ -988,8 +1063,7 @@ export function createWorkerGateway(deps: {
       | "model"
       | "restoreProfiles"
       | "repository"
-      | "releaseTools"
-      | "agentInstructions"
+      | keyof ReleaseRun
     >,
     current: ToolConfigs,
     providerToken: string,
@@ -1504,7 +1578,8 @@ export function createWorkerGateway(deps: {
                 );
           const gitAuthor = await gitAuthorOf(
             attribution,
-            record?.authorApp ?? null,
+            record,
+            binding.sessionId,
             binding.repository?.id ?? null,
           );
           const additional = await additionalWorkspaceRepositories(
@@ -1562,7 +1637,9 @@ export function createWorkerGateway(deps: {
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
               : { grants: [...binding.grants] }),
-            ...(git === undefined ? {} : { git }),
+            ...(git === undefined
+              ? {}
+              : { git, git_strip: [...ENGINE_COAUTHOR_EMAILS] }),
             ...(gitAuthor === undefined ? {} : { git_author: gitAuthor }),
           };
         }

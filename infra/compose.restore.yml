@@ -5,7 +5,7 @@
 #
 # A restore is a second installation on the same daemon, so everything the
 # base file fixes per host has to move: published ports are re-bound from
-# RESTORE_* variables (loopback only) and Gitea's external address follows
+# RESTORE_* variables (loopback only) and a Gitea's external address follows
 # them. Worker networks need no counterpart: the scheduler names each one
 # after its installation and execution. The restore starts no egress proxy,
 # so its label cannot collide with the live installation's. `!override`
@@ -27,11 +27,13 @@ services:
     ports: !override
       - "127.0.0.1:${RESTORE_LOCALSTACK_PORT:?}:4566"
 
-  # The restored app.ini is the backup's, secrets and all, so its [server]
+  # For a backup with Gitea data (restore.sh adds compose.gitea.yml): the
+  # restored app.ini is the backup's, secrets and all, so its [server]
   # section still names the source's address. The image's entrypoint runs
   # environment-to-ini on every start, which rewrites just these keys and
   # leaves the rest of the file alone; HTTP_PORT and SSH_LISTEN_PORT are the
-  # container-side ports and stay as they are.
+  # container-side ports and stay as they are. fake-git ignores the variables
+  # and listens on neither SSH nor 22.
   gitea:
     ports: !override
       - "127.0.0.1:${RESTORE_GITEA_HTTP_PORT:?}:3000"

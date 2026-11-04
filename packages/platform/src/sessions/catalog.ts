@@ -24,6 +24,7 @@ import {
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
+import type { ToolCatalogs } from "./profile-tools.ts";
 
 // Operator-registered profiles and repositories. The operator
 // writes `config/profiles.yaml` and `config/repositories.yaml`; the API reads
@@ -586,6 +587,9 @@ export type WorkspaceProfileRecord = {
   base_runtime_version: string;
   base_billing: "metered" | "none";
   base_repository_mode: RepositoryMode;
+  /** As on an installation ceiling: outside the base fingerprint and every digest. */
+  deny?: string[] | null;
+  tool_catalog_id?: string | null;
   created_by: string;
   created_at: Date;
   retired_by: string | null;
@@ -635,6 +639,8 @@ export type SessionCatalogView = {
   workspace_profiles?: WorkspaceProfiles;
   installation?: InstallationProfiles;
   runtime_versions?: RuntimeVersions;
+  /** What a profile's deny names; read on the write path and for listing only. */
+  tool_catalogs?: ToolCatalogs;
 };
 
 /** A remote MCP server the session's agent release names, as claimed. */

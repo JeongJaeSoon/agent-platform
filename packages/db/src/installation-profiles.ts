@@ -69,6 +69,8 @@ function recordOf(
     repository_ids: row.repositoryIds,
     github_app_repositories:
       row.githubAppRepositories === "installed" ? "installed" : "listed",
+    deny: row.deny,
+    tool_catalog_id: row.toolCatalogId,
     previous_id: row.previousId,
     created_by: row.createdBy,
     created_at: row.createdAt,
@@ -192,6 +194,8 @@ export function createPostgresInstallationProfileStore(
             repositoryIds: input.repository_ids,
             githubAppRepositories:
               input.github_app_repositories ?? inherited ?? "listed",
+            deny: input.deny,
+            toolCatalogId: input.toolCatalogId,
             previousId: input.previousId,
             createdBy: actor.userId,
           })
@@ -212,6 +216,9 @@ export function createPostgresInstallationProfileStore(
             connection_id: input.connectionId,
             repository_ids: record.repository_ids,
             github_app_repositories: record.github_app_repositories,
+            deny: record.deny ?? null,
+            tool_catalog_id: record.tool_catalog_id ?? null,
+            ...(input.previousDenyDrift ? { previous_deny_drift: true } : {}),
           },
         });
         return { outcome: "created" as const, record };

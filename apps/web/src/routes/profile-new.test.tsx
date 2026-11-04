@@ -8,6 +8,8 @@ import type {
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { json, me, memberMe } from "../test-support/fake-api.ts";
 import {
+  CATALOG_ID,
+  CATALOG_TOOLS,
   ceiling,
   imported,
   OPTIONS,
@@ -44,12 +46,26 @@ function catalog(
       "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
       "GET /v1/installation-profiles/options": () => json(200, options),
       "POST /v1/workspace-profiles": async (request: Request) => {
-        const { name, base_profile_id, ...narrowed } =
-          (await request.json()) as CreateWorkspaceProfileRequest;
+        const {
+          name,
+          base_profile_id,
+          deny = [],
+          accept_added_tools: _,
+          ...narrowed
+        } = (await request.json()) as CreateWorkspaceProfileRequest;
         const n =
           items.filter((item) => item.workspace?.name === name).length + 1;
+        const base = items.find((item) => item.id === base_profile_id);
         const made: ProfileSummary = {
-          ...version(n, "usable", narrowed, base_profile_id),
+          ...version(
+            n,
+            "usable",
+            {
+              ...narrowed,
+              tools: (base?.tools ?? []).filter((tool) => !deny.includes(tool)),
+            },
+            base_profile_id,
+          ),
           id: `ws_acme_${name}_v${n}`,
         };
         made.workspace = {
@@ -61,6 +77,7 @@ function catalog(
       },
       "POST /v1/installation-profiles": async (request: Request) => {
         const body = (await request.json()) as CreateInstallationProfileRequest;
+        const denied = body.deny ?? [];
         const n =
           items.filter((item) => item.installation?.name === body.name).length +
           1;
@@ -70,7 +87,9 @@ function catalog(
           {
             model: body.model,
             models: body.models,
-            tools: body.tools,
+            tools: CATALOG_TOOLS.map((tool) => tool.name).filter(
+              (name) => !denied.includes(name),
+            ),
             permission_mode: body.permission_mode,
             repository_ids: body.repository_ids,
           },
@@ -101,20 +120,37 @@ describe("프로필 만들기 (워크스페이스)", () => {
       "바탕 프로필",
     )) as HTMLSelectElement;
     expect(base.value).toBe("coding-claude");
+    // The models it runs, then the built-in tools to block: what the base
+    // runs open, what it blocks ticked and locked.
     expect(
       within(form())
         .getAllByRole("checkbox")
         .map((box) => [
-          box.closest("[data-slot=field]")?.textContent,
+          box.closest("[data-slot=field]")?.querySelector("label")?.textContent,
           box.getAttribute("aria-checked"),
+          (box as HTMLButtonElement).disabled,
         ]),
     ).toEqual([
-      ["claude-sonnet-5", "true"],
-      ["claude-haiku-5", "false"],
-      ["Read", "true"],
-      ["Edit", "true"],
-      ["Bash", "true"],
+      ["claude-sonnet-5", "true", false],
+      ["claude-haiku-5", "false", false],
+      ["Read", "false", false],
+      ["Edit", "false", false],
+      ["Bash", "false", false],
+      ["Write", "true", true],
+      ["WebFetch", "true", true],
+      ["WebSearch", "true", true],
     ]);
+    const tools = screen.getByRole("group", { name: "차단할 내장 도구" });
+    expect(
+      within(tools).getAllByText("바탕 프로필이 막은 도구입니다."),
+    ).toHaveLength(3);
+    // No options here: an admin could not read them, so no boundary badges.
+    expect(tools.querySelectorAll("[data-slot=badge]")).toHaveLength(0);
+    // Its bound is the base, not a catalog it cannot name.
+    expect(
+      within(tools).getByText(/^아무것도 더 체크하지 않으면 바탕 프로필 \S+가/),
+    ).toBeTruthy();
+    expect(within(tools).queryByText(/카탈로그\(/) === null).toBe(true);
     const mode = screen.getByLabelText("권한 모드") as HTMLSelectElement;
     expect(
       [...mode.options].map((option) => [option.value, option.disabled]),
@@ -146,7 +182,10 @@ describe("프로필 만들기 (워크스페이스)", () => {
     // The review lists only what changed.
     expect(changes()).toEqual([
       ["모델", "claude-sonnet-5, claude-haiku-5 → claude-sonnet-5"],
-      ["도구", "Read, Edit, Bash → Read, Edit"],
+      [
+        "차단한 도구",
+        "Write, WebFetch, WebSearch → Bash, Write, WebFetch, WebSearch",
+      ],
       ["권한 모드", "acceptEdits → plan"],
     ]);
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -154,14 +193,15 @@ describe("프로필 만들기 (워크스페이스)", () => {
     await waitFor(() =>
       expect(history.location.pathname).toBe("/profiles/ws_acme_strict_v1"),
     );
+    // A block list only, the base's blocks kept.
     expect(posted(api)).toEqual([
       {
         name: "strict",
         base_profile_id: "coding-claude",
         model: "claude-sonnet-5",
         models: ["claude-sonnet-5"],
-        tools: ["Read", "Edit"],
         permission_mode: "plan",
+        deny: ["Bash", "Write", "WebFetch", "WebSearch"],
       },
     ]);
   });
@@ -254,6 +294,17 @@ describe("프로필 만들기 (워크스페이스)", () => {
     expect(
       screen.getByText("저장할 버전의 id: ws_acme_strict_v2"),
     ).toBeDefined();
+    // It starts on what v1 blocked: Bash, and the base's blocks.
+    const blocked = () =>
+      within(screen.getByRole("group", { name: "차단할 내장 도구" }))
+        .getAllByRole("checkbox")
+        .filter((box) => box.getAttribute("aria-checked") === "true")
+        .map(
+          (box) =>
+            box.closest("[data-slot=field]")?.querySelector("label")
+              ?.textContent,
+        );
+    expect(blocked()).toEqual(["Bash", "Write", "WebFetch", "WebSearch"]);
     const user = await setupUser();
     await user.click(screen.getByRole("checkbox", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
@@ -264,8 +315,8 @@ describe("프로필 만들기 (워크스페이스)", () => {
         base_profile_id: "coding-claude",
         model: "claude-sonnet-5",
         models: ["claude-sonnet-5"],
-        tools: ["Read"],
         permission_mode: "plan",
+        deny: ["Edit", "Bash", "Write", "WebFetch", "WebSearch"],
       },
     ]);
   });
@@ -293,8 +344,10 @@ describe("프로필 만들기 (워크스페이스)", () => {
   });
 
   test("a name the server would refuse, too many tools or too long a name are caught before the request", async () => {
+    // Blocks that a version keeps, more than a request holds.
     const wide = imported("coding-claude", {
-      tools: Array.from({ length: 65 }, (_, n) => `Tool${n}`),
+      tools: [],
+      deny: Array.from({ length: 65 }, (_, n) => `Tool${n}`),
     });
     const { api } = renderAt("/profiles/new", catalog([wide]).routes);
     const user = await setupUser();
@@ -332,9 +385,9 @@ describe("프로필 만들기 (워크스페이스)", () => {
     const widens = await screen.findByText(
       "바탕 프로필이 허용하지 않는 값입니다. 목록을 다시 불러와 바탕 프로필을 확인하세요.",
     );
-    expect(screen.getByRole("group", { name: "도구" }).contains(widens)).toBe(
-      true,
-    );
+    expect(
+      screen.getByRole("group", { name: "차단할 내장 도구" }).contains(widens),
+    ).toBe(true);
     details = { reason_code: "retired", field: "base_profile_id" };
     await user.click(screen.getByRole("button", { name: "저장" }));
     const retired = await screen.findByText(
@@ -425,6 +478,12 @@ describe("프로필 만들기 (설치 프로필)", () => {
           box.closest("[data-slot=field]")?.querySelector("label")?.textContent,
       ),
     ).toEqual([
+      "Read",
+      "Edit",
+      "Write",
+      "Bash",
+      "WebFetch",
+      "WebSearch",
       "저장소의 CLAUDE.md 읽기",
       "App이 설치된 저장소 모두 허용",
       "docs",
@@ -508,7 +567,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
       screen.getByLabelText("기본 모델"),
       "claude-opus-5",
     );
-    await user.type(screen.getByLabelText("도구"), "Read{Enter} Grep ");
+    await user.click(screen.getByRole("checkbox", { name: "Bash" }));
     await user.selectOptions(screen.getByLabelText("권한 모드"), "auto");
     await user.click(screen.getByRole("checkbox", { name: "platform" }));
     await user.click(screen.getByRole("button", { name: "저장" }));
@@ -523,7 +582,8 @@ describe("프로필 만들기 (설치 프로필)", () => {
         runtime_version: "0.3.270",
         model: "claude-opus-5",
         models: ["claude-sonnet-5", "claude-opus-5"],
-        tools: ["Read", "Grep"],
+        // The provider-side tool a first version starts blocked, and Bash.
+        deny: ["Bash", "WebSearch"],
         permission_mode: "auto",
         project_settings: { claude_md: false },
         repository_mode: "required",
@@ -606,7 +666,8 @@ describe("프로필 만들기 (설치 프로필)", () => {
       model: "claude-sonnet-5",
       models: ["claude-sonnet-5", "claude-haiku-5"],
       title_model: "claude-haiku-5",
-      tools: ["Read", "Edit", "Bash"],
+      // What v2 blocked, sent as a block list.
+      deny: ["Write", "WebFetch", "WebSearch"],
       permission_mode: "acceptEdits",
       project_settings: { claude_md: true },
       repository_mode: "required",
@@ -835,5 +896,464 @@ describe("프로필 만들기 (설치 프로필)", () => {
         "That connection is not on this installation. Reload and pick a connection.",
       ),
     ).toBeDefined();
+  });
+});
+
+const OLD_CATALOG_ID = "claude_agent_sdk@0.3.260+claude-code@2.1.260";
+
+/** An older engine's catalog beside the current one: Glob since gone, WebSearch not yet there. */
+const TWO_CATALOGS: InstallationProfileOptionsResponse = {
+  ...OPTIONS,
+  tool_catalogs: [
+    {
+      id: OLD_CATALOG_ID,
+      runtime_kind: "claude_agent_sdk",
+      runtime_version: "0.3.260",
+      tools: [
+        { name: "Read", boundary: "local" },
+        { name: "Edit", boundary: "local" },
+        { name: "Write", boundary: "local" },
+        { name: "Bash", boundary: "local" },
+        { name: "Glob", boundary: "local" },
+        { name: "WebFetch", boundary: "egress" },
+      ],
+    },
+    ...(OPTIONS.tool_catalogs ?? []),
+  ],
+};
+
+const blockedBoxes = () =>
+  within(screen.getByRole("group", { name: "차단할 내장 도구" }))
+    .getAllByRole("checkbox")
+    .filter((box) => box.getAttribute("aria-checked") === "true")
+    .map(
+      (box) =>
+        box.closest("[data-slot=field]")?.querySelector("label")?.textContent,
+    );
+
+describe("차단할 내장 도구", () => {
+  test("a first ceiling lists the catalog to block, each with its boundary, the provider-side one ticked", async () => {
+    renderAt("/profiles/new?kind=installation", catalog().routes);
+    const tools = await screen.findByRole("group", {
+      name: "차단할 내장 도구",
+    });
+    expect(tools.tagName).toBe("FIELDSET");
+    expect(
+      within(tools)
+        .getAllByRole("checkbox")
+        .map((box) => {
+          const field = box.closest("[data-slot=field]");
+          return [
+            field?.querySelector("label")?.textContent,
+            field?.querySelector("[data-slot=badge]")?.textContent,
+            box.getAttribute("aria-checked"),
+          ];
+        }),
+    ).toEqual([
+      ["Read", "worker 안", "false"],
+      ["Edit", "worker 안", "false"],
+      ["Write", "worker 안", "false"],
+      ["Bash", "worker 안", "false"],
+      ["WebFetch", "외부 접속", "false"],
+      ["WebSearch", "provider 쪽", "true"],
+    ]);
+    // The boundary is part of what a screen reader hears for the box.
+    const search = screen.getByRole("checkbox", { name: "WebSearch" });
+    const described = (search.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent);
+    expect(described).toContain("provider 쪽");
+    expect(
+      within(tools).getByText(
+        "체크한 도구는 이 프로필의 세션에서 돌지 않습니다. 내장 도구만 다룹니다. MCP 도구는 에이전트의 MCP 설정이 정합니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      within(tools).getByText(
+        `아무것도 체크하지 않으면 제한 없음입니다. 다만 플랫폼이 지원하는 내장 도구 카탈로그(${CATALOG_ID}) 안에서입니다.`,
+      ),
+    ).toBeDefined();
+    const user = await setupUser();
+    search.focus();
+    await user.keyboard(" ");
+    expect(search.getAttribute("aria-checked")).toBe("false");
+    await user.keyboard(" ");
+    expect(search.getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("a runtime version no catalog lists cannot be saved as a block list, and says which can", async () => {
+    const { api } = renderAt(
+      "/profiles/new?kind=installation",
+      catalog().routes,
+    );
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "wide");
+    await user.type(screen.getByLabelText("모델"), "claude-sonnet-5");
+    await user.clear(screen.getByLabelText("런타임 버전"));
+    await user.type(screen.getByLabelText("런타임 버전"), "0.3.999");
+    expect(
+      screen.getByText(
+        "런타임 버전 0.3.999에는 지원 카탈로그가 없어 차단목록을 저장할 수 없습니다. 지원하는 버전: 0.3.270, 2.1.270",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.queryAllByRole("group", { name: "차단할 내장 도구" }),
+    ).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(posted(api)).toEqual([]);
+  });
+
+  test("a next version on a newer catalog shows what it added and dropped; an added tool opens only once accepted", async () => {
+    const previous = ceiling("wide", 1, {
+      runtime_version: "0.3.260",
+      tools: ["Read", "Edit", "Bash"],
+      deny: ["Write", "Glob", "WebFetch"],
+    });
+    const { api } = renderAt(
+      "/profiles/new?kind=installation&from=op_wide_v1&mode=version",
+      catalog([CODING, previous], me(), TWO_CATALOGS).routes,
+    );
+    // On the version it follows, nothing differs.
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    expect(blockedBoxes()).toEqual(["Write", "Glob", "WebFetch"]);
+    expect(screen.queryAllByRole("group", { name: "카탈로그 차이" })).toEqual(
+      [],
+    );
+    const user = await setupUser();
+    await user.clear(screen.getByLabelText("런타임 버전"));
+    await user.type(screen.getByLabelText("런타임 버전"), "0.3.270");
+    // The new catalog's WebSearch starts blocked; what v1 blocked stays so.
+    expect(blockedBoxes()).toEqual(["Write", "WebFetch", "WebSearch"]);
+    const diff = screen.getByRole("group", { name: "카탈로그 차이" });
+    expect(diff.textContent).toContain("지원이 끝난 도구:Glob");
+    expect(
+      within(screen.getByRole("group", { name: "차단할 내장 도구" }))
+        .getByRole("checkbox", { name: "WebSearch" })
+        .closest("[data-slot=field]")?.textContent,
+    ).toContain("새 도구");
+    const accept = within(diff).getByRole("checkbox", {
+      name: "WebSearch 실행을 받아들이기",
+    });
+    expect(accept.getAttribute("aria-checked")).toBe("false");
+
+    // Opened without accepting: caught before the request.
+    await user.click(screen.getByRole("checkbox", { name: "WebSearch" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    const unaccepted = await screen.findByText(
+      "이전 버전에 없던 도구 WebSearch를 열려면 받아들이기를 체크하거나 다시 차단하세요.",
+    );
+    expect(accept.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      screen
+        .getByRole("checkbox", { name: "WebSearch" })
+        .getAttribute("aria-describedby")
+        ?.split(" "),
+    ).toContain(unaccepted.id);
+    expect(posted(api)).toEqual([]);
+
+    await user.click(accept);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(1));
+    expect(posted(api)[0]).toMatchObject({
+      runtime_version: "0.3.270",
+      deny: ["Write", "WebFetch"],
+      accept_added_tools: ["WebSearch"],
+      previous_id: "op_wide_v1",
+    });
+  });
+
+  test("a copy onto a newer catalog keeps what it copies blocked and blocks what it never had", async () => {
+    const source = ceiling("wide", 1, {
+      runtime_version: "0.3.260",
+      tools: ["Read", "Edit", "Bash"],
+      deny: ["Write", "Glob", "WebFetch"],
+    });
+    renderAt(
+      "/profiles/new?kind=installation&from=op_wide_v1",
+      catalog([CODING, source], me(), TWO_CATALOGS).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    const user = await setupUser();
+    await user.clear(screen.getByLabelText("런타임 버전"));
+    await user.type(screen.getByLabelText("런타임 버전"), "0.3.270");
+    // A copy names no previous version, so nothing here is asked again.
+    expect(blockedBoxes()).toEqual(["Write", "WebFetch", "WebSearch"]);
+  });
+
+  test("when the server names tools the previous version never weighed, the form asks for them and saves again", async () => {
+    // An allow-list row reads like a block list: only the server knows.
+    let refused = false;
+    const server = catalog([CODING, ceiling("wide", 1)]);
+    const { api } = renderAt(
+      "/profiles/new?kind=installation&from=op_wide_v1&mode=version",
+      {
+        ...server.routes,
+        "POST /v1/installation-profiles": async (request: Request) => {
+          if (!refused) {
+            refused = true;
+            return refusal(400, "BAD_REQUEST", {
+              reason_code: "added_tool_not_accepted",
+              field: "accept_added_tools",
+            });
+          }
+          return server.routes["POST /v1/installation-profiles"](request);
+        },
+      },
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    expect(screen.queryAllByRole("group", { name: "카탈로그 차이" })).toEqual(
+      [],
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("checkbox", { name: "Write" }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    const asked = await screen.findByText(
+      "이전 버전에 없던 도구 Write를 열려면 받아들이기를 체크하거나 다시 차단하세요.",
+    );
+    expect(
+      screen.getByRole("group", { name: "차단할 내장 도구" }).contains(asked),
+    ).toBe(true);
+    const diff = screen.getByRole("group", { name: "카탈로그 차이" });
+    // Only what this save opens that v1 did not run.
+    expect(
+      within(diff)
+        .getAllByRole("checkbox")
+        .map(
+          (box) =>
+            box.closest("[data-slot=field]")?.querySelector("label")
+              ?.textContent,
+        ),
+    ).toEqual(["Write 실행을 받아들이기"]);
+    await user.click(
+      within(diff).getByRole("checkbox", { name: "Write 실행을 받아들이기" }),
+    );
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(2));
+    expect(posted(api)[0]).toMatchObject({ deny: ["WebFetch", "WebSearch"] });
+    expect(posted(api)[0]).not.toHaveProperty("accept_added_tools");
+    expect(posted(api)[1]).toMatchObject({
+      deny: ["WebFetch", "WebSearch"],
+      accept_added_tools: ["Write"],
+    });
+  });
+
+  const TOOL_REFUSALS: readonly [string, string][] = [
+    [
+      "mcp_tool",
+      "MCP 도구는 프로필에서 막을 수 없습니다. 내장 도구만 고르세요.",
+    ],
+    ["tool_pattern", "패턴은 받지 않습니다. 내장 도구 이름 하나를 고르세요."],
+    [
+      "unknown_tool",
+      "이 런타임 버전의 지원 카탈로그에 없는 도구가 있습니다. 목록을 다시 불러오세요.",
+    ],
+    [
+      "no_tool_catalog",
+      "이 런타임 버전에는 지원 카탈로그가 없어 차단목록을 저장할 수 없습니다.",
+    ],
+  ];
+
+  for (const [reason, text] of TOOL_REFUSALS) {
+    test(`a ${reason} refusal says so beside the checklist`, async () => {
+      renderAt("/profiles/new?kind=installation&from=coding-claude", {
+        ...catalog().routes,
+        "POST /v1/installation-profiles": () =>
+          refusal(400, "BAD_REQUEST", { reason_code: reason, field: "deny" }),
+      });
+      const user = await setupUser();
+      await user.type(await screen.findByLabelText("이름"), "wide");
+      await user.click(screen.getByRole("button", { name: "저장" }));
+      const message = await screen.findByText(text);
+      expect(
+        screen
+          .getByRole("group", { name: "차단할 내장 도구" })
+          .contains(message),
+      ).toBe(true);
+    });
+  }
+
+  test("a base_denies refusal on a workspace version says the base's blocks stay", async () => {
+    renderAt("/profiles/new?kind=workspace", {
+      ...catalog().routes,
+      "POST /v1/workspace-profiles": () =>
+        refusal(400, "BAD_REQUEST", {
+          reason_code: "base_denies",
+          field: "deny",
+        }),
+    });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "strict");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    const message = await screen.findByText(
+      "바탕 프로필이 막은 도구는 풀 수 없습니다. 목록을 다시 불러오세요.",
+    );
+    expect(
+      screen.getByRole("group", { name: "차단할 내장 도구" }).contains(message),
+    ).toBe(true);
+  });
+
+  test("a workspace version from an older one is asked about against the latest, which the server checks", async () => {
+    let refused = false;
+    const server = catalog([
+      CODING,
+      version(1, "usable", { tools: ["Read", "Edit"] }),
+      version(2, "usable", { tools: ["Read"] }),
+    ]);
+    const { api } = renderAt(
+      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      {
+        ...server.routes,
+        "POST /v1/workspace-profiles": async (request: Request) => {
+          if (!refused) {
+            refused = true;
+            return refusal(400, "BAD_REQUEST", {
+              reason_code: "added_tool_not_accepted",
+              field: "accept_added_tools",
+            });
+          }
+          return server.routes["POST /v1/workspace-profiles"](request);
+        },
+      },
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    // It starts from v1, which ran Edit.
+    expect(blockedBoxes()).toEqual(["Bash", "Write", "WebFetch", "WebSearch"]);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    const diff = await screen.findByRole("group", { name: "카탈로그 차이" });
+    // v2, the latest, never ran Edit.
+    await user.click(
+      within(diff).getByRole("checkbox", { name: "Edit 실행을 받아들이기" }),
+    );
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(2));
+    expect(posted(api)[1]).toMatchObject({
+      deny: ["Bash", "Write", "WebFetch", "WebSearch"],
+      accept_added_tools: ["Edit"],
+    });
+  });
+
+  test("a latest version saved after the form opened is read again when the server refuses against it", async () => {
+    let refused = false;
+    const server = catalog([
+      CODING,
+      version(1, "usable", { tools: ["Read", "Edit"] }),
+    ]);
+    const { api } = renderAt(
+      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      {
+        ...server.routes,
+        "POST /v1/workspace-profiles": async (request: Request) => {
+          if (!refused) {
+            refused = true;
+            // Someone else's v2, which never ran Edit, lands first.
+            server.items.push(version(2, "usable", { tools: ["Read"] }));
+            return refusal(400, "BAD_REQUEST", {
+              reason_code: "added_tool_not_accepted",
+              field: "accept_added_tools",
+            });
+          }
+          return server.routes["POST /v1/workspace-profiles"](request);
+        },
+      },
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    expect(screen.queryAllByRole("group", { name: "카탈로그 차이" })).toEqual(
+      [],
+    );
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    const diff = await screen.findByRole("group", { name: "카탈로그 차이" });
+    await user.click(
+      within(diff).getByRole("checkbox", { name: "Edit 실행을 받아들이기" }),
+    );
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(2));
+    expect(posted(api)[1]).toMatchObject({ accept_added_tools: ["Edit"] });
+  });
+
+  test("when the list cannot be read again after that refusal, the form and its message stay", async () => {
+    let refused = false;
+    const server = catalog([
+      CODING,
+      version(1, "usable", { tools: ["Read", "Edit"] }),
+    ]);
+    renderAt(
+      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      {
+        ...server.routes,
+        "GET /v1/profiles": () =>
+          refused
+            ? refusal(500, "INTERNAL", {})
+            : server.routes["GET /v1/profiles"](),
+        "POST /v1/workspace-profiles": () => {
+          refused = true;
+          return refusal(400, "BAD_REQUEST", {
+            reason_code: "added_tool_not_accepted",
+            field: "accept_added_tools",
+          });
+        },
+      },
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await screen.findByText(
+      "이전 버전이 다루지 않은 도구를 열려고 합니다. 아래 카탈로그 차이에서 받아들이거나 다시 차단하세요.",
+    );
+    expect(screen.getByLabelText("이름")).toBeTruthy();
+  });
+
+  test("a new workspace profile under a name already taken starts with what its latest version never ran blocked", async () => {
+    const { api } = renderAt(
+      "/profiles/new?kind=workspace",
+      // An allow-list v1: it weighed nothing outside what it ran.
+      catalog([
+        CODING,
+        version(1, "usable", { tools: ["Read", "Edit"], deny: null }),
+      ]).routes,
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    const user = await setupUser();
+    await user.type(screen.getByLabelText("이름"), "strict");
+    // v1, the latest, ran Read and Edit; the base also runs Bash.
+    expect(blockedBoxes()).toContain("Bash");
+    const diff = screen.getByRole("group", { name: "카탈로그 차이" });
+    expect(
+      within(diff).getByRole("checkbox", { name: "Bash 실행을 받아들이기" }),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(posted(api)).toHaveLength(1));
+    expect(posted(api)[0]).toMatchObject({
+      deny: expect.arrayContaining(["Bash"]),
+    });
+  });
+
+  test("a refusal beside the checklist marks its open boxes invalid", async () => {
+    renderAt("/profiles/new?kind=workspace", {
+      ...catalog().routes,
+      "POST /v1/workspace-profiles": () =>
+        refusal(400, "BAD_REQUEST", {
+          reason_code: "unknown_tool",
+          field: "deny",
+        }),
+    });
+    const user = await setupUser();
+    await user.type(await screen.findByLabelText("이름"), "strict");
+    const tools = screen.getByRole("group", { name: "차단할 내장 도구" });
+    const read = within(tools).getByRole("checkbox", { name: "Read" });
+    expect(read.getAttribute("aria-invalid") === null).toBe(true);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    await screen.findByText(
+      "이 런타임 버전의 지원 카탈로그에 없는 도구가 있습니다. 목록을 다시 불러오세요.",
+    );
+    expect(read.getAttribute("aria-invalid")).toBe("true");
+    // A base's block cannot change, so it is not what the person fixes.
+    const locked = within(tools)
+      .getAllByRole("checkbox")
+      .filter((box) => (box as HTMLButtonElement).disabled);
+    expect(locked.length > 0).toBe(true);
+    for (const box of locked)
+      expect(box.getAttribute("aria-invalid") === null).toBe(true);
   });
 });

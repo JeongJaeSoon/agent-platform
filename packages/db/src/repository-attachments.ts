@@ -1,17 +1,26 @@
 import { randomUUID } from "node:crypto";
-import type { RepositoryAttachFailure } from "@werft-ai/contracts";
+import {
+  agentGitHubSchema,
+  type RepositoryAttachFailure,
+} from "@werft-ai/contracts";
 import type {
   RepositoryAttachmentRow,
   RepositoryAttachmentStore,
 } from "@werft-ai/platform";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "./queries.ts";
 import {
+  agentReleases,
+  agents,
   attempts,
   receipts,
   sessionRepositoryAttachments,
   sessions,
 } from "./schema.ts";
+
+const sessionRelease = alias(agentReleases, "session_release");
+const activeRelease = alias(agentReleases, "active_release");
 
 const sessionTarget = (sessionId: string) => ({
   session_id: sessionId,
@@ -186,6 +195,35 @@ export function createPostgresRepositoryAttachments(
         actor: input.actor,
       });
       return id;
+    },
+
+    async activeRelease(rawSessionId) {
+      const [row] = await db
+        .select({
+          id: activeRelease.id,
+          profileId: activeRelease.runtimeProfileId,
+          github: sql<unknown>`${activeRelease.policyPins} -> 'github'`,
+        })
+        .from(sessions)
+        .innerJoin(
+          sessionRelease,
+          eq(sessionRelease.id, sessions.agentReleaseId),
+        )
+        .innerJoin(agents, eq(agents.id, sessionRelease.agentId))
+        .innerJoin(activeRelease, eq(activeRelease.id, agents.activeReleaseId))
+        .where(eq(sessions.id, rawSessionId.toLowerCase()))
+        .limit(1);
+      if (row === undefined) return null;
+      const { id, profileId } = row;
+      if (row.github === null || row.github === undefined) {
+        return { id, profileId, github: null };
+      }
+      const github = agentGitHubSchema.safeParse(row.github);
+      return {
+        id,
+        profileId,
+        github: github.success ? github.data : "invalid",
+      };
     },
 
     async list(rawSessionId) {

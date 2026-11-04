@@ -1,15 +1,123 @@
 import { describe, expect, test } from "bun:test";
 import type { UserLocale } from "@werft-ai/contracts";
-import type { SlackOutboxEntry } from "../ports/slack-outbox-store.ts";
+import type {
+  SlackCardClaim,
+  SlackCardSettleStore,
+  SlackOpenPushCard,
+  SlackOutboxEntry,
+} from "../ports/slack-outbox-store.ts";
+import type { PushSource } from "../sessions/push-request-service.ts";
 import {
   createOutboxSlackNoticeSink,
   finalReplyText,
   SLACK_OUTBOX_MESSAGES,
   SLACK_TEXT_MAX,
+  settleSlackCards,
   slackOutboxText,
   slackPromptDedupeKey,
   slackTurnDedupeKey,
 } from "./slack-outbox.ts";
+
+describe("settleSlackCards", () => {
+  test("a claim reached after the deadline goes back unsent, keeping its error", async () => {
+    const claim = (id: string) =>
+      ({
+        id,
+        claimToken: `token-${id}`,
+        workspaceId: "w",
+        slackAppId: "A",
+        sessionId: "s",
+        channelId: "C",
+        slackTs: `1.${id}`,
+        dedupeKey: `prompt:s:${id}`,
+        body: { text: "card" },
+        rendered: "open",
+        uncertainRev: 0,
+        uncertain: false,
+        inherited: false,
+        attempts: 0,
+      }) as SlackCardClaim;
+    const deferred: unknown[] = [];
+    let claims = 0;
+    const store = {
+      expireInflight: async () => 0,
+      markDue: async () => 0,
+      claim: async () => (claims++ === 0 ? [claim("1"), claim("2")] : []),
+      defer: async (fence, input) => {
+        deferred.push([fence.id, input]);
+        return true;
+      },
+    } as Partial<SlackCardSettleStore> as SlackCardSettleStore;
+    let clock = 0;
+    const sent: unknown[] = [];
+    const pass = await settleSlackCards({
+      store,
+      slack: { updateMessage: async (_token, input) => void sent.push(input) },
+      botToken: async () => "xoxb-test",
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      batchSize: 20,
+      deadline: 1000,
+      // The loop's own check passes; the clock then runs out mid-batch.
+      now: () => (clock++ === 0 ? 0 : 1000),
+    });
+    expect(sent).toEqual([]);
+    expect(deferred).toEqual([
+      ["1", { retryInMs: 0, failed: false, error: null }],
+      ["2", { retryInMs: 0, failed: false, error: null }],
+    ]);
+    expect(pass).toMatchObject({ claimed: 2, deferred: 2, sent: 0 });
+  });
+
+  test("pages past push cards that stay reject-only, so a later one still gets its Reject-only card", async () => {
+    const push = (seq: number, rendered: "open" | "reject_only") =>
+      ({
+        id: `card-${seq}`,
+        seq,
+        sessionId: `session-${seq}`,
+        rendered,
+        sessionCheckpointRevision: 2,
+        checkpointRevision: 1,
+        gitCommit: "a".repeat(40),
+      }) satisfies SlackOpenPushCard;
+    const open = [
+      push(1, "reject_only"),
+      push(2, "reject_only"),
+      push(3, "open"),
+    ];
+    const marked: string[] = [];
+    const store = {
+      expireInflight: async () => 0,
+      markDue: async () => 0,
+      openPushCards: async ({ limit, afterSeq }) =>
+        open
+          .filter((card) => afterSeq === null || card.seq > afterSeq)
+          .slice(0, limit),
+      markDueById: async (id) => {
+        marked.push(id);
+        return true;
+      },
+      claim: async () => [],
+    } as Partial<SlackCardSettleStore> as SlackCardSettleStore;
+    const pushSource = {
+      readPushSource: async () => ({
+        status: "ready",
+        revision: 2,
+        gitCommit: "b".repeat(40),
+      }),
+    } as unknown as PushSource;
+    const pass = await settleSlackCards({
+      store,
+      slack: { updateMessage: async () => {} },
+      botToken: async () => null,
+      logger: { info: () => {}, warn: () => {}, error: () => {} } as never,
+      pushSource,
+      batchSize: 1,
+      deadline: Date.now() + 60_000,
+    });
+    expect(marked).toEqual(["card-3"]);
+    expect(pass.due).toBe(1);
+  });
+});
 
 describe("createOutboxSlackNoticeSink", () => {
   const record = async (locale: UserLocale | null) => {

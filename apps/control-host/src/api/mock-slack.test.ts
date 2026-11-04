@@ -521,6 +521,7 @@ describe("fake Slack takes a card with a folded container and its one-line settl
       locale: "ko",
       linkUrl: "https://console.example/sessions/x",
       deciderSlackUserId: "U0DECIDER",
+      decidedVia: "web",
       display: {
         kind: "permission",
         tool: "Bash",
@@ -542,14 +543,14 @@ describe("fake Slack takes a card with a folded container and its one-line settl
         {
           channelId: "C0X",
           ts: "1.2",
-          text: "<@U0DECIDER>님이 허용했어요\n명령 실행: npm test\n<https://console.example/sessions/x|웹에서 열기>",
+          text: "*웹에서 허용됨* · <@U0DECIDER>\n명령 실행: npm test\n<https://console.example/sessions/x|웹에서 열기>",
           blocks: [
             {
               type: "context",
               elements: [
                 {
                   type: "mrkdwn",
-                  text: ":white_check_mark: <@U0DECIDER>님이 허용했어요",
+                  text: ":white_check_mark: *웹에서 허용됨* · <@U0DECIDER>",
                 },
                 {
                   type: "plain_text",

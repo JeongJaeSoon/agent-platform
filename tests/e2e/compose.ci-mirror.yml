@@ -26,9 +26,8 @@ services:
   fake-mcp:
     image: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
   gitea:
-    image: ghcr.io/jeongjaesoon/agent-platform-ci/gitea@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
-  gitea-init:
-    image: ghcr.io/jeongjaesoon/agent-platform-ci/gitea@sha256:538658de667c5d098a274f2f63aa6ec891d88f670cdd5282cf27221ba747dda4
+    build:
+      args: *mirror-build-args
   migrate:
     build:
       args: *mirror-build-args

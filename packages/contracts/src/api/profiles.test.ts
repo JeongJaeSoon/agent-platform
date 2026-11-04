@@ -65,7 +65,7 @@ describe("profile deny", () => {
     }
   });
 
-  test("a request naming deny is refused, not read with deny dropped", () => {
+  test("a request names exactly one of tools and deny, and accepts added tools only with deny", () => {
     const ceiling = {
       name: "coding",
       connection_id: "main",
@@ -90,12 +90,33 @@ describe("profile deny", () => {
       [createWorkspaceProfileRequestSchema, version],
     ] as const) {
       expect(schema.safeParse(request).success).toBe(true);
+      expect(schema.safeParse({ ...request, tools: [] }).data?.tools).toEqual(
+        [],
+      );
       for (const deny of [["Bash"], []]) {
         expect(schema.safeParse({ ...request, deny }).success).toBe(false);
       }
       const { tools: _, ...toolless } = request;
       expect(schema.safeParse(toolless).success).toBe(false);
-      expect(schema.safeParse({ ...toolless, deny: [] }).success).toBe(false);
+      for (const deny of [["Bash"], []]) {
+        const parsed = schema.safeParse({ ...toolless, deny });
+        expect(parsed.data?.deny).toEqual(deny);
+        expect(parsed.data && "tools" in parsed.data).toBe(false);
+      }
+      expect(
+        schema.safeParse({
+          ...toolless,
+          deny: [],
+          accept_added_tools: ["Bash"],
+        }).success,
+      ).toBe(true);
+      expect(
+        schema.safeParse({ ...request, accept_added_tools: ["Bash"] }).success,
+      ).toBe(false);
+      expect(
+        schema.safeParse({ ...toolless, accept_added_tools: ["Bash"] }).success,
+      ).toBe(false);
+      expect(schema.safeParse({ ...toolless, deny: [""] }).success).toBe(false);
     }
   });
 });

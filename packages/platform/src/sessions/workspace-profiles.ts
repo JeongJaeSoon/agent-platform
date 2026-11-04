@@ -28,6 +28,12 @@ import {
   workspaceProfileState,
 } from "./catalog.ts";
 import { latestReads } from "./profile-registry.ts";
+import {
+  deniedTools,
+  previousChoice,
+  type StoredDeny,
+  shownDeny,
+} from "./profile-tools.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 
 /**
@@ -62,18 +68,35 @@ export function createWorkspaceProfiles(
   };
 }
 
+/** Only a catalog given tool catalogs lists a deny; without them none is known. */
+function denyField(
+  catalog: SessionCatalogView,
+  stored: StoredDeny | undefined,
+  tools: readonly string[],
+  runtime: { kind: string; version: string },
+): { deny?: string[] | null } {
+  return catalog.tool_catalogs === undefined
+    ? {}
+    : { deny: shownDeny(catalog.tool_catalogs, stored ?? {}, tools, runtime) };
+}
+
 /** `trustedId` is the operator profile a repository's allow list names. */
 function summaryOf(
   catalog: SessionCatalogView,
   id: string,
   trustedId: string,
   profile: CatalogProfileView,
+  stored?: StoredDeny,
 ) {
   return {
     id,
     model: profile.model,
     models: profileModels(profile),
     tools: [...profile.tools],
+    ...denyField(catalog, stored, profile.tools, {
+      kind: profile.runtime_kind,
+      version: profile.runtime_version,
+    }),
     permission_mode: profile.permission_mode,
     runtime_kind: profile.runtime_kind,
     runtime_version: profile.runtime_version,
@@ -97,13 +120,14 @@ function workspaceSummary(
   const base = Object.hasOwn(catalog.profiles, record.base_profile_id)
     ? catalog.profiles[record.base_profile_id]
     : undefined;
-  return {
+  const listed = {
     ...(base
       ? summaryOf(
           catalog,
           record.id,
           record.base_profile_id,
           derivationPolicyOf(catalog).apply(base, record),
+          record,
         )
       : {
           id: record.id,
@@ -120,6 +144,15 @@ function workspaceSummary(
           repository_mode: record.base_repository_mode,
           repository_ids: [],
         }),
+  };
+  return {
+    ...listed,
+    ...(base
+      ? {}
+      : denyField(catalog, record, record.tools, {
+          kind: listed.runtime_kind,
+          version: listed.runtime_version,
+        })),
     source: "workspace",
     workspace: {
       name: record.name,
@@ -176,7 +209,7 @@ export function operatorSummary(
       : written?.record.retired_at
         ? "retired"
         : "usable";
-  const summary = summaryOf(catalog, id, id, profile);
+  const summary = summaryOf(catalog, id, id, profile, record);
   const repositoryIds =
     current || !written || summary.repository_mode === "none"
       ? summary.repository_ids
@@ -333,10 +366,51 @@ export function createWorkspaceProfileService(deps: {
           { reason_code: "unknown_base", field: "base_profile_id" },
         );
       }
+      // A deny weighs the latest version, so it reads them now; the store
+      // refuses the save if another one lands before it.
+      if (request.deny !== undefined)
+        await catalog.workspace_profiles.refresh();
+      const previous = [...catalog.workspace_profiles.records.values()]
+        .filter(
+          (record) =>
+            record.workspace_id === actor.workspaceId &&
+            record.name === request.name,
+        )
+        .reduce<WorkspaceProfileRecord | undefined>(
+          (latest, record) =>
+            latest === undefined || record.version > latest.version
+              ? record
+              : latest,
+          undefined,
+        );
+      const previousRead =
+        previous &&
+        previousChoice(catalog.tool_catalogs, previous, previous.tools);
+      const baseCatalog = catalog.tool_catalogs?.for(
+        base.runtime_kind,
+        base.runtime_version,
+      );
+      const denied =
+        request.deny === undefined
+          ? undefined
+          : deniedTools({
+              catalog: baseCatalog,
+              deny: request.deny,
+              accept: request.accept_added_tools,
+              base: {
+                tools: base.tools,
+                // An allow-list base names no catalog: only its tools bound the version.
+                sameCatalog:
+                  baseCatalog !== undefined &&
+                  catalog.installation?.get(request.base_profile_id)?.record
+                    ?.tool_catalog_id === baseCatalog.id,
+              },
+              previous: previousRead,
+            });
       const narrowing = {
         model: request.model,
         models: [...new Set(request.models)],
-        tools: [...new Set(request.tools)],
+        tools: denied?.tools ?? [...new Set(request.tools ?? [])],
         permission_mode: request.permission_mode,
       };
       const refusal = derivationPolicyOf(catalog).refusal(base, narrowing);
@@ -364,6 +438,14 @@ export function createWorkspaceProfileService(deps: {
           repositoryMode: repositoryModeOf(base),
         },
         narrowing,
+        deny: denied?.deny ?? null,
+        toolCatalogId: denied?.toolCatalogId ?? null,
+        ...(denied
+          ? {
+              previousVersion: previous?.version ?? null,
+              ...(previousRead?.drift ? { previousDenyDrift: true } : {}),
+            }
+          : {}),
       });
       switch (result.outcome) {
         case "actor_inactive":

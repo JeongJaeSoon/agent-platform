@@ -6,6 +6,7 @@ import type {
   FinalizeRequest,
   PauseBlockedReason,
   PermissionGrant,
+  PlatformPrompt,
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
@@ -73,6 +74,9 @@ export type WorkerBinding = {
   // The release card's `agent_instructions` as stored, untrimmed. Null, or
   // absent, without a release or when the card has none or "".
   agentInstructions?: string | null;
+  // The session row's platform prompt as stored. Null, or absent, for a
+  // revision 0 session.
+  platformPrompt?: PlatformPrompt | null;
   // The allows a parked turn's answers left for the turn carrying it on,
   // not yet spent.
   grants?: readonly PermissionGrant[];

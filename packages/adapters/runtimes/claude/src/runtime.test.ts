@@ -634,6 +634,63 @@ describe("Claude SDK adapter options", () => {
     }
   });
 
+  test("gitEnvironment goes into the engine's environment only, beside the signature and auto settings", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    const git = {
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "core.hooksPath",
+      GIT_CONFIG_VALUE_0: "/usr/local/share/werft/git-hooks",
+      GIT_CONFIG_KEY_1: "user.name",
+      GIT_CONFIG_VALUE_1: "werft-dev[bot]",
+    };
+    const { env, ...rest } = buildSdkOptions(
+      { ...config, permissionMode: "auto", gitEnvironment: git },
+      allow,
+    );
+    expect(env).toMatchObject(git);
+    expect(rest.settings).toEqual({
+      attribution: { commit: "", pr: "", sessionUrl: false },
+      autoMode: PLATFORM_AUTO_MODE,
+    });
+    expect(JSON.stringify(rest)).not.toContain("werft-dev[bot]");
+    expect(rest).not.toHaveProperty("extraArgs");
+    expect(
+      Object.keys(buildSdkOptions(config, allow).env ?? {}).filter((name) =>
+        name.startsWith("GIT_"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("refuses a gitEnvironment carrying anything but the three git settings", () => {
+    const allow = {
+      onPermission: async () => ({ behavior: "allow" as const }),
+    };
+    for (const gitEnvironment of [
+      {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.sshCommand",
+        GIT_CONFIG_VALUE_0: "x",
+      },
+      {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "user.name",
+        GIT_CONFIG_VALUE_0: "a\nb",
+      },
+      {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "user.name",
+        GIT_CONFIG_VALUE_0: "a",
+        LD_PRELOAD: "/tmp/x.so",
+      },
+    ]) {
+      expect(() =>
+        buildSdkOptions({ ...config, gitEnvironment }, allow),
+      ).toThrow("gitEnvironment");
+    }
+  });
+
   test("rejects an unknown permission mode before starting a query", () => {
     const runtime = new ClaudeSdkRuntime({
       endpoints: ["https://api.anthropic.com"],

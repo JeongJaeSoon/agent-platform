@@ -192,6 +192,20 @@ describe("summarizeToolRequest", () => {
     ).toEqual({ verb: "PR에 댓글", target: `${REPO} ← ${BRANCH}` });
     expect(
       ko(
+        "mcp__github__close_pull_request",
+        githubInput("close_pull_request", { push_request_id: PUSH_ID }),
+        { repository: REPO, branch: BRANCH },
+      ),
+    ).toEqual({ verb: "PR 닫기", target: `${REPO} ← ${BRANCH}` });
+    expect(
+      ko(
+        "mcp__github__reopen_pull_request",
+        githubInput("reopen_pull_request", { push_request_id: PUSH_ID }),
+        { repository: REPO, branch: BRANCH },
+      ),
+    ).toEqual({ verb: "PR 다시 열기", target: `${REPO} ← ${BRANCH}` });
+    expect(
+      ko(
         "mcp__github__attach_repository",
         githubInput("attach_repository", { repository_id: "repo-2" }),
         { repository: "JeongJaeSoon/other" },

@@ -56,6 +56,43 @@ function keepDoubleBacktickSpans(text: string, kept: Kept): string {
   );
 }
 
+/** A URL runs to the next space, so only the last word can hold one. */
+function endsInUrl(text: string): boolean {
+  // Split, not a search anchored at the end, which rescans from every start.
+  return /\bhttps?:\/\/\S/i.test(text.split(/\s/).at(-1) ?? "");
+}
+
+/**
+ * Slack finds URLs itself and reads one on to the next space, past a closing
+ * backtick or fence, so a URL that ends the code is cut off from what follows.
+ * Code is split as escapeSlackControls splits it, so both agree on what Slack
+ * shows as code.
+ */
+function guardCodeUrls(text: string): string {
+  let position = 0;
+  return mapCodeAndText(
+    text,
+    (part) => {
+      position += part.length;
+      return part;
+    },
+    (code) => {
+      position += code.length;
+      if (code.startsWith("```")) {
+        const body = code.slice(0, -3);
+        return endsInUrl(body) ? `${body}\n\`\`\`` : code;
+      }
+      const next = text[position];
+      return next !== undefined &&
+        next !== ZWSP &&
+        !/[\s\p{P}]/u.test(next) &&
+        endsInUrl(code.slice(1, -1))
+        ? `${code}${ZWSP}`
+        : code;
+    },
+  );
+}
+
 /** A `~~~` fence becomes a ``` fence; Slack knows only that one. */
 function keepTildeFences(text: string, kept: Kept): string {
   const lines = text.split("\n");
@@ -145,6 +182,14 @@ function marks(text: string, mode: Inline["marks"]): string {
 
 function inline(text: string, kept: Kept, mode: Inline): string {
   const linked = text
+    // Here, not where `` spans are kept, so one inside a fence stays as written.
+    // A URL needs a span Slack reads as code for guardCodeUrls to protect it.
+    .replace(/\d+/g, (token) => {
+      const inner = /^``([^`]+)``$/.exec(kept.get(token) ?? "")?.[1];
+      return inner !== undefined && endsInUrl(inner)
+        ? kept.keep(`\`${inner}\``)
+        : token;
+    })
     .replace(LINK, (_whole, label: string, url: string) => {
       const shown = marks(label, mode.marks);
       // Slack refuses a link whose label holds a control or code.
@@ -376,5 +421,7 @@ export function markdownToSlackMrkdwn(markdown: string): string {
     (text) => text,
     (code) => kept.keep(code.replace(/^```[\w+#.-]+\n/, "```\n")),
   );
-  return kept.restore(convertLines(keepTildeFences(masked, kept), kept));
+  return guardCodeUrls(
+    kept.restore(convertLines(keepTildeFences(masked, kept), kept)),
+  );
 }

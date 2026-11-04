@@ -1,6 +1,9 @@
 import type { GitHubAppRole } from "@werft-ai/contracts";
 import type { RepoRef } from "../ports/forge.ts";
-import type { GitHubPinStore } from "../ports/github-app-store.ts";
+import type {
+  ClaimPinAudit,
+  GitHubPinStore,
+} from "../ports/github-app-store.ts";
 import type {
   GitHubConnection,
   GitHubConnectionSource,
@@ -15,7 +18,7 @@ export type GitHubConnectionChoice =
       /** The console connection's id; null for a catalog App or a PAT. */
       connectionId: string | null;
       /** Set when this choice left the repository's first pin. */
-      pinnedBy: "first_mint" | null;
+      pinnedBy: "first_mint" | "claim" | null;
     }
   /** No connection serves the role: none registered, or not on GitHub. */
   | { kind: "none" }
@@ -103,6 +106,8 @@ export function createGitHubConnectionResolver(deps: {
     /**
      * `pin`: leave the first pin when one connection reaches an unpinned
      * repository (a token issue does; a read for a badge does not).
+     * `claim`: the pin is a claim's, for its commit author, and is audited
+     * with the session rather than counted as a first mint.
      */
     async resolve(
       repositoryId: string,
@@ -112,6 +117,7 @@ export function createGitHubConnectionResolver(deps: {
         pin: boolean;
         /** The role's source the caller already read, so it is read once. */
         source?: GitHubConnectionSource | null;
+        claim?: ClaimPinAudit;
       },
     ): Promise<GitHubConnectionChoice> {
       const source =
@@ -162,13 +168,17 @@ export function createGitHubConnectionResolver(deps: {
           pinnedBy: null,
         };
       }
-      const { pin: kept, created } = await pins.pinFirst({
+      const target = {
         repositoryId,
         role,
         connectionId: only.id,
         appId: only.appId,
-        pinnedBy: "first_mint",
-      });
+      };
+      const { pin: kept, created } = await pins.pinFirst(
+        options.claim === undefined
+          ? { ...target, pinnedBy: "first_mint" }
+          : { ...target, pinnedBy: "claim", audit: options.claim },
+      );
       if (kept === null) {
         return {
           kind: "unreachable",
@@ -181,7 +191,7 @@ export function createGitHubConnectionResolver(deps: {
         kind: "connection",
         connection: only.connection,
         connectionId: only.id,
-        pinnedBy: "first_mint",
+        pinnedBy: options.claim === undefined ? "first_mint" : "claim",
       };
     },
 

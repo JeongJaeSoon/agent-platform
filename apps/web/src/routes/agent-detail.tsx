@@ -277,6 +277,8 @@ function AgentView({
   const onOutcome = outcomeAt("releases");
   // Until a version is picked or saved the release form offers the latest.
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
+  // One profile for the card editor's tool checklist and a new release.
+  const [profileId, setProfileId] = useState<string>();
   const { client } = useAgentPlatform();
   const queryClient = useQueryClient();
   const role = useRole();
@@ -423,6 +425,8 @@ function AgentView({
         {editing && manages ? (
           <CardEditor
             detail={detail}
+            profileId={profileId}
+            onProfileChange={setProfileId}
             result={<PlacedOutcome placed={placed} at="card" />}
             onOutcome={outcomeAt("card")}
             onSaved={setReleaseVersion}
@@ -465,6 +469,8 @@ function AgentView({
       <TabsContent {...tabPanel("release")}>
         <Releases
           detail={detail}
+          profileId={profileId}
+          onProfileChange={setProfileId}
           shown={tab === "release"}
           picked={releaseVersion}
           onPick={setReleaseVersion}

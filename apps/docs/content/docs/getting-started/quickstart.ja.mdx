@@ -5,9 +5,9 @@ description: SDK でセッションを作り、ターンの終わりを待って
 
 [SDK のインストール](/getting-started/install)で作った `werft` クライアントでセッションを 1 つ作り、最初のターンが終わるところまで見る。例は[開発用サーバー](/run-server/dev-server)を `--fake-model` で立ち上げた場合である。`GATE-SPEC {…}` メッセージは fake モデルが読む台本なので、実際の Claude が動くサーバーでは普通の文を送る。
 
-## 実行プロファイルを選ぶ
+## プロファイルを選ぶ
 
-セッションは、サーバーの運用者が登録した実行プロファイル(profile)のどれかで動く。[接続を確認する](/getting-started/install#接続を確認する)で見た一覧である。開発用サーバーには、リポジトリを使う `claude-coding-local`(権限リクエストに人が答える)と `claude-coding-auto`(分類器が判定する)、リポジトリなしで動く `general` がある。ここでは `claude-coding-local` を使う。
+セッションは、サーバーの運用者が登録したプロファイル(profile)のどれかで動く。[接続を確認する](/getting-started/install#接続を確認する)で見た一覧である。開発用サーバーには、リポジトリを使う `claude-coding-local`(権限リクエストに人が答える)と `claude-coding-auto`(分類器が判定する)、リポジトリなしで動く `general` がある。ここでは `claude-coding-local` を使う。
 
 ## セッションを作る
 
@@ -33,7 +33,7 @@ console.log(created);
 }
 ```
 
-- `repository_id` はセッションが clone するリポジトリである。開発用サーバーの Gitea に `sample-app` が入っている。
+- `repository_id` はセッションが clone するリポジトリである。開発用サーバーの読み取り専用 Git サーバーが `sample-app` を配信する。
 - `message` は最初のターンの入力である。この台本はツールを呼ばずに `hello from Werft` で終わる。
 - 作成は受け付けるだけである。結果はターンが終わってから読む。
 - セッションを作るリクエストには `Idempotency-Key` が必要である。SDK が呼び出しごとに 1 つ作って付け、その呼び出しをリトライするときは同じキーを送る。

@@ -351,6 +351,8 @@ integration("installation profiles on PostgreSQL", () => {
       fingerprint: entry.fingerprint,
       repository_ids: ["app"],
       github_app_repositories: null,
+      deny: null,
+      toolCatalogId: null,
       connectionId: "main",
     };
   }
@@ -395,6 +397,45 @@ integration("installation profiles on PostgreSQL", () => {
         previous_id: `op_${name}_v1`,
         connection_id: "main",
       },
+    });
+  });
+
+  test("a deny-made version keeps its deny and catalog id beside the definition, and names them in its receipt", async () => {
+    const owner = await person(await workspace(), "owner");
+    const store = createPostgresInstallationProfileStore(db);
+    const name = `deny${ids()}`;
+    const input = {
+      ...save(owner, name, null),
+      deny: ["Bash"],
+      toolCatalogId: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+      previousDenyDrift: true,
+    };
+    const made = await store.create(input);
+    expect(made).toMatchObject({
+      outcome: "created",
+      record: {
+        deny: ["Bash"],
+        tool_catalog_id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+      },
+    });
+    const listed = (await store.listAll()).find(
+      (row) => row.id === `op_${name}_v1`,
+    );
+    expect(listed?.deny).toEqual(["Bash"]);
+    expect(Object.keys(listed?.definition as object)).not.toContain("deny");
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, input.receiptId));
+    expect(receipt?.result).toMatchObject({
+      deny: ["Bash"],
+      tool_catalog_id: "claude_agent_sdk@0.3.270+claude-code@2.1.270",
+      previous_deny_drift: true,
+    });
+    const listedOnly = await store.create(save(owner, name, `op_${name}_v1`));
+    expect(listedOnly).toMatchObject({
+      outcome: "created",
+      record: { deny: null, tool_catalog_id: null },
     });
   });
 
