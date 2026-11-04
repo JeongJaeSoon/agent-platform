@@ -5756,6 +5756,9 @@ export interface components {
                 /** @constant */
                 kind: "policy";
                 agent_release_id: string;
+                /** @enum {string} */
+                policy_source?: "release" | "agent";
+                agent_settings_revision?: number | null;
             }) | null;
             resolved_at: string | null;
             resolution_reason: string | null;
