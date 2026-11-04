@@ -382,13 +382,13 @@ exit 0
 });
 
 describe("compose's refusal of a render", () => {
-  test("drops the port it quotes and keeps everything else", () => {
-    expect(
-      renderRefusal(
-        "invalid hostPort: bad-port-marker\ninvalid IP address: 127.0.0.1:bad\n",
-      ),
-    ).toBe(
-      "a TEST_OPS_*_PORT setting must be one port from 1 to 65535\n".repeat(2),
+  test("drops the port it quotes, on every line, and keeps anything else", () => {
+    const refusal =
+      "a TEST_OPS_*_PORT setting must be one port from 1 to 65535\n";
+    expect(renderRefusal("invalid hostPort: bad-port-marker\n")).toBe(refusal);
+    expect(renderRefusal("invalid IP address: 127.0.0.1:bad\n")).toBe(refusal);
+    expect(renderRefusal("invalid hostPort: 4566\nsecond-line-marker\n")).toBe(
+      refusal,
     );
     const required =
       "error while interpolating services.api: required variable API_IMAGE is missing a value: API_IMAGE must name the released control-host image\n";
@@ -616,6 +616,7 @@ case "$*" in
   version*) echo 29.0.0 ;;
   "compose version"*) echo 2.30.0 ;;
   *" config --format json") cat "${join(dir, "render.json")}" ;;
+  *" ps -q localstack") echo running-container ;;
   *" port localstack 4566") echo 127.0.0.1:4566 ;;
 esac
 exit 0
@@ -692,6 +693,7 @@ exit 0
     "3000:3000",
     "3000/udp",
     "bad:port:marker",
+    "4566\nsecond-line-marker",
   ])(
     "preflight refuses the port %p without showing it or a secret",
     async (value) => {

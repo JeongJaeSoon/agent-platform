@@ -198,13 +198,14 @@ function apiUrlProblems(value: string, apiPort: string | undefined): string[] {
 const PORT_REFUSAL =
   /invalid (?:hostPort|containerPort|proto|IP address)|no port specified/i;
 
-/** Compose's stderr, with the lines that quote a refused port replaced. */
+/**
+ * Compose's stderr, unless it refused a port: it quotes the value, which can
+ * run over several lines, so nothing of that message stays.
+ */
 export function renderRefusal(stderr: string): string {
-  return stderr.replace(/^.*$/gm, (line) =>
-    PORT_REFUSAL.test(line)
-      ? "a TEST_OPS_*_PORT setting must be one port from 1 to 65535"
-      : line,
-  );
+  return PORT_REFUSAL.test(stderr)
+    ? "a TEST_OPS_*_PORT setting must be one port from 1 to 65535\n"
+    : stderr;
 }
 
 /**

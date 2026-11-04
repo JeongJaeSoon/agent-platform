@@ -389,7 +389,7 @@ scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<시�
 
 `reseed`가 하는 일:
 
-1. 렌더가 `preflight`의 렌더 검사를 통과하고, manifest의 project·bucket이 이 설치와 같고, 체크섬과 schema가 맞는지 본다.
+1. 렌더가 `preflight`의 렌더 검사를 카탈로그 revision만 빼고 통과하고, manifest의 project·bucket이 이 설치와 같고, 체크섬과 schema가 맞는지 본다.
 2. writer를 멈춘 채 postgres와 LocalStack을 띄운다. LocalStack의 bucket이 비어 있어야 한다. 비어 있지 않으면 재시작이 없었다는 뜻이므로 거부한다.
 3. `scripts/restore.sh`가 새 bucket을 채우는 방식 그대로 object를 올린다: create-only 업로드 뒤, 모든 미수거 checkpoint를 새 version으로 re-pin하고 legal hold를 건다. re-pin은 쓰기 전에 DB의 모든 미수거 checkpoint를 올린 바이트와 대조한다. 백업 뒤에 DB가 바뀌었으면 여기서 거부한다.
 4. object 수가 백업과 같으면 설치를 다시 띄우고 `history.log`에 남긴다.

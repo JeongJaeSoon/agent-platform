@@ -272,7 +272,7 @@ render() {
 }
 
 check_render() {
-  with_render check-render --store "$STORE" --catalog-revision "$CATALOG_REVISION" "$@" >/dev/null \
+  with_render check-render --store "$STORE" "$@" >/dev/null \
     || die "the settings are not a test-ops installation's (above)"
 }
 
@@ -337,9 +337,11 @@ preflight() {
   [ ! -e "$IDENTITY" ] || check_identity
   # Reseed alone moves a running LocalStack: it puts the objects back.
   if [ "$STORE" = localstack ]; then
-    running_port="$(ops_compose port localstack 4566 2>/dev/null)" || running_port=""
+    running_port="$(ops_compose ps -q localstack)" || die "cannot tell whether LocalStack runs"
+    [ -z "$running_port" ] || running_port="$(ops_compose port localstack 4566)" \
+      || die "cannot read the port of the running LocalStack"
   fi
-  check_render ${running_port:+--localstack-port "${running_port##*:}"}
+  check_render --catalog-revision "$CATALOG_REVISION" ${running_port:+--localstack-port "${running_port##*:}"}
   if [ "$STORE" = s3 ]; then
     with_render probe-store || die "the bucket or the API's S3 key failed (above)"
   else
