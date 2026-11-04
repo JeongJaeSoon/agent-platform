@@ -698,6 +698,28 @@ describe("tools/call", () => {
     expect(answer.body.refusal).toMatchObject({ code: "internal_error" });
   });
 
+  test("a session state that cannot be read is internal_error for a call, a thrown fault for the rest", async () => {
+    const handle = createGitHubMcpServer({
+      store: {
+        sessionState: async () => {
+          throw new Error("database unavailable");
+        },
+        runningTurn: async () => null,
+        markPushContinuation: async () => false,
+      },
+      services: () => ({}) as GitHubMcpServices,
+    });
+    const rpc = (method: string, params: unknown) =>
+      handle(grant, { jsonrpc: "2.0", id: 1, method, params }, "req-1");
+    expect(
+      payload(await rpc("tools/call", { name: "list_repositories" })),
+    ).toMatchObject({
+      isError: true,
+      body: { refusal: { code: "internal_error" } },
+    });
+    await expect(rpc("tools/list", {})).rejects.toThrow("database unavailable");
+  });
+
   test("a call GitHub did not take is github and retryable", async () => {
     const h = harness({ github: github({ actions: true }) });
     h.gate.grant = async () => {

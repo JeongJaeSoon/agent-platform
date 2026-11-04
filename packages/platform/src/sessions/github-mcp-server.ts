@@ -437,7 +437,33 @@ export function createGitHubMcpServer(deps: {
     }
     // Read for every call: the proxy judged the exchange a moment ago, and
     // the same reads here keep a switch flipped since then from acting.
-    const state = await deps.store.sessionState(grant.sessionId);
+    const asked = params.name;
+    const askedTool =
+      message.method === "tools/call" &&
+      typeof asked === "string" &&
+      Object.hasOwn(GITHUB_MCP_TOOL_ARGUMENTS, asked)
+        ? (asked as GitHubMcpTool)
+        : null;
+    // A fault of the server: the model gets the code, never the exception,
+    // and a logger that fails does not take the answer with it.
+    const internalFault = (tool: GitHubMcpTool, error: unknown) => {
+      try {
+        deps.onInternalError?.(error, {
+          tool,
+          sessionId: grant.sessionId,
+          requestId,
+        });
+      } catch {}
+      return answer(refused(refusalOf(tool, "internal_error")));
+    };
+    let state: Awaited<ReturnType<typeof deps.store.sessionState>>;
+    try {
+      state = await deps.store.sessionState(grant.sessionId);
+    } catch (error) {
+      // Other methods have no tool to answer for: the transport reports it.
+      if (askedTool === null) throw error;
+      return internalFault(askedTool, error);
+    }
     if (
       state === null ||
       state.github === null ||
@@ -473,16 +499,7 @@ export function createGitHubMcpServer(deps: {
         }),
       );
     } catch (error) {
-      // A fault of the server: the model gets the code, never the exception,
-      // and a logger that fails does not take the answer with it.
-      try {
-        deps.onInternalError?.(error, {
-          tool,
-          sessionId: grant.sessionId,
-          requestId,
-        });
-      } catch {}
-      return answer(refused(refusalOf(tool, "internal_error")));
+      return internalFault(tool, error);
     }
   };
 }
