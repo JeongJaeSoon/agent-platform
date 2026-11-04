@@ -101,7 +101,7 @@ describe("real-model compose layers", () => {
     }
   });
 
-  test("migrate imports the real-model settings the local layer names", () => {
+  test("migrate imports the real-model settings the overlay names", () => {
     const { migrate } = layeredServices<Service>([...LOCAL_LAYERS, OVERLAY]);
     expect(migrate?.environment?.SETTINGS_DOCUMENT).toBe(
       "${SETTINGS_DOCUMENT-/settings/real-model.json}",

@@ -1633,6 +1633,16 @@ describe("compose layers", () => {
     COMPOSE_RENDER_TIMEOUT_MS,
   );
 
+  test(
+    "a command that names no mode imports no settings document",
+    () => {
+      const { exitCode, stderr, model } = render(["compose.yaml"], {});
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(model?.services?.migrate?.environment?.SETTINGS_DOCUMENT).toBe("");
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
   // the files `scripts/local.sh up` and `tests/e2e/run.sh --real-model`
   // start with, each rendered with a key in the caller's environment.
   test.each([

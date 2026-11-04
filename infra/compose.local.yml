@@ -149,8 +149,6 @@ services:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
-    environment:
-      SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-/settings/real-model.json}
     volumes:
       - ../tests/fixtures/settings:/settings:ro
 
