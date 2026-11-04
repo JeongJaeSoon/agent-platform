@@ -2,6 +2,8 @@
 
 main을 Kubernetes에 올리는 절차다. chart는 `deploy/helm/agent-platform`에 있고, 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](kubernetes-backend.md), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
+**현재 상태:** chart 패키지와 게시된 앱 이미지가 아직 없다. chart는 저장소 checkout의 경로로 설치하고, 이미지는 직접 빌드한다(아래 "준비"). `values.yaml` 기본값은 digest가 비어 있어 그대로는 render가 실패한다. digest만 채우고 기본값의 `ghcr.io` 이름을 두면 받을 이미지가 없어 migrate Job이 `ImagePullBackOff`로 멈춘다.
+
 Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [server-deployment.md](server-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
 worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](capacity.md)를 본다.
@@ -34,7 +36,7 @@ chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 
 
 - NetworkPolicy를 강제하는 CNI. 강제하지 않는 CNI에서는 worker 격리가 없다. kind v0.33의 기본 CNI(kindnet)는 강제한다. EKS는 VPC CNI의 network policy agent를 켠다.
 - PostgreSQL 16과 S3 bucket. 기본 보호 모드 `locked`는 versioning과 Object Lock이 켜진 bucket을 요구하고, 아니면 api가 기동을 거부한다.
-- 이미지 셋(control-host, egress-proxy, worker)을 registry에 올리고 digest를 적어 둔다. chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
+- 이미지 셋(control-host, egress-proxy, worker)을 registry에 올리고 digest를 적어 둔다. 게시된 이미지가 없으므로 checkout에서 빌드한다. kind에서는 `deploy/kind/up.sh`가 대신하고, 그 밖에서는 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한 뒤 values의 `images.registry`와 `images.*.repository`를 그 registry로 바꾼다(`values-aws.example.yaml`의 형식). chart는 tag를 받지 않고 `<registry>/<repository>@<digest>`로만 그린다. digest가 없으면 render가 실패한다. scheduler가 받는 `WORKER_IMAGE`도 `repository@sha256:<digest>` 형식이어야 한다.
 - `secrets.name`(기본 `agent-platform`) Secret. 키는 아래와 같다. 값은 명령 인자나 셸 history에 남기지 않는다.
 
 | 키 | 읽는 곳 |

@@ -2,6 +2,8 @@
 
 이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](execution.md), [API 서버](api-server.md), [이미지와 공급망](images-and-supply-chain.md), [설정 레퍼런스](configuration.md)), [quickstart](../quickstart.md), [실제 Claude로 확인하기](../real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
 
+**현재 상태:** 공식 게시 패키지가 아직 없다. `v*` 릴리스, 게시된 앱 이미지, Helm chart 패키지, npm의 `@werft-ai/sdk`가 모두 없다. 지금은 저장소 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)해서 설치한다.
+
 ## 배포 결정
 
 - 대상은 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
@@ -20,7 +22,7 @@
 - [ ] Docker 서비스가 호스트 재부팅 뒤 자동으로 시작하도록 설정됐다.
 - [ ] 방화벽은 SSH와 선택한 TLS endpoint만 허용한다. API, PostgreSQL 포트와 Docker socket은 인터넷에 열지 않는다.
 - [ ] `git`, `jq`, `curl`, Bun 1.3.14가 있고 checkout에서 dependency 설치를 마칠 수 있다.
-- [ ] GHCR package를 읽을 수 있는 최소 권한 token이 있다. `docker login`에는 stdin으로 전달하고 명령 인자, shell history, 로그에 값을 남기지 않는다.
+- [ ] 직접 빌드한 이미지를 둘 registry가 있고, 호스트가 거기서 이미지를 받을 수 있다. registry에 token이 필요하면 최소 권한으로 만들어 `docker login`에 stdin으로 전달하고 명령 인자, shell history, 로그에 값을 남기지 않는다.
 
 Docker socket은 scheduler 컨테이너가 worker를 관리할 때만 read/write로 사용한다. 호스트 TCP socket을 켜거나 reverse proxy로 전달하지 않는다.
 
@@ -76,10 +78,10 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 ## 4. release와 설정을 봉인한다
 
-1. `main`의 검증된 commit에 `v*` tag를 만들고 Images workflow가 게시한 세 이미지 digest를 확인한다.
+1. 배포할 `source_commit`을 정하고, 그 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)해 registry에 올린 뒤 digest를 확인한다. 태그를 달 필요는 없다. `v*` 태그로 이미지를 게시하는 일은 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)이고, 아직 게시된 릴리스는 없다.
 2. [release manifest](test-ops.md#release-manifest)에 `source_commit`, control-host·worker·egress-proxy digest, catalog revision을 기록한다. tag만 적지 않는다.
 3. `/etc/agent-platform` 아래에 [env 파일과 카탈로그](test-ops.md#env-파일)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 catalog 파일은 API 컨테이너가 읽을 수 있는 mode를 사용한다.
-4. provider key, S3 key, PostgreSQL password, egress token, bootstrap token, GHCR token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
+4. provider key, S3 key, PostgreSQL password, egress token, bootstrap token, registry token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
 5. release manifest와 catalog revision을 배포 증거 디렉터리에 복사한다. env 파일과 credential은 복사하지 않는다.
 
 ## 5. 설치하고 첫 사용을 확인한다
