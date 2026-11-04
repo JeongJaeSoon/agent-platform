@@ -6,7 +6,8 @@ name: Images
 # ghcr.io, and nothing else does. A main push publishes main-<12> tags with no
 # approval; a tag waits for the `release` environment, and its digests are what
 # a release manifest pins (Obsidian deployment.md § 배포·승격·롤백). Registry CD
-# beyond the push is D5.
+# beyond the push is D5. After the promotion the chart follows, with that run's
+# digests in its values, under the same two events and the same approval.
 #
 # Every build also checks what the image ships against THIRD_PARTY_NOTICES.md
 # and scans it for known vulnerabilities. The `supply-chain` job is
@@ -54,6 +55,14 @@ env:
   # that tag; BUILDKIT_SYNTAX overrides the line, which BuildKit would
   # otherwise resolve on Docker Hub.
   DOCKERFILE_FRONTEND_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+  # The tools of ci.yml's k8s-smoke, by the same pins; tests/images.test.ts
+  # holds the two together.
+  HELM_VERSION: v4.3.0
+  HELM_SHA256: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+  KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+  KUBECTL_VERSION: v1.37.0
+  KUBECTL_SHA256: 6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
 
 jobs:
   build:
@@ -421,6 +430,119 @@ jobs:
       contents: read
       packages: write
     steps: *promote-steps
+
+  # The chart of a promoted image set. Like publish and promote, a pair per
+  # event, each with its own `needs`: one job needing both would be skipped
+  # along with the path that did not run.
+  #   chart          package with the digests the promotion just read back,
+  #                  install that package on kind and reach /readyz, all
+  #                  without package write: a chart that cannot install is
+  #                  not published
+  #   chart-publish  push the package and read it back with no login
+  chart:
+    needs: promote
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps: &chart-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - &helm-tool
+        name: helm
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz -C bin --strip-components=1 linux-amd64/helm
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
+      - name: kind and kubectl
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo bin/kind "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  bin/kind" | sha256sum -c -
+          curl -fsSLo bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  bin/kubectl" | sha256sum -c -
+          chmod +x bin/kind bin/kubectl
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-digests-published
+          path: published
+      - name: Package the chart with this run's images
+        run: bun .github/scripts/chart-package.ts published chart-out
+      # The chart runs no worker on an empty install, so kind alone would not
+      # notice a worker digest nobody can pull. No job here has logged in.
+      - name: Every image reads without a login
+        run: |
+          for file in published/*.json; do
+            ref="$(jq -r '"\(.image)@\(.digest)"' "$file")"
+            docker manifest inspect "$ref" >/dev/null
+            echo "read ${ref}"
+          done
+      - name: Install the package on kind
+        env:
+          CLUSTER_NAME: chart-check
+          STATE_DIR: ${{ runner.temp }}/kind
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+        run: |
+          CHART_PACKAGE="$(ls "$PWD"/chart-out/werft-*.tgz)" KIND_IMAGE_MIRROR="${BUN_IMAGE%/*}" deploy/kind/up.sh
+      - if: failure()
+        name: Why the install stopped
+        env:
+          KUBECONFIG: ${{ runner.temp }}/kind/kubeconfig
+        run: |
+          kubectl -n werft get jobs,deploy,pods -o wide || true
+          kubectl -n werft get events --sort-by=.lastTimestamp || true
+      - if: '!cancelled()'
+        name: Nothing pulled from Docker Hub
+        run: .github/scripts/assert-no-docker-hub-images.sh docker
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chart
+          path: chart-out/
+          if-no-files-found: error
+
+  chart-main:
+    needs: promote-main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps: *chart-steps
+
+  chart-publish:
+    needs: chart
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    steps: &chart-publish-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - *helm-tool
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chart
+          path: chart-out
+      - name: Push the chart and read it back without a login
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          .github/scripts/chart-push.sh chart-out/werft-*.tgz \
+            "${REGISTRY}/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+
+  chart-publish-main:
+    needs: chart-main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps: *chart-publish-steps
 
   # The daily run's failed verdict as an issue: nobody watches a scheduled
   # run, and a PR's findings are already in its own checks. A manual run

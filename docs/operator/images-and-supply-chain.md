@@ -61,11 +61,25 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [게시된 이미지](test-ops.md#게시된-이미지를-쓸-때)를 쓴다.
 
-지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다. Helm chart를 게시하는 경로는 없다.
+지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다.
 
-1. `main`의 검증된 commit에 `v*` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다.
-2. `publish`·`promote` job이 `release` environment 승인을 받고 끝나는지 본다.
-3. 초록 run의 `image-digests-published` artifact에서 세 이미지의 digest를 읽는다.
+1. `main`의 검증된 commit에 `vX.Y.Z` 또는 `vX.Y.Z-<프리릴리스>` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다. 다른 꼴의 태그(`v1`, `v1.2.3+build`)는 이미지만 나가고 `chart` job에서 실패한다.
+2. `publish`·`promote`·`chart-publish` job이 `release` environment 승인을 받고 끝나는지 본다.
+3. 초록 run의 `image-digests-published` artifact에서 세 이미지의 digest를 읽고, `helm show chart oci://ghcr.io/jeongjaesoon/werft --version X.Y.Z`로 chart를 확인한다.
+
+릴리스 뒤에는 `Chart.yaml`의 `version`을 다음 버전으로 올린다. `main` chart 버전은 이 값 뒤에 붙으므로, 그래야 프리릴리스가 방금 낸 릴리스보다 뒤로 정렬된다.
+
+### Helm chart 게시
+
+이미지 promote가 끝나면 같은 run이 chart `werft`를 `oci://ghcr.io/jeongjaesoon/werft`로 게시한다. 경로는 `main` push(`chart-main`, `chart-publish-main`)와 `v*` 태그 push(`chart`, `chart-publish`) 둘이고 step은 같다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
+
+- **버전.** 태그 `v1.2.3`은 chart `1.2.3`, appVersion `v1.2.3`이다. `main`은 `<Chart.yaml version>-main-<12>`, appVersion `main-<12>`다. `-main.<12>`가 아닌 이유는 12자리가 전부 숫자이고 0으로 시작하면 semver가 아니어서 helm이 거부하기 때문이다.
+- **값.** `.github/scripts/chart-package.ts`가 그 run의 `image-digests-published`에서 세 digest와 worker runtime을 읽어 패키지 안 `values.yaml`에 넣는다. 세 앱이 정확히 한 번씩, 이 commit의 promote된 이미지이고 repository가 chart 기본값과 같아야 한다. 저장소의 `values.yaml`은 그대로다. 같은 값을 `chart` artifact의 `werft-<version>.values.yaml`에도 남긴다. 운영자는 artifact 없이 `helm show values`로 읽는다.
+- **검사.** `chart` job은 세 digest를 로그인 없이 조회하고, 패키지를 amd64 kind에 설치해 `/readyz`와 `/docs`가 200일 때만 패키지를 넘긴다. 빈 설치는 worker를 띄우지 않으므로 worker는 조회까지만 확인한다. package write 권한은 없다. pull request에서는 `helm-chart` job의 `render-check.ts`가 fixture digest로 패키지를 만들어 렌더한다.
+- **게시.** package write는 `chart-publish`·`chart-publish-main`만 가진다. 태그 경로의 `chart-publish`는 `release` environment를 받고, `main` 경로는 받지 않는다. 이미지 게시가 실패한 run에서는 chart 단계가 돌지 않는다.
+- **덮어쓰지 않는다.** `.github/scripts/chart-push.sh`는 같은 버전이 이미 있으면 받아서 풀린 파일을 후보와 비교한다. 같으면 재실행으로 보고 push하지 않고, 다르면 실패한다. 조회가 "없음"을 확인하지 못하면 중단한다. `denied`는 없는 패키지에 ghcr가 줄 수 있는 답이라, 로그인 없는 조회도 `denied`일 때만 없음으로 본다.
+- **읽기 확인.** push 뒤 Helm과 Docker의 로그인 정보를 모두 비운 상태로 받아 후보와 비교하고 `helm show chart`를 찍는다. 패키지가 비공개로 생겼으면 여기서 run이 빨갛게 끝난다. 공개 범위는 패키지 설정에서 저장소 관리자가 바꾼다.
+- **라이선스.** chart는 저장소와 같은 PolyForm Small Business License 1.0.0을 따른다.
 
 ### worker 안에서 만든 commit의 작성자
 
