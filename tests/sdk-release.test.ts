@@ -3,13 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The publish gate of sdk-release.yml: nothing but a pushed sdk-v* tag,
-// approved in the `release` environment, reaches NPM_TOKEN.
+// approved in the `release` environment, can mint the OIDC token npm trusts.
 
 type Step = {
   uses?: string;
   run?: string;
   if?: string;
   env?: Record<string, string>;
+  with?: Record<string, unknown>;
   "continue-on-error"?: boolean;
 };
 type Job = {
@@ -76,7 +77,7 @@ describe("sdk-release.yml", () => {
     }
   });
 
-  test("only publish sees the npm token and signs provenance", () => {
+  test("only publish can mint the OIDC token, and no npm token remains", () => {
     expect(publish?.permissions).toEqual({
       contents: "read",
       "id-token": "write",
@@ -86,10 +87,20 @@ describe("sdk-release.yml", () => {
       "npm publish ./pkg/*.tgz --provenance --access public",
     );
     expect(runs(build as Job)).not.toContain("npm publish");
-    expect(text.match(/secrets\.[A-Z_]+/g)).toEqual(["secrets.NPM_TOKEN"]);
-    const step = publish?.steps.find((s) => s.run?.includes("npm publish"));
-    expect(step?.env).toEqual({
-      NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}",
+    expect(text).not.toContain("secrets.");
+    expect(text).not.toContain("NODE_AUTH_TOKEN");
+    for (const job of Object.values(workflow.jobs))
+      for (const step of job.steps) expect(step.env).toBeUndefined();
+  });
+
+  test("publish runs on the Node whose npm supports trusted publishing", () => {
+    const node = publish?.steps.find((s) =>
+      s.uses?.startsWith("actions/setup-node@"),
+    );
+    // Node 24 bundles npm 11, which clears npm's 11.5.1 minimum.
+    expect(node?.with).toEqual({
+      "node-version": 24,
+      "registry-url": "https://registry.npmjs.org",
     });
   });
 
