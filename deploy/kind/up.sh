@@ -226,10 +226,10 @@ if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
     --from-literal=AWS_ACCESS_KEY_ID=test \
     --from-literal=AWS_SECRET_ACCESS_KEY=test \
     --from-file=ANTHROPIC_API_KEY=<(provider_key) >/dev/null
-elif [ "$(kubectl -n "$NAMESPACE" get secret agent-platform -o 'go-template={{if .data.PLATFORM_SECRET_KEY}}set{{end}}')" != set ]; then
+elif [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.PLATFORM_SECRET_KEY}}set{{end}}')" != set ]; then
   key_patch="$(mktemp)"
   printf '{"data":{"PLATFORM_SECRET_KEY":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$key_patch"
-  kubectl -n "$NAMESPACE" patch secret agent-platform --patch-file "$key_patch" >/dev/null
+  kubectl -n "$NAMESPACE" patch secret werft --patch-file "$key_patch" >/dev/null
   rm -f "${key_patch:?}"
 fi
 unset ANTHROPIC_API_KEY
