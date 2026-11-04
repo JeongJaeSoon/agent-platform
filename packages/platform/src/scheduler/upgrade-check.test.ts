@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AffectedSession,
+  assessNothingReplaced,
   assessUpgrade,
   type UpgradeSession,
 } from "./upgrade-check.ts";
@@ -149,5 +150,26 @@ describe("assessUpgrade", () => {
     });
     expect(unchanged.verdict).toBe("refused");
     expect(unchanged.reason).toContain("must be empty");
+  });
+});
+
+describe("assessNothingReplaced", () => {
+  test("proceeds with no approvals, saying nothing about any session", () => {
+    expect(assessNothingReplaced([], "nothing was deployed")).toEqual({
+      verdict: "proceed",
+      affected: [],
+      approved: [],
+    });
+  });
+
+  test("refuses a stale approval and says why it does not apply", () => {
+    const stale = assessNothingReplaced(
+      ["s-2", "s-1", "s-1"],
+      "nothing was deployed",
+    );
+    expect(stale.verdict).toBe("refused");
+    expect(stale.approved).toEqual(["s-1", "s-2"]);
+    expect(stale.reason).toStartWith("nothing was deployed, so");
+    expect(stale.reason).toContain("no longer affected: s-1 s-2");
   });
 });

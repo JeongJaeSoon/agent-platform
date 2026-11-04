@@ -8,17 +8,28 @@
 # by hand first (docs/operator/kubernetes-deployment.md).
 {{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
 {{- $deployed := "" }}
-{{- /* Empty under `helm template` and --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
-{{- with lookup "apps/v1" "Deployment" .Release.Namespace $scheduler }}
-{{- range .spec.template.spec.containers }}
+{{- $state := "" }}
+{{- /* Both empty under `helm template` and a client --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
+{{- $found := lookup "apps/v1" "Deployment" .Release.Namespace $scheduler }}
+{{- if $found }}
+{{- $pinned := false }}
+{{- range $found.spec.template.spec.containers }}
 {{- if eq .name "scheduler" }}
 {{- range .env }}
 {{- if eq .name "WORKER_IMAGE" }}
 {{- $deployed = .value }}
+{{- else if has .name (list "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_PREVIOUS_RUNTIME") }}
+{{- $pinned = true }}
 {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if and $deployed (not $pinned) }}
+{{- $state = "unpinned" }}
+{{- end }}
+{{- /* An empty Deployment lookup alone cannot say "none": `default` exists in every namespace, so reading it proves the cluster answered. Read only here, so an ordinary upgrade needs no more RBAC. */}}
+{{- else if lookup "v1" "ServiceAccount" .Release.Namespace "default" }}
+{{- $state = "absent" }}
 {{- end }}
 apiVersion: batch/v1
 kind: Job
@@ -54,6 +65,8 @@ spec:
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             - name: UPGRADE_DEPLOYED_WORKER_IMAGE
               value: {{ $deployed | quote }}
+            - name: UPGRADE_DEPLOYED_STATE
+              value: {{ $state | quote }}
             - name: WORKER_IMAGE
               value: {{ include "ap.image" (dict "root" . "name" "worker") | quote }}
             {{- with include "ap.workerPreviousImageEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
