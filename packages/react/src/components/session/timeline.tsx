@@ -92,13 +92,13 @@ export function timelineKind(
 // person amber, the rest neutral. A failure stays red (lead decision C6),
 // where v4 draws it amber.
 const AGENT_TONE =
-  "bg-[var(--ap-tone-progress-bg)] text-[var(--ap-tone-progress-fg)]";
+  "bg-[var(--werft-tone-progress-bg)] text-[var(--werft-tone-progress-fg)]";
 const KIND_TONE = {
   agent: AGENT_TONE,
   tool: AGENT_TONE,
   request:
-    "bg-[var(--ap-tone-attention-bg)] text-[var(--ap-tone-attention-fg)]",
-  error: "bg-[var(--ap-tone-danger-bg)] text-[var(--ap-tone-danger-fg)]",
+    "bg-[var(--werft-tone-attention-bg)] text-[var(--werft-tone-attention-fg)]",
+  error: "bg-[var(--werft-tone-danger-bg)] text-[var(--werft-tone-danger-fg)]",
   system: "bg-active text-muted-foreground",
 } as const satisfies Record<TimelineKind, string>;
 
@@ -726,8 +726,11 @@ function EventItem({
   const progress = !open
     ? undefined
     : running
-      ? { text: messages.running, tone: "text-[var(--ap-tone-progress-fg)]" }
-      : { text: messages.waiting, tone: "text-[var(--ap-tone-attention-fg)]" };
+      ? { text: messages.running, tone: "text-[var(--werft-tone-progress-fg)]" }
+      : {
+          text: messages.waiting,
+          tone: "text-[var(--werft-tone-attention-fg)]",
+        };
   return (
     <li
       data-error={error || undefined}

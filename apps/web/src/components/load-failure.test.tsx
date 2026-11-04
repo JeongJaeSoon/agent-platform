@@ -36,7 +36,7 @@ describe("LoadFailure", () => {
     );
     expect(html).toContain('role="alert"');
     expect(html).toContain('data-variant="red"');
-    expect(html).not.toContain("ap-state");
+    expect(html).not.toContain("werft-state");
     expect(html).toContain("다시 시도");
   });
 });

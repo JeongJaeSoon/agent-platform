@@ -17,7 +17,7 @@ describe("Input·NativeSelect v4 여백", () => {
     expect(classes).not.toContain("py-1");
     expect(classes).toContain("border-input");
     expect(classes).not.toContain("border-b-input");
-    expect(classes).toContain("h-[var(--ap-control-height)]");
+    expect(classes).toContain("h-[var(--werft-control-height)]");
   });
 
   test("select는 오른쪽 40px(글자→화살표 12px), sm은 28px 높이에 12px 글자, 화살표는 text-3이다", () => {
@@ -48,7 +48,7 @@ describe("Input·NativeSelect v4 여백", () => {
     expect(sm.getAttribute("data-size")).toBe("sm");
     expect(sm.className.split(" ")).toEqual(
       expect.arrayContaining([
-        "data-[size=sm]:h-[var(--ap-control-height-sm)]",
+        "data-[size=sm]:h-[var(--werft-control-height-sm)]",
         "data-[size=sm]:text-caption",
       ]),
     );

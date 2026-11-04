@@ -239,7 +239,7 @@ describe("RelationGraph", () => {
     const [approval, delegation, request, response, waiting] = paths;
     // One stroke colour each: two utilities would be ordered by the sheet.
     expect(approval?.getAttribute("class")).toContain(
-      "stroke-(color:--ap-tone-attention-fg)",
+      "stroke-(color:--werft-tone-attention-fg)",
     );
     expect(approval?.getAttribute("class")).not.toContain("border-strong");
     expect(delegation?.getAttribute("class")).toContain("stroke-dasharray:6_5");

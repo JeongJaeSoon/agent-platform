@@ -283,7 +283,7 @@ function GitHubCard({
         </div>
         {canManage && !empty ? (
           // Under 640px it drops to its own line, where the text starts.
-          <div className="max-sm:basis-full max-sm:pl-[calc(var(--ap-size-tile-two-line)+0.75rem)]">
+          <div className="max-sm:basis-full max-sm:pl-[calc(var(--werft-size-tile-two-line)+0.75rem)]">
             <AddAccount connections={connections} onOutcome={onOutcome} />
           </div>
         ) : null}
@@ -361,7 +361,7 @@ function GitHubCard({
 function TileMark({ className }: { readonly className?: string }) {
   return (
     <GitHubMark
-      className={cn(className, "text-(--ap-color-tile-foreground)")}
+      className={cn(className, "text-(--werft-color-tile-foreground)")}
     />
   );
 }
@@ -611,7 +611,7 @@ function AppRow({
         ) : null}
       </div>
       {state === "rejected" ? (
-        <Text className="text-(color:--ap-tone-danger-fg)">
+        <Text className="text-(color:--werft-tone-danger-fg)">
           {t("github.apps.rejected")}
         </Text>
       ) : (
@@ -715,7 +715,7 @@ function NeedBlock({
   });
   return (
     <div className="flex flex-col gap-2">
-      <Text className="text-(color:--ap-tone-caution-fg)">
+      <Text className="text-(color:--werft-tone-caution-fg)">
         {t("github.apps.need", {
           features: features.join(", "),
           permissions: need,
@@ -777,7 +777,7 @@ function PendingBlock({
   });
   return (
     <div className="flex flex-col gap-2">
-      <Text className="text-(color:--ap-tone-caution-fg)">
+      <Text className="text-(color:--werft-tone-caution-fg)">
         {t("github.apps.pendingLine", {
           accounts: accounts.join(", "),
           permissions,

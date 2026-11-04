@@ -1014,7 +1014,7 @@ function TokenMenu({
       role="menuitem"
       className={cn(
         "w-full justify-start font-normal",
-        danger && "text-(color:--ap-tone-danger-fg)",
+        danger && "text-(color:--werft-tone-danger-fg)",
       )}
       onClick={() => {
         setOpen(false);
@@ -1138,7 +1138,7 @@ function SlackPage({
           ) : null}
         </div>
         {summary.state === "needs_reentry" ? (
-          <Text className="text-(color:--ap-tone-danger-fg)">
+          <Text className="text-(color:--werft-tone-danger-fg)">
             저장된 토큰을 사용할 수 없습니다. 새 토큰을 등록해 주세요. 등록할
             때까지 새 Slack 앱을 만들 수 없습니다. 이미 만든 앱은 계속
             동작합니다.

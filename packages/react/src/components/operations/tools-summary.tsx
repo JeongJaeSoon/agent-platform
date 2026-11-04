@@ -58,7 +58,7 @@ export function ToolsSummary({
             as="span"
             weight="medium"
             numeric
-            className="text-(color:--ap-tone-danger-fg)"
+            className="text-(color:--werft-tone-danger-fg)"
           >
             {part.danger}
           </Text>

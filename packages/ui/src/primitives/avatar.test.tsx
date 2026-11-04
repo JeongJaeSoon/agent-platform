@@ -73,8 +73,8 @@ describe("Avatar", () => {
       "size-8",
       "text-caption",
       "rounded-control",
-      "bg-(color:--ap-avatar-3-bg)",
-      "text-(color:--ap-avatar-3-fg)",
+      "bg-(color:--werft-avatar-3-bg)",
+      "text-(color:--werft-avatar-3-fg)",
     ])
       expect(classes).toContain(name);
     for (const name of ["size-6", "text-2xs", "rounded-full", "bg-active"])
@@ -89,7 +89,7 @@ describe("Avatar", () => {
       container.querySelector("[data-slot=avatar]")?.className ?? ""
     ).split(" ");
     for (const name of [
-      "size-(--ap-size-tile-two-line)",
+      "size-(--werft-size-tile-two-line)",
       "self-start",
       "text-control",
     ])

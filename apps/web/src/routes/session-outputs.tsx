@@ -382,7 +382,7 @@ export function SessionOutputsTab({
       ? outcomes.data !== undefined
       : isApiError(outcomes.error, "NOT_FOUND"));
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       <SessionAchievements session={session} />
       <SessionAttribution session={session} />
       <SessionPullRequests session={session} outcomes={outcomes} />

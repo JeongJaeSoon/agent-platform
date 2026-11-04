@@ -15,15 +15,15 @@ export const badgeVariants = cva(
   {
     variants: {
       variant: {
-        gray: "border-(color:--ap-tone-neutral-border) bg-(color:--ap-tone-neutral-bg) text-(color:--ap-tone-neutral-fg)",
-        blue: "border-(color:--ap-tone-progress-border) bg-(color:--ap-tone-progress-bg) text-(color:--ap-tone-progress-fg)",
+        gray: "border-(color:--werft-tone-neutral-border) bg-(color:--werft-tone-neutral-bg) text-(color:--werft-tone-neutral-fg)",
+        blue: "border-(color:--werft-tone-progress-border) bg-(color:--werft-tone-progress-bg) text-(color:--werft-tone-progress-fg)",
         green:
-          "border-(color:--ap-tone-success-border) bg-(color:--ap-tone-success-bg) text-(color:--ap-tone-success-fg)",
+          "border-(color:--werft-tone-success-border) bg-(color:--werft-tone-success-bg) text-(color:--werft-tone-success-fg)",
         amber:
-          "border-(color:--ap-tone-caution-border) bg-(color:--ap-tone-caution-bg) text-(color:--ap-tone-caution-fg)",
-        red: "border-(color:--ap-tone-danger-border) bg-(color:--ap-tone-danger-bg) text-(color:--ap-tone-danger-fg)",
+          "border-(color:--werft-tone-caution-border) bg-(color:--werft-tone-caution-bg) text-(color:--werft-tone-caution-fg)",
+        red: "border-(color:--werft-tone-danger-border) bg-(color:--werft-tone-danger-bg) text-(color:--werft-tone-danger-fg)",
         // An identifier such as a model name; grey like `gray` (mockup v4).
-        mono: "border-(color:--ap-tone-neutral-border) bg-(color:--ap-tone-neutral-bg) font-mono font-normal text-(color:--ap-tone-neutral-fg)",
+        mono: "border-(color:--werft-tone-neutral-border) bg-(color:--werft-tone-neutral-bg) font-mono font-normal text-(color:--werft-tone-neutral-fg)",
       },
     },
     defaultVariants: { variant: "gray" },

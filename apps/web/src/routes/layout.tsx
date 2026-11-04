@@ -220,8 +220,8 @@ function AuthedShell() {
   return (
     // Header, sidebar, main in reading order: below md the open menu unfolds
     // under its button; from md on the grid puts the sidebar on the left.
-    <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
+    <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--werft-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+      <header className="flex min-h-[var(--werft-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
         <Button
           type="button"
           variant="outline"

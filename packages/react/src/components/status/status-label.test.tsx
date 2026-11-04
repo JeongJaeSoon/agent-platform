@@ -29,8 +29,8 @@ describe("StatusLabel", () => {
       </>,
     );
 
-    const admission = getByText("일시정지됨").closest(".ap-status");
-    const turn = getByText("답변 대기").closest(".ap-status");
+    const admission = getByText("일시정지됨").closest(".werft-status");
+    const turn = getByText("답변 대기").closest(".werft-status");
 
     expect(admission?.getAttribute("data-axis")).toBe("admission");
     expect(turn?.getAttribute("data-axis")).toBe("turn");
@@ -47,7 +47,7 @@ describe("StatusLabel", () => {
     const { getByText } = render(
       <StatusLabel axis="receipt" state="accepted" />,
     );
-    expect(getByText("접수:").className).toContain("ap-visually-hidden");
+    expect(getByText("접수:").className).toContain("werft-visually-hidden");
   });
 
   test("detail과 stale을 덧붙인다", () => {
@@ -63,7 +63,7 @@ describe("StatusLabel", () => {
     expect(getByText("2분 경과")).toBeDefined();
     expect(getByText("갱신 지연")).toBeDefined();
     expect(
-      getByText("작업 중").closest(".ap-status")?.getAttribute("data-stale"),
+      getByText("작업 중").closest(".werft-status")?.getAttribute("data-stale"),
     ).toBe("true");
   });
 
@@ -75,7 +75,7 @@ describe("StatusLabel", () => {
         label="관리자가 세웠습니다"
       />,
     );
-    const label = getByText("관리자가 세웠습니다").closest(".ap-status");
+    const label = getByText("관리자가 세웠습니다").closest(".werft-status");
     expect(label?.getAttribute("data-state")).toBe("paused");
     expect(label?.getAttribute("data-tone")).toBe("caution");
   });
@@ -84,7 +84,7 @@ describe("StatusLabel", () => {
     const { getByText, queryByText } = render(
       <StatusLabel axis="admission" state="paused" axisLabel="State" />,
     );
-    expect(getByText("State:").className).toContain("ap-visually-hidden");
+    expect(getByText("State:").className).toContain("werft-visually-hidden");
     expect(queryByText("세션:")).toBeNull();
   });
 
@@ -108,8 +108,8 @@ describe("StatusLabel", () => {
     const restore = stubPrefersReducedMotion(true);
     try {
       const { container } = render(<StatusLabel axis="turn" state="running" />);
-      expect(container.querySelector(".ap-status__spinner")).toBeNull();
-      expect(container.querySelectorAll(".ap-status__icon")).toHaveLength(1);
+      expect(container.querySelector(".werft-status__spinner")).toBeNull();
+      expect(container.querySelectorAll(".werft-status__icon")).toHaveLength(1);
     } finally {
       restore();
     }
@@ -168,10 +168,10 @@ describe("StatusLabel", () => {
       const { container } = render(<StatusLabel axis="turn" state="running" />);
       expect(
         container
-          .querySelector(".ap-status__spinner")
+          .querySelector(".werft-status__spinner")
           ?.getAttribute("data-animated"),
       ).toBe("true");
-      expect(container.querySelector(".ap-status__icon")).toBeNull();
+      expect(container.querySelector(".werft-status__icon")).toBeNull();
     } finally {
       restore();
     }
@@ -183,8 +183,8 @@ describe("StatusLabel", () => {
       const { container } = render(
         <StatusLabel axis="turn" state="completed" />,
       );
-      expect(container.querySelector(".ap-status__spinner")).toBeNull();
-      expect(container.querySelectorAll(".ap-status__icon")).toHaveLength(1);
+      expect(container.querySelector(".werft-status__spinner")).toBeNull();
+      expect(container.querySelectorAll(".werft-status__icon")).toHaveLength(1);
     } finally {
       restore();
     }

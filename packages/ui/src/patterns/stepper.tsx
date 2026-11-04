@@ -116,7 +116,7 @@ export function Stepper({
                       // leading-6 below sm puts the word's centre on the name line.
                       "whitespace-nowrap text-caption leading-6 sm:leading-5",
                       state === "complete"
-                        ? "text-(color:--ap-tone-success-fg)"
+                        ? "text-(color:--werft-tone-success-fg)"
                         : "text-muted-foreground",
                     )}
                   >
@@ -184,7 +184,7 @@ export function Stepper({
                     // Through the circle's centre, 12px from the top.
                     "hidden h-px min-w-4 flex-1 sm:mt-3 sm:block sm:-translate-y-1/2",
                     state === "complete"
-                      ? "bg-(color:--ap-tone-success-border)"
+                      ? "bg-(color:--werft-tone-success-border)"
                       : "bg-border",
                   )}
                 />
@@ -210,11 +210,11 @@ function StepIndicator({
       className={cn(
         "grid size-6 shrink-0 place-content-center rounded-full border font-medium text-xs",
         state === "complete" &&
-          "border-(color:--ap-tone-success-border) bg-(color:--ap-tone-success-bg) text-(color:--ap-tone-success-fg)",
+          "border-(color:--werft-tone-success-border) bg-(color:--werft-tone-success-bg) text-(color:--werft-tone-success-fg)",
         state === "current" &&
           "border-primary bg-primary text-primary-foreground ring-[3px] ring-primary/25",
         state === "upcoming" &&
-          "border-(color:--ap-tone-neutral-border) bg-card text-muted-foreground",
+          "border-(color:--werft-tone-neutral-border) bg-card text-muted-foreground",
       )}
     >
       {number}

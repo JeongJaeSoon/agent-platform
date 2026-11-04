@@ -56,7 +56,7 @@ describe("FilterMenu", () => {
     const { getByRole } = render(<Relation />);
     const chip = getByRole("button").className.split(" ");
     for (const name of [
-      "h-[var(--ap-control-height)]",
+      "h-[var(--werft-control-height)]",
       "rounded-control",
       "border-border",
       "hover:border-subtle-foreground",

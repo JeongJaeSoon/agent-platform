@@ -5,7 +5,7 @@ import { setupDom } from "../test-support/dom.ts";
 const { render } = await setupDom();
 const { RowAction } = await import("../index.ts");
 
-const FLOOR = "min-w-[var(--ap-row-action-button-min-width)]";
+const FLOOR = "min-w-[var(--werft-row-action-button-min-width)]";
 
 describe("RowAction", () => {
   test("기본은 28px outline 버튼이고 폭은 문구를 따르되 48px 하한을 둔다", () => {

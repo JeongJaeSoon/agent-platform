@@ -3,7 +3,7 @@ title: "Apply the theme"
 description: "Import the tokens and the Tailwind connection, and turn on the dark theme"
 ---
 
-The colors, spacing, fonts, radii, and shadows of the components all come from CSS variables (tokens) with the `--ap-` prefix. The app imports three CSS files and makes Tailwind scan the package sources.
+The colors, spacing, fonts, radii, and shadows of the components all come from CSS variables (tokens) with the `--werft-` prefix. The app imports three CSS files and makes Tailwind scan the package sources.
 
 ## Import the CSS
 
@@ -19,9 +19,9 @@ Create `src/styles.css` in the app you made in [Install](/ui/install).
 
 body {
   margin: 0;
-  background: var(--ap-color-canvas);
-  color: var(--ap-color-foreground);
-  font-family: var(--ap-font-sans);
+  background: var(--werft-color-canvas);
+  color: var(--werft-color-foreground);
+  font-family: var(--werft-font-sans);
 }
 ```
 
@@ -44,11 +44,11 @@ The tokens default to the light theme. The dark theme turns on in two ways.
 document.documentElement.dataset.theme = "dark";
 ```
 
-The components do not use Tailwind's `dark:` variant. `dark:` cannot see the `data-theme` switch, so if the app's own CSS also uses tokens (`var(--ap-color-…)`) for its colors, it follows both the system setting and the `data-theme` switch.
+The components do not use Tailwind's `dark:` variant. `dark:` cannot see the `data-theme` switch, so if the app's own CSS also uses tokens (`var(--werft-color-…)`) for its colors, it follows both the system setting and the `data-theme` switch.
 
 ## Overriding
 
-The rules in `tokens.css` and `styles.css` live inside `@layer ap`, and this layer comes after Tailwind's `utilities`. That settles two things.
+The rules in `tokens.css` and `styles.css` live inside `@layer werft`, and this layer comes after Tailwind's `utilities`. That settles two things.
 
 - `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, and `ReceiptLink` render with their own classes. A Tailwind utility passed to them through `className` does not apply if it sets the same property.
 - The app's CSS written outside the layer wins over these rules. To change the look, override it with CSS outside the layer.

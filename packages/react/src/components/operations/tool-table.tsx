@@ -175,7 +175,7 @@ export function ToolTable({
                     align="end"
                     className={cn(
                       "tabular-nums",
-                      tool.failed > 0 && "text-(color:--ap-tone-danger-fg)",
+                      tool.failed > 0 && "text-(color:--werft-tone-danger-fg)",
                     )}
                   >
                     {format.count(tool.failed)}

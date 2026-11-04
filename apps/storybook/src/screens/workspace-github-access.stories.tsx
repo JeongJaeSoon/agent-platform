@@ -150,7 +150,7 @@ function AppRows({
             </div>
             {short ? (
               <div className="flex flex-col gap-2">
-                <Text className="text-(color:--ap-tone-caution-fg)">
+                <Text className="text-(color:--werft-tone-caution-fg)">
                   Actions 실행을(를) 쓰려면 이 App에 Actions 쓰기 권한이
                   필요합니다. 더하면 GitHub가 설치한 계정마다 owner에게 승인을
                   요청합니다. 다시 설치하지 않아도 됩니다.
@@ -172,7 +172,7 @@ function AppRows({
               </div>
             ) : pending ? (
               <div className="flex flex-col gap-2">
-                <Text className="text-(color:--ap-tone-caution-fg)">
+                <Text className="text-(color:--werft-tone-caution-fg)">
                   acme의 owner가 Pull requests 쓰기을(를) 승인하면 그 계정
                   저장소에서도 이 App의 권한이 모두 동작합니다.
                 </Text>
@@ -302,7 +302,7 @@ function GitHubCard({
           </Text>
         </div>
         {manage && !empty ? (
-          <div className="max-sm:basis-full max-sm:pl-[calc(var(--ap-size-tile-two-line)+0.75rem)]">
+          <div className="max-sm:basis-full max-sm:pl-[calc(var(--werft-size-tile-two-line)+0.75rem)]">
             <Button type="button">
               <Plus aria-hidden="true" />
               조직 추가

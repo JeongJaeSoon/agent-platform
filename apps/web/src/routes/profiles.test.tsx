@@ -269,7 +269,7 @@ describe("프로필", () => {
       table.querySelectorAll("[data-slot=badge]"),
       (badge) => [
         badge.textContent,
-        badge.className.match(/--ap-tone-(\w+)-bg/)?.[1],
+        badge.className.match(/--werft-tone-(\w+)-bg/)?.[1],
       ],
     );
     expect(badges).toEqual([

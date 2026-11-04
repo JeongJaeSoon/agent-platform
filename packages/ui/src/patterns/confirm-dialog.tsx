@@ -93,11 +93,11 @@ export function ConfirmDialog({
     const remember = (event: FocusEvent): void => {
       const target = event.target as HTMLElement | null;
       if (!target?.closest) return;
-      const own = document.querySelector(`[data-ap-dialog="${instanceId}"]`);
+      const own = document.querySelector(`[data-werft-dialog="${instanceId}"]`);
       // While this one is open, nothing inside any dialog is an opener — not
       // its own controls, and not a dialog opened on top of it, which lives in
       // its own portal rather than inside this content.
-      if (own && target.closest("[data-ap-dialog]")) return;
+      if (own && target.closest("[data-werft-dialog]")) return;
       openerRef.current = target;
     };
     document.addEventListener("focusin", remember);
@@ -109,17 +109,17 @@ export function ConfirmDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Radix wires aria-labelledby/aria-describedby to the Title and
-          Description below, and owns Escape and the focus trap. The `ap-*`
+          Description below, and owns Escape and the focus trap. The `werft-*`
           classes are unlayered, so they win over the primitive's utilities
           and the dialog keeps its look and its reduced-motion rule. The
-          utilities reset below are the ones `ap-*` does not set: Tailwind's
-          `translate` would stack on `.ap-dialog`'s `transform`, and the
+          utilities reset below are the ones `werft-*` does not set: Tailwind's
+          `translate` would stack on `.werft-dialog`'s `transform`, and the
           title and description would shrink to shadcn's type scale. */}
       <DialogContent
         role={role}
-        overlayClassName="ap-dialog__overlay"
-        data-ap-dialog={instanceId}
-        className={cn("ap-dialog translate-x-0 translate-y-0", className)}
+        overlayClassName="werft-dialog__overlay"
+        data-werft-dialog={instanceId}
+        className={cn("werft-dialog translate-x-0 translate-y-0", className)}
         data-tone={tone}
         data-busy={busy || undefined}
         onCloseAutoFocus={(event) => {
@@ -131,10 +131,10 @@ export function ConfirmDialog({
           opener.focus();
         }}
       >
-        <DialogTitle className="ap-dialog__title leading-[inherit]">
+        <DialogTitle className="werft-dialog__title leading-[inherit]">
           {title}
         </DialogTitle>
-        <DialogDescription className="ap-dialog__consequence text-[length:inherit]">
+        <DialogDescription className="werft-dialog__consequence text-[length:inherit]">
           {consequence}
           {/* Inside the description, so the name is read with it. */}
           {target === undefined || target === null ? null : (
@@ -147,7 +147,7 @@ export function ConfirmDialog({
           )}
         </DialogDescription>
         {children}
-        <div className="ap-dialog__actions">
+        <div className="werft-dialog__actions">
           <DialogClose asChild>
             <Button type="button" variant="ghost">
               {cancelLabel}
@@ -160,7 +160,7 @@ export function ConfirmDialog({
             disabled={busy || confirmDisabled}
           >
             {busy ? (
-              <span className="ap-button__spinner" aria-hidden="true" />
+              <span className="werft-button__spinner" aria-hidden="true" />
             ) : null}
             {confirmLabel}
           </Button>

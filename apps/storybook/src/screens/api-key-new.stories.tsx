@@ -487,7 +487,7 @@ function IssuedSecret({ issued }: { readonly issued: CreateApiKeyResponse }) {
       </Alert>
       <Field>
         <FieldLabel>키 값</FieldLabel>
-        <div className="flex max-w-[var(--ap-layout-reading-width)] items-center gap-2">
+        <div className="flex max-w-[var(--werft-layout-reading-width)] items-center gap-2">
           <Input
             ref={secretRef}
             className="min-w-0 flex-1 font-mono"

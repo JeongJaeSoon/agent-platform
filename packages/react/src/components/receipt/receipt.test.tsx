@@ -23,7 +23,7 @@ const TIMES = {
 
 function toneOf(container: HTMLElement): string | null {
   return container
-    .querySelector(".ap-status[data-axis='receipt']")
+    .querySelector(".werft-status[data-axis='receipt']")
     ?.getAttribute("data-tone") as string | null;
 }
 
@@ -85,9 +85,9 @@ describe("ReceiptSummary", () => {
     );
 
     const guidance = container.querySelector(
-      ".ap-receipt__guidance",
+      ".werft-receipt__guidance",
     ) as Element;
-    const detail = container.querySelector(".ap-receipt__detail") as Element;
+    const detail = container.querySelector(".werft-receipt__detail") as Element;
     expect(guidance.textContent).toBe(
       "세션이 일시정지 상태입니다 — 재개한 뒤 보내세요.",
     );
@@ -119,7 +119,7 @@ describe("ReceiptSummary", () => {
             locale={locale}
           />,
         );
-        const guidance = container.querySelector(".ap-receipt__guidance")
+        const guidance = container.querySelector(".werft-receipt__guidance")
           ?.textContent as string;
         if (code === "SESSION_PAUSED") expect(guidance).toBe(expected);
         expect(guidance).not.toMatch(/[가-힣]/);
@@ -141,7 +141,7 @@ describe("ReceiptSummary", () => {
         timestamps={TIMES}
       />,
     );
-    expect(container.querySelectorAll(".ap-receipt__field")).toHaveLength(1);
+    expect(container.querySelectorAll(".werft-receipt__field")).toHaveLength(1);
   });
 
   test("갱신 시각이 접수 시각과 같으면 한 번만 보여준다", () => {
@@ -195,10 +195,10 @@ describe("ReceiptLink", () => {
 
     // 색만으로 상태를 말하지 않는다 (§4·§6): the dot carries the same signal,
     // so hiding this span would leave colour as the only difference.
-    const status = container.querySelector(".ap-receipt-link__status");
+    const status = container.querySelector(".werft-receipt-link__status");
     expect(status?.textContent).toBe("실패");
-    expect(status?.classList.contains("ap-visually-hidden")).toBe(false);
-    expect(status?.closest(".ap-visually-hidden")).toBeNull();
+    expect(status?.classList.contains("werft-visually-hidden")).toBe(false);
+    expect(status?.closest(".werft-visually-hidden")).toBeNull();
   });
 });
 

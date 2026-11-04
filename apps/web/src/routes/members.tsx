@@ -89,9 +89,9 @@ import { TeamCreateDialog } from "./team-create-dialog.tsx";
 // Role and actions keep one width on every row, so badges and buttons line
 // up under their headers; the actions track never drops below its button.
 const MEMBER_COLUMNS =
-  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+  "minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)";
 const MEMBER_NARROW_COLUMNS =
-  "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
+  "minmax(0,1fr) 72px var(--werft-row-action-min-width)";
 // 320px of columns plus the frame's 1px border on each side.
 const MEMBER_TABLE_MIN = "min-w-[322px]";
 
@@ -209,7 +209,7 @@ export function MembersLayout() {
       description={t(manages ? "members.description" : "members.withheld")}
       actions={action}
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         <LinkTabs aria-label={t("members.tabs")}>
           {manages ? (
             <LinkTab asChild current={pathname === "/members"}>
@@ -263,7 +263,7 @@ export function MembersScreen() {
   };
 
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       <OutcomeLine outcome={outcome} />
       <ListToolbar
         filter={null}
@@ -319,7 +319,7 @@ export function InvitesScreen() {
   if (!manages) return null;
 
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       {/* The invite button in the head waits on this list; say why it is gone. */}
       {members.isError && !isApiError(members.error, "FORBIDDEN") ? (
         <LoadFailure
@@ -514,7 +514,7 @@ function MemberTable({
                       blue stays for links that move (→). */}
                   {/* Below md the "you" badge drops to its own line under
                       the name, so the name gets the whole column (QA L-17). */}
-                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
+                  <span className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]">
                     <Text as="span" weight="medium" truncate>
                       {member.display_name}
                     </Text>

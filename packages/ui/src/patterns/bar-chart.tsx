@@ -61,7 +61,7 @@ export function niceMax(values: readonly number[]): number {
 }
 
 const HATCH =
-  "bg-[repeating-linear-gradient(135deg,var(--ap-chart-mark)_0_2px,transparent_2px_6px)] shadow-[inset_0_0_0_1px_var(--ap-chart-mark)]";
+  "bg-[repeating-linear-gradient(135deg,var(--werft-chart-mark)_0_2px,transparent_2px_6px)] shadow-[inset_0_0_0_1px_var(--werft-chart-mark)]";
 
 /**
  * Bars over days for one series, in greys. The full chart is one Tab stop:
@@ -98,7 +98,7 @@ export function BarChart({
           role="img"
           aria-label={label}
           className={cn(
-            "flex items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
+            "flex items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--werft-chart-grid)_1px,transparent_1px)]",
             PLOT_HEIGHT.compact,
           )}
         >
@@ -254,7 +254,7 @@ function FullChart({
         onPointerMove={point}
         onPointerDown={point}
         className={cn(
-          "relative flex cursor-pointer touch-pan-y items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--ap-chart-grid)_1px,transparent_1px)]",
+          "relative flex cursor-pointer touch-pan-y items-end gap-0.5 border-border-strong border-b bg-[linear-gradient(var(--werft-chart-grid)_1px,transparent_1px)]",
           PLOT_HEIGHT.full,
         )}
       >
@@ -280,7 +280,7 @@ function FullChart({
             >
               <span
                 className={cn(
-                  "block w-full rounded-t-[4px] group-data-active:[--ap-chart-mark:var(--ap-chart-mark-active)]",
+                  "block w-full rounded-t-[4px] group-data-active:[--werft-chart-mark:var(--werft-chart-mark-active)]",
                   datum.partial ? HATCH : "bg-chart-mark",
                 )}
                 style={{ height: height(datum.y) }}

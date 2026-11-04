@@ -43,7 +43,7 @@ export function SlackStatus({ agentId }: { readonly agentId: string }) {
   const unverified = unverifiedApp(app.data);
   return (
     <section
-      className="flex flex-col gap-[var(--ap-space-block)]"
+      className="flex flex-col gap-[var(--werft-space-block)]"
       aria-label={t("slack.status")}
     >
       {error ? (

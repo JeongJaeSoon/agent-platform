@@ -197,7 +197,7 @@ export function Credentials({
                     key={ref}
                     className={cn(
                       missing.includes(ref) &&
-                        "border-[var(--ap-tone-attention-border)]",
+                        "border-[var(--werft-tone-attention-border)]",
                     )}
                     data-missing={missing.includes(ref)}
                   >

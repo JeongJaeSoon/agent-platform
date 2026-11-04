@@ -130,7 +130,7 @@ const REFUSAL: Record<string, string> = {
 };
 
 const SECTION_BOX =
-  "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
+  "flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none";
 const SECTION_LABEL = {
   use: "사용",
   repositories: "저장소",
@@ -530,7 +530,7 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
   return (
     <>
       <section
-        className="flex flex-col gap-[var(--ap-space-block)]"
+        className="flex flex-col gap-[var(--werft-space-block)]"
         aria-label="상태"
       >
         <RowList variant="joined">

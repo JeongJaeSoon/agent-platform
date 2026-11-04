@@ -17,10 +17,10 @@ export const alertVariants = cva(
     variants: {
       variant: {
         default: "border-border bg-card",
-        blue: "border-(color:--ap-tone-progress-border) bg-(color:--ap-tone-progress-bg)",
+        blue: "border-(color:--werft-tone-progress-border) bg-(color:--werft-tone-progress-bg)",
         amber:
-          "border-(color:--ap-tone-caution-border) bg-(color:--ap-tone-caution-bg)",
-        red: "border-(color:--ap-tone-danger-border) bg-(color:--ap-tone-danger-bg)",
+          "border-(color:--werft-tone-caution-border) bg-(color:--werft-tone-caution-bg)",
+        red: "border-(color:--werft-tone-danger-border) bg-(color:--werft-tone-danger-bg)",
       },
     },
     defaultVariants: { variant: "default" },
@@ -32,9 +32,9 @@ type AlertVariant = NonNullable<VariantProps<typeof alertVariants>["variant"]>;
 // Only the icon takes the tone's colour; the text stays text-2 and text.
 const ICON: Record<AlertVariant, { Icon: typeof Info; color: string }> = {
   default: { Icon: Info, color: "" },
-  blue: { Icon: Info, color: "text-(color:--ap-tone-progress-fg)" },
-  amber: { Icon: TriangleAlert, color: "text-(color:--ap-tone-caution-fg)" },
-  red: { Icon: CircleAlert, color: "text-(color:--ap-tone-danger-fg)" },
+  blue: { Icon: Info, color: "text-(color:--werft-tone-progress-fg)" },
+  amber: { Icon: TriangleAlert, color: "text-(color:--werft-tone-caution-fg)" },
+  red: { Icon: CircleAlert, color: "text-(color:--werft-tone-danger-fg)" },
 };
 
 export type AlertProps = ComponentProps<"div"> &

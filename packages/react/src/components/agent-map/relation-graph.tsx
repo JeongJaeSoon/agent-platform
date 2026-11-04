@@ -28,9 +28,9 @@ const PLAIN = "stroke-(color:--color-border-strong) stroke-[1.5]";
 // A run edge takes the run's state, as in the design; a message edge keeps
 // one colour and shows its kind by dash and arrow instead.
 const STATE_CLASS: Record<string, string> = {
-  run: "stroke-(color:--ap-tone-progress-fg) stroke-[1.5] [stroke-dasharray:6_5]",
-  wait: "stroke-(color:--ap-tone-attention-fg) stroke-2",
-  failed: "stroke-(color:--ap-tone-danger-fg) stroke-[1.5]",
+  run: "stroke-(color:--werft-tone-progress-fg) stroke-[1.5] [stroke-dasharray:6_5]",
+  wait: "stroke-(color:--werft-tone-attention-fg) stroke-2",
+  failed: "stroke-(color:--werft-tone-danger-fg) stroke-[1.5]",
 };
 const MESSAGE_CLASS: Partial<Record<MapEdgeKind, string>> = {
   waiting: `${PLAIN} [stroke-dasharray:1_4] [stroke-linecap:round]`,

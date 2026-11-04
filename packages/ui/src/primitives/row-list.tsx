@@ -15,7 +15,7 @@ export function RowLines({
     <span
       data-slot="row-lines"
       className={cn(
-        "flex min-w-0 flex-1 flex-col gap-[var(--ap-row-line-gap)] [&>*:first-child]:leading-5 [&>*]:leading-4",
+        "flex min-w-0 flex-1 flex-col gap-[var(--werft-row-line-gap)] [&>*:first-child]:leading-5 [&>*]:leading-4",
         className,
       )}
       {...props}
@@ -83,7 +83,7 @@ export function RowListItem({
       data-slot="row-list-item"
       data-opens={opens || undefined}
       className={cn(
-        "flex min-h-[var(--ap-row-min-height)] flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+        "flex min-h-[var(--werft-row-min-height)] flex-wrap items-center gap-x-3 gap-y-2 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]",
         opens && OPENS_ROW,
         className,
       )}

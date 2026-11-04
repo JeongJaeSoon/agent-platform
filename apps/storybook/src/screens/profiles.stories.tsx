@@ -227,7 +227,7 @@ function List({ role }: { readonly role: Role }) {
         </div>
       }
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         <div className="rounded-card border bg-card">
           <GridTable
             aria-label="프로필"
@@ -254,7 +254,7 @@ function List({ role }: { readonly role: Role }) {
             {ROWS.map((row) => (
               <GridTableRow key={row.id}>
                 <GridTableCell>
-                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                  <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                     <div className="wrap-anywhere font-medium leading-5">
                       {row.name}
                     </div>
@@ -460,9 +460,9 @@ function NewCeiling({
       title={next ? "wide 새 버전" : "설치 프로필 만들기"}
       description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 워크스페이스 프로필은 이 값을 줄이기만 합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다."
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {next ? null : <KindPicker kind="installation" />}
-        <form className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4">
+        <form className="flex flex-col gap-[var(--werft-space-block)] rounded-card border bg-card p-4">
           <Field>
             <FieldLabel>이름</FieldLabel>
             <Input
@@ -607,9 +607,9 @@ function NewWorkspace({ role }: { readonly role: Role }) {
       title="프로필 만들기"
       description="바탕이 되는 설치 프로필에서 모델·도구를 줄이거나 권한 모드를 더 엄격하게만 바꿀 수 있습니다."
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {role === "owner" ? <KindPicker kind="workspace" /> : null}
-        <form className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4">
+        <form className="flex flex-col gap-[var(--werft-space-block)] rounded-card border bg-card p-4">
           <Field className="w-auto max-w-full">
             <FieldLabel>바탕 프로필</FieldLabel>
             <NativeSelect defaultValue="op_wide_v2">

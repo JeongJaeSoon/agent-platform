@@ -471,7 +471,7 @@ export function NewAgentFlow({
   };
 
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       <FunnelResetNotice funnel={funnel} />
       <Stepper label={t("agents.flow.label")} {...stepper} steps={steps} />
       <funnel.Render

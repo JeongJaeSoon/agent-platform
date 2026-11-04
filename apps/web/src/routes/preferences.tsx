@@ -31,7 +31,7 @@ export function PreferencesScreen() {
   const theme = useTheme();
   return (
     <Page title={t("nav.preferences")} description={t("preferences.lead")}>
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         <ChoiceCard
           title={t("common.language")}
           hint={t("preferences.languageHint")}

@@ -213,7 +213,7 @@ describe("app shell", () => {
       expect(frame?.className).toContain("md:px-6");
       expect(
         frame?.querySelector('[data-slot="page-frame-body"]')?.className,
-      ).toContain("max-w-[var(--ap-w-page)]");
+      ).toContain("max-w-[var(--werft-w-page)]");
     });
   }
 
@@ -233,7 +233,7 @@ describe("app shell", () => {
       expect(frame?.className).toContain("md:px-6");
       expect(
         frame?.querySelector('[data-slot="page-frame-body"]')?.className,
-      ).toContain("max-w-[var(--ap-w-page)]");
+      ).toContain("max-w-[var(--werft-w-page)]");
     });
   }
 

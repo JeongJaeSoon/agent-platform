@@ -50,13 +50,13 @@ import {
 
 // One row per service (console v35): 64px tall, its button as wide as a row action.
 const SERVICE_ROW =
-  "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
+  "flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]";
 // Lines under a service start where its name does: inset, mark, gap.
 const SERVICE_INDENT =
-  "pl-[calc(var(--ap-row-padding-x)+var(--ap-size-tile-two-line)+0.75rem)]";
+  "pl-[calc(var(--werft-row-padding-x)+var(--werft-size-tile-two-line)+0.75rem)]";
 const SERVICE_DETAIL = cn(
   SERVICE_INDENT,
-  "border-t pr-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+  "border-t pr-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]",
 );
 
 // Refusals whose server message is the product copy written for the person
@@ -352,7 +352,7 @@ function ServiceMark({ children }: { readonly children: ReactNode }) {
   return (
     <span
       aria-hidden="true"
-      className="grid size-(--ap-size-tile-two-line) shrink-0 place-items-center self-start rounded-control bg-muted font-semibold text-caption text-muted-foreground"
+      className="grid size-(--werft-size-tile-two-line) shrink-0 place-items-center self-start rounded-control bg-muted font-semibold text-caption text-muted-foreground"
     >
       {children}
     </span>
@@ -700,7 +700,7 @@ function LinkCallback({
   return (
     <Page title={t("linked.title")}>
       {failure ? (
-        <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <div className="flex flex-col gap-[var(--werft-space-block)]">
           <FormError>{failure}</FormError>
           <p className="m-0">
             <TextLink asChild underline="always">

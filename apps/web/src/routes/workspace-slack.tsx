@@ -135,7 +135,7 @@ function TileMark({ className }: { readonly className?: string }) {
     <SlackMark
       className={cn(
         className,
-        "text-(--ap-color-tile-foreground) [&_path]:fill-current",
+        "text-(--werft-color-tile-foreground) [&_path]:fill-current",
       )}
     />
   );
@@ -491,7 +491,7 @@ function TokenRow({
         ) : null}
       </div>
       {summary?.state === "needs_reentry" ? (
-        <Text className="text-(color:--ap-tone-danger-fg)">
+        <Text className="text-(color:--werft-tone-danger-fg)">
           {t("workspace.tokenNeedsReentryHint")}
         </Text>
       ) : null}

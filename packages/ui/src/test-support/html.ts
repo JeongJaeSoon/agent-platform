@@ -31,7 +31,7 @@ const TAG = /<(\/?)([a-zA-Z][\w-]*)(?:\s[^>]*?)?(\/?)>/g;
  * snapshot is actually for — that the label still points at its input.
  */
 const ID_ATTRIBUTE =
-  /\b(id|for|data-ap-dialog|aria-labelledby|aria-describedby|aria-controls)="([^"]*)"/g;
+  /\b(id|for|data-werft-dialog|aria-labelledby|aria-describedby|aria-controls)="([^"]*)"/g;
 const GENERATED_ID = /_r_[0-9a-z]+_/g;
 
 function stableIds(markup: string): string {

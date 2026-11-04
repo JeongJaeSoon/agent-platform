@@ -73,7 +73,9 @@ describe("Stepper", () => {
     expect(lines).toHaveLength(3);
     expect(lines.every((line) => line.getAttribute("aria-hidden"))).toBe(true);
     expect(
-      lines.map((line) => line.className.includes("--ap-tone-success-border")),
+      lines.map((line) =>
+        line.className.includes("--werft-tone-success-border"),
+      ),
     ).toEqual([true, true, false]);
   });
 

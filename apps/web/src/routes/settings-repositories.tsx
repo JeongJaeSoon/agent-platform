@@ -89,7 +89,7 @@ export function RepositoriesScreen() {
         </Button>
       }
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {repositories.isPending ? (
           <Skeleton width="60%" />
         ) : repositories.isError ? (
@@ -174,13 +174,13 @@ function RepositoryRow({
   return (
     <GridTableRow>
       <GridTableCell>
-        <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col items-start gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <NarrowState state={item.state} />
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.url}</Code>
           <Text as="span" variant="meta">
             {t("settings.repos.branch")} <Code>{item.branch}</Code>
@@ -188,7 +188,7 @@ function RepositoryRow({
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Text as="span" variant="meta">
             {t(`settings.repos.auth.${item.auth_kind}`)}
             {item.username === undefined ? null : (

@@ -11,22 +11,22 @@
  */
 @layer base {
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ),
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     )::before,
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     )::after {
     box-sizing: border-box;
     border-width: 0;
@@ -35,54 +35,54 @@
     padding: 0;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(h1, h2, h3, h4, h5, h6) {
     font-size: inherit;
     font-weight: inherit;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(a) {
     color: inherit;
     text-decoration: inherit;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(ol, ul, menu) {
     list-style: none;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(img, svg, video, canvas, audio, iframe, embed, object) {
     display: block;
     vertical-align: middle;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(img, video) {
     max-width: 100%;
     height: auto;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(button, input, select, optgroup, textarea) {
     font: inherit;
     font-feature-settings: inherit;
@@ -94,10 +94,10 @@
     opacity: 1;
   }
   :where(
-      [class^="ap-"],
-      [class*=" ap-"],
+      [class^="werft-"],
+      [class*=" werft-"],
       [data-slot],
-      :where([class^="ap-"], [class*=" ap-"], [data-slot]) *
+      :where([class^="werft-"], [class*=" werft-"], [data-slot]) *
     ):where(textarea) {
     resize: vertical;
   }

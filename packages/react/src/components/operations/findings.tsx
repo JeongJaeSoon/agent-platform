@@ -96,8 +96,8 @@ export function Findings({
               className={cn(
                 "grid size-6 flex-none place-items-center rounded-full",
                 finding.kind === "fails_often"
-                  ? "bg-(color:--ap-tone-danger-bg) text-(color:--ap-tone-danger-fg)"
-                  : "bg-(color:--ap-tone-neutral-bg) text-muted-foreground",
+                  ? "bg-(color:--werft-tone-danger-bg) text-(color:--werft-tone-danger-fg)"
+                  : "bg-(color:--werft-tone-neutral-bg) text-muted-foreground",
               )}
             >
               <Icon aria-hidden="true" className="size-4" strokeWidth={1.5} />

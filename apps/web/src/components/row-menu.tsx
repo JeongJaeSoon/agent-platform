@@ -144,7 +144,7 @@ export function RowMenuItem({
       tabIndex={-1}
       className={cn(
         ITEM,
-        tone === "danger" && "text-(color:--ap-tone-danger-fg)",
+        tone === "danger" && "text-(color:--werft-tone-danger-fg)",
       )}
       onClick={onSelect}
     >

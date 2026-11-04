@@ -517,7 +517,7 @@ function ExpiryMeta({
       variant="meta"
       data-tone={danger ? "danger" : "caution"}
       data-expiry={state}
-      className="inline-flex items-center gap-1 font-medium text-[var(--ap-tone-fg)]"
+      className="inline-flex items-center gap-1 font-medium text-[var(--werft-tone-fg)]"
     >
       {danger ? (
         <CircleAlert aria-hidden="true" className={ICON} />
@@ -915,7 +915,7 @@ function IssuedSecret({
       </Alert>
       <Field>
         <FieldLabel>{t("apiKeys.secret")}</FieldLabel>
-        <div className="flex max-w-[var(--ap-layout-reading-width)] items-center gap-2">
+        <div className="flex max-w-[var(--werft-layout-reading-width)] items-center gap-2">
           <Input
             ref={secretRef}
             className="min-w-0 flex-1 font-mono"

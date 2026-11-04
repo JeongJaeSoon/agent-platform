@@ -106,7 +106,7 @@ export function SegmentedControlItem({
         if (!event.defaultPrevented) group.onValueChange(value);
       }}
       className={cn(
-        "inline-flex h-[var(--ap-control-height-sm)] items-center gap-2 whitespace-nowrap rounded-control border-0 bg-transparent px-2 font-medium text-control text-muted-foreground hover:text-foreground",
+        "inline-flex h-[var(--werft-control-height-sm)] items-center gap-2 whitespace-nowrap rounded-control border-0 bg-transparent px-2 font-medium text-control text-muted-foreground hover:text-foreground",
         "aria-pressed:bg-active aria-pressed:text-foreground",
         // v4 keeps the count text-3, but on the pressed fill that is 4.47:1;
         // text-2 keeps it at AA.

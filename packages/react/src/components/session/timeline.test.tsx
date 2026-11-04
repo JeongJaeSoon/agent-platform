@@ -228,7 +228,7 @@ describe("Timeline 도구 호출과 결과", () => {
       [...(held?.querySelectorAll("span") ?? [])].find(
         (span) => span.textContent === "waiting",
       )?.className,
-    ).toContain("--ap-tone-attention-fg");
+    ).toContain("--werft-tone-attention-fg");
     expect(open?.textContent).toContain("running");
     expect(open?.textContent).not.toContain("waiting");
   });
@@ -310,8 +310,8 @@ describe("Timeline 도구 호출과 결과", () => {
     expect(icon?.querySelector("svg")?.getAttribute("class")).not.toContain(
       "animate-spin",
     );
-    expect(icon?.className).toContain("--ap-tone-danger-bg");
-    expect(icon?.className).toContain("--ap-tone-danger-fg");
+    expect(icon?.className).toContain("--werft-tone-danger-bg");
+    expect(icon?.className).toContain("--werft-tone-danger-fg");
     expect(row?.querySelector(".text-destructive")?.textContent).toContain(
       "session.event.toolResult.error",
     );
@@ -462,7 +462,7 @@ describe("Timeline 도구 호출과 결과", () => {
     const [row] = rows();
     const icon = row?.querySelector('[role="img"]');
     expect(icon?.getAttribute("aria-label")).toBe("kind:request");
-    expect(icon?.className).toContain("--ap-tone-attention-bg");
+    expect(icon?.className).toContain("--werft-tone-attention-bg");
     expect(row?.textContent).toContain("session.event.kind.permission");
   });
 });

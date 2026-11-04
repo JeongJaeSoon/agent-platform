@@ -27,7 +27,7 @@ export function AxisIcon({ axis }: { axis: StatusAxis }): JSX.Element {
   const Shape = SHAPE[axis];
   return (
     <Shape
-      className="ap-status__icon"
+      className="werft-status__icon"
       size={12}
       strokeWidth={1.25}
       absoluteStrokeWidth

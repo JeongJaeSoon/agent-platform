@@ -273,7 +273,7 @@ describe("Tooltip", () => {
     ).toBe("열린 설명");
   });
 
-  test("asChild로 감싼 Button은 slot이 바뀌어도 data-ap-button 표시를 남긴다", () => {
+  test("asChild로 감싼 Button은 slot이 바뀌어도 data-werft-button 표시를 남긴다", () => {
     const { getByRole } = render(
       <Tooltip>
         <TooltipTrigger asChild={true}>
@@ -287,6 +287,6 @@ describe("Tooltip", () => {
     const link = getByRole("link", { name: "다시 활성화" });
     // styles.css finds an inactive row's actions by this mark.
     expect(link.getAttribute("data-slot")).toBe("popover-trigger");
-    expect(link.hasAttribute("data-ap-button")).toBe(true);
+    expect(link.hasAttribute("data-werft-button")).toBe(true);
   });
 });

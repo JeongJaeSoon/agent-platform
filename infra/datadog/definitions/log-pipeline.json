@@ -19,7 +19,7 @@
           ],
           "grok": {
             "support_rules": "",
-            "match_rules": "agent_platform_json %{data::json}"
+            "match_rules": "werft_json %{data::json}"
           }
         },
         {

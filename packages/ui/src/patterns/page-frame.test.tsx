@@ -16,7 +16,7 @@ describe("PageFrame", () => {
     for (const gutter of [
       "p-4",
       "md:px-6",
-      "md:py-[var(--ap-space-page-top)]",
+      "md:py-[var(--werft-space-page-top)]",
       "flex-1",
     ]) {
       expect(frame?.className.split(" ")).toContain(gutter);
@@ -24,7 +24,7 @@ describe("PageFrame", () => {
     const body = frame?.firstElementChild;
     expect(body?.getAttribute("data-slot")).toBe("page-frame-body");
     expect(body?.className).toContain("mx-auto");
-    expect(body?.className).toContain("max-w-[var(--ap-w-page)]");
+    expect(body?.className).toContain("max-w-[var(--werft-w-page)]");
     expect(body?.textContent).toBe("본문");
   });
 });
@@ -51,7 +51,7 @@ describe("Page", () => {
       [...(header?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
     ).toEqual(["보기 전환", "새 세션"]);
     const sections = header?.nextElementSibling;
-    expect(sections?.className).toContain("gap-[var(--ap-space-section)]");
+    expect(sections?.className).toContain("gap-[var(--werft-space-section)]");
     expect(sections?.textContent).toBe("목록");
   });
 
