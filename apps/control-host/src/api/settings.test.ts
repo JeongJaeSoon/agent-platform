@@ -27,11 +27,11 @@ const OLD_CATALOG = {
 `,
   "repositories.yaml": `repositories:
   sample-app:
-    url: http://gitea:3000/agent/sample-app.git
+    url: http://fake-git:3000/agent/sample-app.git
     branch: main
     profiles: [coding]
   bare:
-    url: http://gitea:3000/agent/bare.git
+    url: http://fake-git:3000/agent/bare.git
     branch: main
 `,
   "mcp-servers.yaml": `mcp_servers:

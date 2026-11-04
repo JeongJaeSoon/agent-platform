@@ -271,9 +271,9 @@ describe("credentialHostsFromEnv", () => {
     ]);
     expect(
       credentialHostsFromEnv({
-        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gitea:3000",
+        EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "fake-git:3000",
       }),
-    ).toEqual(["gitea:3000"]);
+    ).toEqual(["fake-git:3000"]);
     expect(
       credentialHostsFromEnv({ EGRESS_CREDENTIAL_ALLOWLIST: " " }),
     ).toBeNull();

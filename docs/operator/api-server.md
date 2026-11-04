@@ -310,7 +310,7 @@ profile의 `permission_mode`는 `default`·`acceptEdits`·`dontAsk`·`plan`·`by
 
 ### 예시 설정 문서
 
-`tests/fixtures/settings/`의 문서는 로컬 스택과 E2E가 migrate 단계에서 가져오는 예시다. 운영 설치는 이 문서를 쓰지 않는다. `real-model.json`은 `https://api.anthropic.com`을 endpoint로, API 프로세스의 `ANTHROPIC_API_KEY`를 `value_env`로, compose `gitea` 서비스(읽기 전용 fake-git)의 `sample-app`을 저장소로 쓴다. `fake-model.json`은 외부 계정 없이 도는 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음, `infra/compose.fake-model.yml`을 얹을 때만 뜬다)에 심어 둔 placeholder 키를 `secret_id`로 쓴다. `agent/sample-app`은 fake-git이 기동할 때마다 같은 커밋으로 다시 만든다. URL `http://gitea:3000/agent/sample-app.git`은 바꾸지 않는다. 세션은 시작할 때의 `repo_url`을 간직하고 카탈로그와 다르면 `CATALOG_MISMATCH`로 멈추기 때문이다.
+`tests/fixtures/settings/`의 문서는 로컬 스택과 E2E가 migrate 단계에서 가져오는 예시다. 운영 설치는 이 문서를 쓰지 않는다. `real-model.json`은 `https://api.anthropic.com`을 endpoint로, API 프로세스의 `ANTHROPIC_API_KEY`를 `value_env`로, compose `fake-git` 서비스(읽기 전용)의 `sample-app`을 저장소로 쓴다. `fake-model.json`은 외부 계정 없이 도는 예시다: compose `fake-messages`(fake Messages API)를 endpoint로, compose `secrets`(API 전용 LocalStack Secrets Manager, worker egress allowlist에 없음, `infra/compose.fake-model.yml`을 얹을 때만 뜬다)에 심어 둔 placeholder 키를 `secret_id`로 쓴다. `agent/sample-app`은 fake-git이 기동할 때마다 같은 커밋으로 다시 만든다. URL은 `http://fake-git:3000/agent/sample-app.git`이다. 세션은 시작할 때의 `repo_url`을 간직하고 설정과 다르면 `CATALOG_MISMATCH`로 멈추므로, 이 URL을 바꾸면 그 전 세션은 이어지지 않는다.
 
 ```bash
 docker compose -f infra/compose.yml up -d secrets

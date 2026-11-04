@@ -94,6 +94,7 @@ When migrating an older LocalStack installation, back up from the old checkout b
 | `127.0.0.1 port(s) … already in use` | Use the `lsof` loop above to find the process using that port |
 | `up needs ANTHROPIC_API_KEY exported or in .env` | `up` without options uses the real Claude. To run without a key, add `--fake-model` |
 | The API does not come up after restarting Docker | Check the S3 volume, encryption key, and logs. For lost objects from an older LocalStack installation, follow the migration and backup guide |
+| After a pull, `up` ends with `has neither an image nor a build context specified` or `port is already allocated` | The Git server's service is now named `fake-git`. Fix the key in your port override file, run `scripts/local.sh down --keep-volumes`, then `up` again. Older sessions stop with `CATALOG_MISMATCH`, so open a new session |
 
 ## Next steps
 

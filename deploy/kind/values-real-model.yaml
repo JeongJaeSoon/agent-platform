@@ -6,7 +6,7 @@ config:
     SESSION_COST_LIMIT_USD: 1
     MAX_TURN_SECONDS: 600
   egress:
-    credentialPrivateAllowlist: "gitea:3000,localstack:4566"
+    credentialPrivateAllowlist: "fake-git:3000,localstack:4566"
 worker:
   workspace:
     gcMinAgeSec: 0

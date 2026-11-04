@@ -136,7 +136,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `PLATFORM_SETTINGS_DOCUMENT` | 설정 문서 파일. 기본 예시는 `/etc/agent-platform/settings.json`. checkout 안이면 거부한다 |
 | `PLATFORM_SECRET_KEY` | 64자 hex(`openssl rand -hex 32`). 저장한 자격 증명을 봉인하는 master key다. API와 slack 역할에만 가고, 없으면 `preflight`가 거부한다. 잃으면 저장한 값을 읽지 못한다 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
-| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `gitea`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
+| `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `fake-git`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
 | `EXECUTION_WORKSPACE_QUOTA` | `on`. 다른 값이면 거부한다 |
 
 `s3`에서만 다음을 더 채운다. `localstack`에서는 비워 둔다. API는 LocalStack의 `claude-sessions` bucket에 LocalStack용 고정 key로 붙고, `S3_BUCKET`을 다른 값으로 두면 `preflight`가 거부한다.
@@ -360,7 +360,7 @@ scripts/test-ops.sh upgrade release-new.json
 내장 Gitea를 뺀 release로 올리기 전에 다음을 한다. `upgrade`는 Gitea를 대신 지우지도 옮기지도 않는다.
 
 1. 남길 저장소를 GitHub로 옮기고, 카탈로그의 저장소 URL을 바꾼다. 카탈로그의 URL이 세션에 기록된 URL과 달라지면 그 세션은 `CATALOG_MISMATCH`로 새 입력을 받지 못한다.
-2. env 파일의 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에서 `gitea:3000`을 뺀다. 남아 있으면 preflight가 거부한다.
+2. env 파일의 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에서 `gitea:3000`을 뺀다. 없는 호스트를 가리키는 값이고, preflight는 이 값을 잡지 않으므로 직접 확인한다.
 3. 이전 release의 checkout에서 마지막 백업을 뜬다. 새 release의 백업에는 Gitea가 들어가지 않고, Gitea가 든 백업은 새 release에서 복원되지 않는다([backup-restore.md](backup-restore.md#내장-gitea를-쓰던-때의-백업)).
 4. `upgrade`한다. 서비스 정의가 사라져도 기존 컨테이너는 그대로 돌고 3001을 계속 연다. 확인한 뒤 `docker rm -f <project>-gitea-1`로 내린다.
 5. `<project>_gitea-data` volume은 자동으로 지워지지 않는다. `reset`도 지우지 않는다. 저장소를 다 옮겼다고 확인한 뒤에 운영자가 `docker volume rm`으로 지운다. 이 volume이 남아 있으면 `deploy`가 같은 project를 거부한다.

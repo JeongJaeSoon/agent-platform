@@ -40,12 +40,12 @@ QUEUE_DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
 로컬 의존 서비스만 기동하려면 다음을 사용한다. 기본 포트 5432·4566·3001이 이미 사용 중인지 먼저 확인한다.
 
 ```bash
-docker compose -f infra/compose.yml up -d postgres localstack gitea egress-proxy
+docker compose -f infra/compose.yml up -d postgres localstack fake-git egress-proxy
 docker compose -f infra/compose.yml ps
 docker compose -f infra/compose.yml run --rm migrate
 ```
 
-compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, host 프로세스가 쓰는 것만 게시한다: postgres `5432`, LocalStack `4566`, API 전용 Secrets Manager `4567`(`--fake-model`일 때만), fake-git(`gitea` 서비스)의 HTTP clone `3001`, API `3000`. 워커는 proxy의 repository route로 HTTP clone한다. 다른 머신에서 이 서비스에 붙어야 하면 compose를 고치지 말고 SSH 터널을 쓴다. 이미지는 전부 multi-arch index digest로 고정하거나(`postgres`·`localstack`·`fake-messages`, Bun은 app Dockerfile과 같은 digest) 저장소에서 빌드한다(`egress-proxy`·`api`·`migrate`·`gitea`(둘 다 API Dockerfile)·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다). egress proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 뜨고 소스를 mount하지 않으므로, proxy 코드를 고친 뒤에는 재시작이 아니라 `docker compose -f infra/compose.yml up -d --build egress-proxy`로 다시 빌드해야 반영된다. 배포는 `EGRESS_PROXY_IMAGE`를 images.yml이 낸 digest(`<name>@sha256:…`)로 주고 `--build` 없이 `up -d`로 띄운다. compose는 빌드 결과에 `image:` 값을 태그로 붙이는데 digest 참조는 태그가 될 수 없어서, `--build`를 붙이면 빌드가 실패한다. `API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도 마찬가지다.
+compose가 host에 게시하는 포트는 전부 `127.0.0.1`에만 묶이고, host 프로세스가 쓰는 것만 게시한다: postgres `5432`, LocalStack `4566`, API 전용 Secrets Manager `4567`(`--fake-model`일 때만), fake-git의 HTTP clone `3001`, API `3000`. 워커는 proxy의 repository route로 HTTP clone한다. 다른 머신에서 이 서비스에 붙어야 하면 compose를 고치지 말고 SSH 터널을 쓴다. 이미지는 전부 multi-arch index digest로 고정하거나(`postgres`·`localstack`·`fake-messages`, Bun은 app Dockerfile과 같은 digest) 저장소에서 빌드한다(`egress-proxy`·`api`·`migrate`·`fake-git`(둘 다 API Dockerfile)·`worker`, scheduler는 `api`가 빌드한 control-host 이미지를 같이 쓴다). egress proxy는 `apps/egress-proxy/Dockerfile`로 빌드한 이미지로 뜨고 소스를 mount하지 않으므로, proxy 코드를 고친 뒤에는 재시작이 아니라 `docker compose -f infra/compose.yml up -d --build egress-proxy`로 다시 빌드해야 반영된다. 배포는 `EGRESS_PROXY_IMAGE`를 images.yml이 낸 digest(`<name>@sha256:…`)로 주고 `--build` 없이 `up -d`로 띄운다. compose는 빌드 결과에 `image:` 값을 태그로 붙이는데 digest 참조는 태그가 될 수 없어서, `--build`를 붙이면 빌드가 실패한다. `API_IMAGE`(api·scheduler 공용)·`WORKER_IMAGE`도 마찬가지다.
 
 기존 환경 파일이나 volume을 덮어쓰거나 삭제하지 않는다. host에서 실행하는 테스트는 컨테이너 DNS 이름이 아니라 host에 공개된 endpoint를 사용한다. PostgreSQL integration fixture는 임시 DB 생성 권한이 필요하므로 전용 로컬 테스트 DB만 지정한다. LocalStack fixture는 `AWS_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`의 로컬 테스트 설정을 요구한다. 운영 DB·운영 credential로 실행하지 않는다.
 
@@ -67,7 +67,7 @@ scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 
 | `apps/control-host`와 그 의존 패키지 | api는 SIGTERM 뒤 5초 안에 다시 뜬다. 열린 SSE의 35초 drain을 기다리지 않는다. scheduler·reconciler는 각 loop의 stop grace 안에서 진행 중인 pass를 안전 지점에서 멈추고 새 코드로 다시 뜬다. 프로세스가 스스로 끝나면 이유와 상관없이 다음 저장까지 기다린다. 문법 오류든 DB 재시작이든 같다. 컨테이너가 떠 있으므로 Docker의 restart 정책도 프로세스를 다시 띄우지 않는다. 고칠 것이 없으면 `docker compose restart <role>`로 다시 띄운다 |
 | `apps/web`, `packages/ui` 등 웹 소스 | `local.sh web`의 Vite가 브라우저에 hot module reload로 보낸다. 주소는 Vite가 출력하는 `http://localhost:5173`이고, `/v1`은 스택의 api로 proxy한다. api가 서빙하는 `/`는 이미지에 빌드된 그대로다. 파일 이벤트가 오지 않는 환경에서는 `CHOKIDAR_USEPOLLING=1 scripts/local.sh web`으로 띄운다 |
 | `bun.lock`, worker(`apps/worker`), `apps/egress-proxy`, migration | 이미지에서 온다. `scripts/local.sh dev --fake-model`을 다시 돌리면 바뀐 이미지만 다시 빌드한다. worker는 세션마다 그 이미지로 뜨므로 다음 세션부터 반영된다 |
-| `config/` | api 재시작(`docker compose restart api`)으로 반영한다 |
+| `tests/fixtures/settings/` | 다음 `up`의 migrate가 더하기만 한다. 이미 있는 항목과 값이 다르면 migrate가 거부하므로, 고치려면 콘솔을 쓰거나 `scripts/local.sh reset`으로 다시 시작한다 |
 
 개발 모드에서는 slack과 maintenance를 띄우지 않는다. Slack role을 고치거나 쓰는 작업은 `up`으로 띄운다. `up`으로 띄운 스택 위에서 `dev`를 돌리면 이미 떠 있던 slack·maintenance는 꺼지지 않고 남는다. 먼저 `scripts/local.sh down --keep-volumes`로 내린 뒤 `dev`를 돌린다. 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. 운영 이미지와 Helm chart에는 이 overlay가 들어가지 않는다.
 

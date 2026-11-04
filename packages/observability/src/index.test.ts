@@ -93,14 +93,14 @@ describe("structured logging", () => {
     const sink = new MemoryLogSink();
     const logger = createLogger({ sinks: [sink] });
 
-    logger.warn("fetch https://agent:tok123@gitea:3000/a.git failed", {
+    logger.warn("fetch https://agent:tok123@fake-git:3000/a.git failed", {
       remote: "https://tok123@github.com/o/r.git",
       at: "https://user:p@ss@host.test/r?by=a@b",
       mail: "someone@example.test",
     });
 
     expect(sink.records[0]?.message).toBe(
-      "fetch https://[REDACTED]@gitea:3000/a.git failed",
+      "fetch https://[REDACTED]@fake-git:3000/a.git failed",
     );
     expect(sink.records[0]?.fields).toEqual({
       remote: "https://[REDACTED]@github.com/o/r.git",

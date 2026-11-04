@@ -5,7 +5,7 @@ config:
   aws:
     secretsManagerEndpointUrl: http://secrets:4566
   egress:
-    credentialPrivateAllowlist: "gitea:3000,fake-messages:4010,localstack:4566"
+    credentialPrivateAllowlist: "fake-git:3000,fake-messages:4010,localstack:4566"
 worker:
   workspace:
     gcMinAgeSec: 0

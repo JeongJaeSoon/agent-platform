@@ -30,7 +30,7 @@ const DOCUMENT = {
       branch: "main",
       auth: { kind: "github_app" },
     },
-    open: { url: "http://gitea:3000/agent/sample-app.git", branch: "main" },
+    open: { url: "http://fake-git:3000/agent/sample-app.git", branch: "main" },
   },
   mcp_servers: {
     docs: {

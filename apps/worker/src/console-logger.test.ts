@@ -21,7 +21,7 @@ describe("the worker's console log", () => {
     const { lines, logger } = recorded();
 
     logger.warn("worker.probe", {
-      reason: "fetch https://agent:tok123@gitea:3000/a.git failed",
+      reason: "fetch https://agent:tok123@fake-git:3000/a.git failed",
       authorization: "Bearer abc123",
       nested: { detail: "sent Bearer abc123" },
     });
@@ -30,7 +30,7 @@ describe("the worker's console log", () => {
     expect(text).not.toContain("abc123");
     expect(text).not.toContain("tok123");
     expect(lines[0]).toMatchObject({
-      reason: "fetch https://[REDACTED]@gitea:3000/a.git failed",
+      reason: "fetch https://[REDACTED]@fake-git:3000/a.git failed",
       authorization: "[REDACTED]",
       nested: { detail: "[REDACTED]" },
     });

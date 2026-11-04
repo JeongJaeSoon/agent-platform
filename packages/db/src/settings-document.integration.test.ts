@@ -53,7 +53,7 @@ const DOCUMENT = {
     },
   },
   repositories: {
-    open: { url: "http://gitea:3000/agent/sample-app.git", branch: "main" },
+    open: { url: "http://fake-git:3000/agent/sample-app.git", branch: "main" },
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",

@@ -23,7 +23,12 @@ const workspace: WorkspaceDescriptor = {
   },
   additional_repositories: [
     { id: "docs", url: "https://github.com/o/docs", branch: "main", access },
-    { id: "lab", url: "http://gitea:3000/o/lab.git", branch: "main", access },
+    {
+      id: "lab",
+      url: "http://fake-git:3000/o/lab.git",
+      branch: "main",
+      access,
+    },
     // An id ending in `.git` is routed like any other.
     {
       id: "v1.git",
@@ -58,10 +63,10 @@ describe("repositoryRoutesConfig", () => {
         '\tinsteadOf = "https://github.com/o/docs"',
         '\tinsteadOf = "https://github.com/o/docs/"',
         '[url "http://egress-proxy:3129/repository/lab/.git"]',
-        '\tinsteadOf = "http://gitea:3000/o/lab.git"',
+        '\tinsteadOf = "http://fake-git:3000/o/lab.git"',
         '[url "http://egress-proxy:3129/repository/lab/.git/"]',
-        '\tinsteadOf = "http://gitea:3000/o/lab"',
-        '\tinsteadOf = "http://gitea:3000/o/lab/"',
+        '\tinsteadOf = "http://fake-git:3000/o/lab"',
+        '\tinsteadOf = "http://fake-git:3000/o/lab/"',
         '[url "http://egress-proxy:3129/repository/v1.git/.git"]',
         '\tinsteadOf = "https://github.com/o/v1.git"',
         '[url "http://egress-proxy:3129/repository/v1.git/.git/"]',
