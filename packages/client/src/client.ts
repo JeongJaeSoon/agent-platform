@@ -24,7 +24,7 @@ export interface ApiClientOptions extends ContractOptions {
 }
 
 export const CSRF_HEADER_NAME = "x-requested-with";
-export const CSRF_HEADER_VALUE = "agent-platform-web";
+export const CSRF_HEADER_VALUE = "werft-web";
 
 type Credentials = NonNullable<ApiClientOptions["credentials"]>;
 

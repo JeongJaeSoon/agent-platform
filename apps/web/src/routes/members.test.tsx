@@ -289,7 +289,7 @@ describe("구성원 화면", () => {
     await waitFor(() => expect(roleIn("Mate")).toBe("소유자"));
     const patch = api.calls.find((c) => c.method === "PATCH");
     expect(patch?.body).toEqual({ role: "owner" });
-    expect(patch?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(patch?.headers.get("x-requested-with")).toBe("werft-web");
   });
 
   test("마지막 소유자(409 LAST_OWNER)는 행이 미리 막는 이유와 같은 말로 보인다", async () => {

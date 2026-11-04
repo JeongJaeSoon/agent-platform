@@ -105,7 +105,7 @@ function fakeSts() {
       <Expiration>2099-01-01T00:00:00Z</Expiration>
     </Credentials>
     <AssumedRoleUser>
-      <Arn>arn:aws:sts::123456789012:assumed-role/agent-platform-api/api</Arn>
+      <Arn>arn:aws:sts::123456789012:assumed-role/werft-api/api</Arn>
       <AssumedRoleId>AROAFAKE:api</AssumedRoleId>
     </AssumedRoleUser>
   </AssumeRoleWithWebIdentityResult>
@@ -120,8 +120,7 @@ function useWebIdentity(stsUrl: string) {
   const tokenFile = join(dir, "token");
   writeFileSync(tokenFile, "fake-projected-token");
   process.env.AWS_WEB_IDENTITY_TOKEN_FILE = tokenFile;
-  process.env.AWS_ROLE_ARN =
-    "arn:aws:iam::123456789012:role/agent-platform-api";
+  process.env.AWS_ROLE_ARN = "arn:aws:iam::123456789012:role/werft-api";
   process.env.AWS_ROLE_SESSION_NAME = "api";
   process.env.AWS_ENDPOINT_URL_STS = stsUrl;
 }

@@ -454,6 +454,6 @@ describe("auth requests", () => {
 
   test("names the cookie and the CSRF header the web surface must send", () => {
     expect(WEB_SESSION_COOKIE_NAME).toBe("__Host-ap_session");
-    expect(CSRF_HEADER_VALUE).toBe("agent-platform-web");
+    expect(CSRF_HEADER_VALUE).toBe("werft-web");
   });
 });

@@ -67,7 +67,7 @@ describe("로그인 수단 선택", () => {
         .hasAttribute("disabled"),
     ).toBe(false);
     const start = api.calls.find((c) => c.path === "/v1/auth/google/start");
-    expect(start?.headers.get("x-requested-with")).toBe("agent-platform-web");
+    expect(start?.headers.get("x-requested-with")).toBe("werft-web");
     expect(sessionStorage.getItem("ap.postLoginPath")).toBe("/members");
   });
 });

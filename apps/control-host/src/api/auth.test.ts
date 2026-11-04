@@ -447,7 +447,7 @@ function harness(
   return { app, identity, sink, json, bootstrap, login, hooks };
 }
 
-const BROWSER = { "X-Requested-With": "agent-platform-web" };
+const BROWSER = { "X-Requested-With": "werft-web" };
 
 function cookieOf(response: Response): string {
   const header = response.headers.get("Set-Cookie");
@@ -1579,7 +1579,7 @@ describe("principal middleware", () => {
         headers: {
           Cookie: cookie,
           "Content-Type": "application/json",
-          "X-Requested-With": "agent-platform-web",
+          "X-Requested-With": "werft-web",
           "Idempotency-Key": "k",
         },
         body: "{}",
@@ -1713,6 +1713,44 @@ describe("CSRF", () => {
       headers: { Cookie: cookie },
     });
     expect(read.status).toBe(200);
+  });
+
+  test("the header takes the current value, the pre-rename value and nothing else", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const cookie = cookieOf(await h.login());
+    const send = (value: string, extra: Record<string, string> = {}) =>
+      h.json(
+        "/v1/mutate",
+        {},
+        { Cookie: cookie, [CSRF_HEADER_NAME]: value, ...extra },
+      );
+
+    for (const value of ["werft-web", "agent-platform-web"]) {
+      expect((await send(value)).status).toBe(201);
+      expect(
+        (await send(value, { "Sec-Fetch-Site": "cross-site" })).status,
+      ).toBe(403);
+      expect(
+        (
+          await send(value, {
+            Host: "app.example",
+            Origin: "https://evil.example",
+          })
+        ).status,
+      ).toBe(403);
+    }
+
+    for (const value of [
+      "",
+      "werft",
+      "WERFT-WEB",
+      "agent-platform",
+      "XMLHttpRequest",
+      "werft-web, agent-platform-web",
+    ]) {
+      expect((await send(value)).status).toBe(403);
+    }
   });
 
   test("a cross-site or foreign-origin request is refused even with the header", async () => {

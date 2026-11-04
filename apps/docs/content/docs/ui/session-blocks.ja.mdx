@@ -7,7 +7,7 @@ description: "SessionList と SessionDetail でセッション一覧とセッシ
 
 ## ブロックが API を呼ぶ方法
 
-ブロックは `@werft-ai/client` のクライアントで同じ origin の `/v1` を呼び、Web コンソールのログイン cookie で認証する。cookie を使うリクエストに必要な CSRF ヘッダー(`X-Requested-With: agent-platform-web`)はクライアントが付ける。そのため、次のことが必要である。
+ブロックは `@werft-ai/client` のクライアントで同じ origin の `/v1` を呼び、Web コンソールのログイン cookie で認証する。cookie を使うリクエストに必要な CSRF ヘッダー(`X-Requested-With: werft-web`)はクライアントが付ける。そのため、次のことが必要である。
 
 - アプリと API が同じ origin であること。開発中は Vite の `server.proxy` が `/v1` をスタックへ転送する([インストール](/ui/install)の `vite.config.ts`)。
 - ブラウザがログインしていること。cookie はポートを区別しないので、同じブラウザで `http://127.0.0.1:3000` の Web コンソールにログインすると、`http://127.0.0.1:5173` のアプリのリクエストにもその cookie が送られる。

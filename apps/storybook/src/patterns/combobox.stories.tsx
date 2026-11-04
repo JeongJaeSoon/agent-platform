@@ -98,7 +98,7 @@ const CHANNELS = [
   ["general", false],
   ["release-notes", false],
   ["incident-war-room", true],
-  ["agent-platform-dev", false],
+  ["werft-dev", false],
   ["leadership", true],
   ["support-escalations", false],
   ["design-review", false],

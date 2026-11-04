@@ -1349,7 +1349,7 @@ describe("session detail", () => {
     await waitFor(() => expect(stream.requests).toHaveLength(1));
     expect(stream.requests[0]?.headers.get("last-event-id")).toBeNull();
     expect(stream.requests[0]?.headers.get("x-requested-with")).toBe(
-      "agent-platform-web",
+      "werft-web",
     );
 
     await act(async () => stream.open());
