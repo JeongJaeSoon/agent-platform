@@ -158,7 +158,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy` runs migrate, starts the API, scheduler and reconciler, and waits for their health checks. LocalStack loses checkpoints when the host or Docker restarts, and after a restart the API can refuse to start (recover with `reseed` or `reset` from the runbook). Use it only to try things out.
 
-If the first `deploy` fails, `reset` cannot remove it. Fix the cause, delete the containers and volumes of this project (`agent-platform-test-ops`) by hand, and run `deploy` again.
+If the first `deploy` fails, `reset` cannot remove it. Fix the cause, delete the containers, volumes and network of this project (`agent-platform-test-ops`) by hand, and run `deploy` again.
 
 ## 6. Check
 

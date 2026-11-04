@@ -3,7 +3,7 @@ title: "Self-hosting"
 description: Choose how to install a Werft server that several people share
 ---
 
-This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. Read the one page for your method, and it takes you all the way to `/readyz` returning 200.
+This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. The page for your method lists the install steps up to `/readyz` returning 200. The Kubernetes page was run on kind with the published chart. The single-server page has not been run from start to finish.
 
 ## Choose an install method
 
@@ -27,7 +27,7 @@ The install uses the packages published on every merge to `main`, not ones you b
 The packages need no login. `<12>` is the first 12 characters of the commit SHA.
 
 <Callout type="warn">
-There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, the image tag is `v<version>` and the chart version is `<version>` without the `v`. Each install page's commands stay the same with only that value changed. If you cannot pull the published images, check out the repository and [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다).
+There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, the image tag is `v<version>` and the chart version is `<version>` without the `v`. The install pages' commands stay the same, and the single-server install checks out the same tag. If you cannot pull the published images, check out the repository and [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다).
 </Callout>
 
 ## Connect to the server

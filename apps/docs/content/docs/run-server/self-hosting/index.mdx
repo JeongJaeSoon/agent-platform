@@ -3,7 +3,7 @@ title: "셀프 호스팅"
 description: 여러 사람이 쓰는 Werft 서버를 설치하는 방법을 고른다
 ---
 
-Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지 하나만 읽으면 `/readyz`가 200을 돌려줄 때까지 설치된다.
+Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다. Kubernetes 페이지는 게시 chart로 kind에서 실행해 확인했다. 단일 서버 페이지는 처음부터 끝까지 실행해 확인하지 않았다.
 
 ## 설치 방식 고르기
 
@@ -27,7 +27,7 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자다.
 
 <Callout type="warn">
-첫 `v` 태그가 아직 없다. `main-<12>`는 릴리스가 아니고 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. 첫 `v` 태그가 생기면 이미지 태그는 `v<버전>`, chart 버전은 `v` 없는 `<버전>`이 된다. 각 설치 페이지의 명령은 이 값만 바꾸면 같다. 게시된 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)한다.
+첫 `v` 태그가 아직 없다. `main-<12>`는 릴리스가 아니고 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. 첫 `v` 태그가 생기면 이미지 태그는 `v<버전>`, chart 버전은 `v` 없는 `<버전>`이 된다. 설치 페이지의 명령은 그대로 같고, 단일 서버는 같은 태그를 checkout한다. 게시된 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)한다.
 </Callout>
 
 ## 서버에 붙기

@@ -158,7 +158,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。LocalStack はホストや Docker が再起動すると checkpoint を失い、再起動後に API が起動を拒否することがあります(復旧は runbook の `reseed` または `reset`)。試用だけに使います。
 
-最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`agent-platform-test-ops`)のコンテナと volume を手で削除し、もう一度 `deploy` します。
+最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`agent-platform-test-ops`)のコンテナ、volume、network を手で削除し、もう一度 `deploy` します。
 
 ## 6. 確認する
 
