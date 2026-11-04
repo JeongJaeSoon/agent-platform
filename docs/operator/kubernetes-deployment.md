@@ -2,7 +2,7 @@
 
 main을 Kubernetes에 올리는 절차다. chart는 `deploy/helm/agent-platform`에 있고, 기본값은 일반 Kubernetes(kind 포함)에서 돈다. AWS 전용 값(ALB Ingress, IRSA, ECR, External Secrets)은 `values-aws.example.yaml`에만 있다. 각 구성요소의 동작과 환경 변수는 [Kubernetes 실행 backend](kubernetes-backend.md), 백업은 [backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)에 있다.
 
-**현재 상태:** chart 패키지와 게시된 앱 이미지가 아직 없다. chart는 저장소 checkout의 경로로 설치하고, 이미지는 직접 빌드한다(아래 "준비"). `values.yaml` 기본값의 `ghcr.io` 이름에는 받을 이미지가 없어서, 바꾸지 않으면 migrate Job이 `ImagePullBackOff`로 멈춘다.
+**현재 상태:** chart 패키지와 게시된 앱 이미지가 아직 없다. chart는 저장소 checkout의 경로로 설치하고, 이미지는 직접 빌드한다(아래 "준비"). `values.yaml` 기본값은 digest가 비어 있어 그대로는 render가 실패한다. digest만 채우고 기본값의 `ghcr.io` 이름을 두면 받을 이미지가 없어 migrate Job이 `ImagePullBackOff`로 멈춘다.
 
 Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 운영한다. 그 절차는 [server-deployment.md](server-deployment.md)와 [test-ops.md](test-ops.md)이고, 이 문서는 그 옆의 두 번째 설치 경로다.
 
