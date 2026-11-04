@@ -167,6 +167,16 @@ export const catalogConnectionsSchema = z.record(
   catalogProviderSchema,
 );
 
+/**
+ * A kind's official address, filled in when a settings entry leaves its
+ * endpoint empty. Only at write: a row keeps a concrete URL, so changing a
+ * value here moves no session and no stored key. A kind absent here (a
+ * proxy the operator runs) has to name its own.
+ */
+export const CONNECTION_ENDPOINT_DEFAULTS: Readonly<
+  Partial<Record<z.infer<typeof catalogProviderSchema>["kind"], string>>
+> = { anthropic: "https://api.anthropic.com" };
+
 const PRIVATE_NAME_SUFFIXES = [
   ".internal",
   ".local",
@@ -210,6 +220,21 @@ export function isPrivateEndpointHost(hostname: string): boolean {
     PRIVATE_NAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
   );
 }
+
+export const BILLING_NONE_ENDPOINT_MESSAGE =
+  "billing none needs an endpoint on a private address or a name public DNS does not serve";
+
+export function billingFitsEndpoint(provider: {
+  billing?: unknown;
+  endpoint: string;
+}): boolean {
+  return (
+    provider.billing !== "none" ||
+    !isWebUrl(provider.endpoint) ||
+    isPrivateEndpointHost(new URL(provider.endpoint).hostname)
+  );
+}
+
 export const catalogProfileConfigSchema = z
   .object({
     runtime_kind: runtimeKindSchema,
@@ -239,17 +264,10 @@ export const catalogProfileConfigSchema = z
       path: ["project_settings", "claude_md"],
     },
   )
-  .refine(
-    (profile) =>
-      profile.provider.billing !== "none" ||
-      !isWebUrl(profile.provider.endpoint) ||
-      isPrivateEndpointHost(new URL(profile.provider.endpoint).hostname),
-    {
-      message:
-        "billing none needs an endpoint on a private address or a name public DNS does not serve",
-      path: ["provider", "billing"],
-    },
-  );
+  .refine((profile) => billingFitsEndpoint(profile.provider), {
+    message: BILLING_NONE_ENDPOINT_MESSAGE,
+    path: ["provider", "billing"],
+  });
 
 // How the egress proxy logs in to the repository host for this
 // repository's read-only route. `basic` carries a login (git hosts take a
