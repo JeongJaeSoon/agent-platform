@@ -272,11 +272,23 @@ describe("images.yml supply-chain", () => {
     );
   });
 
-  test("a release waits for it and judges its own digest the same way", () => {
-    expect(workflow.jobs.publish?.needs).toEqual(["build", "supply-chain"]);
-    const scan = workflow.jobs.publish?.steps?.find((step) =>
-      step.run?.includes("image-scan.sh"),
-    );
-    expect(scan?.run).toContain('if [ "$result" != clean ]; then');
+  test("a publish waits for it and judges its own digest the same way", () => {
+    for (const name of ["publish", "publish-main"]) {
+      const publish = workflow.jobs[name];
+      expect(publish?.needs).toEqual(["build", "supply-chain"]);
+      // always() would publish past a failed verdict.
+      expect(publish?.if).not.toContain("always()");
+      const runs = publish?.steps?.map((step) => step.run ?? "") ?? [];
+      const scan = runs.find((run) => run.includes("image-scan.sh"));
+      expect(scan).toContain('if [ "$result" != clean ]; then');
+      // `supply-chain` only warns on a main push whose scan got no answer.
+      const verdict = runs.findIndex((run) =>
+        run.includes("supply-chain-verdict.sh supply-chain-results fail"),
+      );
+      expect(verdict).toBeGreaterThan(-1);
+      expect(verdict).toBeLessThan(
+        runs.findIndex((run) => run.includes("image-smoke.sh")),
+      );
+    }
   });
 });

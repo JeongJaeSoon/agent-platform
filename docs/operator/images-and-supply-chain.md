@@ -28,13 +28,30 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 
-`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. `v*` tag의 **push 이벤트**에서만(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/<owner>/agent-platform-<app>`으로 게시한다. 두 job만 package write 권한을 가지며 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 세 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 아직 없고, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. 게시는 `main` push와 `v*` tag push에서만 일어난다. `main` push는 아래 [main 머지마다 게시되는 이미지](#main-머지마다-게시되는-이미지)를 본다. `v*` tag의 **push 이벤트**에서는(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/werft-ai/werft-<app>`으로 게시한다. package write 권한은 게시 job만 가진다. 두 job은 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 세 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 staged artifact가 남아 있는 동안 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 아직 없고, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
+
+### main 머지마다 게시되는 이미지
+
+저장소 owner가 `werft-ai`이면 `main` push run의 `publish-main`·`promote-main` job이 세 이미지를 `ghcr.io/werft-ai/werft-<app>:main-<12>`로 게시한다. `<12>`는 commit SHA의 앞 12자다. owner 조건은 저장소가 조직으로 옮겨지기 전이나 fork에서 다른 namespace에 패키지가 생기지 않게 막는다. 그래서 다른 owner에서는 두 job이 건너뛰어진다. 이미지 이름은 `github.repository_owner`에서 나온다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
+
+- **검사.** 두 job은 태그 경로의 `publish`·`promote`와 같은 step을 돈다. `build`와 `supply-chain`이 통과한 뒤 다시 빌드해 run 전용 staging tag로 push하고, 그 digest로 smoke, 라이선스 대조, Grype 검사를 돌린다. 세 digest가 모두 통과해야 `main-<12>`로 retag한다(재빌드 없음). `release` 승인은 받지 않는다. 머지가 리뷰이기 때문이다.
+- **`main-<12>`는 digest로 쓴다.** 태그는 commit을 찾는 데만 쓰고, 배포에는 `name@sha256:…`를 적는다. 움직이는 태그는 없다. `sha-<12>`는 `v*` 게시의 태그이고 main 게시는 쓰지 않는다.
+- **세트는 artifact 하나에서 읽는다.** 세 태그는 저장소별로 차례로 쓰이므로, 게시 도중에 태그를 따로 조회하면 세트가 덜 갖춰져 있을 수 있다. 초록 run의 `image-digests-published` artifact에서 이미지마다 JSON 하나로 세 digest를 함께 읽는다. worker의 `runtime`도 여기에 있다. 같은 내용이 run의 job summary에도 남는다. artifact는 보존 기간이 지나면 사라진다.
+
+  ```bash
+  jq -r '"\(.image)@\(.digest)"' image-digests-published/*.json
+  ```
+
+- **덮어쓰지 않는다.** 쓰기 전에 세 태그를 모두 조회해, 태그가 이미 다른 digest를 가리키면 아무 태그도 쓰지 않고 실패한다. 같은 digest면 재실행으로 보고 통과한다. 조회가 "없음" 외의 이유로 실패하면 중단한다. 같은 run을 전체 재실행하면 다시 빌드하므로 digest가 달라질 수 있고, 그때는 거부되어 먼저 올린 이미지가 그대로 남는다. 세트가 반만 태그됐을 때는 staged artifact가 남아 있는 동안 "Re-run failed jobs"로 같은 digest를 채운다.
+- **게시되지 않는 commit이 있다.** 재검사에서 수정판 있는 high·critical이 나오거나, 검사가 답을 못 받거나, snapshot.debian.org가 소스를 아직 갖고 있지 않으면 그 commit은 게시되지 않고 Images run이 빨갛게 끝난다. 필수 check는 아니므로 머지는 막지 않고, 다음 머지가 새 세트를 올린다. 머지가 1초 안에 이어져 한 push로 묶인 commit은 run이 없어서 태그도 없다.
+- **아키텍처.** 태그 경로와 같이 `linux/amd64`만 게시한다.
+- **받기.** 패키지가 비공개이면 `docker login ghcr.io`가 먼저다.
 
 ### 저장소 관리자: `v*` 태그로 게시
 
 이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한다.
 
-지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았고, 게시된 앱 이미지도 없다. `main` 머지는 이미지를 CI 안에서 빌드·검사만 하고 올리지 않는다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다. Helm chart를 게시하는 경로는 없다.
+지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다. Helm chart를 게시하는 경로는 없다.
 
 1. `main`의 검증된 commit에 `v*` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다.
 2. `publish`·`promote` job이 `release` environment 승인을 받고 끝나는지 본다.
@@ -167,8 +184,8 @@ migration은 rollout 전에 돈다. 그래서 새 스키마 위에서 옛 contro
 **수정판이 있는 high·critical 취약점만 막는다.** 수정판이 없는 발견은 보고만 하고 실패시키지 않는다.
 
 - **무엇을 보나.** 세 이미지(Grype, Debian 패키지와 `/app`의 npm 패키지)와 `bun.lock` 전체(`bun audit`, dev 의존성 포함)다. "수정판이 있다"는 이미지에서는 Grype의 `fix.state`가 `fixed`인 것이고, npm에서는 GitHub advisory database에서 잠긴 버전을 포함하는 범위에 `first_patched_version`이 있는 것이다. Debian의 `not-fixed`·`wont-fix`와 수정판 없는 npm advisory는 막지 않는다.
-- **어디서 막나.** images.yml의 `supply-chain` job이 판정하고, branch protection의 required check다. PR, main push, 매일 03:17 UTC 실행, 수동 실행, `v*` tag에서 모두 돈다. tag의 `publish`는 `supply-chain`을 기다리고, 승격할 digest를 다시 검사해 같은 기준으로 막는다.
-- **검사가 답을 못 받으면.** Grype DB나 advisory 서비스가 응답하지 않은 `error`는 PR과 main push에서 경고만 남긴다. 외부 서비스 장애로 모든 머지가 멈추면 안 되기 때문이다. 매일 실행과 tag에서는 실패한다. 이미지가 빌드되지 않아 결과가 아예 없으면 어디서든 실패한다.
+- **어디서 막나.** images.yml의 `supply-chain` job이 판정하고, branch protection의 required check다. PR, main push, 매일 03:17 UTC 실행, 수동 실행, `v*` tag에서 모두 돈다. tag의 `publish`와 main의 `publish-main`은 `supply-chain`을 기다리고, 승격할 digest를 다시 검사해 같은 기준으로 막는다.
+- **검사가 답을 못 받으면.** Grype DB나 advisory 서비스가 응답하지 않은 `error`는 PR과 main push에서 경고만 남긴다. 외부 서비스 장애로 모든 머지가 멈추면 안 되기 때문이다. 매일 실행과 tag에서는 실패한다. main push도 게시는 하지 않는다. `publish-main`이 `supply-chain` 결과를 같은 파일로 다시 판정해 `error`면 실패한다. 이미지가 빌드되지 않아 결과가 아예 없으면 어디서든 실패한다.
 - **보고.** 수정판 없는 high·critical도 각 검사의 step summary(접힌 목록)와 `supply-chain-results` artifact(검사마다 JSON 하나, 항목마다 `fix`가 null)에 남는다. 매일 실행이나 수동 실행이 실패하면 `ci-supply-chain` 라벨 이슈가 열린다.
 - **밤사이 새 advisory.** 수정판이 있는 advisory가 새로 나오면 main을 포함해 모든 PR의 `supply-chain`이 한꺼번에 빨개진다. 의도한 동작이다. 의존성이나 base를 올리는 PR 하나로 푼다. Debian 패키지는 다음 날의 `APT_UPGRADE_KEY`로 새 빌드가 받는다. 당일에 받으려면 수동 실행(`gh workflow run Images`)이 그날 key로 빌드한다.
 - **예외.** 올릴 수 없는 수정(예: `upgrade`가 보류한 Debian 패키지, 코드 경로가 닿지 않는 advisory)은 `.github/vulnerability-exceptions.json`에 `{"id", "package", "reason", "expires"}`로 적는다. `id`는 검사 결과의 `id`(CVE-… 또는 GHSA-…), `package`는 패키지 이름이다. `reason`과 `expires`(YYYY-MM-DD, 그날까지 적용)가 없으면 npm 검사가 `error`가 된다. 만료되면 다시 막는다. 예외는 PR 리뷰를 거친다.

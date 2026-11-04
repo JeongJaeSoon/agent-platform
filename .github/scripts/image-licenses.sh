@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What one app image ships, against THIRD_PARTY_NOTICES.md
-# `image-licenses.sh <control-host|worker|egress-proxy> <image ref>`.
+# `image-licenses.sh <control-host|worker|egress-proxy> <image ref> [publish]`.
 #
 # The notices are computed from bun.lock; this is where that model meets a
 # built image. Every npm package under /app must be listed for this app, the
@@ -24,16 +24,17 @@ echo "::endgroup::"
 # Whether snapshot.debian.org really holds every listed source. It imports
 # the archive every few hours, so a build right after a Debian security
 # release can list a version it does not hold yet, and it is a volunteer
-# service that can be down: both only warn on a pull request, a push or the
-# daily run, and fail a tag's release, whose publish job runs this too.
+# service that can be down: both only warn while building, and fail the
+# publish jobs, which pass `publish`: a digest goes out only with its sources
+# on record.
 if ! docker run --rm --entrypoint bun -v "$PWD:/repo:ro" "$image" \
   /repo/scripts/third-party-notices.ts --snapshot-check /app/DEBIAN_SOURCES.md; then
-  case "${GITHUB_REF:-}" in
-    refs/tags/v*)
+  case "${3:-build}" in
+    publish)
       echo "::error::${app}: snapshot.debian.org does not hold every source /app/DEBIAN_SOURCES.md names"
       exit 1
       ;;
-    *) echo "::warning::${app}: snapshot.debian.org does not hold every source /app/DEBIAN_SOURCES.md names (fails on a release)" ;;
+    *) echo "::warning::${app}: snapshot.debian.org does not hold every source /app/DEBIAN_SOURCES.md names (fails on publish)" ;;
   esac
 fi
 
