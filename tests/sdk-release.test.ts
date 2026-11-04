@@ -26,6 +26,7 @@ type Step = {
 type Job = {
   if?: string;
   needs?: string | string[];
+  "continue-on-error"?: boolean;
   environment?: string;
   permissions?: Record<string, string>;
   env?: Record<string, string>;
@@ -91,8 +92,6 @@ describe("sdk-release.yml", () => {
   test("publish waits for approval in the release environment after the tag", () => {
     expect(publish?.environment).toBe("release");
     expect(tag?.environment).toBeUndefined();
-    for (const s of [...(publish?.steps ?? []), ...(tag?.steps ?? [])])
-      expect(s["continue-on-error"]).toBeUndefined();
     expect(
       publish?.steps.some((s) => s.uses?.startsWith("actions/checkout@")),
     ).toBe(false);
@@ -101,14 +100,29 @@ describe("sdk-release.yml", () => {
     ).toBe(false);
   });
 
-  test("build checks a release before it packs, and never for a dry run", () => {
+  test("no failing step or job can be stepped over on the way to publish", () => {
+    for (const job of Object.values(workflow.jobs)) {
+      expect(job["continue-on-error"]).toBeUndefined();
+      for (const step of job.steps)
+        expect(step["continue-on-error"]).toBeUndefined();
+    }
+  });
+
+  test("build checks a release and SDK_VERSION before it packs", () => {
     const steps = build?.steps ?? [];
     const packAt = steps.findIndex((s) =>
       s.run?.includes("npm pack ./packages/sdk/dist"),
     );
+    const sdkVersion = steps.find(
+      (s) => s.name === "SDK_VERSION matches package.json",
+    ) as Step;
     expect(checkStep.if).toBe("inputs.version != ''");
-    expect(steps.indexOf(checkStep)).toBeGreaterThanOrEqual(0);
-    expect(packAt).toBeGreaterThan(steps.indexOf(checkStep));
+    expect(sdkVersion.if).toBeUndefined();
+    expect(sdkVersion.run).toContain("packages/sdk/src/version.ts");
+    for (const step of [checkStep, sdkVersion]) {
+      expect(steps.indexOf(step)).toBeGreaterThanOrEqual(0);
+      expect(packAt).toBeGreaterThan(steps.indexOf(step));
+    }
   });
 
   test("only tag can write the repository", () => {
