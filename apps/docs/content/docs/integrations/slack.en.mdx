@@ -142,6 +142,10 @@ curl -sS "$API/v1/agents/$AID/identities" "${WEB[@]}" \
 
 Without a confirmed Slack installation this returns 409 `SLACK_NOT_INSTALLED`. The operator creates an installation with the registration CLI above.
 
+Removing the app in Slack disconnects the agent. An `app_uninstalled` event, or a `tokens_revoked` event that names a bot token, marks the installation `revoked` and revokes the agent's active link to it too (`revoked_at` is set). The link's channel bindings and credential name are released with it. The console's Slack tab shows "Reinstall required" instead of "Connected". The same event arriving again, or arriving late after a reinstall, changes nothing. Installing again creates a new active link; the old one stays as a revoked record.
+
+Some removals send no event. When a request that calls Slack with the bot token (channel list, name lookup, channel binding) is refused with `token_revoked` or `account_inactive`, the same disconnect happens. The answer is still 409 `SLACK_NOT_INSTALLED`. Errors that removal is not the only cause of (`invalid_auth`, `not_authed`, `token_expired`), 429, 5xx and network failures leave the state alone.
+
 ## Channel joins and the deployment welcome
 
 When you save one of the agent's channels (`PUT /v1/agents/{id}/slack-bindings`), the server puts the bot in that channel. The bot joins a public channel itself. Slack does not let a bot join a private channel, so invite it there with `/invite @<bot>`; the server notices the invite and carries on. The binding's `membership.state` shows the result. Inviting the bot to a channel you never saved also connects that channel, in use (`on`). A channel you already saved keeps its settings, so one you switched off stays off.

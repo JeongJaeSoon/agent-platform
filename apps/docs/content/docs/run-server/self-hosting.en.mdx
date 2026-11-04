@@ -4,8 +4,7 @@ description: Install and run a Werft server that several people use
 ---
 
 <Callout type="warn">
-There is no official release yet. No `v*` release or `@werft-ai/sdk` on npm exist. Every merge to `main` publishes the Helm chart, with that run's image digests inside, to `oci://ghcr.io/jeongjaesoon/werft` ([install the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). Every merge to `main` also publishes the app images as `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`; pin them by digest when you use them ([Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). If you cannot pull those images, check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. Building from source works on both x86_64 and arm64, but the publishing code only produces `linux/amd64` images for now.
-</Callout>
+There is no official release yet. No `v*` release exists. Every merge to `main` publishes the Helm chart, with that run's image digests inside, to `oci://ghcr.io/jeongjaesoon/werft` ([install the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart로-설치)). Every merge to `main` also publishes the app images as `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`; pin them by digest when you use them ([Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#main-머지마다-게시되는-이미지)). If you cannot pull those images, check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. Building from source works on both x86_64 and arm64, but the publishing code only produces `linux/amd64` images for now.</Callout>
 
 This is how you install a Werft server yourself for a team to share. For a server you only try out on your own, [Run a development server](/run-server/dev-server) is enough. The installation and operations documents live in [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) in the repository, written in Korean. This page tells you where to start reading.
 
@@ -51,7 +50,7 @@ To move to a new version, follow [upgrading the published chart](https://github.
 
 ## Connect to the server
 
-The SDK and the HTTP API connect to a server with its address and an API key. The TypeScript SDK takes `baseUrl` (default: the `WERFT_BASE_URL` environment variable) and `apiKey` (`WERFT_API_KEY`). There is no default server, so always pass the server address. The SDK is not on npm yet, so build and install it from the repository as described in [Install the SDK](/getting-started/install). The options are in [Client settings and errors](/getting-started/client#client-options).
+The SDK and the HTTP API connect to a server with its address and an API key. The TypeScript SDK takes `baseUrl` (default: the `WERFT_BASE_URL` environment variable) and `apiKey` (`WERFT_API_KEY`). There is no default server, so always pass the server address. Install the SDK from npm as described in [Install the SDK](/getting-started/install). The options are in [Client settings and errors](/getting-started/client#client-options).
 
 ## Installation and configuration
 

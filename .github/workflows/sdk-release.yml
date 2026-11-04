@@ -21,8 +21,8 @@ on:
       - .github/workflows/sdk-release.yml
   workflow_dispatch:
 
-# Read-only for every job but `publish`, which alone sees NPM_TOKEN and may
-# mint the OIDC token provenance signs with.
+# Read-only for every job but `publish`, which alone may mint the OIDC token
+# npm trusts.
 permissions:
   contents: read
 
@@ -40,7 +40,7 @@ jobs:
         with:
           fetch-depth: 0
       # Here, not in `publish`: a tag off main must fail before any job that
-      # holds the npm token starts.
+      # can publish starts.
       - if: startsWith(github.ref, 'refs/tags/sdk-v')
         name: Tagged commit must be on main
         run: |
@@ -92,7 +92,9 @@ jobs:
   # `build` checks. `release` has a required reviewer and a deployment policy
   # listing the tag patterns it accepts; a pattern not on it is refused, not
   # run. No checkout: this job publishes the tarball `build` tested, nothing
-  # else.
+  # else. npm trusts this workflow's file name and environment as registered
+  # on npmjs.com, so renaming either stops publishing until it is registered
+  # again.
   publish:
     needs: build
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/sdk-v')
@@ -101,7 +103,8 @@ jobs:
     environment: release
     permissions:
       contents: read
-      # npm's provenance statement is signed with this job's OIDC token.
+      # npm trades this job's OIDC token for a publish token and signs the
+      # provenance statement with it.
       id-token: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -114,5 +117,3 @@ jobs:
           registry-url: https://registry.npmjs.org
       # `./` keeps npm from reading `pkg/<name>.tgz` as a GitHub `user/repo`.
       - run: npm publish ./pkg/*.tgz --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

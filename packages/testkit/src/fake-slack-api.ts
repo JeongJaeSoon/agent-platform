@@ -276,7 +276,14 @@ export function createFakeSlackWebApi(
     return app;
   };
 
+  // Bot tokens of an app removed in Slack: Slack answers them
+  // `token_revoked`, where a token it never issued is `invalid_auth`.
+  const revokedBotTokens = new Set<string>();
+
   const installedBot = (context: Context) => {
+    if (revokedBotTokens.has(context.token ?? "")) {
+      throw new SlackError("token_revoked");
+    }
     const app = [...apps.values()].find((candidate) =>
       candidate.botTokens.includes(context.token ?? ""),
     );
@@ -730,6 +737,30 @@ export function createFakeSlackWebApi(
             { status: 400 },
           );
         }
+      }
+      // The workspace removes the app with no event sent: its bot tokens
+      // are answered `token_revoked` from now on; a new install mints new ones.
+      if (
+        url.pathname === "/fake/revoked-tokens" &&
+        request.method === "POST"
+      ) {
+        const input = (await request.json().catch(() => null)) as {
+          app_id?: unknown;
+        } | null;
+        const app =
+          typeof input?.app_id === "string"
+            ? apps.get(input.app_id)
+            : undefined;
+        if (!app) {
+          return Response.json(
+            { ok: false, error: "app_not_found" },
+            { status: 400 },
+          );
+        }
+        for (const token of app.botTokens.splice(0)) {
+          revokedBotTokens.add(token);
+        }
+        return Response.json({ ok: true });
       }
       if (url.pathname === "/fake/rate-limits" && request.method === "POST") {
         const input = (await request.json().catch(() => null)) as {

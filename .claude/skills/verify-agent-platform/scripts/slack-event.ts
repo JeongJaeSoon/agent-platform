@@ -16,6 +16,7 @@ const [agentId, mode, channel = "C0VERIFY", seq = "1", parent] =
 // or without a mention; each sequence number is its own event and thread.
 // `reply` is an unmentioned post in the thread `parent` opened.
 const posted = mode === "mention" || mode === "plain" || mode === "reply";
+const uninstalled = mode === "uninstall" || mode === "uninstall-late";
 const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
@@ -33,14 +34,27 @@ try {
           type: "event_callback",
           api_app_id: app.appId,
           team_id: "T0MOCK",
+          // `uninstall` is app_uninstalled sent now (seq makes a new event
+          // id; the same seq is a retry); `uninstall-late` is one Slack sent
+          // an hour ago, so a reinstall since has superseded it.
+          ...(uninstalled
+            ? {
+                event_time:
+                  Math.floor(Date.now() / 1000) -
+                  (mode === "uninstall-late" ? 3600 : 0),
+              }
+            : {}),
           event_id:
             mode === "bot"
               ? "EvVerifyBot"
-              : posted
-                ? `EvVerify${mode}${channel}${seq}`
-                : "EvVerify1",
-          event:
-            mode === "plain" || mode === "reply"
+              : uninstalled
+                ? `EvVerifyUninstall${mode.replace("-", "")}${seq}`
+                : posted
+                  ? `EvVerify${mode}${channel}${seq}`
+                  : "EvVerify1",
+          event: uninstalled
+            ? { type: "app_uninstalled" }
+            : mode === "plain" || mode === "reply"
               ? {
                   type: "message",
                   channel_type: "channel",
