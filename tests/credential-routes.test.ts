@@ -16,6 +16,7 @@ import { createLogger } from "@werft-ai/observability";
 import {
   acceptAllCheckpoints,
   createWorkerGateway,
+  type GitHubGrant,
   priceProviderUsage,
   type WorkerGateway,
   withSeededInstallation,
@@ -112,7 +113,7 @@ async function topology(): Promise<Topology> {
   const db = drizzle(client, { schema });
   const providerValue = `catalog-provider-${crypto.randomUUID()}`;
   const repositoryPassword = `catalog-repository-${crypto.randomUUID()}`;
-  const basic = `Basic ${Buffer.from(`reader:${repositoryPassword}`).toString("base64")}`;
+  const basic = `Basic ${Buffer.from(`x-access-token:${repositoryPassword}`).toString("base64")}`;
 
   messages = startFakeAnthropicServer(
     textReply("through the credential route"),
@@ -149,15 +150,19 @@ async function topology(): Promise<Topology> {
           url: repositoryUrl,
           branch: "main",
           profiles: [PROFILE_ID],
-          auth: {
-            kind: "basic",
-            username: "reader",
-            value: repositoryPassword,
-            ref: { value_env: "REPOSITORY_PASSWORD" },
-          },
+          auth: { kind: "github_app", registered: true },
         },
       },
     }),
+    github: {
+      grant: async () =>
+        ({
+          gitCredential: {
+            username: "x-access-token",
+            password: repositoryPassword,
+          },
+        }) as GitHubGrant,
+    },
     checkpoints: acceptAllCheckpoints,
     options: {
       sessionCostLimitUsd: 1_000,
@@ -341,7 +346,7 @@ describe("credential routes end to end", () => {
     expect(config).not.toContain(repositoryPassword);
     expect(config).not.toContain(credentialUrl);
 
-    // Every request the repository answered carried the catalog's login,
+    // Every request the repository answered carried the login the gate issued,
     // and only upload-pack was asked for.
     const served = repository.requests;
     expect(served.length).toBeGreaterThan(0);
