@@ -5,10 +5,10 @@ import { inviteStep } from "@werft-ai/core/forms";
 import {
   formAlerts,
   submitStep,
-  useAgentPlatform,
   useMemberPages,
   useStepForm,
   useStepper,
+  useWerft,
 } from "@werft-ai/react";
 import {
   Button,
@@ -143,7 +143,7 @@ function InviteFlow({
   readonly refusal: (error: ApiError, role: string | undefined) => string;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [url, setUrl] = useState<string | null>(null);

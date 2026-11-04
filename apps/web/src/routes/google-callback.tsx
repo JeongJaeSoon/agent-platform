@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { Text, Link as TextLink } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { AuthPage, FormError } from "../components/auth-page.tsx";
@@ -49,7 +49,7 @@ function takePostLoginPath(): string {
  */
 export function GoogleCallbackScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { code, state } = useSearch({ from: "/auth/google/callback" });

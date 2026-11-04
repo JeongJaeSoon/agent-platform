@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   EmptyState,
@@ -32,7 +32,7 @@ export function MyTeams({
   readonly action?: ReactNode;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const teams = useQuery(myTeamsQuery(client));
   if (teams.isPending) return null;
   // An API key session belongs to no team; that is not an error to show.

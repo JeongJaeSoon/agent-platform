@@ -48,13 +48,13 @@ export {
   sessionsKo,
 } from "./messages/index.ts";
 export {
-  type AgentPlatform,
-  AgentPlatformProvider,
-  type AgentPlatformProviderProps,
   type LinkTarget,
   QueryScopeProvider,
   type RenderLink,
-  useAgentPlatform,
+  useWerft,
+  type WerftContextValue,
+  WerftProvider,
+  type WerftProviderProps,
 } from "./provider.tsx";
 export {
   type EventStreamState,

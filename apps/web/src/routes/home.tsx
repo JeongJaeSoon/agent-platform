@@ -16,7 +16,7 @@ import {
   scopedKey,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import { useAgentPlatform, useSessions } from "@werft-ai/react";
+import { useSessions, useWerft } from "@werft-ai/react";
 import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
 import {
   DetailLayout,
@@ -171,7 +171,7 @@ export function HomeScreen() {
     unavailable,
     refusal,
   });
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   // The server refuses these lists to anyone else; a member asks for none.
   const managesMembers = useHasPermission("member.manage");
   const managesAgents = useHasPermission("agent.manage");
@@ -848,7 +848,7 @@ function useReader(): {
   /** The agents that tell the reader apart are still on their way. */
   readonly deciding: boolean;
 } {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   // Same query as the agents section below, so it is read once.
   const administered = useQuery({

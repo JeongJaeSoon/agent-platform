@@ -10,7 +10,7 @@ import type {
   SessionOutcome,
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform, useSessionUsage } from "@werft-ai/react";
+import { useSessionUsage, useWerft } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
@@ -57,7 +57,7 @@ export function formatBytes(bytes: number, locale: string): string {
 }
 
 function useSessionOutputs(session: SessionDetail) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     // A new checkpoint is a new list.
     queryKey: [
@@ -84,7 +84,7 @@ const hasRepository = (session: SessionDetail) => Boolean(session.repository);
 const OUTCOMES_REFETCH_MS = 60_000;
 
 function useSessionOutcomes(session: SessionDetail) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     queryKey: [...queryKeysOf(client).session(session.id), "outcomes"],
     queryFn: () =>
@@ -316,7 +316,7 @@ function SessionGitHubRefusals({
   readonly session: SessionDetail;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const titleId = useId();
   const refusals = useQuery({
     queryKey: [...queryKeysOf(client).session(session.id), "github-refusals"],
@@ -414,7 +414,7 @@ export function SessionAttribution({
   readonly session: SessionDetail;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const attribution = useQuery({
     queryKey: [
       ...queryKeysOf(client).session(session.id),

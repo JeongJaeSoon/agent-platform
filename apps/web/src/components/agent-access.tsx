@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Agent } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { createContext, useContext } from "react";
 import { agentAdminsQuery, myTeamsQuery } from "../api/queries.ts";
 import { useHasPermission, useMe } from "../auth/guard.tsx";
@@ -21,7 +21,7 @@ export function useManagesAgent(): boolean {
  * managing team.
  */
 export function useAgentAccess(agent: Agent): AgentAccess {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("agent.manage");
   const me = useMe()?.user?.id;
   const admins = useQuery({

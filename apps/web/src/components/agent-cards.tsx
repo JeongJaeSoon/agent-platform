@@ -8,7 +8,7 @@ import type {
   AgentSummary,
   ListCredentialBindingsResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Avatar,
   avatarInitials,
@@ -112,7 +112,7 @@ function AgentCardItem({
  * read.
  */
 function ReadingCard({ agent }: { readonly agent: Agent }) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const [ref, seen] = useSeen<HTMLLIElement>();
   // A card scrolled past stays subscribed, so coming back to the window or
   // the network would read all three again for every card seen.

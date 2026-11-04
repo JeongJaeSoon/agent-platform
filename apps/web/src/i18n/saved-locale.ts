@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { UserLocale } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { useEffect, useRef } from "react";
 import { queryKeys } from "../api/queries.ts";
 import { useMe } from "../auth/guard.tsx";
@@ -21,7 +21,7 @@ const SLACK_FALLBACK = "ko" satisfies UserLocale;
 export function useSavedLocale() {
   const saved = useMe()?.user?.locale;
   const { locale, setLocale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const { mutate: save } = useMutation<unknown, ApiError, Locale>({
     mutationFn: (next) =>

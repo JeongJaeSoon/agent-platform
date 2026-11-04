@@ -8,7 +8,7 @@ The screens of the Werft web console are built from two packages. The same packa
 | Package | What it contains |
 | --- | --- |
 | `@werft-ai/ui` | Design tokens (`tokens.css`), the Tailwind connection (`theme.css`), primitives (`Button`, `Card`, `Dialog`, `Tabs`, `Skeleton`, and others), and status displays (`ErrorState`, `EmptyState`) |
-| `@werft-ai/react` | Hooks that read and write server state (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, and others) and `AgentPlatformProvider`. `@werft-ai/react/components` has the pieces that take API types and render them (`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`, and others), and `@werft-ai/react/blocks` has the session blocks that also read the data and render it: `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` |
+| `@werft-ai/react` | Hooks that read and write server state (`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer`, and others) and `WerftProvider`. `@werft-ai/react/components` has the pieces that take API types and render them (`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard`, and others), and `@werft-ai/react/blocks` has the session blocks that also read the data and render it: `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` |
 
 `@werft-ai/ui` only renders the state it is given. It does not call the API or decide permissions. API calls are handled by the hooks and blocks of `@werft-ai/react`.
 

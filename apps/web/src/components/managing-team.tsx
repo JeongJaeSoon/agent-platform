@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { Agent, SetAgentManagingTeamResponse } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -38,7 +38,7 @@ export interface TeamChoice {
 }
 
 export function useTeamChoices() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("team.manage");
   const all = useQuery({ ...teamsQuery(client), enabled: everywhere });
   const mine = useQuery({ ...myTeamsQuery(client), enabled: !everywhere });
@@ -96,7 +96,7 @@ export function ManagingTeam({
 
 function NoLeadNotice({ teamId }: { readonly teamId: string }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("team.manage");
   const mine = useQuery({ ...myTeamsQuery(client), enabled: !everywhere });
   const readable =
@@ -120,7 +120,7 @@ function ChangeTeam({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const limited =

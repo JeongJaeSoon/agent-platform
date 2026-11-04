@@ -10,7 +10,7 @@ import type { ApprovalLayout } from "./session-actions.tsx";
 const { render, waitFor, act } = await setupDom();
 // After setupDom: these load @werft-ai/ui, whose Radix decides at import time
 // whether a DOM exists, for every later file in the run too.
-const { AgentPlatformProvider } = await import("../provider.tsx");
+const { WerftProvider } = await import("../provider.tsx");
 const { ApprovalInbox } = await import("./approval-inbox.tsx");
 const { usePendingRail } = await import("./pending-rail.tsx");
 const { PendingAnswers } = await import("./session-actions.tsx");
@@ -216,7 +216,7 @@ function renderInbox({
   const queryClient = new QueryClient();
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="en"
         renderLink={({ id, children, className, ...rest }) => (
@@ -237,7 +237,7 @@ function renderInbox({
               {...extra}
             />
           ))}
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>,
   );
   return {

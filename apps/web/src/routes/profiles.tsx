@@ -6,7 +6,7 @@ import type {
   WorkspaceProfileState,
 } from "@werft-ai/contracts";
 import { workspaceProfileId } from "@werft-ai/core/forms";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -130,7 +130,7 @@ function groupsOf(items: readonly ProfileSummary[]): ProfileSummary[][] {
 
 export function ProfilesScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const profiles = useQuery(profilesQuery(client));
   const manages = useHasPermission("workspace.manage");
   const operates = useHasPermission("profile.installation.manage");

@@ -4,7 +4,7 @@ import type {
   CreateSettingsRepositoryRequest,
   SettingsRepository,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Button,
   Code,
@@ -56,7 +56,7 @@ type AuthChoice = "none" | "bearer" | "basic";
 
 export function RepositoriesScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const manages = useHasPermission("workspace.manage");
   const repositories = useQuery(settingsRepositoriesQuery(client, manages));
   const [outcome, setOutcome] = useState<Outcome | null>(null);

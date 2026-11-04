@@ -2,7 +2,7 @@ import { useIsFetching, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
 import { unwrap } from "@werft-ai/client";
 import type { ListWorkspaceSlackAppsResponse } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Code,
@@ -31,7 +31,7 @@ export const SLACK_APPS_ANCHOR = "slack-apps";
 
 /** The apps the console made; only owners and admins may read them. */
 export function useWorkspaceSlackApps() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
   return useQuery({
@@ -52,7 +52,7 @@ export function useWorkspaceSlackApps() {
  */
 export function SlackApps() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const titleId = useId();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");

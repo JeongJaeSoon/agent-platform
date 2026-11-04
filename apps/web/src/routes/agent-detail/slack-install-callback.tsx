@@ -6,7 +6,7 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { type components, unwrap } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { Button, Page } from "@werft-ai/ui";
 import { useEffect, useRef } from "react";
 import { useI18n } from "../../i18n/i18n.tsx";
@@ -27,7 +27,7 @@ export function SlackInstallCallback() {
   const { id } = useParams({ from: "/authed/agents/$id/slack/callback" });
   const search = useSearch({ from: "/authed/agents/$id/slack/callback" });
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const cache = useQueryClient();
   const navigate = useNavigate();
   const started = useRef(false);

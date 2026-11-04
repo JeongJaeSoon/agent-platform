@@ -6,7 +6,7 @@ import type {
   ListAchievementTypesResponse,
   UsageAchievementsResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
@@ -76,7 +76,7 @@ const NUM = "w-px whitespace-nowrap text-right tabular-nums";
 
 export function AchievementsScreen() {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const format = OPERATIONS_MESSAGES[locale].format;
   const scope = useHasPermission("usage.installation_read")
     ? "installation"

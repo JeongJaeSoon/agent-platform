@@ -2,7 +2,7 @@ import { Badge, Button, RelativeTime, RowAction, Skeleton } from "@werft-ai/ui";
 import { Bot, ShieldQuestion } from "lucide-react";
 import { type JSX, useId, useRef } from "react";
 
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import { StatusLabel } from "../status/status-label.tsx";
 import { FRESH_CLASS, useArrival } from "./fresh.ts";
 import type { AgentMapMessages } from "./messages.ts";
@@ -39,7 +39,7 @@ export function MapSessionCard({
   messages: override,
 }: MapSessionCardProps): JSX.Element {
   const messages = useAgentMapMessages(override);
-  const { locale } = useAgentPlatform();
+  const { locale } = useWerft();
   const ref = useRef<HTMLButtonElement>(null);
   useArrival(ref, session.fresh);
   return (

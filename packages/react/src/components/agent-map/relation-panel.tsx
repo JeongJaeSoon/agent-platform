@@ -1,7 +1,7 @@
 import { Badge, Button, Card, RelativeTime } from "@werft-ai/ui";
 import type { JSX, Ref } from "react";
 
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import { SessionStatusLabel } from "../session/session-status-label.tsx";
 import type { AgentMapMessages } from "./messages.ts";
 import { RelationGraph } from "./relation-graph.tsx";
@@ -30,7 +30,7 @@ export function RelationPanel({
   titleRef,
 }: RelationPanelProps): JSX.Element {
   const messages = useAgentMapMessages(override);
-  const { locale, renderLink } = useAgentPlatform();
+  const { locale, renderLink } = useWerft();
   return (
     <Card className="min-w-0 gap-4 p-4">
       <div className="flex flex-col gap-2">

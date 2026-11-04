@@ -7,7 +7,7 @@ import type {
   AuthMeResponse,
   SlackGuestRequest,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   buttonVariants,
@@ -182,7 +182,7 @@ function Basics() {
  */
 function AllowedModels() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const profiles = useQuery(profilesQuery(client));
   const models = [...new Set(profiles.data?.items.map((p) => p.model))];
   return (
@@ -264,7 +264,7 @@ function ReadOnlySettings() {
  */
 function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const me = useMe();
   const role = useRole();
@@ -465,7 +465,7 @@ function agentAccessOf(me: ReturnType<typeof useMe>): AgentAccessSettings {
  */
 function AgentAccess({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const me = useMe();
   const role = useRole();
@@ -637,7 +637,7 @@ function AgentAccessValues() {
  */
 export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const me = useMe();
   const role = useRole();

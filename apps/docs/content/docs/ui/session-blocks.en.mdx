@@ -19,7 +19,7 @@ A block calls `/v1` on the same origin with the client from `@werft-ai/client`, 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createApiClient } from "@werft-ai/client";
 import {
-  AgentPlatformProvider,
+  WerftProvider,
   QueryScopeProvider,
   queryScopeOf,
   type RenderLink,
@@ -56,7 +56,7 @@ function SignedIn({ children }: { children: ReactNode }) {
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="ko"
         renderLink={renderLink}
@@ -75,13 +75,13 @@ createRoot(document.getElementById("root") as HTMLElement).render(
             )}
           </SignedIn>
         </main>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   </StrictMode>,
 );
 ```
 
-- `AgentPlatformProvider` holds the client that blocks and hooks read, the language (`ko`, `ja`, `en`), and the link function. Place it inside `QueryClientProvider`.
+- `WerftProvider` holds the client that blocks and hooks read, the language (`ko`, `ja`, `en`), and the link function. Place it inside `QueryClientProvider`.
 - Blocks cache per signed-in person and workspace. As `SignedIn` does, turn the `useMe()` answer into a scope with `queryScopeOf`, pass it to `QueryScopeProvider`, and put the blocks inside it. Outside it, a block throws on its first render. When `useMe()` fails, say with a 401 before sign-in, `renderError` shows a retry in place of the blocks. When someone else signs in and the scope changes, the tree inside is drawn afresh and the previous person's cache is dropped.
 - `renderLink` is called when a block renders a link to a session. The app decides the URL. In an app with a router, return that router's `Link`.
 - `loading` and `renderError` are passed to each block. The wording is also the app's own.

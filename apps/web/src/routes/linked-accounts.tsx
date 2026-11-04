@@ -8,7 +8,7 @@ import type {
   StartGitHubLinkResponse,
   StartSlackLinkResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   ConfirmDialog,
@@ -88,7 +88,7 @@ function linkRefusal(
 /** The caller's accounts on other services; v1 links Slack only. */
 export function LinkedAccountsScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const { leave } = useAppServices();
   const role = useRole();
@@ -382,7 +382,7 @@ function GitHubService({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const { leave } = useAppServices();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
@@ -653,7 +653,7 @@ function LinkCallback({
   state,
 }: SlackLinkSearch & { readonly provider: "slack" | "github" }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const role = useRole();
