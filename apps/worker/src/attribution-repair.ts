@@ -169,6 +169,10 @@ export async function workspaceMismatches(input: {
               GIT_CONFIG_NOSYSTEM: "1",
               GIT_CONFIG_GLOBAL: "/dev/null",
               GIT_TERMINAL_PROMPT: "0",
+              // A missing object must not start a fetch from a remote the
+              // repository's config names; no transport is allowed here.
+              GIT_NO_LAZY_FETCH: "1",
+              GIT_ALLOW_PROTOCOL: "none",
               LC_ALL: "C",
             },
             maxBuffer: 16 * 1024 * 1024,

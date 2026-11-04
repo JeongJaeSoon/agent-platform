@@ -65,6 +65,13 @@ export GIT_CONFIG_GLOBAL GIT_CONFIG_COUNT \
   GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_3 \
   GIT_CONFIG_KEY_4 GIT_CONFIG_VALUE_4 GIT_CONFIG_KEY_5 GIT_CONFIG_VALUE_5 \
   GIT_CONFIG_KEY_6 GIT_CONFIG_VALUE_6 GIT_CONFIG_KEY_7 GIT_CONFIG_VALUE_7
+# A missing object must not start a fetch: a repository that names a promisor
+# remote would run the program it configures (an upload-pack or ext:: command).
+# GIT_NO_LAZY_FETCH is honoured from git 2.44; for older git the fetch it would
+# start is a child git, which no transport is allowed to serve here.
+GIT_NO_LAZY_FETCH=1
+GIT_ALLOW_PROTOCOL=none
+export GIT_NO_LAZY_FETCH GIT_ALLOW_PROTOCOL
 # A local `git replace` must not change which tree, message or parents are read.
 GIT_NO_REPLACE_OBJECTS=1
 export GIT_NO_REPLACE_OBJECTS

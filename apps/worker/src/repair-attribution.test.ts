@@ -454,6 +454,24 @@ describe("werft-repair-attribution", () => {
     expect(Bun.spawnSync(["test", "-e", marker]).exitCode).toBe(1);
   });
 
+  test("a missing protected commit does not start a lazy fetch from a program the agent configured", () => {
+    remoteTracking(commit("base"));
+    commit("feat: wrong");
+    const marker = join(root, "fetch-ran");
+    const program = join(root, "planted-upload-pack");
+    writeFileSync(program, `#!/bin/sh\ntouch ${marker}\nexit 1\n`, {
+      mode: 0o755,
+    });
+    git(["config", "core.repositoryformatversion", "1"]);
+    git(["config", "extensions.partialClone", "evil"]);
+    git(["config", "remote.evil.promisor", "true"]);
+    git(["config", "remote.evil.url", root]);
+    git(["config", "remote.evil.uploadpack", program]);
+    const missing = "e".repeat(40);
+    expect(repair([missing]).out).toMatch(/^repaired /);
+    expect(Bun.spawnSync(["test", "-e", marker]).exitCode).toBe(1);
+  });
+
   test("a merge whose other parent is a right commit inside the range is kept, not nested", () => {
     const base = commit("base");
     remoteTracking(base);

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -291,6 +292,28 @@ describe("workspaceMismatches", () => {
         protectedCommits: [earlier, "f".repeat(40)],
       }),
     ).toEqual([{ commit: wrong, problems: ["author", "committer"] }]);
+  });
+
+  test("a protected commit this repository lacks does not start a fetch from a configured program", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    commit("wrong");
+    const marker = join(root, "fetch-ran");
+    const program = join(root, "planted-upload-pack");
+    writeFileSync(program, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
+    chmodSync(program, 0o755);
+    git(["config", "core.repositoryformatversion", "1"]);
+    git(["config", "extensions.partialClone", "evil"]);
+    git(["config", "remote.evil.promisor", "true"]);
+    git(["config", "remote.evil.url", root]);
+    git(["config", "remote.evil.uploadpack", program]);
+    await workspaceMismatches({
+      root: repo,
+      tip: "HEAD",
+      expectation,
+      stripEmails: [],
+      protectedCommits: ["e".repeat(40)],
+    });
+    expect(existsSync(marker)).toBe(false);
   });
 
   test("without the server's protected list there is no advice, the push judges alone", async () => {
