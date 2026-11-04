@@ -18,7 +18,7 @@
 - [ ] Docker data root가 XFS `prjquota`로 mount됐고 용량과 inode에 20% 이상 여유가 있다.
 - [ ] NTP가 동기화됐고 시간 동기화 실패를 감지할 수 있다.
 - [ ] Docker 서비스가 호스트 재부팅 뒤 자동으로 시작하도록 설정됐다.
-- [ ] 방화벽은 SSH와 선택한 TLS endpoint만 허용한다. API, Gitea, PostgreSQL 포트와 Docker socket은 인터넷에 열지 않는다.
+- [ ] 방화벽은 SSH와 선택한 TLS endpoint만 허용한다. API, PostgreSQL 포트와 Docker socket은 인터넷에 열지 않는다.
 - [ ] `git`, `jq`, `curl`, Bun 1.3.14가 있고 checkout에서 dependency 설치를 마칠 수 있다.
 - [ ] GHCR package를 읽을 수 있는 최소 권한 token이 있다. `docker login`에는 stdin으로 전달하고 명령 인자, shell history, 로그에 값을 남기지 않는다.
 
@@ -28,7 +28,7 @@ Docker socket은 scheduler 컨테이너가 worker를 관리할 때만 read/write
 
 ### 기본: SSH tunnel
 
-[test-ops의 접근 절차](test-ops.md#접근)대로 API와 Gitea는 `127.0.0.1`에 둔다. 각 사용자는 SSH tunnel을 열고 자신의 로컬 loopback으로 접속한다. PostgreSQL은 운영자가 서버 안에서만 접근한다.
+[test-ops의 접근 절차](test-ops.md#접근)대로 API는 `127.0.0.1`에 둔다. 각 사용자는 SSH tunnel을 열고 자신의 로컬 loopback으로 접속한다. PostgreSQL은 운영자가 서버 안에서만 접근한다.
 
 ### 선택: Nginx + TLS + allowlist 또는 VPN
 
@@ -59,7 +59,7 @@ server {
 }
 ```
 
-SSE는 연결을 오래 유지하므로 buffering을 끄고 read timeout을 짧게 두지 않는다. Gitea는 별도 필요가 없으면 SSH tunnel에만 남긴다. 어떤 경로를 택해도 PostgreSQL과 Docker socket은 proxy 또는 방화벽에 노출하지 않는다.
+SSE는 연결을 오래 유지하므로 buffering을 끄고 read timeout을 짧게 두지 않는다. 어떤 경로를 택해도 PostgreSQL과 Docker socket은 proxy 또는 방화벽에 노출하지 않는다.
 
 ## 3. 전용 S3를 준비한다
 
@@ -89,7 +89,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 1. release의 `source_commit`을 checkout하고 dependency를 고정 설치한다.
 2. S3 object store로 `preflight`를 먼저 실행한다. 실패하면 `deploy`하지 않는다.
 3. 같은 manifest로 `deploy`하고 `/readyz`, scheduler와 reconciler health를 [감시 지점](test-ops.md#감시-지점)에서 확인한다. 사용자가 접속할 endpoint의 인증 없는 `/docs`와 같은 origin의 `/docs/scalar.js`가 각각 HTML·JavaScript로 200을 응답하는지도 확인한다. 이 화면의 요청 시험 기능은 꺼져 있으므로 실제 API 호출은 다음 단계에서 발급한 key로 별도 수행한다.
-4. [배포 절차의 Gitea 단계](test-ops.md#배포)대로 owner와 public sample repository를 만든다. 무작위 password는 화면이나 evidence에 기록하지 않는다.
+4. [카탈로그](test-ops.md#카탈로그)에 적을 GitHub 저장소를 준비한다.
 5. [첫 owner 절차](test-ops.md#첫-owner)대로 웹 콘솔 `/bootstrap`에서 env 파일의 `BOOTSTRAP_TOKEN`으로 첫 owner와 workspace를 만들고 `/login`으로 로그인한다. 같은 토큰을 다시 보내면 `409 BOOTSTRAP_DONE`인지 확인한다. 토큰과 비밀번호는 evidence에 남기지 않고 응답 코드만 적는다. env 파일에 토큰을 넣은 배포에서는 `docker logs agent-platform-test-ops-api-1 2>&1 | grep -c '^BOOTSTRAP_TOKEN='`가 `0`이어야 한다.
 6. [API key 발급 절차](test-ops.md#api-key-발급과-폐기)로 첫 사용자의 owner와 key를 만든다. 평문 key는 한 번만 직접 전달하고 evidence에는 key id만 남긴다.
 7. [quickstart의 curl 준비](../quickstart.md#2-curl-준비)를 API key와 서버 endpoint에 맞춘다. 로컬 스택 기동·초기화 명령과 `GATE-SPEC` 대본은 실행하지 않고, `body`의 `profile_id`는 배포 catalog의 `claude-coding`을 쓴다.
@@ -115,11 +115,11 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 
 - 일정: 매일 사용이 적은 시간, 그리고 모든 업그레이드 직전에 백업한다.
 - 보존: 호스트에는 최근 14일 성공본, 암호화한 off-host 보관소에는 최근 90일 성공본을 둔다. `.partial`과 `.failed`는 성공본으로 세지 않는다.
-- 복제: 성공본만 checksum과 함께 off-host로 복제한다. DB, Gitea 설정과 API key hash가 들어 있으므로 전송·보관 암호화와 최소 접근 권한을 적용한다.
+- 복제: 성공본만 checksum과 함께 off-host로 복제한다. DB와 API key hash가 들어 있으므로 전송·보관 암호화와 최소 접근 권한을 적용한다.
 - 알림: 명령의 non-zero exit, 서비스를 다시 열지 못한 경우, 26시간 동안 새 성공본이 없는 경우를 실패로 경보한다.
 - 복원 훈련: 한 달에 한 번, 그리고 업그레이드 뒤 첫 백업마다 [restore drill](test-ops.md#복원-훈련)을 `--keep`으로 실행한다. 출력된 drill project, 검증 로그와 loopback 포트를 기록하고 검사한 뒤, 출력된 명령으로 그 project만 지운다. S3 drill bucket은 같은 정본 절의 마지막 문단대로 legal hold, object version과 delete marker를 정리한 뒤 삭제한다.
 
-`restore-drill`은 postgres·object store·Gitea까지만 복원하고 API endpoint를 띄우지 않으므로, 이 결과를 세션 연속성 증거로 쓰지 않는다. [실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인)은 synthetic project와 fake provider를 쓰는 제품 검증이며, 실운영 backup·provider transcript·paused 세션의 복구 증거가 아니다. 현재 도구만으로 그 실운영 연속성을 안전하게 검사할 수 없으므로 배포 증거에는 `UNVERIFIED`와 도구 공백을 기록하고, 별도 절차가 마련되기 전까지 복원 훈련을 `partial`로 판정한다.
+`restore-drill`은 postgres·object store까지만 복원하고 API endpoint를 띄우지 않으므로, 이 결과를 세션 연속성 증거로 쓰지 않는다. [실스택에서 복원 뒤 재개 확인](backup-restore.md#실스택에서-복원-뒤-재개-확인)은 synthetic project와 fake provider를 쓰는 제품 검증이며, 실운영 backup·provider transcript·paused 세션의 복구 증거가 아니다. 현재 도구만으로 그 실운영 연속성을 안전하게 검사할 수 없으므로 배포 증거에는 `UNVERIFIED`와 도구 공백을 기록하고, 별도 절차가 마련되기 전까지 복원 훈련을 `partial`로 판정한다.
 
 ## 7. 업그레이드와 롤백을 연습한다
 
@@ -150,7 +150,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 - [ ] S3 설치의 [재시작 절차](test-ops.md#s3)로 현재 manifest를 다시 적용한다.
 - [ ] `status`, `/readyz`, scheduler, reconciler가 정상이다.
 - [ ] 재부팅 전 세션을 resume하고 새 worker가 이전 workspace를 이어 가는지 확인한다.
-- [ ] API와 Gitea는 선택한 내부 경로에서만 접근되고 PostgreSQL·Docker socket은 외부에서 닫혀 있다.
+- [ ] API는 선택한 내부 경로에서만 접근되고 PostgreSQL·Docker socket은 외부에서 닫혀 있다.
 
 ## 9. Day 1을 운영한다
 

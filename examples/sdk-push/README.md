@@ -36,7 +36,7 @@ pull request: 409 PUSH_NOT_PUSHED not_pushed
 close: receipt succeeded
 ```
 
-push 자격이 있는 저장소에서는 `push …: pushed`, `push receipt: succeeded, refs/heads/agent/<session-id>`가 나온다. 그 저장소가 GitHub(GitHub App 또는 github.com PAT)면 PR을 열고 `sdk-sample` marker로 코멘트를 달며 그 응답을 출력한다. GitHub이 아닌 저장소(Gitea, GHES PAT)에 push된 브랜치면 PR은 403 `FORBIDDEN`(`no_forge`)이다. 이 두 경로는 가짜 API 테스트로만 확인했다.
+push 자격이 있는 저장소에서는 `push …: pushed`, `push receipt: succeeded, refs/heads/agent/<session-id>`가 나온다. 그 저장소가 GitHub(GitHub App 또는 github.com PAT)면 PR을 열고 `sdk-sample` marker로 코멘트를 달며 그 응답을 출력한다. GitHub forge가 없는 저장소(GitHub가 아닌 호스트, GHES PAT)에 push된 브랜치면 PR은 403 `FORBIDDEN`(`no_forge`)이다. 이 두 경로는 가짜 API 테스트로만 확인했다.
 
 - 승인은 요청이 고정한 `git_commit`을 그대로 보낸다. 다른 commit이거나 요청 뒤 세션이 새 checkpoint를 남겼으면 409 `CHECKPOINT_MOVED`다. SDK는 그때 다시 읽어 다시 승인하지 않는다. 검토한 commit만 승인한다.
 - 한 세션에 열린 요청은 하나다. 거부한 뒤에 새로 요청한다.
