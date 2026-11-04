@@ -596,6 +596,57 @@ describe("tools/call", () => {
     });
   });
 
+  test("an exception inside a tool is internal_error with isError, logged, and never shown", async () => {
+    const logged: unknown[] = [];
+    const handle = createGitHubMcpServer({
+      store: {
+        sessionState: async () => ({
+          ownerId: "owner-a",
+          agentId: creator.agent_id ?? "",
+          releaseId: "release-1",
+          source: "release",
+          github: github(),
+          enabled: true,
+          actor: creator,
+        }),
+        runningTurn: async () => 7,
+        markPushContinuation: async () => false,
+      },
+      services: () => ({
+        ...({} as GitHubMcpServices),
+        attachments: {
+          list: async () => {
+            throw new Error("database unavailable: secret detail");
+          },
+          attach: async () => {
+            throw new Error("unused");
+          },
+        },
+      }),
+      onInternalError: (error) => logged.push(error),
+    });
+    const answer = payload(
+      await handle(
+        grant,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list_repositories", arguments: {} },
+        },
+        "req-1",
+      ),
+    );
+    expect(answer).toEqual({
+      isError: true,
+      body: {
+        ok: false,
+        refusal: { code: "internal_error", by: "platform", retryable: false },
+      },
+    });
+    expect(logged).toHaveLength(1);
+  });
+
   test("a call GitHub did not take is github and retryable", async () => {
     const h = harness({ github: github({ actions: true }) });
     h.gate.grant = async () => {

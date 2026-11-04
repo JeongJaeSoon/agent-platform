@@ -255,6 +255,11 @@ export function createGitHubMcpServer(deps: {
   store: GitHubMcpStore;
   /** The session services, made with the authorization they run under. */
   services: (authorization: AuthorizationPolicy) => GitHubMcpServices;
+  /** Where the exception behind an `internal_error` answer goes to be logged. */
+  onInternalError?: (
+    error: unknown,
+    context: { tool: GitHubMcpTool; sessionId: string; requestId: string },
+  ) => void;
 }) {
   const toolList = (tools: readonly GitHubMcpTool[]) =>
     tools.map((name) => ({
@@ -360,7 +365,9 @@ export function createGitHubMcpServer(deps: {
           ),
         );
       }
-      throw error;
+      // A fault of the server: the model gets the code, never the exception.
+      deps.onInternalError?.(error, { tool, sessionId, requestId });
+      return refused(refusalOf(tool, "internal_error"));
     }
   }
 

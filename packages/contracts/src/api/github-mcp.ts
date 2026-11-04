@@ -374,8 +374,17 @@ export const GITHUB_MCP_REFUSAL_OVERRIDES: Partial<
   open_pull_request: { push_failed: actionRefusalSpec("platform") },
   update_pull_request: { push_failed: actionRefusalSpec("platform") },
   comment_pull_request: { push_failed: actionRefusalSpec("platform") },
-  close_pull_request: { push_failed: actionRefusalSpec("platform") },
-  reopen_pull_request: { push_failed: actionRefusalSpec("platform") },
+  // The service answers a GitHub outage and a permanent refusal of the state
+  // change (a pull request merged between its read and its PATCH) with the
+  // same `forge_failed`, so a retry cannot be promised.
+  close_pull_request: {
+    push_failed: actionRefusalSpec("platform"),
+    forge_failed: actionRefusalSpec("github"),
+  },
+  reopen_pull_request: {
+    push_failed: actionRefusalSpec("platform"),
+    forge_failed: actionRefusalSpec("github"),
+  },
 };
 
 /** The `by` and `retryable` of a tool's code, or null if it has no such code. */

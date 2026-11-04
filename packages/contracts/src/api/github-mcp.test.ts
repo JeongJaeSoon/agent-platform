@@ -120,6 +120,11 @@ describe("the refusal code tables", () => {
       by: "github",
       retryable: true,
     });
+    // Close and reopen cannot tell an outage from a final refusal.
+    expect(githubMcpRefusalSpec("close_pull_request", "forge_failed")).toEqual({
+      by: "github",
+      retryable: false,
+    });
     // The pull request tools read a failed push as final.
     expect(githubMcpRefusalSpec("request_push", "push_failed")).toBeNull();
     expect(githubMcpRefusalSpec("open_pull_request", "push_failed")).toEqual({
