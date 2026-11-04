@@ -25,7 +25,6 @@ import {
   type CatalogRepository,
   catalogProfile,
   catalogProfileConfigSchema,
-  catalogRevision,
   profileFingerprint,
   providerUpstreamOf,
   resolveSessionCatalog,
@@ -103,7 +102,6 @@ function sourcesOf(
       Object.fromEntries(
         Object.entries(own).map(([id, made]) => [id, made.provider]),
       ),
-    repositoryIdsOf: catalogRepositoryIds(REPOSITORIES),
     allowUnattended: options.allowUnattended ?? false,
     runtimeSupported: () => true,
     materialize: (id, made) => {
@@ -227,7 +225,7 @@ describe("installation profile snapshot", () => {
     expect(snapshot.installation.size).toBe(0);
   });
 
-  test("with connections.yaml the YAML providers are no connection of their own", () => {
+  test("a ceiling's own provider is no connection of its own", () => {
     const own = { coding: definition() };
     const rows = [row("coding", definition())];
     const without = installationProfileSnapshot(
@@ -281,7 +279,6 @@ describe("two replicas over one database", () => {
     const a = definition();
     const b = definition({ provider: OTHER_PROVIDER });
     const connections = { main: a.provider, other: OTHER_PROVIDER };
-    // Each replica imported its own YAML at boot.
     const rows = {
       installation: [row("a", a), row("b", b)],
       workspace: [],
@@ -294,10 +291,9 @@ describe("two replicas over one database", () => {
     ]);
     expect(Object.keys(one.profiles).sort()).toEqual(["a", "b"]);
     expect(Object.keys(two.profiles).sort()).toEqual(["a", "b"]);
-    expect(catalogRevision(one)).toBe(catalogRevision(two));
   });
 
-  test("without a connection file, the replica lacking a provider leaves its id out and its revision moves", async () => {
+  test("the replica lacking a provider leaves its id out", async () => {
     const a = definition();
     const b = definition({ provider: OTHER_PROVIDER });
     const rows = { installation: [row("a", a), row("b", b)], workspace: [] };
@@ -309,10 +305,9 @@ describe("two replicas over one database", () => {
     ]);
     expect(stateOf(one, "b")).toBe("connection_missing");
     expect(stateOf(two, "b")).toBe("usable");
-    expect(catalogRevision(one)).not.toBe(catalogRevision(two));
   });
 
-  test("once read, the imported rows run what the YAML-only image ran, at its revision", async () => {
+  test("once read, the imported rows run what the YAML-only image ran", async () => {
     const own = { coding: definition() };
     const catalog = replica(own, {
       installation: catalogRows(own),
@@ -325,29 +320,6 @@ describe("two replicas over one database", () => {
       () => KEY,
     );
     expect(catalog.profiles).toEqual(yamlOnly.profiles);
-    expect(catalogRevision(catalog)).toBe(catalogRevision(yamlOnly));
-  });
-
-  test("a console ceiling stays out of the revision", async () => {
-    const coding = definition();
-    const rows = {
-      installation: [row("coding", coding)],
-      workspace: [] as WorkspaceProfileRecord[],
-    };
-    const catalog = replica({ coding }, rows);
-    await catalog.workspace_profiles.refresh();
-    const before = catalogRevision(catalog);
-    rows.installation.push(
-      consoleRow("op_wide_v1", definition({ tools: ["Read", "Bash"] }), [
-        "docs",
-      ]),
-    );
-    await catalog.workspace_profiles.refresh();
-    expect(Object.keys(catalog.profiles).sort()).toEqual([
-      "coding",
-      "op_wide_v1",
-    ]);
-    expect(catalogRevision(catalog)).toBe(before);
   });
 });
 
@@ -412,7 +384,6 @@ describe("the gateway's claim", () => {
     ]);
     expect(pairs).toContainEqual(["op_wide_v1", "docs"]);
     expect(pairs).not.toContainEqual(["op_wide_v1", "sample-app"]);
-    expect(input.catalogRevision).toBe(catalogRevision(catalog));
     expect(input.settledProfileIds.has("op_wide_v1")).toBe(true);
   });
 
@@ -480,7 +451,7 @@ describe("the gateway's claim", () => {
     expect(claim.settledProfileIds.has("ws_acme_narrow_v1")).toBe(true);
   });
 
-  test("an imported ceiling runs only on its repository_ids, whatever repositories.yaml lists", async () => {
+  test("an imported ceiling runs only on its repository_ids, whatever a repository lists", async () => {
     const coding = definition();
     const catalog = replica(
       { coding },
@@ -496,12 +467,8 @@ describe("the gateway's claim", () => {
     expect(REPOSITORIES["sample-app"]?.profiles).toContain("coding");
   });
 
-  test("before the api fills an imported row, it runs on the repositories repositories.yaml names it for", async () => {
+  test("a row no import has filled runs on no repository", async () => {
     const coding = definition();
-    const filled = replica(
-      { coding },
-      { installation: [row("coding", coding)], workspace: [] },
-    );
     const unfilled = replica(
       { coding },
       {
@@ -509,15 +476,12 @@ describe("the gateway's claim", () => {
         workspace: [],
       },
     );
-    const [before, after] = await Promise.all([
-      claimOnce(unfilled),
-      claimOnce(filled),
-    ]);
-    expect(before.runnable).toEqual(after.runnable);
+    const { runnable } = await claimOnce(unfilled);
     expect(
-      before.runnable.some((pair) => pair.repositoryId === "sample-app"),
-    ).toBe(true);
-    expect(before.catalogRevision).toBe(after.catalogRevision);
+      runnable.filter(
+        (pair) => pair.profileId === "coding" && pair.policy !== true,
+      ),
+    ).toEqual([]);
   });
 });
 

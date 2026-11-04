@@ -27,8 +27,8 @@
 #   tests/e2e/run.sh --real-model
 #
 # The same stack against the real Messages API: no fake overlay, so the API
-# reads the default catalog in config/ and, alone, the key from
-# ANTHROPIC_API_KEY; infra/compose.real-model.yml caps what the run can
+# migrate imports tests/fixtures/settings/real-model.json and the API alone
+# reads the key from ANTHROPIC_API_KEY; infra/compose.real-model.yml caps what the run can
 # spend (`scripts/local.sh up` starts the same overlay), and
 # tests/e2e/real-model.e2e.ts runs in place of the scripted suites. The key
 # comes from the shell or, failing that, the repository's .env. Without
@@ -38,9 +38,9 @@
 #
 #   tests/e2e/run.sh --local-model
 #
-# The same suite against the Ollama on this machine instead: the API reads
-# config/local-model, whose two profiles call Ollama directly and through a
-# LiteLLM proxy (infra/compose.local-model.yml), and the suite runs once on
+# The same suite against the Ollama on this machine instead: migrate imports
+# tests/fixtures/settings/local-model.json, whose two profiles call Ollama
+# directly and through a LiteLLM proxy (infra/compose.local-model.yml), and the suite runs once on
 # each. Needs Ollama on localhost:11434 with gemma4:26b-mlx pulled; nothing
 # is paid. docs/contributing/local-model.md says what it shows and what it does not.
 set -euo pipefail
@@ -48,6 +48,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/real-model-key.sh
+
+settings_values() {
+  sed -n "s/^ *\"$1\": \"\(.*\)\",\{0,1\}\$/\1/p" "$2" | sort -u
+}
 
 real_model=""
 model_overlay=infra/compose.fake-model.yml
@@ -75,12 +79,12 @@ if [ -n "$local_model" ]; then
     echo "e2e --local-model: Ollama on 127.0.0.1:11434 did not answer /api/tags (curl exit ${tags_status}); nothing was started" >&2
     exit 2
   fi
-  # Every Ollama model the two routes call: the catalog's models less the
+  # Every Ollama model the two routes call: the settings' models less the
   # names LiteLLM serves, and what LiteLLM maps those to.
   litellm_names="$(sed -n 's/^ *- model_name: //p' infra/local-model/litellm.yaml)"
   for model in $(
     {
-      sed -n 's/^ *model: //p' config/local-model/profiles.yaml | grep -vxF "$litellm_names"
+      settings_values model tests/fixtures/settings/local-model.json | grep -vxF "$litellm_names"
       sed -n 's/^ *model: ollama_chat\///p' infra/local-model/litellm.yaml
     } | sort -u
   ); do
@@ -219,16 +223,16 @@ sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p
   echo "claude_agent_sdk: ${sdk_version}"
   echo "claude_code: ${claude_version}"
   if [ -n "$real_model" ]; then
-    echo "model: $(sed -n 's/^ *model: //p' config/profiles.yaml)"
-    echo "provider_endpoint: $(sed -n 's/^ *endpoint: //p' config/profiles.yaml)"
+    echo "model: $(settings_values model tests/fixtures/settings/real-model.json)"
+    echo "provider_endpoint: $(settings_values endpoint tests/fixtures/settings/real-model.json)"
   fi
   if [ -n "$real_model$local_model" ]; then
     echo "session_cost_limit_usd: ${SESSION_COST_LIMIT_USD}"
   fi
   if [ -n "$local_model" ]; then
     echo "ollama: $(curl -s http://127.0.0.1:11434/api/version)"
-    echo "models: $(sed -n 's/^ *model: //p' config/local-model/profiles.yaml | paste -sd, -)"
-    echo "provider_endpoints: $(sed -n 's/^ *endpoint: //p' config/local-model/profiles.yaml | paste -sd, -)"
+    echo "models: $(settings_values model tests/fixtures/settings/local-model.json | paste -sd, -)"
+    echo "provider_endpoints: $(settings_values endpoint tests/fixtures/settings/local-model.json | paste -sd, -)"
   fi
 } | tee "$out/record.txt" >&2
 

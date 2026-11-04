@@ -52,24 +52,19 @@ export type ImportSettingsResponse = z.infer<
   typeof importSettingsResponseSchema
 >;
 
-/**
- * Where a settings entry comes from: the operator's file (read only until
- * the file loader goes), a settings document, or the console.
- */
-export const settingsEntryOriginSchema = z.enum(["file", "import", "console"]);
+/** Where a settings entry comes from: a settings document or the console. */
+export const settingsEntryOriginSchema = z.enum(["import", "console"]);
 
 /**
  * `needs_value`: stored, no value set yet. `unresolved`: its credential
  * did not resolve on the replica that answered (a value that does not
- * open, or a reference the deployment lacks). `shadowed`: the file holds
- * the same id, which wins until the file loader goes.
+ * open, or a reference the deployment lacks).
  */
 export const settingsEntryStateSchema = z.enum([
   "active",
   "needs_value",
   "unresolved",
   "disabled",
-  "shadowed",
 ]);
 
 /** A credential as the console sees it: never a value. */
@@ -92,13 +87,12 @@ export const settingsCredentialViewSchema = z.discriminatedUnion("source", [
 ]);
 
 const entryTimes = {
-  /** Null for a file entry. */
-  created_at: z.string().nullable(),
+  created_at: z.string(),
   /** Disabled, or for a repository removed; null while in use. */
   disabled_at: z.string().nullable(),
 };
 
-/** What a console-made id may be; a file or document id is wider. */
+/** What a console-made id may be; an imported id is wider. */
 export const SETTINGS_ENTRY_ID_PATTERN = "^[a-z0-9][a-z0-9._-]{0,63}$";
 const consoleEntryId = z
   .string()

@@ -1,9 +1,14 @@
+import * as schema from "@werft-ai/db";
+import { createPostgresSettingsDocumentStore } from "@werft-ai/db";
+import { createEnforcedPool, JOB_POOL_TIMEOUTS } from "@werft-ai/db/pool";
+import { createLogger } from "@werft-ai/observability";
 import type { Connections } from "@werft-ai/platform";
-import { readConnections } from "./catalog-config.ts";
+import { drizzle } from "drizzle-orm/node-postgres";
 import {
   DEMO_ACCOUNTS,
   DEMO_PASSWORD,
   demoAccountsRefusal,
+  demoDatabaseUrl,
   previewDatabaseRefusal,
 } from "./demo-accounts.ts";
 
@@ -33,7 +38,7 @@ export function demoDataRefusal(
   if (refusal) return refusal;
   const ids = Object.keys(connections);
   if (ids.length === 0) {
-    return "connections.yaml names no connection; start the stack with --fake-model";
+    return "the database holds no connection; start the stack with --fake-model";
   }
   for (const id of ids) {
     if (connections[id]?.endpoint !== FAKE_MESSAGES_ENDPOINT) {
@@ -798,6 +803,27 @@ async function seedAs(
   return outcomes;
 }
 
+async function storedConnections(): Promise<Connections> {
+  const pool = createEnforcedPool(
+    demoDatabaseUrl(process.env),
+    createLogger(),
+    "demo-data",
+    JOB_POOL_TIMEOUTS,
+  );
+  try {
+    const rows = await createPostgresSettingsDocumentStore(
+      drizzle(pool, { schema }),
+    ).listRows("connection");
+    return Object.fromEntries(
+      rows
+        .filter((row) => row.disabledAt === null)
+        .map((row) => [row.id, row.entry as Connections[string]]),
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
 async function main(): Promise<void> {
   // The installation is checked before anything of it is read.
   let refusal =
@@ -805,12 +831,9 @@ async function main(): Promise<void> {
     (await previewDatabaseRefusal(process.env));
   if (refusal === null) {
     try {
-      refusal = demoDataRefusal(
-        process.env,
-        await readConnections(process.env.PLATFORM_CONFIG_DIR ?? ""),
-      );
+      refusal = demoDataRefusal(process.env, await storedConnections());
     } catch (error) {
-      refusal = `cannot read the catalog in PLATFORM_CONFIG_DIR: ${error instanceof Error ? error.message : String(error)}`;
+      refusal = `cannot read the connections: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
   if (refusal) {

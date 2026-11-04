@@ -16,6 +16,7 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  catalogRepositories,
   memberships,
   receipts,
   users,
@@ -71,37 +72,21 @@ integration("catalog repositories on PostgreSQL", () => {
     branch: "main",
   });
 
-  test("seeds only an empty table, then resolves picks to one row each and renames a branch", async () => {
+  test("resolves picks to one row each and renames a branch", async () => {
     const store = createPostgresCatalogRepositoryStore(db);
-    const seedEntry = {
+    expect(await store.readCatalog()).toBeNull();
+    await db.insert(catalogRepositories).values({
       id: "seeded",
       owner: "acme",
       name: "seeded",
       url: "https://github.com/acme/seeded.git",
       branch: "trunk",
       profiles: ["coding"],
-    };
-    // Never seeded: the catalog keeps the operator file.
-    expect(await store.readCatalog()).toBeNull();
-    // Before bootstrap: rows go in, no receipt (no workspace to own it).
-    expect(await store.seed({ entries: async () => [seedEntry] })).toEqual([
-      "seeded",
-    ]);
+      source: "seed",
+    });
     expect((await store.readCatalog())?.map((row) => row.id)).toEqual([
       "seeded",
     ]);
-    expect(await db.select().from(receipts)).toEqual([]);
-    // A filled table never reads the file again.
-    let read = false;
-    expect(
-      await store.seed({
-        entries: async () => {
-          read = true;
-          return [{ ...seedEntry, id: "other" }];
-        },
-      }),
-    ).toEqual([]);
-    expect(read).toBe(false);
 
     const workspaceId = randomUUID();
     await db.insert(workspaces).values({
@@ -124,7 +109,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...outsider,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...repo(1),
       }),
     ).toEqual({ outcome: "actor_inactive" });
@@ -135,7 +119,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...member,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...repo(1),
       }),
     ).toEqual({ outcome: "outranked" });
@@ -151,7 +134,6 @@ integration("catalog repositories on PostgreSQL", () => {
       ...member,
       receiptId,
       base: "app1",
-      reserved: new Set(),
       ...repo(1),
     });
     expect(first).toMatchObject({
@@ -186,7 +168,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "x",
-        reserved: new Set(),
         ...repo(1),
         owner: "acme",
         name: "app1",
@@ -204,7 +185,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...newcomer,
       }),
     ).toEqual({ outcome: "name_held", id: "app1" });
@@ -216,7 +196,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: renameReceipt,
         base: "x",
-        reserved: new Set(),
         ...repo(1),
         name: "App1-old",
         url: "https://github.com/Acme/App1-old.git",
@@ -251,7 +230,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "x",
-        reserved: new Set(),
         ...repo(1),
         name: "Seeded",
         owner: "acme",
@@ -263,7 +241,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "app1",
-        reserved: new Set(),
         ...newcomer,
       }),
     ).toMatchObject({
@@ -277,7 +254,6 @@ integration("catalog repositories on PostgreSQL", () => {
         ...owner,
         receiptId: randomUUID(),
         base: "seeded",
-        reserved: new Set(),
         githubRepositoryId: 5000,
         owner: "ACME",
         name: "Seeded",
@@ -289,17 +265,6 @@ integration("catalog repositories on PostgreSQL", () => {
       created: false,
       repository: { id: "seeded", github_repository_id: 5000, branch: "trunk" },
     });
-    // A reserved (file) id is numbered past.
-    expect(
-      await store.resolve({
-        ...owner,
-        receiptId: randomUUID(),
-        base: "tool",
-        reserved: new Set(["tool"]),
-        ...repo(2),
-      }),
-    ).toMatchObject({ outcome: "resolved", repository: { id: "tool-2" } });
-
     // Two first picks at once: one row, one receipt.
     const picks = await Promise.all(
       [0, 1, 2].map(() =>
@@ -307,7 +272,6 @@ integration("catalog repositories on PostgreSQL", () => {
           ...owner,
           receiptId: randomUUID(),
           base: "app3",
-          reserved: new Set(),
           ...repo(3),
         }),
       ),
@@ -358,7 +322,6 @@ integration("catalog repositories on PostgreSQL", () => {
       "app1-2",
       "app3",
       "seeded",
-      "tool-2",
     ]);
     // No agent has an active release here.
     expect((await store.agentCounts()).size).toBe(0);

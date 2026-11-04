@@ -1,14 +1,19 @@
-# The real model's limits, for `scripts/local.sh up` over compose.yaml and
-# `tests/e2e/run.sh --real-model` over infra/compose.yml, whose
-# catalog (config/) already runs the real Messages API with the caller's
-# ANTHROPIC_API_KEY. They bound what one session can spend: the worker hands
-# the session's remaining budget to the SDK as maxBudgetUsd. The shell or the
-# project's .env can raise them. It names no path.
+# The real model's settings and limits, for `scripts/local.sh up` over
+# compose.yaml and `tests/e2e/run.sh --real-model` over infra/compose.yml. The
+# document runs the real Messages API with the caller's ANTHROPIC_API_KEY, and
+# lives here, not in the local layer: `local.sh` commands that name no mode
+# start migrate too, and must not add it to a --fake-model stack. The limits
+# bound what one session can spend: the worker hands the session's remaining
+# budget to the SDK as maxBudgetUsd. The shell or the project's .env can raise
+# them.
 x-real-model-limits: &real-model-limits
   SESSION_COST_LIMIT_USD: ${SESSION_COST_LIMIT_USD:-1}
   MAX_TURN_SECONDS: ${MAX_TURN_SECONDS:-600}
 
 services:
+  migrate:
+    environment:
+      SETTINGS_DOCUMENT: ${SETTINGS_DOCUMENT-/settings/real-model.json}
   api:
     environment:
       <<: *real-model-limits

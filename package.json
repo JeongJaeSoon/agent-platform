@@ -16,13 +16,11 @@
     "check": "bun run typecheck && bun run lint && bun run test",
     "keys": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts",
     "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts",
-    "profiles": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/profiles.ts",
-    "catalog-authority": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/catalog-authority.ts",
     "settings": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/settings.ts",
     "slack-install": "docker compose --profile apps exec -T -e SLACK_BOT_TOKEN -e SLACK_API_URL api bun run apps/control-host/src/api/slack-install.ts",
     "keys:k8s": "scripts/k8s-api.sh keys",
     "grants:k8s": "scripts/k8s-api.sh grants",
-    "catalog-authority:k8s": "scripts/k8s-api.sh catalog-authority"
+    "settings:k8s": "scripts/k8s-api.sh settings"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.4",

@@ -339,8 +339,11 @@ function checkSecretKey(
         continue;
       }
       holders[component] = (holders[component] ?? 0) + 1;
-      if (entry.valueFrom?.secretKeyRef?.optional !== true) {
-        errors.push(`${where}: ${SECRET_KEY} is not an optional secretKeyRef`);
+      if (
+        entry.valueFrom?.secretKeyRef === undefined ||
+        entry.valueFrom.secretKeyRef.optional === true
+      ) {
+        errors.push(`${where}: ${SECRET_KEY} is not a required secretKeyRef`);
       }
     }
   }

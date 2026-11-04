@@ -71,6 +71,7 @@ function profile(
 
 function catalogOf(entry: CatalogProfile): SessionCatalog {
   return withSeededInstallation({
+    settings_generation: 0,
     profiles: { [PROFILE_ID]: entry },
     repositories: {
       "sample-app": { ...REPOSITORY, profiles: [PROFILE_ID] },

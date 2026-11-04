@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "connections": {
+    "fake-messages": {
+      "kind": "anthropic",
+      "endpoint": "http://fake-messages:4010",
+      "auth": {
+        "kind": "api_key",
+        "secret_id": "agent-platform/local/fake-messages"
+      }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "http://fake-git:3000/agent/sample-app.git",
+      "branch": "main",
+      "profiles": ["claude-coding-local", "claude-coding-auto"]
+    }
+  },
+  "mcp_servers": {
+    "fake": {
+      "url": "http://fake-mcp:4020/mcp",
+      "credential_ref": "mcp/fake",
+      "auth": {
+        "kind": "bearer",
+        "secret_id": "agent-platform/local/fake-mcp"
+      },
+      "workspaces": ["verify"]
+    }
+  },
+  "profiles": {
+    "claude-coding-local": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "title_model": "claude-haiku-4-5",
+      "tools": [
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash",
+        "AskUserQuestion"
+      ],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "http://fake-messages:4010",
+        "auth": {
+          "kind": "api_key",
+          "secret_id": "agent-platform/local/fake-messages"
+        }
+      },
+      "project_settings": { "claude_md": true }
+    },
+    "claude-coding-auto": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "title_model": "claude-haiku-4-5",
+      "tools": [
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash",
+        "AskUserQuestion"
+      ],
+      "permission_mode": "auto",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "http://fake-messages:4010",
+        "auth": {
+          "kind": "api_key",
+          "secret_id": "agent-platform/local/fake-messages"
+        }
+      },
+      "project_settings": { "claude_md": true }
+    },
+    "general": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Write", "Edit", "Glob", "Grep", "AskUserQuestion"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "http://fake-messages:4010",
+        "auth": {
+          "kind": "api_key",
+          "secret_id": "agent-platform/local/fake-messages"
+        }
+      },
+      "repository": "none"
+    }
+  }
+}

@@ -71,7 +71,7 @@ flugel에서 배운 것 가운데 여기 그대로 쓰는 것: 고르기 질문 
 
 - 세션 비용은 egress proxy가 잰 호출마다 `provider_usage`에 쌓이고 세션 행에 더해진다. 이 표는 `session_id`·`attempt_id`가 NOT NULL이다(`packages/db/src/schema.ts:2366-2433`). 판정 호출을 여기 넣으면 세션 비용에 섞인다.
 - 연결 kind는 `anthropic`·`litellm` 둘뿐이고(`packages/platform/src/sessions/catalog.ts:119-136`), egress proxy에 OpenAI로 가는 경로가 없다. Luna를 쓰려면 연결 kind 하나와 proxy 경로 하나가 새로 필요하다.
-- 연결은 지금 `connections.yaml`이고, DB(`provider_connections`)로 옮기는 일이 S1~S4로 잡혀 있다(`docs/contributing/decisions/settings-replace-file-catalog.md` 끝 표).
+- 연결은 DB(`provider_connections`)에 있다(`docs/contributing/decisions/settings-replace-file-catalog.md`).
 - 가격표는 플랫폼이 가진다(`packages/platform/src/limits/model-prices.ts:41-64`). `gpt-6-luna`는 없다.
 
 ## 2. 대안 비교

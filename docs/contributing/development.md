@@ -67,7 +67,7 @@ scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 
 | `apps/control-host`와 그 의존 패키지 | api는 SIGTERM 뒤 5초 안에 다시 뜬다. 열린 SSE의 35초 drain을 기다리지 않는다. scheduler·reconciler는 각 loop의 stop grace 안에서 진행 중인 pass를 안전 지점에서 멈추고 새 코드로 다시 뜬다. 프로세스가 스스로 끝나면 이유와 상관없이 다음 저장까지 기다린다. 문법 오류든 DB 재시작이든 같다. 컨테이너가 떠 있으므로 Docker의 restart 정책도 프로세스를 다시 띄우지 않는다. 고칠 것이 없으면 `docker compose restart <role>`로 다시 띄운다 |
 | `apps/web`, `packages/ui` 등 웹 소스 | `local.sh web`의 Vite가 브라우저에 hot module reload로 보낸다. 주소는 Vite가 출력하는 `http://localhost:5173`이고, `/v1`은 스택의 api로 proxy한다. api가 서빙하는 `/`는 이미지에 빌드된 그대로다. 파일 이벤트가 오지 않는 환경에서는 `CHOKIDAR_USEPOLLING=1 scripts/local.sh web`으로 띄운다 |
 | `bun.lock`, worker(`apps/worker`), `apps/egress-proxy`, migration | 이미지에서 온다. `scripts/local.sh dev --fake-model`을 다시 돌리면 바뀐 이미지만 다시 빌드한다. worker는 세션마다 그 이미지로 뜨므로 다음 세션부터 반영된다 |
-| `config/` | api 재시작(`docker compose restart api`)으로 반영한다 |
+| `tests/fixtures/settings/` | 다음 `up`의 migrate가 더하기만 한다. 이미 있는 항목과 값이 다르면 migrate가 거부하므로, 고치려면 콘솔을 쓰거나 `scripts/local.sh reset`으로 다시 시작한다 |
 
 개발 모드에서는 slack과 maintenance를 띄우지 않는다. Slack role을 고치거나 쓰는 작업은 `up`으로 띄운다. `up`으로 띄운 스택 위에서 `dev`를 돌리면 이미 떠 있던 slack·maintenance는 꺼지지 않고 남는다. 먼저 `scripts/local.sh down --keep-volumes`로 내린 뒤 `dev`를 돌린다. 내릴 때는 `scripts/local.sh down --keep-volumes`를 쓴다. 운영 이미지와 Helm chart에는 이 overlay가 들어가지 않는다.
 

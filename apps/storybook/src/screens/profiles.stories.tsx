@@ -458,7 +458,7 @@ function NewCeiling({
         <Crumbs current={next ? "wide 새 버전" : "설치 프로필 만들기"} />
       }
       title={next ? "wide 새 버전" : "설치 프로필 만들기"}
-      description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 워크스페이스 프로필은 이 값을 줄이기만 합니다. 연결·자격 증명·비용 한도는 설치 설정에서 정합니다."
+      description="이 설치에서 쓸 수 있는 가장 넓은 값입니다. 워크스페이스 프로필은 이 값을 줄이기만 합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다."
     >
       <div className="flex flex-col gap-[var(--ap-space-block)]">
         {next ? null : <KindPicker kind="installation" />}
@@ -490,7 +490,7 @@ function NewCeiling({
               </NativeSelectOption>
             </NativeSelect>
             <FieldDescription>
-              모델 공급자와 자격 증명은 연결이 정합니다. 연결은 설치 설정에서
+              모델 공급자와 자격 증명은 연결이 정합니다. 연결은 모델 연결에서
               바꿉니다.
             </FieldDescription>
           </Field>

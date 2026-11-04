@@ -79,10 +79,10 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 ## 4. release와 설정을 봉인한다
 
 1. 배포할 `source_commit`을 정하고, 그 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)해 registry에 올린 뒤 digest를 확인한다. 태그를 달 필요는 없다. `v*` 태그로 이미지를 게시하는 일은 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)이고, 아직 게시된 릴리스는 없다.
-2. [release manifest](test-ops.md#release-manifest)에 `source_commit`, control-host·worker·egress-proxy digest, catalog revision을 기록한다. tag만 적지 않는다.
-3. `/etc/agent-platform` 아래에 [env 파일과 카탈로그](test-ops.md#env-파일)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 catalog 파일은 API 컨테이너가 읽을 수 있는 mode를 사용한다.
+2. [release manifest](test-ops.md#release-manifest)에 `source_commit`, control-host·worker·egress-proxy digest, `settings_digest`를 기록한다. tag만 적지 않는다.
+3. `/etc/agent-platform` 아래에 [env 파일](test-ops.md#env-파일)과 [설정 문서](test-ops.md#카탈로그)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 설정 문서는 migrate 컨테이너가 읽을 수 있는 `0644`를 사용한다.
 4. provider key, S3 key, PostgreSQL password, egress token, bootstrap token, registry token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
-5. release manifest와 catalog revision을 배포 증거 디렉터리에 복사한다. env 파일과 credential은 복사하지 않는다.
+5. release manifest를 배포 증거 디렉터리에 복사한다. env 파일과 credential은 복사하지 않는다.
 
 ## 5. 설치하고 첫 사용을 확인한다
 
@@ -175,7 +175,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 
 | 파일 | 내용 |
 |---|---|
-| `release.json` | 배포한 manifest와 source commit, image digest, catalog revision |
+| `release.json` | 배포한 manifest와 source commit, image digest, `settings_digest` |
 | `preflight.txt` | S3 왕복을 포함한 성공 출력. credential과 scratch object 내용은 제거 |
 | `status.txt` | 배포 직후와 Day 1의 readyz·scheduler·reconciler·disk 상태 |
 | `first-session.md` | owner/key id, session id, turn 상태, SSE·승인·checkpoint·resume 판정. 평문 key 제외 |

@@ -31,7 +31,6 @@ import {
   entryActions,
   FormDialog,
   NarrowState,
-  OriginBadge,
   type Outcome,
   OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
@@ -135,7 +134,7 @@ export function McpServersScreen() {
             </GridTableHeader>
             {servers.data.items.map((item) => (
               <McpRow
-                key={`${item.origin}:${item.id}`}
+                key={item.id}
                 item={item}
                 busy={rows.busy}
                 onValue={() => rows.openValue(item.id)}
@@ -181,11 +180,10 @@ function McpRow({
   const { t } = useI18n();
   const actions = entryActions(item);
   return (
-    <GridTableRow data-origin={item.origin}>
+    <GridTableRow>
       <GridTableCell>
         <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
-          <OriginBadge origin={item.origin} />
           <NarrowState state={item.state} />
           <Text
             as="span"
@@ -221,52 +219,46 @@ function McpRow({
         <StateBadge state={item.state} />
       </GridTableCell>
       <GridTableCell>
-        {item.origin === "file" ? (
-          <Text as="span" variant="meta">
-            {t("settings.fileRow")}
-          </Text>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {actions.setValue ? (
-              <>
-                <RowAction
-                  disabled={busy}
-                  aria-label={t("settings.setValueFor", { id: item.id })}
-                  onClick={onValue}
-                >
-                  {item.state === "needs_value"
-                    ? t("settings.setFirstValue")
-                    : t("settings.setValue")}
-                </RowAction>
-                <RowAction
-                  disabled={busy}
-                  aria-label={t("settings.mcp.editWorkspacesFor", {
-                    id: item.id,
-                  })}
-                  onClick={onWorkspaces}
-                >
-                  {t("settings.mcp.editWorkspaces")}
-                </RowAction>
-              </>
-            ) : null}
-            {actions.disable ? (
+        <div className="flex flex-wrap gap-1">
+          {actions.setValue ? (
+            <>
               <RowAction
-                variant="danger"
                 disabled={busy}
-                aria-label={t("settings.disableFor", { id: item.id })}
-                onClick={onDisable}
+                aria-label={t("settings.setValueFor", { id: item.id })}
+                onClick={onValue}
               >
-                {t("settings.disable")}
+                {item.state === "needs_value"
+                  ? t("settings.setFirstValue")
+                  : t("settings.setValue")}
               </RowAction>
-            ) : null}
-            {item.credential.source === "external" &&
-            item.state !== "disabled" ? (
-              <Text as="span" variant="meta">
-                {t("settings.externalRow")}
-              </Text>
-            ) : null}
-          </div>
-        )}
+              <RowAction
+                disabled={busy}
+                aria-label={t("settings.mcp.editWorkspacesFor", {
+                  id: item.id,
+                })}
+                onClick={onWorkspaces}
+              >
+                {t("settings.mcp.editWorkspaces")}
+              </RowAction>
+            </>
+          ) : null}
+          {actions.disable ? (
+            <RowAction
+              variant="danger"
+              disabled={busy}
+              aria-label={t("settings.disableFor", { id: item.id })}
+              onClick={onDisable}
+            >
+              {t("settings.disable")}
+            </RowAction>
+          ) : null}
+          {item.credential.source === "external" &&
+          item.state !== "disabled" ? (
+            <Text as="span" variant="meta">
+              {t("settings.externalRow")}
+            </Text>
+          ) : null}
+        </div>
       </GridTableCell>
     </GridTableRow>
   );

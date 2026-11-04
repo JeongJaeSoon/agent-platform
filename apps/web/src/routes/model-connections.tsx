@@ -38,7 +38,6 @@ import {
   entryActions,
   FormDialog,
   NarrowState,
-  OriginBadge,
   type Outcome,
   OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
@@ -144,7 +143,7 @@ export function ModelConnections({
             </GridTableHeader>
             {connections.data.items.map((item) => (
               <ConnectionRow
-                key={`${item.origin}:${item.id}`}
+                key={item.id}
                 item={item}
                 over={over(item.id)}
                 busy={rows.busy}
@@ -185,12 +184,11 @@ function ConnectionRow({
   const { t } = useI18n();
   const actions = entryActions(item);
   return (
-    <GridTableRow data-origin={item.origin}>
+    <GridTableRow>
       <GridTableCell>
         <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <div className="flex flex-wrap items-center gap-1">
-            <OriginBadge origin={item.origin} />
             <NarrowState state={item.state} />
             <Text as="span" variant="meta">
               {t(`settings.connections.authKind.${item.auth_kind}`)}
@@ -220,35 +218,29 @@ function ConnectionRow({
         <StateBadge state={item.state} />
       </GridTableCell>
       <GridTableCell>
-        {item.origin === "file" ? (
-          <Text as="span" variant="meta">
-            {t("settings.fileRow")}
-          </Text>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {actions.setValue ? (
-              <RowAction
-                disabled={busy}
-                aria-label={t("settings.setValueFor", { id: item.id })}
-                onClick={onValue}
-              >
-                {item.state === "needs_value"
-                  ? t("settings.setFirstValue")
-                  : t("settings.setValue")}
-              </RowAction>
-            ) : null}
-            {actions.disable ? (
-              <RowAction
-                variant="danger"
-                disabled={busy}
-                aria-label={t("settings.disableFor", { id: item.id })}
-                onClick={onDisable}
-              >
-                {t("settings.disable")}
-              </RowAction>
-            ) : null}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {actions.setValue ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.setValueFor", { id: item.id })}
+              onClick={onValue}
+            >
+              {item.state === "needs_value"
+                ? t("settings.setFirstValue")
+                : t("settings.setValue")}
+            </RowAction>
+          ) : null}
+          {actions.disable ? (
+            <RowAction
+              variant="danger"
+              disabled={busy}
+              aria-label={t("settings.disableFor", { id: item.id })}
+              onClick={onDisable}
+            >
+              {t("settings.disable")}
+            </RowAction>
+          ) : null}
+        </div>
       </GridTableCell>
     </GridTableRow>
   );

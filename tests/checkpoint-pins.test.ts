@@ -11,6 +11,7 @@ import {
   createCheckpointService,
   type InstallationProfileRecord,
   manifestRefFor,
+  parseSeedDocument,
   profileFingerprint,
   profileWithModel,
   withSeededInstallation,
@@ -35,11 +36,7 @@ import {
   createGitBundleChain,
   type GitBundleFixture,
 } from "@werft-ai/testkit/git-bundle";
-import {
-  databaseCatalog,
-  readCatalogConfig,
-  readSeedProfiles,
-} from "../apps/control-host/src/api/catalog-config.ts";
+import { databaseCatalog } from "../apps/control-host/src/api/catalog-config.ts";
 import {
   imageClaimFingerprint,
   imageRuntimeOf,
@@ -795,30 +792,49 @@ describe("archived session events through backup → restore", () => {
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
   const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
-  const CONFIG_DIR = join(import.meta.dir, "../config");
-  // The rows the API's default config seeds an empty database with.
-  const seededRows = async () => {
-    const config = await readCatalogConfig(CONFIG_DIR);
-    return catalogRows(
-      await readSeedProfiles(CONFIG_DIR, config),
-      config.repositories,
+  const seedDocument = async () => {
+    const seed = parseSeedDocument(
+      JSON.parse(
+        await readFile(
+          join(import.meta.dir, "fixtures/settings/real-model.json"),
+          "utf8",
+        ),
+      ),
     );
+    if (seed.profiles === null) throw new Error("the fixture seeds no profile");
+    return {
+      profiles: seed.profiles,
+      repositories: seed.entries.repositories,
+      connections: seed.entries.connections,
+    };
+  };
+  const seededRows = async () => {
+    const { profiles, repositories } = await seedDocument();
+    return catalogRows(profiles, repositories);
   };
   // What verify-restore builds: those rows, credentials standing in.
   const catalogOver = async (
     rows: InstallationProfileRecord[],
     env: Record<string, string> = {},
-  ) =>
-    databaseCatalog({
-      dir: CONFIG_DIR,
+  ) => {
+    const { connections, repositories } = await seedDocument();
+    return databaseCatalog({
       installations: { listAll: async () => rows },
       workspaces: { listAll: async () => [] },
       repositories: { readCatalog: async () => null },
       settings: {
         read: async () => ({
           generation: 0,
-          connections: [],
-          repositories: [],
+          connections: Object.entries(connections).map(([id, provider]) => ({
+            id,
+            provider,
+          })),
+          repositories: Object.entries(repositories).map(
+            ([id, repository]) => ({
+              id,
+              repository,
+            }),
+          ),
           mcpServers: [],
           stored: new Map(),
           invalid: [],
@@ -827,6 +843,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
       credential: () => "verify-restore-reads-no-credential",
       env,
     });
+  };
   const catalog = async () => catalogOver(await seededRows());
   const sessionOf = async (overrides: {
     agentInstructions?: string | null;
@@ -865,7 +882,7 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
     fingerprint?: Parameters<typeof imageRuntimeOf>[1],
   ) => parseImageRuntime(JSON.stringify(imageRuntimeOf(claims, fingerprint)));
 
-  test("a ceiling the database holds and profiles.yaml never had gives its session a claim", async () => {
+  test("a ceiling the database holds and the settings document never had gives its session a claim", async () => {
     const rows = await seededRows();
     const imported = rows.find((row) => row.id === PROFILE_ID);
     if (imported === undefined) throw new Error("no seeded row");
@@ -894,13 +911,12 @@ describe("plans against a target worker image (verify-restore.sh --image)", () =
 
   test("a session pinned before its profile's runtime moved gets a claim while the previous worker image is configured", async () => {
     const pinned = await sessionOf({});
-    const config = await readCatalogConfig(CONFIG_DIR);
-    const seed = await readSeedProfiles(CONFIG_DIR, config);
-    const seeded = seed[PROFILE_ID];
+    const { profiles, repositories } = await seedDocument();
+    const seeded = profiles[PROFILE_ID];
     if (seeded === undefined) throw new Error("no seeded profile");
     const moved = catalogRows(
-      { ...seed, [PROFILE_ID]: { ...seeded, runtime_version: "9.9.9" } },
-      config.repositories,
+      { ...profiles, [PROFILE_ID]: { ...seeded, runtime_version: "9.9.9" } },
+      repositories,
     );
     const image = (sdkVersion: string) =>
       JSON.stringify({ cliVersion: "2.0.0", engine: "claude", sdkVersion });

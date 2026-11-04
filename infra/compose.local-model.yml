@@ -1,5 +1,6 @@
 # The local-model overlay: the stack against the Ollama model on this
-# machine (config/local-model), for `tests/e2e/run.sh --local-model`. Its
+# machine (tests/fixtures/settings/local-model.json), for
+# `tests/e2e/run.sh --local-model`. Its
 # one path, ./local-model/litellm.yaml, is relative to infra/, the project
 # directory of run.sh's base file.
 #
@@ -15,12 +16,14 @@
 # also to LiteLLM. The API starts only once both routes answer, so a session
 # made the moment `up` returns reaches the model on either profile.
 services:
+  migrate:
+    environment:
+      SETTINGS_DOCUMENT: /settings/local-model.json
   api:
     environment:
       LOCAL_OLLAMA_API_KEY:
       LITELLM_MASTER_KEY:
-      PLATFORM_CONFIG_DIR: /app/config/local-model
-      # The local catalog reads no Anthropic key: a real one exported in the
+      # The local settings read no Anthropic key: a real one exported in the
       # shell or .env stays out of this container.
       ANTHROPIC_API_KEY: ""
     depends_on:
@@ -28,14 +31,11 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
-  slack:
-    environment:
-      PLATFORM_CONFIG_DIR: /app/config/local-model
   egress-proxy:
     environment:
       # Fixed, not interpolated: a value in the shell or an .env (say the
       # default stack's, without the model routes) would get every model
-      # call a 403. No fake-messages:4010: the local catalog never calls it.
+      # call a 403. No fake-messages:4010: the local settings never call it.
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: fake-git:3000,localstack:4566,ollama.internal:11434,litellm:4000
   ollama:
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e

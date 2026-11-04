@@ -8,11 +8,7 @@ import {
 import { createSlackSigningSecrets } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import {
-  DEFAULT_CONFIG_DIR,
-  loadSecretKey,
-  secretsManagerReader,
-} from "./apps/control-host/src/api/catalog-config.ts";
+import { loadSecretKey } from "./apps/control-host/src/api/catalog-config.ts";
 
 const [agentId, mode, channel = "C0VERIFY", seq = "1", parent] =
   process.argv.slice(1);
@@ -24,12 +20,7 @@ const ts = posted ? `${1792800000 + Number(seq)}.000001` : "1792800000.000001";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const db = drizzle(pool, { schema });
-  const secretKey = await loadSecretKey({
-    dir: process.env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
-    env: process.env,
-    readSecret: secretsManagerReader(process.env),
-  });
-  if (!secretKey) throw new Error("throwaway master key required");
+  const secretKey = loadSecretKey(process.env);
   const app = await createSlackSigningSecrets({
     apps: createPostgresSlackAppStore(db, secretKey),
     secrets: createPostgresSecretStore(db, secretKey),

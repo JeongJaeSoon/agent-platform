@@ -7,9 +7,6 @@ import {
   test,
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import {
   agentCardRequestSchema,
@@ -24,7 +21,6 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
-  createPostgresInstallationProfileStore,
   createPostgresSecretStore,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
@@ -53,10 +49,7 @@ import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   type Caller,
   type CatalogProfileView,
-  type Connections,
   callerFor,
-  catalogImports,
-  catalogRepositoryIds,
   createAgentService,
   createAuthorizationPolicy,
   createOutboxSlackNoticeSink,
@@ -66,7 +59,6 @@ import {
   type PushSource,
   reconcileSlackThreadStatuses,
   SecretKey,
-  type SessionCatalogConfig,
   SLACK_CARD_SETTLE_TIMING,
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
@@ -88,15 +80,13 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
-import {
-  CONNECTIONS_FILE,
-  loadSessionCatalog,
-  PROFILES_FILE,
-  REPOSITORIES_FILE,
-  readSeedProfiles,
-} from "../api/catalog-config.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
-import { slackRoleStartup, slackSessionHandler } from "./main.ts";
+import {
+  seedSettings,
+  settingsCatalog,
+  settingsDocument,
+} from "../test-support/settings.ts";
+import { slackSessionHandler } from "./main.ts";
 
 const PROFILES = `profiles:
   general:
@@ -158,14 +148,10 @@ const logger = createLogger({
 });
 const key = SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
 
-let root = "";
-let catalog: SessionCatalogConfig;
-let connections: Connections;
 let db: Database;
 
-afterAll(async () => {
+afterAll(() => {
   slack.stop();
-  if (root) await rm(root, { recursive: true, force: true });
 });
 
 const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
@@ -173,7 +159,6 @@ const ENGINES = testDatabaseUrl() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
 function useDatabase(engine: string) {
   let close = async () => {};
   beforeEach(async () => {
-    await loadCatalog();
     if (engine === "PGlite") {
       const client = new PGlite();
       const pglite = drizzle(client, { schema });
@@ -191,12 +176,7 @@ function useDatabase(engine: string) {
         await database.drop();
       };
     }
-    // The api role's startup import: the registry reads ceilings from rows.
-    await createPostgresInstallationProfileStore(db).seedCatalog({
-      entries: async () =>
-        catalogImports(await readSeedProfiles(root, catalog)),
-      repositoryIdsOf: catalogRepositoryIds(catalog.repositories),
-    });
+    await seedSettings(db, settingsDocument(PROFILES, CONNECTIONS));
     slack.statuses.length = 0;
     slack.messages.length = 0;
     slack.failures.clear();
@@ -205,25 +185,6 @@ function useDatabase(engine: string) {
     logged.length = 0;
   }, 60_000);
   afterEach(() => close());
-}
-
-async function loadCatalog() {
-  if (root) return;
-  root = await mkdtemp(join(tmpdir(), "slack-outbox-"));
-  await writeFile(join(root, PROFILES_FILE), PROFILES);
-  await writeFile(join(root, REPOSITORIES_FILE), "repositories: {}\n");
-  await writeFile(join(root, CONNECTIONS_FILE), CONNECTIONS);
-  const started = await slackRoleStartup(
-    {
-      DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
-      PLATFORM_CONFIG_DIR: root,
-    },
-    async () => {
-      throw new Error("no secret is read");
-    },
-  );
-  catalog = started.catalog;
-  connections = started.connections;
 }
 
 type Fixture = Awaited<ReturnType<typeof agentInSlack>>;
@@ -261,11 +222,7 @@ async function agentInSlack() {
       identity: createDatabaseIdentityReader(db),
     }),
     store: createPostgresAgentStore(db),
-    catalog: await loadSessionCatalog({
-      dir: root,
-      env: { PROVIDER_KEY: "api-side-only" },
-      readSecret: async () => undefined,
-    }),
+    catalog: await settingsCatalog(db),
     credentials: createPostgresCredentialBindingStore(db),
   });
   const managingTeamId = randomUUID();
@@ -390,8 +347,6 @@ async function mention(fixture: Fixture, ts: string, user = PERSON) {
       },
       environment: ENVIRONMENT,
       logger,
-      catalog,
-      connections,
       secretKey: key,
       leaseMs: 30_000,
       notices: createOutboxSlackNoticeSink(createPostgresSlackOutboxStore(db)),

@@ -33,18 +33,12 @@ import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type { ToolCatalogs } from "./profile-tools.ts";
 
-// Operator-registered profiles and repositories. The operator
-// writes `config/profiles.yaml` and `config/repositories.yaml`; the API reads
-// them once at startup (`apps/control-host/src/api/catalog-config.ts`) and refuses to
-// start on anything this file rejects. A provider credential is never in the
-// files: the entry names where it lives — an environment variable or a
-// Secrets Manager secret — and the value is resolved once at load. Rotation
-// therefore means changing the secret and restarting the API; a claim
-// already answered keeps the key it was given.
+// An entry never holds a credential value outside `secret_values`: it names a
+// stored value, an environment variable or a Secrets Manager secret.
 //
 // The config block below is the Claude engine's shape whatever kind a
-// profile names; the API refuses at load a kind no installed runtime serves
-// (`ProfileFeatureGate`). Other kinds get their own block when an adapter
+// profile names; a kind no installed runtime serves leaves the ceiling out
+// as `runtime_unsupported` (`ProfileFeatureGate`). Other kinds get their own block when an adapter
 // for them lands.
 
 function hasControlCharacter(value: string): boolean {
@@ -168,7 +162,6 @@ export const catalogProviderSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
-/** `connections.yaml`'s one section: a provider per connection id. */
 export const catalogConnectionsSchema = z.record(
   z.string().min(1),
   catalogProviderSchema,
@@ -1455,34 +1448,6 @@ export function repositoryBinding(
     fingerprint_version: BINDING_FINGERPRINT_VERSION,
     id,
     repository: withoutRepositorySecret(repository),
-  });
-}
-
-/**
- * The operator's catalog as loaded, without workspace versions, for audit
- * and logs: it moves whenever any operator profile or repository does, so it
- * is not what a session should be matched against (an unrelated edit would
- * fail every claim). Ceilings made in the console are left out, as
- * workspace versions are: making one must not move the revision.
- */
-export function catalogRevision(
-  catalog: Pick<SessionCatalog, "repositories" | "installation"> & {
-    profiles: Readonly<Record<string, CatalogProfileView>>;
-  },
-): string {
-  return sha256({
-    fingerprint_version: BINDING_FINGERPRINT_VERSION,
-    profiles: Object.fromEntries(
-      Object.entries(catalog.profiles)
-        .filter(([id]) => catalog.installation?.get(id)?.origin !== "console")
-        .map(([id, profile]) => [id, withoutSecret(profile)]),
-    ),
-    repositories: Object.fromEntries(
-      Object.entries(catalog.repositories).map(([id, repository]) => [
-        id,
-        withoutRepositorySecret(repository),
-      ]),
-    ),
   });
 }
 

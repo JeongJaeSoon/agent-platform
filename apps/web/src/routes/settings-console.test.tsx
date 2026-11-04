@@ -103,7 +103,7 @@ const expectNarrowActions = (table: HTMLElement) => {
 describe("모델 연결", () => {
   const listed = [
     connection("anthropic", {
-      origin: "file",
+      origin: "import",
       credential: { source: "external", value_env: "ANTHROPIC_API_KEY" },
     }),
     connection("console-key"),
@@ -125,18 +125,16 @@ describe("모델 연결", () => {
       json(200, { items: listed, credential_hosts: hosts }),
   });
 
-  test("the owner sees the file's and the console's connections with where each comes from, and what each may do", async () => {
+  test("the owner sees imported and console connections alike, and what each may do", async () => {
     renderAt("/profiles", routes());
     const table = await screen.findByRole("table", { name: "모델 연결" });
-    const file = rowOf(table, "anthropic");
-    expect(file.textContent).toContain("파일");
-    expect(file.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
+    const imported = rowOf(table, "anthropic");
+    expect(imported.textContent).toContain("환경 변수 ANTHROPIC_API_KEY");
     // Both ceilings run over it.
-    expect(file.textContent).toContain("설치 프로필 2개");
-    expect(within(file).queryAllByRole("button")).toEqual([]);
+    expect(imported.textContent).toContain("설치 프로필 2개");
+    expect(imported.textContent).not.toContain("파일");
 
     const stored = rowOf(table, "console-key");
-    expect(stored.textContent).toContain("콘솔");
     expect(stored.textContent).toContain("••••abcd");
     expect(
       within(stored)
@@ -307,7 +305,7 @@ describe("MCP 서버", () => {
             origin: "import",
             credential: { source: "external", value_env: "OPS_MCP_TOKEN" },
           }),
-          mcp("search", { origin: "file", credential: { source: "none" } }),
+          mcp("search", { origin: "import", credential: { source: "none" } }),
         ],
       }),
   });
@@ -331,7 +329,11 @@ describe("MCP 서버", () => {
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["ops 사용 중지"]);
-    expect(within(rowOf(table, "search")).queryAllByRole("button")).toEqual([]);
+    expect(
+      within(rowOf(table, "search"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["search 사용 중지"]);
   });
 
   test("a narrow table keeps every row's actions", async () => {

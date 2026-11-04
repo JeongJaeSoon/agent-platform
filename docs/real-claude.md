@@ -5,13 +5,13 @@
 - **A. 유료 e2e 한 번**: `tests/e2e/run.sh --real-model`. 스택을 띄우고 정해진 시나리오를 돌린 뒤 스스로 지운다.
 - **B. 직접 대화**: `scripts/local.sh up`. 스택을 띄워 두고 curl로 자유 문장을 보낸다.
 
-둘 다 같은 기본 카탈로그(`config/`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다. AWS 계정은 필요 없다(S3는 named volume에 저장하는 SeaweedFS다. 기본 카탈로그는 Secrets Manager를 쓰지 않아 `secrets`는 뜨지 않는다). 유료 호출이므로 CI에서는 돌지 않는다.
+둘 다 같은 기본 설정 문서(`tests/fixtures/settings/real-model.json`)와 비용 상한 overlay(`infra/compose.real-model.yml`)를 쓴다. 필요한 것은 **실행하는 사람 본인의 Anthropic API key** 하나다. AWS 계정은 필요 없다(S3는 named volume에 저장하는 SeaweedFS다. 기본 설정 문서는 Secrets Manager를 쓰지 않아 `secrets`는 뜨지 않는다). 유료 호출이므로 CI에서는 돌지 않는다.
 
 준비물은 [quickstart 0장](quickstart.md#0-준비물)과 같고, Docker Compose는 **2.24.6 이상**이어야 한다(`include`로 합친 스택 위에 overlay를 겹친다). B는 quickstart 2장의 curl 헬퍼를 쓴다.
 
 ## 기본 스택이 쓰는 것
 
-- API가 `config/`의 카탈로그를 읽는다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 카탈로그에는 fake를 가리키는 profile이 없다. fake 카탈로그(`config/fake-model/`)는 `--fake-model` overlay를 얹을 때만 읽는다.
+- migrate가 `tests/fixtures/settings/real-model.json`을 가져온다. profile은 `claude-coding-real` 하나이고, `claude-sonnet-5`로 `https://api.anthropic.com`을 부른다. 이 문서에는 fake를 가리키는 profile이 없다. fake 문서(`fake-model.json`)는 `--fake-model` overlay를 얹을 때만 가져온다.
 - key는 셸의 `ANTHROPIC_API_KEY`(없으면 저장소 `.env`의 그 줄)에서 **API 컨테이너에만** 이름으로 전달된다(`infra/compose.local.yml`). 추적되는 compose 파일과 명령 인자 어디에도 값이 없다. worker는 attempt 범위의 egress token만 받고, egress proxy가 `api.anthropic.com:443`(기본 `EGRESS_CREDENTIAL_ALLOWLIST`)으로 나가는 요청에 key를 붙인다.
 - 상한: `infra/compose.real-model.yml`이 기본으로 `SESSION_COST_LIMIT_USD=1`(세션당 1달러), `MAX_TURN_SECONDS=600`(turn당 600초)을 건다. A와 B가 같은 값을 쓴다. 올리려면 같은 이름의 변수를 셸에 export한다. B(`local.sh up`)는 저장소 `.env`에 적은 값도 읽는다. `local.sh`를 거치지 않고 `docker compose up`으로 띄우면 이 overlay가 없으므로 core 기본값(세션당 25달러, turn당 3600초)이다.
 
@@ -69,7 +69,7 @@ docker image rm "werft-control-host:$P" "werft-worker:$P" "werft-egress-proxy:$P
 
 ## B. 실제 Claude와 직접 대화하기
 
-스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행하면 api와 scheduler가 real 카탈로그로 다시 만들어진다. 그 전에 만든 fake 세션은 카탈로그에 profile이 없으므로 다음 메시지부터 `CATALOG_MISMATCH`로 실패한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다). `scripts/local.sh up --fake-model`을 다시 실행하면 fake 카탈로그로 돌아간다.
+스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행해도 DB는 그대로이고 설정 문서의 연결만 더해진다. 상한은 표가 비어 있을 때만 문서에서 만들어지므로 `claude-coding-real`은 생기지 않는다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다).
 
 **1. 스택 띄우기.** key 입력 세 줄 뒤에 이어서 붙여 넣는다.
 
@@ -159,7 +159,7 @@ scripts/local.sh down
 
 ## 자율 모드 세션
 
-승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 분류기가 판정하는 `auto`는 기본 profile `claude-coding-real` 그대로이고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 없으므로, 먼저 `config/profiles.yaml`의 `profiles:` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다. 이 파일은 DB가 비어 있을 때만 시드로 읽으므로 새 스택(볼륨 없음)에서 한다. 이미 띄운 스택이면 같은 설정의 상한을 owner가 `POST /v1/installation-profiles`로 저장한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
+승인 없이 끝까지 도는 세션은 자율 모드 profile로 만든다. 켜는 조건과 남는 경계는 [api-server.md](operator/api-server.md#자율-모드-bypasspermissionsauto)의 '자율 모드' 절에 있다. 분류기가 판정하는 `auto`는 기본 profile `claude-coding-real` 그대로이고 설치 설정도 필요 없다. 판정 없이 도는 `bypassPermissions`는 없으므로, 먼저 `tests/fixtures/settings/real-model.json`의 `profiles` 아래에 하나를 더한다. `claude-coding-real`과 `permission_mode`·id만 다르다(아래는 항목 내용이고, 문서에는 JSON으로 적는다). 이 키는 표가 비어 있을 때만 시드로 읽으므로 새 스택(볼륨 없음)에서 한다. 이미 띄운 스택이면 같은 설정의 상한을 owner가 `POST /v1/installation-profiles`로 저장한다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
 
 ```yaml
   claude-coding-real-unattended:
@@ -178,7 +178,7 @@ scripts/local.sh down
       claude_md: true
 ```
 
-`config/repositories.yaml`의 `sample-app`도 `profiles: [claude-coding-real, claude-coding-real-unattended]`로 바꾼다(이 배열도 시드할 때만 읽는다). 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API는 뜨지만 이 profile을 빼고 돈다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
+같은 문서의 저장소 `sample-app`도 `"profiles": ["claude-coding-real", "claude-coding-real-unattended"]`로 바꾼다(이 배열도 시드할 때만 읽는다). 그다음 B의 1단계를 `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS=true scripts/local.sh up`으로 실행하고(이 변수가 없으면 API는 뜨지만 이 profile을 빼고 돈다), 2단계 헬퍼를 붙여 넣은 뒤 이어서 실행한다.
 
 ```sh
 body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-real-unattended", repository_id:"sample-app", message:$m}'; }

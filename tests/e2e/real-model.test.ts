@@ -7,7 +7,6 @@ import {
   providerUpstreamOf,
   runtimeProviderOf,
 } from "@werft-ai/platform";
-import { loadSessionCatalog } from "../../apps/control-host/src/api/catalog-config.ts";
 import { egressProxyConfigFromEnv } from "../../apps/egress-proxy/src/config.ts";
 import {
   FAKE_MODEL,
@@ -15,16 +14,16 @@ import {
   layeredServices,
   REAL_MODEL as OVERLAY,
 } from "../compose-layers.ts";
+import { fixtureCatalog } from "./settings-fixture.ts";
 
 /**
  * The plumbing of `tests/e2e/run.sh --real-model` and `scripts/local.sh up`,
- * without Docker or a key: the default catalog the API reads, the local
+ * without Docker or a key: the real-model settings migrate imports, the local
  * layer that hands the key to the API alone, the overlay's cost limits, and
  * both scripts run against stand-ins for docker, bun and curl. The paid run
  * is the user's (docs/real-claude.md).
  */
 const ROOT = join(import.meta.dir, "../..");
-const CATALOG = join(ROOT, "config");
 const RUN = join(ROOT, "tests/e2e/run.sh");
 const LOCAL = join(ROOT, "scripts/local.sh");
 const KEY_VARIABLE = "ANTHROPIC_API_KEY";
@@ -49,14 +48,10 @@ function defaults(...layers: Array<Service | undefined>) {
   return env;
 }
 
-describe("default catalog", () => {
+describe("real-model settings", () => {
   test("its profiles call api.anthropic.com with the key from the API's environment", async () => {
-    const catalog = await loadSessionCatalog({
-      dir: CATALOG,
-      env: { [KEY_VARIABLE]: PROBE },
-      readSecret: async () => {
-        throw new Error("the default catalog reads no secret");
-      },
+    const catalog = await fixtureCatalog("real-model", {
+      [KEY_VARIABLE]: PROBE,
     });
     expect(Object.keys(catalog.profiles)).toEqual(["claude-coding-real"]);
     expect(catalog.repositories["sample-app"]?.profiles).toEqual([
@@ -80,15 +75,11 @@ describe("default catalog", () => {
     expect(JSON.stringify(worker)).not.toContain(PROBE);
   });
 
-  test("without the key the API does not start", async () => {
+  test("without the key the profile does not resolve", async () => {
     for (const env of [{}, { [KEY_VARIABLE]: "" }]) {
-      await expect(
-        loadSessionCatalog({
-          dir: CATALOG,
-          env,
-          readSecret: async () => undefined,
-        }),
-      ).rejects.toThrow(`value_env: ${KEY_VARIABLE} is not set`);
+      await expect(fixtureCatalog("real-model", env)).rejects.toThrow(
+        `value_env: ${KEY_VARIABLE} is not set`,
+      );
     }
   });
 });
@@ -110,13 +101,11 @@ describe("real-model compose layers", () => {
     }
   });
 
-  test("the API reads the config/ the core mounts", () => {
-    const api = layeredServices<Service & { volumes?: string[] }>([
-      ...LOCAL_LAYERS,
-      OVERLAY,
-    ]).api;
-    expect(api?.volumes).toContain("../config:/app/config:ro");
-    expect(api?.environment?.PLATFORM_CONFIG_DIR).toBe("/app/config");
+  test("migrate imports the real-model settings the overlay names", () => {
+    const { migrate } = layeredServices<Service>([...LOCAL_LAYERS, OVERLAY]);
+    expect(migrate?.environment?.SETTINGS_DOCUMENT).toBe(
+      "${SETTINGS_DOCUMENT-/settings/real-model.json}",
+    );
   });
 
   test("the proxy allows the profile's endpoint and the limits cap one run", async () => {

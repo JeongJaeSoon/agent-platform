@@ -18,6 +18,7 @@ import { SecretKey } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { DEMO_PASSWORD } from "../../apps/control-host/src/api/demo-accounts.ts";
+import { FAKE_MESSAGES_ENDPOINT } from "../../apps/control-host/src/api/demo-data.ts";
 
 const BASE = `http://127.0.0.1:${process.env.PORT ?? 3000}`;
 const MOCK_SLACK = "http://mock-slack:4020";
@@ -26,8 +27,6 @@ const MODEL = "claude-sonnet-5";
 const CODING = "claude-coding-local";
 const GENERAL = "general";
 const SETTLE_MS = 420_000;
-// infra/compose.fake-model.yml
-const FAKE_MODEL_CONFIG_DIR = "/app/config/fake-model";
 
 const results: string[] = [];
 function note(line: string) {
@@ -2393,12 +2392,20 @@ async function main() {
     await keepAlive();
     return;
   }
-  // /v1/profiles keeps each provider to the operator, so the config this
-  // api reads is what says the sessions below go to the fake model.
-  if (process.env["PLATFORM_CONFIG_DIR"] !== FAKE_MODEL_CONFIG_DIR)
-    throw new Error("this api does not run the fake-model catalog");
   const owner = new Web("owner");
   await owner.login("demo-owner@example.test", DEMO_PASSWORD);
+  const connections = await owner.ok<any>(
+    200,
+    "GET",
+    "/v1/installation/settings/connections",
+  );
+  if (
+    connections.items.length === 0 ||
+    connections.items.some(
+      (item: any) => item.endpoint !== FAKE_MESSAGES_ENDPOINT,
+    )
+  )
+    throw new Error("this api does not run the fake-model connections");
   const me = await owner.ok<any>(200, "GET", "/v1/auth/me");
   const workspaceId = me.workspace.id;
   const catalog = await owner.ok<any>(200, "GET", "/v1/profiles");

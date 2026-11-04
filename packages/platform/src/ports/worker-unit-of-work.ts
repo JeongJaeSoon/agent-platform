@@ -142,14 +142,10 @@ export type PolicyPair = {
 
 export type ClaimInput = {
   runnable: RunnablePair[];
-  // `catalogRevision` of the catalog `runnable` came from. A pinned launch is
-  // given up on for a pair missing from it only while it is the revision an
-  // operator activated, or none is.
-  catalogRevision: string;
   // The installation settings generation that catalog was read at; null
-  // for a catalog read from no settings. A replica behind the database's
-  // gives up on nothing but a blocked ceiling: the row a pair needs may be
-  // one it has not read.
+  // before its first read. A replica behind the database's gives up on
+  // nothing but a blocked ceiling: the row a pair needs may be one it has
+  // not read.
   settingsGeneration: number | null;
   // Repositories the settings hold that this replica could not resolve
   // (a credential it cannot read): another may, so a session on one is not

@@ -41,7 +41,6 @@ const withDeny = (profile: ProfileSummary): ProfileSummary => ({
 
 type Installation = NonNullable<ProfileSummary["installation"]>;
 
-/** A ceiling imported from profiles.yaml: its id is its name. */
 export function imported(
   id: string,
   narrowed: Partial<ProfileSummary> = {},

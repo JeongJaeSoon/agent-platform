@@ -219,7 +219,6 @@ async function queuedSession(
 function claim(ref: ExecutionRef, nonce: string) {
   return work.claimAtomic({
     attemptId: `att-${crypto.randomUUID()}`,
-    catalogRevision: "catalog-under-test",
     settingsGeneration: null,
     unsettledRepositoryIds: new Set(),
     settledProfileIds: new Set([PROFILE]),

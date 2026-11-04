@@ -44,8 +44,8 @@ export function repositoryCeilingOf(stored: unknown): RepositoryCeiling | null {
 }
 
 /**
- * Where a profile is defined: the operator's catalog file, or a workspace
- * owner or admin in the console, narrowing one operator profile.
+ * Where a profile is defined: the operator's installation settings, or a
+ * workspace owner or admin in the console, narrowing one operator profile.
  */
 export const profileSourceSchema = z.enum(["operator", "workspace"]);
 
@@ -89,8 +89,8 @@ export const installationProfileStateSchema = z.enum([
 ]);
 
 /**
- * `catalog`: imported from `profiles.yaml` under its YAML id. `console`: a
- * named version an operator made, `op_<name>_v<n>`.
+ * `catalog`: seeded under a plain id (the settings CLI, or the old file
+ * catalog). `console`: a named version an operator made, `op_<name>_v<n>`.
  */
 export const installationProfileOriginSchema = z.enum(["catalog", "console"]);
 

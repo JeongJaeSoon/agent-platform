@@ -198,8 +198,6 @@ export const githubKo = {
     "GitHub가 App 설치에 허용한 저장소입니다. 목록에 없으면 GitHub에서 App 설치에 저장소를 더하세요.",
   "github.repo.pickEmpty": "이 설치에 허용된 저장소가 없습니다.",
   "github.repo.pickNoApp": "작성용 App을 먼저 연결하세요.",
-  "github.repo.pickFileHeld":
-    "운영자 설정 파일이 자체 자격 증명으로 이 저장소를 이미 등록했습니다. 목록의 그 항목을 쓰세요.",
   "github.repo.pickNameHeld":
     "같은 이름을 쓰던 다른 저장소의 항목이 남아 있습니다. GitHub에서 이름이 바뀐 그 저장소를 먼저 한 번 고르면 항목이 새 이름으로 바뀝니다.",
   "github.repo.pickNoInstallation":
@@ -463,8 +461,6 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "The repositories GitHub lets the App's installation reach. If one is missing, add it to the App's installation on GitHub.",
   "github.repo.pickEmpty": "This installation reaches no repository.",
   "github.repo.pickNoApp": "Connect an author App first.",
-  "github.repo.pickFileHeld":
-    "The operator's file already lists this repository with its own credential. Use that entry from the list.",
   "github.repo.pickNameHeld":
     "Another repository's entry still holds this name. Pick that repository, renamed on GitHub, once first and its entry takes the new name.",
   "github.repo.pickNoInstallation":
@@ -731,8 +727,6 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.repo.pickEmpty":
     "このインストールで許可されたリポジトリはありません。",
   "github.repo.pickNoApp": "先に作成用 App を接続してください。",
-  "github.repo.pickFileHeld":
-    "運用者の設定ファイルが独自の認証情報でこのリポジトリをすでに登録しています。一覧のその項目を使ってください。",
   "github.repo.pickNameHeld":
     "同じ名前を使っていた別のリポジトリの項目が残っています。GitHub で名前が変わったそのリポジトリを先に一度選ぶと、項目が新しい名前になります。",
   "github.repo.pickNoInstallation":

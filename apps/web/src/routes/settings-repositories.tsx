@@ -35,7 +35,6 @@ import {
   entryActions,
   FormDialog,
   NarrowState,
-  OriginBadge,
   type Outcome,
   OutcomeLine,
   SETTINGS_NARROW_COLUMNS,
@@ -127,7 +126,7 @@ export function RepositoriesScreen() {
             </GridTableHeader>
             {repositories.data.items.map((item) => (
               <RepositoryRow
-                key={`${item.origin}:${item.id}`}
+                key={item.id}
                 item={item}
                 busy={rows.busy}
                 onValue={() => rows.openValue(item.id)}
@@ -173,11 +172,10 @@ function RepositoryRow({
   const { t } = useI18n();
   const actions = entryActions(item);
   return (
-    <GridTableRow data-origin={item.origin}>
+    <GridTableRow>
       <GridTableCell>
         <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
-          <OriginBadge origin={item.origin} />
           <NarrowState state={item.state} />
         </div>
       </GridTableCell>
@@ -211,44 +209,38 @@ function RepositoryRow({
         <StateBadge state={item.state} />
       </GridTableCell>
       <GridTableCell>
-        {item.origin === "file" ? (
-          <Text as="span" variant="meta">
-            {t("settings.fileRow")}
-          </Text>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {actions.disable && item.credential.source !== "external" ? (
-              <RowAction
-                disabled={busy}
-                aria-label={t("settings.repos.editBranchFor", { id: item.id })}
-                onClick={onBranch}
-              >
-                {t("settings.repos.editBranch")}
-              </RowAction>
-            ) : null}
-            {actions.setValue ? (
-              <RowAction
-                disabled={busy}
-                aria-label={t("settings.setValueFor", { id: item.id })}
-                onClick={onValue}
-              >
-                {item.state === "needs_value"
-                  ? t("settings.setFirstValue")
-                  : t("settings.setValue")}
-              </RowAction>
-            ) : null}
-            {actions.disable ? (
-              <RowAction
-                variant="danger"
-                disabled={busy}
-                aria-label={t("settings.disableFor", { id: item.id })}
-                onClick={onDisable}
-              >
-                {t("settings.disable")}
-              </RowAction>
-            ) : null}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {actions.disable && item.credential.source !== "external" ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.repos.editBranchFor", { id: item.id })}
+              onClick={onBranch}
+            >
+              {t("settings.repos.editBranch")}
+            </RowAction>
+          ) : null}
+          {actions.setValue ? (
+            <RowAction
+              disabled={busy}
+              aria-label={t("settings.setValueFor", { id: item.id })}
+              onClick={onValue}
+            >
+              {item.state === "needs_value"
+                ? t("settings.setFirstValue")
+                : t("settings.setValue")}
+            </RowAction>
+          ) : null}
+          {actions.disable ? (
+            <RowAction
+              variant="danger"
+              disabled={busy}
+              aria-label={t("settings.disableFor", { id: item.id })}
+              onClick={onDisable}
+            >
+              {t("settings.disable")}
+            </RowAction>
+          ) : null}
+        </div>
       </GridTableCell>
     </GridTableRow>
   );

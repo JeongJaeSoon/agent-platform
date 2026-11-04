@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The test-ops installation's lifecycle in one place (docs/operator/test-ops.md)
 #
-#   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, settings, catalog, and on s3 the bucket
+#   scripts/test-ops.sh preflight [<manifest>]  check host, checkout, env file, settings document, and on s3 the bucket
 #                                              and S3 key (the deployed release when no manifest is named)
 #   scripts/test-ops.sh deploy <manifest>       preflight, then start a release on an empty host
 #   scripts/test-ops.sh upgrade <manifest> [--approve-sessions <file>]
@@ -171,15 +171,15 @@ check_env_file() {
 }
 
 # Sets SOURCE_COMMIT, API_IMAGE, WORKER_IMAGE, EGRESS_PROXY_IMAGE and
-# CATALOG_REVISION from a release manifest, refused unless every image is
+# SETTINGS_DIGEST from a release manifest, refused unless every image is
 # named by digest.
 load_manifest() {
   local file="$1" out name value
   [ -r "$file" ] || die "manifest $file not found"
-  out="$(bun_script "$HELPER" manifest "$file")" || die "manifest $file refused (above)"
+  out="$(bun_script "$HELPER" manifest "$file" ${2:+"$2"})" || die "manifest $file refused (above)"
   while IFS='=' read -r name value; do
     case "$name" in
-      SOURCE_COMMIT|API_IMAGE|WORKER_IMAGE|EGRESS_PROXY_IMAGE|CATALOG_REVISION) printf -v "$name" '%s' "$value" ;;
+      SOURCE_COMMIT|API_IMAGE|WORKER_IMAGE|EGRESS_PROXY_IMAGE|SETTINGS_DIGEST) printf -v "$name" '%s' "$value" ;;
     esac
   done < <(printf '%s\n' "$out")
 }
@@ -190,7 +190,7 @@ load_current() {
     && ! { [ "$VERB" = upgrade ] && cmp -s "$MANIFEST" "$PENDING"; }; then
     die "an upgrade to $PENDING did not finish and the installation may be stopped; rerun upgrade with that manifest"
   fi
-  load_manifest "$CURRENT"
+  load_manifest "$CURRENT" --deployed
 }
 
 # The rendered installation is the one deploy started: same project, same
@@ -341,7 +341,7 @@ preflight() {
     [ -z "$running_port" ] || running_port="$(ops_compose port localstack 4566)" \
       || die "cannot read the port of the running LocalStack"
   fi
-  check_render --catalog-revision "$CATALOG_REVISION" ${running_port:+--localstack-port "${running_port##*:}"}
+  check_render ${SETTINGS_DIGEST:+--settings-digest "$SETTINGS_DIGEST"} ${running_port:+--localstack-port "${running_port##*:}"}
   if [ "$STORE" = s3 ]; then
     with_render probe-store || die "the bucket or the API's S3 key failed (above)"
   else
@@ -349,7 +349,7 @@ preflight() {
     # startup, and deploy and upgrade wait for that.
     log "preflight: object store is LocalStack on port $(printf '%s' "$RENDER" | jq -r '.services.localstack.ports[0].published'), in memory — a restart loses every checkpoint object (docs/operator/test-ops.md)"
   fi
-  log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, catalog $CATALOG_REVISION, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
+  log "preflight: passed — Docker Engine $engine, compose $compose_version, store $STORE, source $SOURCE_COMMIT, settings $SETTINGS_DIGEST, api $API_URL, postgres port $(printf '%s' "$RENDER" | jq -r '.services.postgres.ports[0].published')"
 }
 
 # --- lifecycle -------------------------------------------------------------------
@@ -411,8 +411,15 @@ reopen_current() {
 record_release() {
   local file="$1" verb="$2"
   cp "$file" "${CURRENT}.new" && mv "${CURRENT}.new" "$CURRENT"
-  printf '%s %s by %s: source %s worker %s catalog %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$verb" "$(id -un)" \
-    "$SOURCE_COMMIT" "$WORKER_IMAGE" "$CATALOG_REVISION" >> "${STATE_DIR}/history.log"
+  printf '%s %s by %s: source %s worker %s settings %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$verb" "$(id -un)" \
+    "$SOURCE_COMMIT" "$WORKER_IMAGE" "$SETTINGS_DIGEST" >> "${STATE_DIR}/history.log"
+}
+
+settings_applied() {
+  ops_compose run --rm --no-deps -T migrate bun run apps/control-host/src/api/settings.ts \
+    import --document /settings/installation.json --dry-run </dev/null \
+    | jq -e '.add == []' >/dev/null \
+    || die "the database does not hold the settings document the manifest names"
 }
 
 # Sessions with a checkpoint no collection has ended, one id per line.
@@ -427,7 +434,7 @@ uncollected_sessions() {
 # verdict from a broken/incomplete check; the helper falls back to every
 # uncollected session for the latter.
 upgrade_affected_sessions() {
-  local previous_worker="$1" affected="$2" all output catalog_dir bucket status=0
+  local previous_worker="$1" affected="$2" all output bucket status=0
   all="$(mktemp)"
   output="$(mktemp)"
   if ! uncollected_sessions > "$all"; then
@@ -439,19 +446,16 @@ upgrade_affected_sessions() {
     rm -f "$all" "$output"
     return 0
   fi
-  catalog_dir="$(printf '%s' "$RENDER" | jq -er \
-    '[.services.api.volumes[]? | select(.target == "/app/config") | .source]
-     | if length == 1 then .[0] else error("expected one /app/config mount") end')" || status=1
   bucket="$(rendered api S3_BUCKET)"
   [ -n "$bucket" ] || status=1
   if [ "$status" = 0 ]; then
     if [ "$STORE" = s3 ]; then
       (with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
-        --object-store env --bucket "$bucket" --image "$WORKER_IMAGE" --config-dir "$catalog_dir") \
+        --object-store env --bucket "$bucket" --image "$WORKER_IMAGE") \
         > "$output" || status=$?
     else
       "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
-        --object-store localstack --bucket "$bucket" --image "$WORKER_IMAGE" --config-dir "$catalog_dir" \
+        --object-store localstack --bucket "$bucket" --image "$WORKER_IMAGE" \
         > "$output" || status=$?
     fi
   fi
@@ -461,9 +465,9 @@ upgrade_affected_sessions() {
   fi
   # The upgrade keeps the replaced image as the previous one, which the
   # scheduler uses only when both images print their runtime.
-  if [ -n "$catalog_dir" ] && [ -n "$bucket" ] \
+  if [ -n "$bucket" ] \
     && [ -n "$(worker_runtime "$WORKER_IMAGE")" ] && [ -n "$(worker_runtime "$previous_worker")" ]; then
-    upgrade_previous_filter "$previous_worker" "$affected" "$all" "$catalog_dir" "$bucket" "$status" "$output"
+    upgrade_previous_filter "$previous_worker" "$affected" "$all" "$bucket" "$status" "$output"
   fi
   rm -f "$all" "$output"
 }
@@ -472,16 +476,16 @@ upgrade_affected_sessions() {
 # The helper keeps the list whole when either check failed closed, and a
 # helper that cannot run leaves it as it was.
 upgrade_previous_filter() {
-  local previous_worker="$1" affected="$2" all="$3" catalog_dir="$4" bucket="$5" \
-    target_status="$6" target_output="$7" output status=0
+  local previous_worker="$1" affected="$2" all="$3" bucket="$4" \
+    target_status="$5" target_output="$6" output status=0
   output="$(mktemp)"
   if [ "$STORE" = s3 ]; then
     (with_api_store "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
-      --object-store env --bucket "$bucket" --image "$previous_worker" --config-dir "$catalog_dir") \
+      --object-store env --bucket "$bucket" --image "$previous_worker") \
       > "$output" || status=$?
   else
     "${REPO_ROOT}/scripts/verify-restore.sh" --project "$PROJECT" \
-      --object-store localstack --bucket "$bucket" --image "$previous_worker" --config-dir "$catalog_dir" \
+      --object-store localstack --bucket "$bucket" --image "$previous_worker" \
       > "$output" || status=$?
   fi
   if bun_script "$HELPER" upgrade-previous "$all" "$target_status" "$target_output" "$status" "$output" \
@@ -505,16 +509,17 @@ deploy() {
   in_use_by_others
   identity > "$IDENTITY"
   start_apps
+  settings_applied
   record_release "$MANIFEST" deploy
   log "deploy: done — issue a key with scripts/test-ops.sh key create <owner> --scopes sessions:read,sessions:write"
 }
 
 upgrade() {
-  local from_worker from_catalog affected approved_list="" status=0
+  local from_worker from_settings affected approved_list="" status=0
   take_lock
   load_current
   from_worker="$WORKER_IMAGE"
-  from_catalog="$CATALOG_REVISION"
+  from_settings="$SETTINGS_DIGEST"
   load_manifest "$MANIFEST"
   [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
   preflight
@@ -562,10 +567,11 @@ upgrade() {
       || die "upgrade: could not record the previous worker in $PREVIOUS_WORKER; nothing was started"
   fi
   start_apps
-  # The API reads the catalog once at startup; a bind mount's new contents
-  # recreate nothing on their own.
-  [ "$CATALOG_REVISION" = "$from_catalog" ] \
-    || ops_compose up -d --wait --wait-timeout "$WAIT_TIMEOUT_SEC" --force-recreate --no-deps api
+  # A bind mount's new contents rerun nothing on their own.
+  [ "$SETTINGS_DIGEST" = "$from_settings" ] \
+    || ops_compose run --rm --no-deps -T migrate </dev/null \
+    || die "migrate refused the new settings document; nothing it holds was written (above)"
+  settings_applied
   record_release "$MANIFEST" upgrade
   rm -f "$PENDING"
   log "upgrade: done"

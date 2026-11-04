@@ -9,7 +9,7 @@ not run as-is is ```sh or ```text.
 
 저장소를 clone한 머신에서 `scripts/local.sh`로 스택을 띄우고, curl만으로 세션의 전체 경로를 한 번 돈다: 생성 → 이벤트 관찰 → 권한 요청 응답 → 후속 메시지 → interrupt → pause → resume(복원) → terminate → 복구 결정 → resume.
 
-로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실행하는 사람의 `ANTHROPIC_API_KEY`로 실제 Messages API를 부르고, key가 없으면 아무것도 띄우지 않는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 API가 `config/fake-model`의 카탈로그를 읽고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
+로컬 스택의 기본은 실제 Claude다. 옵션 없는 `scripts/local.sh up`은 실행하는 사람의 `ANTHROPIC_API_KEY`로 실제 Messages API를 부르고, key가 없으면 아무것도 띄우지 않는다([real-claude.md](real-claude.md)). 이 문서는 결과가 매번 같아야 하고 CI가 key 없이 돌려야 하므로 `--fake-model`로 띄운다. 그러면 migrate가 `tests/fixtures/settings/fake-model.json`을 가져오고 compose의 `fake-messages` 서비스를 Messages API로 쓴다. 모델 계정은 필요 없다. 각 워커 안에서는 **진짜 Claude Code**(Agent SDK 0.3.270에 번들된 실행 파일)가 돌고, fake는 프롬프트에 적힌 대본대로 답한다(§ [스크립트된 프롬프트](#스크립트된-프롬프트)). 실제 Claude로 같은 스택을 쓰는 방법은 [5장](#5-실제-claude로-확인하기-선택-유료)에 있다.
 
 이 문서의 `bash` 블록은 CI(`quickstart` job)가 새 clone에서 순서대로 실행한다. `jq -e`로 시작하는 줄은 `true`를 출력해야 한다. `false`가 나오면 그 단계가 기대와 다르게 끝난 것이고, CI에서는 그 자리에서 실패한다. 같은 시나리오를 `tests/e2e/alpha-path.e2e.ts`가 CI(`e2e` job)에서 자동으로 돈다.
 
@@ -388,9 +388,8 @@ Git 서버의 compose 서비스 이름이 `fake-git`으로, 저장소 URL이 `ht
 
 1. `COMPOSE_FILE`로 포트 override를 얹었다면, 코드를 갱신할 때 그 파일의 키 `gitea:`를 `fake-git:`으로 같이 바꾼다. 코드와 키가 어긋나면 `service "gitea" has neither an image nor a build context specified`처럼 렌더링부터 실패한다. 두 키를 함께 적어도 같다. 코드를 자동으로 갱신하는 스택이면 그 갱신을 먼저 멈춘다.
 2. `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`(실제 Claude 스택이면 옵션 없이)을 실행한다. `up`은 옛 서비스의 컨테이너를 지우지 않으므로, 내리지 않고 `up`만 하면 옛 `gitea-1`이 같은 포트를 쥔 채 남아 `port is already allocated`로 멈춘다. volume은 그대로라 계정과 세션은 남는다.
-3. `bun run catalog-authority show`로 활성 revision을 본다. 활성 행이 없으면 할 일이 없다. 행이 있으면 URL이 바뀌어 revision도 바뀌었으므로, API 기동 로그 `Session catalog loaded`의 `revision`을 읽어 `bun run catalog-authority activate <새 revision> --expected <옛 revision>`으로 넘긴다([운영자 카탈로그](operator/api-server.md#운영자-카탈로그-agent-profile--repository)).
-4. 옛 URL로 만든 세션은 이어지지 않는다. 조회는 되고 세션 상세의 `attention.code`는 `CATALOG_MISMATCH`다. 새 메시지는 받지만 그 turn은 `failed`(`terminal_reason: catalog_mismatch`)로 끝나고 세션도 `failed`가 된다. 다른 세션에는 영향이 없다. 이어 갈 일은 새 세션을 연다.
-5. kind 클러스터를 재사용했다면 `kubectl apply`는 옛 리소스를 지우지 않는다. `kubectl -n <namespace> delete deployment/gitea service/gitea`로 지운다. preview namespace는 TTL로 함께 사라진다.
+3. 옛 URL로 만든 세션은 이어지지 않는다. 조회는 되고 세션 상세의 `attention.code`는 `CATALOG_MISMATCH`다. 새 메시지는 받지만 그 turn은 `failed`(`terminal_reason: catalog_mismatch`)로 끝나고 세션도 `failed`가 된다. 다른 세션에는 영향이 없다. 이어 갈 일은 새 세션을 연다.
+4. kind 클러스터를 재사용했다면 `kubectl apply`는 옛 리소스를 지우지 않는다. `kubectl -n <namespace> delete deployment/gitea service/gitea`로 지운다. preview namespace는 TTL로 함께 사라진다.
 
 ## 8. 막혔을 때
 

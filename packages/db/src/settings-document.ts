@@ -272,7 +272,10 @@ export function createPostgresSettingsDocumentStore(
         const plan = planSettingsImport(
           entries,
           await existingIn(tx, workspaceId),
-          { allowExternal: options.allowExternal },
+          {
+            allowExternal: options.allowExternal,
+            databaseOwnsRepositories: options.databaseOwnsRepositories === true,
+          },
         );
         if (plan.conflicts.length > 0 || plan.refused_external.length > 0) {
           return { ...plan, outcome: "refused" as const, receipt_ids: [] };

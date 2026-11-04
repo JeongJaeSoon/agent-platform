@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "connections": {
+    "gate-messages": {
+      "kind": "anthropic",
+      "endpoint": "http://gate-messages:4010",
+      "auth": { "kind": "api_key", "value_env": "GATE_PROVIDER_KEY" }
+    }
+  },
+  "repositories": {
+    "gate-app": {
+      "url": "http://fake-git:3000/agent/gate-app.git",
+      "branch": "main",
+      "profiles": ["d2-gate"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "d2-gate": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Write", "Edit", "Agent"],
+      "permission_mode": "acceptEdits",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "http://gate-messages:4010",
+        "auth": { "kind": "api_key", "value_env": "GATE_PROVIDER_KEY" }
+      }
+    }
+  }
+}

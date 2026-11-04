@@ -46,6 +46,8 @@ const PROFILE_ID = "claude-coding-v1";
 const REGISTERED = "https://example.invalid/app.git";
 const MOVED_TO = "https://moved.invalid/app.git";
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 64 };
+// Ahead of every write here: a host behind its settings fails nothing.
+const CAUGHT_UP = Number.MAX_SAFE_INTEGER;
 
 const pairAt = (url: string): RunnablePair => ({
   profileId: PROFILE_ID,
@@ -99,8 +101,7 @@ class ClaimingBackend implements ExecutionBackend {
   async startWorkers(): Promise<void> {
     for (const { intent, nonce } of this.starting.splice(0)) {
       const result = await createPostgresWorkerUnitOfWork(this.db).claimAtomic({
-        catalogRevision: "catalog-under-test",
-        settingsGeneration: null,
+        settingsGeneration: CAUGHT_UP,
         unsettledRepositoryIds: new Set(),
         settledProfileIds: new Set([PROFILE_ID]),
         runnable: this.runnable,
@@ -408,8 +409,7 @@ integration("claim against a catalog that dropped the pair", () => {
       .where(eq(sessions.id, session.session_id));
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
-      catalogRevision: "catalog-under-test",
-      settingsGeneration: null,
+      settingsGeneration: CAUGHT_UP,
       unsettledRepositoryIds: new Set(),
       settledProfileIds: new Set([PROFILE_ID]),
       runnable: [pairAt(REGISTERED)],
@@ -487,8 +487,7 @@ integration("claim against a catalog that dropped the pair", () => {
     const nonce = await store().issueBootstrapNonce(intent);
 
     const result = await createPostgresWorkerUnitOfWork(db).claimAtomic({
-      catalogRevision: "catalog-under-test",
-      settingsGeneration: null,
+      settingsGeneration: CAUGHT_UP,
       unsettledRepositoryIds: new Set(),
       settledProfileIds: new Set([PROFILE_ID]),
       runnable: [pairAt(REGISTERED)],
@@ -565,13 +564,13 @@ integration("claim against a catalog that dropped the pair", () => {
       costLimitUsd = 1_000,
       settledProfileIds: ReadonlySet<string> = new Set([PROFILE_ID]),
       settings: {
-        generation?: number;
+        generation?: number | null;
         unsettledRepositoryIds?: ReadonlySet<string>;
       } = {},
     ) {
       return createPostgresWorkerUnitOfWork(db).claimAtomic({
-        catalogRevision: "catalog-under-test",
-        settingsGeneration: settings.generation ?? null,
+        settingsGeneration:
+          settings.generation === undefined ? CAUGHT_UP : settings.generation,
         unsettledRepositoryIds: settings.unsettledRepositoryIds ?? new Set(),
         settledProfileIds,
         runnable: [pairAt(REGISTERED)],
@@ -751,6 +750,15 @@ integration("claim against a catalog that dropped the pair", () => {
           .delete(installationProfiles)
           .where(eq(installationProfiles.id, PROFILE_ID));
       }
+      await untouched(session.session_id, launch.ref);
+    });
+
+    test("a host that read no settings", async () => {
+      const session = await queuedSession(MOVED_TO);
+      const launch = await reserved(session.session_id);
+      expect(
+        (await claim(launch, 1_000, undefined, { generation: null })).outcome,
+      ).toBe("no_session");
       await untouched(session.session_id, launch.ref);
     });
 

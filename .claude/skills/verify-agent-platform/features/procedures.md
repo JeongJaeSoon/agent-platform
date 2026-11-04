@@ -309,7 +309,7 @@ ap_get "/v1/sessions/$SID"
 
 기대: create 201 `status:"queued"`, `turn_id:"1"`. turn 200 `status:"completed"`, `result.subtype:"success"`. turns `items`. receipt 200. detail `model:"claude-sonnet-5"`, `runtime.model`도 동일, `agent.id==AID`, `agent.release_version_no:1`, `created_by.display_name:"Verify Owner"`, `channel:"api"`, `repository.id:"sample-app"`, `repository.full_name:"agent/sample-app"`, `repository.branch:"main"`이다.
 
-`model`을 빼면 release 카드 모델, release도 빼면 profile 기본 모델이다. 선택은 POST body의 `model`, 가능한 값은 `/v1/profiles`와 `config/fake-model/profiles.yaml`로 확인한다. 프로필 변경 뒤에는 새 profile 기본 모델이 된다. `repository.branch`는 clone 기준이며 push 작업 브랜치는 `agent/$SID`다. 상세 정보 탭의 브랜치는 현재 “아직 볼 수 없습니다”이다. 소스: `packages/contracts/src/api/session.ts`, `packages/platform/src/sessions/session-service.ts`, `packages/react/src/blocks/session-detail.tsx`.
+`model`을 빼면 release 카드 모델, release도 빼면 profile 기본 모델이다. 선택은 POST body의 `model`, 가능한 값은 `/v1/profiles`와 `tests/fixtures/settings/fake-model.json`의 `profiles`로 확인한다. 프로필 변경 뒤에는 새 profile 기본 모델이 된다. `repository.branch`는 clone 기준이며 push 작업 브랜치는 `agent/$SID`다. 상세 정보 탭의 브랜치는 현재 “아직 볼 수 없습니다”이다. 소스: `packages/contracts/src/api/session.ts`, `packages/platform/src/sessions/session-service.ts`, `packages/react/src/blocks/session-detail.tsx`.
 
 다음은 허용하지 않은 모델을 거절하는 경로다.
 
@@ -319,7 +319,7 @@ ap_as owner
 ap_post /v1/sessions '{"profile_id":"claude-coding-local","repository_id":"sample-app","model":"verify-unlisted-model","message":"model probe"}'
 ```
 
-기대: 422 `UNSUPPORTED_CAPABILITY`. fake-model 기본 카탈로그는 profile마다 claude-sonnet-5 하나만 제공한다. 서로 다른 허용 모델 사이의 선택까지 검증하려면 같은 fake provider를 쓰며 models 허용 목록에 두 모델을 둔 별도 catalog가 필요하다. 실제 provider로 바꾸지 않는다. source: `config/fake-model/profiles.yaml`, `packages/platform/src/sessions/session-service.ts`, `apps/control-host/src/api/routes/errors.ts`.
+기대: 422 `UNSUPPORTED_CAPABILITY`. fake-model 기본 카탈로그는 profile마다 claude-sonnet-5 하나만 제공한다. 서로 다른 허용 모델 사이의 선택까지 검증하려면 같은 fake provider를 쓰며 models 허용 목록에 두 모델을 둔 별도 설정 문서가 필요하다. 실제 provider로 바꾸지 않는다. source: `tests/fixtures/settings/fake-model.json`, `packages/platform/src/sessions/session-service.ts`, `apps/control-host/src/api/routes/errors.ts`.
 
 ## P-API-SESSIONS-LIST — 필터·개수·응답 필드
 

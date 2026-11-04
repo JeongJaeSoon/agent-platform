@@ -9,6 +9,7 @@ import {
   catalogConnectionsSchema,
   describeConfigError,
   isRegisteredGitHubApp,
+  type SessionCatalogConfig,
   type StoredOwnerKind,
   sessionCatalogConfigSchema,
 } from "./catalog.ts";
@@ -129,6 +130,29 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
     repositories: catalog.data.repositories,
     mcp_servers: catalog.data.mcp_servers ?? {},
   };
+}
+
+export type SeedDocument = {
+  entries: SettingsEntries;
+  profiles: SessionCatalogConfig["profiles"] | null;
+};
+
+export function parseSeedDocument(input: unknown): SeedDocument {
+  if (!isObject(input) || !Object.hasOwn(input, "profiles")) {
+    return { entries: parseSettingsDocument(input), profiles: null };
+  }
+  const { profiles, ...document } = input;
+  const entries = parseSettingsDocument(document);
+  const seed = sessionCatalogConfigSchema.safeParse({
+    profiles,
+    repositories: entries.repositories,
+  });
+  if (!seed.success) {
+    throw new SettingsDocumentError(
+      `The settings document is invalid: ${describeConfigError(seed.error)}`,
+    );
+  }
+  return { entries, profiles: seed.data.profiles };
 }
 
 function exported(
@@ -286,6 +310,19 @@ export type SettingsImportPlan = {
   conflicts: string[];
   /** New external references, where the caller may not bring one. */
   refused_external: string[];
+  /**
+   * From an old catalog directory: repositories that differ from their row,
+   * and second names of a GitHub repository that already has a row. The API
+   * accepted both while the files stood still, so the row stays and neither
+   * is a conflict.
+   */
+  kept?: string[];
+};
+
+const withoutSeed = (entry: unknown) => {
+  if (!isObject(entry)) return entry;
+  const { profiles: _seed, ...kept } = entry;
+  return kept;
 };
 
 const sameEntry = (a: unknown, b: unknown) =>
@@ -299,8 +336,9 @@ const sameEntry = (a: unknown, b: unknown) =>
 export function planSettingsImport(
   incoming: SettingsEntries,
   existing: ExistingSettings,
-  rules: { allowExternal: boolean },
+  rules: { allowExternal: boolean; databaseOwnsRepositories?: boolean },
 ): SettingsImportPlan {
+  const kept: string[] = [];
   const plan: SettingsImportPlan = {
     add: [],
     unchanged: [],
@@ -321,8 +359,17 @@ export function planSettingsImport(
       const source = credentialSourceOf(entry);
       const row = rows.get(id);
       if (row !== undefined) {
-        if (!sameEntry(row.entry, entry)) {
-          plan.conflicts.push(ref);
+        const same =
+          kind === "repository"
+            ? sameEntry(withoutSeed(row.entry), withoutSeed(entry))
+            : sameEntry(row.entry, entry);
+        if (!same) {
+          const ownedByDatabase =
+            rules.databaseOwnsRepositories === true &&
+            kind === "repository" &&
+            repositoryAuthKindOf(entry as CatalogRepositoryConfig) ===
+              repositoryAuthKindOf(row.entry as CatalogRepositoryConfig);
+          (ownedByDatabase ? kept : plan.conflicts).push(ref);
           continue;
         }
         if (!row.active) {
@@ -366,14 +413,16 @@ export function planSettingsImport(
     if (repositoryAuthKindOf(add.entry) !== "github_app") return true;
     const fullName = githubFullName(add.entry.url);
     if (appNames.has(fullName)) {
-      plan.conflicts.push(`repository:${add.id}`);
+      (rules.databaseOwnsRepositories === true ? kept : plan.conflicts).push(
+        `repository:${add.id}`,
+      );
       return false;
     }
     appNames.set(fullName, add.id);
     return true;
   });
   plan.conflicts.sort();
-  return plan;
+  return kept.length === 0 ? plan : { ...plan, kept: kept.sort() };
 }
 
 function githubFullName(url: string): string {

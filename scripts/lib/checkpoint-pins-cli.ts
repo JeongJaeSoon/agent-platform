@@ -69,26 +69,22 @@ function env(name: string): string {
   return value;
 }
 
-const [command, objectsDir, imageName, configDir, ...extra] =
-  process.argv.slice(2);
+const [command, objectsDir, imageName, ...extra] = process.argv.slice(2);
 if (
   extra.length > 0 ||
   !(
     (command === "capture" && objectsDir && imageName === undefined) ||
     (command === "repin" && objectsDir && imageName === undefined) ||
     (command === "plans" && objectsDir === undefined) ||
-    (command === "plans" && objectsDir === "--image" && imageName && configDir)
+    (command === "plans" && objectsDir === "--image" && imageName)
   )
 ) {
   console.error(
-    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--image <worker image> <config dir>]",
+    "usage: checkpoint-pins-cli.ts capture <objects-dir> | repin <objects-dir> | plans [--image <worker image>]",
   );
   process.exit(2);
 }
-const image =
-  imageName === undefined
-    ? undefined
-    : { name: imageName, configDir: configDir as string };
+const image = imageName === undefined ? undefined : { name: imageName };
 
 const s3 = s3SettingsFromEnv();
 const bucket = env("S3_BUCKET");
@@ -250,12 +246,9 @@ async function repin(dir: string) {
  * session pointer, and every object of every ready plan read back by the
  * version the plan names and found held. With an image, each plan is asked
  * for as a worker of that image would ask: its engine build, and the profile
- * digest its code computes from the claim that `configDir` and the database's
- * ceilings give.
+ * digest its code computes from the claim the database's settings give.
  */
-async function plans(
-  image: { name: string; configDir: string } | undefined,
-): Promise<number> {
+async function plans(image: { name: string } | undefined): Promise<number> {
   const config = {
     ...s3,
     bucket,
@@ -330,7 +323,6 @@ async function plans(
     // their place and the digest reads neither.
     const db = drizzle(pool, { schema });
     const catalog = await databaseCatalog({
-      dir: image.configDir,
       installations: createPostgresInstallationProfileStore(db),
       workspaces: createPostgresWorkspaceProfileStore(db),
       repositories: createPostgresCatalogRepositoryStore(db),

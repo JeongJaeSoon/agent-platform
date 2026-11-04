@@ -203,7 +203,6 @@ function setup(
       installations: made.installation,
       sources: {
         connections: { main: MAIN },
-        repositoryIdsOf: () => [],
         allowUnattended: false,
         runtimeSupported: () => true,
         materialize: (id, definition) => {

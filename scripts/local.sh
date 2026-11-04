@@ -29,7 +29,8 @@
 # prints them, and acts only on a bucket with no object version left; `up`
 # follows.
 #
-# `up` runs the real Messages API: the catalog in config/, the caller's
+# `up` runs the real Messages API: tests/fixtures/settings/real-model.json,
+# which migrate imports, the caller's
 # ANTHROPIC_API_KEY handed by name to the API alone, and the real-model
 # e2e's cost limits (infra/compose.real-model.yml, docs/real-claude.md). The
 # key comes from the shell or, failing that, the repository's .env. Without
@@ -46,6 +47,10 @@
 # gets them: their password is in the repository. On a --fake-model stack
 # the demo agents and sessions follow (LOCAL_DEMO_DATA=0 leaves them out);
 # their CLI refuses any profile that would call a real provider.
+#
+# PLATFORM_SECRET_KEY comes from the shell or .env; failing both, `up` makes
+# one per project under AGENT_PLATFORM_STATE_DIR (~/.local/state/agent-platform)
+# and keeps it, since what the console stores opens with no other key.
 #
 # COMPOSE_PROJECT_NAME, COMPOSE_FILE and EXECUTION_INSTALLATION_ID are
 # compose's to resolve: the ports checked, the /readyz waited on
@@ -96,9 +101,25 @@ usage() {
   exit 2
 }
 
+secret_key() {
+  [ -z "${PLATFORM_SECRET_KEY:-}" ] || return 0
+  if [ -f "${AGENT_PLATFORM_DOTENV:-.env}" ] &&
+    grep -q '^PLATFORM_SECRET_KEY=' "${AGENT_PLATFORM_DOTENV:-.env}"; then
+    return 0
+  fi
+  local dir="${AGENT_PLATFORM_STATE_DIR:-$HOME/.local/state/agent-platform}"
+  local file="$dir/${COMPOSE_PROJECT_NAME:-agent-platform}.secret-key"
+  if [ ! -s "$file" ]; then
+    (umask 077 && mkdir -p "$dir" && openssl rand -hex 32 >"$file")
+  fi
+  PLATFORM_SECRET_KEY=$(cat "$file")
+  export PLATFORM_SECRET_KEY
+}
+
 # The mode `up` and `reset` take, settled before either touches Docker.
 mode() {
   local key_status
+  secret_key
   case "$*" in
     "")
       key_status=0
