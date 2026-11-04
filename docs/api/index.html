@@ -8717,6 +8717,25 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 128
+                      },
+                      "policy_source": {
+                        "type": "string",
+                        "enum": [
+                          "release",
+                          "agent"
+                        ]
+                      },
+                      "agent_settings_revision": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": [
