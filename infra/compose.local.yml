@@ -159,8 +159,6 @@ services:
       context: ..
       dockerfile: apps/egress-proxy/Dockerfile
     environment:
-      # The local git host, the fake-model settings' Messages API and remote
-      # MCP server, and the object store.
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-gitea:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
 
   # A developer's overrides (docs/contributing/development.md). Not the reconciler's: it
@@ -177,9 +175,6 @@ services:
       AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://localstack:4566}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
-      # The caller's master key: scripts/local.sh makes one and keeps it, so
-      # what the console stores survives `up`. The default is for the test
-      # harnesses, whose volumes hold nothing worth a key.
       PLATFORM_SECRET_KEY: &local-secret-key ${PLATFORM_SECRET_KEY:-0000000000000000000000000000000000000000000000000000000000000001}
       # The provider key the real-model settings read, passed through by name
       # from the caller's environment (scripts/local.sh exports it from the

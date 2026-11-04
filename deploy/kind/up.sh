@@ -227,8 +227,6 @@ if ! kubectl -n "$NAMESPACE" get secret agent-platform >/dev/null 2>&1; then
     --from-literal=AWS_SECRET_ACCESS_KEY=test \
     --from-file=ANTHROPIC_API_KEY=<(provider_key) >/dev/null
 elif [ "$(kubectl -n "$NAMESPACE" get secret agent-platform -o 'go-template={{if .data.PLATFORM_SECRET_KEY}}set{{end}}')" != set ]; then
-  # A cluster from before the key was required: the patch reads it from a
-  # file, so it is on no command line either.
   key_patch="$(mktemp)"
   printf '{"data":{"PLATFORM_SECRET_KEY":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$key_patch"
   kubectl -n "$NAMESPACE" patch secret agent-platform --patch-file "$key_patch" >/dev/null
@@ -264,8 +262,6 @@ done
 if [ "$KIND_MODEL" != none ]; then
   NAMESPACE="$NAMESPACE" RELEASE="$RELEASE" "$root/scripts/k8s-api.sh" \
     settings import --document - <"$root/tests/fixtures/settings/${KIND_MODEL}-model.json"
-  # The smoke opens a session at once, ahead of the api's next read of the
-  # settings: a restart reads them before it is ready.
   kubectl -n "$NAMESPACE" rollout restart "deploy/${fullname}-api"
   kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-api" --timeout=600s
 fi

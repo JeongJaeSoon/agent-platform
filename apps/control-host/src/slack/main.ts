@@ -110,10 +110,6 @@ export function slackRoleSettings(environment: Environment): {
   };
 }
 
-/**
- * Checked once before the first pass: settings, database URL, no leftover
- * file catalog, and the master key.
- */
 export function slackRoleStartup(environment: Environment): {
   secretKey: SecretKey;
 } {
@@ -123,7 +119,6 @@ export function slackRoleStartup(environment: Environment): {
   return { secretKey: loadSecretKey(environment) };
 }
 
-/** The api's registry without credentials: rows are the api's to write. */
 export function slackProfileCatalog(db: Database, environment: Environment) {
   const runtimeVersions = runtimeVersionsFromEnv(environment);
   return profileCatalog(

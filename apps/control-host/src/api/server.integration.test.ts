@@ -29,7 +29,6 @@ import { SHUTDOWN_DRAIN_MS } from "./shutdown.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 const MASTER_KEY = "ab".repeat(32);
-// A seed fills only an empty table, so the suite owns its database.
 let databaseUrl: string;
 
 // Thirty seconds leaves room for server startup under CI load while still

@@ -4359,8 +4359,6 @@ export const installationProfiles = pgTable(
     definition: jsonb().$type<Record<string, unknown>>().notNull(),
     permissionMode: text("permission_mode").notNull(),
     fingerprint: text().notNull(),
-    // Null on a `catalog` row until `settings import` fills it once from the
-    // `profiles` arrays of the document's repositories.
     repositoryIds: jsonb("repository_ids").$type<string[]>(),
     // Beside repository_ids and, like it, outside the fingerprint.
     githubAppRepositories: text("github_app_repositories")
@@ -4470,8 +4468,6 @@ export const catalogRepositories = pgTable(
       .$type<CatalogRepositoryAuthKind>()
       .notNull()
       .default("github_app"),
-    // The entry's `auth` as the settings document spelled it; null for none
-    // and for the console's App.
     auth: jsonb().$type<Record<string, unknown>>(),
     credentialSource:
       text("credential_source").$type<SettingsCredentialSource>(),
@@ -4537,8 +4533,6 @@ export const providerConnections = pgTable(
   "provider_connections",
   {
     id: text().primaryKey(),
-    // The settings document's entry as parsed; a ceiling's `provider` runs
-    // only while it is the same JSON.
     definition: jsonb().$type<Record<string, unknown>>().notNull(),
     credentialSource: text("credential_source")
       .$type<SettingsCredentialSource>()
@@ -4580,7 +4574,6 @@ export const mcpServers = pgTable(
     id: text().primaryKey(),
     url: text().notNull(),
     credentialRef: text("credential_ref").notNull(),
-    // The settings document's `auth` as parsed.
     auth: jsonb().$type<Record<string, unknown>>().notNull(),
     credentialSource: text("credential_source")
       .$type<SettingsCredentialSource>()

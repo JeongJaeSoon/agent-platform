@@ -1320,7 +1320,6 @@ describe("compose layers", () => {
     "%s requires values and sets none",
     (layer) => {
       for (const [name, service] of Object.entries(servicesOf(layer))) {
-        // The path inside the container; the host side is the required one.
         const values = Object.entries(
           (service.environment ?? {}) as Record<string, string>,
         ).filter(([variable]) => variable !== "SETTINGS_DOCUMENT");
@@ -1653,7 +1652,6 @@ describe("compose layers", () => {
       expect(services.migrate?.environment?.SETTINGS_DOCUMENT).toBe(
         "/settings/real-model.json",
       );
-      // The real-model settings read no secret_id, so nothing waits on these.
       expect(services["fake-messages"]).toBeUndefined();
       expect(services.secrets).toBeUndefined();
       expect(Object.keys(api?.depends_on ?? {})).not.toContain("secrets");

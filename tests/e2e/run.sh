@@ -49,7 +49,6 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 . scripts/lib/real-model-key.sh
 
-# The distinct values of one string field of a settings document.
 settings_values() {
   sed -n "s/^ *\"$1\": \"\(.*\)\",\{0,1\}\$/\1/p" "$2" | sort -u
 }

@@ -134,15 +134,9 @@ export function parseSettingsDocument(input: unknown): SettingsEntries {
 
 export type SeedDocument = {
   entries: SettingsEntries;
-  /** Ceilings for an empty installation; null when the document has none. */
   profiles: SessionCatalogConfig["profiles"] | null;
 };
 
-/**
- * A document as the operator's CLI takes it: `profiles` is an initial seed
- * for fixture stacks, neither part of what the API imports nor anything
- * export gives back (S4, settings-replace-file-catalog.md §6).
- */
 export function parseSeedDocument(input: unknown): SeedDocument {
   if (!isObject(input) || !Object.hasOwn(input, "profiles")) {
     return { entries: parseSettingsDocument(input), profiles: null };
@@ -318,7 +312,6 @@ export type SettingsImportPlan = {
   refused_external: string[];
 };
 
-// A repository's `profiles` only seeds ceilings, so it is no part of the row.
 const withoutSeed = (entry: unknown) => {
   if (!isObject(entry)) return entry;
   const { profiles: _seed, ...kept } = entry;

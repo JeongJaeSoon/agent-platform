@@ -178,8 +178,6 @@ describe("catalog config schema", () => {
         ],
       ],
     });
-    // The binding does not carry the value and does not move when only the
-    // value behind the same reference is rotated.
     const rotated = load(
       config(configured, { app: withAuth }),
       lookup("rotated-value"),

@@ -61,7 +61,6 @@ export function catalogRepositoryIds(
       .sort();
 }
 
-/** The rows a seed imports as: its ids, its entries as parsed. */
 export function catalogImports(
   profiles: SessionCatalogConfig["profiles"],
 ): CatalogProfileImport[] {
@@ -205,10 +204,6 @@ function storedDefinition(
     : null;
 }
 
-/**
- * Seed entries as the rows seeding them would be, with the repositories
- * `repositories` names them for.
- */
 export function catalogRows(
   profiles: SessionCatalogConfig["profiles"],
   repositories: Parameters<typeof catalogRepositoryIds>[0] = {},
@@ -322,14 +317,9 @@ export interface ProfileRegistry<P extends CatalogProfileView>
    * or for a registry given none.
    */
   readonly settings: SettingsSnapshot | null;
-  /** The connections a ceiling may run against. */
   readonly connections: Connections;
 }
 
-/**
- * The database's repositories: the settings' rows, and the console's App
- * rows beside them (repository-catalog-db.md §2).
- */
 export function withConsoleRepositories(
   rows: readonly CatalogRepositoryRow[] | null,
   settings: Readonly<Record<string, CatalogRepository>> = {},
@@ -337,8 +327,6 @@ export function withConsoleRepositories(
   const merged: Record<string, CatalogRepository> = { ...settings };
   for (const row of rows ?? []) {
     if (Object.hasOwn(merged, row.id)) continue;
-    // The shape a registered-App entry resolves to, so a seeded row binds as
-    // it did before the move.
     merged[row.id] = {
       url: row.url,
       branch: row.branch,
@@ -388,7 +376,6 @@ function keepUnchanged(
 export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
   installations: Pick<InstallationProfileStore, "listAll">;
-  /** Absent: the catalog keeps its base repositories. */
   repositories?: Pick<CatalogRepositoryStore, "readCatalog">;
   /**
    * The installation settings (connections, MCP servers, repositories that

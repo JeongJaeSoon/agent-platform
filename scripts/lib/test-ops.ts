@@ -59,7 +59,6 @@ const OBJECT_STORE_MODES: readonly ObjectStoreMode[] = ["localstack", "s3"];
 const LOCALSTACK_BUCKET = "claude-sessions";
 const LOCALSTACK_ENDPOINT = "http://localstack:4566";
 
-/** Where infra/compose.test-ops.yml mounts the settings document in migrate. */
 const TEST_OPS_SETTINGS_DOCUMENT = "/settings/installation.json";
 
 /** RFC 3986 unreserved: survives inside the compose-built DATABASE_URL. */
@@ -140,11 +139,6 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
   return manifest;
 }
 
-/**
- * The settings document by its bytes: what migrate mounts is what the
- * manifest names. It covers the seed's ceilings too, unlike the digest
- * `settings export` prints.
- */
 export async function settingsDigest(file: string): Promise<string> {
   const digest = createHash("sha256")
     .update(await readFile(file))

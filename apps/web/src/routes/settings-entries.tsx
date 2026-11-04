@@ -270,7 +270,6 @@ export function credentialText(
   }
 }
 
-/** What the console may do with an entry: only disable a reference. */
 export function entryActions(entry: {
   readonly state: SettingsEntryState;
   readonly credential: SettingsCredentialView;

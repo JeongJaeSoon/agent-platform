@@ -20,9 +20,6 @@ services:
   postgres:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for test-ops}
-  # The settings live outside the checkout, as the release manifest names
-  # them; PLATFORM_LEGACY_CONFIG_DIR is the old catalog, for the one upgrade
-  # that imports it.
   migrate:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:

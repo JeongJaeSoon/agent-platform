@@ -6,10 +6,7 @@
 # 자율 모드). `auto` needs neither: the plain fake-model settings carry
 # claude-coding-auto.
 #
-# The document is mounted where the fake-model overlay points
-# SETTINGS_DOCUMENT, since local.sh puts that overlay after COMPOSE_FILE and
-# it would win a value set here. The path is from the repository root,
-# compose.yaml's directory.
+# The path is from the repository root, compose.yaml's directory.
 services:
   migrate:
     volumes:

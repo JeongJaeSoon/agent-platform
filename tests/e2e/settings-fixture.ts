@@ -5,11 +5,6 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 
-/**
- * One of tests/fixtures/settings as the stack runs it: its ceilings over its
- * repositories, each `value_env` read from `env`. The fixture reads no other
- * kind of credential.
- */
 export async function fixtureCatalog(
   name: string,
   env: Record<string, string | undefined>,

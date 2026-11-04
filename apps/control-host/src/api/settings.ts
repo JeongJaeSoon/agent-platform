@@ -106,7 +106,7 @@ function parse(argv: string[]) {
  * The old catalog directory as a settings document: connections.yaml,
  * repositories.yaml and mcp-servers.yaml under their own rules, plus the
  * ceilings of profiles.yaml, which go to the same empty-table seed the API
- * ran. The master key in platform.yaml is the deployment's alone now.
+ * ran.
  */
 export async function documentFromDir(dir: string): Promise<{
   document: SettingsDocument;
@@ -149,11 +149,6 @@ async function readDocument(path: string): Promise<unknown> {
 
 type Output = { out: (line: string) => void; err: (line: string) => void };
 
-/**
- * What the ceilings came to: `seed` while the table is empty, `fill` for
- * rows older than repository_ids, `unfilled` for rows that still run on no
- * repository for want of a value. A dry run reads and writes nothing.
- */
 type ProfileSeedReport = {
   seed: string[];
   fill: string[];
@@ -196,7 +191,6 @@ type SettingsStores = {
   profiles: Pick<InstallationProfileStore, "listAll" | "seedCatalog">;
 };
 
-/** Runs `command` against `stores`; false when the import was refused. */
 export async function runSettingsCommand(
   command: SettingsCommand,
   stores: SettingsStores,

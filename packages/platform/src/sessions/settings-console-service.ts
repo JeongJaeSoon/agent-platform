@@ -168,7 +168,6 @@ export function createSettingsConsoleService(deps: {
     throw error;
   }
 
-  /** The entry under the catalog's rules, `stored` naming its own row. */
   function parsed(
     section: keyof SettingsEntries,
     id: string,

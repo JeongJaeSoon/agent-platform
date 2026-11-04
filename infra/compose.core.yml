@@ -109,10 +109,6 @@ services:
   # dependencies: a bare Bun image over a read-only checkout needs a host
   # `bun install` first. No `image:` here: the local layer builds it, and the
   # test-ops layer names the released one.
-  # After the schema it imports an old file catalog, when one is mounted, and
-  # SETTINGS_DOCUMENT, when named. Both only add: a rerun changes nothing, and
-  # an id that differs fails the job with nothing written
-  # (docs/operator/api-server.md).
   migrate:
     logging: *logging
     command:
@@ -297,10 +293,6 @@ services:
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3000"
-      # The master key stored credentials are encrypted under (64 hex
-      # characters, docs/operator/api-server.md), passed through by name from
-      # the caller's environment so its value is in no file. Unset stops the
-      # API. Never given to the worker or the scheduler.
       PLATFORM_SECRET_KEY:
       # Sign in with Slack, for linking a person's Slack account
       # (docs/operator/api-server.md). Unset REDIRECT_URI keeps linking off;

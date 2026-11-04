@@ -86,7 +86,6 @@ const seedWith = (other: string) =>
     ),
   );
 
-/** The api's snapshot of `seed`: its credentials stand in for the database's. */
 function apiSnapshot(
   seed: ReturnType<typeof seedWith>,
   env: Record<string, string>,
@@ -144,7 +143,6 @@ describe("what no longer starts", () => {
 });
 
 describe("unattended permission modes", () => {
-  // A row in the database must not stop the API: the rest still runs.
   test("a profile that skips approval is left out until the installation allows it", () => {
     const seed = seedWith(profile("skipping", "bypassPermissions"));
     const off = apiSnapshot(seed, {});

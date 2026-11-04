@@ -46,8 +46,6 @@ console.log(zombies);
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
   local image="$1" cid
-  # Without the master key the API must refuse to start, and the same with
-  # a leftover PLATFORM_CONFIG_DIR, whose catalog it no longer reads.
   local key=0000000000000000000000000000000000000000000000000000000000000001
   local refused status
   refused="$(timeout 60 docker run --rm --label "$smoke_label" \

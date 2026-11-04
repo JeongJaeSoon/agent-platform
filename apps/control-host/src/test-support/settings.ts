@@ -15,7 +15,6 @@ import {
 import { parse } from "yaml";
 import { databaseCatalog } from "../api/catalog-config.ts";
 
-/** A settings document from YAML sections; the ones left out stay empty. */
 export function settingsDocument(...sections: readonly string[]) {
   return Object.assign(
     { version: 1, connections: {}, repositories: {}, mcp_servers: {} },
@@ -23,7 +22,6 @@ export function settingsDocument(...sections: readonly string[]) {
   );
 }
 
-/** What migrate's `settings import` leaves in the database. */
 export async function seedSettings(
   db: Database,
   document: unknown,
@@ -44,7 +42,6 @@ export async function seedSettings(
   });
 }
 
-/** The session catalog the API serves from those rows. */
 export function settingsCatalog(
   db: Database,
   env: Record<string, string | undefined> = {},

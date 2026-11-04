@@ -106,7 +106,6 @@ describe("console repositories in the catalog", () => {
     const catalog = profileCatalog({ repositories: FILE }, registry, (held) =>
       withConsoleRepositories(held, FILE),
     );
-    // Before the first read: what it was built with.
     expect(catalog.repositories).toBe(FILE);
 
     await registry.refresh();

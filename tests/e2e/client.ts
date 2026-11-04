@@ -28,7 +28,6 @@ export function e2eEnv({ needsMessages = true } = {}): E2eEnv {
 
 export const PROFILE_ID = "claude-coding-local";
 export const REPOSITORY_ID = "sample-app";
-/** The fake-model settings' profile with `repository: none`. */
 export const NO_REPOSITORY_PROFILE_ID = "general";
 
 /**

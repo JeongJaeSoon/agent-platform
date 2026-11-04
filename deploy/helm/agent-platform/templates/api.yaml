@@ -42,8 +42,6 @@ spec:
                   name: {{ .Values.secrets.name }}
                   key: PLATFORM_SECRET_KEY
             {{- with include "ap.workerRuntimeEnv" . | trim }}{{ . | nindent 12 }}{{ end }}
-            # What the console checks a new connection's host against: the
-            # proxy's own lists.
             - name: EGRESS_CREDENTIAL_ALLOWLIST
               value: {{ .Values.config.egress.credentialAllowlist | quote }}
             - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST

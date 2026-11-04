@@ -5,7 +5,7 @@
 #
 # An upgrade from a chart with the file catalog still finds its ConfigMap
 # here, since a pre-upgrade hook runs before Helm deletes it, and imports it
-# into the database. Once it is gone the mount is empty and nothing happens.
+# into the database.
 apiVersion: batch/v1
 kind: Job
 metadata:

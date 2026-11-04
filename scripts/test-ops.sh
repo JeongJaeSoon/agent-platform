@@ -415,8 +415,6 @@ record_release() {
     "$SOURCE_COMMIT" "$WORKER_IMAGE" "$SETTINGS_DIGEST" >> "${STATE_DIR}/history.log"
 }
 
-# The document is in the database: importing it again would add nothing. A
-# console change beside it stays; an id it changed has already failed migrate.
 settings_applied() {
   ops_compose run --rm --no-deps -T migrate bun run apps/control-host/src/api/settings.ts \
     import --document /settings/installation.json --dry-run </dev/null \

@@ -26,11 +26,8 @@ import { type GitCredential, repoRefOf } from "../ports/forge.ts";
 import type { InstallationProfileRecord } from "../ports/installation-profile-store.ts";
 import type { ToolCatalogs } from "./profile-tools.ts";
 
-// The shapes of ceilings, repositories and connections, and what a session
-// may run. The database holds them; a settings document imports them. An
-// entry never holds a credential value outside `secret_values`: it names a
-// stored value, an environment variable or a Secrets Manager secret, resolved
-// on each settings read. A claim already answered keeps the key it was given.
+// An entry never holds a credential value outside `secret_values`: it names a
+// stored value, an environment variable or a Secrets Manager secret.
 //
 // The config block below is the Claude engine's shape whatever kind a
 // profile names; the API refuses at load a kind no installed runtime serves
@@ -158,7 +155,6 @@ export const catalogProviderSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
-/** A provider per connection id. */
 export const catalogConnectionsSchema = z.record(
   z.string().min(1),
   catalogProviderSchema,

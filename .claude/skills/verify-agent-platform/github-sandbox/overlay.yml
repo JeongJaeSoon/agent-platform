@@ -1,9 +1,6 @@
 # The GitHub sandbox run: up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml
-# migrate imports settings.json in place of the fake-model document: the same
-# document plus the sandbox repository, so its Compose path need not change.
 # The source is relative to the project directory (the repo root, where
-# compose.yaml is). No key passes through compose: the App is registered
-# through the API once the stack is up.
+# compose.yaml is).
 services:
   migrate:
     volumes:

@@ -19,8 +19,7 @@ import { useState } from "react";
 /*
  * The card editor's tools (agent-wizard-rework.md 3b): one checklist of the
  * preview profile's tools, as apps/web/src/components/agent-card-form.tsx
- * draws it. The profiles are tests/fixtures/settings/fake-model.json's two
- * that run claude-sonnet-5.
+ * draws it.
  */
 
 const PROFILES = [

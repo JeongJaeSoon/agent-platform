@@ -313,7 +313,6 @@ exit 0
       ),
     ).toBeNull();
 
-    // A row the document names and the database lacks stops the record.
     await writeFile(
       join(dir, "bin", "docker"),
       (stubs.docker as string).replace('"add":[]', '"add":[{"id":"gone"}]'),

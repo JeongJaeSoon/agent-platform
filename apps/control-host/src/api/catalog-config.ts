@@ -33,7 +33,6 @@ import { installedDescriptors } from "@werft-ai/runtime-codecs";
 export const ALLOW_UNATTENDED_SETTING = "PLATFORM_ALLOW_UNATTENDED_PERMISSIONS";
 export const SECRET_KEY_SETTING = "PLATFORM_SECRET_KEY";
 const CONFIG_DIR_SETTING = "PLATFORM_CONFIG_DIR";
-// One bounded read per secret; a hung endpoint must not hold a registry read.
 const SECRET_READ_TIMEOUT_MS = 10_000;
 
 /** The runtimes the worker image ships, as the control plane sees them. */
@@ -47,8 +46,6 @@ export function secretsManagerReader(
 ): SecretReader {
   let client: SecretsManagerClient | undefined;
   return async (secretId) => {
-    // Built on first use: settings with only environment references never
-    // need a region or an endpoint.
     client ??= new SecretsManagerClient({
       ...(env.AWS_REGION === undefined ? {} : { region: env.AWS_REGION }),
       // Its own endpoint, never AWS_ENDPOINT_URL: locally that one is the
@@ -69,11 +66,7 @@ export function secretsManagerReader(
   };
 }
 
-/**
- * The file catalog is gone, so a variable naming one would otherwise be
- * ignored while its files quietly stop mattering. Compose passes an unset
- * variable through as empty.
- */
+/** Compose passes an unset variable through as empty. */
 export function refuseFileCatalog(
   env: Record<string, string | undefined>,
 ): void {
@@ -116,7 +109,6 @@ export function profileViewSources(
   };
 }
 
-/** What the api builds its profiles from; settings resolve the credentials. */
 export function profileSources(
   env: Record<string, string | undefined>,
 ): SnapshotSources<CatalogProfile> {
@@ -152,12 +144,6 @@ export function runtimeVersionsFromEnv(
   return images === null ? undefined : runtimeVersionsOf(images);
 }
 
-/**
- * The catalog the api's registry reads from the database, every credential
- * standing in as `credential`: for a check on the host, without the API's
- * secrets, of what a claim would carry. Runtimes and the unattended switch
- * are left to the caller's own check.
- */
 export async function databaseCatalog(options: {
   installations: Pick<InstallationProfileStore, "listAll">;
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
@@ -202,12 +188,7 @@ export async function databaseCatalog(options: {
   );
 }
 
-/**
- * The master key stored values are sealed under. Without it nothing a
- * person types into the console can be kept, so a process does not start;
- * compose passes an unset variable through as empty. No message carries
- * the value.
- */
+/** Compose passes an unset variable through as empty. */
 export function loadSecretKey(
   env: Record<string, string | undefined>,
 ): SecretKey {

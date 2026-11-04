@@ -2394,8 +2394,6 @@ async function main() {
   }
   const owner = new Web("owner");
   await owner.login("demo-owner@example.test", DEMO_PASSWORD);
-  // /v1/profiles keeps each provider to the operator, so the connections are
-  // what say the sessions below go to the fake model.
   const connections = await owner.ok<any>(
     200,
     "GET",

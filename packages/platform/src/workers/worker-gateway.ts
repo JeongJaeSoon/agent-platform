@@ -854,7 +854,6 @@ export function createWorkerGateway(deps: {
     ];
   }
 
-  // The claim's candidates and the ids it may give up on all come from one read of the registry, and are made again when it moves.
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
     profiles: SessionCatalog["profiles"];

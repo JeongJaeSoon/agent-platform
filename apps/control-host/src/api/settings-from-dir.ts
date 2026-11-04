@@ -10,10 +10,6 @@ import {
 import { parse as parseYaml } from "yaml";
 import { installedRuntimes } from "./catalog-config.ts";
 
-// The old file catalog, read once by the migrate step's `settings import
-// --from-dir` (settings-replace-file-catalog.md §5). Nothing a server runs
-// imports this file; tests/architecture holds that line.
-
 export const PROFILES_FILE = "profiles.yaml";
 export const REPOSITORIES_FILE = "repositories.yaml";
 export const CONNECTIONS_FILE = "connections.yaml";
@@ -49,7 +45,6 @@ function section(document: unknown, key: string, path: string): unknown {
   return (document as Record<string, unknown>)[key];
 }
 
-/** The directory's repositories and MCP servers; `profiles` is always empty. */
 export async function readCatalogConfig(
   dir: string,
 ): Promise<SessionCatalogConfig> {
@@ -80,7 +75,6 @@ export async function readCatalogConfig(
   return parsed.data;
 }
 
-/** profiles.yaml under the catalog's rules, or none without the file. */
 export async function readSeedProfiles(
   dir: string,
   config: SessionCatalogConfig,
@@ -111,11 +105,7 @@ export async function readConnections(dir: string): Promise<Connections> {
   return parsed.data;
 }
 
-/**
- * Whether `dir` holds nothing to import: a fresh installation's optional
- * mount, or an upgrade after the old catalog was deleted. Kubernetes keeps
- * its volume bookkeeping in dot entries, so only visible names count.
- */
+/** Kubernetes keeps its volume bookkeeping in dot entries. */
 export async function dirIsEmpty(dir: string): Promise<boolean> {
   try {
     const names = await readdir(dir);

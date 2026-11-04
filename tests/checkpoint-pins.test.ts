@@ -792,7 +792,6 @@ describe("archived session events through backup → restore", () => {
 describe("plans against a target worker image (verify-restore.sh --image)", () => {
   const PROFILE_ID = "claude-coding-real";
   const REPOSITORY_ID = "sample-app";
-  // The ceilings the real-model settings seed an empty database with.
   const seedDocument = async () => {
     const seed = parseSeedDocument(
       JSON.parse(

@@ -111,7 +111,6 @@ describe("control host executable", () => {
   test(
     "slack --once passes the startup gate the loop does",
     async () => {
-      // The unused address shows the gate refuses before any connection.
       const once = await run(["slack", "--once"], {
         DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
         PLATFORM_SECRET_KEY: "ab".repeat(32),
