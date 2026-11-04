@@ -62,6 +62,8 @@ import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import { agentRefusal } from "../agents.tsx";
+import { previousRelease, releaseChanges } from "./release-changes.ts";
+import { ReleaseChangesSummary } from "./release-changes-view.tsx";
 import { latestVersion, VersionSelect } from "./versions.tsx";
 
 // Version, status, activated, card, profile, repository, by, note, actions;
@@ -161,6 +163,7 @@ export function Releases({
   const ordered = [...detail.releases].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
+  const cards = new Map(detail.versions.map((v) => [v.id, v.card]));
   const release = useMutation<CreateAgentReleaseResponse, ApiError>({
     mutationFn: () =>
       unwrap(
@@ -410,6 +413,19 @@ export function Releases({
               const by =
                 (item.created_by ? names.get(item.created_by) : undefined) ??
                 t("agent.releases.byMember");
+              const previous = previousRelease(detail.releases, item);
+              const changes = (
+                <ReleaseChangesSummary
+                  release={item}
+                  previous={previous}
+                  changes={
+                    previous
+                      ? releaseChanges(previous, item, (id) => cards.get(id))
+                      : []
+                  }
+                  by={item.created_by ? by : t("agent.releases.byUnknown")}
+                />
+              );
               const note = item.note ? (
                 <ReleaseNote note={item.note} />
               ) : (
@@ -445,6 +461,7 @@ export function Releases({
                       >
                         {name}
                       </Text>
+                      {changes}
                       {/* GridTable's narrowAt={860}, where the other columns drop. */}
                       <span className="hidden [@container(max-width:860px)]:flex">
                         {status}
