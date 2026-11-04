@@ -24,10 +24,10 @@ Werft サーバーを自分でインストールし、チームで共有する�
 
 ```bash
 TAG=v0.1.0   # 読むリリースのタグ
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
-jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # デプロイに使う 3 つの digest
-jq -c .workerRuntime release-manifest.json                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart の場所とバージョン
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # タグごとに 1 ディレクトリ
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # デプロイに使う 3 つの digest
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart の場所とバージョン
 ```
 
 digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기)を見る。

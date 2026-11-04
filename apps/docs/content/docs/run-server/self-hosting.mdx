@@ -24,10 +24,10 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 
 ```bash
 TAG=v0.1.0   # 읽을 릴리스 태그
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
-jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # 배포에 쓰는 세 digest
-jq -c .workerRuntime release-manifest.json                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart 위치와 버전
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # 태그마다 디렉터리 하나
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # 배포에 쓰는 세 digest
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart 위치와 버전
 ```
 
 digest는 두 아키텍처를 담는 index의 digest이고, 배포는 이 값으로 고정한다. 한번 붙은 manifest는 바뀌지 않는다. 필드와 확인 방법은 [릴리스 manifest 읽기](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기)를 본다.

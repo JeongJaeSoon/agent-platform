@@ -79,14 +79,14 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 ```bash
 TAG=v0.1.0   # 읽을 릴리스 태그
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
-jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # 배포에 쓰는 세 digest
-jq -c .workerRuntime release-manifest.json                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart 위치와 버전
-helm show chart "$(jq -r .chart.ref release-manifest.json)" --version "$(jq -r .chart.version release-manifest.json)"
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # 태그마다 디렉터리 하나
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # 배포에 쓰는 세 digest
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart 위치와 버전
+helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
 ```
 
-저장소가 공개이므로 `gh` 없이 `curl -fsSLO https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json`으로도 받는다. 레지스트리와 대조하려면 digest 하나를 `docker buildx imagetools inspect <이미지>@<digest>`에 넣는다.
+저장소가 공개이므로 `gh` 없이 `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"`으로도 받는다. 레지스트리와 대조하려면 digest 하나를 `docker buildx imagetools inspect <이미지>@<digest>`에 넣는다.
 
 | 필드 | 값 |
 |---|---|

@@ -262,11 +262,11 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 
 ```bash
 TAG=v0.1.0   # 쓸 릴리스 태그
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"
 jq '{source_commit: .commit, images: {
   control_host: (.images["control-host"] | "\(.image)@\(.digest)"),
   worker: (.images.worker | "\(.image)@\(.digest)"),
-  egress_proxy: (.images["egress-proxy"] | "\(.image)@\(.digest)")}}' release-manifest.json
+  egress_proxy: (.images["egress-proxy"] | "\(.image)@\(.digest)")}}' "$TAG/release-manifest.json"
 ```
 
 릴리스가 없을 때(`main` 머지)는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지마다-게시되는-이미지)이나 `docker buildx imagetools inspect ghcr.io/jeongjaesoon/werft-worker:<tag>`로 digest를 읽고, manifest에는 digest로 적는다. `staged-digests`와 `arch-digest-*` artifact는 promote를 거치지 않은 후보이므로 쓰지 않는다. registry가 비공개면 호스트에서 `docker login ghcr.io`를 먼저 한다.

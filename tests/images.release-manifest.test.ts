@@ -374,6 +374,19 @@ describe("release-publish.sh", () => {
     expect(state).toEqual(initial);
   });
 
+  test("a remote manifest with trailing garbage is not the same manifest", () => {
+    const damaged = {
+      releases: [
+        release(true, [
+          { ...asset(manifest), content: `${JSON.stringify(manifest)}BROKEN` },
+        ]),
+      ],
+    };
+    const { exitCode, state } = publish(damaged, manifest);
+    expect(exitCode).toBe(1);
+    expect(state.releases[0]?.draft).toBe(true);
+  });
+
   test("completes a draft that has no manifest yet", () => {
     const { exitCode, state } = publish(
       { releases: [release(true, [])] },

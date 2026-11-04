@@ -24,10 +24,10 @@ Every release (`v*` tag) gets a GitHub Release with `release-manifest.json` atta
 
 ```bash
 TAG=v0.1.0   # the release tag to read
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json
-jq -r '.images[] | "\(.image)@\(.digest)"' release-manifest.json   # the three digests to deploy
-jq -c .workerRuntime release-manifest.json                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' release-manifest.json     # chart location and version
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests to deploy
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 ```
 
 Each digest is that of the index holding both architectures, and a deployment pins it. An attached manifest never changes. For the fields and how to check them, see [Read the release manifest](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기).

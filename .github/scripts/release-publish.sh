@@ -49,7 +49,11 @@ matches() {
   [ "$state" = uploaded ] || return 1
   gh api -H "Accept: application/octet-stream" \
     "repos/${repo}/releases/assets/${asset_id}" >"${work}/remote.json" || return 1
-  [ "$(jq -S . "${work}/remote.json")" = "$(jq -S . "$manifest")" ]
+  # Each jq on its own: its failure must not hide behind the comparison.
+  local theirs ours
+  theirs="$(jq -S . "${work}/remote.json")" || return 1
+  ours="$(jq -S . "$manifest")" || return 1
+  [ "$theirs" = "$ours" ]
 }
 
 entry="$(find_release)"
