@@ -11,6 +11,11 @@
 # a forgotten one stops compose instead of falling back to a core default
 # meant for the local stack. The provider key goes to the API alone.
 # tests/images.test.ts renders this and keeps the security settings out of it.
+
+# Where scripts/test-ops.sh checks the API. The script never reads the env
+# file, so the value reaches it through the render; no service receives it.
+x-test-ops-api-url: ${TEST_OPS_API_URL:-http://127.0.0.1:${TEST_OPS_API_PORT:-3000}}
+
 services:
   postgres:
     environment:

@@ -769,6 +769,10 @@ function checkUpgradeHook(
   if (value("UPGRADE_DEPLOYED_WORKER_IMAGE") !== "") {
     fail("UPGRADE_DEPLOYED_WORKER_IMAGE is not empty without a cluster");
   }
+  // Either value of it opens a path that skips a comparison.
+  if (value("UPGRADE_DEPLOYED_STATE") !== "") {
+    fail("UPGRADE_DEPLOYED_STATE is not empty without a cluster");
+  }
   if (!DIGEST_REF.test(value("WORKER_IMAGE") ?? "")) {
     fail("WORKER_IMAGE is not the target worker digest");
   }

@@ -88,6 +88,8 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "workspace_id",
     "created_by_user_id",
     "agent_release_id",
+    // 0231; arrives as 'release'
+    "github_policy_source",
     // 0104
     "checkpoint_pending_reason",
     "checkpoint_pending_attempt_id",

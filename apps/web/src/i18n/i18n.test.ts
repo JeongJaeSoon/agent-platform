@@ -98,6 +98,24 @@ describe("i18n", () => {
     }
   });
 
+  // The platform paragraph is off by default, so a hint without the condition
+  // is wrong on a default installation.
+  test("name and description hints say the model reads them only with platform guidance on", () => {
+    const condition = {
+      ko: "플랫폼 안내",
+      ja: "プラットフォーム案内",
+      en: "platform guidance",
+    } as const;
+    for (const locale of LOCALES) {
+      const catalog = catalogs[locale];
+      expect(catalog["agent.card.identityHint"]).toContain(condition[locale]);
+      expect(catalog["agents.descriptionHint"]).toContain(condition[locale]);
+      expect(catalog["agent.card.identityHint"]).toContain(
+        catalog["agentCard.agentInstructions"],
+      );
+    }
+  });
+
   test("every locale has exactly the Korean keys", () => {
     for (const locale of LOCALES) {
       expect(Object.keys(catalogs[locale]).sort()).toEqual(
