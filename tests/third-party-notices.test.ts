@@ -512,10 +512,10 @@ describe("Debian corresponding source", () => {
         most = Math.max(most, running);
         await Bun.sleep(1);
         running -= 1;
-        return "missing";
+        return "held";
       },
     );
-    expect(answers).toEqual(Array(9).fill("missing"));
+    expect(answers).toEqual(Array(9).fill("held"));
     expect(most).toBe(4);
   });
 

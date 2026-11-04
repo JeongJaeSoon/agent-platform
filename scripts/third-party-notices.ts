@@ -1007,6 +1007,12 @@ export async function snapshotAnswers(
             batch.map(({ source, version }) => holds(source, version)),
           )
         : batch.map((): SnapshotAnswer => "unreachable");
+    results.forEach((answer, index) => {
+      const { source, version } = batch[index] as (typeof batch)[number];
+      if (answer !== "held") {
+        console.error(`${answer}: ${snapshotUrl(source, version)}`);
+      }
+    });
     answers.push(...results);
   }
   return answers;
@@ -1171,12 +1177,6 @@ async function main(argv: string[]): Promise<number> {
       wanted,
       budgetSeconds === undefined ? undefined : budgetSeconds * 1000,
     );
-    answers.forEach((answer, index) => {
-      const { source, version } = wanted[index] as (typeof wanted)[number];
-      if (answer !== "held") {
-        console.error(`${answer}: ${snapshotUrl(source, version)}`);
-      }
-    });
     const held = answers.filter((answer) => answer === "held").length;
     console.log(
       `snapshot.debian.org holds ${held} of ${wanted.length} sources in ${file}`,

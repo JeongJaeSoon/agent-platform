@@ -45,8 +45,13 @@ if [ "$mode" != skip-snapshot ]; then
     check+=(240)
   fi
   answers="$(mktemp)"
-  if "${check[@]}" 2>"$answers"; then status=0; else status=$?; fi
-  cat "$answers" >&2
+  # tee, so a cancelled step still logs what it heard. pipefail carries the
+  # check's exit code through.
+  if { "${check[@]}" 2>&1 >&3 | tee "$answers" >&2; } 3>&1; then
+    status=0
+  else
+    status=$?
+  fi
 
   unverified="unverified-sources/${app}.txt"
   if [ "$mode" != build ]; then
