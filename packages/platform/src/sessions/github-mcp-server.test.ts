@@ -647,6 +647,57 @@ describe("tools/call", () => {
     expect(logged).toHaveLength(1);
   });
 
+  test("a fault in the continuation mark, or in the logger, is still an internal_error answer", async () => {
+    const handle = createGitHubMcpServer({
+      store: {
+        sessionState: async () => ({
+          ownerId: "owner-a",
+          agentId: creator.agent_id ?? "",
+          releaseId: "release-1",
+          source: "release",
+          github: github(),
+          enabled: true,
+          actor: creator,
+        }),
+        runningTurn: async () => 7,
+        markPushContinuation: async () => {
+          throw new Error("database unavailable");
+        },
+      },
+      services: () => ({
+        ...({} as GitHubMcpServices),
+        pushRequests: {
+          create: async () => {
+            const { code, message } = PUSH_REFUSAL_ERRORS.no_checkpoint;
+            throw new SessionServiceError(code, message, undefined, {
+              refusal: "no_checkpoint",
+            });
+          },
+          get: async () => {
+            throw new Error("not used");
+          },
+        },
+      }),
+      onInternalError: () => {
+        throw new Error("logger failed");
+      },
+    });
+    const answer = payload(
+      await handle(
+        grant,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "request_push", arguments: {} },
+        },
+        "req-1",
+      ),
+    );
+    expect(answer.isError).toBe(true);
+    expect(answer.body.refusal).toMatchObject({ code: "internal_error" });
+  });
+
   test("a call GitHub did not take is github and retryable", async () => {
     const h = harness({ github: github({ actions: true }) });
     h.gate.grant = async () => {

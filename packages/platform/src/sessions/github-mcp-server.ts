@@ -365,9 +365,7 @@ export function createGitHubMcpServer(deps: {
           ),
         );
       }
-      // A fault of the server: the model gets the code, never the exception.
-      deps.onInternalError?.(error, { tool, sessionId, requestId });
-      return refused(refusalOf(tool, "internal_error"));
+      throw error;
     }
   }
 
@@ -464,21 +462,28 @@ export function createGitHubMcpServer(deps: {
     ) {
       return fail(-32602, "Unknown tool");
     }
-    return answer(
-      await call(
-        grant,
-        name as GitHubMcpTool,
-        params.arguments,
-        requestId,
-        state.github,
-        {
+    const tool = name as GitHubMcpTool;
+    try {
+      return answer(
+        await call(grant, tool, params.arguments, requestId, state.github, {
           ownerId: state.ownerId,
           actor: state.actor,
           source: state.source,
           enabled: state.enabled,
-        },
-      ),
-    );
+        }),
+      );
+    } catch (error) {
+      // A fault of the server: the model gets the code, never the exception,
+      // and a logger that fails does not take the answer with it.
+      try {
+        deps.onInternalError?.(error, {
+          tool,
+          sessionId: grant.sessionId,
+          requestId,
+        });
+      } catch {}
+      return answer(refused(refusalOf(tool, "internal_error")));
+    }
   };
 }
 
