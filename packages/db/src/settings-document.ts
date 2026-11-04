@@ -143,7 +143,7 @@ async function insertRow(
     case "repository": {
       const authKind = repositoryAuthKindOf(add.entry);
       const { owner, name } = repositoryNameOf(add.entry);
-      const own = authKind !== "github_app" && authKind !== "none";
+      const own = authKind !== "github_app";
       await tx.insert(catalogRepositories).values({
         id: add.id,
         owner,
@@ -461,7 +461,7 @@ function consoleWrites(
   key: SecretKey | null,
 ): Pick<
   SettingsDocumentStore,
-  "create" | "setValue" | "disable" | "setMcpWorkspaces" | "setRepositoryBranch"
+  "create" | "setValue" | "disable" | "setMcpWorkspaces"
 > {
   const sealIn = async (
     tx: Database,
@@ -629,60 +629,6 @@ function consoleWrites(
           actor,
           "set_mcp_server_workspaces",
           { mcp_server_id: id, before, workspaces: [...workspaces] },
-        );
-        return { outcome: "done" as const, receiptId };
-      });
-    },
-
-    setRepositoryBranch(id, branch, actor) {
-      return asWriter("repository", actor, async (tx) => {
-        const [held] = await tx
-          .select()
-          .from(catalogRepositories)
-          .where(
-            and(
-              eq(catalogRepositories.id, id),
-              ne(catalogRepositories.authKind, "github_app"),
-            ),
-          )
-          .for("update");
-        if (!held) return { outcome: "not_found" as const };
-        if (held.removedAt !== null) {
-          return { outcome: "conflict" as const, reason: "disabled" };
-        }
-        // §2: an operator's reference is shown and disabled, nothing more.
-        if (
-          held.credentialSource !== null &&
-          !ownStoredOf("repository", id, {
-            entry: repositoryEntryOf(held),
-            credentialSource: held.credentialSource,
-            disabled: false,
-          })
-        ) {
-          return { outcome: "conflict" as const, reason: "not_stored" };
-        }
-        const [row] = await tx
-          .update(catalogRepositories)
-          .set({
-            branch,
-            version: held.version + 1,
-            updatedBy: actor.userId,
-            updatedAt: sql`now()`,
-          })
-          .where(eq(catalogRepositories.id, id))
-          .returning();
-        if (!row) throw new Error("catalog repository update returned no row");
-        const receiptId = await consoleReceipt(
-          tx,
-          actor,
-          "set_repository_branch",
-          {
-            repository_id: id,
-            url: row.url,
-            branch,
-            before: held.branch,
-            version: row.version,
-          },
         );
         return { outcome: "done" as const, receiptId };
       });

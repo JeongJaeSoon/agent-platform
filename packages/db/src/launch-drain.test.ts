@@ -56,6 +56,7 @@ const CATALOG: SessionCatalog = withSeededInstallation({
       url: "https://example.invalid/app.git",
       branch: "main",
       profiles: [PROFILE_ID],
+      auth: { kind: "github_app", registered: true },
     },
   },
 });

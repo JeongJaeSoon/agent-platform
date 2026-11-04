@@ -50,6 +50,21 @@ function request(
 
 type Method = keyof SettingsConsoleService;
 
+describe("removed URL repository routes", () => {
+  for (const [method, suffix] of [
+    ["GET", "/repositories"],
+    ["POST", "/repositories"],
+    ["PATCH", "/repositories/legacy"],
+    ["POST", "/repositories/legacy/credential"],
+    ["POST", "/repositories/legacy/disable"],
+  ] as const) {
+    test(`${method} ${suffix} is not registered`, async () => {
+      const response = await request({}, method, `${BASE}${suffix}`, {});
+      expect(response.status).toBe(404);
+    });
+  }
+});
+
 /** Every write route: its service method, a valid body, and a refused one. */
 const WRITES: ReadonlyArray<{
   method: "POST" | "PATCH";
@@ -91,25 +106,10 @@ const WRITES: ReadonlyArray<{
     status: 201,
     args: [],
   },
-  {
-    method: "POST",
-    path: `${BASE}/repositories`,
-    service: "createRepository",
-    body: {
-      id: "docs-site",
-      url: "https://git.example.invalid/acme/docs-site.git",
-      branch: "main",
-      auth: { kind: "none" },
-    },
-    invalid: { id: "docs-site", auth: { kind: "ssh" } },
-    status: 201,
-    args: [],
-  },
   ...(
     [
       ["connections", "connection"],
       ["mcp-servers", "mcp"],
-      ["repositories", "repository"],
     ] as const
   ).flatMap(([segment, kind]) => [
     {
@@ -137,15 +137,6 @@ const WRITES: ReadonlyArray<{
     invalid: { workspaces: [] },
     status: 200,
     args: ["console", ["acme"]],
-  },
-  {
-    method: "PATCH",
-    path: `${BASE}/repositories/console`,
-    service: "setRepositoryBranch",
-    body: { branch: "release" },
-    invalid: { branch: "" },
-    status: 200,
-    args: ["console", "release"],
   },
 ];
 
@@ -181,7 +172,6 @@ describe("GET /v1/installation/settings/{kind}", () => {
     for (const [service, segment] of [
       ["listConnections", "connections"],
       ["listMcpServers", "mcp-servers"],
-      ["listRepositories", "repositories"],
     ] as const) {
       const path = `${BASE}/${segment}`;
       expect(

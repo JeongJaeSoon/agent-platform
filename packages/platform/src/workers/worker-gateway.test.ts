@@ -730,6 +730,7 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1", "other"],
+            auth: { kind: "github_app", registered: true },
           },
           docs: {
             url: "https://example.invalid/docs.git",
@@ -1276,6 +1277,7 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["p"],
+            auth: { kind: "github_app", registered: true },
           },
           docs: {
             url: "https://example.invalid/docs.git",
@@ -3473,6 +3475,7 @@ describe("unmetered sessions", () => {
               url: "https://example.invalid/app.git",
               branch: "main",
               profiles: ["local"],
+              auth: { kind: "github_app", registered: true },
             },
           },
         }),

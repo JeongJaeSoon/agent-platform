@@ -213,15 +213,8 @@ export function createGitHubGate(deps: {
         }
       }
       const source = connections(repositoryId, "author");
-      // A catalog App or a PAT; console connections are all on github.com.
+      // Console connections are all on github.com.
       const author = source?.kind === "fixed" ? source.connection : null;
-      // Not on GitHub: the catalog's own credential, as before the gate.
-      if (source === null && entry.auth?.kind !== "github_app") {
-        // Another repository is only ever reached with the gate's own token.
-        if (!own) throw new GitHubUnavailableError("No GitHub connection");
-        return null;
-      }
-
       if (settings === "invalid") {
         return await refuse("github_settings_unsupported");
       }
@@ -234,15 +227,6 @@ export function createGitHubGate(deps: {
           !settings.repositories.includes(repositoryId)
         ) {
           return await refuse("repository_not_allowed");
-        }
-        // Under the agent's settings a PAT stays on the default work; only a
-        // feature below needs an App.
-        if (
-          policy.source === "release" &&
-          settings !== null &&
-          author?.kind === "pat"
-        ) {
-          return await refuse("app_required");
         }
       }
       const features = githubEffectiveFeatures(
@@ -257,7 +241,6 @@ export function createGitHubGate(deps: {
         if (!features[needs.feature]) {
           return await refuse("over_workspace_ceiling");
         }
-        if (author?.kind === "pat") return await refuse("app_required");
         if (author !== null && !author.githubCom) {
           return await refuse("github_host_unsupported");
         }

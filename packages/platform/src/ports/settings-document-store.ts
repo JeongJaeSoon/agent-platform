@@ -76,12 +76,6 @@ export interface SettingsDocumentStore {
     workspaces: readonly string[],
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
-  /** A new version of the row with another default branch. */
-  setRepositoryBranch(
-    id: string,
-    branch: string,
-    actor: TeamActor,
-  ): Promise<SettingsConsoleResult>;
 }
 
 export type SettingsRow = {

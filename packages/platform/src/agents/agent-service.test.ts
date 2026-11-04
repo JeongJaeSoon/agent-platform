@@ -61,6 +61,7 @@ const catalogOf = (profile: CatalogProfile): SessionCatalog =>
         url: "https://github.com/acme/other-app",
         branch: "main",
         profiles: ["either"],
+        auth: { kind: "github_app", registered: true },
       },
     },
   });

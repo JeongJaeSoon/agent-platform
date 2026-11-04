@@ -118,11 +118,6 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PATCH /v1/installation/settings/mcp-servers/{id}",
     "POST /v1/installation/settings/mcp-servers/{id}/credential",
     "POST /v1/installation/settings/mcp-servers/{id}/disable",
-    "GET /v1/installation/settings/repositories",
-    "POST /v1/installation/settings/repositories",
-    "PATCH /v1/installation/settings/repositories/{id}",
-    "POST /v1/installation/settings/repositories/{id}/credential",
-    "POST /v1/installation/settings/repositories/{id}/disable",
   ],
   "routes/events.test.ts": ["GET /v1/sessions/{id}/events"],
   "routes/members.test.ts": [

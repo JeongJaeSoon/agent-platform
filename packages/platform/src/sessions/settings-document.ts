@@ -212,7 +212,7 @@ export function settingsDocumentDigest(document: SettingsDocument): string {
   return `sha256:${createHash("sha256").update(canonicalJsonOfJson(document)).digest("hex")}`;
 }
 
-/** `catalog_repositories.auth_kind` for a repository entry. */
+/** Persisted discriminators also identify legacy rows without authenticating them. */
 export type RepositoryAuthKind =
   | "github_app"
   | "none"
@@ -220,15 +220,13 @@ export type RepositoryAuthKind =
   | "bearer"
   | "github_app_explicit";
 
-export function repositoryAuthKindOf(
-  repository: CatalogRepositoryConfig,
-): RepositoryAuthKind {
+export function repositoryAuthKindOf(repository: {
+  auth?: { kind: string } | undefined;
+}): RepositoryAuthKind {
   const { auth } = repository;
   if (auth === undefined) return "none";
-  if (auth.kind === "github_app") {
-    return isRegisteredGitHubApp(auth) ? "github_app" : "github_app_explicit";
-  }
-  return auth.kind;
+  if (auth.kind === "basic" || auth.kind === "bearer") return auth.kind;
+  return isRegisteredGitHubApp(auth) ? "github_app" : "github_app_explicit";
 }
 
 /**
