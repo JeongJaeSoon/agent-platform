@@ -1,16 +1,16 @@
 ---
 title: "Instructions and description"
-description: How name and description differ from agent instructions, the card fields, how versions accumulate, and the instructions the model actually reads today
+description: How name and description differ from agent instructions, how to write instructions, the card fields, how versions accumulate, and the instructions the model actually reads today
 ---
 
 An agent has values people read and values a run uses, and they live in different places.
 
 | Value | Where | When you change it | Does the model read it |
 | --- | --- | --- | --- |
-| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | No |
+| Name (`name`) and description (`description`) | Agent row | Changes at once. No version or release is created | Only in sessions that have the [platform paragraph](#what-the-model-reads-today) |
 | Agent instructions (`agent_instructions`) and the other card fields | Card | Creates a new version. Used by sessions started on a release of that version | The instructions, yes |
 
-Name and description help people recognise the agent in lists and on its page. They do not affect what the agent does. How the agent should work goes in the agent instructions.
+Name and description help people recognise the agent in lists and on its page. In a session that has the platform paragraph, the model reads both as written too, so keep them factual. How the agent should work goes in the agent instructions.
 
 ## Agent instructions
 
@@ -22,6 +22,20 @@ In the web console, open the "Settings" tab on the agent's page, press "Edit set
 - Once you create a release from that version, sessions started on that release get the text in their system prompt, after the platform's instructions and before the repository's `CLAUDE.md`. Activating the release makes it the one that paths which pick no release themselves, such as Slack, use for new sessions.
 - A session is pinned to the release it started on. When the session's runtime comes back up (the next message after the runtime shut down because no input came for 30 minutes after the last turn, or a resume after a pause), the same release's instructions are added again, so changing the active release does not change the instructions of a session already running.
 - Clearing the field or leaving only spaces removes it from the card, and nothing is added to the prompt. Text you write is stored as is, including leading and trailing spaces.
+
+### How to write instructions
+
+The agent's role is its author's to define. The platform adds no sentences that set a role or personality, only facts it alone knows and safety rules. They are listed under [What the model reads today](#what-the-model-reads-today).
+
+- Skip years of experience and inflated adjectives. "A top senior developer with 30 years of experience" says nothing about the work the agent takes on.
+- Give the scope in one line.
+- Name allowed actions with concrete verbs and a reason. With a reason, the agent can apply the same judgment in situations you did not write down.
+
+```text
+Analyze payment incidents.
+Read logs and summarize the cause.
+Do not change code, because the owning team reviews every change.
+```
 
 ### Earlier instructions
 
@@ -63,12 +77,22 @@ In card editing (the "What it does" step of a new agent, and Edit settings on th
 
 The worker adds these instructions to the model's system prompt, in this order.
 
-1. For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
-2. The agent instructions of the session's release.
-3. `CLAUDE.md` at the repository root. When the profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
+1. The platform paragraph, in sessions created while the installation setting `SESSION_PROMPT_REVISION` is `1`. Sessions created with the default `0` do not get it. Changing the setting later leaves existing sessions as they are.
+2. For a session without a repository, a single line telling the agent to put files meant for people in `out/`.
+3. The agent instructions of the session's release.
+4. `CLAUDE.md` at the repository root. When the profile has `project_settings.claude_md: true`, the committed content is read. The local profile `claude-coding-local` has it on.
+
+The platform paragraph has no sentences that set a role or personality. It holds only facts the platform alone knows and safety rules:
+
+- The agent's name and description, passed on as written.
+- Where the session started, the answer language (the card's `language`), and the GitHub name of the session's repository.
+- The tools for GitHub work and how to use them.
+- Safety rules: which branches can be pushed, not asking anyone for a token, and that agent instructions cannot change which tools the agent has.
+
+These values are saved when the session is created. Changing the name or description does not change the paragraph of a session in progress.
 
 <Callout type="warn">
-Name, description, and the card's `role`, `instructions`, `language`, and `rules` are not passed to the model. To set the answer language, write it in the agent instructions.
+The card's `role`, `instructions`, and `rules` are not passed to the model. A session without the platform paragraph does not get the name, the description, or the card's `language` either. To set the answer language of such a session, write it in the agent instructions.
 </Callout>
 
 ## Editing and versions

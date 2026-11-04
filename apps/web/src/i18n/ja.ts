@@ -18,6 +18,7 @@ import { outputsJa } from "./outputs.ts";
 import { preferencesJa } from "./preferences.ts";
 import { profilesJa } from "./profiles.ts";
 import { sessionListJa } from "./session-list.ts";
+import { settingsJa } from "./settings.ts";
 import { shellJa } from "./shell.ts";
 import { teamsJa } from "./teams.ts";
 import { usageJa } from "./usage.ts";
@@ -194,6 +195,7 @@ export const ja: Record<MessageKey, string> = {
   ...agentsJa,
   ...modelsJa,
   ...profilesJa,
+  ...settingsJa,
   ...sessionsJa,
   ...sessionListJa,
   ...flowJa,

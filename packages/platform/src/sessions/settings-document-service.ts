@@ -30,7 +30,7 @@ const OUTRANKED = () =>
  */
 export function createSettingsDocumentService(deps: {
   authorization: AuthorizationPolicy;
-  store: SettingsDocumentStore;
+  store: Pick<SettingsDocumentStore, "exportEntries" | "importEntries">;
   /** Reads the settings again after an import committed; never throws. */
   reread: () => Promise<void>;
 }) {
