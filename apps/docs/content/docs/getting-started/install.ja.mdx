@@ -22,8 +22,8 @@ Werft は TypeScript SDK `@werft-ai/sdk` で使う。SDK は、すでに動い�
 `@werft-ai/sdk` はまだ npm レジストリに公開されていない。今はリポジトリでパッケージをビルドし、tarball でインストールする。リポジトリが固定している Bun 1.3.14 と npm が必要である。
 
 ```sh
-git clone https://github.com/JeongJaeSoon/agent-platform.git
-cd agent-platform
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
 bun install
 bun run --cwd packages/sdk build:package
 npm pack ./packages/sdk/dist
@@ -36,7 +36,7 @@ cd ..
 mkdir my-werft-app && cd my-werft-app
 npm init -y
 npm pkg set type=module
-npm install ../agent-platform/werft-ai-sdk-0.1.0.tgz
+npm install ../werft/werft-ai-sdk-0.1.0.tgz
 ```
 
 npm に公開されると、最後の行は `npm install @werft-ai/sdk` に変わる。SDK パッケージは Apache License 2.0 である。サーバーとリポジトリの残りは PolyForm Small Business License 1.0.0 に従う source-available のコードである。

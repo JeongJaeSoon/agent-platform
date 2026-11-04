@@ -6,8 +6,8 @@ import type {
 import type { TeamActor } from "./team-store.ts";
 
 /**
- * An installation ceiling as stored. `catalog` rows were imported from
- * `profiles.yaml` under their YAML id; `console` rows are named versions.
+ * An installation ceiling as stored. `catalog` rows were seeded under a
+ * plain id; `console` rows are named versions.
  * Nothing changes but `retired_at` and `blocked_at`.
  */
 export type InstallationProfileRecord = {
@@ -22,8 +22,7 @@ export type InstallationProfileRecord = {
   fingerprint: string;
   /**
    * The repositories the ceiling may run against: the only record of it.
-   * Null on a `catalog` row the api role has not yet filled from the
-   * `profiles` arrays of repositories.yaml.
+   * Null on a `catalog` row no seed has filled: it runs on no repository.
    */
   repository_ids: string[] | null;
   github_app_repositories: GitHubAppRepositories;
@@ -45,7 +44,7 @@ export type InstallationProfileRecord = {
   blocked_by: string | null;
 };
 
-/** One `profiles.yaml` entry to import. */
+/** One seed entry to import. */
 export type CatalogProfileImport = {
   id: string;
   definition: unknown;
@@ -55,7 +54,7 @@ export type CatalogProfileImport = {
 
 /**
  * `seeded`: the ids put in an empty table. `migrated`: imported rows whose
- * repositories were filled from repositories.yaml, which happens once.
+ * repositories were filled from the seed, which happens once.
  */
 export type CatalogSeedResult = {
   seeded: string[];

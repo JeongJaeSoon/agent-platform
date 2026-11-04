@@ -30,8 +30,8 @@ done
 ## 取得する
 
 ```sh
-git clone https://github.com/JeongJaeSoon/agent-platform.git
-cd agent-platform
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
 ```
 
 ## 立ち上げる
@@ -84,7 +84,7 @@ scripts/local.sh down
 
 データを残し worker コンテナとネットワークも片付けるには `scripts/local.sh down --keep-volumes` を実行する。再開は `scripts/local.sh up --fake-model`。PostgreSQL・S3 のデータは named volume に残る。S3 オブジェクトと暗号化キーは `local-s3-data` に保存され、Docker/OrbStack を再起動しても checkpoint を読める。
 
-以前の LocalStack から移行するときは、pull 前に古い checkout でバックアップし、pull 後に未使用の新しい project へ復元する。失われたオブジェクトはバックアップなしでは復元できないため、参照を放棄するか明示的に判断する。[移行・バックアップ手順](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)を参照する。
+以前の LocalStack から移行するときは、pull 前に古い checkout でバックアップし、pull 後に未使用の新しい project へ復元する。失われたオブジェクトはバックアップなしでは復元できないため、参照を放棄するか明示的に判断する。[移行・バックアップ手順](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤)を参照する。
 
 ## うまくいかないとき
 

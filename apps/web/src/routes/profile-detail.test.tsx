@@ -391,8 +391,8 @@ describe("프로필 상세", () => {
     // The title is the id while it loads too; wait for the record itself.
     await screen.findByRole("region", { name: "기록" });
     expect(values("기록")).toEqual({
-      출처: "설치 설정 파일에서 가져옴",
-      "만든 사람": "설치 설정 파일",
+      출처: "설정 문서에서 가져옴",
+      "만든 사람": "설정 문서",
       "만든 때": expect.any(String),
       "앞 버전": "없음",
     });

@@ -1,20 +1,19 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import type { Database } from "@werft-ai/db";
 import { createLogger } from "@werft-ai/observability";
-import { catalogRows, installationProfileSnapshot } from "@werft-ai/platform";
+import {
+  catalogRows,
+  installationProfileSnapshot,
+  parseSeedDocument,
+  SecretKey,
+} from "@werft-ai/platform";
 import {
   ALLOW_UNATTENDED_SETTING,
-  CONNECTIONS_FILE,
-  loadProfileSources,
-  loadSessionCatalog,
-  PROFILES_FILE,
+  profileSources,
   profileViewSources,
-  REPOSITORIES_FILE,
-  readSeedProfiles,
 } from "../api/catalog-config.ts";
+import { settingsDocument } from "../test-support/settings.ts";
 import {
   slackRoleSettings,
   slackRoleStartup,
@@ -50,73 +49,62 @@ const CONNECTIONS = `connections:
       value_env: PROVIDER_KEY
 `;
 
-let root: string;
-const noSecrets = async () => {
-  throw new Error("no secret is read");
+const KEY = randomBytes(32).toString("hex");
+const base = {
+  DATABASE_URL: "postgres://nobody@127.0.0.1:1/none",
+  PLATFORM_SECRET_KEY: KEY,
 };
 
-beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "slack-role-"));
-});
-afterAll(async () => {
-  await rm(root, { recursive: true, force: true });
-});
-
-async function catalogDir(mode: string): Promise<string> {
-  const dir = await mkdtemp(join(root, "catalog-"));
-  await writeFile(join(dir, PROFILES_FILE), profiles(mode));
-  await writeFile(join(dir, REPOSITORIES_FILE), REPOSITORIES);
-  await writeFile(join(dir, CONNECTIONS_FILE), CONNECTIONS);
-  return dir;
+function failure(start: () => unknown): string {
+  try {
+    start();
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error("expected a refusal");
 }
 
-const base = { DATABASE_URL: "postgres://nobody@127.0.0.1:1/none" };
-
-const failure = (promise: Promise<unknown>) =>
-  promise.then(
-    () => {
-      throw new Error("expected a refusal");
-    },
-    (error: Error) => error.message,
-  );
-
 describe("slack role startup", () => {
-  test("loads the catalog the api would, without its provider key", async () => {
-    const dir = await catalogDir("default");
-    const { catalog, connections, secretKeySet } = await slackRoleStartup(
-      { ...base, PLATFORM_CONFIG_DIR: dir },
-      noSecrets,
-    );
-    // The slack role reads no profiles.yaml: its ceilings are the api's rows.
-    expect(Object.keys(catalog.profiles)).toEqual([]);
-    expect(Object.keys(catalog.repositories)).toEqual(["sample-app"]);
-    expect(Object.keys(connections)).toEqual(["main"]);
-    expect(secretKeySet).toBe(false);
-    expect(
-      await failure(
-        loadSessionCatalog({ dir, env: base, readSecret: noSecrets }),
-      ),
-    ).toContain("PROVIDER_KEY");
+  test("takes the master key and reads no provider key", () => {
+    const { secretKey } = slackRoleStartup(base);
+    expect(secretKey).toBeInstanceOf(SecretKey);
   });
 
-  test("an unattended profile is left out for the api's reason, until allowed", async () => {
-    const dir = await catalogDir("bypassPermissions");
-    const env = { ...base, PLATFORM_CONFIG_DIR: dir };
-    const stateOf = async (environment: Record<string, string>) => {
-      const role = await slackRoleStartup(environment, noSecrets);
-      const api = await loadProfileSources({
-        dir,
-        env: { ...environment, PROVIDER_KEY: "value-from-environment" },
-        readSecret: noSecrets,
-      });
-      const rows = catalogRows(await readSeedProfiles(dir, role.catalog));
+  test("refuses a leftover file catalog until it is unset", () => {
+    expect(
+      failure(() => slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "/c" })),
+    ).toContain("PLATFORM_CONFIG_DIR no longer read");
+    expect(
+      failure(() => slackRoleStartup({ ...base, SESSION_CATALOG_JSON: "{}" })),
+    ).toContain("SESSION_CATALOG_JSON no longer read");
+    expect(
+      slackRoleStartup({ ...base, PLATFORM_CONFIG_DIR: "" }),
+    ).toBeDefined();
+  });
+
+  test("an unattended profile is left out for the api's reason, until allowed", () => {
+    const seed = parseSeedDocument(
+      settingsDocument(
+        profiles("bypassPermissions"),
+        REPOSITORIES,
+        CONNECTIONS,
+      ),
+    );
+    const { connections } = seed.entries;
+    const rows = catalogRows(seed.profiles ?? {}, seed.entries.repositories);
+    const stateOf = (environment: Record<string, string>) => {
+      const view = profileViewSources(environment);
+      const api = profileSources(environment);
       const states = [
-        profileViewSources(
-          role.connections,
-          role.catalog.repositories,
-          environment,
-        ),
-        api.sources,
+        { ...view, connections },
+        {
+          ...api,
+          connections,
+          materialize: (
+            id: string,
+            definition: Parameters<typeof api.materialize>[1],
+          ) => api.materialize(id, definition, () => "value-from-settings"),
+        },
       ].map(
         (sources) =>
           installationProfileSnapshot(sources, rows).installation.get("coding")
@@ -125,43 +113,31 @@ describe("slack role startup", () => {
       expect(states[0]).toBe(states[1]);
       return states[0];
     };
-    expect(await stateOf(env)).toBe("unattended_off");
-    expect(await stateOf({ ...env, [ALLOW_UNATTENDED_SETTING]: "true" })).toBe(
+    expect(stateOf(base)).toBe("unattended_off");
+    expect(stateOf({ ...base, [ALLOW_UNATTENDED_SETTING]: "true" })).toBe(
       "usable",
     );
   });
 
-  test("a bad master key or setting stops it before any pass", async () => {
-    const dir = await catalogDir("default");
+  test("a bad master key or setting stops it before any pass", () => {
     expect(
-      await failure(
-        slackRoleStartup(
-          { ...base, PLATFORM_CONFIG_DIR: dir, PLATFORM_SECRET_KEY: "abc" },
-          noSecrets,
-        ),
-      ),
+      failure(() => slackRoleStartup({ ...base, PLATFORM_SECRET_KEY: "abc" })),
     ).toContain("PLATFORM_SECRET_KEY");
     expect(
-      await failure(
-        slackRoleStartup(
-          { ...base, PLATFORM_CONFIG_DIR: dir, SLACK_ROLE_LEASE_SEC: "0" },
-          noSecrets,
-        ),
-      ),
+      failure(() => slackRoleStartup({ DATABASE_URL: base.DATABASE_URL })),
+    ).toContain("PLATFORM_SECRET_KEY is required");
+    expect(
+      failure(() => slackRoleStartup({ ...base, SLACK_ROLE_LEASE_SEC: "0" })),
     ).toContain("SLACK_ROLE_LEASE_SEC");
     expect(
-      await failure(slackRoleStartup({ PLATFORM_CONFIG_DIR: dir }, noSecrets)),
+      failure(() => slackRoleStartup({ PLATFORM_SECRET_KEY: KEY })),
     ).toContain("DATABASE_URL or QUEUE_DATABASE_URL is required");
   });
 
   // One pass child serves pass after pass, each building a handler: a timer
   // a handler starts outlives its pass and keeps reading a closed pool.
-  test("a pass's handler leaves no timer running in the pass child", async () => {
-    const dir = await catalogDir("default");
-    const { catalog, connections } = await slackRoleStartup(
-      { ...base, PLATFORM_CONFIG_DIR: dir },
-      noSecrets,
-    );
+  test("a pass's handler leaves no timer running in the pass child", () => {
+    const { secretKey } = slackRoleStartup(base);
     const original = globalThis.setInterval;
     const started: ReturnType<typeof setInterval>[] = [];
     globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
@@ -187,9 +163,7 @@ describe("slack role startup", () => {
             STORAGE_LIMIT_BYTES: "1073741824",
           },
           logger: createLogger({ level: "error", sinks: [] }),
-          catalog,
-          connections,
-          secretKey: null,
+          secretKey,
           leaseMs: 60_000,
         });
       }

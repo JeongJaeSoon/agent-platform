@@ -156,9 +156,6 @@ function memoryRepositories() {
     async readCatalog() {
       return rows.size === 0 ? null : store.listActive();
     },
-    async seed() {
-      return [];
-    },
     async resolve(input) {
       const held = [...rows.values()].find(
         (row) =>
@@ -176,7 +173,7 @@ function memoryRepositories() {
         };
       }
       let id = input.base;
-      for (let n = 2; rows.has(id) || input.reserved.has(id); n += 1) {
+      for (let n = 2; rows.has(id); n += 1) {
         id = `${input.base}-${n}`;
       }
       const at = new Date().toISOString();
@@ -335,24 +332,6 @@ function appWith() {
               ceiling("op_closed_v1", "listed"),
             ]),
           },
-          fileRepositories: {
-            // A credentialed entry: shown read-only and its id reserved.
-            tool: {
-              url: "https://github.com/acme/tool.git",
-              branch: "main",
-              auth: {
-                kind: "basic",
-                username: "x-access-token",
-                password: { kind: "env", name: "TOOL_TOKEN" },
-              },
-            },
-            // A registered-App entry is the database's now.
-            seeded: {
-              url: "https://github.com/acme/seeded.git",
-              branch: "main",
-              auth: { kind: "github_app", registered: true },
-            },
-          } as never,
           changed: async () => {
             changes += 1;
           },
@@ -468,13 +447,10 @@ describe("the GitHub repository API", () => {
         )
       ).json,
     );
-    // The file's credentialed entry holds acme/tool already.
     expect(second.repositories).toEqual([
-      expect.objectContaining({ full_name: "acme/tool", catalog_id: "tool" }),
+      expect.objectContaining({ full_name: "acme/tool", catalog_id: null }),
     ]);
-    expect(second.catalog).toEqual([
-      expect.objectContaining({ id: "tool", source: "file", editable: false }),
-    ]);
+    expect(second.catalog).toEqual([]);
 
     const elsewhere = await call("GET", workspacePath("?installation_id=5"), {
       cookie: owner,
@@ -549,7 +525,6 @@ describe("the GitHub repository API", () => {
     ).toMatchObject({ catalog_id: "app", agent_count: 2 });
     expect(listed.catalog.find((r) => r.id === "app")).toMatchObject({
       source: "selection",
-      editable: true,
       installed: true,
       pins: { author: APP_ROW, reviewer: null },
     });
@@ -600,12 +575,6 @@ describe("the GitHub repository API", () => {
         "role_mismatch",
       ],
       [`${pinsPath}/author`, { connection_id: crypto.randomUUID() }, 404, null],
-      [
-        workspacePath("/tool/app-pins/author"),
-        { connection_id: APP_ROW },
-        400,
-        "file_repository",
-      ],
       [`${pinsPath}/author`, { connection_id: "app-row" }, 400, null],
       [
         `${pinsPath}/author`,
@@ -621,14 +590,10 @@ describe("the GitHub repository API", () => {
         expect(code(refused.json).details).toEqual({ reason_code: reason });
       }
     }
-    for (const path of [
-      workspacePath("/tool/app-pins"),
-      workspacePath("/missing/app-pins"),
-    ]) {
-      expect((await call("GET", path, { cookie: owner })).status).toBe(
-        path.includes("tool") ? 400 : 404,
-      );
-    }
+    expect(
+      (await call("GET", workspacePath("/missing/app-pins"), { cookie: owner }))
+        .status,
+    ).toBe(404);
     expect(
       (await call("GET", pinsPath, { cookie: cookieFor("member") })).status,
     ).toBe(403);
@@ -662,18 +627,6 @@ describe("the GitHub repository API", () => {
     });
     expect(absent.status).toBe(400);
     expect(code(absent.json).details).toEqual({ reason_code: "not_installed" });
-
-    const file = await call("POST", agentPath(), {
-      cookie: owner,
-      body: {
-        installation_id: INSTALLATION,
-        github_repository_id: idOf("acme/tool"),
-      },
-    });
-    expect(file.status).toBe(400);
-    expect(code(file.json).details).toEqual({
-      reason_code: "file_repository",
-    });
 
     expect(
       listAgentGitHubRepositoriesResponseSchema.parse(
@@ -723,13 +676,6 @@ describe("the GitHub repository API", () => {
     });
     expect(stale.status).toBe(409);
     expect(code(stale.json).code).toBe("REVISION_CONFLICT");
-
-    const file = await call("PATCH", workspacePath("/tool"), {
-      cookie: owner,
-      body: { branch: "x", version: 1 },
-    });
-    expect(file.status).toBe(400);
-    expect(code(file.json).details).toEqual({ reason_code: "file_repository" });
 
     for (const bad of [
       "",

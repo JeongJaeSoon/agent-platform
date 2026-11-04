@@ -20,11 +20,7 @@ import {
   slackEventsUrl,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
-import {
-  DEFAULT_CONFIG_DIR,
-  loadSecretKey,
-  secretsManagerReader,
-} from "./catalog-config.ts";
+import { loadSecretKey, SECRET_KEY_SETTING } from "./catalog-config.ts";
 import {
   consoleOriginFrom,
   SlackConfigError,
@@ -54,8 +50,7 @@ const USAGE = `Usage: bun run apps/control-host/src/api/slack-app.ts create --wo
   finalize sends the agent app's manifest again with its event subscription
   (<SLACK_EVENTS_PUBLIC_URL>/v1/slack/events/<agent_id>), as an install does;
   running it again changes nothing.
-Environment: DATABASE_URL (required), the master key as the API reads it
-             (PLATFORM_SECRET_KEY or platform.yaml in PLATFORM_CONFIG_DIR),
+Environment: DATABASE_URL and PLATFORM_SECRET_KEY (required),
              SLACK_OIDC_REDIRECT_URI (create: its origin is the console's),
              SLACK_EVENTS_PUBLIC_URL (finalize: the funnel's https base),
              SLACK_API_URL (default https://slack.com/api; http only for a local mock)
@@ -326,12 +321,8 @@ if (import.meta.main) {
     env: process.env,
     out: (line) => console.log(line),
     err: (line) => console.error(line),
-    loadKey: (env) =>
-      loadSecretKey({
-        dir: env.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR,
-        env,
-        readSecret: secretsManagerReader(env),
-      }),
+    loadKey: async (env) =>
+      env[SECRET_KEY_SETTING] ? loadSecretKey(env) : null,
     async openDatabase(databaseUrl) {
       const pool = createEnforcedPool(
         databaseUrl,

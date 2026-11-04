@@ -7,10 +7,10 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | test-ops | Kubernetes 설치 |
 |---|---|
 | env 파일 | Secret(또는 ExternalSecret)과 설치별 values 파일 |
-| 카탈로그 디렉터리 | values의 `catalog`(ConfigMap) |
+| 설정 문서 | `bun run settings:k8s import --document -` |
 | release manifest(digest) | values의 `images.*.digest` |
 | `deploy`·`upgrade` | `helm upgrade --install`. migrate는 hook이 먼저 돌린다 |
-| `key create`·`key revoke`, `grants.ts` | `bun run keys:k8s`·`grants:k8s`·`catalog-authority:k8s` |
+| `key create`·`key revoke`, `grants.ts` | `bun run keys:k8s`·`grants:k8s` |
 | `backup`·`restore-drill` | RDS 백업·스냅샷과 S3 version([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)) |
 | 재시작 복구 | Deployment가 다시 띄운다. 확인은 [health 확인](kubernetes-deployment.md#health-확인) |
 
@@ -133,7 +133,8 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 | `POSTGRES_PASSWORD` | 무작위 값. `DATABASE_URL`에 escape 없이 들어가므로 영문·숫자·`.` `_` `~` `-`만 쓴다. `preflight`가 다른 문자를 거부한다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값. API와 egress proxy가 같은 값을 쓴다 |
 | `ANTHROPIC_API_KEY` | 운영자 공유 provider key. API에만 간다(아래 "provider key") |
-| `PLATFORM_CATALOG_DIR` | 카탈로그 디렉터리. 기본 예시는 `/etc/agent-platform/catalog`. checkout 안이면 거부한다 |
+| `PLATFORM_SETTINGS_DOCUMENT` | 설정 문서 파일. 기본 예시는 `/etc/agent-platform/settings.json`. checkout 안이면 거부한다 |
+| `PLATFORM_SECRET_KEY` | 64자 hex(`openssl rand -hex 32`). 저장한 자격 증명을 봉인하는 master key다. API와 slack 역할에만 가고, 없으면 `preflight`가 거부한다. 잃으면 저장한 값을 읽지 못한다 |
 | `EGRESS_CREDENTIAL_ALLOWLIST` | `localstack`: `api.anthropic.com:443,github.com:443`. `s3`: `api.anthropic.com:443,github.com:443,<bucket>.s3.ap-northeast-1.amazonaws.com:443`. `github.com:443`이 없으면 worker가 카탈로그의 GitHub 저장소를 clone하지 못한다. bucket 호스트가 없으면 worker가 checkpoint를 쓰지 못하므로 `preflight`가 거부한다. 이름에 `.`이 든 bucket은 `s3.ap-northeast-1.amazonaws.com:443`이다 |
 | `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` | `localstack`: `localstack:4566`. 없으면 worker가 checkpoint를 쓰지 못하므로 거부한다. `s3`: 비워 둔다. 어느 쪽이든 로컬 전용 서비스(`fake-messages`, `secrets`, `fake-git`, `s3`에서는 `localstack`도)를 적으면 거부한다 |
 | `EXECUTION_WORKSPACE_QUOTA` | `on`. 다른 값이면 거부한다 |
@@ -176,56 +177,57 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 
 ## 카탈로그
 
-`PLATFORM_CATALOG_DIR`에 `connections.yaml`, `repositories.yaml`, `profiles.yaml`을 둔다. `connections.yaml`이 없으면 API가 뜨지 않는다. `profiles.yaml`과 `repositories.yaml`의 `profiles` 배열은 DB가 비어 있는 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. API 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 카탈로그에는 값이 아니라 참조만 적으므로 비밀이 없다. 형식은 `config/` 아래 같은 이름 파일의 주석을 따른다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다. profile의 `provider`는 연결 하나와 똑같아야 돈다.
+`PLATFORM_SETTINGS_DOCUMENT`에 설정 문서 하나를 둔다. migrate가 `deploy`·`upgrade`마다 이 문서를 가져온다. 가져오기는 더하기만 하므로 이미 있는 항목은 그대로이고, 같은 id를 다른 내용으로 고치면 migrate가 실패해 새 release가 뜨지 않는다. 최상위 `profiles`와 저장소의 `profiles` 배열은 표가 빈 첫 `deploy` 때만 상한과 저장소 허용으로 들어가고, 그 뒤로는 고쳐도 DB가 바뀌지 않는다. migrate 컨테이너(uid 1000)가 읽을 수 있게 파일은 `0644`로 둔다. 문서에는 값이 아니라 참조만 적으므로 비밀이 없다. test-ops에서는 provider를 실제 Messages API로, key를 `value_env: ANTHROPIC_API_KEY`로 적는다. profile의 `provider`는 연결 하나와 똑같아야 돈다.
 
-```yaml
-# connections.yaml
-connections:
-  anthropic:
-    kind: anthropic
-    endpoint: https://api.anthropic.com
-    auth:
-      kind: api_key
-      value_env: ANTHROPIC_API_KEY
-```
-
-```yaml
-# profiles.yaml
-profiles:
-  claude-coding:
-    runtime_kind: claude_agent_sdk
-    runtime_version: "0.3.270"
-    model: claude-sonnet-5
-    tools: [Read, Edit, Write, Glob, Grep, Bash]
-    permission_mode: default
-    provider:
-      kind: anthropic
-      endpoint: https://api.anthropic.com
-      auth:
-        kind: api_key
-        value_env: ANTHROPIC_API_KEY
-    project_settings:
-      claude_md: true
-```
-
-```yaml
-# repositories.yaml
-repositories:
-  sample-app:
-    url: https://github.com/<owner>/<repo>.git
-    branch: main
-    profiles: [claude-coding]
+```json
+{
+  "version": 1,
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "profiles": ["claude-coding"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
 ```
 
 test-ops에는 git 호스트가 없다. 저장소는 GitHub에 둔다. 위 예시는 공개 저장소이고, 비공개 저장소의 인증은 [api-server.md](api-server.md)를 따른다.
 
-카탈로그 revision은 디렉터리 안 모든 파일의 경로와 sha256을 묶은 값이다. release manifest에 적을 값은 다음으로 구한다.
+release manifest에 적을 digest는 문서 파일 바이트의 sha256이다. 다음으로 구한다.
 
 ```bash
-bun run scripts/lib/test-ops.ts catalog-revision /etc/agent-platform/catalog
+bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
 ```
 
+`preflight`는 마운트한 문서가 이 digest와 다르면 거부한다. `deploy`·`upgrade`는 끝에서 `settings import --dry-run`으로 DB가 문서를 모두 담았는지 보고, 더할 것이 남아 있으면 `the database does not hold the settings document`로 멈춘다. 문서의 digest가 그대로면 `upgrade`는 migrate를 다시 돌리지 않는다.
+
 상한 설정은 DB 행이 정본이고 행은 바뀌지 않는다. 설정을 바꿀 때는 `POST /v1/installation-profiles`로 새 버전을 만든다([api-server.md](api-server.md#운영자-카탈로그-agent-profile--repository)).
+
+**파일 카탈로그로 돌던 설치.** 올리기 전에 env 파일에서 `PLATFORM_CATALOG_DIR`을 지우고, 옛 디렉터리를 `PLATFORM_LEGACY_CONFIG_DIR`로 준다. migrate가 그 디렉터리를 한 번 가져온다. master key를 `PLATFORM_SECRET_KEY`로 옮기는 일까지 순서는 [api-server.md](api-server.md#설정-문서-가져오기내보내기)의 "파일 카탈로그에서 옮기기"를 따른다. 가져온 뒤 `settings export`의 결과를 설정 문서로 두면 다음 `upgrade`부터 옛 디렉터리가 필요 없다.
 
 ## release manifest
 
@@ -235,7 +237,7 @@ manifest는 JSON 파일 하나다. 예시는 `infra/test-ops.release.example.jso
 |---|---|
 | `source_commit` | compose 파일을 읽을 commit, 40자 hex |
 | `images.control_host`, `images.worker`, `images.egress_proxy` | `<이름>@sha256:<64자 hex>`. tag만 적은 이미지, 짧은 digest는 거부한다 |
-| `catalog_revision` | 위 `catalog-revision`의 출력 |
+| `settings_digest` | 위 `settings-digest`의 출력 |
 
 ### 이미지를 직접 빌드한다
 
@@ -263,10 +265,10 @@ digest는 [`main-<12>`를 읽는 명령](images-and-supply-chain.md#main-머지�
 빈 호스트에서 한 번 한다.
 
 ```bash
-git clone https://github.com/JeongJaeSoon/agent-platform.git && cd agent-platform
+git clone https://github.com/JeongJaeSoon/werft.git && cd werft
 git checkout <source_commit>
 bun install --frozen-lockfile
-# env 파일, 카탈로그, manifest를 준비한 뒤
+# env 파일, 설정 문서, manifest를 준비한 뒤
 scripts/test-ops.sh preflight release.json   # 먼저 따로 돌려 봐도 된다
 scripts/test-ops.sh deploy release.json      # LocalStack
 # AWS S3로 배포할 때:
@@ -277,7 +279,7 @@ scripts/test-ops.sh deploy release.json      # LocalStack
 
 1. env 파일 권한, manifest 형식, checkout의 commit과 로컬 변경
 2. Docker Engine 28 이상, compose v2.24.6 이상
-3. 렌더된 compose: 로컬 전용 서비스가 없고(`localstack`에서는 LocalStack 하나만 허용), 무엇도 build하지 않고, 모든 이미지가 digest이고, 포트가 loopback이고 서비스마다 겹치지 않는 포트 하나이고, API 확인 주소가 게시한 포트와 맞고, API가 `api-key` 인증과 `locked` object store로 뜨고, postgres 값이 URL-safe이고, API가 고른 저장소를 가리키고(`localstack`: `http://localstack:4566`과 `claude-sessions`, `s3`: endpoint 없음), credential allowlist에 그 저장소가 있고 다른 로컬 서비스가 없고, workspace quota가 켜져 있고, 카탈로그가 checkout 밖에서 manifest의 revision으로 mount되는지
+3. 렌더된 compose: 로컬 전용 서비스가 없고(`localstack`에서는 LocalStack 하나만 허용), 무엇도 build하지 않고, 모든 이미지가 digest이고, 포트가 loopback이고 서비스마다 겹치지 않는 포트 하나이고, API 확인 주소가 게시한 포트와 맞고, API가 `api-key` 인증과 `locked` object store로 뜨고, postgres 값이 URL-safe이고, API가 고른 저장소를 가리키고(`localstack`: `http://localstack:4566`과 `claude-sessions`, `s3`: endpoint 없음), credential allowlist에 그 저장소가 있고 다른 로컬 서비스가 없고, workspace quota가 켜져 있고, 설정 문서가 checkout 밖에서 migrate에 mount되고 manifest의 `settings_digest`와 같은지
 4. `s3`에서만. bucket: API가 기동할 때 하는 검사(versioning, Object Lock, `AES256`)
 5. `s3`에서만. API 자격 증명의 임시 객체 왕복: `test-ops-preflight/` 아래 scratch key에 create-only put(If-None-Match) → legal hold → hold 확인과 version 읽기 → hold 해제 → version 삭제. 실패하면 그 단계의 S3 action 이름을 출력한다. API의 기동 검사는 bucket 설정만 읽으므로 쓰기·hold·GC 권한은 이 단계가 증명한다
 
@@ -313,7 +315,7 @@ scripts/test-ops.sh key revoke <key_id>
 
 scope는 [quickstart](../quickstart.md#1-clone과-기동)와 같다. `sessions:approve`가 없으면 권한 요청에 답하지 못해(403) `permission_mode: default` 세션이 첫 파일 변경에서 멈추고, `sessions:control`이 없으면 interrupt·pause·resume·terminate를, `sessions:recover`가 없으면 복구 결정을 못 한다.
 
-평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)와 카탈로그 권한(`catalog-authority.ts`)은 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
+평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)는 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
 
 ```bash
 docker exec agent-platform-test-ops-api-1 bun run apps/control-host/src/api/grants.ts revoke <session_id> --reason <text>
@@ -323,7 +325,7 @@ docker exec agent-platform-test-ops-api-1 bun run apps/control-host/src/api/gran
 
 test-ops는 운영자의 Anthropic key 하나를 모든 세션이 같이 쓴다.
 
-- key는 env 파일의 `ANTHROPIC_API_KEY`에만 둔다. compose는 이 값을 API 컨테이너에만 넘기고, 카탈로그는 `value_env`로 이름만 가리킨다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
+- key는 env 파일의 `ANTHROPIC_API_KEY`에만 둔다. compose는 이 값을 API 컨테이너에만 넘기고, 연결은 `value_env`로 이름만 가리킨다. worker는 key를 받지 않는다. egress proxy의 provider route가 요청마다 API에 물어 key를 붙인다.
 - 비용은 세션별 `SESSION_COST_LIMIT_USD`(기본 25)로 막는다. Anthropic 콘솔에도 월 한도를 건다.
 - 교체: 콘솔에서 새 key를 만든다 → env 파일 값을 바꾼다 → `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다(바뀐 설정만 컨테이너를 새로 만든다) → `/readyz`와 세션 한 턴을 확인한다 → 옛 key를 폐기한다. 참조 이름이 같으므로 profile fingerprint는 바뀌지 않고 진행 중인 세션도 그대로 이어진다.
 
@@ -347,7 +349,7 @@ scripts/test-ops.sh upgrade release-new.json
 
   승인 목록이 영향 목록과 하나라도 다르면 거부한다. worker 이미지가 바뀌면 writer를 멈추고(아래 "백업"과 같은 순서) 같은 restore plan 검사를 한 번 더 한다. 그 사이 새 checkpoint가 생기거나 호환 판정이 바뀌어 목록이 달라졌으면 원래 release를 다시 열고 거부한다. 진행하면 `approvals/<시각>-upgrade.json`에 시각·운영자·전후 worker 이미지·세션 목록을 남긴다. 불호환 세션을 `start_fresh`로 복구하면 이전 checkpoint의 context를 잃는다.
 - 영향받는 세션이 없으면 승인 없이 진행한다. worker 이미지가 같으면 writer도 멈추지 않고, 설정이나 이미지가 바뀐 컨테이너만 새로 만든다.
-- 카탈로그 revision이 바뀌면 API를 다시 만든다. API는 카탈로그를 기동할 때 한 번만 읽는다.
+- `settings_digest`가 바뀌면 migrate를 다시 돌려 설정 문서의 새 항목을 더한다. API는 DB를 주기적으로 다시 읽으므로 설정 때문에 다시 만들지 않는다. 설정 문서가 생기기 전 release의 `current.json`(`catalog_revision`)에서 올릴 때도 migrate가 돈다.
 - 끝나면 `current.json`을 새 manifest로 바꾸고 `history.log`에 한 줄 남긴다.
 - 게이트를 통과한 순간(writer를 멈추기 전) 새 manifest를 `pending.json`에 적는다. 새 release가 뜨기 전에 실패하면(예: scheduler quota probe 실패) 설치가 멈춘 채로 남을 수 있고, 그때 `pending.json`이 남아 원인을 고친 뒤 같은 manifest로 `upgrade`를 다시 부를 때까지 `status` 말고 다른 명령은 모두 거부한다.
 
@@ -357,7 +359,7 @@ scripts/test-ops.sh upgrade release-new.json
 
 내장 Gitea를 뺀 release로 올리기 전에 다음을 한다. `upgrade`는 Gitea를 대신 지우지도 옮기지도 않는다.
 
-1. 남길 저장소를 GitHub로 옮기고, 카탈로그의 저장소 URL을 바꾼다. 카탈로그의 URL이 세션에 기록된 URL과 달라지면 그 세션은 `CATALOG_MISMATCH`로 새 입력을 받지 못한다.
+1. 남길 저장소를 GitHub로 옮기고, 설정의 저장소 URL을 바꾼다. 설정의 URL이 세션에 기록된 URL과 달라지면 그 세션은 `CATALOG_MISMATCH`로 새 입력을 받지 못한다.
 2. env 파일의 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에서 `gitea:3000`을 뺀다. 없는 호스트를 가리키는 값이고, preflight는 이 값을 잡지 않으므로 직접 확인한다.
 3. 이전 release의 checkout에서 마지막 백업을 뜬다. 새 release의 백업에는 Gitea가 들어가지 않고, Gitea가 든 백업은 새 release에서 복원되지 않는다([backup-restore.md](backup-restore.md#내장-gitea를-쓰던-때의-백업)).
 4. `upgrade`한다. 서비스 정의가 사라져도 기존 컨테이너는 그대로 돌고 3001을 계속 연다. 확인한 뒤 `docker rm -f <project>-gitea-1`로 내린다.
@@ -389,7 +391,7 @@ scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<시�
 
 `reseed`가 하는 일:
 
-1. 렌더가 `preflight`의 렌더 검사를 카탈로그 revision만 빼고 통과하고, manifest의 project·bucket이 이 설치와 같고, 체크섬과 schema가 맞는지 본다.
+1. 렌더가 `preflight`의 렌더 검사를 `settings_digest`만 빼고 통과하고, manifest의 project·bucket이 이 설치와 같고, 체크섬과 schema가 맞는지 본다.
 2. writer를 멈춘 채 postgres와 LocalStack을 띄운다. LocalStack의 bucket이 비어 있어야 한다. 비어 있지 않으면 재시작이 없었다는 뜻이므로 거부한다.
 3. `scripts/restore.sh`가 새 bucket을 채우는 방식 그대로 object를 올린다: create-only 업로드 뒤, 모든 미수거 checkpoint를 새 version으로 re-pin하고 legal hold를 건다. re-pin은 쓰기 전에 DB의 모든 미수거 checkpoint를 올린 바이트와 대조한다. 백업 뒤에 DB가 바뀌었으면 여기서 거부한다.
 4. object 수가 백업과 같으면 설치를 다시 띄우고 `history.log`에 남긴다.

@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
-import { readConnections } from "./catalog-config.ts";
+import type { Connections } from "@werft-ai/platform";
 import {
   DEMO_SESSIONS,
   DemoClient,
@@ -13,24 +13,31 @@ const local = {
   DEMO_ACCOUNTS: "local",
   DATABASE_URL: "postgresql://postgres:dev@postgres:5432/sessions",
 };
-const configRoot = join(import.meta.dir, "../../../../config");
+const fixture = async (name: string): Promise<Connections> =>
+  (
+    await Bun.file(
+      join(import.meta.dir, `../../../../tests/fixtures/settings/${name}.json`),
+    ).json()
+  ).connections;
 
 describe("demoDataRefusal", () => {
   test("allows the local stack on the fake-model connections", async () => {
-    const connections = await readConnections(join(configRoot, "fake-model"));
+    const connections = await fixture("fake-model");
     expect(demoDataRefusal(local, connections)).toBeNull();
   });
 
   test("refuses the real-model connections, and none at all", async () => {
-    const connections = await readConnections(configRoot);
+    const connections = await fixture("real-model");
     expect(demoDataRefusal(local, connections)).toContain(
-      "does not call the fake model",
+      "connection anthropic does not call the fake model",
     );
-    expect(demoDataRefusal(local, {})).toContain("names no connection");
+    expect(demoDataRefusal(local, {})).toContain(
+      "the database holds no connection",
+    );
   });
 
   test("refuses a second connection pointed at another endpoint", async () => {
-    const connections = await readConnections(join(configRoot, "fake-model"));
+    const connections = await fixture("fake-model");
     const fake = connections["fake-messages"];
     if (!fake) throw new Error("fake connections lost fake-messages");
     const moved = {
@@ -43,7 +50,7 @@ describe("demoDataRefusal", () => {
   });
 
   test("refuses whatever the demo accounts refuse", async () => {
-    const catalog = await readConnections(join(configRoot, "fake-model"));
+    const catalog = await fixture("fake-model");
     expect(
       demoDataRefusal(
         { ...local, KUBERNETES_SERVICE_HOST: "10.0.0.1" },
@@ -75,26 +82,6 @@ describe("demoDataRefusal", () => {
       "demo data refused: DATABASE_URL points at 203.0.113.1",
     );
     expect(result.stdout.toString()).toBe("");
-  });
-
-  test("the CLI refuses the real-model catalog", () => {
-    const result = Bun.spawnSync(
-      ["bun", "run", join(import.meta.dir, "demo-data.ts")],
-      {
-        env: {
-          PATH: process.env.PATH ?? "",
-          ...local,
-          PLATFORM_CONFIG_DIR: configRoot,
-          PORT: "9",
-        },
-        stderr: "pipe",
-        stdout: "pipe",
-      },
-    );
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr.toString()).toContain(
-      "demo data refused: connection anthropic does not call the fake model",
-    );
   });
 });
 

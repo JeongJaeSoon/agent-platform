@@ -9,8 +9,8 @@ import type {
  * The installation's settings in one read (decision
  * settings-replace-file-catalog.md §1): connections and MCP servers not
  * disabled, and repositories that carry their own credential or none (the
- * console App's rows are CatalogRepositoryStore's), each in the shape the
- * operator's file gives the entry.
+ * console App's rows are CatalogRepositoryStore's), each in the shape a
+ * settings document gives the entry.
  */
 export interface InstallationSettings {
   /** `settings_generation` as it was before the rows were read. */

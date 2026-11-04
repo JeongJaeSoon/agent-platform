@@ -33,7 +33,7 @@ export const profilesKo = {
   "profiles.empty": "이 설치에 프로필이 없습니다.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "이전 버전 {count}개",
-  "profiles.origin.catalog": "설치 설정 파일에서 가져옴",
+  "profiles.origin.catalog": "설정 문서에서 가져옴",
   "profiles.origin.console": "콘솔에서 만듦",
   "profiles.state.usable": "사용 가능",
   "profiles.state.base_changed": "바탕 프로필 바뀜",
@@ -136,7 +136,7 @@ export const profilesKo = {
   "profiles.new.ceilingTitle": "설치 프로필 만들기",
   "profiles.new.ceilingVersionTitle": "{name} 새 버전",
   "profiles.new.ceilingDescription":
-    "설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 워크스페이스 프로필은 이 범위를 줄이기만 합니다. 연결·자격 증명·비용 한도는 설치 설정에서 정합니다.",
+    "설치 프로필은 이 설치의 모든 워크스페이스가 쓸 수 있는 가장 넓은 범위를 정합니다. 워크스페이스 프로필은 이 범위를 줄이기만 합니다. 연결과 자격 증명은 모델 연결에서, 비용 한도는 서버 설정에서 정합니다.",
   "profiles.new.kind": "종류",
   "profiles.new.kindHint.workspace":
     "설치 프로필 하나를 바탕으로 모델·도구·권한 모드를 줄입니다.",
@@ -145,13 +145,13 @@ export const profilesKo = {
   "profiles.new.fromMissing": "{id} 프로필이 없습니다. 빈 양식에서 시작합니다.",
   "profiles.new.cannotMake": "지금은 만들 수 없습니다",
   "profiles.new.noConnections":
-    "이 설치에 연결이 없습니다. 설치 설정에 연결을 둔 뒤 다시 여세요.",
+    "이 설치에 연결이 없습니다. 모델 연결에서 연결을 더한 뒤 다시 여세요.",
   "profiles.new.noRuntimes": "이 설치의 worker가 받는 런타임이 없습니다.",
   "profiles.new.noBase": "바탕으로 쓸 수 있는 설치 프로필이 없습니다.",
   "profiles.ceiling.connection": "연결",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 설치 설정에서 바꿉니다.",
+    "모델 공급자와 자격 증명은 연결이 정합니다. 연결은 모델 연결에서 바꿉니다.",
   "profiles.ceiling.runtime": "런타임",
   "profiles.ceiling.runtimeVersion": "런타임 버전",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -254,7 +254,7 @@ export const profilesKo = {
   "profiles.detail.audit.retiredBy": "사용 중지한 사람",
   "profiles.detail.audit.previous": "앞 버전",
   "profiles.detail.audit.noPrevious": "없음",
-  "profiles.detail.audit.imported": "설치 설정 파일",
+  "profiles.detail.audit.imported": "설정 문서",
   "profiles.detail.audit.unknown": "알 수 없음",
   "profiles.detail.audit.you": "{id} (나)",
   "profiles.detail.history.title": "버전 기록",
@@ -365,7 +365,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.empty": "This installation has no profiles.",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "Earlier versions ({count})",
-  "profiles.origin.catalog": "Imported from the installation settings file",
+  "profiles.origin.catalog": "Imported from a settings document",
   "profiles.origin.console": "Made in the console",
   "profiles.state.usable": "Available",
   "profiles.state.base_changed": "Base profile changed",
@@ -467,7 +467,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.new.ceilingTitle": "Create installation profile",
   "profiles.new.ceilingVersionTitle": "New version of {name}",
   "profiles.new.ceilingDescription":
-    "An installation profile sets the widest range every workspace on this installation can use. Workspace profiles can only narrow it. Connections, credentials and cost limits are set in the installation settings.",
+    "An installation profile sets the widest range every workspace on this installation can use. Workspace profiles can only narrow it. Connections and credentials are set under Model connections, cost limits in the server settings.",
   "profiles.new.kind": "Kind",
   "profiles.new.kindHint.workspace":
     "Narrows the models, tools and permission mode of one installation profile.",
@@ -477,14 +477,14 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
     "There is no profile {id}. Starting from an empty form.",
   "profiles.new.cannotMake": "Nothing can be made now",
   "profiles.new.noConnections":
-    "This installation has no connection. Add one in the installation settings, then open this again.",
+    "This installation has no connection. Add one under Model connections, then open this again.",
   "profiles.new.noRuntimes": "No worker on this installation takes a runtime.",
   "profiles.new.noBase":
     "There is no usable installation profile to start from.",
   "profiles.ceiling.connection": "Connection",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "The connection sets the model provider and credentials. Connections change in the installation settings.",
+    "The connection sets the model provider and credentials. Connections change under Model connections.",
   "profiles.ceiling.runtime": "Runtime",
   "profiles.ceiling.runtimeVersion": "Runtime version",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -589,7 +589,7 @@ export const profilesEn: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.audit.retiredBy": "Turned off by",
   "profiles.detail.audit.previous": "Previous version",
   "profiles.detail.audit.noPrevious": "None",
-  "profiles.detail.audit.imported": "Installation settings file",
+  "profiles.detail.audit.imported": "Settings document",
   "profiles.detail.audit.unknown": "Unknown",
   "profiles.detail.audit.you": "{id} (you)",
   "profiles.detail.history.title": "Versions",
@@ -701,7 +701,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.empty": "このインストールにはプロファイルがありません。",
   "profiles.versionTag": "v{version}",
   "profiles.olderVersions": "前のバージョン {count} 件",
-  "profiles.origin.catalog": "インストール設定ファイルから取り込み",
+  "profiles.origin.catalog": "設定ドキュメントから取り込み",
   "profiles.origin.console": "コンソールで作成",
   "profiles.state.usable": "使用可能",
   "profiles.state.base_changed": "ベースプロファイル変更済み",
@@ -804,7 +804,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.new.ceilingTitle": "インストールのプロファイルを作成",
   "profiles.new.ceilingVersionTitle": "{name} の新しいバージョン",
   "profiles.new.ceilingDescription":
-    "インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはこれを絞ることだけができます。接続・認証情報・コスト上限はインストール設定で決めます。",
+    "インストールのプロファイルは、このインストールのすべてのワークスペースが使える最も広い範囲を決めます。ワークスペースのプロファイルはこれを絞ることだけができます。接続と認証情報はモデル接続で、コスト上限はサーバー設定で決めます。",
   "profiles.new.kind": "種類",
   "profiles.new.kindHint.workspace":
     "インストールのプロファイル 1 つをもとに、モデル・ツール・権限モードを絞ります。",
@@ -814,14 +814,14 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
     "プロファイル {id} はありません。空のフォームから始めます。",
   "profiles.new.cannotMake": "いまは作れません",
   "profiles.new.noConnections":
-    "このインストールに接続がありません。インストール設定に接続を置いてから開き直してください。",
+    "このインストールに接続がありません。モデル接続で接続を追加してから開き直してください。",
   "profiles.new.noRuntimes":
     "このインストールの worker が受け付けるランタイムがありません。",
   "profiles.new.noBase": "もとにできるインストールのプロファイルがありません。",
   "profiles.ceiling.connection": "接続",
   "profiles.ceiling.connectionOption": "{id} ({kind} · {billing})",
   "profiles.ceiling.connectionHint":
-    "モデルの提供元と認証情報は接続が決めます。接続はインストール設定で変更します。",
+    "モデルの提供元と認証情報は接続が決めます。接続はモデル接続で変更します。",
   "profiles.ceiling.runtime": "ランタイム",
   "profiles.ceiling.runtimeVersion": "ランタイムのバージョン",
   "profiles.ceiling.runtimeVersionInvalid":
@@ -930,7 +930,7 @@ export const profilesJa: Record<keyof typeof profilesKo, string> = {
   "profiles.detail.audit.retiredBy": "使用停止した人",
   "profiles.detail.audit.previous": "前のバージョン",
   "profiles.detail.audit.noPrevious": "なし",
-  "profiles.detail.audit.imported": "インストール設定ファイル",
+  "profiles.detail.audit.imported": "設定ドキュメント",
   "profiles.detail.audit.unknown": "不明",
   "profiles.detail.audit.you": "{id} (自分)",
   "profiles.detail.history.title": "バージョン履歴",

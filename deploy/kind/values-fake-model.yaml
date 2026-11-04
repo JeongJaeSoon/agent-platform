@@ -1,6 +1,6 @@
 # Laid over values.yaml for KIND_MODEL=fake (smoke.sh): the fake model and
-# sample repository of deps-fake-model.yaml and deps-session.yaml. up.sh adds
-# the catalog itself, read from config/fake-model.
+# sample repository of deps-fake-model.yaml and deps-session.yaml. up.sh
+# imports the settings themselves, tests/fixtures/settings/fake-model.json.
 config:
   aws:
     secretsManagerEndpointUrl: http://secrets:4566

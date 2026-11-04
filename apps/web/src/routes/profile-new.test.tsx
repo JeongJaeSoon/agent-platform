@@ -869,7 +869,7 @@ describe("프로필 만들기 (설치 프로필)", () => {
     );
     expect(
       await screen.findByText(
-        "이 설치에 연결이 없습니다. 설치 설정에 연결을 둔 뒤 다시 여세요.",
+        "이 설치에 연결이 없습니다. 모델 연결에서 연결을 더한 뒤 다시 여세요.",
       ),
     ).toBeDefined();
     expect(screen.getByRole("main").querySelector("form")).toBeNull();

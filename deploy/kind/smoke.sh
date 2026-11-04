@@ -33,7 +33,7 @@
 #
 # Settings, besides up.sh's (CLUSTER_NAME, REGISTRY_PORT, CLUSTER_PROVIDER,
 # EXTRA_VALUES, the CI mirror):
-#   KIND_MODEL=fake      default: config/fake-model's catalog and fake
+#   KIND_MODEL=fake      default: the fake-model settings and fake
 #                        Messages API; no provider account, no cost
 #   KIND_MODEL=real      opt-in, paid: the chart's claude-coding-real profile
 #                        against api.anthropic.com, under a 1 USD session
@@ -344,8 +344,6 @@ k delete pod k8s-smoke-worker k8s-smoke-control --wait=false >/dev/null
 pass
 
 step upgrade
-# Not --reuse-values: it keeps the catalog's `null`s, which delete a chart
-# default, as entries the api refuses to start on.
 helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$STATE_DIR/smoke-release-values.json"
 helm upgrade "$RELEASE" "$root/deploy/helm/agent-platform" \
   --namespace "$NAMESPACE" -f "$STATE_DIR/smoke-release-values.json" --timeout 10m

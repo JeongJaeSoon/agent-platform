@@ -209,7 +209,7 @@ export function RepositorySheet({
     : t("github.sheet.title");
 
   const menu = (row: CatalogRow | undefined, name: string) =>
-    row?.editable ? (
+    row ? (
       <RowMenu label={t("github.sheet.rowMenu", { name })}>
         {(close) => (
           <>

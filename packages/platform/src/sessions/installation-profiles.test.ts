@@ -27,7 +27,6 @@ import { createInstallationProfileService } from "./installation-profiles.ts";
 import { settingsSnapshot } from "./installation-settings.ts";
 import {
   type Connections,
-  catalogRepositoryIds,
   catalogRows,
   createProfileRegistry,
   profileCatalog,
@@ -212,7 +211,6 @@ function setup(
           }),
       sources: {
         connections,
-        repositoryIdsOf: catalogRepositoryIds(REPOSITORIES),
         allowUnattended: options.allowUnattended ?? false,
         runtimeSupported: () => true,
         materialize: (id, definition, lookup) => {
@@ -601,7 +599,7 @@ describe("connections the installation settings hold", () => {
     invalid: [],
   };
 
-  test("are options and run a ceiling with no connections.yaml entry", async () => {
+  test("are options and run a ceiling no other connection names", async () => {
     const { service, catalog } = setup({
       fileConnections: {},
       settings: SETTINGS,
@@ -624,21 +622,6 @@ describe("connections the installation settings hold", () => {
       auth: { value: "a-stored-provider-key" },
     });
     expect(JSON.stringify(options)).not.toContain("a-stored-provider-key");
-  });
-
-  test("the file keeps an id both hold", async () => {
-    const { service, catalog } = setup({
-      settings: {
-        ...SETTINGS,
-        connections: [{ id: "main", provider: STORED }],
-        stored: new Map([["connection:main", "a-stored-provider-key"]]),
-      },
-    });
-    await catalog.workspace_profiles.refresh();
-    expect(catalog.workspace_profiles.connections.main).toEqual(MAIN);
-    expect((await service.options(caller("owner"))).connections).toEqual([
-      { id: "main", kind: "anthropic", billing: "metered" },
-    ]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ExistingSettings,
+  parseSeedDocument,
   parseSettingsDocument,
   planSettingsImport,
   repositoryNameOf,
@@ -133,8 +134,74 @@ describe("parseSettingsDocument", () => {
   });
 });
 
+describe("parseSeedDocument", () => {
+  const PROFILE = {
+    runtime_kind: "claude_agent_sdk",
+    runtime_version: "0.3.270",
+    model: "claude-sonnet-5",
+    repository: "none",
+    tools: ["Read"],
+    permission_mode: "plan",
+    provider: DOCUMENT.connections.main,
+  };
+
+  test("a document without `profiles` seeds nothing", () => {
+    expect(parseSeedDocument(DOCUMENT)).toEqual({
+      entries: parseSettingsDocument(DOCUMENT),
+      profiles: null,
+    });
+  });
+
+  test("the operator's `profiles` is the seed, and the API's parser still refuses it", () => {
+    const document = { ...DOCUMENT, profiles: { general: PROFILE } };
+    const seed = parseSeedDocument(document);
+    expect(Object.keys(seed.profiles ?? {})).toEqual(["general"]);
+    expect(seed.entries).toEqual(parseSettingsDocument(DOCUMENT));
+    expect(() => parseSettingsDocument(document)).toThrow(
+      SettingsDocumentError,
+    );
+  });
+
+  test("a seed that does not parse refuses the document", () => {
+    expect(() =>
+      parseSeedDocument({
+        ...DOCUMENT,
+        profiles: { general: { ...PROFILE, permission_mode: "whatever" } },
+      }),
+    ).toThrow(SettingsDocumentError);
+  });
+});
+
 describe("planSettingsImport", () => {
   const entries = parseSettingsDocument(DOCUMENT);
+
+  test("a repository's seed `profiles` is no conflict with its row", () => {
+    const seeded = parseSettingsDocument({
+      ...DOCUMENT,
+      repositories: {
+        open: { ...DOCUMENT.repositories.open, profiles: ["general"] },
+      },
+    });
+    const plan = planSettingsImport(
+      seeded,
+      {
+        ...NONE,
+        repositories: new Map([
+          [
+            "open",
+            {
+              entry: entries.repositories.open,
+              active: true,
+              has_value: false,
+            },
+          ],
+        ]),
+      },
+      { allowExternal: true },
+    );
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.unchanged).toContain("repository:open");
+  });
 
   test("adds every entry over an empty installation", () => {
     const plan = planSettingsImport(entries, NONE, { allowExternal: true });
@@ -192,6 +259,74 @@ describe("planSettingsImport", () => {
     expect(plan.refused_external).toEqual(["mcp:docs"]);
     expect(plan.needs_value).toEqual([]);
     expect(plan.add).toEqual([]);
+  });
+
+  describe("a repository the console moved to another branch", () => {
+    const app = (branch: string) => ({
+      url: "https://github.com/acme/app",
+      branch,
+      auth: { kind: "github_app" as const },
+    });
+    const incoming = { connections: {}, mcp_servers: {} };
+    const row = (entry: unknown) => ({
+      ...NONE,
+      repositories: new Map([
+        ["app", { entry, active: true, has_value: false }],
+      ]),
+    });
+
+    test("stays as the database has it when an old directory is imported", () => {
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: app("main") } },
+        row(app("develop")),
+        { allowExternal: true, databaseOwnsRepositories: true },
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.kept).toEqual(["repository:app"]);
+      expect(plan.add).toEqual([]);
+    });
+
+    test("so does a public one", () => {
+      const { auth: _auth, ...open } = app("main");
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: open } },
+        row({ ...open, branch: "develop" }),
+        { allowExternal: true, databaseOwnsRepositories: true },
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.kept).toEqual(["repository:app"]);
+    });
+
+    test("an old directory's second name for it is dropped, as the seed dropped it", () => {
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { alias: app("main") } },
+        row(app("main")),
+        { allowExternal: true, databaseOwnsRepositories: true },
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(plan.kept).toEqual(["repository:alias"]);
+      expect(plan.add).toEqual([]);
+    });
+
+    test("is still a conflict from a settings document", () => {
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: app("main") } },
+        row(app("develop")),
+        { allowExternal: true },
+      );
+      expect(plan.conflicts).toEqual(["repository:app"]);
+      expect(plan.kept).toBeUndefined();
+    });
+
+    test("a repository of another auth kind is still a conflict", () => {
+      const { auth: _auth, ...bare } = app("main");
+      const plan = planSettingsImport(
+        { ...incoming, repositories: { app: bare } },
+        row(app("develop")),
+        { allowExternal: true, databaseOwnsRepositories: true },
+      );
+      expect(plan.conflicts).toEqual(["repository:app"]);
+    });
   });
 
   test("a GitHub repository another id holds, or a value left on a new stored id, is a conflict", () => {

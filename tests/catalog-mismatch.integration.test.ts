@@ -94,6 +94,8 @@ const PROFILE: CatalogProfile = {
 
 function catalogAt(url: string): SessionCatalog {
   return withSeededInstallation({
+    // Ahead of every write here: a host behind its settings fails nothing.
+    settings_generation: Number.MAX_SAFE_INTEGER,
     profiles: {
       [PROFILE_ID]: PROFILE,
       general: { ...PROFILE, tools: ["Read", "Write"], repository: "none" },

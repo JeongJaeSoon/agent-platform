@@ -114,7 +114,6 @@ function repositoriesFrom(
         url: repository.url,
         branch: "main",
         source: "console",
-        editable: true,
         version: 1,
         installed:
           read.check?.state === "ok"

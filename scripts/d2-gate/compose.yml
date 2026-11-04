@@ -5,7 +5,7 @@
 # What changes against the product stack, and why:
 # - host ports are ephemeral and loopback-only, so a gate run never collides
 #   with a developer stack or another run;
-# - the API reads the gate's catalog (scripts/d2-gate/config);
+# - migrate imports the gate's settings (scripts/d2-gate/settings.json);
 # - gate-chaos stands in (as gate-gateway and gate-s3) for the workers'
 #   gateway and object store: the scheduler hands workers gate-gateway, the
 # API signs their object store requests for gate-s3, and the
@@ -32,11 +32,14 @@ services:
       EGRESS_PRIVATE_ALLOWLIST: "gate-gateway:3000"
       EGRESS_CREDENTIAL_ALLOWLIST: "api.anthropic.com:443"
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "gate-messages:4010,fake-git:3000,gate-s3:4566"
+  migrate:
+    environment:
+      SETTINGS_DOCUMENT: /d2-gate/settings.json
+    volumes:
+      - ../scripts/d2-gate/settings.json:/d2-gate/settings.json:ro
   api:
     ports: !override
       - "127.0.0.1::3000"
-    volumes: !override
-      - ../scripts/d2-gate/config:/app/config:ro
     environment:
       GATE_PROVIDER_KEY: gate-placeholder-not-a-credential
       AWS_ENDPOINT_URL: http://gate-s3:4566

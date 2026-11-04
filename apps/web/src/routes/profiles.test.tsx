@@ -77,7 +77,7 @@ describe("프로필", () => {
       [
         "coding-claude설치 프로필 · v1",
         "v1",
-        "설치 프로필파일",
+        "설치 프로필",
         "—",
         "claude-sonnet-5",
         "acceptEdits",
@@ -87,7 +87,7 @@ describe("프로필", () => {
       [
         "general-read설치 프로필 · v1",
         "v1",
-        "설치 프로필파일",
+        "설치 프로필",
         "—",
         "claude-haiku-5",
         "default",
@@ -154,7 +154,7 @@ describe("프로필", () => {
       rows(table)
         .slice(1)
         .map((row) => row[2]),
-    ).toEqual(["설치 프로필파일", "설치 프로필파일", "워크스페이스 프로필"]);
+    ).toEqual(["설치 프로필", "설치 프로필", "워크스페이스 프로필"]);
   });
 
   test("a name with several versions shows its latest, the earlier ones folded under it", async () => {
@@ -272,9 +272,7 @@ describe("프로필", () => {
         badge.className.match(/--ap-tone-(\w+)-bg/)?.[1],
       ],
     );
-    // Each ceiling also says where it came from: these from the file catalog.
-    expect(badges.filter(([text]) => text === "파일").length).toBe(6);
-    expect(badges.filter(([text]) => text !== "파일")).toEqual([
+    expect(badges).toEqual([
       ["연결 없음", "danger"],
       ["이 설치에서 꺼짐", "danger"],
       ["설정이 바뀜", "danger"],

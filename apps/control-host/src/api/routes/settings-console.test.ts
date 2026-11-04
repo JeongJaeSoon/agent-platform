@@ -157,14 +157,14 @@ describe("GET /v1/installation/settings/{kind}", () => {
           items: [
             {
               id: "fake",
-              origin: "file",
+              origin: "import",
               state: "active",
               kind: "anthropic",
               endpoint: "http://fake-model:8080",
               billing: "none",
               auth_kind: "api_key",
               credential: { source: "external", value_env: "FAKE_KEY" },
-              created_at: null,
+              created_at: "2026-11-04T03:00:00.000Z",
               disabled_at: null,
             },
           ],

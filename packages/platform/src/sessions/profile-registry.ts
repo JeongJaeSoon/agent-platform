@@ -45,8 +45,8 @@ export type Connections = Readonly<
 >;
 
 /**
- * The repositories each imported id may run against, as the `profiles`
- * arrays of repositories.yaml named them: read only to seed and to fill
+ * The repositories each seeded id may run against, as the `profiles` arrays
+ * of the repositories named them: read only by the seed, which also fills
  * rows from before the database held them.
  */
 export function catalogRepositoryIds(
@@ -61,7 +61,6 @@ export function catalogRepositoryIds(
       .sort();
 }
 
-/** The rows `profiles.yaml` imports as: its ids, its entries as parsed. */
 export function catalogImports(
   profiles: SessionCatalogConfig["profiles"],
 ): CatalogProfileImport[] {
@@ -94,11 +93,6 @@ export type InstallationSnapshot<P extends CatalogProfileView> = {
 
 export type SnapshotSources<P extends CatalogProfileView> = {
   connections: Connections;
-  /**
-   * What a row with no `repository_ids` yet runs against: the value the api
-   * role fills it with, so every replica reads the same pairs before it does.
-   */
-  repositoryIdsOf: (profileId: string) => string[];
   allowUnattended: boolean;
   runtimeSupported: (profile: CatalogProfileConfig) => boolean;
   /**
@@ -131,11 +125,7 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
   for (const stored of rows) {
-    const row = {
-      ...stored,
-      repository_ids:
-        stored.repository_ids ?? sources.repositoryIdsOf(stored.id),
-    };
+    const row = { ...stored, repository_ids: stored.repository_ids ?? [] };
     const { id } = row;
     const parsed = parsedDefinition(row);
     const definition = storedDefinition(id, row, parsed);
@@ -215,10 +205,6 @@ function storedDefinition(
     : null;
 }
 
-/**
- * `profiles.yaml` entries as the rows seeding them would be, with the
- * repositories `repositories` names them for.
- */
 export function catalogRows(
   profiles: SessionCatalogConfig["profiles"],
   repositories: Parameters<typeof catalogRepositoryIds>[0] = {},
@@ -332,39 +318,16 @@ export interface ProfileRegistry<P extends CatalogProfileView>
    * or for a registry given none.
    */
   readonly settings: SettingsSnapshot | null;
-  /** The connections a ceiling may run against: the file's and the settings'. */
   readonly connections: Connections;
 }
 
-/**
- * The operator file's repositories with the database's: its console App
- * rows in place of every `{ kind: github_app }` entry
- * (repository-catalog-db.md §2), and the settings' rows of the other kinds
- * beside them. Until the file loader goes (settings-replace-file-catalog.md
- * §8 S4), a file entry that holds a credential keeps its id against a row
- * of the same id. `rows` null: the console's rows were never seeded, so the
- * file's `{ kind: github_app }` entries still stand.
- */
 export function withConsoleRepositories(
-  file: Readonly<Record<string, CatalogRepository>>,
   rows: readonly CatalogRepositoryRow[] | null,
   settings: Readonly<Record<string, CatalogRepository>> = {},
 ): Record<string, CatalogRepository> {
-  const merged: Record<string, CatalogRepository> = {};
-  for (const [id, repository] of Object.entries(file)) {
-    const auth = repository.auth;
-    if (rows !== null && auth?.kind === "github_app" && "registered" in auth) {
-      continue;
-    }
-    merged[id] = repository;
-  }
-  for (const [id, repository] of Object.entries(settings)) {
-    if (!Object.hasOwn(merged, id)) merged[id] = repository;
-  }
+  const merged: Record<string, CatalogRepository> = { ...settings };
   for (const row of rows ?? []) {
     if (Object.hasOwn(merged, row.id)) continue;
-    // The shape resolveSessionCatalog gives the yaml entry, so a seeded
-    // row binds as it did before the move.
     merged[row.id] = {
       url: row.url,
       branch: row.branch,
@@ -382,7 +345,7 @@ function withSettings<P extends CatalogProfileView>(
   if (settings === null) return sources;
   return {
     ...sources,
-    connections: { ...settings.connections, ...sources.connections },
+    connections: settings.connections,
     materialize: (id, definition) =>
       sources.materialize(id, definition, settings.lookup),
   };
@@ -414,12 +377,10 @@ function keepUnchanged(
 export function createProfileRegistry<P extends CatalogProfileView>(deps: {
   workspaces: Pick<WorkspaceProfileStore, "listAll">;
   installations: Pick<InstallationProfileStore, "listAll">;
-  /** Absent: the catalog keeps the operator file's repositories. */
   repositories?: Pick<CatalogRepositoryStore, "readCatalog">;
   /**
    * The installation settings (connections, MCP servers, repositories that
-   * carry their own credential), credentials resolved. Absent: the file's
-   * alone.
+   * carry their own credential), credentials resolved.
    */
   settings?: { read(): Promise<SettingsSnapshot> };
   sources: SnapshotSources<P>;

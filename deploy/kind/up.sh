@@ -15,10 +15,10 @@
 #
 # KIND_MODEL (default none) also installs what a session needs; smoke.sh
 # sets it and runs one:
-#   none  the default catalog, with a placeholder key: no session runs
-#   fake  config/fake-model's catalog, its fake Messages API and Secrets
-#         Manager (deps-fake-model.yaml), and the sample repository
-#   real  the chart's claude-coding-real profile and the sample repository,
+#   none  an empty installation: no session runs
+#   fake  tests/fixtures/settings/fake-model.json, its fake Messages API and
+#         Secrets Manager (deps-fake-model.yaml), and the sample repository
+#   real  tests/fixtures/settings/real-model.json and the sample repository,
 #         with ANTHROPIC_API_KEY read by scripts/lib/real-model-key.sh
 #         (the shell's, else the AGENT_PLATFORM_DOTENV file's line). The
 #         key goes into the Secret from a file descriptor: never printed,
@@ -196,28 +196,12 @@ if [ "$KIND_MODEL" = fake ]; then
     --dry-run=client -o yaml | kubectl apply -f -
   manifest "$root/deploy/kind/deps-fake-model.yaml" | kubectl -n "$NAMESPACE" apply -f -
   deps+=(fake-messages secrets)
-  # config/fake-model as the chart's catalog, in place of its default one.
-  bun -e '
-    const read = async (name) =>
-      Bun.YAML.parse(await Bun.file(`${process.argv[1]}/${name}.yaml`).text());
-    const { connections } = await read("connections");
-    const { profiles } = await read("profiles");
-    const { repositories } = await read("repositories");
-    console.log(JSON.stringify({
-      catalog: {
-        connections: { anthropic: null, ...connections },
-        profiles: { "claude-coding-real": null, ...profiles },
-        repositories,
-      },
-    }));
-  ' "$root/config/fake-model" >"$STATE_DIR/catalog-fake-model.json"
-  values+=(-f "$STATE_DIR/catalog-fake-model.json")
 fi
 
 # The Secret the chart reads. The authorizer token is random per cluster,
-# never printed and never on a command line; the rest are the stand-ins'
-# local defaults. The default catalog names ANTHROPIC_API_KEY, which only
-# has to resolve unless KIND_MODEL is real.
+# never printed and never on a command line, and so is the master key; the
+# rest are the stand-ins' local defaults. The chart names ANTHROPIC_API_KEY,
+# which only has to resolve unless KIND_MODEL is real.
 if [ "$KIND_MODEL" = real ]; then
   if kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
     echo "KIND_MODEL=real needs a fresh cluster: the Secret already holds another key (up.sh down first)" >&2
@@ -238,9 +222,15 @@ if ! kubectl -n "$NAMESPACE" get secret werft >/dev/null 2>&1; then
   kubectl -n "$NAMESPACE" create secret generic werft \
     --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
     --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
+    --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
     --from-literal=AWS_ACCESS_KEY_ID=test \
     --from-literal=AWS_SECRET_ACCESS_KEY=test \
     --from-file=ANTHROPIC_API_KEY=<(provider_key) >/dev/null
+elif [ "$(kubectl -n "$NAMESPACE" get secret werft -o 'go-template={{if .data.PLATFORM_SECRET_KEY}}set{{end}}')" != set ]; then
+  key_patch="$(mktemp)"
+  printf '{"data":{"PLATFORM_SECRET_KEY":"%s"}}' "$(openssl rand -hex 32 | tr -d '\n' | base64 | tr -d '\n')" >"$key_patch"
+  kubectl -n "$NAMESPACE" patch secret werft --patch-file "$key_patch" >/dev/null
+  rm -f "${key_patch:?}"
 fi
 unset ANTHROPIC_API_KEY
 
@@ -278,6 +268,13 @@ kubectl -n "$NAMESPACE" wait --for=condition=complete "job/${fullname}-migrate" 
 for deploy in api egress-proxy reconciler scheduler slack; do
   kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-${deploy}" --timeout=600s
 done
+
+if [ "$KIND_MODEL" != none ]; then
+  NAMESPACE="$NAMESPACE" RELEASE="$RELEASE" "$root/scripts/k8s-api.sh" \
+    settings import --document - <"$root/tests/fixtures/settings/${KIND_MODEL}-model.json"
+  kubectl -n "$NAMESPACE" rollout restart "deploy/${fullname}-api"
+  kubectl -n "$NAMESPACE" rollout status "deploy/${fullname}-api" --timeout=600s
+fi
 
 kubectl -n "$NAMESPACE" port-forward "svc/${fullname}-api" "${FORWARD_PORT}:3000" >"$STATE_DIR/port-forward.log" 2>&1 &
 forward=$!

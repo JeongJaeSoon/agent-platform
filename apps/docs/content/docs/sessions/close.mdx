@@ -235,4 +235,4 @@ curl -sS "$API/v1/receipts/$RID" -H "Authorization: Bearer $KEY" | jq '{operatio
 
 - [receipt](/approvals/receipt): 제어 명령의 결과 읽기
 - [저장소 없는 세션](/sessions/without-repository)
-- [`session-close.ts` 샘플](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/src/session-close.ts): 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절(409 `SESSION_CLOSED`)까지 한 번에 도는 SDK 스크립트
+- [`session-close.ts` 샘플](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/src/session-close.ts): 세션 생성, 이벤트를 받으며 turn 대기, 권한 요청 허락, close, 닫힌 뒤의 메시지 거절(409 `SESSION_CLOSED`)까지 한 번에 도는 SDK 스크립트

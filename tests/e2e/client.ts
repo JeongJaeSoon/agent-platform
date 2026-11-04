@@ -28,7 +28,6 @@ export function e2eEnv({ needsMessages = true } = {}): E2eEnv {
 
 export const PROFILE_ID = "claude-coding-local";
 export const REPOSITORY_ID = "sample-app";
-/** config/fake-model/profiles.yaml's profile with `repository: none`. */
 export const NO_REPOSITORY_PROFILE_ID = "general";
 
 /**
@@ -44,7 +43,7 @@ export function passwordOf(bootstrapToken: string, email: string): string {
 
 /**
  * The session cookie of the stack's first owner, in the `verify` workspace
- * config/fake-model/mcp-servers.yaml allows. A stack bootstraps once, so
+ * tests/fixtures/settings/fake-model.json allows. A stack bootstraps once, so
  * every suite asks for the same owner: the first call makes it, the rest get
  * 409 and log in.
  */

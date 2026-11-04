@@ -130,7 +130,7 @@ describe("workerRuntimeRegistry", () => {
 
 describe("claimFingerprint", () => {
   const claimToken = { kind: "egress_token" as const, token: "claim-token" };
-  // The runtime_config the API hands out for each profile under config/, as
+  // The runtime_config the API hands out for each fixture profile, as
   // runtimeConfigOf builds it.
   const shipped = {
     "claude-coding-real": {

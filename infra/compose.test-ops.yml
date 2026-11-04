@@ -22,18 +22,19 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for test-ops}
   migrate:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
+    environment:
+      SETTINGS_DOCUMENT: /settings/installation.json
+    volumes:
+      - ${PLATFORM_SETTINGS_DOCUMENT:?PLATFORM_SETTINGS_DOCUMENT must name the settings document}:/settings/installation.json:ro
   api:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
       # The operator's shared provider key, for the internal alpha only; the
-      # catalog's profiles name it with `value_env: ANTHROPIC_API_KEY`.
+      # settings' connections name it with `value_env: ANTHROPIC_API_KEY`.
       # TODO(94S-376): Decide the provider-key ownership model before release.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be the operator's provider key}
-    # Replaces the core's ../config mount: the catalog lives outside the
-    # checkout, at the revision the release manifest names.
-    volumes:
-      - ${PLATFORM_CATALOG_DIR:?PLATFORM_CATALOG_DIR must name the catalog directory}:/app/config:ro
+      PLATFORM_SECRET_KEY: ${PLATFORM_SECRET_KEY:?PLATFORM_SECRET_KEY must be set for test-ops}
   scheduler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
@@ -48,8 +49,8 @@ services:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
   slack:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
-    volumes:
-      - ${PLATFORM_CATALOG_DIR:?PLATFORM_CATALOG_DIR must name the catalog directory}:/app/config:ro
+    environment:
+      PLATFORM_SECRET_KEY: ${PLATFORM_SECRET_KEY:?PLATFORM_SECRET_KEY must be set for test-ops}
   egress-proxy:
     image: ${EGRESS_PROXY_IMAGE:?EGRESS_PROXY_IMAGE must name the released egress-proxy image}
     environment:

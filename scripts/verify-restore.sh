@@ -17,8 +17,7 @@
 # --image <worker image> asks each plan as a worker of that image would: its
 # engine, SDK and CLI versions, and the profile digest its own code computes
 # from the claim the API would hand the session, built from the session row
-# and the catalog in --config-dir (default config/, the API's own default;
-# config/fake-model for a --fake-model stack). A pointer sealed under another
+# and the database's settings. A pointer sealed under another
 # build, or under a digest the image no longer computes, fails as
 # incompatible. Without --image each plan is asked with the checkpoint's own
 # runtime, and the image check is printed as SKIP.
@@ -31,7 +30,7 @@
 #
 # Usage: scripts/verify-restore.sh --project <project> [--bucket claude-sessions]
 #                                  [--object-store localstack|env]
-#                                  [--image <worker image> [--config-dir <dir>]]
+#                                  [--image <worker image>]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
@@ -39,10 +38,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 PROJECT=""
 BUCKET=claude-sessions
 IMAGE=""
-CONFIG_DIR="$REPO_ROOT/config"
 
 usage() {
-  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -52,7 +50,6 @@ while [ $# -gt 0 ]; do
     --bucket) BUCKET="$2"; shift 2 ;;
     --object-store) set_object_store "$2"; shift 2 ;;
     --image) [ -n "${2:-}" ] || usage; IMAGE="$2"; shift 2 ;;
-    --config-dir) [ -n "${2:-}" ] || usage; CONFIG_DIR="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) log "unknown argument: $1"; usage ;;
   esac
@@ -61,9 +58,8 @@ done
 require_tools docker jq git bun
 PLANS_ARGS=()
 if [ -n "$IMAGE" ]; then
-  [ -d "$CONFIG_DIR" ] || die "catalog directory not found: $CONFIG_DIR"
-  log "verify: plans asked for image $IMAGE with the catalog in $CONFIG_DIR"
-  PLANS_ARGS=(--image "$IMAGE" "$CONFIG_DIR")
+  log "verify: plans asked for image $IMAGE with the database's settings"
+  PLANS_ARGS=(--image "$IMAGE")
 fi
 
 WORK="$(mktemp -d)"

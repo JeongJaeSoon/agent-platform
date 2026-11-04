@@ -13,7 +13,6 @@ import {
   agents,
   catalogRepositories,
   receipts,
-  workspaces,
 } from "./schema.ts";
 
 type Row = typeof catalogRepositories.$inferSelect;
@@ -39,7 +38,7 @@ function rowOf(row: Row): CatalogRepositoryRow {
 
 const githubAppRows = eq(catalogRepositories.authKind, "github_app");
 
-// The seed and every console write take it, so an id is decided by one
+// The import and every console write take it, so an id is decided by one
 // writer at a time.
 const lockWrites = async (tx: Database) => {
   await tx.execute(
@@ -58,8 +57,7 @@ async function receipt(
   tx: Database,
   input: {
     workspaceId: string;
-    /** Null for the seed, which no one asked for. */
-    actor: ReceiptActor | null;
+    actor: ReceiptActor;
     requestId: string | null;
     receiptId?: string;
     operation:
@@ -105,8 +103,8 @@ export function createPostgresCatalogRepositoryStore(
   return {
     listActive,
 
-    // One snapshot: a seed committing between two reads would otherwise
-    // read as "seeded, with no rows".
+    // One snapshot: an import committing between two reads would otherwise
+    // read as "filled, with no rows".
     readCatalog() {
       return db.transaction(
         async (tx) => {
@@ -120,51 +118,6 @@ export function createPostgresCatalogRepositoryStore(
         },
         { isolationLevel: "repeatable read", accessMode: "read only" },
       );
-    },
-
-    seed(input) {
-      return db.transaction(async (tx) => {
-        await lockWrites(tx);
-        const [any] = await tx
-          .select({ id: catalogRepositories.id })
-          .from(catalogRepositories)
-          .where(githubAppRows)
-          .limit(1);
-        if (any) return [];
-        const entries = await input.entries();
-        if (entries.length === 0) return [];
-        const inserted = await tx
-          .insert(catalogRepositories)
-          .values(
-            entries.map((entry) => ({
-              id: entry.id,
-              owner: entry.owner,
-              name: entry.name,
-              url: entry.url,
-              branch: entry.branch,
-              profiles: entry.profiles,
-              source: "seed",
-            })),
-          )
-          .returning();
-        // Before bootstrap there is no workspace to keep a receipt for.
-        const [workspace] = await tx
-          .select({ id: workspaces.id })
-          .from(workspaces)
-          .limit(1);
-        if (workspace) {
-          for (const row of inserted) {
-            await receipt(tx, {
-              workspaceId: workspace.id,
-              actor: null,
-              requestId: null,
-              operation: "import_repository",
-              result: { ...auditOf(rowOf(row)), source: "seed" },
-            });
-          }
-        }
-        return inserted.map((row) => row.id).sort();
-      });
     },
 
     resolve(input) {
@@ -284,7 +237,7 @@ export function createPostgresCatalogRepositoryStore(
           ).map((row) => row.id),
         );
         let id = input.base;
-        for (let n = 2; taken.has(id) || input.reserved.has(id); n += 1) {
+        for (let n = 2; taken.has(id); n += 1) {
           id = `${input.base}-${n}`;
         }
         const [row] = await tx

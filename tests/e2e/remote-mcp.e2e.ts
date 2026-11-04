@@ -15,11 +15,11 @@ import {
 } from "./client.ts";
 
 /**
- * An agent whose card names the catalog's `fake` MCP server
- * (config/fake-model/mcp-servers.yaml) calls it through the egress proxy
+ * An agent whose card names the settings' `fake` MCP server
+ * (tests/fixtures/settings/fake-model.json) calls it through the egress proxy
  * with its service account, on the stack tests/e2e/run.sh started. The
  * agent, its binding and the web key come from the stack's first owner
- * (firstOwnerCookie), in the `verify` workspace the catalog allows. The
+ * (firstOwnerCookie), in the `verify` workspace the settings allow. The
  * fake server's control
  * port reports how many tool calls reached it and the sha256 of each bearer
  * it accepted, never the bearer.

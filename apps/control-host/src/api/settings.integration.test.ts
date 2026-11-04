@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresCatalogRepositoryStore,
@@ -12,7 +11,7 @@ import {
   type CredentialRef,
   catalogRows,
   createProfileRegistry,
-  parseSettingsDocument,
+  parseSeedDocument,
   profileFingerprint,
   resolveSessionCatalog,
   settingsSnapshot,
@@ -24,18 +23,13 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import {
-  readCatalogConfig,
-  readConnections,
-  readSeedProfiles,
-} from "./catalog-config.ts";
-import { documentFromDir } from "./settings.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const FAKE_MODEL_DIR = resolve(
-  import.meta.dir,
-  "../../../../config/fake-model",
+const FAKE_MODEL = parseSeedDocument(
+  await Bun.file(
+    `${import.meta.dir}/../../../../tests/fixtures/settings/fake-model.json`,
+  ).json(),
 );
 // Any reference resolves: what matters is which connection a ceiling finds.
 const lookup = (_ref: CredentialRef) => "a-fake-provider-key";
@@ -56,13 +50,15 @@ integration("the fake-model stack's settings through a document", () => {
   });
 
   async function ceilings(connections: Connections) {
-    const config = await readCatalogConfig(FAKE_MODEL_DIR);
-    const seed = await readSeedProfiles(FAKE_MODEL_DIR, config);
     const settings = createPostgresInstallationSettingsStore(db, null);
     const registry = createProfileRegistry<CatalogProfile>({
       workspaces: { listAll: async () => [] },
       installations: {
-        listAll: async () => catalogRows(seed, config.repositories),
+        listAll: async () =>
+          catalogRows(
+            FAKE_MODEL.profiles ?? {},
+            FAKE_MODEL.entries.repositories,
+          ),
       },
       repositories: createPostgresCatalogRepositoryStore(db),
       settings: {
@@ -70,7 +66,6 @@ integration("the fake-model stack's settings through a document", () => {
       },
       sources: {
         connections,
-        repositoryIdsOf: () => [],
         allowUnattended: false,
         runtimeSupported: () => true,
         materialize: (id, definition, settingsLookup) => {
@@ -92,14 +87,11 @@ integration("the fake-model stack's settings through a document", () => {
     };
   }
 
-  test("with connections.yaml emptied, the imported fake-messages connection runs the fake ceiling as the file did", async () => {
-    const fromFile = await ceilings(await readConnections(FAKE_MODEL_DIR));
-    expect(fromFile.state).toBe("usable");
+  test("the imported fake-messages connection runs the fake ceiling", async () => {
     expect(await ceilings({})).toMatchObject({ state: "connection_missing" });
 
-    const { document } = await documentFromDir(FAKE_MODEL_DIR);
     const result = await createPostgresSettingsDocumentStore(db).importEntries(
-      parseSettingsDocument(document),
+      FAKE_MODEL.entries,
       {
         dryRun: false,
         allowExternal: true,
@@ -108,6 +100,8 @@ integration("the fake-model stack's settings through a document", () => {
     );
     expect(result.outcome).toBe("applied");
 
-    expect(await ceilings({})).toEqual(fromFile);
+    const imported = await ceilings({});
+    expect(imported.state).toBe("usable");
+    expect(imported.fingerprint).toStartWith("sha256:");
   }, 30_000);
 });

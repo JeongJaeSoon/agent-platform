@@ -153,7 +153,14 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 - `POST /v1/installation/settings/import`(owner cookie): 문서의 없는 id만 더한다. `external` 참조가 새로 나오면 거절한다(그것은 CLI만). `stored` 항목은 값이 없으므로 "값 필요" 상태로 들어가고 콘솔에서 값을 넣어야 돈다.
 - CLI `settings import`·`settings export`: DB에 직접 붙는 운영자 도구. `external`을 받는다. `--dry-run`은 더할 것·충돌·값 필요 항목을 보인다.
 - 이것으로 하는 일: 저장소에 문서를 두고 PR 리뷰 뒤 `settings import --dry-run`/적용(GitOps 비슷한 흐름), DB 백업과 별도로 설정만 복구, 스테이징→운영 복제.
-- **S2 구현에서 좁힌 것.** 문서 v1에는 연결·저장소·MCP 서버만 있다. 실행 상한과 워크스페이스 판은 넣지 않았다. 상한의 도구 목록은 allowlist에서 deny 목록으로 바뀔 예정이라 지금 모양을 새 계약으로 굳히지 않는다. 상한은 지금처럼 `profiles.yaml` 시드와 `POST /v1/installation-profiles`로 다룬다. 상한을 문서로 옮기는 일은 S4나 도구 deny 목록 작업에서 정한다. 형식과 명령은 [운영 문서](../../operator/api-server.md#설정-문서-가져오기내보내기)에 있다.
+- **S2 구현에서 좁힌 것.** 문서 v1에는 연결·저장소·MCP 서버만 있다. 실행 상한과 워크스페이스 판은 넣지 않았다. 상한의 도구 목록은 이제 deny로도 저장되므로 지금 모양을 새 계약으로 굳히지 않는다. 상한은 콘솔과 `POST /v1/installation-profiles`로 다룬다. 형식과 명령은 [운영 문서](../../operator/api-server.md#설정-문서-가져오기내보내기)에 있다.
+- **S4 구현에서 정한 것.**
+  - 예시 스택은 상한도 있어야 도므로 CLI 문서만 최상위 `profiles`를 받는다(`parseSeedDocument`). 빈 표에만 들어가고 API는 이 키를 거절하며 내보내기에도 나오지 않는다. 운영 설치의 빈 DB에는 기본 프로필이 없고 콘솔에서 만든다.
+  - `catalog_authority` 표는 이번 릴리스에서 지우지 않는다. 코드 참조만 없애고, 롤링 중인 앞 이미지가 읽을 수 있게 호환을 끊는 다음 릴리스에서 DROP한다. 완료 조건의 "catalog_authority 제거"에서 벗어난 부분이다.
+  - `--if-present`는 디렉터리가 없거나 빈 경우만 건너뛴다. 일부만 있거나 깨진 디렉터리는 실패한다.
+  - `settings_generation`이 없는 claim(설정을 읽지 못한 호스트)은 상한이 차단됐을 때만 세션을 실패시킨다.
+  - `value_env`·`secret_id` 참조는 파일이 없어져도 남는다. CLI로 가져온 운영자 참조다.
+  - 기존 `origin = 'catalog'` 행은 그대로 둔다. 차단·`connection_missing` 상태가 유지되고, 옮기는 동안 사라지거나 살아나지 않는다.
 - **S2 뒤 되돌리기 하한.** 가져오기는 GitHub App이 아닌 `catalog_repositories` 행을 쓴다. 이런 행이 생긴 DB는 S1(migration 0225) 앞 이미지로 되돌리지 않는다. 앞 이미지는 `auth_kind`를 모르므로 그 행을 GitHub App 저장소로 읽는다.
 
 ## 7. 위험
@@ -166,7 +173,7 @@ release id에는 MCP 서버가 들지 않는다(`deriveReleaseId`, `release-ids.
 | owner 한 명이 연결을 지우면 모든 세션이 선다 | 중 | 지우기 없음, 사용 중지만. 위험 구역 확인(#979 패턴). receipt |
 | 가져오기가 다른 객체를 만들어 진행 중 세션이 `CATALOG_MISMATCH` | 높음 | 지문·binding·release id 동일성 테스트를 이전 PR의 인수 조건으로. verify 스택에서 업그레이드 전후 덤프 diff |
 | `catalog_authority` 삭제 뒤 replica 지연으로 세션 오판 | 중 | 설정 쓰기마다 오르는 DB generation 하나를 두고, claim은 자기 snapshot의 generation이 DB보다 낮으면 세션을 실패시키지 않고 넘긴다. #992·PD-3의 "모르는 행이면 넘긴다"를 연결·MCP까지 넓힌다. 실패시키는 것은 transaction 안에서 읽은 차단·사용 중지 상태뿐이다. 쓰기를 처리한 replica는 커밋 직후 다시 읽는다 |
-| 비밀 저장소 필수화로 키 없는 설치가 안 뜬다 | 소 | 릴리스 노트와 기동 메시지. compose는 api·slack에 이 변수를 넘긴다(`infra/compose.core.yml:297`, `:596`). 로컬 스택이 기본값을 채우는지는 미확인이고 S4가 확인한다 |
+| 비밀 저장소 필수화로 키 없는 설치가 안 뜬다 | 소 | 릴리스 노트와 기동 메시지. compose는 api·slack에 이 변수를 넘긴다(`infra/compose.core.yml:297`, `:596`). `scripts/local.sh`는 없으면 만들어 프로젝트별로 간직하고, 테스트 스택은 `compose.local.yml`의 개발용 값을 쓴다 |
 
 ## 8. PR 나눔 (같은 릴리스, 쌓아서 한 번에 land)
 

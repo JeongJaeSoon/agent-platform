@@ -10,8 +10,7 @@ import { workspaceParamsSchema } from "./workspaces.ts";
 
 // GitHub App repositories are read from the author App's installations, a
 // page at a time (decision settings-replace-file-catalog.md §1.1). The
-// catalog keeps only the rows a pick resolved, beside the operator file's
-// entries, which stay read-only.
+// catalog keeps only the rows a pick resolved.
 
 export const CATALOG_REPOSITORY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 export const catalogRepositoryIdSchema = z
@@ -40,28 +39,25 @@ export const CATALOG_REPOSITORY_SOURCE_VALUES = [
   "console",
   "seed",
   "selection",
-  "file",
 ] as const;
 
 export const catalogGitHubRepositorySchema = z
   .object({
     id: z.string().min(1),
-    /** Null for a file entry, and for a seeded one until GitHub is asked. */
+    /** Null for a seeded row until GitHub is asked. */
     github_repository_id: z.number().int().positive().nullable(),
-    full_name: z.string().min(1).nullable(),
+    full_name: z.string().min(1),
     url: z.string().url(),
     branch: z.string().min(1),
     source: z.enum(CATALOG_REPOSITORY_SOURCE_VALUES),
-    /** False for a file entry: the operator's file decides it. */
-    editable: z.boolean(),
-    /** For PATCH; null for a file entry. */
-    version: z.number().int().positive().nullable(),
+    /** For PATCH. */
+    version: z.number().int().positive(),
     /**
      * Whether an author App installation reaches it now; null when GitHub
      * was not asked, could not answer, or the row was past the ones asked.
      */
     installed: z.boolean().nullable(),
-    updated_at: timestampSchema.nullable(),
+    updated_at: timestampSchema,
   })
   .strict();
 
@@ -195,10 +191,7 @@ export const listGitHubRepositoriesResponseSchema = z
         .strict(),
     ),
     unavailable: z.enum(GITHUB_REPOSITORIES_UNAVAILABLE_VALUES).nullable(),
-    /**
-     * The catalog's GitHub repositories: rows picks resolved (any branch is
-     * changed here), and the operator file's entries, read-only.
-     */
+    /** The catalog's GitHub repositories: rows picks resolved. */
     catalog: z.array(
       catalogGitHubRepositorySchema
         .extend({
@@ -207,7 +200,6 @@ export const listGitHubRepositoriesResponseSchema = z
           /**
            * The connection pinned per role; null when none is, or when the
            * pinned one was removed (the gate then refuses the role's work).
-           * Absent for a file entry, which uses its own App.
            */
           pins: githubRepositoryPinsSchema.optional(),
         })

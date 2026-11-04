@@ -39,7 +39,7 @@ const approver = werft.withOptions({
 });
 ```
 
-에이전트 key는 `profile_id`와 `repository_id` 대신 자기 에이전트의 `agent_release_id`로 세션을 만든다. 에이전트 key에는 `sessions:read`, `sessions:write`, `sessions:control`, 승인자 key에는 `sessions:read`, `sessions:approve`가 필요하고, 세션의 공유 범위에 승인자가 들어 있어야 한다. 설정과 실제 출력은 [샘플 README](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/README.md)에 있다.
+에이전트 key는 `profile_id`와 `repository_id` 대신 자기 에이전트의 `agent_release_id`로 세션을 만든다. 에이전트 key에는 `sessions:read`, `sessions:write`, `sessions:control`, 승인자 key에는 `sessions:read`, `sessions:approve`가 필요하고, 세션의 공유 범위에 승인자가 들어 있어야 한다. 설정과 실제 출력은 [샘플 README](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/README.md)에 있다.
 
 ## 오류
 
@@ -100,7 +100,7 @@ try {
 
 ## 저장소의 예제
 
-[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md)에는 유즈케이스별 샘플이 있다. key와 카탈로그 확인, 세션 목록, 이벤트 스트림 이어 받기, 재시도와 Idempotency-Key, 질문·권한 요청 답변, 세션 제어와 복구, 막힌 close, push 승인과 PR을 다루고, 어떤 SDK API를 어느 샘플이 쓰는지 표로 정리했다. 저장소 checkout의 루트에서 `bun install` 뒤에 돌린다.
+[examples](https://github.com/JeongJaeSoon/werft/blob/main/examples/README.md)에는 유즈케이스별 샘플이 있다. key와 카탈로그 확인, 세션 목록, 이벤트 스트림 이어 받기, 재시도와 Idempotency-Key, 질문·권한 요청 답변, 세션 제어와 복구, 막힌 close, push 승인과 PR을 다루고, 어떤 SDK API를 어느 샘플이 쓰는지 표로 정리했다. 저장소 checkout의 루트에서 `bun install` 뒤에 돌린다.
 
 ## 다음 단계
 

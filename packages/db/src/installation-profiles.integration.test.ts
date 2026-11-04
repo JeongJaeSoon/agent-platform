@@ -136,7 +136,7 @@ integration("installation profiles on PostgreSQL", () => {
       const again = await store.seedCatalog({
         entries: async () => {
           read += 1;
-          throw new Error("profiles.yaml is broken");
+          throw new Error("the seed is broken");
         },
         repositoryIdsOf: () => ["elsewhere"],
       });
@@ -191,7 +191,7 @@ integration("installation profiles on PostgreSQL", () => {
     });
   }, 60_000);
 
-  test("imported rows from before the move get repositories.yaml's allowance once", async () => {
+  test("imported rows from before the move get the document's allowance once", async () => {
     await emptyDatabase(async (fresh) => {
       const [entry] = catalogImports({ old: definition() });
       if (!entry) throw new Error("no entry");

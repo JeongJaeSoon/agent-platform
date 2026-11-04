@@ -23,14 +23,13 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 | upgrade-check Job | upgrade마다 1 | `pre-upgrade` hook, migrate 앞. `scheduler.enabled: false`면 없다([업그레이드 전 검사](#업그레이드-전-검사)) |
 | checkpoint GC CronJob | 주 1회 | `checkpointGc.schedule` |
 | session archive CronJob | 주 1회 | `sessionArchive.schedule`(기본 `0 5 * * 0`)·`afterDays`(기본 180, 0=끔, 30~3650)·`dryRun`(기본 `true`). 오래 쉰 세션의 이벤트를 bucket으로 옮긴다([data-retention.md](data-retention.md#세션-이벤트-보관)) |
-| 카탈로그 ConfigMap | 1 | `catalog.connections`(필수)·`catalog.profiles`(빈 DB 시드)·`catalog.repositories` |
 | NetworkPolicy | 5 | worker는 egress-proxy로만 나간다. 제어 영역 Pod 중 바깥 연결을 막는 것은 slack 하나다 |
 | Ingress, ExternalSecret | 선택 | `ingress.enabled`, `secrets.externalSecret.enabled` |
 | metrics Deployment + Service(9464) + NetworkPolicy | 선택, 1, `Recreate` | `metrics.enabled`. 플랫폼 지표를 낸다([metrics.md](metrics.md)) |
 
 chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값, worker Pod(scheduler가 세션마다 만든다). kind에서는 `deploy/kind/deps.yaml`의 PostgreSQL·LocalStack이 대신한다.
 
-chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 egress proxy로 닿을 수 있는 저장소를 적는다. `values.yaml`의 `sample-app` URL은 예시이고, chart만 설치한 클러스터에는 그 주소가 없다. kind 확인 환경에서는 `deploy/kind/up.sh`가 `KIND_MODEL`이 `fake` 또는 `real`일 때(`smoke.sh`와 PR 미리보기가 이 경우다) `deploy/kind/deps-session.yaml`로 읽기 전용 fake-git을 띄운다. fake-git은 control-host 이미지로 돌고, Service `fake-git:3000`의 `/agent/sample-app.git`·`/agent/gate-app.git`을 내주며, 기동할 때마다 같은 커밋으로 다시 만들어지고 push는 403이다.
+chart는 Git 서버도 만들지 않는다. 설정 문서의 저장소에는 Pod가 egress proxy로 닿을 수 있는 주소를 적는다. kind 확인 환경에서는 `deploy/kind/up.sh`가 `KIND_MODEL`이 `fake` 또는 `real`일 때(`smoke.sh`와 PR 미리보기가 이 경우다) `deploy/kind/deps-session.yaml`로 읽기 전용 fake-git을 띄운다. fake-git은 control-host 이미지로 돌고, Service `fake-git:3000`의 `/agent/sample-app.git`·`/agent/gate-app.git`을 내주며, 기동할 때마다 같은 커밋으로 다시 만들어지고 push는 403이다.
 
 ## 준비
 
@@ -44,8 +43,8 @@ chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 
 | `DATABASE_URL` | api, scheduler, reconciler, slack, migrate, checkpoint GC |
 | `EGRESS_AUTHORIZER_TOKEN` | api, egress-proxy(같은 값) |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | api, checkpoint GC. `secrets.objectStoreKeys: true`일 때만. `false`면 AWS 기본 credential chain(IRSA)으로 서명한다 |
-| `secrets.catalogEnv`의 이름(기본 `ANTHROPIC_API_KEY`) | api만. 카탈로그가 `value_env`로 가리키는 provider·저장소 자격 증명. slack도 카탈로그 파일은 읽지만 자격 증명은 받지 않는다 |
-| `PLATFORM_SECRET_KEY` | api, slack. 선택. 없으면 Slack secret 저장소가 꺼진다 |
+| `secrets.catalogEnv`의 이름(기본 `ANTHROPIC_API_KEY`) | api만. 설정 문서가 `value_env`로 가리키는 provider·저장소 자격 증명. slack은 받지 않는다 |
+| `PLATFORM_SECRET_KEY` | api, slack. 필수. 64자 hex master key. 콘솔에서 저장한 자격 증명을 봉인한다. Secret에 없으면 Pod가 뜨지 않는다 |
 
 ## 설치 순서
 
@@ -53,7 +52,7 @@ chart는 Git 서버도 만들지 않는다. `catalog.repositories`에는 Pod가 
 
 1. ExternalSecret(사용할 때, hook weight -10)이 Secret을 쓴다.
    upgrade에서는 그다음 upgrade-check Job(hook weight -5)이 재개할 수 없게 될 세션을 검사한다. 실패하면 Helm이 멈추고 migrate도 돌지 않는다([업그레이드 전 검사](#업그레이드-전-검사)).
-2. migrate Job(hook weight 0)이 schema를 올린다. 실패하면 Helm이 멈추고 Deployment는 바뀌지 않는다.
+2. migrate Job(hook weight 0)이 schema를 올리고, 파일 카탈로그가 있던 chart에서 올라오는 경우 옛 ConfigMap을 설정으로 가져온다(아래 "파일 카탈로그에서 올리기"). 실패하면 Helm이 멈추고 Deployment는 바뀌지 않는다.
 3. api, egress-proxy, reconciler, scheduler, slack Deployment가 한꺼번에 적용된다. 서로 기다리지 않고, 각자 probe를 통과하면 ready가 된다. scheduler·reconciler·slack은 첫 pass가 끝나야 ready다.
 
 ### kind (로컬)
@@ -67,7 +66,7 @@ export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
 
 `CLUSTER_NAME`(기본 `agent-platform-dev`)과 `REGISTRY_PORT`(기본 5001)는 생략할 수 있다. 다른 클러스터나 registry와 겹치면 바꾼다. 지우는 명령은 `CLUSTER_NAME=… deploy/kind/up.sh down`이다(클러스터와 registry 컨테이너만 지운다).
 
-`EXTRA_VALUES=<파일>`을 주면 values 파일 하나를 다른 values 파일(모델·카탈로그 포함) 위에 마지막으로 얹는다. 노트북에서 api·egress-proxy를 1개씩만 띄울 때 쓴다(`api.replicas: 1`, `egressProxy.replicas: 1`).
+`EXTRA_VALUES=<파일>`을 주면 values 파일 하나를 다른 values 파일(모델 포함) 위에 마지막으로 얹는다. 노트북에서 api·egress-proxy를 1개씩만 띄울 때 쓴다(`api.replicas: 1`, `egressProxy.replicas: 1`).
 
 ### OrbStack (로컬)
 
@@ -91,7 +90,7 @@ kubectl create namespace werft
 kubectl -n werft create secret generic werft --from-file=<secret-dir>
 ```
 
-설치별 값은 values 파일 하나에 둔다. 최소한 세 이미지의 digest, 카탈로그(`catalog.connections`와 `catalog.repositories`는 하나 이상), checkpoint bucket이 들어간다. `catalog.connections`가 없으면 api와 slack이 `connections.yaml is missing`으로 뜨지 않는다. 기본값과 설명은 `values.yaml`에 있다. 같은 명령이 처음 설치와 업그레이드를 모두 한다. **kind**(`-f deploy/kind/values.yaml -f <digest만 담은 파일>`)
+설치별 값은 values 파일 하나에 둔다. 최소한 세 이미지의 digest와 checkpoint bucket이 들어간다. 연결·저장소·MCP 서버·상한은 values에 없다. 설치 뒤 콘솔에서 더하거나 `bun run settings:k8s import --document - < settings.json`으로 가져온다([api-server.md](api-server.md#설정-문서-가져오기내보내기)). 기본값과 설명은 `values.yaml`에 있다. 같은 명령이 처음 설치와 업그레이드를 모두 한다. **kind**(`-f deploy/kind/values.yaml -f <digest만 담은 파일>`)
 
 ```bash
 helm upgrade --install werft deploy/helm/agent-platform \
@@ -104,7 +103,7 @@ done
 
 release 이름에 `werft`가 들어가지 않으면 리소스 이름은 `<release>-werft-…`가 된다.
 
-chart 이름이 `agent-platform`이던 때 설치한 release는 제자리에서 올릴 수 없다. 리소스 이름이 바뀌어 upgrade-check Job이 기존 scheduler를 찾지 못하고 멈춘다. 세션이 끝났는지 확인하고 옛 이름으로 지운 뒤(`helm -n agent-platform uninstall agent-platform`, [제거](#제거)에서 남는 것을 본다) 새로 설치한다.
+chart 이름이 `agent-platform`이던 때 설치한 release는 제자리에서 올릴 수 없다. 리소스 이름이 바뀌어 upgrade-check Job이 기존 scheduler를 찾지 못하고 멈춘다. 세션이 끝났는지 확인하고 옛 이름으로 지운 뒤(`helm -n agent-platform uninstall agent-platform`, [제거](#제거)에서 남는 것을 본다) 새로 설치한다. 파일 카탈로그를 쓰던 release는 지우기 전에 ["파일 카탈로그에서 올리기"](#파일-카탈로그에서-올리기)의 ConfigMap부터 저장한다.
 
 첫 설치가 실패하면(이미지 경로나 pull 권한 오류가 흔하다) 값을 고치고 같은 명령을 다시 돌린다. Helm은 release가 `failed`로 남아 있으므로 이를 upgrade로 처리하고, 그래서 upgrade-check Job이 처음으로 돈다. scheduler Deployment가 없고 DB가 비어 있거나 세션이 없으면 Job이 `proceed`로 끝나고 설치가 이어진다([업그레이드 전 검사](#업그레이드-전-검사)). Deployment까지 만들어진 뒤 실패했다면 재시도는 보통의 upgrade 규칙을 따른다. worker 이미지를 고친 재시도는 여기서 멈추므로(`check_failed`, runtime을 넣었다면 `refused`), 세션을 시작하지 않았다면 [제거](#제거)한 뒤 다시 설치한다.
 
@@ -186,9 +185,9 @@ kubectl -n werft exec deploy/werft-egress-proxy -- bun run /app/src/healthcheck.
 
 port-forward는 끝나면 그 job만 끈다(`kill %1`). AWS에서는 port-forward 대신 Ingress host로 `/readyz`를 부른다(**AWS 전용**).
 
-## API key, 실행 권한, 카탈로그 권한
+## API key, 실행 권한, 설정 문서
 
-compose 설치의 `bun run keys`·`grants`·`catalog-authority`는 api 컨테이너 안에서 돈다. Kubernetes 설치에서는 `:k8s`가 붙은 같은 이름의 script가 `scripts/k8s-api.sh`로 api Pod 안에서 같은 CLI를 돌린다. Pod가 이미 `DATABASE_URL`을 가지고 있어서 비밀값이 운영자 셸을 지나지 않는다. kubectl의 현재 context나 `KUBECONFIG`가 클러스터를, `NAMESPACE`·`RELEASE`(기본 둘 다 `werft`)가 설치를 고른다. **kind**
+compose 설치의 `bun run keys`·`grants`·`settings`는 api 컨테이너 안에서 돈다. Kubernetes 설치에서는 `:k8s`가 붙은 같은 이름의 script가 `scripts/k8s-api.sh`로 api Pod 안에서 같은 CLI를 돌린다. Pod가 이미 `DATABASE_URL`을 가지고 있어서 비밀값이 운영자 셸을 지나지 않는다. kubectl의 현재 context나 `KUBECONFIG`가 클러스터를, `NAMESPACE`·`RELEASE`(기본 둘 다 `werft`)가 설치를 고른다. **kind**
 
 ```bash
 bun run keys:k8s create <owner_id> --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
@@ -196,8 +195,8 @@ bun run keys:k8s create <owner_id> --scopes sessions:read,sessions:write,session
 bun run keys:k8s revoke <key_id>
 bun run grants:k8s revoke <session_id> --reason <text>
 bun run grants:k8s restore <session_id> --reason <text>
-bun run catalog-authority:k8s show
-bun run catalog-authority:k8s activate <revision> --expected <revision|none>
+bun run settings:k8s export > settings.json
+bun run settings:k8s import --document - --dry-run < settings.json
 ```
 
 script 없이 부르면 다음과 같다. `deploy/…-api`는 api Pod 하나를 고른다. 세 CLI는 DB만 쓰므로 어느 Pod든 같다.
@@ -207,7 +206,7 @@ kubectl -n werft exec deploy/werft-api -c api -- \
   bun run apps/control-host/src/api/keys.ts create <owner_id> --scopes sessions:read
 ```
 
-`catalog-authority activate`의 `<revision>`은 api Pod가 기동할 때 남긴 로그(`Session catalog loaded`, `revision`)에 있다. **kind**(`show`만. activate는 카탈로그를 바꾸는 운영 결정이라 돌리지 않았다)
+`Session catalog loaded` 로그는 api Pod가 DB에서 읽은 상한·저장소 수를 남긴다.
 
 ```bash
 kubectl -n werft logs deploy/werft-api | grep 'Session catalog loaded'
@@ -231,6 +230,23 @@ worker Pod의 이미지는 scheduler가 launch할 때 정해진다. 이미지는
 - worker가 보내는 protocol 필드를 더하거나 checkpoint manifest에 필드를 더하는 릴리스는 `images.controlHost`만 바꾼 upgrade를 먼저 하고, `images.worker`는 다음 upgrade에서 바꾼다. 한 번의 upgrade로는 새 worker가 옛 api보다 먼저 뜨지 않는다는 보장이 없다. 필드별 순서는 [images-and-supply-chain.md § worker protocol 필드를 걷어내는 순서](images-and-supply-chain.md#worker-protocol-필드를-걷어내는-순서)에 있다.
 - DB 변경은 [images-and-supply-chain.md § DB 스키마를 바꾸는 순서](images-and-supply-chain.md#db-스키마를-바꾸는-순서)의 확장→전환→정리를 따른다. migrate hook이 rollout보다 먼저 돌기 때문에 옛 api와 옛 worker가 새 schema 위에서 돈다.
 - 새 control-host와 직전 릴리스 worker 이미지의 조합은 CI가 아직 검사하지 않는다. 릴리스 전에 kind나 시험 설치에서 직접 확인한다. `images.controlHost`만 새 digest로, `images.worker`는 직전 릴리스 digest로 둔 values로 upgrade하고, 세션 하나가 turn 1을 끝내는지 본다. 그 세션의 worker Pod를 `kubectl delete pod`로 지운 뒤 입력을 하나 더 보내 새 Pod가 checkpoint에서 이어 turn 2를 끝내는지 본다. api 로그에 worker 요청의 400 `BAD_REQUEST`가 없어야 한다. `deploy/kind/up.sh`는 `images.worker`를 `--set`으로 덮으므로 `EXTRA_VALUES`로는 worker 이미지를 바꾸지 못한다. 직접 `helm upgrade`한다.
+
+### 파일 카탈로그에서 올리기
+
+옛 chart의 `catalog` ConfigMap은 이번 chart에 없다. Helm은 hook이 끝난 뒤에 옛 리소스를 지우므로, pre-upgrade migrate Job이 같은 ConfigMap을 `/legacy-config`에 선택 마운트해 `settings import --from-dir /legacy-config --if-present`로 가져온다. 다음 upgrade부터는 ConfigMap이 없어 아무 일도 하지 않는다. 일부 파일만 있거나 값이 깨졌으면 Job이 실패하고 Deployment는 바뀌지 않는다.
+
+1. `PLATFORM_SECRET_KEY`를 Secret에 먼저 넣는다. 이미 있으면 같은 값을 그대로 둔다.
+2. values에서 `catalog` 절을 지우고 `helm upgrade`한다. `api.extraEnv`에 `PLATFORM_CONFIG_DIR`을 두었다면 지운다.
+3. 끝나면 `bun run settings:k8s export`로 더해진 항목을 본다. `installation_profiles`에 행이 이미 있으면 파일의 상한은 다시 넣지 않는다. 절차와 되돌리기 하한은 [api-server.md](api-server.md#설정-문서-가져오기내보내기)에 있다.
+
+chart 이름이 `agent-platform`이던 release는 지우고 새로 설치하므로 ConfigMap도 함께 사라지고, 새 chart는 다른 이름을 찾는다. 옛 release를 지우기 전에 ConfigMap을 새 이름으로 저장하고, `helm install` 전에 만들어 둔다. migrate Job은 설치 때도 돌아 그 ConfigMap을 가져온다. ConfigMap에는 참조만 있고 비밀값은 없다.
+
+```bash
+kubectl -n agent-platform get configmap agent-platform-catalog -o json \
+  | jq '{apiVersion, kind, data, metadata: {name: "werft-catalog", namespace: "werft"}}' > catalog-configmap.json
+# 옛 release를 지우고 namespace를 만든 뒤
+kubectl apply -f catalog-configmap.json
+```
 
 ### 바뀌는 것별로 세션이 이어지는 방법
 
@@ -301,7 +317,7 @@ worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 되돌릴 r
 | 1. 호스트 준비 | 클러스터와 NetworkPolicy를 강제하는 CNI, worker node group. XFS quota 대신 workspace PVC 크기(위 "준비") |
 | 2. 네트워크 경로 | SSH tunnel 대신 사내망 ALB Ingress(**AWS 전용**). authorizer 3100과 DB는 클러스터 밖에 열지 않는다 |
 | 3. 전용 S3 | 같다. 정적 key 대신 IRSA(위 "AWS 값 넣기") |
-| 4. release·설정 봉인 | 이미지 digest와 카탈로그를 설치별 values 파일 하나에 둔다 |
+| 4. release·설정 봉인 | 이미지 digest를 설치별 values 파일 하나에 두고, 설정은 설정 문서로 가져온다 |
 | 5. 설치와 첫 사용 | "설치 순서", "health 확인", "API key" 절 |
 | 6. 백업·복원 | RDS·S3 기능([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)) |
 | 7. 업그레이드·롤백 | "업그레이드와 롤백" 절 |

@@ -42,8 +42,6 @@ import {
 } from "@werft-ai/observability";
 import {
   agentPromptIdentity,
-  type CatalogRepository,
-  type Connections,
   createAuthorizationPolicy,
   createLoggingSlackNoticeSink,
   createOutboxSlackNoticeSink,
@@ -56,18 +54,15 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   installationLimitsFromEnv,
-  isRegisteredGitHubApp,
   platformPromptRevisionFromEnv,
   profileCatalog,
   releaseStartable,
   resolveAgentRelease,
   type SecretKey,
-  type SessionCatalogConfig,
   type SlackInboundEventStore,
   type SlackInboundHandler,
   type SlackInboxDrain,
   type SlackNoticeSink,
-  sessionCatalogView,
   settingsView,
   slackBotToken,
   withConsoleRepositories,
@@ -75,15 +70,10 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import {
-  DEFAULT_CONFIG_DIR,
-  loadCatalogConfig,
   loadSecretKey,
   profileViewSources,
-  readConnections,
+  refuseFileCatalog,
   runtimeVersionsFromEnv,
-  SECRET_KEY_SETTING,
-  type SecretReader,
-  secretsManagerReader,
 } from "../api/catalog-config.ts";
 import { eventNeutralizer } from "../api/neutral-fields.ts";
 import { consoleOriginFrom, slackApiUrlFrom } from "../api/slack-config.ts";
@@ -123,47 +113,20 @@ export function slackRoleSettings(environment: Environment): {
   };
 }
 
-/**
- * Checked once before the first pass: settings, database URL, the catalog
- * under the api's rules but without its credentials, and the master key.
- */
-export async function slackRoleStartup(
-  environment: Environment,
-  readSecret: SecretReader = secretsManagerReader(environment),
-): Promise<{
-  catalog: SessionCatalogConfig;
-  connections: Connections;
-  secretKeySet: boolean;
-  secretKey: SecretKey | null;
-}> {
+export function slackRoleStartup(environment: Environment): {
+  secretKey: SecretKey;
+} {
   slackRoleSettings(environment);
   slackDatabaseUrl(environment);
-  const dir = environment.PLATFORM_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
-  const catalog = await loadCatalogConfig({ dir, env: environment });
-  const connections = await readConnections(dir);
-  const secretKey = await loadSecretKey({ dir, env: environment, readSecret });
-  return {
-    catalog,
-    connections,
-    secretKeySet: secretKey !== null,
-    secretKey,
-  };
+  refuseFileCatalog(environment);
+  return { secretKey: loadSecretKey(environment) };
 }
 
-/**
- * The api's registry without credentials: the slack role imports nothing,
- * it reads what the api imported.
- */
-export function slackProfileCatalog(
-  db: Database,
-  config: SessionCatalogConfig,
-  connections: Connections,
-  environment: Environment,
-) {
+export function slackProfileCatalog(db: Database, environment: Environment) {
   const runtimeVersions = runtimeVersionsFromEnv(environment);
   return profileCatalog(
     {
-      ...sessionCatalogView(config),
+      repositories: {},
       ...(runtimeVersions === undefined
         ? {}
         : { runtime_versions: runtimeVersions }),
@@ -179,30 +142,16 @@ export function slackProfileCatalog(
             () => SLACK_ROLE_CREDENTIAL,
           ),
       },
-      sources: profileViewSources(
-        connections,
-        config.repositories,
-        environment,
-      ),
+      sources: profileViewSources(environment),
     }),
     // The api's catalog, so a release the console's repositories allow runs
     // here too.
-    (rows, settings) => {
-      const view = sessionCatalogView(config).repositories;
-      const file: Record<string, CatalogRepository> = {};
-      for (const [id, repository] of Object.entries(view)) {
-        const auth = config.repositories[id]?.auth;
-        file[id] =
-          auth !== undefined && isRegisteredGitHubApp(auth)
-            ? { ...repository, auth: { kind: "github_app", registered: true } }
-            : repository;
-      }
-      return Object.fromEntries(
+    (rows, settings) =>
+      Object.fromEntries(
         Object.entries(
-          withConsoleRepositories(file, rows, settings?.repositories),
+          withConsoleRepositories(rows, settings?.repositories),
         ).map(([id, { auth: _auth, ...repository }]) => [id, repository]),
-      );
-    },
+      ),
   );
 }
 
@@ -214,10 +163,7 @@ export function slackSessionHandler(deps: {
   pool: Pick<Pool, "connect">;
   environment: Environment;
   logger: StructuredLogger;
-  catalog: SessionCatalogConfig;
-  connections: Connections;
-  /** Null without a master key: an event that needs a bot token waits. */
-  secretKey: SecretKey | null;
+  secretKey: SecretKey;
   leaseMs: number;
   notices?: SlackNoticeSink;
   slackApiUrl?: string;
@@ -229,9 +175,7 @@ export function slackSessionHandler(deps: {
   profiles?: ReturnType<typeof slackProfileCatalog>;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
-  const catalog =
-    deps.profiles ??
-    slackProfileCatalog(db, deps.catalog, deps.connections, environment);
+  const catalog = deps.profiles ?? slackProfileCatalog(db, environment);
   const credentials = createPostgresCredentialBindingStore(db);
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),
@@ -271,8 +215,7 @@ export function slackSessionHandler(deps: {
     limits: installationLimitsFromEnv(environment),
   });
   const { secretKey } = deps;
-  const secrets =
-    secretKey === null ? null : createPostgresSecretStore(db, secretKey);
+  const secrets = createPostgresSecretStore(db, secretKey);
   const consoleOrigin = consoleOriginFrom(environment);
   const identities = createPostgresAgentIdentityStore(db);
   const bindings = createPostgresSurfaceBindingStore(db);
@@ -305,12 +248,8 @@ export function slackSessionHandler(deps: {
     slack: createSlackBotApi({
       apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
     }),
-    botToken: async (workspaceId, slackAppId) => {
-      if (secrets === null) {
-        throw new Error(`${SECRET_KEY_SETTING} is unset: no bot token opens`);
-      }
-      return slackBotToken(secrets, workspaceId, slackAppId);
-    },
+    botToken: (workspaceId, slackAppId) =>
+      slackBotToken(secrets, workspaceId, slackAppId),
     notices: deps.notices ?? createLoggingSlackNoticeSink(logger),
     logger,
     connectUrl:
@@ -318,8 +257,6 @@ export function slackSessionHandler(deps: {
         ? ""
         : new URL("/settings/linked-accounts", consoleOrigin).toString(),
   });
-  // Without a master key there is no app to send a welcome as.
-  if (secretKey === null) return sessionHandler;
   return createSlackMemberJoinedHandler({
     agents: identities,
     bindings,
@@ -363,9 +300,8 @@ export async function main(
     // so a steady stream of mentions cannot starve the answers.
     const started = Date.now();
     const deadline = started + settings.passBudgetMs;
-    const { catalog, connections, secretKey } =
-      await slackRoleStartup(environment);
-    const profiles = slackProfileCatalog(db, catalog, connections, environment);
+    const { secretKey } = slackRoleStartup(environment);
+    const profiles = slackProfileCatalog(db, environment);
     await profiles.workspace_profiles.refresh();
     const outbox = createPostgresSlackOutboxStore(db, {
       neutralize: eventNeutralizer(profiles, logger),
@@ -377,8 +313,6 @@ export async function main(
         pool,
         environment,
         logger,
-        catalog,
-        connections,
         secretKey,
         leaseMs: settings.leaseMs,
         notices: createOutboxSlackNoticeSink(outbox),
@@ -390,16 +324,12 @@ export async function main(
       deadline: started + settings.passBudgetMs / 2,
     });
     if (drain.claimed > 0) logger.info("Slack inbox pass", drain);
-    const secrets =
-      secretKey === null ? null : createPostgresSecretStore(db, secretKey);
+    const secrets = createPostgresSecretStore(db, secretKey);
     const sent = await drainSlackOutbox({
       outbox,
       slack: createSlackBotApi({ apiUrl: slackApiUrlFrom(environment) }),
-      botToken:
-        secrets === null
-          ? null
-          : (workspaceId, slackAppId) =>
-              slackBotToken(secrets, workspaceId, slackAppId),
+      botToken: (workspaceId, slackAppId) =>
+        slackBotToken(secrets, workspaceId, slackAppId),
       logger,
       consoleOrigin: consoleOriginFrom(environment),
       batchSize: settings.batchSize,

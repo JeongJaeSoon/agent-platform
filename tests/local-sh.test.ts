@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -484,6 +491,38 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
     expect(await calls("docker-calls")).toContain(realUp);
   });
 
+  test("up makes one master key per project, unless the shell or .env has one", async () => {
+    await writeFile(config, rendered("local"));
+    const state = join(dir, "key-state");
+    const file = join(state, "ap-key.secret-key");
+    const env = {
+      AGENT_PLATFORM_STATE_DIR: state,
+      COMPOSE_PROJECT_NAME: "ap-key",
+      PLATFORM_SECRET_KEY: "",
+      STUB_API: "127.0.0.1:43123",
+    };
+    expect((await run(["up", "--fake-model"], env)).exitCode).toBe(0);
+    const made = await readFile(file, "utf8");
+    expect(made).toMatch(/^[0-9a-f]{64}\n$/);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect((await run(["up", "--fake-model"], env)).exitCode).toBe(0);
+    expect(await readFile(file, "utf8")).toBe(made);
+
+    const other = { ...env, COMPOSE_PROJECT_NAME: "ap-given" };
+    const given = join(state, "ap-given.secret-key");
+    await run(["up", "--fake-model"], {
+      ...other,
+      PLATFORM_SECRET_KEY: "1".repeat(64),
+    });
+    const dotenv = join(dir, "master.env");
+    await writeFile(dotenv, `PLATFORM_SECRET_KEY=${"2".repeat(64)}\n`);
+    await run(["up", "--fake-model"], {
+      ...other,
+      AGENT_PLATFORM_DOTENV: dotenv,
+    });
+    expect(await stat(given).catch(() => null)).toBeNull();
+  });
+
   test("up refuses a rendered port another listener holds, not one its stack does", async () => {
     const listener = Bun.listen({
       hostname: "127.0.0.1",
@@ -567,6 +606,7 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
       "werft",
       "exec",
       "deploy/werft-api",
+      "-i",
       "-c",
       "api",
       "--",
@@ -582,17 +622,18 @@ printf '%s\\n' "$@" > "${dir}/kubectl-args"
 
   test("follows the chart's fullname for another release and namespace", async () => {
     expect(
-      run(["catalog-authority", "show"], { NAMESPACE: "ap", RELEASE: "prod" })
+      run(["settings", "export"], { NAMESPACE: "ap", RELEASE: "prod" })
         .exitCode,
     ).toBe(0);
     const args = await kubectlArgs();
-    expect(args.slice(0, 4)).toEqual([
+    expect(args.slice(0, 5)).toEqual([
       "-n",
       "ap",
       "exec",
       "deploy/prod-werft-api",
+      "-i",
     ]);
-    expect(args).toContain("apps/control-host/src/api/catalog-authority.ts");
+    expect(args).toContain("apps/control-host/src/api/settings.ts");
 
     run(["grants", "revoke", "x"], { RELEASE: "werft-blue" });
     expect((await kubectlArgs())[3]).toBe("deploy/werft-blue-api");

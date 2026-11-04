@@ -10,7 +10,6 @@ import type {
   ListSettingsRepositoriesResponse,
   SettingsChangeResponse,
   SettingsCredentialView,
-  SettingsEntryOrigin,
   SettingsEntryState,
 } from "@werft-ai/contracts";
 import { useAgentPlatform } from "@werft-ai/react";
@@ -96,7 +95,6 @@ export function settingsRepositoriesQuery(client: ApiClient, enabled = true) {
 
 const REASONS = [
   "already_exists",
-  "file_entry",
   "not_stored",
   "disabled",
   "invalid_entry",
@@ -227,7 +225,6 @@ const STATE_BADGE: Record<
   needs_value: "amber",
   unresolved: "red",
   disabled: "gray",
-  shadowed: "amber",
 };
 
 export function StateBadge({ state }: { readonly state: SettingsEntryState }) {
@@ -252,19 +249,6 @@ export function NarrowState({ state }: { readonly state: SettingsEntryState }) {
   );
 }
 
-export function OriginBadge({
-  origin,
-}: {
-  readonly origin: SettingsEntryOrigin;
-}) {
-  const { t } = useI18n();
-  return (
-    <Badge variant={origin === "file" ? "gray" : "blue"}>
-      {t(`settings.origin.${origin}`)}
-    </Badge>
-  );
-}
-
 /** A credential as words: a stored value's last four, or a reference's name. */
 export function credentialText(
   t: Translate,
@@ -286,13 +270,11 @@ export function credentialText(
   }
 }
 
-/** What the console may do with an entry: never a file's, only disable a reference. */
 export function entryActions(entry: {
-  readonly origin: SettingsEntryOrigin;
   readonly state: SettingsEntryState;
   readonly credential: SettingsCredentialView;
 }): { readonly setValue: boolean; readonly disable: boolean } {
-  if (entry.origin === "file" || entry.state === "disabled") {
+  if (entry.state === "disabled") {
     return { setValue: false, disable: false };
   }
   return { setValue: entry.credential.source === "stored", disable: true };

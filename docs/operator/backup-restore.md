@@ -137,10 +137,9 @@ manifest의 `gitea`에 값이 있는 백업에는 `repos/`와 `gitea/`(Gitea DB,
 scripts/verify-restore.sh --project ap-restore-1
 scripts/verify-restore.sh --project ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints
 scripts/verify-restore.sh --project ap-restore-1 --image werft-worker:dev   # 복원본을 이어 받을 worker 이미지
-scripts/verify-restore.sh --project ap-restore-1 --image werft-worker:dev --config-dir config/fake-model
 ```
 
-restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다. `--image`에는 복원본의 scheduler가 쓸 `WORKER_IMAGE`를 준다. `--config-dir`에는 복원본 API의 `PLATFORM_CONFIG_DIR`에 해당하는 checkout 안 catalog 디렉터리를 준다. 기본값은 API 기본값과 같은 `config/`(실제 Messages API)이고, `--fake-model` 스택이면 `config/fake-model`이다.
+restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다. `--image`에는 복원본의 scheduler가 쓸 `WORKER_IMAGE`를 준다. 설정은 복원본 DB의 것을 읽는다.
 
 `checkpoints`의 모든 행을 확인한다. 단, GC가 `collected_at`을 적은 행은 뺀다. 확인하는 내용은 다음과 같다.
 
@@ -156,7 +155,7 @@ restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력
 마지막으로 `checkpoint-pins-cli.ts plans`가 복원본의 API가 할 일을 그대로 한다.
 
 - `describeBucketProtection` 결과를 출력하고 API의 `locked` 기동 검사(`assertCheckpointBucketProtection`)와 bucket 기본 암호화 검사(`assertCheckpointBucketEncryption`, SSE-S3)를 통과하는지 본다. `repin`도 객체를 쓰기 전에 같은 암호화 검사를 한다.
-- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다. 먼저 pointer마다 API가 줄 claim의 digest 입력(`principal`=`sessions.owner_id`, `runtime_config`=`--config-dir` catalog의 `sessions.profile_id` profile)을 다시 만든다. catalog가 세션의 profile·repository 쌍(`profile_id`·`repository_id`·`repo_url`·`branch`)을 더 이상 허용하지 않거나 profile 설정이 `sessions.profile_fingerprint`와 다르면 실제 claim도 이 세션을 받지 않으므로 `FAIL <session>@<rev> plan: no claim for the target image: …`다. 그다음 `docker run --rm -i --network none --entrypoint bun <image> run apps/worker/src/image-runtime.ts`에 claim을 stdin으로 넣어, 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)와 그 이미지가 claim으로 계산한 profile digest를 받는다. 복원은 manifest의 값과 이 값이 모두 같아야 하므로, 다른 버전으로 봉인되었거나 digest 계산 방식이 바뀐 이미지 앞의 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`(또는 `profileSha256 … → …`)가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `image-runtime.ts`가 없는 이미지는 읽지 못하므로 검사 전체가 멈춘다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
+- pointer마다 production 배선(`createApiCheckpointService` + Postgres store, `locked`)의 `getRestorePlan`이 `ready`인지 본다. `--image`가 있으면 그 이미지의 worker가 묻는 runtime으로 묻는다. 먼저 pointer마다 API가 줄 claim의 digest 입력(`principal`=`sessions.owner_id`, `runtime_config`=복원본 DB 설정의 `sessions.profile_id` profile)을 다시 만든다. catalog가 세션의 profile·repository 쌍(`profile_id`·`repository_id`·`repo_url`·`branch`)을 더 이상 허용하지 않거나 profile 설정이 `sessions.profile_fingerprint`와 다르면 실제 claim도 이 세션을 받지 않으므로 `FAIL <session>@<rev> plan: no claim for the target image: …`다. 그다음 `docker run --rm -i --network none --entrypoint bun <image> run apps/worker/src/image-runtime.ts`에 claim을 stdin으로 넣어, 이미지 코드의 `CLAUDE_RUNTIME_FINGERPRINT`(engine·SDK·CLI 버전)와 그 이미지가 claim으로 계산한 profile digest를 받는다. 복원은 manifest의 값과 이 값이 모두 같아야 하므로, 다른 버전으로 봉인되었거나 digest 계산 방식이 바뀐 이미지 앞의 pointer는 `FAIL <session>@<rev> plan: incompatible with the target image (checkpoint → image): cliVersion 2.1.270 → …`(또는 `profileSha256 … → …`)가 된다. 이미지에는 이 값을 담은 label이 없어서 이미지를 직접 실행한다. `image-runtime.ts`가 없는 이미지는 읽지 못하므로 검사 전체가 멈춘다. `--image`가 없으면 manifest 자신의 runtime으로 묻고 `SKIP restore plans against the worker image …`를 출력한다. 이 경우 이미지가 달라도 `ready`가 나온다.
 - plan의 manifest와 모든 object를 plan이 가리키는 version으로 읽고, hold가 걸려 있는지 본다.
 - `session_event_archives` 행마다 object를 `version_id`로 읽어 크기와 sha256을 대조하고, 그 version에 hold가 걸려 있는지 본다(`PASS archive <session>@<from id>: read back and held`).
 

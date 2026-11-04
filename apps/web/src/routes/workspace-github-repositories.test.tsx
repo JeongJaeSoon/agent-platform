@@ -40,7 +40,6 @@ const catalogRow = (fields: Record<string, unknown>) => ({
   url: "https://github.com/acme/api.git",
   branch: "main",
   source: "selection",
-  editable: true,
   version: 3,
   installed: true,
   updated_at: "2026-11-01T00:00:00.000Z",

@@ -153,7 +153,6 @@ import {
   agentVersions,
   approvalCheckpoints,
   attempts,
-  catalogAuthority,
   checkpointOutputs,
   checkpoints,
   events,
@@ -1187,12 +1186,11 @@ function budgetEnded(
  * row lock. Anything else — the session bound, paused, spent, or
  * the launch already asked to go — is left to the ordinary "nothing to claim".
  *
- * With several API replicas mid-rollout, the one that answers could fail a
- * session another would run. So only a host whose catalog is the revision an
- * operator activated gives up; any other answers "nothing to
- * claim" and writes nothing, leaving the existing failure count as the net.
- * With none activated there is one replica, and its catalog is the one.
- * A blocked ceiling is the exception: its row says the same to every replica.
+ * With several API replicas, the one that answers could fail a session
+ * another would run. So only a host that has read the database's settings
+ * generation gives up; any other answers "nothing to claim" and writes
+ * nothing, leaving the existing failure count as the net. A blocked ceiling
+ * is the exception: its row says the same to every replica.
  */
 async function giveUpOnCatalogMismatch(
   tx: Database,
@@ -1201,7 +1199,6 @@ async function giveUpOnCatalogMismatch(
   input: Pick<
     ClaimInput,
     | "runnable"
-    | "catalogRevision"
     | "settingsGeneration"
     | "unsettledRepositoryIds"
     | "settledProfileIds"
@@ -1233,23 +1230,14 @@ async function giveUpOnCatalogMismatch(
   ) {
     return null;
   }
-  // Held until the claim commits, so an activation that replaces this
-  // revision waits for the give-up judged under it instead of completing
-  // while it still writes. The first activation, from none, has no row to
-  // wait on; it is made while one replica runs (docs/operator/api-server.md).
-  const [authority] = await tx
-    .select({ revision: catalogAuthority.revision })
-    .from(catalogAuthority)
-    .limit(1)
-    .for("share");
   // The ceiling before the generation: a ceiling write locks its row and
   // then, through its trigger, the generation, so the other order deadlocks.
   const blocked =
     input.settingsGeneration === null
       ? undefined
       : await profileBlocked(tx, session.profileId);
-  // Held the same way: a settings write waits for this give-up rather than
-  // committing a row the claim judged without. Never waited for: a write in
+  // Held until the claim commits: a settings write waits for this give-up
+  // rather than committing a row the claim judged without. Never waited for: a write in
   // flight may go on to lock the ceiling held above, so the give-up yields
   // and the claim is asked again.
   const [settings] =
@@ -1263,15 +1251,10 @@ async function giveUpOnCatalogMismatch(
   if (input.settingsGeneration !== null && settings === undefined) {
     return null;
   }
-  // A block leaves the ceiling out of the revision, so the replica that read
-  // it no longer matches the activated one; the row, read here, decides.
-  if (
-    ((authority !== undefined &&
-      authority.revision !== input.catalogRevision) ||
-      (settings !== undefined &&
-        (input.settingsGeneration ?? 0) < settings.generation)) &&
-    !(blocked ?? (await profileBlocked(tx, session.profileId)))
-  ) {
+  const behind =
+    settings === undefined ||
+    (input.settingsGeneration ?? 0) < settings.generation;
+  if (behind && !(blocked ?? (await profileBlocked(tx, session.profileId)))) {
     return null;
   }
   // Skipped when locked, as the candidate query does: another claim holding

@@ -113,7 +113,6 @@ import {
   CLAIM_RUNS_RELEASE_TOOLS,
   type ClaimedMcpServer,
   catalogProfile,
-  catalogRevision,
   claimToolLists,
   type EgressUpstream,
   GITHUB_MCP_ENDPOINT,
@@ -857,14 +856,11 @@ export function createWorkerGateway(deps: {
     ];
   }
 
-  // The claim's candidates, its revision and the ids it may give up on all
-  // come from one read of the registry, and are made again when it moves.
   let runnableOf: {
     records: WorkspaceProfiles["records"] | undefined;
     profiles: SessionCatalog["profiles"];
     repositories: SessionCatalog["repositories"];
     pairs: RunnablePair[];
-    revision: string;
     settingsGeneration: number | null;
     unavailableRepositories: ReadonlySet<string>;
     settled: ReadonlySet<string>;
@@ -887,7 +883,6 @@ export function createWorkerGateway(deps: {
         profiles,
         repositories,
         pairs: buildRunnablePairs(workspace),
-        revision: catalogRevision(catalog),
         settingsGeneration,
         unavailableRepositories:
           catalog.unavailable_repositories ?? new Set<string>(),
@@ -1257,7 +1252,7 @@ export function createWorkerGateway(deps: {
     });
   }
 
-  // A catalog that moved since the claim (an edited config and a restart)
+  // A catalog that moved since the claim (a setting edited in the console)
   // is not followed: the attempt agreed to one endpoint and one repository.
   // The proxy is refused rather than pointed somewhere new.
   function moved(what: string): never {
@@ -1484,7 +1479,6 @@ export function createWorkerGateway(deps: {
       const mcpServers = catalog.mcp_servers;
       const result = await work.claimAtomic({
         runnable: claimable.pairs,
-        catalogRevision: claimable.revision,
         settingsGeneration: claimable.settingsGeneration,
         unsettledRepositoryIds: claimable.unavailableRepositories,
         settledProfileIds: claimable.settled,
