@@ -1252,7 +1252,7 @@ export function createWorkerGateway(deps: {
     });
   }
 
-  // A catalog that moved since the claim (an edited config and a restart)
+  // A catalog that moved since the claim (a setting edited in the console)
   // is not followed: the attempt agreed to one endpoint and one repository.
   // The proxy is refused rather than pointed somewhere new.
   function moved(what: string): never {

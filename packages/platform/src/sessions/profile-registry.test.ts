@@ -279,7 +279,6 @@ describe("two replicas over one database", () => {
     const a = definition();
     const b = definition({ provider: OTHER_PROVIDER });
     const connections = { main: a.provider, other: OTHER_PROVIDER };
-    // Each replica imported its own YAML at boot.
     const rows = {
       installation: [row("a", a), row("b", b)],
       workspace: [],

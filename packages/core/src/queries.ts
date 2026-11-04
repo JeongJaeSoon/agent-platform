@@ -247,7 +247,7 @@ export function loginMethodsQuery(client: ApiClient) {
   });
 }
 
-/** The catalog is read once at API startup, so it rarely changes under a page. */
+/** Ceilings change rarely, so the list seldom moves under a page. */
 export function profilesQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeysOf(client).profiles,

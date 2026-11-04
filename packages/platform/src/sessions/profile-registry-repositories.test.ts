@@ -13,7 +13,7 @@ import {
 } from "./profile-registry.ts";
 
 const FILE: Record<string, CatalogRepository> = {
-  // Credentialed: the operator's file keeps it.
+  // Credentialed: not a row of the App's.
   tool: {
     url: "https://github.com/acme/tool.git",
     branch: "main",

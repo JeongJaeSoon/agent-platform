@@ -786,7 +786,7 @@ describe("the catalog view (94S-791)", () => {
   });
 });
 
-describe("profile fingerprint and catalog revision", () => {
+describe("profile fingerprint", () => {
   const base = () => load(config()).profiles.p as CatalogProfile;
 
   test("a profile without billing, or with per_token, keeps the fingerprint it had before the field", () => {

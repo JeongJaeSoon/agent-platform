@@ -37,8 +37,8 @@ import type { ToolCatalogs } from "./profile-tools.ts";
 // stored value, an environment variable or a Secrets Manager secret.
 //
 // The config block below is the Claude engine's shape whatever kind a
-// profile names; the API refuses at load a kind no installed runtime serves
-// (`ProfileFeatureGate`). Other kinds get their own block when an adapter
+// profile names; a kind no installed runtime serves leaves the ceiling out
+// as `runtime_unsupported` (`ProfileFeatureGate`). Other kinds get their own block when an adapter
 // for them lands.
 
 function hasControlCharacter(value: string): boolean {

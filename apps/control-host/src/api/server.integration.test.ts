@@ -435,8 +435,8 @@ integration("API server on PostgreSQL", () => {
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           });
 
-        // The catalog is what the file says: an id it does not register is
-        // 422, and a registered pair is accepted.
+        // The catalog is what the database says: an id it does not register
+        // is 422, and a registered pair is accepted.
         for (const body of [
           { profile_id: "missing", repository_id: "app", message: "hi" },
           { profile_id: "coding", repository_id: "missing", message: "hi" },

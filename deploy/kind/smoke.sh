@@ -342,8 +342,6 @@ k delete pod k8s-smoke-worker k8s-smoke-control --wait=false >/dev/null
 pass
 
 step upgrade
-# Not --reuse-values: it keeps the catalog's `null`s, which delete a chart
-# default, as entries the api refuses to start on.
 helm get values "$RELEASE" --namespace "$NAMESPACE" -o json >"$STATE_DIR/smoke-release-values.json"
 helm upgrade "$RELEASE" "$root/deploy/helm/agent-platform" \
   --namespace "$NAMESPACE" -f "$STATE_DIR/smoke-release-values.json" --timeout 10m

@@ -20,16 +20,6 @@ export interface CatalogRepositoryRow {
   updated_at: string;
 }
 
-/** A `{ kind: github_app }` entry to seed with. */
-export interface SeedRepository {
-  id: string;
-  owner: string;
-  name: string;
-  url: string;
-  branch: string;
-  profiles: string[] | null;
-}
-
 interface RepositoryWrite {
   workspaceId: string;
   userId: string;
@@ -45,11 +35,6 @@ export interface CatalogRepositoryStore {
    * `listActive`, or null while the table has never held a row.
    */
   readCatalog(): Promise<CatalogRepositoryRow[] | null>;
-  /**
-   * Inserts `entries` only while the table has no row at all, so a restart
-   * never brings back what the console removed. Returns the ids inserted.
-   */
-  seed(input: { entries: () => Promise<SeedRepository[]> }): Promise<string[]>;
   /**
    * The row of that GitHub repository: found by its id (taking the new
    * owner/name and URL after a rename), else by owner/name on a row with no

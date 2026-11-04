@@ -66,7 +66,7 @@ export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
 
 `CLUSTER_NAME`(기본 `agent-platform-dev`)과 `REGISTRY_PORT`(기본 5001)는 생략할 수 있다. 다른 클러스터나 registry와 겹치면 바꾼다. 지우는 명령은 `CLUSTER_NAME=… deploy/kind/up.sh down`이다(클러스터와 registry 컨테이너만 지운다).
 
-`EXTRA_VALUES=<파일>`을 주면 values 파일 하나를 다른 values 파일(모델·카탈로그 포함) 위에 마지막으로 얹는다. 노트북에서 api·egress-proxy를 1개씩만 띄울 때 쓴다(`api.replicas: 1`, `egressProxy.replicas: 1`).
+`EXTRA_VALUES=<파일>`을 주면 values 파일 하나를 다른 values 파일(모델 포함) 위에 마지막으로 얹는다. 노트북에서 api·egress-proxy를 1개씩만 띄울 때 쓴다(`api.replicas: 1`, `egressProxy.replicas: 1`).
 
 ### OrbStack (로컬)
 

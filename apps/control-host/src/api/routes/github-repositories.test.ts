@@ -156,9 +156,6 @@ function memoryRepositories() {
     async readCatalog() {
       return rows.size === 0 ? null : store.listActive();
     },
-    async seed() {
-      return [];
-    },
     async resolve(input) {
       const held = [...rows.values()].find(
         (row) =>

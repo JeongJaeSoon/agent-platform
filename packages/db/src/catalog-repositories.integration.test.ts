@@ -16,6 +16,7 @@ import {
   agentReleases,
   agents,
   agentVersions,
+  catalogRepositories,
   memberships,
   receipts,
   users,
@@ -71,37 +72,21 @@ integration("catalog repositories on PostgreSQL", () => {
     branch: "main",
   });
 
-  test("seeds only an empty table, then resolves picks to one row each and renames a branch", async () => {
+  test("resolves picks to one row each and renames a branch", async () => {
     const store = createPostgresCatalogRepositoryStore(db);
-    const seedEntry = {
+    expect(await store.readCatalog()).toBeNull();
+    await db.insert(catalogRepositories).values({
       id: "seeded",
       owner: "acme",
       name: "seeded",
       url: "https://github.com/acme/seeded.git",
       branch: "trunk",
       profiles: ["coding"],
-    };
-    // Never seeded: the catalog keeps the operator file.
-    expect(await store.readCatalog()).toBeNull();
-    // Before bootstrap: rows go in, no receipt (no workspace to own it).
-    expect(await store.seed({ entries: async () => [seedEntry] })).toEqual([
-      "seeded",
-    ]);
+      source: "seed",
+    });
     expect((await store.readCatalog())?.map((row) => row.id)).toEqual([
       "seeded",
     ]);
-    expect(await db.select().from(receipts)).toEqual([]);
-    // A filled table never reads the file again.
-    let read = false;
-    expect(
-      await store.seed({
-        entries: async () => {
-          read = true;
-          return [{ ...seedEntry, id: "other" }];
-        },
-      }),
-    ).toEqual([]);
-    expect(read).toBe(false);
 
     const workspaceId = randomUUID();
     await db.insert(workspaces).values({

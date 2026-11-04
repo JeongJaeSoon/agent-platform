@@ -44,8 +44,8 @@ export function repositoryCeilingOf(stored: unknown): RepositoryCeiling | null {
 }
 
 /**
- * Where a profile is defined: the operator's catalog file, or a workspace
- * owner or admin in the console, narrowing one operator profile.
+ * Where a profile is defined: the operator's installation settings, or a
+ * workspace owner or admin in the console, narrowing one operator profile.
  */
 export const profileSourceSchema = z.enum(["operator", "workspace"]);
 
