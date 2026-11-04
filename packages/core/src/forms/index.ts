@@ -45,8 +45,13 @@ export const workspaceProfileNameStep = trimmed(
 export const workspaceProfileStep = createWorkspaceProfileRequestSchema;
 
 export {
+  addedTools,
+  canonicalTool,
+  carriedDeny,
+  firstVersionDeny,
   GITHUB_APP_PERMISSION_GUIDANCE,
   githubAppWarnings,
+  MCP_TOOL_PREFIX,
   WORKSPACE_PROFILE_POLICY,
   workspaceProfileId,
 } from "@werft-ai/contracts";
