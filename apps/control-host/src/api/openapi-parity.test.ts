@@ -27,6 +27,7 @@ import type {
   SessionOutputService,
   SessionService,
   SessionShareService,
+  SettingsConsoleService,
   SettingsDocumentService,
   SlackAppService,
   SlackChannelSearchService,
@@ -65,7 +66,10 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github-work.ts";
-import { registerInstallationSettingsRoutes } from "./routes/installation-settings.ts";
+import {
+  registerInstallationSettingsRoutes,
+  registerSettingsConsoleRoutes,
+} from "./routes/installation-settings.ts";
 import { registerInterruptRoutes } from "./routes/interrupt.ts";
 import {
   registerInviteRoutes,
@@ -173,6 +177,7 @@ function apiApp() {
         {} as InstallationProfileService,
       );
       registerInstallationSettingsRoutes(router, {} as SettingsDocumentService);
+      registerSettingsConsoleRoutes(router, {} as SettingsConsoleService);
       registerWorkspaceRoutes(router, {} as WorkspaceRouteDeps);
       registerAchievementRoutes(router, {} as AchievementRuleService);
       registerSessionAchievementRoutes(router, {} as SessionAchievementService);

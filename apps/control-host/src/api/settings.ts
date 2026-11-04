@@ -133,7 +133,7 @@ type Output = { out: (line: string) => void; err: (line: string) => void };
 /** Runs `command` against `store`; false when the import was refused. */
 export async function runSettingsCommand(
   command: SettingsCommand,
-  store: SettingsDocumentStore,
+  store: Pick<SettingsDocumentStore, "exportEntries" | "importEntries">,
   output: Output,
 ): Promise<boolean> {
   if (command.command === "export") {

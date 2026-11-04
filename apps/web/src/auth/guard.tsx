@@ -97,6 +97,7 @@ export type ManagedPermission = Extract<
   | "api_key.manage_own"
   | "audit_retention.manage"
   | "workspace.manage"
+  | "installation.settings.manage"
   | "achievement_rule.manage"
   | "session.control"
   | "account.link"

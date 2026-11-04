@@ -61,6 +61,10 @@ const LOCALSTACK_ENDPOINT = "http://localstack:4566";
 /** RFC 3986 unreserved: survives inside the compose-built DATABASE_URL. */
 const URL_SAFE = /^[A-Za-z0-9._~-]+$/;
 
+const API_TARGET_PORT = 3000;
+/** A host name, as URL normalizes it; never an IP literal or `localhost`. */
+const NAMED_PROXY = /^(?!.*(^|\.)localhost\.?$)(?![\d.]+$)[^[]/i;
+
 export type ReleaseManifest = {
   readonly catalogRevision: string;
   readonly images: {
@@ -164,16 +168,41 @@ type RenderedService = {
   ports?: { host_ip?: string; published?: string; target?: number }[];
   volumes?: { source?: string; target?: string }[];
 };
-export type RenderedModel = { services?: Record<string, RenderedService> };
+export type RenderedModel = {
+  services?: Record<string, RenderedService>;
+  "x-test-ops-api-url"?: string;
+};
+
+const isPort = (value: string) =>
+  /^[1-9][0-9]{0,4}$/.test(value) && Number(value) <= 65535;
+
+/**
+ * What the script's health checks call: the port the API publishes, or they
+ * would read whatever else listens there, unless a host name says it is a
+ * proxy. Problems never quote the value: a URL can carry a credential.
+ */
+function apiUrlProblems(value: string, apiPort: string | undefined): string[] {
+  const form = ["TEST_OPS_API_URL must be scheme://host[:port]"];
+  if (!URL.canParse(value)) return form;
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return ["TEST_OPS_API_URL must be http or https"];
+  const port = url.port || (url.protocol === "http:" ? "80" : "443");
+  if (!/^[a-z]+:\/\/[\w.:[\]-]+$/i.test(value) || !isPort(port)) return form;
+  return !NAMED_PROXY.test(url.hostname) && port !== apiPort
+    ? [`TEST_OPS_API_URL must use the published API port ${apiPort}`]
+    : [];
+}
 
 /**
  * Refuses a render that is not a test-ops installation: one that runs or
  * builds a local dependency, names an image by tag, publishes beyond
- * loopback, loosens the API's modes, builds a DSN a password breaks, points
- * the API at another object store than `store`, leaves workers without a
- * route to it, runs workspaces without quota, or mounts a catalog other than
- * the manifest's. Every problem is reported at once. Returns the mounted
- * catalog's revision.
+ * loopback or anything but one free port per service, checks the API
+ * anywhere but the port it publishes, loosens the API's modes, builds a DSN a
+ * password breaks, points the API at another object store than `store`,
+ * leaves workers without a route to it, runs workspaces without quota, or
+ * mounts a catalog other than the manifest's. Every problem is reported at
+ * once. Returns the mounted catalog's revision.
  */
 export async function checkRender(
   model: RenderedModel,
@@ -191,6 +220,7 @@ export async function checkRender(
   );
   for (const name of localOnly)
     if (name in services) problems.push(`service ${name} is local-only`);
+  const publishers = new Map<string, string>();
   for (const [name, service] of Object.entries(services)) {
     if (service.build !== undefined)
       problems.push(`service ${name} builds its image`);
@@ -198,15 +228,32 @@ export async function checkRender(
       problems.push(
         `service ${name} runs ${service.image ?? "no image"}, not an image by digest`,
       );
-    for (const port of service.ports ?? [])
+    for (const port of service.ports ?? []) {
       if (port.host_ip !== "127.0.0.1")
         problems.push(
           `service ${name} publishes ${port.published} on ${port.host_ip ?? "every interface"}`,
         );
+      const published = port.published ?? "";
+      const publisher = publishers.get(published);
+      if (!isPort(published))
+        problems.push(`service ${name} must publish one port from 1 to 65535`);
+      else if (publisher !== undefined)
+        problems.push(
+          `services ${publisher} and ${name} both publish port ${published}`,
+        );
+      publishers.set(published, name);
+    }
   }
   for (const required of ["api", "scheduler", "egress-proxy", "postgres"])
     if (!(required in services))
       problems.push(`service ${required} is missing`);
+  problems.push(
+    ...apiUrlProblems(
+      model["x-test-ops-api-url"] ?? "",
+      services.api?.ports?.find((port) => port.target === API_TARGET_PORT)
+        ?.published,
+    ),
+  );
 
   if (env("api", "AUTH_MODE") !== "api-key")
     problems.push("api AUTH_MODE must be api-key");
