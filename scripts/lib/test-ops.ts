@@ -618,15 +618,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
     case "check-render": {
-      const [
-        storeFlag,
-        store,
-        digestFlag,
-        digest,
-        portFlag,
-        port,
-        ...rest
-      ] = args;
+      const [storeFlag, store, digestFlag, digest, portFlag, port, ...rest] =
+        args;
       if (
         storeFlag !== "--store" ||
         !OBJECT_STORE_MODES.includes(store as ObjectStoreMode) ||

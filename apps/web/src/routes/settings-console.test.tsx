@@ -329,7 +329,11 @@ describe("MCP 서버", () => {
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
     ).toEqual(["ops 사용 중지"]);
-    expect(within(rowOf(table, "search")).queryAllByRole("button")).toEqual([]);
+    expect(
+      within(rowOf(table, "search"))
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["search 사용 중지"]);
   });
 
   test("a narrow table keeps every row's actions", async () => {
