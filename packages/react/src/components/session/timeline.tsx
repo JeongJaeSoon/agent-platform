@@ -727,7 +727,10 @@ function EventItem({
     ? undefined
     : running
       ? { text: messages.running, tone: "text-[var(--werft-tone-progress-fg)]" }
-      : { text: messages.waiting, tone: "text-[var(--werft-tone-attention-fg)]" };
+      : {
+          text: messages.waiting,
+          tone: "text-[var(--werft-tone-attention-fg)]",
+        };
   return (
     <li
       data-error={error || undefined}

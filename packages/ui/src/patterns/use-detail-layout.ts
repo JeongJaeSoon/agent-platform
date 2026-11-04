@@ -6,7 +6,8 @@ export const DETAIL_NARROW_WIDTH = 900;
 const DETAIL_LAYOUT = {
   wide: "grid min-w-0 grid-cols-[minmax(0,1fr)_var(--werft-layout-detail-panel-width)] items-start gap-6",
   // Stacked, panel and body are two sections of the page.
-  narrow: "grid min-w-0 grid-cols-1 items-start gap-[var(--werft-space-section)]",
+  narrow:
+    "grid min-w-0 grid-cols-1 items-start gap-[var(--werft-space-section)]",
 } as const;
 
 /**

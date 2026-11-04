@@ -93,7 +93,12 @@ export const Color: Story = {
 export const Typography: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--werft-font-", "--werft-text-", "--werft-weight-", "--werft-leading-"]}
+      prefixes={[
+        "--werft-font-",
+        "--werft-text-",
+        "--werft-weight-",
+        "--werft-leading-",
+      ]}
       preview={(name) => {
         if (name.startsWith("--werft-text-"))
           return (

@@ -229,7 +229,9 @@ describe("Field", () => {
     const small = getByRole("combobox", { name: "작게" });
     expect(base.dataset.size).toBe("default");
     expect(small.dataset.size).toBe("sm");
-    expect(base.classList.contains("h-[var(--werft-control-height)]")).toBe(true);
+    expect(base.classList.contains("h-[var(--werft-control-height)]")).toBe(
+      true,
+    );
     expect(
       small.classList.contains(
         "data-[size=sm]:h-[var(--werft-control-height-sm)]",

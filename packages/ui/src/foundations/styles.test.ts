@@ -573,7 +573,9 @@ describe("styles.css", () => {
       expect(value(`--werft-tone-${tone}-fg`)).toBe(
         "var(--werft-color-subtle-foreground)",
       );
-      expect(value(`--werft-tone-${tone}-bg`)).toBe("var(--werft-tone-neutral-bg)");
+      expect(value(`--werft-tone-${tone}-bg`)).toBe(
+        "var(--werft-tone-neutral-bg)",
+      );
     }
   });
 

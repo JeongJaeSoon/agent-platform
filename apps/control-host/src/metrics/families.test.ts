@@ -237,9 +237,7 @@ describe("exposition", () => {
     expect(lines).toContain(
       'werft_sessions{state="awaiting_approval",status="needs_input",admission="active"} 1',
     );
-    expect(lines).toContain(
-      "# TYPE werft_turn_duration_seconds histogram",
-    );
+    expect(lines).toContain("# TYPE werft_turn_duration_seconds histogram");
     expect(lines).toContain(
       'werft_turn_duration_seconds_bucket{status="completed",le="60"} 1',
     );
@@ -259,9 +257,7 @@ describe("exposition", () => {
     expect(lines).toContain(
       'werft_provider_tokens_total{model="claude-sonnet-5",priced_by="table",kind="cache_read"} 7',
     );
-    expect(lines).toContain(
-      "werft_launch_queue_oldest_wait_seconds 17.25",
-    );
+    expect(lines).toContain("werft_launch_queue_oldest_wait_seconds 17.25");
     expect(lines).toContain("werft_input_queue_oldest_age_seconds 3");
     expect(text).toContain("not Kubernetes infrastructure cost");
   });

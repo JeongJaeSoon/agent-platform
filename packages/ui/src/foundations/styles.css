@@ -492,7 +492,8 @@
     font-family: var(--werft-font-sans);
     font-size: var(--werft-text-sm);
     line-height: var(--werft-leading-body);
-    animation: werft-dialog-in var(--werft-motion-normal) var(--werft-motion-ease);
+    animation: werft-dialog-in var(--werft-motion-normal)
+      var(--werft-motion-ease);
   }
 
   .werft-dialog__title {
@@ -565,7 +566,8 @@
     line-height: var(--werft-leading-tight);
     text-decoration: none;
     cursor: pointer;
-    transition: background-color var(--werft-motion-fast) var(--werft-motion-ease);
+    transition: background-color var(--werft-motion-fast)
+      var(--werft-motion-ease);
   }
 
   .werft-button:disabled {

@@ -163,7 +163,9 @@ describe("IconTile", () => {
     const [line, twoLine] = container.querySelectorAll("[data-slot=icon-tile]");
     expect(line?.getAttribute("aria-hidden")).toBe("true");
     expect(line?.getAttribute("data-hue")).toBe("violet");
-    expect(classes(line as Element)).toContain("bg-(--werft-color-tile-violet)");
+    expect(classes(line as Element)).toContain(
+      "bg-(--werft-color-tile-violet)",
+    );
     expect(classes(line as Element)).toContain("size-(--werft-size-icon-tile)");
     expect(twoLine?.getAttribute("data-hue")).toBe("teal");
     expect(classes(twoLine as Element)).toContain(

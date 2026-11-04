@@ -72,7 +72,9 @@ describe("Table", () => {
     );
     expect(row?.className).toContain("h-[var(--werft-row-min-height)]");
     expect(cell?.className).toContain("py-[var(--werft-row-padding-y)]");
-    expect(cell?.className).toContain("px-[calc(var(--werft-row-padding-x)/2)]");
+    expect(cell?.className).toContain(
+      "px-[calc(var(--werft-row-padding-x)/2)]",
+    );
     expect(th?.className).toContain("py-[var(--werft-row-head-padding-y)]");
     expect(TOKENS).toContain("--werft-row-min-height: 3rem;");
     expect(TOKENS).toContain("--werft-row-head-min-height: 2.5rem;");

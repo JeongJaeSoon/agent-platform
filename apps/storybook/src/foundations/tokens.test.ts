@@ -30,7 +30,9 @@ describe("Foundations 토큰 표", () => {
 
   test("다크는 수동 전환 블록의 값이고 다크가 바꾸지 않는 토큰은 라이트 값을 쓴다", () => {
     expect(dark.get("--werft-color-surface")).toBe("#0a0a0a");
-    expect(dark.get("--werft-radius-card")).toBe(light.get("--werft-radius-card"));
+    expect(dark.get("--werft-radius-card")).toBe(
+      light.get("--werft-radius-card"),
+    );
     expect([...dark.keys()]).toEqual([...light.keys()]);
   });
 });

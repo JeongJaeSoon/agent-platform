@@ -2002,8 +2002,7 @@ describe("compose layers", () => {
     }
     expect(
       metricDefinitions.requests.find(
-        ({ data }) =>
-          data.id === "werft.terminate.acceptance.duration_ms",
+        ({ data }) => data.id === "werft.terminate.acceptance.duration_ms",
       )?.data.attributes.filter.query,
     ).toContain("@event:api.request.completed");
     expect(

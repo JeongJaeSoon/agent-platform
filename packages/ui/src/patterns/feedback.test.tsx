@@ -168,7 +168,9 @@ describe("Skeleton", () => {
     try {
       const { container } = render(<Skeleton />);
       expect(
-        container.querySelector(".werft-skeleton")?.getAttribute("data-animated"),
+        container
+          .querySelector(".werft-skeleton")
+          ?.getAttribute("data-animated"),
       ).toBeNull();
     } finally {
       restore();

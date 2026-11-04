@@ -31,7 +31,9 @@ export function ReceiptLink({
       data-status={status}
     >
       <span className="werft-receipt-link__dot" aria-hidden="true" />
-      <span className="werft-receipt-link__text">{children ?? "접수 내역"}</span>
+      <span className="werft-receipt-link__text">
+        {children ?? "접수 내역"}
+      </span>
       {/* Visible, not hidden: the dot's colour is the same signal, and colour
           alone is not a signal for everyone (§4·§6). */}
       <span className="werft-receipt-link__status">{descriptor.label}</span>

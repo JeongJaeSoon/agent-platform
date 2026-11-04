@@ -23,9 +23,9 @@ describe("ApiErrorState", () => {
     expect(container.querySelector(".werft-state__guidance")?.textContent).toBe(
       "로그인이 만료됐습니다 — 다시 로그인하세요.",
     );
-    expect(container.querySelector(".werft-state__description")?.textContent).toBe(
-      "token expired",
-    );
+    expect(
+      container.querySelector(".werft-state__description")?.textContent,
+    ).toBe("token expired");
   });
 
   test("화면이 준 안내가 코드의 일반 안내를 대신한다", () => {
@@ -83,9 +83,9 @@ describe("ApiErrorState", () => {
       expect(container.querySelector(".werft-state__title")?.textContent).toBe(
         title,
       );
-      expect(container.querySelector(".werft-state__guidance")?.textContent).toBe(
-        ERROR_GUIDANCE_BY_LOCALE[locale].SESSION_CLOSED,
-      );
+      expect(
+        container.querySelector(".werft-state__guidance")?.textContent,
+      ).toBe(ERROR_GUIDANCE_BY_LOCALE[locale].SESSION_CLOSED);
       expect(container.querySelector(".werft-state__code")?.textContent).toBe(
         "SESSION_CLOSED",
       );

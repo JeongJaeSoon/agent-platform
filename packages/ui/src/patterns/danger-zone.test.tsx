@@ -45,7 +45,9 @@ describe("DangerZone", () => {
     expect(getByRole("heading", { level: 3 })).toBeDefined();
     const button = getByRole("button", { name: "리뷰용 App 삭제" });
     expect(button.textContent).toBe("삭제");
-    expect(button.className).toContain("border-[var(--werft-tone-danger-border)]");
+    expect(button.className).toContain(
+      "border-[var(--werft-tone-danger-border)]",
+    );
     // A RowAction: 28px, width from the label down to the 48px floor.
     expect(button.getAttribute("data-size")).toBe("sm");
     expect(button.className).toContain(
