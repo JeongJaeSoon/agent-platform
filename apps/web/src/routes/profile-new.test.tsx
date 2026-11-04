@@ -1272,6 +1272,38 @@ describe("차단할 내장 도구", () => {
     expect(posted(api)[1]).toMatchObject({ accept_added_tools: ["Edit"] });
   });
 
+  test("when the list cannot be read again after that refusal, the form and its message stay", async () => {
+    let refused = false;
+    const server = catalog([
+      CODING,
+      version(1, "usable", { tools: ["Read", "Edit"] }),
+    ]);
+    renderAt(
+      "/profiles/new?kind=workspace&from=ws_acme_strict_v1&mode=version",
+      {
+        ...server.routes,
+        "GET /v1/profiles": () =>
+          refused
+            ? refusal(500, "INTERNAL", {})
+            : server.routes["GET /v1/profiles"](),
+        "POST /v1/workspace-profiles": () => {
+          refused = true;
+          return refusal(400, "BAD_REQUEST", {
+            reason_code: "added_tool_not_accepted",
+            field: "accept_added_tools",
+          });
+        },
+      },
+    );
+    await screen.findByRole("group", { name: "차단할 내장 도구" });
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "새 버전으로 저장" }));
+    await screen.findByText(
+      "이전 버전이 다루지 않은 도구를 열려고 합니다. 아래 카탈로그 차이에서 받아들이거나 다시 차단하세요.",
+    );
+    expect(screen.getByLabelText("이름")).toBeTruthy();
+  });
+
   test("a new workspace profile under a name already taken starts with what its latest version never ran blocked", async () => {
     const { api } = renderAt(
       "/profiles/new?kind=workspace",

@@ -3,6 +3,7 @@ import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   CreateWorkspaceProfileRequest,
   DerivedFields,
+  ListProfilesResponse,
   ProfileSummary,
   WorkspaceProfileChangeResponse,
 } from "@werft-ai/contracts";
@@ -33,7 +34,7 @@ import {
   Text,
 } from "@werft-ai/ui";
 import { type FormEvent, useId, useState } from "react";
-import { profilesQuery, queryKeysOf } from "../api/queries.ts";
+import { queryKeysOf } from "../api/queries.ts";
 import { refusalText, useRole } from "../auth/guard.tsx";
 import { ProfileOptions, pickable } from "../components/profile-options.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
@@ -186,9 +187,13 @@ export function ProfileEditor({
       ) {
         // The server weighed the name's latest version, which may have
         // landed after this list was read.
-        const fresh = await queryClient
-          .fetchQuery({ ...profilesQuery(client), staleTime: 0 })
-          .catch(() => undefined);
+        // Read past the shared query: a failed read must not put the page,
+        // and this form with it, into its load-failure state.
+        const fresh = await (
+          unwrap(client.GET("/v1/profiles")) as Promise<ListProfilesResponse>
+        ).catch(() => undefined);
+        if (fresh)
+          queryClient.setQueryData(queryKeysOf(client).profiles, fresh);
         const latestNow =
           (fresh && latestVersion(fresh.items, name.data)) ?? previous;
         if (latestNow !== undefined)
