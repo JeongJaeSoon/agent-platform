@@ -20,6 +20,16 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 `concurrency`는 PR이면 PR 번호로 묶어 새 push가 이전 run을 취소한다. `main` push는 기존처럼 run 단위로 분리해 연속 merge를 모두 검증한다. 수동 실행은 기본적으로 workflow·이벤트·ref·SHA가 같은 진행 중 run을 대체해 실수로 여러 번 실행한 작업의 중첩을 줄인다. 다른 브랜치·다른 SHA·PR·main push를 취소하지 않고, 이미 끝난 run의 재실행까지 막는 것은 아니다. 식이 `inputs.*`가 아니라 `github.event.inputs.*`를 읽는 이유는 API 경유 dispatch가 입력을 문자열로 보내기 때문이다 — 문자열 `"false"`는 truthy라 `!inputs.allow_parallel`이면 기본값이 조용히 "병렬 허용"으로 뒤집힌다.
 
+## 금칙어 검사
+
+`.github/workflows/forbidden-terms.yml`의 job `forbidden-terms`가 현재 트리, 이번 run이 더한 커밋 메시지(PR이면 PR 커밋, push면 push된 커밋), PR 제목·본문에서 공개하면 안 되는 표현을 찾는다. 목록은 저장소 secret `FORBIDDEN_TERMS`(줄마다 확장 정규식 하나)에만 있고 어떤 공개 파일에도 없다. 저장소가 public이라 Actions 로그도 공개이므로 `.github/scripts/forbidden-terms.ts`는 위치별 **건수만** 찍고 값·경로·줄·sha는 찍지 않는다. 어디에 있는지는 목록을 가진 사람이 로컬 `git grep -i -E -f`로 찾는다. 대소문자는 구분하지 않고, 경계는 목록의 각 정규식이 스스로 정한다.
+
+ci.yml의 job이 아니라 별도 workflow인 이유는 PR 제목·본문을 고칠 때(`edited`)도 다시 검사해야 하는데, ci.yml의 `concurrency`는 같은 PR의 진행 중 run 전체를 취소하기 때문이다.
+
+secret이 없거나 비어 있으면 **실패한다.** 검사하지 못한 것을 통과로 읽으면 안 된다. fork PR과 Dependabot PR은 `pull_request`에서 secret을 받지 못하므로 같은 이유로 실패하고, 실패 문구만 fork일 때 따로 나온다. fork PR은 메인테이너가 브랜치를 이 저장소로 옮겨 검사한다. Dependabot PR을 통과시키려면 Dependabot secret에도 같은 이름으로 등록해야 한다.
+
+합성 목록으로 하는 시험은 `tests/forbidden-terms.test.ts`다. 실제 목록으로 시험하지 않는다.
+
 ## 수동 실행 옵션
 
 ```bash

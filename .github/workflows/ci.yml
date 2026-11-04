@@ -280,6 +280,7 @@ jobs:
               - tests/docs-links.
               - tests/e2e/local-model.
               - tests/e2e/real-model.
+              - tests/forbidden-terms.
               - tests/soak/
               - tests/ci-issue-scripts.
               - tests/integration-jobs.
