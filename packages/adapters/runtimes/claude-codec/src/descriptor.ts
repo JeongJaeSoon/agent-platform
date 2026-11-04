@@ -28,5 +28,5 @@ export const CLAUDE_DESCRIPTOR: RuntimeDescriptor = {
   // Spelled out: the platform runs no user hooks through Claude's own settings yet.
   extraFeatures: { subagents: "native", user_hooks: "none" },
   toolEnv: "engine_inherited",
-  instructionFiles: ["CLAUDE.md"],
+  instructionFiles: ["AGENTS.md", "CLAUDE.md"],
 };

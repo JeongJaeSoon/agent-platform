@@ -340,7 +340,9 @@ describe("restoring a captured checkout", () => {
       repository: join(scratch, "again.git"),
       signal,
     });
-    expect(await stagedInstructions(again, "CLAUDE.md", signal)).toEqual({
+    expect(
+      await stagedInstructions(again, ["AGENTS.md", "CLAUDE.md"], signal),
+    ).toEqual({
       kind: "text",
       text: "rules\n",
     });
@@ -436,6 +438,23 @@ describe("restoring a captured checkout", () => {
 });
 
 describe("staging a checkpoint bundle", () => {
+  test("reads AGENTS.md from the pinned commit before CLAUDE.md", async () => {
+    const pinned = await commitFiles({
+      "AGENTS.md": "agents rules\n",
+      "CLAUDE.md": "claude rules\n",
+    });
+
+    const staged = await stage(await captured(root, { commit: pinned }));
+
+    expect(
+      await stagedInstructions(
+        staged,
+        ["AGENTS.md", "CLAUDE.md"],
+        new AbortController().signal,
+      ),
+    ).toEqual({ kind: "text", text: "agents rules\n" });
+  });
+
   test("reads CLAUDE.md from the pinned instructions commit, not from HEAD", async () => {
     const pinned = await commitFiles({ "CLAUDE.md": "rules as fetched\n" });
     await commitFiles({ "CLAUDE.md": "rules the engine rewrote\n" });
@@ -446,7 +465,7 @@ describe("staging a checkpoint bundle", () => {
     expect(
       await stagedInstructions(
         staged,
-        "CLAUDE.md",
+        ["AGENTS.md", "CLAUDE.md"],
         new AbortController().signal,
       ),
     ).toEqual({
@@ -464,7 +483,7 @@ describe("staging a checkpoint bundle", () => {
     expect(
       await stagedInstructions(
         staged,
-        "CLAUDE.md",
+        ["AGENTS.md", "CLAUDE.md"],
         new AbortController().signal,
       ),
     ).toMatchObject({ kind: "refused" });
@@ -780,7 +799,7 @@ describe("a session without a repository, from init through a lost volume", () =
   const init = async (target: string) => {
     await rm(target, { force: true, recursive: true });
     expect(
-      await new GitWorkspace(target, "CLAUDE.md").prepare({
+      await new GitWorkspace(target, ["AGENTS.md", "CLAUDE.md"]).prepare({
         descriptor: { repository: null },
         restore: null,
         signal,

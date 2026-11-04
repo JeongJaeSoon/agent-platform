@@ -10,7 +10,7 @@ import { systemPromptAppend } from "./repository-instructions.ts";
 describe("the appended system prompt of a profile", () => {
   const PLATFORM = "platform words";
   const REPO_HEADING =
-    "Contents of CLAUDE.md at the root of the repository you are working in (project instructions checked into it):";
+    "Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the repository you are working in (project instructions checked into it):";
   const appended = (
     instructions: InstructionPart[],
     repoText: string | null = "repo rules",
@@ -37,7 +37,7 @@ describe("the appended system prompt of a profile", () => {
       },
       bundle: {
         instructions,
-        repoInstructions: { file: "CLAUDE.md", text: repoText },
+        repoInstructions: { files: ["AGENTS.md", "CLAUDE.md"], text: repoText },
         mcpServers: [],
       },
     };
@@ -82,7 +82,7 @@ describe("systemPromptAppend", () => {
         repositoryClaudeMd: { contents: "repo rules" },
       }),
     ).toBe(
-      "platform\n\nContents of CLAUDE.md at the root of the repository you are working in (project instructions checked into it):\n\nrepo rules",
+      "platform\n\nContents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the repository you are working in (project instructions checked into it):\n\nrepo rules",
     );
   });
 

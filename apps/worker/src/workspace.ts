@@ -191,8 +191,8 @@ export class GitWorkspace implements WorkspacePreparer {
 
   constructor(
     private readonly root: string,
-    /** The runtime's instruction file, as its descriptor names it; null for none. */
-    private readonly instructionsFile: string | null,
+    /** The runtime's instruction files in order of preference, as its descriptor names them. */
+    private readonly instructionFiles: readonly string[],
     /**
      * The egress proxy's credential routes. A claim that gives the
      * repository a token is fetched through them and nowhere else.
@@ -264,7 +264,7 @@ export class GitWorkspace implements WorkspacePreparer {
           git,
           this.root,
           `refs/remotes/origin/${plan.branch}`,
-          this.instructionsFile,
+          this.instructionFiles,
           input.signal,
         );
         return plan.action;
@@ -733,7 +733,7 @@ export class GitWorkspace implements WorkspacePreparer {
       git,
       mirror,
       `refs/heads/${branch}`,
-      this.instructionsFile,
+      this.instructionFiles,
       signal,
     );
   }
@@ -845,9 +845,11 @@ const MAX_LINK_HOPS = 8;
 const MAX_LINK_TARGET_BYTES = 4096;
 
 /**
- * The root instruction file `file` (CLAUDE.md for the Claude runtime) at
- * `rev`, read from git's object store in `cwd` — never
- * from a working tree, which the engine writes. A committed symlink is
+ * The first of the root instruction files `files` (AGENTS.md, else CLAUDE.md
+ * for the Claude runtime) that the tree at `rev` has, read from git's object
+ * store in `cwd` — never from a working tree, which the engine writes. A file
+ * that is only an `@<other file>` line stands for that file, so a CLAUDE.md
+ * importing AGENTS.md is read once. A committed symlink is
  * followed only to another path in the same tree (`CLAUDE.md -> AGENTS.md`
  * is ordinary); one that leaves it, loops, or ends at anything but a file is
  * refused, as is a file past the cap or one git cannot read. Refused, not
@@ -867,7 +869,7 @@ export async function pinInstructions(
   git: Git,
   cwd: string,
   rev: string,
-  file: string | null,
+  files: readonly string[],
   signal: AbortSignal,
 ): Promise<PinnedInstructions> {
   const resolved = await git(
@@ -882,7 +884,7 @@ export async function pinInstructions(
   }
   const commit = resolved.stdout.trim();
   return {
-    file: await readCommittedInstructions(git, cwd, commit, file, signal),
+    file: await readCommittedInstructions(git, cwd, commit, files, signal),
     commit,
   };
 }
@@ -891,12 +893,11 @@ export async function readCommittedInstructions(
   git: Git,
   cwd: string,
   rev: string,
-  file: string | null,
+  files: readonly string[],
   signal: AbortSignal,
 ): Promise<CommittedInstructions> {
-  if (file === null) return { kind: "absent" };
   try {
-    return await resolveCommittedInstructions(git, cwd, rev, file);
+    return await firstCommittedInstructions(git, cwd, rev, files);
   } catch (error) {
     // A stop is the preparation's to report. Anything else that goes wrong
     // with this file is only the business of a profile that asks for it.
@@ -906,6 +907,29 @@ export async function readCommittedInstructions(
       reason: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+// A file the tree has wins, even when it is refused: falling through to the
+// next name would hand the run rules the repository ranks below the broken one.
+async function firstCommittedInstructions(
+  git: Git,
+  cwd: string,
+  rev: string,
+  files: readonly string[],
+): Promise<CommittedInstructions> {
+  for (const file of files) {
+    const found = await resolveCommittedInstructions(git, cwd, rev, file);
+    if (found.kind === "absent") continue;
+    if (found.kind !== "text") return found;
+    const imported = /^@(\S+)$/.exec(found.text.trim())?.[1];
+    // One hop only, so two files importing each other cannot loop.
+    return imported !== undefined &&
+      imported !== file &&
+      files.includes(imported)
+      ? resolveCommittedInstructions(git, cwd, rev, imported)
+      : found;
+  }
+  return { kind: "absent" };
 }
 
 async function resolveCommittedInstructions(

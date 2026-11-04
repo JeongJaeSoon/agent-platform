@@ -30,7 +30,7 @@ export function systemPromptAppend(
     config.appendSystemPrompt,
     instructions === null || instructions.trim() === ""
       ? undefined
-      : `Contents of CLAUDE.md at the root of the repository you are working in (project instructions checked into it):\n\n${instructions}`,
+      : `Contents of the instruction file (AGENTS.md, else CLAUDE.md) at the root of the repository you are working in (project instructions checked into it):\n\n${instructions}`,
   ].filter((part): part is string => part !== undefined);
   return parts.length === 0 ? undefined : parts.join("\n\n");
 }
