@@ -72,12 +72,28 @@ exit 1
       { mode: 0o755 },
     );
     // No containers left, no image tags to remove.
-    await writeFile(join(dir, "bin", "docker"), `#!/bin/sh\n[ "$1" = ps ]\n`, {
-      mode: 0o755,
-    });
+    await writeFile(
+      join(dir, "bin", "docker"),
+      `#!/bin/sh\necho "$*" >> "${dir}/docker-calls"\n[ "$1" = ps ]\n`,
+      { mode: 0o755 },
+    );
     await writeFile(join(dir, "bin", "git"), "#!/bin/sh\nexit 0\n", {
       mode: 0o755,
     });
+    await writeFile(join(dir, "bin", "orb"), "#!/bin/sh\necho false\n", {
+      mode: 0o755,
+    });
+    // Answers `helm status` for STUB_RELEASES; everything else fails, which
+    // ends `up` at the Traefik install.
+    await writeFile(
+      join(dir, "bin", "helm"),
+      `#!/bin/sh
+echo "$*" >> "${dir}/helm-calls"
+[ "$1" = status ] && case " $STUB_RELEASES " in *" $2 "*) exit 0 ;; esac
+exit 1
+`,
+      { mode: 0o755 },
+    );
   });
 
   afterEach(async () => {
@@ -310,6 +326,57 @@ exit 1
     expect(result.stderr).toContain("pr-16: busy, another process is taking");
     expect(await readlink(join(dir, "home", "pr-16.lock"))).toBe(
       String(gone.pid),
+    );
+  });
+
+  test("down removes the image tags of both names", async () => {
+    const result = await reap([{ name: "pr-17", upAt: hoursAgo(1) }], {
+      STUB_STATES: "17=CLOSED",
+    });
+    expect(result.exitCode).toBe(0);
+    const removed = (await calls("docker-calls")).filter((call) =>
+      call.startsWith("image rm "),
+    );
+    expect(removed).toEqual(
+      ["control-host", "egress-proxy", "worker"].flatMap((app) => [
+        `image rm werft-${app}:pr-17`,
+        `image rm agent-platform-${app}:pr-17`,
+      ]),
+    );
+  });
+
+  const up = async (releases: string) => {
+    const handle = Bun.spawn(["bash", script, "up", "18"], {
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        PREVIEW_HOME: join(dir, "home"),
+        STUB_RELEASES: releases,
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      handle.exited,
+      new Response(handle.stderr).text(),
+    ]);
+    return { exitCode, stderr };
+  };
+
+  test("up refuses a namespace still holding the old release", async () => {
+    const result = await up("agent-platform");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("pr-18 holds a release from before");
+    expect(await calls("helm-calls")).toEqual([
+      "status agent-platform --namespace pr-18",
+    ]);
+  });
+
+  test("up goes on in a namespace without the old release", async () => {
+    const result = await up("");
+    expect(result.stderr).not.toContain("holds a release from before");
+    expect(await calls("helm-calls")).toContain(
+      "status traefik --namespace preview-ingress -o json",
     );
   });
 });

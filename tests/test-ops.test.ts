@@ -165,7 +165,7 @@ describe("scripts/test-ops.sh", () => {
 
   test("refuses a manifest naming an image by tag", async () => {
     const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
-    manifest.images.worker = "ghcr.io/jeongjaesoon/agent-platform-worker:v1";
+    manifest.images.worker = "ghcr.io/jeongjaesoon/werft-worker:v1";
     await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
     const result = await run(["preflight", join(dir, "release.json")], env);
     expect(result.exitCode).toBe(1);
@@ -437,8 +437,8 @@ describe("release manifest", () => {
   });
 
   test.each([
-    ["control_host", "ghcr.io/jeongjaesoon/agent-platform-control-host:latest"],
-    ["worker", "ghcr.io/jeongjaesoon/agent-platform-worker"],
+    ["control_host", "ghcr.io/jeongjaesoon/werft-control-host:latest"],
+    ["worker", "ghcr.io/jeongjaesoon/werft-worker"],
     ["egress_proxy", `ghcr.io/x/egress-proxy@sha256:${"a".repeat(63)}`],
     ["worker", `ghcr.io/x/worker@sha512:${"a".repeat(64)}`],
     ["worker", 7],

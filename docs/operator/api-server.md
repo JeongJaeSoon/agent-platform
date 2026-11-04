@@ -338,7 +338,7 @@ capture 성공 로그 `worker.checkpoint.published`는 `untracked`·`untracked_b
 
 **checkpoint GC**는 `bun run apps/control-host/src/api/checkpoint-gc.ts`로 도는 one-shot이다. reconciler처럼 한 pass만 돌고 끝나며, api 이미지와 API의 object store 환경 변수에 `DATABASE_URL`을 더해 실행한다. `CHECKPOINT_GC_DRY_RUN=true`를 주면 지울 개수만 세고 아무것도 지우지 않는다.
 
-compose 설치에서는 `maintenance` 서비스가 **주 1회**(`MAINTENANCE_INTERVAL_SEC`, 기본 604800초) GC를 돌고 이어서 [세션 이벤트 보관](data-retention.md#세션-이벤트-보관)을 돈다. Unix epoch부터 센 주기의 배수 시각에 돈다(기본값이면 매주 목요일 00:00 UTC). 그래서 재시작해도 바로 돌지 않고, 다음 실행이 뒤로 밀리지도 않는다. Kubernetes 설치에서는 chart의 CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`, `concurrencyPolicy: Forbid`)이 api ServiceAccount로 돌고, `checkpointGc.dryRun: true`면 개수만 센다. 바로 한 번 돌리려면 `kubectl -n agent-platform create job --from=cronjob/agent-platform-checkpoint-gc checkpoint-gc-manual`을 쓴다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
+compose 설치에서는 `maintenance` 서비스가 **주 1회**(`MAINTENANCE_INTERVAL_SEC`, 기본 604800초) GC를 돌고 이어서 [세션 이벤트 보관](data-retention.md#세션-이벤트-보관)을 돈다. Unix epoch부터 센 주기의 배수 시각에 돈다(기본값이면 매주 목요일 00:00 UTC). 그래서 재시작해도 바로 돌지 않고, 다음 실행이 뒤로 밀리지도 않는다. Kubernetes 설치에서는 chart의 CronJob(`checkpointGc.schedule`, 기본 `0 4 * * 0`, `concurrencyPolicy: Forbid`)이 api ServiceAccount로 돌고, `checkpointGc.dryRun: true`면 개수만 센다. 바로 한 번 돌리려면 `kubectl -n werft create job --from=cronjob/werft-checkpoint-gc checkpoint-gc-manual`을 쓴다. compose 설치에서는 떠 있는 api 컨테이너 안에서 실행한다. 이 컨테이너에는 필요한 환경 변수가 이미 들어 있다.
 
 ```bash
 docker compose exec -T -e CHECKPOINT_GC_DRY_RUN=true api bun run apps/control-host/src/api/checkpoint-gc.ts   # 지울 개수만 본다

@@ -35,7 +35,7 @@ scheduler pass도 one-shot이다(`main.ts scheduler --once`, package script `sch
 
 ```bash
 DATABASE_URL=postgres://postgres:dev@127.0.0.1:5432/sessions \
-WORKER_IMAGE=agent-platform-worker:dev \
+WORKER_IMAGE=werft-worker:dev \
 WORKER_GATEWAY_URL=http://host.docker.internal:3000 \
 EXECUTION_SLOT_LIMIT=10 \
 QUEUED_INPUT_LIMIT_PER_SESSION=20 \

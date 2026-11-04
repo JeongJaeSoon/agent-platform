@@ -136,7 +136,7 @@ manifest의 `gitea`에 값이 있는 백업에는 `repos/`와 `gitea/`(Gitea DB,
 ```bash
 scripts/verify-restore.sh --project ap-restore-1
 scripts/verify-restore.sh --project ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints
-scripts/verify-restore.sh --project ap-restore-1 --image agent-platform-worker:dev   # 복원본을 이어 받을 worker 이미지
+scripts/verify-restore.sh --project ap-restore-1 --image werft-worker:dev   # 복원본을 이어 받을 worker 이미지
 ```
 
 restore와 같은 `--object-store`와 bucket을 준다. restore가 끝에 출력하는 verify 명령에 둘 다 들어 있다. `--image`에는 복원본의 scheduler가 쓸 `WORKER_IMAGE`를 준다. 설정은 복원본 DB의 것을 읽는다.

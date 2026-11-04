@@ -12,7 +12,7 @@
 # API would trust whatever the mock signs.
 services:
   mock-slack:
-    image: ${API_IMAGE:-agent-platform-control-host:dev}
+    image: ${API_IMAGE:-werft-control-host:dev}
     profiles: ["apps"]
     # Built by the api service in the same `up --build`; never pulled.
     pull_policy: never

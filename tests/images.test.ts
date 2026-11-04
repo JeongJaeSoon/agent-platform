@@ -321,6 +321,33 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     );
   });
 
+  test("the workflow, the chart and compose name the same images", () => {
+    // Not github.repository: renaming the repository must not rename images.
+    expect(read(".github/workflows/images.yml")).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
+      "IMAGE_PREFIX: ${{ github.repository_owner }}/werft\n",
+    );
+    expect(
+      Bun.YAML.parse(read("deploy/helm/agent-platform/Chart.yaml")),
+    ).toMatchObject({ name: "werft" });
+    const { images } = Bun.YAML.parse(
+      read("deploy/helm/agent-platform/values.yaml"),
+    ) as {
+      images: Record<
+        "controlHost" | "egressProxy" | "worker" | "workerPrevious",
+        { repository: string }
+      >;
+    };
+    const owner = "ghcr.io/jeongjaesoon";
+    expect(images.controlHost.repository).toBe(`${owner}/werft-control-host`);
+    expect(images.egressProxy.repository).toBe(`${owner}/werft-egress-proxy`);
+    expect(images.worker.repository).toBe(`${owner}/werft-worker`);
+    expect(images.workerPrevious.repository).toBe(`${owner}/werft-worker`);
+    for (const app of apps) {
+      expect(compose).toContain(`:-werft-${app}:dev}`);
+    }
+  });
+
   test("no two services build the same image tag", () => {
     // Two builds exporting one tag race: "image ... already exists".
     const services = localStack();
@@ -915,7 +942,7 @@ describe("compose publishes nothing beyond loopback and runs pinned images", () 
     const proxy = services["egress-proxy"];
     expect(proxy?.build?.dockerfile).toBe("apps/egress-proxy/Dockerfile");
     expect(proxy?.image).toBe(
-      "$" + "{EGRESS_PROXY_IMAGE:-agent-platform-egress-proxy:dev}",
+      "$" + "{EGRESS_PROXY_IMAGE:-werft-egress-proxy:dev}",
     );
     expect(proxy?.volumes).toBeUndefined();
   });

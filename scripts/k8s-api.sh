@@ -8,11 +8,11 @@
 #   scripts/k8s-api.sh <keys|grants|settings> <args...>
 #
 # kubectl's current context, or KUBECONFIG, picks the cluster. NAMESPACE and
-# RELEASE name the chart install (both default to agent-platform).
+# RELEASE name the chart install (both default to werft).
 set -euo pipefail
 
-NAMESPACE="${NAMESPACE:-agent-platform}"
-RELEASE="${RELEASE:-agent-platform}"
+NAMESPACE="${NAMESPACE:-werft}"
+RELEASE="${RELEASE:-werft}"
 
 cli="${1:-}"
 case "$cli" in
@@ -25,7 +25,7 @@ esac
 
 # The chart's fullname rule (ap.fullname in _helpers.tpl).
 fullname="$RELEASE"
-case "$RELEASE" in *agent-platform*) ;; *) fullname="${RELEASE}-agent-platform" ;; esac
+case "$RELEASE" in *werft*) ;; *) fullname="${RELEASE}-werft" ;; esac
 fullname="${fullname:0:50}"
 fullname="${fullname%-}"
 
