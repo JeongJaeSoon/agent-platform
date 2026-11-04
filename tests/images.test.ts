@@ -13,6 +13,11 @@ import { join } from "node:path";
 import { DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS } from "@werft-ai/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
 import {
+  bakeValues,
+  chartVersion,
+  publishedImages,
+} from "../.github/scripts/chart-package.ts";
+import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,
 } from "../apps/control-host/src/api/shutdown.ts";
@@ -42,6 +47,8 @@ import {
 // pins one and the same base digest, compose points at files that exist, and
 // the images workflow builds every app compose runs. Building and smoking the
 // images is images.yml's job.
+
+type Row = Record<string, unknown>;
 
 const root = join(import.meta.dir, "..");
 const apps = ["control-host", "worker", "egress-proxy"] as const;
@@ -831,6 +838,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(on.push.tags).toEqual(["v*"]);
       expect(permissions).toEqual({ contents: "read" });
       expect(writers.sort()).toEqual([
+        "chart-publish",
+        "chart-publish-main",
         "promote",
         "promote-main",
         "publish",
@@ -841,8 +850,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     test.each([
-      ["push", "refs/heads/main", ["promote-main", "publish-main"]],
-      ["push", "refs/tags/v1.2.3", ["promote", "publish"]],
+      [
+        "push",
+        "refs/heads/main",
+        ["chart-publish-main", "promote-main", "publish-main"],
+      ],
+      ["push", "refs/tags/v1.2.3", ["chart-publish", "promote", "publish"]],
       ["push", "refs/heads/feature", []],
       ["push", "refs/tags/sdk-v0.1.0", []],
       ["pull_request", "refs/pull/1/merge", []],
@@ -864,8 +877,65 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     test("only the tag path waits for the release environment", () => {
       expect(jobs.publish?.environment).toBe("release");
       expect(jobs.promote?.environment).toBe("release");
+      expect(jobs["chart-publish"]?.environment).toBe("release");
       expect(jobs["publish-main"]?.environment).toBeUndefined();
       expect(jobs["promote-main"]?.environment).toBeUndefined();
+      expect(jobs["chart-publish-main"]?.environment).toBeUndefined();
+    });
+
+    test("the chart follows its own path's promotion, and installs before it is pushed", () => {
+      expect(jobs.chart?.needs).toBe("promote");
+      expect(jobs["chart-main"]?.needs).toBe("promote-main");
+      expect(jobs["chart-publish"]?.needs).toBe("chart");
+      expect(jobs["chart-publish-main"]?.needs).toBe("chart-main");
+      for (const name of ["chart", "chart-main"]) {
+        expect(jobs[name]?.permissions).toBeUndefined();
+      }
+      expect(jobs["chart-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs.chart?.if).toBe(jobs.publish?.if);
+      expect(jobs["chart-publish-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["chart-publish"]?.if).toBe(jobs.publish?.if);
+      expect(jobs["chart-main"]?.steps).toEqual(jobs.chart?.steps ?? []);
+      expect(jobs["chart-publish-main"]?.steps).toEqual(
+        jobs["chart-publish"]?.steps ?? [],
+      );
+
+      const steps = jobs.chart?.steps ?? [];
+      const index = (needle: string) =>
+        steps.findIndex((step) => (step.run ?? "").includes(needle));
+      const packageStep = index("chart-package.ts published chart-out");
+      const read = index("docker manifest inspect");
+      const install = index("deploy/kind/up.sh");
+      const upload = steps.findIndex((step) => step.with?.name === "chart");
+      expect(packageStep).toBeGreaterThan(-1);
+      expect(read).toBeGreaterThan(packageStep);
+      expect(install).toBeGreaterThan(read);
+      expect(upload).toBeGreaterThan(install);
+      expect(steps[install]?.run).toContain("CHART_PACKAGE=");
+      expect(
+        steps.flatMap((step) => step.with?.name ?? []).slice(0, 1),
+      ).toEqual(["image-digests-published"]);
+      expect(runsOf(jobs.chart)).not.toContain("docker login");
+      expect(runsOf(jobs["chart-publish"])).toContain("chart-push.sh");
+    });
+
+    test("the chart's tools are the k8s-smoke job's", () => {
+      const smoke = (
+        Bun.YAML.parse(read(".github/workflows/ci.yml")) as {
+          jobs: Record<string, { env: Record<string, string> }>;
+        }
+      ).jobs["k8s-smoke"]?.env;
+      const { env } = Bun.YAML.parse(text) as { env: Record<string, string> };
+      for (const key of [
+        "HELM_VERSION",
+        "HELM_SHA256",
+        "KIND_VERSION",
+        "KIND_SHA256",
+        "KUBECTL_VERSION",
+        "KUBECTL_SHA256",
+      ]) {
+        expect(env[key]).toBe(smoke?.[key] ?? "missing");
+      }
     });
 
     test("both paths run one list of steps and promote after every image", () => {
@@ -931,6 +1001,339 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       });
       // In that group a queued entry would replace another merge's promotion.
       expect(jobs["promote-main"]?.concurrency).toBeUndefined();
+    });
+  });
+
+  describe("chart-package.ts", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const repo = (app: string) => `ghcr.io/jeongjaesoon/werft-${app}`;
+    const hex = (c: string) => `sha256:${c.repeat(64)}`;
+    const runtime = {
+      engine: "claude-agent-sdk",
+      sdkVersion: "0.3.280",
+      cliVersion: "2.1.280",
+      profileDigestScheme: 1,
+    };
+    const records = () => [
+      {
+        app: "control-host",
+        image: repo("control-host"),
+        digest: hex("a"),
+        promoted: true,
+        commit: sha,
+        runtime: null,
+      },
+      {
+        app: "egress-proxy",
+        image: repo("egress-proxy"),
+        digest: hex("b"),
+        promoted: true,
+        commit: sha,
+        runtime: null,
+      },
+      {
+        app: "worker",
+        image: repo("worker"),
+        digest: hex("c"),
+        promoted: true,
+        commit: sha,
+        runtime,
+      },
+    ];
+    const version = (ref: string, chartYamlVersion = "0.1.0") =>
+      chartVersion({ ref, sha, chartYamlVersion, chartName: "werft" });
+
+    test("main prereleases carry the commit in one hyphenated identifier", () => {
+      expect(version("refs/heads/main")).toEqual({
+        version: "0.1.0-main-0123456789ab",
+        appVersion: "main-0123456789ab",
+      });
+    });
+
+    test.each([
+      ["refs/tags/v1.2.3", "1.2.3"],
+      ["refs/tags/v1.2.3-rc.1", "1.2.3-rc.1"],
+    ])("%s gives chart %s", (ref, expected) => {
+      expect(version(ref)).toEqual({
+        version: expected,
+        appVersion: ref.slice("refs/tags/".length),
+      });
+    });
+
+    test.each([
+      ["refs/tags/v1", /is not v/],
+      ["refs/tags/v1.2.3+build.1", /is not v/],
+      ["refs/tags/v1.2.3-rc.", /is not v/],
+      ["refs/tags/v1.2.3-01", /is not v/],
+      ["refs/tags/v01.2.3", /is not v/],
+      ["refs/tags/sdk-v0.1.0", /is not v/],
+      ["refs/heads/feature", /no chart is published/],
+      ["refs/pull/1/merge", /no chart is published/],
+      [`refs/tags/v1.2.3-${"a".repeat(60)}`, /label/],
+    ])("%s is refused", (ref, message) => {
+      expect(() => version(ref)).toThrow(message);
+    });
+
+    test("main refuses a Chart.yaml version it cannot extend", () => {
+      expect(() => version("refs/heads/main", "1.2.3-rc.1")).toThrow(
+        "not X.Y.Z",
+      );
+    });
+
+    test("takes one promoted image of this commit per app", () => {
+      expect(publishedImages(records(), sha).worker).toEqual({
+        repository: repo("worker"),
+        digest: hex("c"),
+        runtime,
+      });
+    });
+
+    test.each([
+      ["a missing app", (r: Row[]) => r.slice(1), /no image record/],
+      ["a duplicate", (r: Row[]) => [...r, r[0]], /two image records/],
+      ["an unknown app", (r: Row[]) => [{ ...r[0], app: "x" }], /unexpected/],
+      [
+        "an image never promoted",
+        (r: Row[]) => [{ ...r[0], promoted: false }, r[1], r[2]],
+        /not promoted/,
+      ],
+      [
+        "another commit",
+        (r: Row[]) => [{ ...r[0], commit: "f".repeat(40) }, r[1], r[2]],
+        /is of/,
+      ],
+      [
+        "a tag for a digest",
+        (r: Row[]) => [{ ...r[0], digest: "main-1" }, r[1], r[2]],
+        /has digest/,
+      ],
+      [
+        "a worker without a runtime",
+        (r: Row[]) => [r[0], r[1], { ...r[2], runtime: null }],
+        /./,
+      ],
+      [
+        "a runtime the readers refuse",
+        (r: Row[]) => [r[0], r[1], { ...r[2], runtime: { engine: "e" } }],
+        /./,
+      ],
+    ])("refuses %s", (_label, change, message) => {
+      expect(() => publishedImages(change(records()) as Row[], sha)).toThrow(
+        message,
+      );
+    });
+
+    const chartValues = read("deploy/helm/agent-platform/values.yaml");
+
+    test("bakes the digests and runtime and changes nothing else", () => {
+      const images = publishedImages(records(), sha);
+      const baked = bakeValues(chartValues, images);
+      const parsed = Bun.YAML.parse(baked) as {
+        images: Record<string, Record<string, unknown>>;
+      };
+      expect(parsed.images.controlHost?.digest).toBe(hex("a"));
+      expect(parsed.images.egressProxy?.digest).toBe(hex("b"));
+      expect(parsed.images.worker?.digest).toBe(hex("c"));
+      expect(parsed.images.worker?.runtime).toEqual(runtime);
+      expect(parsed.images.workerPrevious?.digest).toBe("");
+      expect(parsed.images.workerPrevious?.runtime).toEqual({});
+
+      const original = chartValues.split("\n");
+      const lines = baked.split("\n");
+      expect(lines).toHaveLength(original.length);
+      const changed = lines.filter((line, i) => line !== original[i]);
+      expect(changed).toHaveLength(4);
+      for (const line of changed)
+        expect(line).toMatch(/^ {4}(digest|runtime):/);
+    });
+
+    test("stops on a repository the chart does not default to", () => {
+      const images = publishedImages(records(), sha);
+      expect(() =>
+        bakeValues(chartValues, {
+          ...images,
+          worker: { ...images.worker, repository: "ghcr.io/x/werft-worker" },
+        }),
+      ).toThrow("images.worker.repository is");
+    });
+
+    test("stops when values.yaml is not in the form it edits", () => {
+      const images = publishedImages(records(), sha);
+      const filled = chartValues.replace(
+        /^( {2}worker:\n {4}repository: \S+\n {4})digest: ""/m,
+        `$1digest: ${hex("d")}`,
+      );
+      expect(filled).not.toBe(chartValues);
+      expect(() => bakeValues(filled, images)).toThrow("known form");
+      expect(() => bakeValues("other: 1\n", images)).toThrow("no images block");
+    });
+  });
+
+  describe("chart-push.sh", () => {
+    // A registry of one tgz per version. Anything but the logged-in client
+    // sets HELM_REGISTRY_CONFIG, so the fake can tell the two apart.
+    const fakeHelm = `#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "\${HELM_REGISTRY_CONFIG:-}" ]; then who=anonymous; else who=login; fi
+echo "$who $1 $2 docker=\${DOCKER_CONFIG:-unset}" >>"$FAKE/log"
+case "$1" in
+  registry) cat >"$FAKE/token" ;;
+  pull)
+    if [ "$who" = login ] && [ -n "\${FAKE_LOGIN_SAYS:-}" ]; then echo "$FAKE_LOGIN_SAYS" >&2; exit 1; fi
+    if [ "$who" = anonymous ] && [ -n "\${FAKE_ANONYMOUS_BEFORE_PUSH_SAYS:-}" ] && [ ! -f "$FAKE/pushed" ]; then
+      echo "$FAKE_ANONYMOUS_BEFORE_PUSH_SAYS" >&2; exit 1
+    fi
+    if [ "$who" = anonymous ] && [ -n "\${FAKE_ANONYMOUS_AFTER_PUSH_SAYS:-}" ] && [ -f "$FAKE/pushed" ]; then
+      echo "$FAKE_ANONYMOUS_AFTER_PUSH_SAYS" >&2; exit 1
+    fi
+    shift 2
+    version=""; dest=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --version) version="$2"; shift 2 ;;
+        --destination) dest="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    stored="$FAKE/store/werft-$version.tgz"
+    if [ ! -f "$stored" ]; then echo "failed to perform: not found" >&2; exit 1; fi
+    cp "$stored" "$dest/"
+    ;;
+  push) touch "$FAKE/pushed"; cp "$2" "$FAKE/store/" ;;
+  show) echo "name: werft" ;;
+  *) exit 64 ;;
+esac
+`;
+    const version = "0.1.0-main-0123456789ab";
+
+    const fixture = () => {
+      const directory = mkdtempSync(join(tmpdir(), "chart-push-"));
+      for (const name of ["bin", "store", "out"])
+        mkdirSync(join(directory, name));
+      writeFileSync(join(directory, "bin/helm"), fakeHelm, { mode: 0o755 });
+      const pack = (target: string, values: string, stamp: string) => {
+        const chart = join(directory, `src-${stamp}`, "werft");
+        mkdirSync(chart, { recursive: true });
+        writeFileSync(join(chart, "values.yaml"), values);
+        // A packaging time, as two runs' packages of one chart differ by.
+        const packed = Bun.spawnSync([
+          "tar",
+          "-czf",
+          target,
+          "-C",
+          join(directory, `src-${stamp}`),
+          "werft",
+        ]);
+        expect(packed.exitCode).toBe(0);
+      };
+      const candidate = join(directory, "out", `werft-${version}.tgz`);
+      const stored = join(directory, "store", `werft-${version}.tgz`);
+      pack(candidate, "digest: a\n", "candidate");
+      const push = (env: Record<string, string> = {}) => {
+        const run = Bun.spawnSync(
+          [
+            "bash",
+            join(root, ".github/scripts/chart-push.sh"),
+            candidate,
+            "ghcr.io/o",
+          ],
+          {
+            env: {
+              PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+              FAKE: directory,
+              REGISTRY_TOKEN: "token",
+              GITHUB_ACTOR: "actor",
+              ...env,
+            },
+          },
+        );
+        return {
+          code: run.exitCode,
+          out: `${run.stdout.toString()}${run.stderr.toString()}`,
+        };
+      };
+      const log = () => readFileSync(join(directory, "log"), "utf8");
+      const pushed = () => existsSync(join(directory, "pushed"));
+      return { pack, candidate, stored, push, log, pushed };
+    };
+
+    test("a new version is pushed and read back with no login at all", () => {
+      const repo = fixture();
+      const run = repo.push();
+      expect(run.code).toBe(0);
+      expect(repo.pushed()).toBe(true);
+      expect(run.out).toContain("name: werft");
+      const lines = repo.log().trim().split("\n");
+      expect(lines[0]).toStartWith("login registry login");
+      const last = lines.filter((line) => line.startsWith("anonymous"));
+      expect(last.map((line) => line.split(" ")[1])).toEqual(["pull", "show"]);
+      // Helm falls back to Docker's credentials unless they are cleared too.
+      for (const line of last) expect(line).toContain("/no-login");
+    });
+
+    test("the same files under a new package time are a rerun, not a write", () => {
+      const repo = fixture();
+      repo.pack(repo.stored, "digest: a\n", "stored");
+      const run = repo.push();
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("already published");
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("other files under the version fail and overwrite nothing", () => {
+      const repo = fixture();
+      repo.pack(repo.stored, "digest: b\n", "stored");
+      const before = readFileSync(repo.stored);
+      const run = repo.push();
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("differs");
+      expect(repo.pushed()).toBe(false);
+      expect(readFileSync(repo.stored).equals(before)).toBe(true);
+    });
+
+    test("denied both ways is the package's first publish", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_LOGIN_SAYS: "403: denied",
+        FAKE_ANONYMOUS_BEFORE_PUSH_SAYS: "403: denied",
+      });
+      expect(run.code).toBe(0);
+      expect(repo.pushed()).toBe(true);
+    });
+
+    test("denied to the login, then a broken anonymous lookup, writes nothing", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_LOGIN_SAYS: "403: denied",
+        FAKE_ANONYMOUS_BEFORE_PUSH_SAYS: "500 upstream",
+      });
+      expect(run.code).toBe(1);
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("denied to the login does not hide a public version", () => {
+      const repo = fixture();
+      repo.pack(repo.stored, "digest: b\n", "stored");
+      const run = repo.push({ FAKE_LOGIN_SAYS: "403: denied" });
+      expect(run.code).toBe(1);
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("a lookup that fails for another reason does not read as absent", () => {
+      const repo = fixture();
+      const run = repo.push({ FAKE_LOGIN_SAYS: "500 upstream" });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("could not look up");
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("a chart nobody can read without a login fails the run", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_ANONYMOUS_AFTER_PUSH_SAYS: "403: denied",
+      });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("does not read back without a login");
     });
   });
 
