@@ -22,7 +22,6 @@ import {
   Badge,
   type BadgeProps,
   buttonVariants,
-  Card,
   CardFooter,
   Checkbox,
   Code,
@@ -183,7 +182,11 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
   const { t } = useI18n();
   const titleId = useId();
   return (
-    <Alert asChild aria-labelledby={titleId}>
+    <Alert
+      asChild
+      aria-labelledby={titleId}
+      className="border-0 bg-transparent p-0"
+    >
       <section>
         <AlertTitle asChild>
           <Heading id={titleId} className="m-0">
@@ -593,7 +596,6 @@ function KeyList({
       <RowList
         variant="joined"
         framed={false}
-        className="rounded-card border"
         aria-label={t("apiKeys.listTitle")}
       >
         {items.map((key) => {
@@ -902,7 +904,7 @@ function IssuedSecret({
   }, []);
   return (
     <section
-      className="flex flex-col gap-4 rounded-card border p-4"
+      className="flex flex-col gap-4"
       data-status="secret"
       aria-label={t("apiKeys.secretTitle")}
     >
@@ -910,7 +912,7 @@ function IssuedSecret({
         <Heading>{t("apiKeys.createdTitle")}</Heading>
         <KindBadge kind={kind} />
       </div>
-      <Alert variant="amber">
+      <Alert variant="amber" className="border-0">
         <p className="m-0">{t("apiKeys.secretOnce")}</p>
       </Alert>
       <Field>
@@ -960,7 +962,7 @@ interface FormProps {
 
 // v4 key form (Console.dc.html L819-823): a `card flush` with a 16px body
 // and 16px gaps, then the `form-foot` strip with cancel and generate.
-const FORM_BODY = "flex flex-col items-start gap-4 p-4";
+const FORM_BODY = "flex flex-col items-start gap-4";
 
 function FormFoot({
   listTo,
@@ -973,7 +975,10 @@ function FormFoot({
 }) {
   const { t } = useI18n();
   return (
-    <CardFooter variant="form" className="flex-wrap items-start justify-end">
+    <CardFooter
+      variant="form"
+      className="flex-wrap items-start justify-end px-0"
+    >
       <Link
         to={listTo}
         data-slot="button"
@@ -1013,7 +1018,7 @@ function PersonalKeyForm({ busy, send }: FormProps) {
   };
 
   return (
-    <Card flush>
+    <div>
       <form onSubmit={submit}>
         <div className={FORM_BODY}>
           <NameField value={name} onChange={setName} />
@@ -1031,7 +1036,7 @@ function PersonalKeyForm({ busy, send }: FormProps) {
           disabled={busy || granted.length === 0}
         />
       </form>
-    </Card>
+    </div>
   );
 }
 
@@ -1107,7 +1112,7 @@ function AgentKeyForm({ busy, send }: FormProps) {
   };
 
   return (
-    <Card flush>
+    <div>
       <form onSubmit={submit}>
         <div className={FORM_BODY}>
           <Field>
@@ -1169,6 +1174,6 @@ function AgentKeyForm({ busy, send }: FormProps) {
           disabled={busy || granted.length === 0 || chosenAgent === null}
         />
       </form>
-    </Card>
+    </div>
   );
 }

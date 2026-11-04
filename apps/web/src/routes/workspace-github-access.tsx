@@ -254,7 +254,9 @@ export function FeatureList({
 
   return (
     <>
-      <RowList variant="joined">{rows}</RowList>
+      <RowList variant="joined" framed={false}>
+        {rows}
+      </RowList>
       <div aria-live="polite" className="sr-only">
         {live}
       </div>

@@ -25,10 +25,6 @@ import {
   Badge,
   Button,
   buttonVariants,
-  Card,
-  CardDescription,
-  CardFooter,
-  CardHeader,
   Checkbox,
   Code,
   Dialog,
@@ -41,13 +37,13 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  Heading,
   Input,
   NativeSelect,
   NativeSelectOption,
   Page,
   RadioGroup,
   RadioGroupItem,
+  SettingsSection,
   Skeleton,
   Switch,
   Table,
@@ -282,7 +278,7 @@ export function AchievementRulesScreen() {
         <OutcomeLine outcome={outcome} />
         <JudgeCard reason={reason} onOutcome={setOutcome} />
         {failed ? (
-          <Card className="py-0">
+          <div>
             <LoadFailure
               error={failed.error}
               onRetry={() => {
@@ -291,7 +287,7 @@ export function AchievementRulesScreen() {
                 }
               }}
             />
-          </Card>
+          </div>
         ) : categories.data && types.data && rules.data ? (
           <>
             <CategoriesCard
@@ -335,7 +331,6 @@ export function AchievementRulesScreen() {
   );
 }
 
-/** The mockup's `.card`: a title and note over the body, a foot under it. */
 function RulesSection({
   id,
   title,
@@ -355,48 +350,24 @@ function RulesSection({
   readonly onSubmit?: (event: FormEvent) => void;
   readonly children: ReactNode;
 }) {
-  const titleId = useId();
-  const body = (
-    <>
-      {children}
-      {foot ? (
-        <CardFooter variant="form" className="flex-wrap">
-          {foot}
-        </CardFooter>
-      ) : null}
-    </>
-  );
   return (
-    <section id={id} aria-labelledby={titleId} className="min-w-0">
-      <Card flush>
-        <CardHeader className="gap-0.5 border-b pt-3.5 [.border-b]:pb-3.5">
-          <div className="flex items-baseline gap-1.5">
-            <Heading
-              id={titleId}
-              ref={titleRef}
-              tabIndex={titleRef ? -1 : undefined}
-            >
-              {title}
-            </Heading>
-            {count === undefined ? null : (
-              <Text as="span" variant="sub" numeric>
-                {count}
-              </Text>
-            )}
-          </div>
-          <CardDescription>
-            <Text variant="meta">{description}</Text>
-          </CardDescription>
-        </CardHeader>
-        {onSubmit ? (
-          <form onSubmit={onSubmit} noValidate>
-            {body}
-          </form>
-        ) : (
-          body
-        )}
-      </Card>
-    </section>
+    <SettingsSection
+      id={id}
+      title={title}
+      titleRef={titleRef}
+      description={description}
+      badge={
+        count === undefined ? null : (
+          <Text as="span" variant="sub" numeric>
+            {count}
+          </Text>
+        )
+      }
+      foot={foot}
+      onSubmit={onSubmit}
+    >
+      {children}
+    </SettingsSection>
   );
 }
 
@@ -410,7 +381,7 @@ function JudgeRow({
   readonly children: ReactNode;
 }) {
   return (
-    <div className="grid gap-2 border-b px-4 py-3.5 last:border-b-0 md:grid-cols-[260px_minmax(0,1fr)] md:gap-4">
+    <div className="grid gap-2 border-b py-3.5 last:border-b-0 md:grid-cols-[260px_minmax(0,1fr)] md:gap-4">
       <div className="min-w-0">
         <Text as="div" weight="medium">
           {label}
@@ -527,9 +498,9 @@ function JudgeCard({
 
   if (judge.isError) {
     return (
-      <Card className="py-0">
+      <div>
         <LoadFailure error={judge.error} onRetry={() => void judge.refetch()} />
-      </Card>
+      </div>
     );
   }
   if (!settings || !form) return <Skeleton height="16rem" />;

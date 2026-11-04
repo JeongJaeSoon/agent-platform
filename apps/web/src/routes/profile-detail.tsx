@@ -18,7 +18,6 @@ import {
   Badge,
   Button,
   buttonVariants,
-  Card,
   Code,
   ConfirmDialog,
   DangerZone,
@@ -582,7 +581,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
     value,
   });
   return (
-    <Card className="p-4">
+    <div className="flex flex-col gap-4">
       <KeyValueList
         items={[
           item("id", t("profiles.detail.id"), <Mono>{profile.id}</Mono>),
@@ -695,7 +694,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
             : []),
         ]}
       />
-    </Card>
+    </div>
   );
 }
 
@@ -717,7 +716,7 @@ function Audit({ profile }: { readonly profile: ProfileSummary }) {
   if (record === undefined) return null;
   const previous = profile.installation?.previous_id;
   return (
-    <Card className="p-4">
+    <div className="flex flex-col gap-4">
       <KeyValueList
         items={[
           ...(profile.installation
@@ -768,7 +767,7 @@ function Audit({ profile }: { readonly profile: ProfileSummary }) {
             : []),
         ]}
       />
-    </Card>
+    </div>
   );
 }
 
@@ -804,7 +803,7 @@ function History({
         columns={HISTORY_COLUMNS[0]}
         narrowAt={640}
         narrowColumns={HISTORY_COLUMNS[1]}
-        framed={true}
+        framed={false}
       >
         <GridTableHeader>
           <GridTableColumnHeader>
@@ -907,7 +906,7 @@ function Narrowings({
           columns={HISTORY_COLUMNS[0]}
           narrowAt={640}
           narrowColumns={HISTORY_COLUMNS[1]}
-          framed={true}
+          framed={false}
         >
           <GridTableHeader>
             <GridTableColumnHeader>
@@ -1002,7 +1001,7 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
       ) : using.length === 0 ? (
         <EmptyState title={t("profiles.detail.agents.empty")} />
       ) : (
-        <div className="rounded-card border bg-card">
+        <div>
           <GridTable
             aria-label={t("profiles.detail.agents.title")}
             columns={AGENT_COLUMNS}

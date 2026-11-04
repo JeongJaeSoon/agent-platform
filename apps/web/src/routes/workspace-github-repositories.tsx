@@ -302,7 +302,7 @@ export function RepositorySheet({
                   columns={COLUMNS}
                   narrowAt={480}
                   narrowColumns={NARROW_COLUMNS}
-                  framed
+                  framed={false}
                 >
                   <GridTableHeader>
                     <GridTableColumnHeader>
@@ -408,7 +408,7 @@ export function RepositorySheet({
                   columns={COLUMNS}
                   narrowAt={480}
                   narrowColumns={NARROW_COLUMNS}
-                  framed
+                  framed={false}
                 >
                   <GridTableHeader>
                     <GridTableColumnHeader>

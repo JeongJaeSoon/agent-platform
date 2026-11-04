@@ -330,7 +330,7 @@ function SlackCard({
   };
 
   const body = !canManage ? null : start ? (
-    <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
+    <div className="flex flex-col items-start gap-3">
       <Text weight="medium">{t("workspace.slackEmpty")}</Text>
       <Text variant="sub">{t("workspace.slackEmptyHint")}</Text>
       {form ?? (
@@ -351,7 +351,7 @@ function SlackCard({
         >
           {t("workspace.tokenSection")}
         </Heading>
-        <RowList variant="joined" aria-labelledby={tokenTitleId}>
+        <RowList variant="joined" framed={false} aria-labelledby={tokenTitleId}>
           {token.isPending || deciding ? (
             <RowListItem>
               <Skeleton width="50%" />
@@ -417,7 +417,9 @@ function SlackCard({
           <Text variant="sub">{status}</Text>
         </div>
       </div>
-      <Text variant="sub">{t("workspace.slackCardHint")}</Text>
+      <Text variant="sub" className="border-b pb-2">
+        {t("workspace.slackCardHint")}
+      </Text>
       {body}
       <ConfirmDialog
         open={deleting}

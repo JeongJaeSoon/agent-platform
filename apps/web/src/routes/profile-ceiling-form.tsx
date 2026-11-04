@@ -430,7 +430,7 @@ export function CeilingForm({
 
   return (
     <form
-      className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4"
+      className="flex flex-col gap-[var(--ap-space-block)]"
       noValidate
       onSubmit={submit}
     >

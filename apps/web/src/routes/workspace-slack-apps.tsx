@@ -109,7 +109,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
       columns={COLUMNS[0]}
       narrowAt={640}
       narrowColumns={COLUMNS[1]}
-      framed={true}
+      framed={false}
     >
       <GridTableHeader>
         <GridTableColumnHeader>

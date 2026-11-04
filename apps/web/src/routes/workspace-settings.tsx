@@ -53,9 +53,7 @@ export const AUDIT_RETENTION_MAX_DAYS = 3650;
 // a title over a rule, labels above their fields and help under them.
 const SECTIONS = "flex flex-col gap-10";
 const ICON = "size-3.5 shrink-0";
-/** A connection page's block (GitHub, Slack): a bordered card, its title inside. */
-export const SETTINGS_CARD =
-  "flex flex-col gap-4 rounded-card border bg-card p-4";
+export const SETTINGS_CARD = "flex flex-col gap-4";
 
 export type OnOutcome = (outcome: Outcome | null) => void;
 
@@ -679,7 +677,7 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
 
   return (
     <section aria-labelledby={titleId} className={SETTINGS_CARD}>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 border-b pb-2">
         <Heading id={titleId} level={2}>
           {t("workspace.guest")}
         </Heading>
@@ -687,7 +685,7 @@ export function SlackGuest({ onOutcome }: { readonly onOutcome: OnOutcome }) {
           {t("workspace.guestHint")}
         </Text>
       </div>
-      <RowList variant="joined">
+      <RowList variant="joined" framed={false}>
         <SettingRow
           title={t("workspace.guestLabel")}
           meta={

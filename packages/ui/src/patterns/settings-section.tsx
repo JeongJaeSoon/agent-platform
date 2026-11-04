@@ -1,4 +1,10 @@
-import { type FormEvent, type JSX, type ReactNode, useId } from "react";
+import {
+  type FormEvent,
+  type JSX,
+  type ReactNode,
+  type Ref,
+  useId,
+} from "react";
 
 import { RowList } from "../primitives/row-list.tsx";
 
@@ -10,7 +16,8 @@ export interface SettingsSectionProps {
   readonly titleAs?: "h2" | "h3" | undefined;
   /** After the title, outside the heading's name: a count. */
   readonly badge?: ReactNode | undefined;
-  readonly description?: string | undefined;
+  readonly description?: ReactNode | undefined;
+  readonly titleRef?: Ref<HTMLHeadingElement> | undefined;
   readonly descriptionId?: string | undefined;
   /** SettingRows under the body, edge to edge like the foot. */
   readonly rows?: ReactNode | undefined;
@@ -31,6 +38,7 @@ export function SettingsSection({
   badge,
   description,
   descriptionId,
+  titleRef,
   rows,
   foot,
   onSubmit,
@@ -40,7 +48,11 @@ export function SettingsSection({
   const content = (
     <>
       {children}
-      {rows ? <RowList variant="joined">{rows}</RowList> : null}
+      {rows ? (
+        <RowList variant="joined" framed={false}>
+          {rows}
+        </RowList>
+      ) : null}
       {foot ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           {foot}
@@ -49,11 +61,17 @@ export function SettingsSection({
     </>
   );
   return (
-    <section id={id} aria-labelledby={titleId} className="flex flex-col gap-4">
+    <section
+      id={id}
+      aria-labelledby={titleId}
+      className="flex min-w-0 flex-col gap-4"
+    >
       <div className="flex flex-col gap-1 border-b pb-2">
         <div className="flex items-center gap-2">
           <Heading
             id={titleId}
+            ref={titleRef}
+            tabIndex={titleRef ? -1 : undefined}
             className="m-0 font-semibold text-body leading-6"
           >
             {title}
@@ -63,12 +81,12 @@ export function SettingsSection({
         {description ? (
           // The rule above runs to the page's edge; the text keeps to a
           // reading line.
-          <p
+          <div
             id={descriptionId}
             className="m-0 max-w-[var(--ap-layout-reading-width)] text-control text-muted-foreground"
           >
             {description}
-          </p>
+          </div>
         ) : null}
       </div>
       {onSubmit ? (

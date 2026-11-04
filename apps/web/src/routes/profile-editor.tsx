@@ -18,7 +18,6 @@ import {
   AlertDescription,
   Badge,
   Button,
-  Card,
   Checkbox,
   Field,
   FieldContent,
@@ -309,7 +308,7 @@ export function ProfileEditor({
 
   return (
     <form
-      className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4"
+      className="flex flex-col gap-[var(--ap-space-block)]"
       noValidate
       onSubmit={submit}
     >
@@ -333,7 +332,7 @@ export function ProfileEditor({
       )}
       {base ? <BaseSummary base={base} /> : null}
 
-      <Alert variant="blue">
+      <Alert variant="blue" className="border-0 bg-transparent p-0">
         <AlertDescription>
           {t("profiles.editor.autoRulesNote")}
         </AlertDescription>
@@ -575,8 +574,8 @@ export function ChangeReview({
   const { t } = useI18n();
   const changed = rows.filter((row) => row.before !== row.after);
   return (
-    <FieldSet className="gap-2 rounded-card border bg-muted/40 p-3">
-      <FieldLegend variant="label" className="mb-0">
+    <FieldSet className="gap-2">
+      <FieldLegend variant="label" className="mb-0 w-full border-b pb-2">
         {t("profiles.review.title")}
       </FieldLegend>
       <FieldDescription>
@@ -608,8 +607,8 @@ export function ChangeReview({
 function BaseSummary({ base }: { readonly base: ProfileSummary }) {
   const { t } = useI18n();
   return (
-    <Card variant="inset">
-      <span className="font-medium text-body">
+    <div className="flex flex-col gap-4">
+      <span className="border-b pb-2 font-medium text-body">
         {t("profiles.editor.baseHeading", { id: base.id })}
       </span>
       <KeyValueList
@@ -645,6 +644,6 @@ function BaseSummary({ base }: { readonly base: ProfileSummary }) {
           },
         ]}
       />
-    </Card>
+    </div>
   );
 }
