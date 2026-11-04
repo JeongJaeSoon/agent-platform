@@ -1,7 +1,7 @@
 import { createMDX } from "fumadocs-mdx/next";
 
 // The GitHub Pages project path of this repository.
-const basePath = "/agent-platform";
+const basePath = "/werft";
 
 /** @type {import('next').NextConfig} */
 const config = {

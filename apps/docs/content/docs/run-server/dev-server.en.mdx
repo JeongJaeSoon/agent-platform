@@ -30,8 +30,8 @@ If no line starting with `사용 중:` ("in use") appears, you can continue.
 ## Get the code
 
 ```sh
-git clone https://github.com/JeongJaeSoon/agent-platform.git
-cd agent-platform
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
 ```
 
 ## Start the stack
@@ -84,7 +84,7 @@ scripts/local.sh down
 
 To stop while preserving data and removing worker containers and networks, use `scripts/local.sh down --keep-volumes`. Start again with `scripts/local.sh up --fake-model`. PostgreSQL and S3 keep their data in named volumes. S3 objects and their encryption key live together in `local-s3-data`, so checkpoints survive Docker/OrbStack restarts.
 
-When migrating an older LocalStack installation, back up from the old checkout before pulling, then restore into a new, unused project after pulling. Missing checkpoint objects cannot be recovered without a backup; explicitly decide whether to give up their references. Follow the [migration and backup guide](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤).
+When migrating an older LocalStack installation, back up from the old checkout before pulling, then restore into a new, unused project after pulling. Missing checkpoint objects cannot be recovered without a backup; explicitly decide whether to give up their references. Follow the [migration and backup guide](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#재부팅이나-docker-재시작-뒤).
 
 ## When you are stuck
 

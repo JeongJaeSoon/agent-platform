@@ -39,7 +39,7 @@ const approver = werft.withOptions({
 });
 ```
 
-An agent key creates sessions with its agent's `agent_release_id` instead of `profile_id` and `repository_id`. The agent key needs `sessions:read`, `sessions:write` and `sessions:control`, the approver key needs `sessions:read` and `sessions:approve`, and the approver must be in the session's sharing scope. The settings and real output are in the [sample README](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/sdk-approver/README.md).
+An agent key creates sessions with its agent's `agent_release_id` instead of `profile_id` and `repository_id`. The agent key needs `sessions:read`, `sessions:write` and `sessions:control`, the approver key needs `sessions:read` and `sessions:approve`, and the approver must be in the session's sharing scope. The settings and real output are in the [sample README](https://github.com/JeongJaeSoon/werft/blob/main/examples/sdk-approver/README.md).
 
 ## Errors
 
@@ -100,7 +100,7 @@ The error codes are listed per operation in the [HTTP API reference](/reference/
 
 ## Examples in the repository
 
-[examples](https://github.com/JeongJaeSoon/agent-platform/blob/main/examples/README.md) has samples per use case: checking the key and the catalog, listing sessions, resuming an event stream, retries and Idempotency-Key, answering questions and permission requests, session control and recovery, a blocked close, and push approval and PRs, with a table of which sample uses which SDK API. Run them from the root of a repository checkout after `bun install`.
+[examples](https://github.com/JeongJaeSoon/werft/blob/main/examples/README.md) has samples per use case: checking the key and the catalog, listing sessions, resuming an event stream, retries and Idempotency-Key, answering questions and permission requests, session control and recovery, a blocked close, and push approval and PRs, with a table of which sample uses which SDK API. Run them from the root of a repository checkout after `bun install`.
 
 ## Next steps
 

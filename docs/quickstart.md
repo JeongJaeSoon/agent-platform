@@ -49,8 +49,8 @@ docker system df
 저장소는 public이라 인증 없이 받을 수 있다.
 
 ```text
-git clone https://github.com/JeongJaeSoon/agent-platform.git
-cd agent-platform
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
 ```
 
 ```bash

@@ -265,7 +265,7 @@ unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
 빈 호스트에서 한 번 한다.
 
 ```bash
-git clone https://github.com/JeongJaeSoon/agent-platform.git && cd agent-platform
+git clone https://github.com/JeongJaeSoon/werft.git && cd werft
 git checkout <source_commit>
 bun install --frozen-lockfile
 # env 파일, 설정 문서, manifest를 준비한 뒤

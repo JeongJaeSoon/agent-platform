@@ -4,23 +4,23 @@ description: Install and run a Werft server that several people use
 ---
 
 <Callout type="warn">
-There are no official published packages yet, so you have to build from the repository. No `v*` release, published app images, packaged Helm chart, or `@werft-ai/sdk` on npm exist yet. Check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. Building from source works on both x86_64 and arm64, but the tag publishing code only produces `linux/amd64` images for now.
+There are no official published packages yet, so you have to build from the repository. No `v*` release, published app images, packaged Helm chart, or `@werft-ai/sdk` on npm exist yet. Check out the repository, [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다), and install from the compose files or the chart in the checkout. Building from source works on both x86_64 and arm64, but the tag publishing code only produces `linux/amd64` images for now.
 </Callout>
 
-This is how you install a Werft server yourself for a team to share. For a server you only try out on your own, [Run a development server](/run-server/dev-server) is enough. The installation and operations documents live in [`docs/operator/`](https://github.com/JeongJaeSoon/agent-platform/tree/main/docs/operator) in the repository, written in Korean. This page tells you where to start reading.
+This is how you install a Werft server yourself for a team to share. For a server you only try out on your own, [Run a development server](/run-server/dev-server) is enough. The installation and operations documents live in [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) in the repository, written in Korean. This page tells you where to start reading.
 
 ## Choose an installation
 
 | Installation | Execution | Document |
 | --- | --- | --- |
-| Single server | Docker Compose, one worker container per session | [Single-server deployment](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) |
-| Kubernetes | The repository's Helm chart, one worker Pod per session | [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md) |
+| Single server | Docker Compose, one worker container per session | [Single-server deployment](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md) |
+| Kubernetes | The repository's Helm chart, one worker Pod per session | [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md) |
 
 Either way, the server consists of the API (including the web console), a scheduler, a reconciler, an egress proxy, PostgreSQL, and an S3-compatible object store. Neither includes a Git server, so you add the GitHub repositories your sessions use in the console or in a settings document. High availability is out of scope for a single-server installation.
 
 ## Single-server installation steps
 
-In short, [Single-server deployment](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md) goes as follows. For the commands and failure recovery, follow that document and the runbooks it links to.
+In short, [Single-server deployment](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md) goes as follows. For the commands and failure recovery, follow that document and the runbooks it links to.
 
 1. Prepare the host. You need Linux, Docker Engine 28 or later, Docker Compose 2.24.6 or later, NTP synchronization, and Docker starting automatically after a reboot. The Docker data root must be mounted on XFS with `prjquota`; otherwise the scheduler's quota check fails and the installation stops. The scripts run from a repository checkout, so the host also needs `git`, `jq`, `curl`, and Bun 1.3.14.
 2. Decide the network path. By default the API stays on loopback and users connect through an SSH tunnel. To expose it under an internal DNS name, use a reverse proxy with TLS and a VPN or IP allowlist, and turn off buffering for the event stream (SSE). Never expose PostgreSQL or the Docker socket.
@@ -36,28 +36,28 @@ The SDK and the HTTP API connect to a server with its address and an API key. Th
 
 ## Installation and configuration
 
-- [Single-server deployment](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/server-deployment.md)
-- [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-deployment.md)
-- [Configuration reference](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/configuration.md)
-- [API server: catalog, credentials, checkpoint storage, authentication and permissions](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/api-server.md)
-- [Database connections and slow queries](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/database.md)
-- [Images and supply chain](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/images-and-supply-chain.md)
+- [Single-server deployment](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)
+- [Kubernetes installation (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md)
+- [Configuration reference](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [API server: catalog, credentials, checkpoint storage, authentication and permissions](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
+- [Database connections and slow queries](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/database.md)
+- [Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
 
 ## Execution
 
-- [Execution and worker isolation](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/execution.md)
-- [Kubernetes execution backend](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/kubernetes-backend.md)
-- [Capacity: transcript limits, worker memory, sessions per node](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/capacity.md)
+- [Execution and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
+- [Kubernetes execution backend](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-backend.md)
+- [Capacity: transcript limits, worker memory, sessions per node](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
 
 ## Data and monitoring
 
-- [Data the platform keeps](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/data-retention.md)
-- [Backup and restore (compose installation)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/backup-restore.md)
-- [How session data flows](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/observability.md)
-- [Platform metrics (Kubernetes)](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/metrics.md)
-- [Datadog monitoring baseline](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/monitoring-datadog.md)
+- [Data the platform keeps](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
+- [Backup and restore (compose installation)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
+- [How session data flows](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/observability.md)
+- [Platform metrics (Kubernetes)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/metrics.md)
+- [Datadog monitoring baseline](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)
 
 ## Samples and runbooks
 
-- [SDK sample settings](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/sdk-sample.md)
-- [test-ops runbook](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/test-ops.md)
+- [SDK sample settings](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/sdk-sample.md)
+- [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)

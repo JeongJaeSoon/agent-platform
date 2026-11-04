@@ -158,7 +158,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 
 - [ ] 시작, 1시간 뒤, 업무 종료 전에 `scripts/test-ops.sh status` 결과를 확인한다.
 - [ ] API·scheduler·reconciler 구조화 로그와 디스크·inode·quota를 확인한다.
-- [ ] [Datadog 모니터링 지침](https://github.com/JeongJaeSoon/agent-platform/blob/main/docs/operator/monitoring-datadog.md)의 readyz, Docker 로그, host/disk monitor를 적용한다. 그 문서가 아직 배포 release에 없다면 [test-ops 감시 지점](test-ops.md#감시-지점)을 임시 기준으로 사용하고 미적용 사실을 evidence에 적는다.
+- [ ] [Datadog 모니터링 지침](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)의 readyz, Docker 로그, host/disk monitor를 적용한다. 그 문서가 아직 배포 release에 없다면 [test-ops 감시 지점](test-ops.md#감시-지점)을 임시 기준으로 사용하고 미적용 사실을 evidence에 적는다.
 - [ ] backup 자동 실행과 실패 알림을 시험하되 운영 backup을 삭제하지 않는다.
 - [ ] 사용자별 API key 전달과 폐기 연락 경로를 확인한다.
 - [ ] provider usage와 실제 비용을 확인하고 세션 상한과 Anthropic 월 상한을 기록한다.
