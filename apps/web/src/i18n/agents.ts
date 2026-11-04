@@ -188,7 +188,7 @@ export const agentsKo = {
     "프로필의 권한 모드는 아직 이 화면에 나오지 않습니다.",
   "agent.releases.repository": "저장소",
   "agent.releases.repositoryHint":
-    "Slack 세션과 저장소를 따로 보내지 않은 API 세션이 이 저장소에서 시작합니다",
+    "Slack과 웹 콘솔의 세션, 저장소를 따로 보내지 않은 API 세션이 이 저장소에서 시작합니다",
   "agent.releases.repositoryNone": "저장소 없음",
   "agent.releases.repositoryMissing":
     "카탈로그에 이 프로필을 허용하는 저장소가 없어 릴리스할 수 없습니다. 운영자에게 저장소 추가를 요청하세요.",
@@ -295,6 +295,27 @@ export const agentsKo = {
     "최신 버전 {latest}은(는) 아직 쓰이지 않습니다. 새 세션은 버전 {active}(으)로 시작합니다.",
   "agent.overview.upToDate": "새 세션은 최신 버전으로 시작합니다.",
   "agent.newSession": "이 에이전트로 새 세션",
+  "agent.newSession.title": "새 세션 시작",
+  "agent.newSession.description":
+    "활성 릴리스로 세션을 시작하고 세션 화면으로 이동합니다.",
+  "agent.newSession.repository": "저장소:",
+  "agent.newSession.message": "첫 메시지",
+  "agent.newSession.messageRequired": "메시지를 입력하세요.",
+  "agent.newSession.cancel": "취소",
+  "agent.newSession.submit": "세션 시작",
+  "agent.newSession.submitting": "시작하는 중…",
+  "agent.newSession.blocked.archived":
+    "보관된 에이전트라 세션을 시작할 수 없습니다.",
+  "agent.newSession.blocked.paused":
+    "일시정지된 에이전트라 세션을 시작할 수 없습니다.",
+  "agent.newSession.blocked.noRelease":
+    "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다.",
+  "agent.newSession.blocked.outsider":
+    "담당 팀 구성원과 관리자만 이 에이전트로 세션을 시작할 수 있습니다.",
+  "agent.newSession.blocked.profile":
+    "활성 릴리스의 프로필을 쓸 수 없어 세션을 시작할 수 없습니다. 쓸 수 있는 프로필로 다시 릴리스하세요.",
+  "agent.newSession.blocked.repository":
+    "활성 릴리스가 쓸 수 있는 저장소가 없어 세션을 시작할 수 없습니다. 저장소를 골라 다시 릴리스하세요.",
   "agent.glance.label": "에이전트 현황",
   "agent.glance.cost": "최근 7일 비용",
   "agent.glance.waiting": "답변 대기",
@@ -607,7 +628,7 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "A profile's permission mode is not shown on this screen yet.",
   "agent.releases.repository": "Repository",
   "agent.releases.repositoryHint":
-    "Slack sessions, and API sessions that send no repository, start on this repository",
+    "Slack and web console sessions, and API sessions that send no repository, start on this repository",
   "agent.releases.repositoryNone": "No repository",
   "agent.releases.repositoryMissing":
     "No repository in the catalog allows this profile, so a release cannot be created. Ask an operator to add a repository.",
@@ -712,6 +733,27 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
     "Version {latest}, the latest, is not in use yet. New sessions start on version {active}.",
   "agent.overview.upToDate": "New sessions start on the latest version.",
   "agent.newSession": "New session with this agent",
+  "agent.newSession.title": "Start a new session",
+  "agent.newSession.description":
+    "Starts a session on the active release and opens it.",
+  "agent.newSession.repository": "Repository:",
+  "agent.newSession.message": "First message",
+  "agent.newSession.messageRequired": "Enter a message.",
+  "agent.newSession.cancel": "Cancel",
+  "agent.newSession.submit": "Start session",
+  "agent.newSession.submitting": "Starting…",
+  "agent.newSession.blocked.archived":
+    "This agent is archived, so no session can start.",
+  "agent.newSession.blocked.paused":
+    "This agent is paused, so no session can start.",
+  "agent.newSession.blocked.noRelease":
+    "This agent has no active release, so no session can start. Activate a release to start one.",
+  "agent.newSession.blocked.outsider":
+    "Only the responsible team's members and the agent's admins can start a session with it.",
+  "agent.newSession.blocked.profile":
+    "The active release's profile cannot be used, so no session can start. Release it again on a usable profile.",
+  "agent.newSession.blocked.repository":
+    "The active release has no repository it may use, so no session can start. Pick a repository and release it again.",
   "agent.glance.label": "Agent at a glance",
   "agent.glance.cost": "Cost, last 7 days",
   "agent.glance.waiting": "Waiting for an answer",
@@ -1020,7 +1062,7 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "プロファイルの権限モードは、この画面にはまだ表示されません。",
   "agent.releases.repository": "リポジトリ",
   "agent.releases.repositoryHint":
-    "Slack のセッションと、リポジトリを指定しない API セッションはこのリポジトリで始まります",
+    "Slack と Web コンソールのセッション、リポジトリを指定しない API セッションはこのリポジトリで始まります",
   "agent.releases.repositoryNone": "リポジトリなし",
   "agent.releases.repositoryMissing":
     "このプロファイルを許可するリポジトリがカタログにないため、リリースできません。運用担当者にリポジトリの追加を依頼してください。",
@@ -1125,6 +1167,27 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "最新のバージョン {latest} はまだ使われていません。新しいセッションはバージョン {active} で開始します。",
   "agent.overview.upToDate": "新しいセッションは最新バージョンで開始します。",
   "agent.newSession": "このエージェントで新しいセッション",
+  "agent.newSession.title": "新しいセッションを開始",
+  "agent.newSession.description":
+    "有効なリリースでセッションを開始し、セッション画面に移動します。",
+  "agent.newSession.repository": "リポジトリ:",
+  "agent.newSession.message": "最初のメッセージ",
+  "agent.newSession.messageRequired": "メッセージを入力してください。",
+  "agent.newSession.cancel": "キャンセル",
+  "agent.newSession.submit": "セッションを開始",
+  "agent.newSession.submitting": "開始しています…",
+  "agent.newSession.blocked.archived":
+    "アーカイブ済みのエージェントのため、セッションを開始できません。",
+  "agent.newSession.blocked.paused":
+    "一時停止中のエージェントのため、セッションを開始できません。",
+  "agent.newSession.blocked.noRelease":
+    "有効なリリースがないため、セッションを開始できません。リリースを有効化すると開始できます。",
+  "agent.newSession.blocked.outsider":
+    "このエージェントでセッションを開始できるのは、担当チームのメンバーと管理者だけです。",
+  "agent.newSession.blocked.profile":
+    "有効なリリースのプロファイルを使えないため、セッションを開始できません。使えるプロファイルでリリースし直してください。",
+  "agent.newSession.blocked.repository":
+    "有効なリリースが使えるリポジトリがないため、セッションを開始できません。リポジトリを選んでリリースし直してください。",
   "agent.glance.label": "エージェントの状況",
   "agent.glance.cost": "直近7日のコスト",
   "agent.glance.waiting": "回答待ち",

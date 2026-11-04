@@ -9,6 +9,7 @@ import {
 import { type ApiError, isApiError, unwrap } from "@werft-ai/client";
 import type {
   ActivateAgentResponse,
+  Agent,
   AgentDetail,
   AgentRelease,
 } from "@werft-ai/contracts";
@@ -36,7 +37,6 @@ import {
   queryKeysOf,
 } from "../api/queries.ts";
 import { useRole } from "../auth/guard.tsx";
-import { ReasonButton } from "../auth/reason-button.tsx";
 import {
   ManagesAgentProvider,
   useAgentAccess,
@@ -60,6 +60,12 @@ import {
   CredentialUnbound,
   unboundRefs,
 } from "./agent-detail/credentials.tsx";
+import {
+  NewSessionButton,
+  NewSessionReason,
+  useNewSessionReason,
+  useOutsiderNewSessionReason,
+} from "./agent-detail/new-session.tsx";
 import {
   AgentGlance,
   AgentReadiness,
@@ -173,7 +179,6 @@ function AgentNotFound() {
 }
 
 function OutsideAgent({ id }: { readonly id: string }) {
-  const { t } = useI18n();
   const { client } = useAgentPlatform();
   const rows = useQuery(agentSummariesQuery(client, [id]));
   if (rows.isPending) return <StatusScreen kind="loading" />;
@@ -182,7 +187,12 @@ function OutsideAgent({ id }: { readonly id: string }) {
       <LoadFailure error={rows.error} onRetry={() => void rows.refetch()} />
     );
   const agent = rows.data.items.find((item) => item.id === id);
-  if (!agent) return <AgentNotFound />;
+  return agent ? <OutsideAgentView agent={agent} /> : <AgentNotFound />;
+}
+
+function OutsideAgentView({ agent }: { readonly agent: Agent }) {
+  const { t } = useI18n();
+  const newSessionReason = useOutsiderNewSessionReason(agent);
   return (
     <Page
       title={
@@ -198,12 +208,25 @@ function OutsideAgent({ id }: { readonly id: string }) {
         ) : undefined
       }
       actions={
-        <Link to="/agents" className={buttonVariants({ variant: "outline" })}>
-          <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
-          {t("agent.back")}
-        </Link>
+        <div className="flex flex-1 flex-wrap items-start gap-2">
+          <NewSessionButton
+            releaseId={agent.active_release_id}
+            reason={newSessionReason}
+          />
+          <Link
+            to="/agents"
+            className={buttonVariants({
+              variant: "outline",
+              className: "ms-auto",
+            })}
+          >
+            <ArrowLeft strokeWidth={1.5} aria-hidden="true" />
+            {t("agent.back")}
+          </Link>
+        </div>
       }
     >
+      <NewSessionReason reason={newSessionReason} />
       <Section title={t("managingTeam.title")}>
         <div className={SECTION_BODY}>
           <div>
@@ -289,6 +312,7 @@ function AgentView({
   const { agent } = detail;
   const access = useAgentAccess(agent);
   const manages = access === "manage";
+  const newSessionReason = useNewSessionReason(detail);
   const versionNo = (versionId: string) =>
     detail.versions.find((version) => version.id === versionId)?.version_no;
   const releaseLabel = (releaseId: string | null) => {
@@ -621,12 +645,11 @@ function AgentView({
       actions={
         // The way back ends the row, the command before it.
         <div className="flex flex-1 flex-wrap items-start gap-2">
-          <ReasonButton
-            className={buttonVariants()}
-            reason={t("sessionList.newUnavailable")}
-          >
-            {t("agent.newSession")}
-          </ReasonButton>
+          <NewSessionButton
+            releaseId={detail.active_release?.id ?? null}
+            repository={detail.active_release?.repository_id}
+            reason={newSessionReason}
+          />
           <Link
             to="/agents"
             className={buttonVariants({
@@ -640,6 +663,7 @@ function AgentView({
         </div>
       }
     >
+      <NewSessionReason reason={newSessionReason} />
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       {access === "read" ? (
         <Alert>

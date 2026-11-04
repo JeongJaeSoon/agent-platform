@@ -21,6 +21,14 @@ import {
   CodeBlock,
   CopyButton,
   cn,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   ErrorState,
   Field,
   FieldLabel,
@@ -48,12 +56,13 @@ import {
   TabsList,
   TabsTrigger,
   Text,
+  Textarea,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@werft-ai/ui";
 import { ArrowLeft, Check, ChevronRight } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { VIEWER } from "./screen-kit.tsx";
 
 /*
@@ -219,27 +228,67 @@ function AgentStateBadge({
   );
 }
 
-/** auth/reason-button.tsx ReasonButton: inert, saying why on hover or focus. */
-function ReasonButton({
+function NewSessionButton({
   reason,
-  children,
+  repository,
 }: {
-  readonly reason: string;
-  readonly children: ReactNode;
+  readonly reason: string | undefined;
+  readonly repository: string | null | undefined;
 }) {
+  const label = "이 에이전트로 새 세션";
+  const fieldId = useId();
+  if (reason !== undefined) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild={true}>
+          <button
+            type="button"
+            aria-disabled={true}
+            className={cn(buttonVariants(), "aria-disabled:cursor-not-allowed")}
+          >
+            {label}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">{reason}</TooltipContent>
+      </Tooltip>
+    );
+  }
   return (
-    <Tooltip>
-      <TooltipTrigger asChild={true}>
-        <button
-          type="button"
-          aria-disabled={true}
-          className={cn(buttonVariants(), "aria-disabled:cursor-not-allowed")}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{reason}</TooltipContent>
-    </Tooltip>
+    <Dialog>
+      <DialogTrigger asChild={true}>
+        <Button type="button">{label}</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <form className="grid min-w-0 gap-4">
+          <DialogHeader>
+            <DialogTitle>새 세션 시작</DialogTitle>
+            <DialogDescription>
+              활성 릴리스로 세션을 시작하고 세션 화면으로 이동합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <Text variant="sub" className="wrap-anywhere">
+            저장소:{" "}
+            {repository ? (
+              <Code className="wrap-anywhere">{repository}</Code>
+            ) : (
+              "저장소 없음"
+            )}
+          </Text>
+          <Field>
+            <FieldLabel htmlFor={fieldId}>첫 메시지</FieldLabel>
+            <Textarea id={fieldId} rows={5} />
+          </Field>
+          <DialogFooter>
+            <DialogClose asChild={true}>
+              <Button type="button" variant="outline">
+                취소
+              </Button>
+            </DialogClose>
+            <Button type="button">세션 시작</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -257,6 +306,10 @@ export function AgentPage({
 }) {
   const { agent } = detail;
   const description = agent.description ?? latestVersion(detail)?.card.role;
+  const newSessionReason =
+    agent.active_release_id === null
+      ? "활성 릴리스가 없어 세션을 시작할 수 없습니다. 릴리스를 활성화하면 시작할 수 있습니다."
+      : undefined;
   return (
     <Page
       stackBelow="lg"
@@ -289,9 +342,10 @@ export function AgentPage({
       }
       actions={
         <div className="flex flex-1 flex-wrap items-start gap-2">
-          <ReasonButton reason="웹에서는 아직 세션을 시작할 수 없습니다. API로 시작하세요.">
-            이 에이전트로 새 세션
-          </ReasonButton>
+          <NewSessionButton
+            reason={newSessionReason}
+            repository={detail.active_release?.repository_id}
+          />
           <a
             href="#agents"
             className={buttonVariants({
@@ -305,6 +359,9 @@ export function AgentPage({
         </div>
       }
     >
+      {newSessionReason === undefined ? null : (
+        <Text variant="sub">{newSessionReason}</Text>
+      )}
       {notice}
       <Tabs value={tab} className="min-w-0 gap-[var(--ap-space-block)]">
         <div className="border-b">
