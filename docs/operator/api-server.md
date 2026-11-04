@@ -64,7 +64,7 @@ API와 slack 역할은 설정 파일을 읽지 않는다. 연결·저장소·MCP
 
 1. 올리기 전에 설정 디렉터리를 `PLATFORM_LEGACY_CONFIG_DIR`(compose) 또는 옛 chart의 ConfigMap(Kubernetes)으로 준다. compose는 `/legacy-config`에 읽기 전용으로 마운트한다.
 2. 새 이미지로 올리면 migrate가 `settings import --from-dir /legacy-config --if-present`를 돌린다. 디렉터리가 없거나 비었으면 건너뛰고, 일부만 있거나 깨졌으면 실패해서 새 API가 뜨지 않는다. `profiles.yaml`은 `installation_profiles`가 빌 때만 넣고, `repository_ids`가 NULL인 행은 저장소 `profiles` 배열로 채운다. 채울 저장소가 없는 행은 stderr에 `note: no repository names these ceilings`로 적히고, 그 상한은 어떤 저장소에서도 돌지 않는다. 미리 보려면 같은 명령에 `--dry-run`을 붙인다.
-3. `platform.yaml`은 가져오지 않는다. master key는 올리기 전에 `PLATFORM_SECRET_KEY`로 옮긴다. 파일의 `secret_key`가 가리키던 값과 같은 값이어야 저장된 자격 증명을 읽는다.
+3. `platform.yaml`은 가져오지 않는다. master key는 올리기 전에 `PLATFORM_SECRET_KEY`로 옮긴다. 파일의 `secret_key`가 가리키던 값과 같은 값이어야 저장된 자격 증명을 읽는다. 이미 `PLATFORM_SECRET_KEY`를 쓰던 설치도 같은 값을 유지한다. master key 없이 돌던 설치는 새 키를 먼저 넣는다. 없으면 API와 slack 역할이 기동을 거부한다.
 4. `PLATFORM_CONFIG_DIR`을 지운다. 남겨 두면 API와 slack 역할이 기동을 거부한다.
 5. 가져온 뒤에는 파일과 `PLATFORM_LEGACY_CONFIG_DIR`을 지워도 된다. 다시 돌려도 더하기만 하므로, 같은 파일이면 모두 `unchanged`이고 고친 파일은 `conflicts`로 멈춘다. 그 뒤 변경은 콘솔에서 한다.
 
