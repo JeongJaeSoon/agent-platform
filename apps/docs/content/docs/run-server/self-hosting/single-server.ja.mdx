@@ -1,0 +1,201 @@
+---
+title: "単一サーバーの設置"
+description: 公開イメージで Linux サーバー1台に Werft を設置し、/readyz 200 まで確認する
+---
+
+Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページだけに従えば、`/readyz` が 200 を返すところまで進めます。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
+
+<Callout type="warn">
+`v` タグはまだありません。今は `main` にマージされるたびに公開される `main-<12>` タグを使います。これはリリースではなく、タグが指すイメージは digest で固定して使います。最初の `v` タグができたら、下の `TAG` だけを `v<バージョン>` に変えれば、ほかのコマンドは同じです。
+</Callout>
+
+## 必要なもの
+
+| 項目 | 要件 |
+| --- | --- |
+| OS | Linux。`x86_64` と `arm64` のどちらも使える |
+| Docker Engine | 28 以上 |
+| Docker Compose | 2.24.6 以上 |
+| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。そうでないと scheduler の quota 検査が失敗し、設置が止まる |
+| 時刻 | NTP で同期している。再起動後に Docker が自動で起動する |
+| ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon に接続できるアカウント |
+| ネットワーク | ホストが `ghcr.io` からイメージを取得できる。パッケージはログイン不要 |
+
+設置にはリポジトリの checkout が必要です。compose ファイルと `scripts/test-ops.sh` を checkout から読むためです。イメージは checkout からビルドしません。
+
+## 1. イメージの digest を読む
+
+取得するタグを決め、3つのイメージの digest を読みます。イメージは `linux/amd64` と `linux/arm64` を含む index なので、サーバーは自分のアーキテクチャを取得します。
+
+`main-<12>` の `<12>` は commit SHA の先頭12文字です。どの commit を使うかは、リポジトリの [Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) で緑で終わった `main` の run を選んで決めます。
+
+```bash
+TAG=main-<12>
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+3行とも `sha256:` で始まる digest が出れば正常です。`TAG` は digest を探すためだけに使い、設置は digest で行います。
+
+## 2. checkout を取得する
+
+イメージと同じ commit を checkout します。`<12>` は上の `TAG` の12文字です。最初の `v` タグ以降は `git checkout v<バージョン>` です。
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout <12>
+bun install --frozen-lockfile
+```
+
+## 3. 設定ファイルを作る
+
+秘密の値はリポジトリの外にある env ファイルにだけ置きます。ファイルは運用者だけが読めるようにします。group や other に権限があると、スクリプトは拒否します。
+
+```bash
+sudo mkdir -p /etc/agent-platform
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+```
+
+`/etc/agent-platform/test-ops.env` をエディタで開き、次を埋めます。`sed -i` のように一時ファイルを作るツールは、`/etc/agent-platform` で `Permission denied` になります。その場で書き込むエディタを使ってください。
+
+| 変数 | 値 |
+| --- | --- |
+| `POSTGRES_PASSWORD` | ランダムな値。英数字と `.` `_` `~` `-` だけを使う |
+| `EGRESS_AUTHORIZER_TOKEN` | 32文字以上のランダムな値 |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の64文字の hex。失うと保存した認証情報を読めない |
+| `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API コンテナにだけ渡る |
+| `BOOTSTRAP_TOKEN` | コメントを外して32〜256文字のランダムな値を入れる。最初の owner を作るトークン。入れないと API が生成してコンテナのログに出力する |
+
+値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
+
+設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。
+
+migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "profiles": ["claude-coding"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+内容を書き込んだら、ファイルの digest を求めます。
+
+```bash
+bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+```
+
+## 4. release ファイルを作る
+
+`release.json` には、設置する commit、3つのイメージの digest、設定ドキュメントの digest を書きます。タグだけのイメージは拒否されます。
+
+```bash
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
+jq -n \
+  --arg commit "$(git rev-parse HEAD)" \
+  --arg control "ghcr.io/jeongjaesoon/werft-control-host@$(digest control-host)" \
+  --arg worker "ghcr.io/jeongjaesoon/werft-worker@$(digest worker)" \
+  --arg egress "ghcr.io/jeongjaesoon/werft-egress-proxy@$(digest egress-proxy)" \
+  --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit: $commit,
+    images: {control_host: $control, worker: $worker, egress_proxy: $egress},
+    settings_digest: $settings}' > release.json
+```
+
+## 5. 設置する
+
+オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。bucket の準備と `EGRESS_CREDENTIAL_ALLOWLIST` の値は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#aws-준비s3에서만) に従います。
+
+`preflight` が、ホスト、env ファイル、release ファイルを先に検査します。通れば、`deploy` が同じファイルで設置します。
+
+```bash
+scripts/test-ops.sh preflight release.json
+scripts/test-ops.sh deploy release.json
+```
+
+`deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。オブジェクトストアは既定で同じホストの LocalStack です。LocalStack はホストや Docker が再起動すると checkpoint を失うので、試用だけに使います。実サーバーでは専用の AWS S3 bucket を使い、`TEST_OPS_OBJECT_STORE=s3` を付けて `deploy` します。bucket の準備は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#aws-준비s3에서만) に従います。
+
+## 6. 確認する
+
+API は `127.0.0.1:3000` だけで待ち受けます。
+
+```bash
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
+```
+
+`{"status":"ready",…}` と `200` が出れば設置できています。利用者が接続するアドレスでは、認証なしで `/docs` も 200 を返すはずです。
+
+別のマシンから接続するには、SSH tunnel を開きます。
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
+```
+
+社内 DNS 名で公開するには、TLS と VPN または IP allowlist を備えた reverse proxy を前に置きます。イベントストリーム(SSE)のため buffering を切り、read timeout を長くします。PostgreSQL と Docker socket は外に公開しません。
+
+## 7. 最初の owner と API key
+
+ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。
+
+利用者ごとに owner と API key を別々に発行します。平文の key は一度しか出力されないので、変数に受けて直接渡します。
+
+```bash
+KEY="$(scripts/test-ops.sh key create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
+```
+
+SDK と HTTP API は、このサーバーのアドレスと key で接続します([SDK のインストール](/getting-started/install))。
+
+## 片付ける
+
+状態は `scripts/test-ops.sh status` で見ます。設置を空にするには `reset` を使います。
+
+```bash
+scripts/test-ops.sh reset --yes
+```
+
+`reset` は、この設置のコンテナと volume(DB、LocalStack)、セッションが作った worker コンテナと workspace volume を削除します。セッション、checkpoint、API key も一緒に消えるので、削除前に[バックアップ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)を取ります。
+
+## 次のステップ
+
+- [アップグレードとロールバック](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드): 新しいタグの digest で `release.json` を作り直し、`upgrade` する
+- [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
+- [単一サーバーの手順表](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md): 再起動、初日の運用、証跡の記録まで
+- [設定リファレンス](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)

@@ -1,0 +1,50 @@
+---
+title: "Self-hosting"
+description: Choose how to install a Werft server that several people share
+---
+
+This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. Read the one page for your method, and it takes you all the way to `/readyz` returning 200.
+
+## Choose an install method
+
+| Method | Runs on | Page |
+| --- | --- | --- |
+| Single server | One Linux server, Docker Compose. One worker container per session | [Single-server install](/run-server/self-hosting/single-server) |
+| Kubernetes | The published Helm chart. One worker Pod per session | [Kubernetes install](/run-server/self-hosting/kubernetes) |
+
+With either method the server is the API (with the web console), the scheduler, the reconciler, the egress proxy, PostgreSQL and an S3-compatible object store. There is no Git server, so add the GitHub repositories sessions use in the settings document or the console. High availability is out of scope for the single-server install.
+
+## Published packages
+
+The install uses the packages published on every merge to `main`, not ones you build yourself.
+
+| Package | Address | Notes |
+| --- | --- | --- |
+| Images | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | Tag `main-<12>`. An index of `linux/amd64` and `linux/arm64`. Pin by digest for the install |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | Version `0.1.0-main-<12>`. Carries the image digests and the worker runtime |
+| SDK | npm `@werft-ai/sdk` | [SDK install](/getting-started/install) |
+
+The packages need no login. `<12>` is the first 12 characters of the commit SHA.
+
+<Callout type="warn">
+There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, the image tag is `v<version>` and the chart version is `<version>` without the `v`. Each install page's commands stay the same with only that value changed. If you cannot pull the published images, check out the repository and [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다).
+</Callout>
+
+## Connect to the server
+
+The SDK and the HTTP API connect with a server address and an API key. The TypeScript SDK takes `baseUrl` (default: the `WERFT_BASE_URL` environment variable) and `apiKey` (`WERFT_API_KEY`). There is no default server, so always pass the address. Options are in [Client setup and errors](/getting-started/client#client-options).
+
+## Operating after the install
+
+- [Configuration reference](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [API server: catalog, credentials, checkpoint store, authentication and permissions](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
+- [Database connections and slow queries](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/database.md)
+- [Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
+- [Execution backends and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
+- [Capacity: transcript limit, worker memory, sessions per node](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
+- [Data the platform retains](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
+- [Backup and restore](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
+- [How session data flows](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/observability.md)
+- [Platform metrics (Kubernetes)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/metrics.md)
+- [Datadog monitoring baseline](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)
+- [SDK sample run settings](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/sdk-sample.md)
