@@ -114,7 +114,7 @@ function ChannelSkeleton() {
     >
       {["first", "second"].map((key) => (
         <RowListItem key={key}>
-          <div className="flex min-h-[calc(1.25rem+var(--ap-row-line-gap)+1rem)] w-full items-center">
+          <div className="flex min-h-[calc(1.25rem+var(--werft-row-line-gap)+1rem)] w-full items-center">
             <Skeleton
               lines={2}
               className="w-full"
@@ -252,7 +252,7 @@ export function SlackChannels({
       <div className="grid">
         <div
           inert={locked}
-          className={`col-start-1 row-start-1 flex flex-col gap-[var(--ap-space-block)]${locked ? " invisible" : ""}`}
+          className={`col-start-1 row-start-1 flex flex-col gap-[var(--werft-space-block)]${locked ? " invisible" : ""}`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Heading id={`${SECTION.channels}-title`}>
@@ -531,7 +531,7 @@ function ChannelsLock({
     <div
       role="group"
       aria-labelledby={titleId}
-      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--ap-tone-caution-border) bg-background p-4 text-center"
+      className="col-start-1 row-start-1 flex flex-col items-center justify-center gap-2 rounded-card border border-(color:--werft-tone-caution-border) bg-background p-4 text-center"
     >
       <Text id={titleId} className="font-semibold">
         {t("slack.channelsLocked.title")}

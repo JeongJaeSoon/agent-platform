@@ -633,7 +633,7 @@ function GitHubSettings({
   return (
     <>
       <section
-        className="flex flex-col gap-[var(--ap-space-block)]"
+        className="flex flex-col gap-[var(--werft-space-block)]"
         aria-label={t("agentGitHub.status")}
       >
         <RowList variant="joined">

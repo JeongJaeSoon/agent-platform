@@ -211,7 +211,7 @@ function RailBody({
       label={title}
       // Under the page below 1280px: a screen tall, so its title can scroll
       // to the top while the timeline is still loading.
-      className="max-xl:min-h-[calc(100dvh-var(--ap-topbar-h))]"
+      className="max-xl:min-h-[calc(100dvh-var(--werft-topbar-h))]"
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.defaultPrevented) return;
         event.preventDefault();
@@ -223,7 +223,7 @@ function RailBody({
           if (head && page === null) setPage(head.ownerDocument);
         }}
         // Across the band's columns below 1280px, above them all.
-        className="col-span-full flex min-w-0 items-start gap-3 pb-6 xl:pb-[var(--ap-space-6)]"
+        className="col-span-full flex min-w-0 items-start gap-3 pb-6 xl:pb-[var(--werft-space-6)]"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h2
@@ -264,7 +264,7 @@ function RailBody({
           to: "session",
           id,
           className:
-            "text-(color:--ap-color-link) text-control underline-offset-2 hover:underline focus-visible:underline",
+            "text-(color:--werft-color-link) text-control underline-offset-2 hover:underline focus-visible:underline",
           children: t("panel.openSession"),
         })}
       >

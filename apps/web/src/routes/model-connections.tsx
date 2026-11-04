@@ -98,7 +98,7 @@ export function ModelConnections({
         ) : null
       }
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {!owns ? (
           <Text variant="meta" className="flex items-center gap-1">
             <Lock aria-hidden="true" className="size-3.5 shrink-0" />
@@ -187,7 +187,7 @@ function ConnectionRow({
   return (
     <GridTableRow>
       <GridTableCell>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <div className="flex flex-wrap items-center gap-1">
             <NarrowState state={item.state} />
@@ -198,7 +198,7 @@ function ConnectionRow({
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.endpoint}</Code>
           <Text as="span" variant="meta">
             {item.kind} · {t(`settings.connections.billing.${item.billing}`)}

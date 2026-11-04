@@ -49,8 +49,8 @@ function StatusFrame({ status, title, body, tone, actions }: Frame) {
     <Card
       className={cn(
         "items-start px-4",
-        tone === "danger" && "border-[var(--ap-tone-danger-border)]",
-        tone === "attention" && "border-[var(--ap-tone-attention-border)]",
+        tone === "danger" && "border-[var(--werft-tone-danger-border)]",
+        tone === "attention" && "border-[var(--werft-tone-attention-border)]",
       )}
       data-status={status}
       role={tone === "danger" ? "alert" : undefined}

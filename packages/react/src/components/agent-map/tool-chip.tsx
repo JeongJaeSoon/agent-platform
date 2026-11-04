@@ -31,13 +31,13 @@ const TOOL_ICON: Readonly<Record<string, LucideIcon>> = {
 const TONE: Record<ToolCallState, string> = {
   ok: "border-border text-foreground",
   error:
-    "border-(color:--ap-tone-danger-border) bg-(color:--ap-tone-danger-bg) text-(color:--ap-tone-danger-fg)",
+    "border-(color:--werft-tone-danger-border) bg-(color:--werft-tone-danger-bg) text-(color:--werft-tone-danger-fg)",
   running:
-    "border-(color:--ap-tone-progress-border) bg-(color:--ap-tone-progress-bg) text-(color:--ap-tone-progress-fg)",
+    "border-(color:--werft-tone-progress-border) bg-(color:--werft-tone-progress-bg) text-(color:--werft-tone-progress-fg)",
   waiting:
-    "border-(color:--ap-tone-attention-border) bg-(color:--ap-tone-attention-bg) text-(color:--ap-tone-attention-fg)",
+    "border-(color:--werft-tone-attention-border) bg-(color:--werft-tone-attention-bg) text-(color:--werft-tone-attention-fg)",
   interrupted:
-    "border-(color:--ap-tone-neutral-border) bg-(color:--ap-tone-neutral-bg) text-(color:--ap-tone-neutral-fg)",
+    "border-(color:--werft-tone-neutral-border) bg-(color:--werft-tone-neutral-bg) text-(color:--werft-tone-neutral-fg)",
 };
 
 export interface ToolChipProps {

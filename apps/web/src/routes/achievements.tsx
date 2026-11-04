@@ -211,7 +211,7 @@ export function AchievementsScreen() {
       ) : (
         <div
           aria-busy={figures.isFetching || undefined}
-          className="flex min-w-0 flex-col gap-[var(--ap-space-section)]"
+          className="flex min-w-0 flex-col gap-[var(--werft-space-section)]"
         >
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatCard
@@ -269,7 +269,7 @@ export function AchievementsScreen() {
           </div>
           {data ? (
             <>
-              <div className="grid grid-cols-1 gap-[var(--ap-space-section)] lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-[var(--werft-space-section)] lg:grid-cols-2">
                 <Section title={t("achievements.byRule")}>
                   {data.by_rule.length === 0 ? (
                     <EmptyState title={t("achievements.empty")} />

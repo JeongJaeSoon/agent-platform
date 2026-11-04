@@ -72,9 +72,9 @@ type Story = StoryObj<typeof meta>;
 export const Color: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--ap-color-", "--ap-tone-", "--ap-avatar-"]}
+      prefixes={["--werft-color-", "--werft-tone-", "--werft-avatar-"]}
       preview={(name) =>
-        name.startsWith("--ap-color-status-dot-") ? (
+        name.startsWith("--werft-color-status-dot-") ? (
           <span
             className="inline-block size-2 shrink-0 rounded-full"
             style={{ background: `var(${name})` }}
@@ -93,17 +93,17 @@ export const Color: Story = {
 export const Typography: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--ap-font-", "--ap-text-", "--ap-weight-", "--ap-leading-"]}
+      prefixes={["--werft-font-", "--werft-text-", "--werft-weight-", "--werft-leading-"]}
       preview={(name) => {
-        if (name.startsWith("--ap-text-"))
+        if (name.startsWith("--werft-text-"))
           return (
             <span style={{ fontSize: `var(${name})` }}>가나다 Agent 123</span>
           );
-        if (name.startsWith("--ap-weight-"))
+        if (name.startsWith("--werft-weight-"))
           return (
             <span style={{ fontWeight: `var(${name})` }}>가나다 Agent</span>
           );
-        if (name.startsWith("--ap-font-"))
+        if (name.startsWith("--werft-font-"))
           return (
             <span style={{ fontFamily: `var(${name})` }}>가나다 Agent 123</span>
           );
@@ -116,7 +116,7 @@ export const Typography: Story = {
 export const Spacing: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--ap-space-"]}
+      prefixes={["--werft-space-"]}
       preview={(name) => (
         <span
           className="inline-block h-3 shrink-0 bg-primary"
@@ -130,7 +130,7 @@ export const Spacing: Story = {
 export const Radius: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--ap-radius-"]}
+      prefixes={["--werft-radius-"]}
       preview={(name) => (
         <span
           className="inline-block h-10 w-16 shrink-0 border-2 border-border-strong bg-muted"
@@ -144,7 +144,7 @@ export const Radius: Story = {
 export const Shadow: Story = {
   render: () => (
     <TokenTable
-      prefixes={["--ap-shadow-"]}
+      prefixes={["--werft-shadow-"]}
       preview={(name) => (
         <span
           className="inline-block h-10 w-16 shrink-0 rounded-card border bg-background"
@@ -157,5 +157,5 @@ export const Shadow: Story = {
 
 /** `prefers-reduced-motion: reduce` sets both durations to 0ms. */
 export const Motion: Story = {
-  render: () => <TokenTable prefixes={["--ap-motion-"]} />,
+  render: () => <TokenTable prefixes={["--werft-motion-"]} />,
 };

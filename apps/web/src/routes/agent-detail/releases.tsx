@@ -453,7 +453,7 @@ export function Releases({
               return (
                 <GridTableRow key={item.id} data-active={active}>
                   <GridTableCell>
-                    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                    <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                       <Text
                         as="span"
                         weight="medium"
@@ -466,7 +466,7 @@ export function Releases({
                       <span className="hidden [@container(max-width:860px)]:flex">
                         {status}
                       </span>
-                      <dl className="m-0 hidden flex-col gap-[var(--ap-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
+                      <dl className="m-0 hidden flex-col gap-[var(--werft-row-line-gap)] text-caption [@container(max-width:860px)]:flex">
                         {(
                           [
                             ["colActivated", listedActivated],

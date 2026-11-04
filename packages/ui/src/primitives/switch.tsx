@@ -28,7 +28,7 @@ export function Switch({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--ap-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-control-unchecked data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
+        "peer inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 border-transparent transition-[background-color] duration-[var(--werft-motion-fast)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring aria-disabled:cursor-progress disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:bg-control-checked data-[state=unchecked]:bg-control-unchecked data-[state=checked]:enabled:not-aria-disabled:hover:bg-control-checked/80 data-[state=unchecked]:enabled:not-aria-disabled:hover:bg-subtle-foreground motion-reduce:transition-none",
         className,
       )}
       onClick={(event) => {
@@ -40,7 +40,7 @@ export function Switch({
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="group pointer-events-none flex size-4 items-center justify-center rounded-full bg-card transition-transform duration-[var(--ap-motion-fast)] data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0 motion-reduce:transition-none"
+        className="group pointer-events-none flex size-4 items-center justify-center rounded-full bg-card transition-transform duration-[var(--werft-motion-fast)] data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0 motion-reduce:transition-none"
       >
         {busy && (
           <span

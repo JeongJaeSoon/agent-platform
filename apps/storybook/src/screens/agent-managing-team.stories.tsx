@@ -42,7 +42,7 @@ import { MOBILE, type Role, ScreenShell } from "./screen-kit.tsx";
  * apps/web's Korean catalog.
  */
 
-const SECTION_BODY = "flex flex-col gap-[var(--ap-space-block)]";
+const SECTION_BODY = "flex flex-col gap-[var(--werft-space-block)]";
 const TITLE = "font-semibold text-foreground text-title leading-7";
 
 const TEAM_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";

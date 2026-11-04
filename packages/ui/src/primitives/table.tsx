@@ -3,7 +3,7 @@ import type { ComponentProps, JSX } from "react";
 import { cn } from "../foundations/cn.ts";
 
 /*
- * The console's tables. Their spacing is the --ap-row-* tokens in tokens.css,
+ * The console's tables. Their spacing is the --werft-row-* tokens in tokens.css,
  * shared with the session table in @werft-ai/react.
  *
  * A table cell takes half the row inset on each side, so neighbours sit one
@@ -11,18 +11,18 @@ import { cn } from "../foundations/cn.ts";
  * full inset from the frame.
  */
 const CELL_PADDING_X =
-  "px-[calc(var(--ap-row-padding-x)/2)] first:pl-[var(--ap-row-padding-x)] last:pr-[var(--ap-row-padding-x)]";
+  "px-[calc(var(--werft-row-padding-x)/2)] first:pl-[var(--werft-row-padding-x)] last:pr-[var(--werft-row-padding-x)]";
 
 /*
  * `actions` is a column of row buttons: as narrow as its content, never
  * wrapped, and every labelled button in it at least
- * --ap-row-action-button-min-width wide, RowAction's floor. A label that
+ * --werft-row-action-button-min-width wide, RowAction's floor. A label that
  * changes ("disable" ↔ "enable") may shift the width; the right end stays.
  * An icon button keeps its own square size.
  *
  * `nowrap` is a date, number or badge column: as narrow as its content and
  * never wrapped. `text` is the long-text column: it takes the width the other
- * columns leave, down to --ap-row-text-min-width, and the lines after the
+ * columns leave, down to --werft-row-text-min-width, and the lines after the
  * first in its RowLines end in "…" instead of wrapping, so every row keeps one
  * height. `max-w-0` stops auto layout from widening the column to the text,
  * which is what lets the ellipsis appear. The ellipsis is visual only; give
@@ -31,9 +31,9 @@ const CELL_PADDING_X =
 const CELL_VARIANT = {
   default: "",
   actions:
-    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-button-min-width)]",
+    "w-px whitespace-nowrap [&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--werft-row-action-button-min-width)]",
   nowrap: "w-px whitespace-nowrap",
-  text: "w-full min-w-[var(--ap-row-text-min-width)] max-w-0 [&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
+  text: "w-full min-w-[var(--werft-row-text-min-width)] max-w-0 [&_[data-slot=row-lines]>*:not(:first-child)]:truncate",
 } as const;
 
 export type TableCellVariant = keyof typeof CELL_VARIANT;
@@ -91,7 +91,7 @@ export function TableHeader({
     <thead
       data-slot="table-header"
       className={cn(
-        "bg-surface-sunken [&>tr]:h-[var(--ap-row-head-min-height)]",
+        "bg-surface-sunken [&>tr]:h-[var(--werft-row-head-min-height)]",
         className,
       )}
       {...props}
@@ -130,7 +130,7 @@ export function TableRow({
     <tr
       data-slot="table-row"
       data-inactive={inactive || undefined}
-      className={cn("h-[var(--ap-row-min-height)] border-b", className)}
+      className={cn("h-[var(--werft-row-min-height)] border-b", className)}
       {...props}
     />
   );
@@ -151,7 +151,7 @@ export function TableHead({
       data-variant={variant}
       className={cn(
         CELL_PADDING_X,
-        "py-[var(--ap-row-head-padding-y)] text-left align-middle font-medium text-caption text-subtle-foreground",
+        "py-[var(--werft-row-head-padding-y)] text-left align-middle font-medium text-caption text-subtle-foreground",
         CELL_VARIANT[variant],
         className,
       )}
@@ -175,7 +175,7 @@ export function TableCell({
       data-variant={variant}
       className={cn(
         CELL_PADDING_X,
-        "py-[var(--ap-row-padding-y)] text-left align-middle",
+        "py-[var(--werft-row-padding-y)] text-left align-middle",
         CELL_VARIANT[variant],
         className,
       )}

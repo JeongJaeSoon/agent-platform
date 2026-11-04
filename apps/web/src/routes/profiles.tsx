@@ -196,7 +196,7 @@ export function ProfilesScreen() {
           onRetry={() => void profiles.refetch()}
         />
       ) : (
-        <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <div className="flex flex-col gap-[var(--werft-space-block)]">
           {stranded.map((item) => (
             <Alert key={item.id} variant="red">
               <AlertTitle>
@@ -286,7 +286,7 @@ export function ProfilesScreen() {
           )}
         </div>
       )}
-      <div className="mt-[var(--ap-space-section)]">
+      <div className="mt-[var(--werft-space-section)]">
         <ModelConnections profiles={ceilings} />
       </div>
     </Page>
@@ -409,7 +409,7 @@ function Stack({
   readonly narrow: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+    <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
       <span className="wrap-anywhere leading-5">{first}</span>
       {second === null ? null : (
         <Text

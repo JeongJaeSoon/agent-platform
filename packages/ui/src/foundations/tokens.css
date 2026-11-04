@@ -2,7 +2,7 @@
  * The single source of design tokens (02 UX 설계 §6). Light is the default and
  * dark is derived here; no other file in the repo may define a colour.
  *
- * Tokens are plain custom properties under `--ap-*` rather than a Tailwind 4
+ * Tokens are plain custom properties under `--werft-*` rather than a Tailwind 4
  * `@theme` block, because `@theme` only survives Tailwind's compiler and this
  * package has to render in bare jsdom/browser too. theme.css re-exposes them
  * to Tailwind in one place. No unprefixed name is defined here, so a host
@@ -33,20 +33,20 @@
      * cards on one `surface`. A sidebar nav row takes `sidebar-hover` under
      * the pointer and `sidebar-accent` when it is the current page.
      */
-    --ap-color-sidebar: #fafafa;
-    --ap-color-sidebar-hover: #f2f2f2;
-    --ap-color-sidebar-accent: #ebebeb;
-    --ap-color-surface: #ffffff;
+    --werft-color-sidebar: #fafafa;
+    --werft-color-sidebar-hover: #f2f2f2;
+    --werft-color-sidebar-accent: #ebebeb;
+    --werft-color-surface: #ffffff;
     /* The main background's old name, still read by apps/docs. */
-    --ap-color-canvas: var(--ap-color-surface);
-    --ap-color-surface-sunken: #fafafa;
+    --werft-color-canvas: var(--werft-color-surface);
+    --werft-color-surface-sunken: #fafafa;
     /* Any row or button under the pointer, and the selected one. */
-    --ap-color-hover: var(--ap-color-sidebar-hover);
-    --ap-color-active: var(--ap-color-sidebar-accent);
-    --ap-color-skeleton: #ededed;
+    --werft-color-hover: var(--werft-color-sidebar-hover);
+    --werft-color-active: var(--werft-color-sidebar-accent);
+    --werft-color-skeleton: #ededed;
 
-    --ap-color-border: #eaeaea;
-    --ap-color-border-strong: #d4d4d4;
+    --werft-color-border: #eaeaea;
+    --werft-color-border-strong: #d4d4d4;
     /* A form control's edge: selects, text fields and textareas on all four
      edges. At rest it is border-strong, one step over the table and card
      lines, because 3:1 (WCAG 1.4.11) made a form heavier than its card and
@@ -54,73 +54,73 @@
      takes it to subtle-foreground (over 3:1) and focus draws the ring.
      Toolbar controls (search, filter chip, toolbar segments) rest on the
      card line instead: their icon, placeholder or label names them. */
-    --ap-color-border-input: #d4d4d4;
-    --ap-color-foreground: #171717;
-    --ap-color-muted-foreground: #4d4d4d;
+    --werft-color-border-input: #d4d4d4;
+    --werft-color-foreground: #171717;
+    --werft-color-muted-foreground: #4d4d4d;
     /* The faintest text (v35 text-3), still 4.5:1 on sidebar and surface
      and on the selected row (sidebar-accent); #6b6b6b fell to 4.47 there. */
-    --ap-color-subtle-foreground: #6a6a6a;
+    --werft-color-subtle-foreground: #6a6a6a;
 
     /*
      * The single primary action, in the blue of links and checked controls,
      * not near-black: the console read as black and grey (owner, 2026-10-31).
      * White holds 4.5:1 on it and on its hover.
      */
-    --ap-color-accent: #0060d1;
-    --ap-color-accent-hover: #0050b0;
-    --ap-color-accent-foreground: #ffffff;
+    --werft-color-accent: #0060d1;
+    --werft-color-accent-hover: #0050b0;
+    --werft-color-accent-foreground: #ffffff;
     /*
      * Icon tiles: a white glyph on a solid hue marks each sidebar page and
      * the home card about it. A hue names a page, not a state (states keep
      * the tones below); the glyph holds 3:1 on every hue (WCAG 1.4.11).
      */
-    --ap-color-tile-foreground: #ffffff;
-    --ap-color-tile-blue: #2563eb;
-    --ap-color-tile-violet: #7c3aed;
-    --ap-color-tile-orange: #ea580c;
-    --ap-color-tile-green: #16a34a;
-    --ap-color-tile-pink: #db2777;
-    --ap-color-tile-teal: #0d9488;
-    --ap-color-tile-sky: #0284c7;
-    --ap-color-tile-slate: #475569;
+    --werft-color-tile-foreground: #ffffff;
+    --werft-color-tile-blue: #2563eb;
+    --werft-color-tile-violet: #7c3aed;
+    --werft-color-tile-orange: #ea580c;
+    --werft-color-tile-green: #16a34a;
+    --werft-color-tile-pink: #db2777;
+    --werft-color-tile-teal: #0d9488;
+    --werft-color-tile-sky: #0284c7;
+    --werft-color-tile-slate: #475569;
     /* 4.6:1 on surface; the one focus outline every part draws. */
-    --ap-color-focus-ring: #0070f3;
-    --ap-color-link: #0060d1;
+    --werft-color-focus-ring: #0070f3;
+    --werft-color-link: #0060d1;
     /*
      * A switch that is on. Not the accent: a near-black "on" beside a grey
      * "off" did not read as a state change. 3:1 on every surface, and the
      * surface-coloured thumb 3:1 on it.
      */
-    --ap-color-control-checked: #0060d1;
+    --werft-color-control-checked: #0060d1;
     /* A switch that is off: its track is the state, so it keeps 3:1 on
      every surface while control edges (border-input) are lighter. */
-    --ap-color-control-unchecked: #8a8a8a;
+    --werft-color-control-unchecked: #8a8a8a;
     /*
      * A filled destructive button, white text on red, the same in dark: v4's
      * dark #e5484d holds white at only 3.9:1.
      */
-    --ap-color-destructive-solid: #c4282d;
-    --ap-color-destructive-foreground: #ffffff;
+    --werft-color-destructive-solid: #c4282d;
+    --werft-color-destructive-foreground: #ffffff;
 
     /*
      * Status dots, one per session state (v4). Only the dot is coloured; the
      * label beside it keeps the text colour. 3:1 on surface as a graphic.
      */
-    --ap-color-status-dot-wait: #9a4f00;
-    --ap-color-status-dot-run: #0060d1;
-    --ap-color-status-dot-idle: #8f8f8f;
-    --ap-color-status-dot-done: #0f7a33;
-    --ap-color-status-dot-failed: #c4282d;
+    --werft-color-status-dot-wait: #9a4f00;
+    --werft-color-status-dot-run: #0060d1;
+    --werft-color-status-dot-idle: #8f8f8f;
+    --werft-color-status-dot-done: #0f7a33;
+    --werft-color-status-dot-failed: #c4282d;
 
     /* Avatar fills, picked per person so neighbours tell apart. */
-    --ap-avatar-1-bg: #e6f0ff;
-    --ap-avatar-1-fg: #0a4fb3;
-    --ap-avatar-2-bg: #f3e8ff;
-    --ap-avatar-2-fg: #6b21a8;
-    --ap-avatar-3-bg: #e7f6ec;
-    --ap-avatar-3-fg: #166534;
-    --ap-avatar-4-bg: #fff1e0;
-    --ap-avatar-4-fg: #9a4f00;
+    --werft-avatar-1-bg: #e6f0ff;
+    --werft-avatar-1-fg: #0a4fb3;
+    --werft-avatar-2-bg: #f3e8ff;
+    --werft-avatar-2-fg: #6b21a8;
+    --werft-avatar-3-bg: #e7f6ec;
+    --werft-avatar-3-fg: #166534;
+    --werft-avatar-4-bg: #fff1e0;
+    --werft-avatar-4-fg: #9a4f00;
 
     /*
      * Status tones. A tone is a meaning, not a colour name: components pick a
@@ -130,44 +130,44 @@
      * look, so they share caution's amber. positive and Badge's green share
      * one set of values: the five Badge colours are the only hues there are.
      */
-    --ap-tone-neutral-fg: #404040;
-    --ap-tone-neutral-bg: #f5f5f5;
-    --ap-tone-neutral-border: #e5e5e5;
+    --werft-tone-neutral-fg: #404040;
+    --werft-tone-neutral-bg: #f5f5f5;
+    --werft-tone-neutral-border: #e5e5e5;
 
-    --ap-tone-progress-fg: #0060d1;
-    --ap-tone-progress-bg: #ebf4ff;
-    --ap-tone-progress-border: #bcd9ff;
+    --werft-tone-progress-fg: #0060d1;
+    --werft-tone-progress-bg: #ebf4ff;
+    --werft-tone-progress-border: #bcd9ff;
 
-    --ap-tone-attention-fg: #9a4f00;
-    --ap-tone-attention-bg: #fff7e8;
-    --ap-tone-attention-border: #f5cf8a;
+    --werft-tone-attention-fg: #9a4f00;
+    --werft-tone-attention-bg: #fff7e8;
+    --werft-tone-attention-border: #f5cf8a;
 
-    --ap-tone-caution-fg: #9a4f00;
-    --ap-tone-caution-bg: #fff7e8;
-    --ap-tone-caution-border: #f5cf8a;
+    --werft-tone-caution-fg: #9a4f00;
+    --werft-tone-caution-bg: #fff7e8;
+    --werft-tone-caution-border: #f5cf8a;
 
-    --ap-tone-danger-fg: #c4282d;
-    --ap-tone-danger-bg: #fff0f0;
-    --ap-tone-danger-border: #f6c3c5;
+    --werft-tone-danger-fg: #c4282d;
+    --werft-tone-danger-bg: #fff0f0;
+    --werft-tone-danger-border: #f6c3c5;
 
-    --ap-tone-success-fg: #0f7a33;
-    --ap-tone-success-bg: #eaf7ee;
-    --ap-tone-success-border: #b6e3c3;
+    --werft-tone-success-fg: #0f7a33;
+    --werft-tone-success-bg: #eaf7ee;
+    --werft-tone-success-border: #b6e3c3;
 
-    --ap-tone-unknown-fg: #9a4f00;
-    --ap-tone-unknown-bg: #fff7e8;
-    --ap-tone-unknown-border: #f5cf8a;
+    --werft-tone-unknown-fg: #9a4f00;
+    --werft-tone-unknown-bg: #fff7e8;
+    --werft-tone-unknown-border: #f5cf8a;
 
-    --ap-tone-positive-fg: #0f7a33;
-    --ap-tone-positive-bg: #eaf7ee;
-    --ap-tone-positive-border: #b6e3c3;
+    --werft-tone-positive-fg: #0f7a33;
+    --werft-tone-positive-bg: #eaf7ee;
+    --werft-tone-positive-border: #b6e3c3;
 
     /* Typography */
-    --ap-font-sans:
+    --werft-font-sans:
       Geist, "Pretendard Variable", Pretendard, -apple-system,
       BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", system-ui,
       sans-serif;
-    --ap-font-mono:
+    --werft-font-mono:
       "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
       "Pretendard Variable", monospace;
 
@@ -175,116 +175,116 @@
      * Console v35 sizes only: 12 meta, 13 body, 14 section, 20 page title,
      * 24 figures. v4 adds 11 for counts, avatars and kbd.
      */
-    --ap-text-2xs: 0.6875rem;
-    --ap-text-xs: 0.75rem;
-    --ap-text-sm: 0.8125rem;
-    --ap-text-label: 0.875rem;
+    --werft-text-2xs: 0.6875rem;
+    --werft-text-xs: 0.75rem;
+    --werft-text-sm: 0.8125rem;
+    --werft-text-label: 0.875rem;
 
-    --ap-leading-tight: 1.35;
-    --ap-leading-normal: 1.7;
+    --werft-leading-tight: 1.35;
+    --werft-leading-normal: 1.7;
     /* 13px body copy, such as a page description, on a 20px line. */
-    --ap-leading-body: 1.25rem;
+    --werft-leading-body: 1.25rem;
 
-    --ap-weight-regular: 400;
-    --ap-weight-medium: 500;
-    --ap-weight-bold: 600;
+    --werft-weight-regular: 400;
+    --werft-weight-medium: 500;
+    --werft-weight-bold: 600;
 
     /* Spacing — 4, 8, 12, 16, 24 and 32 only (console v35). */
-    --ap-space-0: 0;
-    --ap-space-1: 0.25rem;
-    --ap-space-2: 0.5rem;
-    --ap-space-3: 0.75rem;
-    --ap-space-4: 1rem;
-    --ap-space-6: 1.5rem;
-    --ap-space-8: 2rem;
+    --werft-space-0: 0;
+    --werft-space-1: 0.25rem;
+    --werft-space-2: 0.5rem;
+    --werft-space-3: 0.75rem;
+    --werft-space-4: 1rem;
+    --werft-space-6: 1.5rem;
+    --werft-space-8: 2rem;
 
     /* Vertical rhythm of a page: above and below the content, under the page header,
      between sections and between blocks inside one. */
-    --ap-space-page-top: var(--ap-space-6);
-    --ap-space-page-head: var(--ap-space-6);
-    --ap-space-section: var(--ap-space-8);
-    --ap-space-block: var(--ap-space-4);
+    --werft-space-page-top: var(--werft-space-6);
+    --werft-space-page-head: var(--werft-space-6);
+    --werft-space-section: var(--werft-space-8);
+    --werft-space-block: var(--werft-space-4);
 
     /* Controls 6px; cards, menus and dialogs 8px; pills. */
-    --ap-radius-control: 0.375rem;
-    --ap-radius-card: 0.5rem;
-    --ap-radius-pill: 999px;
+    --werft-radius-control: 0.375rem;
+    --werft-radius-card: 0.5rem;
+    --werft-radius-pill: 999px;
 
     /* A coloured icon tile beside one line, such as a sidebar item. */
-    --ap-size-icon-tile: 1.5rem;
+    --werft-size-icon-tile: 1.5rem;
     /*
      * A tile beside two stacked lines (a 20px line, the row line gap, a 16px
      * line) spans both, so its top and bottom meet theirs (owner, 2026-11-02).
      */
-    --ap-leading-caption: 1rem;
-    --ap-size-tile-two-line: calc(
-      var(--ap-leading-body) +
-      var(--ap-row-line-gap) +
-      var(--ap-leading-caption)
+    --werft-leading-caption: 1rem;
+    --werft-size-tile-two-line: calc(
+      var(--werft-leading-body) +
+      var(--werft-row-line-gap) +
+      var(--werft-leading-caption)
     );
 
     /* One shadow, for what floats (menus, dialogs, toasts). */
-    --ap-shadow-pop:
+    --werft-shadow-pop:
       0 0 0 1px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.12);
-    --ap-color-overlay: rgb(0 0 0 / 0.24);
+    --werft-color-overlay: rgb(0 0 0 / 0.24);
 
     /*
      * Motion. Every animated rule reads these, so the reduced-motion block
      * below is the only place that has to turn motion off.
      */
-    --ap-motion-fast: 120ms;
-    --ap-motion-normal: 200ms;
-    --ap-motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
+    --werft-motion-fast: 120ms;
+    --werft-motion-normal: 200ms;
+    --werft-motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
 
     /*
-     * Layout: every page's column grows to --ap-w-page and centres
+     * Layout: every page's column grows to --werft-w-page and centres
      * (V4-PAGE-FRAME), settings pages included.
      */
-    --ap-w-page: 101.25rem;
-    --ap-w-wide: 75rem;
-    --ap-w-narrow: 52.5rem;
-    --ap-gutter: 2rem;
-    --ap-topbar-h: 3.25rem;
+    --werft-w-page: 101.25rem;
+    --werft-w-wide: 75rem;
+    --werft-w-narrow: 52.5rem;
+    --werft-gutter: 2rem;
+    --werft-topbar-h: 3.25rem;
     /* The 768px reading column of 02 UX 설계 §6. */
-    --ap-layout-reading-width: 48rem;
-    --ap-layout-sidebar-width: 14.75rem;
-    --ap-layout-detail-panel-width: 21.25rem;
+    --werft-layout-reading-width: 48rem;
+    --werft-layout-sidebar-width: 14.75rem;
+    --werft-layout-detail-panel-width: 21.25rem;
     /*
      * Table and list rows (console design v30): a row is at least 48px and a
      * header row 40px. Lines stacked in one cell sit 2px apart.
      */
-    --ap-row-padding-x: var(--ap-space-4);
-    --ap-row-padding-y: var(--ap-space-4);
-    --ap-row-head-padding-y: var(--ap-space-2);
-    --ap-row-min-height: 3rem;
-    --ap-row-head-min-height: 2.5rem;
-    --ap-row-line-gap: 0.125rem;
+    --werft-row-padding-x: var(--werft-space-4);
+    --werft-row-padding-y: var(--werft-space-4);
+    --werft-row-head-padding-y: var(--werft-space-2);
+    --werft-row-min-height: 3rem;
+    --werft-row-head-min-height: 2.5rem;
+    --werft-row-line-gap: 0.125rem;
     /* An actions column's floor in a grid of rows. */
-    --ap-row-action-min-width: 6rem;
+    --werft-row-action-min-width: 6rem;
     /*
      * A labelled row-end button's floor (RowAction, a table's actions cell):
      * width follows the label, and two Hangul syllables (about 44px) do not
      * look stubby.
      */
-    --ap-row-action-button-min-width: 3rem;
+    --werft-row-action-button-min-width: 3rem;
     /* A table's long-text column floor; below it the frame scrolls. */
-    --ap-row-text-min-width: 10rem;
-    --ap-control-height: 2rem;
-    --ap-control-height-sm: 1.75rem;
-    --ap-text-title: 1.25rem;
-    --ap-leading-title: 1.75rem;
-    --ap-text-number: 1.5rem;
-    --ap-leading-number: 2rem;
+    --werft-row-text-min-width: 10rem;
+    --werft-control-height: 2rem;
+    --werft-control-height-sm: 1.75rem;
+    --werft-text-title: 1.25rem;
+    --werft-leading-title: 1.75rem;
+    --werft-text-number: 1.5rem;
+    --werft-leading-number: 2rem;
 
     /*
      * Charts draw one series in the accent, no category hues: aliases of
      * existing colours, so they turn dark with them. A part a reader picks or
      * points at takes mark-active.
      */
-    --ap-chart-mark: var(--ap-color-accent);
-    --ap-chart-mark-active: var(--ap-color-foreground);
-    --ap-chart-track: var(--ap-color-sidebar-accent);
-    --ap-chart-grid: var(--ap-color-border);
+    --werft-chart-mark: var(--werft-color-accent);
+    --werft-chart-mark-active: var(--werft-color-foreground);
+    --werft-chart-track: var(--werft-color-sidebar-accent);
+    --werft-chart-grid: var(--werft-color-border);
   }
 
   /*
@@ -294,89 +294,89 @@
    */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --ap-color-sidebar: #000000;
-      --ap-color-sidebar-hover: #1a1a1a;
-      --ap-color-sidebar-accent: #232323;
-      --ap-color-surface: #0a0a0a;
-      --ap-color-surface-sunken: #111111;
-      --ap-color-skeleton: #1f1f1f;
+      --werft-color-sidebar: #000000;
+      --werft-color-sidebar-hover: #1a1a1a;
+      --werft-color-sidebar-accent: #232323;
+      --werft-color-surface: #0a0a0a;
+      --werft-color-surface-sunken: #111111;
+      --werft-color-skeleton: #1f1f1f;
 
-      --ap-color-border: #262626;
-      --ap-color-border-strong: #3a3a3a;
-      --ap-color-border-input: #3a3a3a;
-      --ap-color-foreground: #ededed;
-      --ap-color-muted-foreground: #a1a1a1;
-      --ap-color-subtle-foreground: #8f8f8f;
+      --werft-color-border: #262626;
+      --werft-color-border-strong: #3a3a3a;
+      --werft-color-border-input: #3a3a3a;
+      --werft-color-foreground: #ededed;
+      --werft-color-muted-foreground: #a1a1a1;
+      --werft-color-subtle-foreground: #8f8f8f;
 
-      --ap-color-accent: #0070f3;
-      --ap-color-accent-hover: #0060d1;
-      --ap-color-accent-foreground: #ffffff;
-      --ap-color-tile-foreground: #ffffff;
-      --ap-color-tile-blue: #2563eb;
-      --ap-color-tile-violet: #7c3aed;
-      --ap-color-tile-orange: #ea580c;
-      --ap-color-tile-green: #16a34a;
-      --ap-color-tile-pink: #db2777;
-      --ap-color-tile-teal: #0d9488;
-      --ap-color-tile-sky: #0284c7;
-      --ap-color-tile-slate: #475569;
-      --ap-color-focus-ring: #3291ff;
-      --ap-color-link: #52a8ff;
-      --ap-color-control-checked: #3291ff;
-      --ap-color-control-unchecked: #616161;
-      --ap-color-destructive-solid: #c4282d;
-      --ap-color-destructive-foreground: #ffffff;
+      --werft-color-accent: #0070f3;
+      --werft-color-accent-hover: #0060d1;
+      --werft-color-accent-foreground: #ffffff;
+      --werft-color-tile-foreground: #ffffff;
+      --werft-color-tile-blue: #2563eb;
+      --werft-color-tile-violet: #7c3aed;
+      --werft-color-tile-orange: #ea580c;
+      --werft-color-tile-green: #16a34a;
+      --werft-color-tile-pink: #db2777;
+      --werft-color-tile-teal: #0d9488;
+      --werft-color-tile-sky: #0284c7;
+      --werft-color-tile-slate: #475569;
+      --werft-color-focus-ring: #3291ff;
+      --werft-color-link: #52a8ff;
+      --werft-color-control-checked: #3291ff;
+      --werft-color-control-unchecked: #616161;
+      --werft-color-destructive-solid: #c4282d;
+      --werft-color-destructive-foreground: #ffffff;
 
-      --ap-color-status-dot-wait: #f1a33b;
-      --ap-color-status-dot-run: #52a8ff;
-      --ap-color-status-dot-idle: #6f6f6f;
-      --ap-color-status-dot-done: #5cc77a;
-      --ap-color-status-dot-failed: #ff6b6f;
+      --werft-color-status-dot-wait: #f1a33b;
+      --werft-color-status-dot-run: #52a8ff;
+      --werft-color-status-dot-idle: #6f6f6f;
+      --werft-color-status-dot-done: #5cc77a;
+      --werft-color-status-dot-failed: #ff6b6f;
 
-      --ap-avatar-1-bg: #0b2547;
-      --ap-avatar-1-fg: #8cc2ff;
-      --ap-avatar-2-bg: #2a1342;
-      --ap-avatar-2-fg: #d4b0ff;
-      --ap-avatar-3-bg: #0e2a17;
-      --ap-avatar-3-fg: #86e0a3;
-      --ap-avatar-4-bg: #2d1b04;
-      --ap-avatar-4-fg: #f5c27a;
+      --werft-avatar-1-bg: #0b2547;
+      --werft-avatar-1-fg: #8cc2ff;
+      --werft-avatar-2-bg: #2a1342;
+      --werft-avatar-2-fg: #d4b0ff;
+      --werft-avatar-3-bg: #0e2a17;
+      --werft-avatar-3-fg: #86e0a3;
+      --werft-avatar-4-bg: #2d1b04;
+      --werft-avatar-4-fg: #f5c27a;
 
-      --ap-tone-neutral-fg: #d4d4d4;
-      --ap-tone-neutral-bg: #1f1f1f;
-      --ap-tone-neutral-border: #454545;
+      --werft-tone-neutral-fg: #d4d4d4;
+      --werft-tone-neutral-bg: #1f1f1f;
+      --werft-tone-neutral-border: #454545;
 
-      --ap-tone-progress-fg: #52a8ff;
-      --ap-tone-progress-bg: #071a30;
-      --ap-tone-progress-border: #0f3a66;
+      --werft-tone-progress-fg: #52a8ff;
+      --werft-tone-progress-bg: #071a30;
+      --werft-tone-progress-border: #0f3a66;
 
-      --ap-tone-attention-fg: #f1a33b;
-      --ap-tone-attention-bg: #231503;
-      --ap-tone-attention-border: #5a3a08;
+      --werft-tone-attention-fg: #f1a33b;
+      --werft-tone-attention-bg: #231503;
+      --werft-tone-attention-border: #5a3a08;
 
-      --ap-tone-caution-fg: #f1a33b;
-      --ap-tone-caution-bg: #231503;
-      --ap-tone-caution-border: #5a3a08;
+      --werft-tone-caution-fg: #f1a33b;
+      --werft-tone-caution-bg: #231503;
+      --werft-tone-caution-border: #5a3a08;
 
-      --ap-tone-danger-fg: #ff6b6f;
-      --ap-tone-danger-bg: #2a0d0f;
-      --ap-tone-danger-border: #5c1b1f;
+      --werft-tone-danger-fg: #ff6b6f;
+      --werft-tone-danger-bg: #2a0d0f;
+      --werft-tone-danger-border: #5c1b1f;
 
-      --ap-tone-success-fg: #5cc77a;
-      --ap-tone-success-bg: #0a1f10;
-      --ap-tone-success-border: #16452a;
+      --werft-tone-success-fg: #5cc77a;
+      --werft-tone-success-bg: #0a1f10;
+      --werft-tone-success-border: #16452a;
 
-      --ap-tone-unknown-fg: #f1a33b;
-      --ap-tone-unknown-bg: #231503;
-      --ap-tone-unknown-border: #5a3a08;
+      --werft-tone-unknown-fg: #f1a33b;
+      --werft-tone-unknown-bg: #231503;
+      --werft-tone-unknown-border: #5a3a08;
 
-      --ap-tone-positive-fg: #5cc77a;
-      --ap-tone-positive-bg: #0a1f10;
-      --ap-tone-positive-border: #16452a;
+      --werft-tone-positive-fg: #5cc77a;
+      --werft-tone-positive-bg: #0a1f10;
+      --werft-tone-positive-border: #16452a;
 
-      --ap-shadow-pop:
+      --werft-shadow-pop:
         0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
-      --ap-color-overlay: rgb(0 0 0 / 0.6);
+      --werft-color-overlay: rgb(0 0 0 / 0.6);
     }
   }
 
@@ -387,95 +387,95 @@
   :root[data-theme="dark"] {
     color-scheme: dark;
 
-    --ap-color-sidebar: #000000;
-    --ap-color-sidebar-hover: #1a1a1a;
-    --ap-color-sidebar-accent: #232323;
-    --ap-color-surface: #0a0a0a;
-    --ap-color-surface-sunken: #111111;
-    --ap-color-skeleton: #1f1f1f;
+    --werft-color-sidebar: #000000;
+    --werft-color-sidebar-hover: #1a1a1a;
+    --werft-color-sidebar-accent: #232323;
+    --werft-color-surface: #0a0a0a;
+    --werft-color-surface-sunken: #111111;
+    --werft-color-skeleton: #1f1f1f;
 
-    --ap-color-border: #262626;
-    --ap-color-border-strong: #3a3a3a;
-    --ap-color-border-input: #3a3a3a;
-    --ap-color-foreground: #ededed;
-    --ap-color-muted-foreground: #a1a1a1;
-    --ap-color-subtle-foreground: #8f8f8f;
+    --werft-color-border: #262626;
+    --werft-color-border-strong: #3a3a3a;
+    --werft-color-border-input: #3a3a3a;
+    --werft-color-foreground: #ededed;
+    --werft-color-muted-foreground: #a1a1a1;
+    --werft-color-subtle-foreground: #8f8f8f;
 
-    --ap-color-accent: #0070f3;
-    --ap-color-accent-hover: #0060d1;
-    --ap-color-accent-foreground: #ffffff;
-    --ap-color-tile-foreground: #ffffff;
-    --ap-color-tile-blue: #2563eb;
-    --ap-color-tile-violet: #7c3aed;
-    --ap-color-tile-orange: #ea580c;
-    --ap-color-tile-green: #16a34a;
-    --ap-color-tile-pink: #db2777;
-    --ap-color-tile-teal: #0d9488;
-    --ap-color-tile-sky: #0284c7;
-    --ap-color-tile-slate: #475569;
-    --ap-color-focus-ring: #3291ff;
-    --ap-color-link: #52a8ff;
-    --ap-color-control-checked: #3291ff;
-    --ap-color-control-unchecked: #616161;
-    --ap-color-destructive-solid: #c4282d;
-    --ap-color-destructive-foreground: #ffffff;
+    --werft-color-accent: #0070f3;
+    --werft-color-accent-hover: #0060d1;
+    --werft-color-accent-foreground: #ffffff;
+    --werft-color-tile-foreground: #ffffff;
+    --werft-color-tile-blue: #2563eb;
+    --werft-color-tile-violet: #7c3aed;
+    --werft-color-tile-orange: #ea580c;
+    --werft-color-tile-green: #16a34a;
+    --werft-color-tile-pink: #db2777;
+    --werft-color-tile-teal: #0d9488;
+    --werft-color-tile-sky: #0284c7;
+    --werft-color-tile-slate: #475569;
+    --werft-color-focus-ring: #3291ff;
+    --werft-color-link: #52a8ff;
+    --werft-color-control-checked: #3291ff;
+    --werft-color-control-unchecked: #616161;
+    --werft-color-destructive-solid: #c4282d;
+    --werft-color-destructive-foreground: #ffffff;
 
-    --ap-color-status-dot-wait: #f1a33b;
-    --ap-color-status-dot-run: #52a8ff;
-    --ap-color-status-dot-idle: #6f6f6f;
-    --ap-color-status-dot-done: #5cc77a;
-    --ap-color-status-dot-failed: #ff6b6f;
+    --werft-color-status-dot-wait: #f1a33b;
+    --werft-color-status-dot-run: #52a8ff;
+    --werft-color-status-dot-idle: #6f6f6f;
+    --werft-color-status-dot-done: #5cc77a;
+    --werft-color-status-dot-failed: #ff6b6f;
 
-    --ap-avatar-1-bg: #0b2547;
-    --ap-avatar-1-fg: #8cc2ff;
-    --ap-avatar-2-bg: #2a1342;
-    --ap-avatar-2-fg: #d4b0ff;
-    --ap-avatar-3-bg: #0e2a17;
-    --ap-avatar-3-fg: #86e0a3;
-    --ap-avatar-4-bg: #2d1b04;
-    --ap-avatar-4-fg: #f5c27a;
+    --werft-avatar-1-bg: #0b2547;
+    --werft-avatar-1-fg: #8cc2ff;
+    --werft-avatar-2-bg: #2a1342;
+    --werft-avatar-2-fg: #d4b0ff;
+    --werft-avatar-3-bg: #0e2a17;
+    --werft-avatar-3-fg: #86e0a3;
+    --werft-avatar-4-bg: #2d1b04;
+    --werft-avatar-4-fg: #f5c27a;
 
-    --ap-tone-neutral-fg: #d4d4d4;
-    --ap-tone-neutral-bg: #1f1f1f;
-    --ap-tone-neutral-border: #454545;
+    --werft-tone-neutral-fg: #d4d4d4;
+    --werft-tone-neutral-bg: #1f1f1f;
+    --werft-tone-neutral-border: #454545;
 
-    --ap-tone-progress-fg: #52a8ff;
-    --ap-tone-progress-bg: #071a30;
-    --ap-tone-progress-border: #0f3a66;
+    --werft-tone-progress-fg: #52a8ff;
+    --werft-tone-progress-bg: #071a30;
+    --werft-tone-progress-border: #0f3a66;
 
-    --ap-tone-attention-fg: #f1a33b;
-    --ap-tone-attention-bg: #231503;
-    --ap-tone-attention-border: #5a3a08;
+    --werft-tone-attention-fg: #f1a33b;
+    --werft-tone-attention-bg: #231503;
+    --werft-tone-attention-border: #5a3a08;
 
-    --ap-tone-caution-fg: #f1a33b;
-    --ap-tone-caution-bg: #231503;
-    --ap-tone-caution-border: #5a3a08;
+    --werft-tone-caution-fg: #f1a33b;
+    --werft-tone-caution-bg: #231503;
+    --werft-tone-caution-border: #5a3a08;
 
-    --ap-tone-danger-fg: #ff6b6f;
-    --ap-tone-danger-bg: #2a0d0f;
-    --ap-tone-danger-border: #5c1b1f;
+    --werft-tone-danger-fg: #ff6b6f;
+    --werft-tone-danger-bg: #2a0d0f;
+    --werft-tone-danger-border: #5c1b1f;
 
-    --ap-tone-success-fg: #5cc77a;
-    --ap-tone-success-bg: #0a1f10;
-    --ap-tone-success-border: #16452a;
+    --werft-tone-success-fg: #5cc77a;
+    --werft-tone-success-bg: #0a1f10;
+    --werft-tone-success-border: #16452a;
 
-    --ap-tone-unknown-fg: #f1a33b;
-    --ap-tone-unknown-bg: #231503;
-    --ap-tone-unknown-border: #5a3a08;
+    --werft-tone-unknown-fg: #f1a33b;
+    --werft-tone-unknown-bg: #231503;
+    --werft-tone-unknown-border: #5a3a08;
 
-    --ap-tone-positive-fg: #5cc77a;
-    --ap-tone-positive-bg: #0a1f10;
-    --ap-tone-positive-border: #16452a;
+    --werft-tone-positive-fg: #5cc77a;
+    --werft-tone-positive-bg: #0a1f10;
+    --werft-tone-positive-border: #16452a;
 
-    --ap-shadow-pop:
+    --werft-shadow-pop:
       0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -6px rgb(0 0 0 / 0.6);
-    --ap-color-overlay: rgb(0 0 0 / 0.6);
+    --werft-color-overlay: rgb(0 0 0 / 0.6);
   }
 
   @media (prefers-reduced-motion: reduce) {
     :root {
-      --ap-motion-fast: 0ms;
-      --ap-motion-normal: 0ms;
+      --werft-motion-fast: 0ms;
+      --werft-motion-normal: 0ms;
     }
   }
 }

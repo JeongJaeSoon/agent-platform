@@ -752,7 +752,7 @@ describe("팀 화면", () => {
     });
     expect(remove.className).toContain("text-destructive");
     expect(remove.className).toContain(
-      "min-w-[var(--ap-row-action-button-min-width)]",
+      "min-w-[var(--werft-row-action-button-min-width)]",
     );
     expect(remove.getAttribute("data-size")).toBe("sm");
     expect(

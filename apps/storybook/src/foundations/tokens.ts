@@ -21,7 +21,7 @@ function block(css: string, selector: string): string {
 function declarations(text: string): Map<string, string> {
   const tokens = new Map<string, string>();
   for (const [, name, value] of text.matchAll(
-    /(--ap-[\w-]+)\s*:\s*([^;]+);/g,
+    /(--werft-[\w-]+)\s*:\s*([^;]+);/g,
   )) {
     tokens.set(name as string, (value as string).replace(/\s+/g, " ").trim());
   }

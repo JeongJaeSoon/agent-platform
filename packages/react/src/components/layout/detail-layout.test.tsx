@@ -38,7 +38,7 @@ describe("DetailLayout", () => {
     expect(layout?.classList.contains("@container")).toBe(true);
     // Happy DOM lays nothing out; the browser check measures the edges.
     expect(frame?.className).toContain(
-      "xl:[&>[data-slot=page-frame-body]]:ml-[max(0px,calc((100cqw-3rem-var(--ap-w-page))/2))]",
+      "xl:[&>[data-slot=page-frame-body]]:ml-[max(0px,calc((100cqw-3rem-var(--werft-w-page))/2))]",
     );
     expect(frame?.className).toContain(
       "xl:[&>[data-slot=page-frame-body]]:w-auto",

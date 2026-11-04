@@ -26,4 +26,4 @@ export function useArrival(
 
 /** The dashed mark a just-changed card or row keeps until the next update. */
 export const FRESH_CLASS =
-  "data-[fresh]:outline-2 data-[fresh]:outline-offset-2 data-[fresh]:outline-dashed data-[fresh]:outline-(--ap-tone-progress-fg)";
+  "data-[fresh]:outline-2 data-[fresh]:outline-offset-2 data-[fresh]:outline-dashed data-[fresh]:outline-(--werft-tone-progress-fg)";

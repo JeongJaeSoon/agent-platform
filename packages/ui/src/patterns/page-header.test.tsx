@@ -47,7 +47,7 @@ describe("PageHeader", () => {
       <PageHeader title="홈" description="요약" />,
     );
     const header = container.querySelector('[data-slot="page-header"]');
-    expect(header?.className).toContain("mb-[var(--ap-space-page-head)]");
+    expect(header?.className).toContain("mb-[var(--werft-space-page-head)]");
     expect(getByRole("heading", { level: 1 }).className).toContain(
       "text-title",
     );

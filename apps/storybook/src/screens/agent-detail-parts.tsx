@@ -363,7 +363,7 @@ export function AgentPage({
         <Text variant="sub">{newSessionReason}</Text>
       )}
       {notice}
-      <Tabs value={tab} className="min-w-0 gap-[var(--ap-space-block)]">
+      <Tabs value={tab} className="min-w-0 gap-[var(--werft-space-block)]">
         <div className="border-b">
           <TabsList variant="line" aria-label="에이전트 상세">
             {AGENT_TABS.map(([name, label]) => (
@@ -562,8 +562,8 @@ export function AgentReadiness({
                 className={cn(
                   "grid size-6 flex-none place-items-center rounded-full border font-semibold text-caption",
                   step.state === "done"
-                    ? "border-[var(--ap-tone-success-border)] bg-[var(--ap-tone-success-bg)] text-[var(--ap-tone-success-fg)]"
-                    : "border-[var(--ap-color-border-strong)] text-muted-foreground",
+                    ? "border-[var(--werft-tone-success-border)] bg-[var(--werft-tone-success-bg)] text-[var(--werft-tone-success-fg)]"
+                    : "border-[var(--werft-color-border-strong)] text-muted-foreground",
                 )}
               >
                 {step.state === "done" ? (
@@ -1024,7 +1024,7 @@ export function VersionHistory({ detail }: { readonly detail: DetailFixture }) {
   const after = ordered.find((version) => version.id === afterId);
   return (
     <details
-      className="group flex flex-col gap-[var(--ap-space-block)]"
+      className="group flex flex-col gap-[var(--werft-space-block)]"
       aria-labelledby={IDS.versions}
     >
       <summary className="flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-control [&::-webkit-details-marker]:hidden">
@@ -1141,8 +1141,8 @@ function diffLines(before: string, after: string): DiffLine[] {
 const MARK = { same: " ", added: "+", removed: "-" } as const;
 const LINE = {
   same: "block",
-  added: "block bg-[var(--ap-tone-progress-bg)]",
-  removed: "block bg-[var(--ap-tone-danger-bg)] line-through",
+  added: "block bg-[var(--werft-tone-progress-bg)]",
+  removed: "block bg-[var(--werft-tone-danger-bg)] line-through",
 } as const;
 
 /** Stand-in for apps/web components/revision-diff.tsx, same markup. */

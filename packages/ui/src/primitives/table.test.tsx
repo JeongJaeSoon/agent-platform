@@ -61,21 +61,21 @@ describe("Table", () => {
     expect(frame.className).toContain("focus-visible:outline-focus-ring");
   });
 
-  test("행 높이 하한과 셀 padding은 --ap-row-* 토큰에서 온다", () => {
+  test("행 높이 하한과 셀 padding은 --werft-row-* 토큰에서 온다", () => {
     const { container } = render(<MembersTable />);
     const head = container.querySelector("thead");
     const row = container.querySelector("tbody > tr");
     const cell = container.querySelector("td");
     const th = container.querySelector("th");
     expect(head?.className).toContain(
-      "[&>tr]:h-[var(--ap-row-head-min-height)]",
+      "[&>tr]:h-[var(--werft-row-head-min-height)]",
     );
-    expect(row?.className).toContain("h-[var(--ap-row-min-height)]");
-    expect(cell?.className).toContain("py-[var(--ap-row-padding-y)]");
-    expect(cell?.className).toContain("px-[calc(var(--ap-row-padding-x)/2)]");
-    expect(th?.className).toContain("py-[var(--ap-row-head-padding-y)]");
-    expect(TOKENS).toContain("--ap-row-min-height: 3rem;");
-    expect(TOKENS).toContain("--ap-row-head-min-height: 2.5rem;");
+    expect(row?.className).toContain("h-[var(--werft-row-min-height)]");
+    expect(cell?.className).toContain("py-[var(--werft-row-padding-y)]");
+    expect(cell?.className).toContain("px-[calc(var(--werft-row-padding-x)/2)]");
+    expect(th?.className).toContain("py-[var(--werft-row-head-padding-y)]");
+    expect(TOKENS).toContain("--werft-row-min-height: 3rem;");
+    expect(TOKENS).toContain("--werft-row-head-min-height: 2.5rem;");
   });
 
   test("actions 열은 내용 폭이고 그 안의 버튼 하한은 토큰 하나가 정한다", () => {
@@ -88,14 +88,14 @@ describe("Table", () => {
       expect(el?.className).toContain("w-px");
       expect(el?.className).toContain("whitespace-nowrap");
       expect(el?.className).toContain(
-        "[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--ap-row-action-button-min-width)]",
+        "[&_[data-slot=button]:not([data-size^=icon])]:min-w-[var(--werft-row-action-button-min-width)]",
       );
     }
     expect(button.getAttribute("data-slot")).toBe("button");
     expect(button.getAttribute("data-size")).toBe("sm");
-    expect(TOKENS).toContain("--ap-row-action-button-min-width: 3rem;");
+    expect(TOKENS).toContain("--werft-row-action-button-min-width: 3rem;");
     // The column floor of grid rows is a separate token and stays.
-    expect(TOKENS).toContain("--ap-row-action-min-width: 6rem;");
+    expect(TOKENS).toContain("--werft-row-action-min-width: 6rem;");
   });
 
   test("actions 셀의 아이콘 버튼은 하한 선택자에서 빠진다", () => {
@@ -158,7 +158,7 @@ describe("Table", () => {
       expect(el.classList.contains("w-full")).toBe(true);
       expect(el.classList.contains("max-w-0")).toBe(true);
       expect(
-        el.classList.contains("min-w-[var(--ap-row-text-min-width)]"),
+        el.classList.contains("min-w-[var(--werft-row-text-min-width)]"),
       ).toBe(true);
     }
     expect(
@@ -174,7 +174,7 @@ describe("Table", () => {
     expect(getByText("Alex Rivera").matches(selector)).toBe(false);
     expect(line.getAttribute("title")).toBe(email);
     expect(cell.textContent).toBe(`Alex Rivera${email}`);
-    expect(TOKENS).toContain("--ap-row-text-min-width: 10rem;");
+    expect(TOKENS).toContain("--werft-row-text-min-width: 10rem;");
   });
 
   test("nowrap 열은 내용 폭이고 줄을 바꾸지 않는다", () => {
@@ -221,7 +221,7 @@ describe("Table", () => {
     );
     const classes = container.querySelector("td")?.className.split(" ");
     expect(classes).toContain("py-1");
-    expect(classes).not.toContain("py-[var(--ap-row-padding-y)]");
+    expect(classes).not.toContain("py-[var(--werft-row-padding-y)]");
   });
 });
 
@@ -279,7 +279,7 @@ describe("RowList", () => {
       </RowList>,
     );
     const item = getByRole("listitem");
-    expect(item.className).toContain("min-h-[var(--ap-row-min-height)]");
+    expect(item.className).toContain("min-h-[var(--werft-row-min-height)]");
     expect(item.className).toContain("flex-wrap");
   });
 

@@ -89,7 +89,7 @@ function InboxSkeleton({
         <div
           // Placeholder rows have no identity beyond their position.
           key={index}
-          className="flex min-h-[var(--ap-row-min-height)] flex-col justify-center gap-1.5 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+          className="flex min-h-[var(--werft-row-min-height)] flex-col justify-center gap-1.5 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]"
         >
           <Skeleton
             width="40%"
@@ -114,7 +114,7 @@ type Reason = (typeof REASONS)[number];
 
 const FRAME = "rounded-card border bg-card";
 const FRAME_PADDING =
-  "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]";
+  "px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]";
 
 /**
  * The reader's sessions waiting on an answer, each request answerable here.
@@ -272,7 +272,7 @@ export function ApprovalInbox({
             "m-0 flex list-none flex-col p-0",
             layout === "summary"
               ? cn("divide-y", FRAME)
-              : "gap-[var(--ap-space-block)]",
+              : "gap-[var(--werft-space-block)]",
           )}
           onFocus={() => {
             focusInList.current = true;
@@ -319,7 +319,7 @@ export function ApprovalInbox({
   }
   return (
     <section
-      className="flex min-w-0 flex-col gap-[var(--ap-space-block)]"
+      className="flex min-w-0 flex-col gap-[var(--werft-space-block)]"
       aria-labelledby={titleId}
     >
       <div className="flex min-h-7 items-center justify-between gap-3">
@@ -477,7 +477,7 @@ function WaitingSession({
         <div
           className={cn(
             summary &&
-              "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]",
+              "px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]",
           )}
         >
           {renderError(pending.error, () => void pending.refetch())}
@@ -486,9 +486,9 @@ function WaitingSession({
         <div
           data-slot="inbox-row-skeleton"
           className={cn(
-            "flex min-h-[var(--ap-row-min-height)] flex-col justify-center gap-1.5",
+            "flex min-h-[var(--werft-row-min-height)] flex-col justify-center gap-1.5",
             summary
-              ? "px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+              ? "px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]"
               : cn(FRAME, FRAME_PADDING),
           )}
         >
@@ -526,7 +526,7 @@ function PanelLine({
   // An agent's own colour; a session without one shows its starter, uncoloured.
   const agent = session.agent?.name;
   return (
-    <div className="flex min-h-[var(--ap-row-min-height)] items-center gap-3 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]">
+    <div className="flex min-h-[var(--werft-row-min-height)] items-center gap-3 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]">
       <Avatar
         size="two-line"
         shape="square"
@@ -539,10 +539,10 @@ function PanelLine({
           agent === undefined ? session.created_by?.display_name : undefined
         }
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-(--ap-row-line-gap)">
+      <div className="flex min-w-0 flex-1 flex-col gap-(--werft-row-line-gap)">
         {/* On a narrow line the badge goes under the title rather than
             both being cut. */}
-        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-(--ap-leading-body)">
+        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium text-control leading-(--werft-leading-body)">
           <span className="min-w-16 max-w-full truncate">{heading}</span>
           <Badge variant="amber" className="min-w-0 max-w-full shrink">
             <span className="truncate">
@@ -552,7 +552,7 @@ function PanelLine({
             </span>
           </Badge>
         </p>
-        <p className="m-0 text-caption text-muted-foreground leading-(--ap-leading-caption) [overflow-wrap:anywhere]">
+        <p className="m-0 text-caption text-muted-foreground leading-(--werft-leading-caption) [overflow-wrap:anywhere]">
           {meta}
         </p>
       </div>

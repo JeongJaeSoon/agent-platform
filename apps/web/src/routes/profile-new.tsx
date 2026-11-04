@@ -250,7 +250,7 @@ export function ProfileNewScreen() {
           : "profiles.editor.description",
       )}
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {operates && search.mode === undefined ? (
           <FieldSet className="gap-3">
             <FieldLegend id={kindId} variant="label" className="mb-2">

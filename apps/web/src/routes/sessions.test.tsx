@@ -327,7 +327,7 @@ describe("approval inbox", () => {
     expect(list.className).toContain("rounded-card");
     expect(list.className).toContain("divide-y");
     expect(inbox.parentElement?.className).toContain(
-      "gap-[var(--ap-space-block)]",
+      "gap-[var(--werft-space-block)]",
     );
   });
 

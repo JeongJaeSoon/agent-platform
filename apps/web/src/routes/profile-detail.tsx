@@ -833,7 +833,7 @@ function History({
                     params={{ profileId: item.id }}
                   />
                 </GridTableRowOpener>
-                <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                   <span className="leading-5">
                     <Text as="span" weight="medium">
                       {item.workspace
@@ -934,7 +934,7 @@ function Narrowings({
                       params={{ profileId: item.id }}
                     />
                   </GridTableRowOpener>
-                  <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                  <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                     <Text as="span" weight="medium" className="wrap-anywhere">
                       {t("profiles.detail.history.named", {
                         name: profileName(item),

@@ -292,13 +292,13 @@ try {
       );
       return `rgb(${r}, ${g}, ${b})`;
     };
-    const accent = tokenRgb("ap-color-accent");
-    const border = tokenRgb("ap-color-border");
+    const accent = tokenRgb("werft-color-accent");
+    const border = tokenRgb("werft-color-border");
     const expected = {
       'data-slot="button"': button.includes('data-slot="button"'),
       "class bg-primary": /class="[^"]*\bbg-primary\b/.test(button),
       [`background ${accent}`]: body.includes(`data-background="${accent}"`),
-      // --ap-control-height is 2rem; unstyled, the button would be its text's height.
+      // --werft-control-height is 2rem; unstyled, the button would be its text's height.
       "height 32px": body.includes('data-height="32px"'),
       // No preflight here: the user agent's 2px outset button border must not show.
       "border 0px": body.includes('data-border="0px"'),

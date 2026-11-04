@@ -30,39 +30,39 @@
 
   /* Tone plumbing: a component asks for a tone, the tone resolves to tokens. */
   [data-tone="neutral"] {
-    --ap-tone-fg: var(--ap-tone-neutral-fg);
-    --ap-tone-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-border: var(--ap-tone-neutral-border);
+    --werft-tone-fg: var(--werft-tone-neutral-fg);
+    --werft-tone-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-border: var(--werft-tone-neutral-border);
   }
   [data-tone="progress"] {
-    --ap-tone-fg: var(--ap-tone-progress-fg);
-    --ap-tone-bg: var(--ap-tone-progress-bg);
-    --ap-tone-border: var(--ap-tone-progress-border);
+    --werft-tone-fg: var(--werft-tone-progress-fg);
+    --werft-tone-bg: var(--werft-tone-progress-bg);
+    --werft-tone-border: var(--werft-tone-progress-border);
   }
   [data-tone="attention"] {
-    --ap-tone-fg: var(--ap-tone-attention-fg);
-    --ap-tone-bg: var(--ap-tone-attention-bg);
-    --ap-tone-border: var(--ap-tone-attention-border);
+    --werft-tone-fg: var(--werft-tone-attention-fg);
+    --werft-tone-bg: var(--werft-tone-attention-bg);
+    --werft-tone-border: var(--werft-tone-attention-border);
   }
   [data-tone="caution"] {
-    --ap-tone-fg: var(--ap-tone-caution-fg);
-    --ap-tone-bg: var(--ap-tone-caution-bg);
-    --ap-tone-border: var(--ap-tone-caution-border);
+    --werft-tone-fg: var(--werft-tone-caution-fg);
+    --werft-tone-bg: var(--werft-tone-caution-bg);
+    --werft-tone-border: var(--werft-tone-caution-border);
   }
   [data-tone="danger"] {
-    --ap-tone-fg: var(--ap-tone-danger-fg);
-    --ap-tone-bg: var(--ap-tone-danger-bg);
-    --ap-tone-border: var(--ap-tone-danger-border);
+    --werft-tone-fg: var(--werft-tone-danger-fg);
+    --werft-tone-bg: var(--werft-tone-danger-bg);
+    --werft-tone-border: var(--werft-tone-danger-border);
   }
   [data-tone="unknown"] {
-    --ap-tone-fg: var(--ap-tone-unknown-fg);
-    --ap-tone-bg: var(--ap-tone-unknown-bg);
-    --ap-tone-border: var(--ap-tone-unknown-border);
+    --werft-tone-fg: var(--werft-tone-unknown-fg);
+    --werft-tone-bg: var(--werft-tone-unknown-bg);
+    --werft-tone-border: var(--werft-tone-unknown-border);
   }
   [data-tone="positive"] {
-    --ap-tone-fg: var(--ap-tone-positive-fg);
-    --ap-tone-bg: var(--ap-tone-positive-bg);
-    --ap-tone-border: var(--ap-tone-positive-border);
+    --werft-tone-fg: var(--werft-tone-positive-fg);
+    --werft-tone-bg: var(--werft-tone-positive-bg);
+    --werft-tone-border: var(--werft-tone-positive-border);
   }
 
   /*
@@ -79,38 +79,38 @@
    */
   :is([data-slot="grid-table-row"], [data-slot="table-row"])[data-inactive]
     > :not([data-raised], [data-variant="actions"], :has([data-ap-button])) {
-    --ap-color-foreground: var(--ap-color-subtle-foreground);
-    --ap-color-muted-foreground: var(--ap-color-subtle-foreground);
-    --ap-color-accent: var(--ap-color-subtle-foreground);
-    --ap-color-link: var(--ap-color-subtle-foreground);
-    --ap-tone-neutral-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-progress-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-progress-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-progress-border: var(--ap-tone-neutral-border);
-    --ap-tone-attention-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-attention-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-attention-border: var(--ap-tone-neutral-border);
-    --ap-tone-caution-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-caution-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-caution-border: var(--ap-tone-neutral-border);
-    --ap-tone-danger-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-danger-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-danger-border: var(--ap-tone-neutral-border);
-    --ap-tone-unknown-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-unknown-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-unknown-border: var(--ap-tone-neutral-border);
-    --ap-tone-positive-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-positive-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-positive-border: var(--ap-tone-neutral-border);
-    --ap-tone-success-fg: var(--ap-color-subtle-foreground);
-    --ap-tone-success-bg: var(--ap-tone-neutral-bg);
-    --ap-tone-success-border: var(--ap-tone-neutral-border);
-    --ap-color-status-dot-wait: var(--ap-color-subtle-foreground);
-    --ap-color-status-dot-run: var(--ap-color-subtle-foreground);
-    --ap-color-status-dot-idle: var(--ap-color-subtle-foreground);
-    --ap-color-status-dot-done: var(--ap-color-subtle-foreground);
-    --ap-color-status-dot-failed: var(--ap-color-subtle-foreground);
-    color: var(--ap-color-subtle-foreground);
+    --werft-color-foreground: var(--werft-color-subtle-foreground);
+    --werft-color-muted-foreground: var(--werft-color-subtle-foreground);
+    --werft-color-accent: var(--werft-color-subtle-foreground);
+    --werft-color-link: var(--werft-color-subtle-foreground);
+    --werft-tone-neutral-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-progress-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-progress-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-progress-border: var(--werft-tone-neutral-border);
+    --werft-tone-attention-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-attention-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-attention-border: var(--werft-tone-neutral-border);
+    --werft-tone-caution-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-caution-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-caution-border: var(--werft-tone-neutral-border);
+    --werft-tone-danger-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-danger-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-danger-border: var(--werft-tone-neutral-border);
+    --werft-tone-unknown-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-unknown-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-unknown-border: var(--werft-tone-neutral-border);
+    --werft-tone-positive-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-positive-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-positive-border: var(--werft-tone-neutral-border);
+    --werft-tone-success-fg: var(--werft-color-subtle-foreground);
+    --werft-tone-success-bg: var(--werft-tone-neutral-bg);
+    --werft-tone-success-border: var(--werft-tone-neutral-border);
+    --werft-color-status-dot-wait: var(--werft-color-subtle-foreground);
+    --werft-color-status-dot-run: var(--werft-color-subtle-foreground);
+    --werft-color-status-dot-idle: var(--werft-color-subtle-foreground);
+    --werft-color-status-dot-done: var(--werft-color-subtle-foreground);
+    --werft-color-status-dot-failed: var(--werft-color-subtle-foreground);
+    color: var(--werft-color-subtle-foreground);
   }
 
   .ap-visually-hidden {
@@ -130,18 +130,18 @@
   .ap-status {
     display: inline-flex;
     align-items: center;
-    gap: var(--ap-space-1);
+    gap: var(--werft-space-1);
     max-width: 100%;
     min-height: 1.25rem;
-    padding: 0 var(--ap-space-2);
-    border: 1px solid var(--ap-tone-border);
-    border-radius: var(--ap-radius-pill);
-    background: var(--ap-tone-bg);
-    color: var(--ap-tone-fg);
-    font-family: var(--ap-font-sans);
-    font-size: var(--ap-text-xs);
-    font-weight: var(--ap-weight-medium);
-    line-height: var(--ap-leading-tight);
+    padding: 0 var(--werft-space-2);
+    border: 1px solid var(--werft-tone-border);
+    border-radius: var(--werft-radius-pill);
+    background: var(--werft-tone-bg);
+    color: var(--werft-tone-fg);
+    font-family: var(--werft-font-sans);
+    font-size: var(--werft-text-xs);
+    font-weight: var(--werft-weight-medium);
+    line-height: var(--werft-leading-tight);
     /* Korean micro labels must never be uppercased (argo 러너명 왜곡 교훈, §6). */
     text-transform: none;
   }
@@ -164,18 +164,18 @@
      stack frame) would push the row past 360px without these two. */
     min-width: 0;
     overflow-wrap: anywhere;
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-xs);
-    font-weight: var(--ap-weight-regular);
+    color: var(--werft-color-muted-foreground);
+    font-size: var(--werft-text-xs);
+    font-weight: var(--werft-weight-regular);
   }
 
   .ap-status__stale {
     /* muted, not a fainter tier: "갱신 지연" is meaning, and a warm grey light
      enough to read as "faint" lands near 3:1 on the tone backgrounds. The
      hierarchy comes from size and weight instead. */
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-xs);
-    font-weight: var(--ap-weight-regular);
+    color: var(--werft-color-muted-foreground);
+    font-size: var(--werft-text-xs);
+    font-weight: var(--werft-weight-regular);
   }
 
   .ap-status__spinner,
@@ -212,15 +212,15 @@
   .ap-receipt {
     display: flex;
     flex-direction: column;
-    gap: var(--ap-space-2);
-    padding: var(--ap-space-4);
-    border: 1px solid var(--ap-color-border);
-    border-radius: var(--ap-radius-card);
-    background: var(--ap-color-surface);
-    font-family: var(--ap-font-sans);
-    color: var(--ap-color-foreground);
-    font-size: var(--ap-text-sm);
-    line-height: var(--ap-leading-body);
+    gap: var(--werft-space-2);
+    padding: var(--werft-space-4);
+    border: 1px solid var(--werft-color-border);
+    border-radius: var(--werft-radius-card);
+    background: var(--werft-color-surface);
+    font-family: var(--werft-font-sans);
+    color: var(--werft-color-foreground);
+    font-size: var(--werft-text-sm);
+    line-height: var(--werft-leading-body);
   }
 
   .ap-receipt__head {
@@ -228,32 +228,32 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--ap-space-2);
+    gap: var(--werft-space-2);
   }
 
   .ap-receipt__operation {
     /* An operation this build has no label for is printed raw. */
     min-width: 0;
     overflow-wrap: anywhere;
-    font-weight: var(--ap-weight-bold);
+    font-weight: var(--werft-weight-bold);
   }
 
   .ap-receipt__target {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--ap-space-1) var(--ap-space-4);
+    gap: var(--werft-space-1) var(--werft-space-4);
     margin: 0;
   }
 
   .ap-receipt__field {
     display: flex;
-    gap: var(--ap-space-1);
+    gap: var(--werft-space-1);
     min-width: 0;
   }
 
   .ap-receipt__field dt {
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-sm);
+    color: var(--werft-color-muted-foreground);
+    font-size: var(--werft-text-sm);
   }
 
   .ap-receipt__field dd {
@@ -262,30 +262,30 @@
   }
 
   .ap-receipt__id {
-    font-family: var(--ap-font-mono);
-    font-size: var(--ap-text-sm);
+    font-family: var(--werft-font-mono);
+    font-size: var(--werft-text-sm);
     overflow-wrap: anywhere;
   }
 
   .ap-receipt__error {
     display: flex;
     flex-direction: column;
-    gap: var(--ap-space-1);
+    gap: var(--werft-space-1);
     margin: 0;
-    padding: var(--ap-space-2) var(--ap-space-3);
-    border: 1px solid var(--ap-tone-danger-border);
-    border-radius: var(--ap-radius-control);
-    background: var(--ap-tone-danger-bg);
-    color: var(--ap-tone-danger-fg);
+    padding: var(--werft-space-2) var(--werft-space-3);
+    border: 1px solid var(--werft-tone-danger-border);
+    border-radius: var(--werft-radius-control);
+    background: var(--werft-tone-danger-bg);
+    color: var(--werft-tone-danger-fg);
   }
 
   .ap-receipt__guidance {
-    font-weight: var(--ap-weight-medium);
+    font-weight: var(--werft-weight-medium);
   }
 
   .ap-receipt__detail {
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-sm);
+    color: var(--werft-color-muted-foreground);
+    font-size: var(--werft-text-sm);
     overflow-wrap: anywhere;
   }
 
@@ -294,20 +294,20 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--ap-space-2);
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-sm);
+    gap: var(--werft-space-2);
+    color: var(--werft-color-muted-foreground);
+    font-size: var(--werft-text-sm);
   }
 
   .ap-receipt-link {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--ap-space-2);
+    gap: var(--werft-space-2);
     max-width: 100%;
-    color: var(--ap-color-foreground);
-    font-family: var(--ap-font-sans);
-    font-size: var(--ap-text-sm);
+    color: var(--werft-color-foreground);
+    font-family: var(--werft-font-sans);
+    font-size: var(--werft-text-sm);
     text-decoration: underline;
     text-underline-offset: 0.2em;
   }
@@ -316,9 +316,9 @@
     flex: none;
     width: 0.5rem;
     height: 0.5rem;
-    border: 1px solid var(--ap-tone-border);
+    border: 1px solid var(--werft-tone-border);
     border-radius: 50%;
-    background: var(--ap-tone-fg);
+    background: var(--werft-tone-fg);
   }
 
   .ap-receipt-link__text {
@@ -328,14 +328,14 @@
 
   .ap-receipt-link__status {
     flex: none;
-    color: var(--ap-color-muted-foreground);
-    font-size: var(--ap-text-xs);
+    color: var(--werft-color-muted-foreground);
+    font-size: var(--werft-text-xs);
   }
 
   .ap-receipt-link__id {
     min-width: 0;
-    color: var(--ap-color-muted-foreground);
-    font-family: var(--ap-font-mono);
+    color: var(--werft-color-muted-foreground);
+    font-family: var(--werft-font-mono);
     overflow-wrap: anywhere;
   }
 
@@ -348,17 +348,17 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--ap-space-2);
-    padding: 2.5rem var(--ap-space-6);
-    color: var(--ap-color-muted-foreground);
-    font-family: var(--ap-font-sans);
-    font-size: var(--ap-text-sm);
-    line-height: var(--ap-leading-body);
+    gap: var(--werft-space-2);
+    padding: 2.5rem var(--werft-space-6);
+    color: var(--werft-color-muted-foreground);
+    font-family: var(--werft-font-sans);
+    font-size: var(--werft-text-sm);
+    line-height: var(--werft-leading-body);
     text-align: center;
   }
 
   .ap-state[data-size="sm"] {
-    padding: var(--ap-space-6) var(--ap-space-4);
+    padding: var(--werft-space-6) var(--werft-space-4);
   }
 
   .ap-state__icon {
@@ -367,24 +367,24 @@
     place-items: center;
     width: 2.5rem;
     height: 2.5rem;
-    margin-bottom: var(--ap-space-1);
-    border: 1px solid var(--ap-color-border);
-    border-radius: var(--ap-radius-card);
-    background: var(--ap-color-surface-sunken);
-    color: var(--ap-color-subtle-foreground);
+    margin-bottom: var(--werft-space-1);
+    border: 1px solid var(--werft-color-border);
+    border-radius: var(--werft-radius-card);
+    background: var(--werft-color-surface-sunken);
+    color: var(--werft-color-subtle-foreground);
   }
 
   .ap-state--error .ap-state__icon {
-    border-color: var(--ap-tone-danger-border);
-    background: var(--ap-tone-danger-bg);
-    color: var(--ap-tone-danger-fg);
+    border-color: var(--werft-tone-danger-border);
+    background: var(--werft-tone-danger-bg);
+    color: var(--werft-tone-danger-fg);
   }
 
   .ap-state__title {
     margin: 0;
-    color: var(--ap-color-foreground);
-    font-size: var(--ap-text-label);
-    font-weight: var(--ap-weight-bold);
+    color: var(--werft-color-foreground);
+    font-size: var(--werft-text-label);
+    font-weight: var(--werft-weight-bold);
   }
 
   .ap-state__guidance {
@@ -403,20 +403,20 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: var(--ap-space-2);
+    gap: var(--werft-space-2);
   }
 
   .ap-state__code {
     overflow-wrap: anywhere;
-    color: var(--ap-color-subtle-foreground);
-    font-family: var(--ap-font-mono);
-    font-size: var(--ap-text-xs);
+    color: var(--werft-color-subtle-foreground);
+    font-family: var(--werft-font-mono);
+    font-size: var(--werft-text-xs);
   }
 
   .ap-skeleton {
     display: flex;
     flex-direction: column;
-    gap: var(--ap-space-2);
+    gap: var(--werft-space-2);
     max-width: 100%;
   }
 
@@ -431,7 +431,7 @@
     height: 0.75rem;
     /* Console v4 `.sk` (L332); no radius token is this small. */
     border-radius: 0.25rem;
-    background: var(--ap-color-skeleton);
+    background: var(--werft-color-skeleton);
   }
 
   .ap-skeleton[data-shape="text"] .ap-skeleton__bar:last-of-type {
@@ -441,7 +441,7 @@
   .ap-skeleton[data-shape="block"] .ap-skeleton__bar {
     height: 100%;
     min-height: 4rem;
-    border-radius: var(--ap-radius-card);
+    border-radius: var(--werft-radius-card);
   }
 
   .ap-skeleton[data-shape="circle"] .ap-skeleton__bar {
@@ -465,8 +465,8 @@
   .ap-dialog__overlay {
     position: fixed;
     inset: 0;
-    background: var(--ap-color-overlay);
-    animation: ap-fade-in var(--ap-motion-normal) var(--ap-motion-ease);
+    background: var(--werft-color-overlay);
+    animation: ap-fade-in var(--werft-motion-normal) var(--werft-motion-ease);
   }
 
   .ap-dialog {
@@ -475,54 +475,54 @@
     left: 50%;
     display: flex;
     flex-direction: column;
-    gap: var(--ap-space-4);
+    gap: var(--werft-space-4);
     /* Fits 360px: the viewport cap wins before the rem cap does. */
     /* Percentages, not vw/vh: the dialog is fixed, so these resolve against the
      viewport *minus* the scrollbar, which `100vw` would include. */
-    width: min(30rem, calc(100% - 2 * var(--ap-space-4)));
-    max-height: calc(100% - 2 * var(--ap-space-4));
+    width: min(30rem, calc(100% - 2 * var(--werft-space-4)));
+    max-height: calc(100% - 2 * var(--werft-space-4));
     overflow-y: auto;
-    padding: var(--ap-space-4);
+    padding: var(--werft-space-4);
     transform: translate(-50%, -50%);
-    border: 1px solid var(--ap-color-border);
-    border-radius: var(--ap-radius-card);
-    background: var(--ap-color-surface);
-    box-shadow: var(--ap-shadow-pop);
-    color: var(--ap-color-foreground);
-    font-family: var(--ap-font-sans);
-    font-size: var(--ap-text-sm);
-    line-height: var(--ap-leading-body);
-    animation: ap-dialog-in var(--ap-motion-normal) var(--ap-motion-ease);
+    border: 1px solid var(--werft-color-border);
+    border-radius: var(--werft-radius-card);
+    background: var(--werft-color-surface);
+    box-shadow: var(--werft-shadow-pop);
+    color: var(--werft-color-foreground);
+    font-family: var(--werft-font-sans);
+    font-size: var(--werft-text-sm);
+    line-height: var(--werft-leading-body);
+    animation: ap-dialog-in var(--werft-motion-normal) var(--werft-motion-ease);
   }
 
   .ap-dialog__title {
     margin: 0;
-    font-size: var(--ap-text-label);
-    font-weight: var(--ap-weight-bold);
+    font-size: var(--werft-text-label);
+    font-weight: var(--werft-weight-bold);
   }
 
   .ap-dialog__consequence {
     margin: 0;
-    color: var(--ap-color-muted-foreground);
+    color: var(--werft-color-muted-foreground);
   }
 
   .ap-dialog__match {
     display: flex;
     flex-direction: column;
-    gap: var(--ap-space-2);
+    gap: var(--werft-space-2);
   }
 
   .ap-dialog__match-label {
-    font-size: var(--ap-text-sm);
+    font-size: var(--werft-text-sm);
   }
 
   .ap-dialog__match-target {
-    padding: var(--ap-space-1) var(--ap-space-2);
-    border: 1px solid var(--ap-color-border);
-    border-radius: var(--ap-radius-control);
-    background: var(--ap-color-surface-sunken);
-    font-family: var(--ap-font-mono);
-    font-size: var(--ap-text-sm);
+    padding: var(--werft-space-1) var(--werft-space-2);
+    border: 1px solid var(--werft-color-border);
+    border-radius: var(--werft-radius-control);
+    background: var(--werft-color-surface-sunken);
+    font-family: var(--werft-font-mono);
+    font-size: var(--werft-text-sm);
     overflow-wrap: anywhere;
     user-select: all;
   }
@@ -531,7 +531,7 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: var(--ap-space-2);
+    gap: var(--werft-space-2);
   }
 
   @keyframes ap-fade-in {
@@ -543,7 +543,7 @@
   @keyframes ap-dialog-in {
     from {
       opacity: 0;
-      transform: translate(-50%, calc(-50% + var(--ap-space-2)));
+      transform: translate(-50%, calc(-50% + var(--werft-space-2)));
     }
   }
 
@@ -553,19 +553,19 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: var(--ap-space-2);
-    padding: var(--ap-space-2) var(--ap-space-4);
-    border: 1px solid var(--ap-color-border-strong);
-    border-radius: var(--ap-radius-control);
-    background: var(--ap-color-surface);
-    color: var(--ap-color-foreground);
-    font-family: var(--ap-font-sans);
-    font-size: var(--ap-text-sm);
-    font-weight: var(--ap-weight-medium);
-    line-height: var(--ap-leading-tight);
+    gap: var(--werft-space-2);
+    padding: var(--werft-space-2) var(--werft-space-4);
+    border: 1px solid var(--werft-color-border-strong);
+    border-radius: var(--werft-radius-control);
+    background: var(--werft-color-surface);
+    color: var(--werft-color-foreground);
+    font-family: var(--werft-font-sans);
+    font-size: var(--werft-text-sm);
+    font-weight: var(--werft-weight-medium);
+    line-height: var(--werft-leading-tight);
     text-decoration: none;
     cursor: pointer;
-    transition: background-color var(--ap-motion-fast) var(--ap-motion-ease);
+    transition: background-color var(--werft-motion-fast) var(--werft-motion-ease);
   }
 
   .ap-button:disabled {
@@ -575,42 +575,42 @@
 
   .ap-button--primary {
     border-color: transparent;
-    background: var(--ap-color-accent);
-    color: var(--ap-color-accent-foreground);
+    background: var(--werft-color-accent);
+    color: var(--werft-color-accent-foreground);
   }
 
   .ap-button--primary:hover:not(:disabled) {
-    background: var(--ap-color-accent-hover);
+    background: var(--werft-color-accent-hover);
   }
 
   .ap-button--danger {
     border-color: transparent;
-    background: var(--ap-tone-danger-fg);
-    color: var(--ap-color-surface);
+    background: var(--werft-tone-danger-fg);
+    color: var(--werft-color-surface);
   }
 
   .ap-button--quiet {
     border-color: transparent;
     background: transparent;
-    color: var(--ap-color-muted-foreground);
+    color: var(--werft-color-muted-foreground);
   }
 
   .ap-input {
     width: 100%;
-    padding: var(--ap-space-2) var(--ap-space-3);
-    border: 1px solid var(--ap-color-border-input);
-    border-radius: var(--ap-radius-control);
-    background: var(--ap-color-surface);
-    color: var(--ap-color-foreground);
-    font-family: var(--ap-font-sans);
-    font-size: var(--ap-text-sm);
-    transition: border-color var(--ap-motion-fast) var(--ap-motion-ease);
+    padding: var(--werft-space-2) var(--werft-space-3);
+    border: 1px solid var(--werft-color-border-input);
+    border-radius: var(--werft-radius-control);
+    background: var(--werft-color-surface);
+    color: var(--werft-color-foreground);
+    font-family: var(--werft-font-sans);
+    font-size: var(--werft-text-sm);
+    transition: border-color var(--werft-motion-fast) var(--werft-motion-ease);
   }
 
   .ap-button:focus-visible,
   .ap-input:focus-visible,
   .ap-receipt-link:focus-visible {
-    outline: 2px solid var(--ap-color-focus-ring);
+    outline: 2px solid var(--werft-color-focus-ring);
     outline-offset: 2px;
   }
 

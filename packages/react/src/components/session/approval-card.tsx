@@ -116,7 +116,7 @@ export function ApprovalCard({
       data-slot="approval-card"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4 text-control",
+        "flex min-w-0 flex-col gap-3 rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] p-4 text-control",
         className,
       )}
       {...within}
@@ -167,7 +167,7 @@ export function ApprovalCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <details className="min-w-0 flex-1 basis-40">
           {/* As tall as the buttons beside it, so the two read as one line. */}
-          <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--ap-control-height)]">
+          <summary className="cursor-pointer text-muted-foreground text-caption leading-[var(--werft-control-height)]">
             {messages.input}
           </summary>
           <CodeBlock className="mt-2 max-h-60 overflow-y-auto">

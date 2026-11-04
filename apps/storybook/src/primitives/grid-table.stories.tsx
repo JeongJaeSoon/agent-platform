@@ -472,7 +472,7 @@ async function expectAlignedColumns(canvasElement: HTMLElement) {
 }
 
 const T_MANAGED =
-  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+  "minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)";
 
 /** The table draws its own frame; the last column holds each row's button. */
 function ManagedMembers({ locale }: { readonly locale: unknown }) {
@@ -650,7 +650,7 @@ export const InactiveRows: Story = {
     <Frame>
       <GridTable
         aria-label="구성원"
-        columns="minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)"
+        columns="minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)"
       >
         <GridTableHeader>
           <GridTableColumnHeader>구성원</GridTableColumnHeader>
@@ -694,7 +694,7 @@ export const InactiveRows: Story = {
     };
     const ROLE = "[role=cell]:nth-child(2) :is([data-slot=badge], [tabindex])";
     const probe = document.createElement("span");
-    probe.style.color = "var(--ap-color-subtle-foreground)";
+    probe.style.color = "var(--werft-color-subtle-foreground)";
     canvasElement.append(probe);
     const subtle = getComputedStyle(probe).color;
     probe.remove();

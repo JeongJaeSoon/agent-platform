@@ -110,7 +110,7 @@ const ROLE_HELP: Record<WorkspaceRole, string> = {
 };
 const SEARCH_MAX = 200;
 
-const SECTION = "flex flex-col gap-[var(--ap-space-block)]";
+const SECTION = "flex flex-col gap-[var(--werft-space-block)]";
 const MUTED = "m-0 text-muted-foreground";
 const PRIMARY =
   "block break-words font-semibold group-data-[disabled=true]:text-muted-foreground";
@@ -122,9 +122,9 @@ const ROW_LINK =
   "after:absolute after:inset-0 after:rounded-card focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-focus-ring focus-visible:after:outline-offset-2";
 
 const MEMBER_COLUMNS =
-  "minmax(0,1.6fr) 120px minmax(var(--ap-row-action-min-width),1fr)";
+  "minmax(0,1.6fr) 120px minmax(var(--werft-row-action-min-width),1fr)";
 const MEMBER_NARROW_COLUMNS =
-  "minmax(0,1fr) 72px var(--ap-row-action-min-width)";
+  "minmax(0,1fr) 72px var(--werft-row-action-min-width)";
 
 const WORKSPACE = "7c0e7f43-3b5c-4f0e-9a51-0d4c2f1a6b10";
 // The shell's signed-in user is the "나" row.
@@ -377,7 +377,7 @@ function MembersLayout({
       }
       actions={action}
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         <LinkTabs aria-label="구성원 보기">
           {manages ? (
             <LinkTab href="#members" current={tab === "members"}>
@@ -540,7 +540,7 @@ function MembersTab({
   });
 
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       <ListToolbar
         filter={null}
         search={{
@@ -679,7 +679,7 @@ function MemberTableRow({
         <Text
           as="span"
           weight="medium"
-          className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--ap-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]"
+          className="grid max-w-full grid-cols-[minmax(0,auto)_auto] items-center gap-y-[var(--werft-row-line-gap)] @max-md:grid-cols-[minmax(0,auto)]"
         >
           <Text as="span" weight="medium" truncate>
             {name}
@@ -829,7 +829,7 @@ function InvitesTab({
   );
   const pending = invites.filter((invite) => invite.status === "pending");
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       <section className={SECTION} aria-labelledby={titleId}>
         <Heading id={titleId}>대기 중인 초대</Heading>
         {pending.length === 0 ? (
@@ -944,7 +944,7 @@ function TeamCreateAction({
 /** The 팀 tab: what teams are for, then the tab's own sections. */
 function TeamsIntro({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
+    <div className="flex flex-col gap-[var(--werft-space-section)]">
       <Text className={`${MUTED} text-sm`}>
         팀은 사람 묶음입니다. 에이전트의 담당 팀이 되면 팀 관리자는 그
         에이전트를 관리하고, 구성원은 설정을 보고 사용합니다. 팀을 에이전트
@@ -1067,7 +1067,7 @@ function TeamPage({
   const [deleting, setDeleting] = useState(initialDelete);
   const [name, setName] = useState(team.name);
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
+    <div className="flex flex-col gap-[var(--werft-space-section)]">
       <div className="flex items-start justify-between gap-4">
         <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.name}
@@ -1262,7 +1262,7 @@ function TeamMembers({
                         initials={avatarInitials(name)}
                         tone={avatarTone(member.user_id)}
                       />
-                      <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                      <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                         <Text as="span" weight="medium" truncate>
                           {name}
                         </Text>

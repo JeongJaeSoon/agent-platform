@@ -377,8 +377,8 @@ export function ScreenShell({
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     // apps/web styles.css breaks Korean between words on the body.
-    <div className="flex min-h-screen flex-col break-keep text-body wrap-break-word md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
+    <div className="flex min-h-screen flex-col break-keep text-body wrap-break-word md:grid md:grid-cols-[var(--werft-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+      <header className="flex min-h-[var(--werft-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
         <Button
           type="button"
           variant="outline"
@@ -401,9 +401,9 @@ export function ScreenShell({
       <div
         id={sidebarId}
         data-open={menuOpen}
-        className="hidden max-h-[calc(100dvh-var(--ap-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
+        className="hidden max-h-[calc(100dvh-var(--werft-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
       >
-        <div className="-mx-2 hidden h-[var(--ap-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
+        <div className="-mx-2 hidden h-[var(--werft-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
           <Avatar
             initials="A"
             shape="square"

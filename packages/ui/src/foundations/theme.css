@@ -4,72 +4,72 @@
  * after `tailwindcss`; without Tailwind this file does nothing.
  *
  * shadcn's semantic names (`bg-primary`, `border-input`…) exist only as these
- * Tailwind keys and point straight at `--ap-*`: there is no unprefixed
+ * Tailwind keys and point straight at `--werft-*`: there is no unprefixed
  * `--primary` at runtime. shadcn's `accent` is a quiet hover surface; the
- * strong colour is `primary`, which is `--ap-color-accent`. `inline` makes a
+ * strong colour is `primary`, which is `--werft-color-accent`. `inline` makes a
  * utility read the token at runtime, so it follows the dark theme.
  */
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
-  --text-2xs: var(--ap-text-2xs);
-  --text-caption: var(--ap-text-xs);
-  --text-control: var(--ap-text-sm);
-  --text-body: var(--ap-text-label);
-  --text-description: var(--ap-text-sm);
-  --text-description--line-height: var(--ap-leading-body);
-  --text-title: var(--ap-text-title);
-  --text-title--line-height: var(--ap-leading-title);
+  --text-2xs: var(--werft-text-2xs);
+  --text-caption: var(--werft-text-xs);
+  --text-control: var(--werft-text-sm);
+  --text-body: var(--werft-text-label);
+  --text-description: var(--werft-text-sm);
+  --text-description--line-height: var(--werft-leading-body);
+  --text-title: var(--werft-text-title);
+  --text-title--line-height: var(--werft-leading-title);
   --text-title--letter-spacing: -0.025rem;
-  --text-number: var(--ap-text-number);
-  --text-number--line-height: var(--ap-leading-number);
+  --text-number: var(--werft-text-number);
+  --text-number--line-height: var(--werft-leading-number);
 
-  --color-background: var(--ap-color-surface);
-  --color-foreground: var(--ap-color-foreground);
-  --color-card: var(--ap-color-surface);
-  --color-card-foreground: var(--ap-color-foreground);
-  --color-popover: var(--ap-color-surface);
-  --color-popover-foreground: var(--ap-color-foreground);
-  --color-primary: var(--ap-color-accent);
-  --color-primary-hover: var(--ap-color-accent-hover);
-  --color-primary-foreground: var(--ap-color-accent-foreground);
-  --color-secondary: var(--ap-tone-neutral-bg);
-  --color-secondary-foreground: var(--ap-tone-neutral-fg);
-  --color-muted: var(--ap-color-surface-sunken);
-  --color-muted-foreground: var(--ap-color-muted-foreground);
-  --color-accent: var(--ap-tone-neutral-bg);
-  --color-accent-foreground: var(--ap-color-foreground);
-  --color-destructive: var(--ap-tone-danger-fg);
-  --color-destructive-foreground: var(--ap-color-destructive-foreground);
-  --color-border: var(--ap-color-border);
-  --color-input: var(--ap-color-border-input);
-  --color-ring: var(--ap-color-focus-ring);
+  --color-background: var(--werft-color-surface);
+  --color-foreground: var(--werft-color-foreground);
+  --color-card: var(--werft-color-surface);
+  --color-card-foreground: var(--werft-color-foreground);
+  --color-popover: var(--werft-color-surface);
+  --color-popover-foreground: var(--werft-color-foreground);
+  --color-primary: var(--werft-color-accent);
+  --color-primary-hover: var(--werft-color-accent-hover);
+  --color-primary-foreground: var(--werft-color-accent-foreground);
+  --color-secondary: var(--werft-tone-neutral-bg);
+  --color-secondary-foreground: var(--werft-tone-neutral-fg);
+  --color-muted: var(--werft-color-surface-sunken);
+  --color-muted-foreground: var(--werft-color-muted-foreground);
+  --color-accent: var(--werft-tone-neutral-bg);
+  --color-accent-foreground: var(--werft-color-foreground);
+  --color-destructive: var(--werft-tone-danger-fg);
+  --color-destructive-foreground: var(--werft-color-destructive-foreground);
+  --color-border: var(--werft-color-border);
+  --color-input: var(--werft-color-border-input);
+  --color-ring: var(--werft-color-focus-ring);
 
   /* Tokens with no shadcn name. */
-  --color-sidebar: var(--ap-color-sidebar);
-  --color-sidebar-hover: var(--ap-color-sidebar-hover);
-  --color-sidebar-accent: var(--ap-color-sidebar-accent);
-  --color-hover: var(--ap-color-hover);
-  --color-active: var(--ap-color-active);
-  --color-skeleton: var(--ap-color-skeleton);
-  --color-destructive-solid: var(--ap-color-destructive-solid);
-  --color-surface: var(--ap-color-surface);
-  --color-subtle-foreground: var(--ap-color-subtle-foreground);
-  --color-surface-sunken: var(--ap-color-surface-sunken);
-  --color-border-strong: var(--ap-color-border-strong);
-  --color-focus-ring: var(--ap-color-focus-ring);
-  --color-link: var(--ap-color-link);
-  --color-control-checked: var(--ap-color-control-checked);
-  --color-control-unchecked: var(--ap-color-control-unchecked);
-  --color-chart-mark: var(--ap-chart-mark);
-  --color-chart-mark-active: var(--ap-chart-mark-active);
-  --color-chart-track: var(--ap-chart-track);
-  --color-chart-grid: var(--ap-chart-grid);
-  --font-sans: var(--ap-font-sans);
-  --font-mono: var(--ap-font-mono);
-  --radius-control: var(--ap-radius-control);
-  --radius-card: var(--ap-radius-card);
-  --shadow-pop: var(--ap-shadow-pop);
+  --color-sidebar: var(--werft-color-sidebar);
+  --color-sidebar-hover: var(--werft-color-sidebar-hover);
+  --color-sidebar-accent: var(--werft-color-sidebar-accent);
+  --color-hover: var(--werft-color-hover);
+  --color-active: var(--werft-color-active);
+  --color-skeleton: var(--werft-color-skeleton);
+  --color-destructive-solid: var(--werft-color-destructive-solid);
+  --color-surface: var(--werft-color-surface);
+  --color-subtle-foreground: var(--werft-color-subtle-foreground);
+  --color-surface-sunken: var(--werft-color-surface-sunken);
+  --color-border-strong: var(--werft-color-border-strong);
+  --color-focus-ring: var(--werft-color-focus-ring);
+  --color-link: var(--werft-color-link);
+  --color-control-checked: var(--werft-color-control-checked);
+  --color-control-unchecked: var(--werft-color-control-unchecked);
+  --color-chart-mark: var(--werft-chart-mark);
+  --color-chart-mark-active: var(--werft-chart-mark-active);
+  --color-chart-track: var(--werft-chart-track);
+  --color-chart-grid: var(--werft-chart-grid);
+  --font-sans: var(--werft-font-sans);
+  --font-mono: var(--werft-font-mono);
+  --radius-control: var(--werft-radius-control);
+  --radius-card: var(--werft-radius-card);
+  --shadow-pop: var(--werft-shadow-pop);
 }
 
 /*
@@ -81,7 +81,7 @@
   *,
   ::after,
   ::before {
-    border-color: var(--ap-color-border);
+    border-color: var(--werft-color-border);
   }
 
   /*

@@ -8,44 +8,44 @@
 /*
  * Colours and type come from the console's tokens. shadcn.css maps Fumadocs'
  * --color-fd-* onto shadcn's semantic names; tokens.css no longer defines
- * those at runtime, so they point at the --ap-* tokens here, along with the
+ * those at runtime, so they point at the --werft-* tokens here, along with the
  * few names shadcn.css leaves out.
  */
 :root {
-  --background: var(--ap-color-canvas);
-  --foreground: var(--ap-color-foreground);
-  --card: var(--ap-color-surface);
-  --card-foreground: var(--ap-color-foreground);
-  --popover: var(--ap-color-surface);
-  --popover-foreground: var(--ap-color-foreground);
+  --background: var(--werft-color-canvas);
+  --foreground: var(--werft-color-foreground);
+  --card: var(--werft-color-surface);
+  --card-foreground: var(--werft-color-foreground);
+  --popover: var(--werft-color-surface);
+  --popover-foreground: var(--werft-color-foreground);
   /* Fumadocs draws primary mostly as text (the current page, the TOC), so
      it takes the link colour: the blue accent is under 4.5:1 as dark text. */
-  --primary: var(--ap-color-link);
-  --primary-foreground: var(--ap-color-surface);
-  --secondary: var(--ap-tone-neutral-bg);
-  --secondary-foreground: var(--ap-tone-neutral-fg);
-  --muted: var(--ap-color-surface-sunken);
-  --muted-foreground: var(--ap-color-muted-foreground);
-  --accent: var(--ap-tone-neutral-bg);
-  --accent-foreground: var(--ap-color-foreground);
-  --destructive: var(--ap-tone-danger-fg);
-  --border: var(--ap-color-border);
-  --input: var(--ap-color-border-input);
-  --ring: var(--ap-color-focus-ring);
-  --sidebar: var(--ap-color-canvas);
-  --sidebar-foreground: var(--ap-color-foreground);
-  --sidebar-border: var(--ap-color-border);
-  --sidebar-accent: var(--ap-tone-neutral-bg);
-  --sidebar-accent-foreground: var(--ap-color-foreground);
-  --sidebar-ring: var(--ap-color-focus-ring);
-  --sidebar-primary-foreground: var(--ap-color-accent-foreground);
-  --color-fd-overlay: var(--ap-color-overlay);
+  --primary: var(--werft-color-link);
+  --primary-foreground: var(--werft-color-surface);
+  --secondary: var(--werft-tone-neutral-bg);
+  --secondary-foreground: var(--werft-tone-neutral-fg);
+  --muted: var(--werft-color-surface-sunken);
+  --muted-foreground: var(--werft-color-muted-foreground);
+  --accent: var(--werft-tone-neutral-bg);
+  --accent-foreground: var(--werft-color-foreground);
+  --destructive: var(--werft-tone-danger-fg);
+  --border: var(--werft-color-border);
+  --input: var(--werft-color-border-input);
+  --ring: var(--werft-color-focus-ring);
+  --sidebar: var(--werft-color-canvas);
+  --sidebar-foreground: var(--werft-color-foreground);
+  --sidebar-border: var(--werft-color-border);
+  --sidebar-accent: var(--werft-tone-neutral-bg);
+  --sidebar-accent-foreground: var(--werft-color-foreground);
+  --sidebar-ring: var(--werft-color-focus-ring);
+  --sidebar-primary-foreground: var(--werft-color-accent-foreground);
+  --color-fd-overlay: var(--werft-color-overlay);
 }
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: a Tailwind 4 directive */
 @theme inline {
-  --font-sans: var(--ap-font-sans);
-  --font-mono: var(--ap-font-mono);
+  --font-sans: var(--werft-font-sans);
+  --font-mono: var(--werft-font-mono);
 }
 
 html {
@@ -53,5 +53,5 @@ html {
 }
 
 body {
-  font-family: var(--ap-font-sans);
+  font-family: var(--werft-font-sans);
 }

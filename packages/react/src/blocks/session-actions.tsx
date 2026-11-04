@@ -180,7 +180,7 @@ function SummaryQuestion({
   return (
     <>
       <div
-        className="flex min-h-[var(--ap-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+        className="flex min-h-[var(--werft-row-min-height)] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]"
         {...within}
       >
         <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
@@ -231,7 +231,7 @@ function SummaryQuestion({
         id={formId}
         // Open past its expiry, the form stays: its notice takes the focus.
         hidden={!open}
-        className="px-[var(--ap-row-padding-x)] pb-[var(--ap-row-padding-y)]"
+        className="px-[var(--werft-row-padding-x)] pb-[var(--werft-row-padding-y)]"
       >
         {children}
       </div>
@@ -461,7 +461,7 @@ export function PendingAnswers({
         // In a list line an empty notice must not open a gap.
         className={
           summary
-            ? "px-[var(--ap-row-padding-x)] [&:not(:empty)]:pt-[var(--ap-row-padding-y)]"
+            ? "px-[var(--werft-row-padding-x)] [&:not(:empty)]:pt-[var(--werft-row-padding-y)]"
             : undefined
         }
       />
@@ -728,7 +728,7 @@ export function SessionControls({
             "text-destructive hover:text-destructive",
           head &&
             !icons &&
-            "max-xl:w-[var(--ap-control-height-sm)] max-xl:px-0",
+            "max-xl:w-[var(--werft-control-height-sm)] max-xl:px-0",
         )}
         aria-label={icons ? label : undefined}
         // The ui Tooltip opens on a press too, which a command cannot share;

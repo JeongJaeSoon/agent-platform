@@ -25,7 +25,7 @@ type EventsState = "pending" | "verified";
 function SlackEventsStatus({ events }: { readonly events: EventsState }) {
   return (
     <section
-      className="flex flex-col gap-[var(--ap-space-block)] p-4"
+      className="flex flex-col gap-[var(--werft-space-block)] p-4"
       aria-label="상태"
     >
       {events === "pending" ? (

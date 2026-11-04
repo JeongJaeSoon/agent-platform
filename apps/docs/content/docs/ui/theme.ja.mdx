@@ -3,7 +3,7 @@ title: "テーマの適用"
 description: "トークンと Tailwind の接続を import し、ダークテーマを有効にする"
 ---
 
-コンポーネントの色、間隔、フォント、radius、シャドウは、すべて `--ap-` プレフィックスの付いた CSS 変数(トークン)から決まる。アプリは CSS を三つ import し、パッケージのソースを Tailwind にスキャンさせる。
+コンポーネントの色、間隔、フォント、radius、シャドウは、すべて `--werft-` プレフィックスの付いた CSS 変数(トークン)から決まる。アプリは CSS を三つ import し、パッケージのソースを Tailwind にスキャンさせる。
 
 ## CSS を取り込む
 
@@ -19,9 +19,9 @@ description: "トークンと Tailwind の接続を import し、ダークテー
 
 body {
   margin: 0;
-  background: var(--ap-color-canvas);
-  color: var(--ap-color-foreground);
-  font-family: var(--ap-font-sans);
+  background: var(--werft-color-canvas);
+  color: var(--werft-color-foreground);
+  font-family: var(--werft-font-sans);
 }
 ```
 
@@ -44,7 +44,7 @@ body {
 document.documentElement.dataset.theme = "dark";
 ```
 
-コンポーネントは Tailwind の `dark:` variant を使わない。`dark:` は `data-theme` の切り替えを検知できないため、アプリの CSS でも色を変えるときにトークン(`var(--ap-color-…)`)を使えば、どちらの方式にも追従する。
+コンポーネントは Tailwind の `dark:` variant を使わない。`dark:` は `data-theme` の切り替えを検知できないため、アプリの CSS でも色を変えるときにトークン(`var(--werft-color-…)`)を使えば、どちらの方式にも追従する。
 
 ## 上書き
 

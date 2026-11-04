@@ -118,7 +118,7 @@ export function GridTable({
 }
 
 const ROW =
-  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--ap-row-padding-x)] last:border-b-0";
+  "relative grid grid-cols-[var(--grid-table-columns)] items-center gap-4 border-b px-[var(--werft-row-padding-x)] last:border-b-0";
 
 function useNarrow(): (typeof NARROW)[GridTableNarrowAt] | undefined {
   const narrowAt = useContext(NarrowAtContext);
@@ -138,7 +138,7 @@ export function GridTableHeader({
       className={cn(
         ROW,
         narrow?.row,
-        "min-h-[var(--ap-row-head-min-height)] rounded-t-card bg-surface-sunken py-[var(--ap-row-head-padding-y)] font-medium text-caption text-subtle-foreground",
+        "min-h-[var(--werft-row-head-min-height)] rounded-t-card bg-surface-sunken py-[var(--werft-row-head-padding-y)] font-medium text-caption text-subtle-foreground",
         className,
       )}
       {...props}
@@ -172,7 +172,7 @@ export function GridTableRow({
       className={cn(
         ROW,
         narrow?.row,
-        "min-h-[var(--ap-row-min-height)] py-[var(--ap-row-padding-y)] text-control",
+        "min-h-[var(--werft-row-min-height)] py-[var(--werft-row-padding-y)] text-control",
         "has-[[data-slot=grid-table-row-opener]]:cursor-pointer has-[[data-slot=grid-table-row-opener]]:hover:bg-hover",
         className,
       )}
@@ -240,7 +240,7 @@ export function GridTableColumnHeader({
       {...props}
     >
       {action ? (
-        <span className="min-w-[var(--ap-row-action-button-min-width)] text-center">
+        <span className="min-w-[var(--werft-row-action-button-min-width)] text-center">
           {children}
         </span>
       ) : (
@@ -286,7 +286,7 @@ export function GridTableCell({
         cellClasses(narrow, { align, hideNarrow }),
         // The lines after the first that is not the row opener.
         lines &&
-          "flex-col items-start gap-[var(--ap-row-line-gap)] leading-5 [&>:not([data-slot=grid-table-row-opener])~*]:max-w-full [&>:not([data-slot=grid-table-row-opener])~*]:truncate [&>:not([data-slot=grid-table-row-opener])~*]:leading-4",
+          "flex-col items-start gap-[var(--werft-row-line-gap)] leading-5 [&>:not([data-slot=grid-table-row-opener])~*]:max-w-full [&>:not([data-slot=grid-table-row-opener])~*]:truncate [&>:not([data-slot=grid-table-row-opener])~*]:leading-4",
         raised && "relative z-1",
         className,
       )}

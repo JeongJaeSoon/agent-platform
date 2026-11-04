@@ -72,7 +72,7 @@ export function Steps({
               className={cn(
                 "grid size-6 flex-none place-content-center rounded-full border font-semibold text-xs",
                 state === "done"
-                  ? "border-(color:--ap-tone-success-border) bg-(color:--ap-tone-success-bg) text-(color:--ap-tone-success-fg)"
+                  ? "border-(color:--werft-tone-success-border) bg-(color:--werft-tone-success-bg) text-(color:--werft-tone-success-fg)"
                   : state === "unknown"
                     ? "border-border-strong border-dashed text-muted-foreground"
                     : "border-border-strong text-muted-foreground",

@@ -91,8 +91,8 @@ function lcsLines(a: string[], b: string[]): DiffLine[] {
 const MARK = { same: " ", added: "+", removed: "-" } as const;
 const LINE = {
   same: "block",
-  added: "block bg-[var(--ap-tone-progress-bg)]",
-  removed: "block bg-[var(--ap-tone-danger-bg)] line-through",
+  added: "block bg-[var(--werft-tone-progress-bg)]",
+  removed: "block bg-[var(--werft-tone-danger-bg)] line-through",
 } as const;
 
 // Text as written; anything else as its JSON.

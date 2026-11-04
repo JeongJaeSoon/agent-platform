@@ -28,13 +28,13 @@ describe("styles.css", () => {
 
   test("Japanese takes a Japanese face before Pretendard, so no word mixes faces", () => {
     const stack =
-      css.match(/:lang\(ja\) \{\s*--ap-font-sans:([^;]+);/)?.[1] ?? "";
+      css.match(/:lang\(ja\) \{\s*--werft-font-sans:([^;]+);/)?.[1] ?? "";
     expect(stack.indexOf("Hiragino Sans")).toBeGreaterThan(-1);
     expect(stack.indexOf("Hiragino Sans")).toBeLessThan(
       stack.indexOf("Pretendard"),
     );
     expect(css).toMatch(
-      /\[lang="ja"\] \{\s*font-family: var\(--ap-font-sans\);/,
+      /\[lang="ja"\] \{\s*font-family: var\(--werft-font-sans\);/,
     );
   });
 

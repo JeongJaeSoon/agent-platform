@@ -96,7 +96,7 @@ describe("MoreLink는 화면의 이전 손 조립과 같은 DOM을 낸다", () =
     const before = html(
       <Link
         asChild
-        className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
+        className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--werft-color-link) text-control"
       >
         <a href="/sessions">
           모두 보기
@@ -163,11 +163,11 @@ describe("IconTile", () => {
     const [line, twoLine] = container.querySelectorAll("[data-slot=icon-tile]");
     expect(line?.getAttribute("aria-hidden")).toBe("true");
     expect(line?.getAttribute("data-hue")).toBe("violet");
-    expect(classes(line as Element)).toContain("bg-(--ap-color-tile-violet)");
-    expect(classes(line as Element)).toContain("size-(--ap-size-icon-tile)");
+    expect(classes(line as Element)).toContain("bg-(--werft-color-tile-violet)");
+    expect(classes(line as Element)).toContain("size-(--werft-size-icon-tile)");
     expect(twoLine?.getAttribute("data-hue")).toBe("teal");
     expect(classes(twoLine as Element)).toContain(
-      "size-(--ap-size-tile-two-line)",
+      "size-(--werft-size-tile-two-line)",
     );
     expect(twoLine?.querySelector("svg")?.getAttribute("class")).toContain(
       "size-5",

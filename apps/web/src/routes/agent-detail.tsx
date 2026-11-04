@@ -424,7 +424,7 @@ function AgentView({
     <Tabs
       value={tab}
       onValueChange={(next) => openTab(next as AgentTab)}
-      className="min-w-0 gap-[var(--ap-space-block)]"
+      className="min-w-0 gap-[var(--werft-space-block)]"
     >
       <div className="border-b">
         <TabsList variant="line" aria-label={t("agent.tabs.label")}>

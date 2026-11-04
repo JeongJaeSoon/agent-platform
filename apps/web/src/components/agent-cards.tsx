@@ -199,7 +199,7 @@ function AgentCard({
       <CardHeader>
         <div className="flex min-w-0 items-center gap-3">
           <AgentAvatar name={agent.name} size="two-line" />
-          <div className="flex min-w-0 flex-col gap-(--ap-row-line-gap)">
+          <div className="flex min-w-0 flex-col gap-(--werft-row-line-gap)">
             <CardTitle className="[overflow-wrap:anywhere]">
               <RouterLink
                 to="/agents/$id"
@@ -216,7 +216,7 @@ function AgentCard({
               truncate
               title={agent.slug}
               // Above the card's stretched link, so the hover reaches the title.
-              className="relative z-1 leading-(--ap-leading-caption)"
+              className="relative z-1 leading-(--werft-leading-caption)"
             >
               <span className="sr-only">{t("agents.slug")} </span>
               {agent.slug}

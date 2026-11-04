@@ -58,7 +58,7 @@ export function MoreLink({
         size === "caption"
           ? "whitespace-nowrap font-normal text-caption leading-4"
           : arrow
-            ? "inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--ap-color-link) text-control"
+            ? "inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-(color:--werft-color-link) text-control"
             : "text-control",
         className,
       )}

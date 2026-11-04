@@ -100,7 +100,7 @@ function Approvals() {
 function SessionsPanel({ state }: { readonly state: PanelState }) {
   if (state === "approvals") {
     return (
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         <Approvals />
         <SessionsPanel state="ready" />
       </div>

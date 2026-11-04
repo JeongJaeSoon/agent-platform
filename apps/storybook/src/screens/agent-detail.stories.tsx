@@ -36,7 +36,7 @@ function SlackNotConnected({ active }: { readonly active: boolean }) {
       <section
         id={SLACK_SECTION}
         tabIndex={-1}
-        className="flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none"
+        className="flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none"
         aria-labelledby={SLACK_TITLE}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">

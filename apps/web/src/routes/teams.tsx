@@ -250,7 +250,7 @@ export function TeamsScreen() {
 function TeamsTab({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
+    <div className="flex flex-col gap-[var(--werft-space-section)]">
       <Text variant="sub">{t("teams.intro")}</Text>
       {children}
     </div>
@@ -283,7 +283,7 @@ function TeamPage({ id }: { readonly id: string }) {
   // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
   // heads the tab with the way back beside it.
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
+    <div className="flex flex-col gap-[var(--werft-space-section)]">
       <div className="flex items-start justify-between gap-4">
         <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.error ? t("teams.title") : team.data.name}
@@ -673,7 +673,7 @@ function TeamMembers({
                         initials={avatarInitials(name)}
                         tone={avatarTone(member.user_id)}
                       />
-                      <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                      <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                         <Text as="span" weight="medium" truncate>
                           {name}
                         </Text>

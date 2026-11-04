@@ -78,14 +78,14 @@ Radix·`class-variance-authority`·`clsx`·`tailwind-merge`·`lucide-react`는 `
 
 배포 tarball(`bun run --cwd packages/ui build:package`가 만드는 `dist`)의 `styles.css`는 Tailwind CLI로 미리 빌드한 CSS다.
 토큰·`ap-*` 규칙·키트가 쓰는 유틸리티가 들어 있어, Tailwind 없는 앱도 `import "@werft-ai/ui/styles.css"` 한 줄로 그려진다.
-preflight는 넣지 않고, 키트 요소와 그 안쪽에만 거는 preflight 대체 규칙을 넣는다. 다만 함께 빌드되는 `theme.css`가 모든 요소의 `border-color`를 `--ap-color-border`로 정한다.
+preflight는 넣지 않고, 키트 요소와 그 안쪽에만 거는 preflight 대체 규칙을 넣는다. 다만 함께 빌드되는 `theme.css`가 모든 요소의 `border-color`를 `--werft-color-border`로 정한다.
 저장소 워크스페이스의 `@werft-ai/ui/styles.css`는 빌드 전 소스라 이 경로가 아니라 경로 1로 쓴다.
 
 preflight가 없는 앱에서 키트가 어떻게 보이는지는 Foundations/No preflight에서 본다. preflight를 shadow root로 막고 경로 1의 나머지만 적용한 화면이다.
 
 ## 폰트
 
-배포 tarball에는 글꼴이 없다. 빌드가 `styles.css`의 `fonts.css` import를 빼므로, 쓰는 쪽 앱이 Geist·Geist Mono·Pretendard를 로드하지 않으면 `--ap-font-sans`·`--ap-font-mono`는 시스템 글꼴로 떨어진다.
+배포 tarball에는 글꼴이 없다. 빌드가 `styles.css`의 `fonts.css` import를 빼므로, 쓰는 쪽 앱이 Geist·Geist Mono·Pretendard를 로드하지 않으면 `--werft-font-sans`·`--werft-font-mono`는 시스템 글꼴로 떨어진다.
 저장소 워크스페이스에서는 소스 `styles.css`가 `fonts.css`를 import한다. Geist·Geist Mono는 `src/foundations/fonts/`에 있고, 한글은 `devDependencies`의 `pretendard` dynamic subset을 쓴다. CDN에서 받는 글꼴은 없다.
 
 ## 테마

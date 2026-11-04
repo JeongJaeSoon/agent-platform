@@ -147,7 +147,7 @@ export function SessionsScreen() {
           </Link>
         }
       >
-        <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <div className="flex flex-col gap-[var(--werft-space-block)]">
           <ApprovalInbox
             layout="summary"
             rail={rail}

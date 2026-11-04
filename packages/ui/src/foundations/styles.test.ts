@@ -86,7 +86,7 @@ function motionDeclarations(
 
 function customProperties(predicate: (d: Declaration) => boolean): string[] {
   return tokenDeclarations
-    .filter((d) => d.property.startsWith("--ap-") && predicate(d))
+    .filter((d) => d.property.startsWith("--werft-") && predicate(d))
     .map((d) => d.property);
 }
 
@@ -114,8 +114,8 @@ function paletteOf(
   const palette = new Map<string, string>();
   for (const declaration of tokenDeclarations) {
     if (
-      !declaration.property.startsWith("--ap-color") &&
-      !declaration.property.startsWith("--ap-tone")
+      !declaration.property.startsWith("--werft-color") &&
+      !declaration.property.startsWith("--werft-tone")
     ) {
       continue;
     }
@@ -167,25 +167,25 @@ describe("이름공간", () => {
     expect(outsideApLayer(STYLES)).toBe("");
   });
 
-  test("theme.css의 Tailwind 키는 모두 --ap- 토큰을 가리킨다", () => {
+  test("theme.css의 Tailwind 키는 모두 --werft- 토큰을 가리킨다", () => {
     const keys = parse(THEME).filter((d) => d.selector === "@theme inline");
     expect(keys.length).toBeGreaterThan(40);
     const loose = keys.filter(
       (d) =>
-        d.property.startsWith("--ap-") ||
-        !/^(var\(--ap-[\w-]+\)|-?[\d.]+rem)$/.test(d.value),
+        d.property.startsWith("--werft-") ||
+        !/^(var\(--werft-[\w-]+\)|-?[\d.]+rem)$/.test(d.value),
     );
     expect(loose.map((d) => `${d.property}: ${d.value}`)).toEqual([]);
   });
 
-  test("theme.css는 --ap- 밖의 변수를 읽지 않는다", () => {
+  test("theme.css는 --werft- 밖의 변수를 읽지 않는다", () => {
     // A rule reading a Tailwind theme key makes Tailwind emit that key on
     // `:root`, outside the namespace.
     const reads = parse(THEME).flatMap((d) =>
       [...d.value.matchAll(/var\(\s*(--[\w-]+)/g)].map(([, name]) => name),
     );
     expect(reads.length).toBeGreaterThan(40);
-    expect(reads.filter((name) => !name?.startsWith("--ap-"))).toEqual([]);
+    expect(reads.filter((name) => !name?.startsWith("--werft-"))).toEqual([]);
   });
 
   test("ap layer가 Tailwind layer 뒤에 온다", () => {
@@ -194,10 +194,10 @@ describe("이름공간", () => {
     );
   });
 
-  test("키트가 선언하는 커스텀 프로퍼티는 모두 --ap- 접두사를 단다", () => {
+  test("키트가 선언하는 커스텀 프로퍼티는 모두 --werft- 접두사를 단다", () => {
     const unprefixed = [...tokenDeclarations, ...styleDeclarations]
       .filter((d) => d.property.startsWith("--"))
-      .filter((d) => !d.property.startsWith("--ap-"))
+      .filter((d) => !d.property.startsWith("--werft-"))
       .map((d) => `${d.selector} { ${d.property} }`);
     expect(unprefixed).toEqual([]);
   });
@@ -245,10 +245,10 @@ describe("tokens.css", () => {
       "success",
     ];
     const SURFACES = [
-      "--ap-color-sidebar",
-      "--ap-color-surface",
-      "--ap-color-surface-sunken",
-      ...TONES.map((tone) => `--ap-tone-${tone}-bg`),
+      "--werft-color-sidebar",
+      "--werft-color-surface",
+      "--werft-color-surface-sunken",
+      ...TONES.map((tone) => `--werft-tone-${tone}-bg`),
     ];
     const light = paletteOf(
       (d) => d.selector === ":root" && d.atRules.length === 0,
@@ -269,9 +269,9 @@ describe("tokens.css", () => {
       ],
     ];
     const TEXT = [
-      "--ap-color-foreground",
-      "--ap-color-muted-foreground",
-      "--ap-color-subtle-foreground",
+      "--werft-color-foreground",
+      "--werft-color-muted-foreground",
+      "--werft-color-subtle-foreground",
     ];
 
     const failures: string[] = [];
@@ -292,12 +292,12 @@ describe("tokens.css", () => {
       expect(palette.size).toBeGreaterThan(0);
       const pairs: [string[], string[]][] = [
         [TEXT, SURFACES],
-        [TEXT, ["--ap-color-sidebar-hover", "--ap-color-sidebar-accent"]],
+        [TEXT, ["--werft-color-sidebar-hover", "--werft-color-sidebar-accent"]],
         // A status label draws its own tone on its own background — the pair
         // the whole StatusLabel vocabulary rests on.
         ...TONES.map(
           (tone) =>
-            [[`--ap-tone-${tone}-fg`], [`--ap-tone-${tone}-bg`]] as [
+            [[`--werft-tone-${tone}-fg`], [`--werft-tone-${tone}-bg`]] as [
               string[],
               string[],
             ],
@@ -342,21 +342,21 @@ describe("tokens.css", () => {
     // Matched by suffix: Tailwind scans this file, and the full theme key
     // written out here would be emitted into apps/web's CSS.
     expect(parse(THEME).find((d) => d.property.endsWith("-input"))?.value).toBe(
-      "var(--ap-color-border-input)",
+      "var(--werft-color-border-input)",
     );
     const ratios = themes.flatMap(([theme, palette]) =>
       // surface-sunken: the default Tabs track the active tab's edge sits on.
       [
-        "--ap-color-surface",
-        "--ap-color-sidebar",
-        "--ap-color-surface-sunken",
+        "--werft-color-surface",
+        "--werft-color-sidebar",
+        "--werft-color-surface-sunken",
       ].map((surface) => {
         const bg = palette.get(surface) ?? "";
         const ratio = contrast(
-          palette.get("--ap-color-border-input") ?? "",
+          palette.get("--werft-color-border-input") ?? "",
           bg,
         );
-        const line = contrast(palette.get("--ap-color-border") ?? "", bg);
+        const line = contrast(palette.get("--werft-color-border") ?? "", bg);
         return `${theme} ${surface} ${ratio > line ? "ok" : `${ratio.toFixed(2)} <= ${line.toFixed(2)}`}`;
       }),
     );
@@ -364,13 +364,13 @@ describe("tokens.css", () => {
     // The resting edge is under 3:1 by choice (tokens.css); hover makes up
     // the 3:1 under the pointer and never stands out less than the rest.
     const hover = themes.map(([theme, palette]) => {
-      const surface = palette.get("--ap-color-surface") ?? "";
+      const surface = palette.get("--werft-color-surface") ?? "";
       const rest = contrast(
-        palette.get("--ap-color-border-input") ?? "",
+        palette.get("--werft-color-border-input") ?? "",
         surface,
       );
       const over = contrast(
-        palette.get("--ap-color-subtle-foreground") ?? "",
+        palette.get("--werft-color-subtle-foreground") ?? "",
         surface,
       );
       return `${theme} ${over >= rest && over >= 3 ? "ok" : `${over.toFixed(2)} vs ${rest.toFixed(2)}`}`;
@@ -381,29 +381,29 @@ describe("tokens.css", () => {
   test("링크·상태 점·주 버튼·아이콘 타일·채운 위험 버튼·켜진 Switch가 바탕에서 AA를 넘는다", () => {
     // Link text 4.5:1; a dot is a graphic, 3:1 (WCAG 1.4.11).
     const DOTS = ["wait", "run", "idle", "done", "failed"].map(
-      (state) => `--ap-color-status-dot-${state}`,
+      (state) => `--werft-color-status-dot-${state}`,
     );
     const pairs: [string, string, number][] = [
       ...[
-        "--ap-color-surface",
-        "--ap-color-sidebar",
-        "--ap-color-surface-sunken",
+        "--werft-color-surface",
+        "--werft-color-sidebar",
+        "--werft-color-surface-sunken",
       ].flatMap((surface): [string, string, number][] => [
-        ["--ap-color-link", surface, 4.5],
+        ["--werft-color-link", surface, 4.5],
         ...DOTS.map((dot): [string, string, number] => [dot, surface, 3]),
       ]),
       [
-        "--ap-color-destructive-foreground",
-        "--ap-color-destructive-solid",
+        "--werft-color-destructive-foreground",
+        "--werft-color-destructive-solid",
         4.5,
       ],
-      ["--ap-color-focus-ring", "--ap-color-surface", 3],
+      ["--werft-color-focus-ring", "--werft-color-surface", 3],
       // The primary button's label, at rest and under the pointer.
-      ["--ap-color-accent-foreground", "--ap-color-accent", 4.5],
-      ["--ap-color-accent-foreground", "--ap-color-accent-hover", 4.5],
+      ["--werft-color-accent-foreground", "--werft-color-accent", 4.5],
+      ["--werft-color-accent-foreground", "--werft-color-accent-hover", 4.5],
       // A chart's bars, in the accent, on the cards they sit on.
-      ["--ap-color-accent", "--ap-color-surface", 3],
-      ["--ap-color-accent", "--ap-color-surface-sunken", 3],
+      ["--werft-color-accent", "--werft-color-surface", 3],
+      ["--werft-color-accent", "--werft-color-surface-sunken", 3],
       // An icon tile's glyph on its hue.
       ...[
         "blue",
@@ -415,18 +415,18 @@ describe("tokens.css", () => {
         "sky",
         "slate",
       ].map((hue): [string, string, number] => [
-        "--ap-color-tile-foreground",
-        `--ap-color-tile-${hue}`,
+        "--werft-color-tile-foreground",
+        `--werft-color-tile-${hue}`,
         3,
       ]),
       // A switch's track, on or off, on the page.
       ...[
-        "--ap-color-surface",
-        "--ap-color-sidebar",
-        "--ap-color-surface-sunken",
+        "--werft-color-surface",
+        "--werft-color-sidebar",
+        "--werft-color-surface-sunken",
       ].flatMap((surface): [string, string, number][] => [
-        ["--ap-color-control-checked", surface, 3],
-        ["--ap-color-control-unchecked", surface, 3],
+        ["--werft-color-control-checked", surface, 3],
+        ["--werft-color-control-unchecked", surface, 3],
       ]),
     ];
     const themes: [string, Map<string, string>][] = [
@@ -449,7 +449,7 @@ describe("tokens.css", () => {
     for (const name of ["control-checked", "control-unchecked"]) {
       expect(
         parse(THEME).find((d) => d.property.endsWith(`-${name}`))?.value,
-      ).toBe(`var(--ap-color-${name})`);
+      ).toBe(`var(--werft-color-${name})`);
     }
     const failures = themes.flatMap(([theme, palette]) =>
       pairs.flatMap(([fg, bg, floor]) => {
@@ -489,7 +489,7 @@ describe("tokens.css", () => {
       customProperties((d) => d.selector === ':root[data-theme="dark"]'),
     );
 
-    // An alias (`var(--ap-…)`) follows its target, which is checked itself.
+    // An alias (`var(--werft-…)`) follows its target, which is checked itself.
     const aliases = new Set(
       tokenDeclarations
         .filter((d) => d.selector === ":root" && d.value.startsWith("var("))
@@ -497,7 +497,7 @@ describe("tokens.css", () => {
     );
     const themed = [...light].filter(
       (name) =>
-        /^--ap-(color|tone|shadow|avatar)-/.test(name) && !aliases.has(name),
+        /^--werft-(color|tone|shadow|avatar)-/.test(name) && !aliases.has(name),
     );
     expect(themed.length).toBeGreaterThan(0);
     for (const name of themed) {
@@ -517,8 +517,8 @@ describe("tokens.css", () => {
       d.atRules.includes(REDUCED_MOTION),
     );
     expect(reduced.map((d) => d.property).sort()).toEqual([
-      "--ap-motion-fast",
-      "--ap-motion-normal",
+      "--werft-motion-fast",
+      "--werft-motion-normal",
     ]);
     for (const declaration of reduced) {
       expect(declaration.value).toBe("0ms");
@@ -556,9 +556,9 @@ describe("styles.css", () => {
       inactive.find((d) => d.property === property)?.value;
     // subtle-foreground is the faintest text that holds AA on every
     // surface and tone bg (tokens.css test above).
-    expect(value("color")).toBe("var(--ap-color-subtle-foreground)");
-    expect(value("--ap-color-foreground")).toBe(
-      "var(--ap-color-subtle-foreground)",
+    expect(value("color")).toBe("var(--werft-color-subtle-foreground)");
+    expect(value("--werft-color-foreground")).toBe(
+      "var(--werft-color-subtle-foreground)",
     );
     // Every tone a badge or status label can take turns neutral.
     for (const tone of [
@@ -570,10 +570,10 @@ describe("styles.css", () => {
       "positive",
       "success",
     ]) {
-      expect(value(`--ap-tone-${tone}-fg`)).toBe(
-        "var(--ap-color-subtle-foreground)",
+      expect(value(`--werft-tone-${tone}-fg`)).toBe(
+        "var(--werft-color-subtle-foreground)",
       );
-      expect(value(`--ap-tone-${tone}-bg`)).toBe("var(--ap-tone-neutral-bg)");
+      expect(value(`--werft-tone-${tone}-bg`)).toBe("var(--werft-tone-neutral-bg)");
     }
   });
 

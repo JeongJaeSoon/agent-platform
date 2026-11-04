@@ -5,12 +5,12 @@ import { cn } from "../foundations/cn.ts";
 export type StatusDotStatus = "wait" | "run" | "idle" | "done" | "failed";
 
 const STATUS_DOT: Record<StatusDotStatus, string> = {
-  wait: "bg-(color:--ap-color-status-dot-wait)",
+  wait: "bg-(color:--werft-color-status-dot-wait)",
   // A turning ring; with reduced motion, a still dot like the others.
-  run: "size-2.5 animate-spin border-[1.5px] border-(color:--ap-color-status-dot-run) border-r-transparent motion-reduce:size-2 motion-reduce:animate-none motion-reduce:border-r-(color:--ap-color-status-dot-run) motion-reduce:bg-(color:--ap-color-status-dot-run)",
-  idle: "bg-(color:--ap-color-status-dot-idle)",
-  done: "bg-(color:--ap-color-status-dot-done)",
-  failed: "bg-(color:--ap-color-status-dot-failed)",
+  run: "size-2.5 animate-spin border-[1.5px] border-(color:--werft-color-status-dot-run) border-r-transparent motion-reduce:size-2 motion-reduce:animate-none motion-reduce:border-r-(color:--werft-color-status-dot-run) motion-reduce:bg-(color:--werft-color-status-dot-run)",
+  idle: "bg-(color:--werft-color-status-dot-idle)",
+  done: "bg-(color:--werft-color-status-dot-done)",
+  failed: "bg-(color:--werft-color-status-dot-failed)",
 };
 
 export type StatusDotProps = Omit<ComponentProps<"span">, "children"> & {
