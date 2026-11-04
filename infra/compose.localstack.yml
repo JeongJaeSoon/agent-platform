@@ -8,7 +8,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
     ports:
-      - "127.0.0.1:4566:4566"
+      - "127.0.0.1:${TEST_OPS_LOCALSTACK_PORT:-4566}:4566"
     # No data volume: LocalStack keeps S3 in memory, so the bucket is gone
     # with the container whatever is mounted. The API refuses to
     # start on an empty bucket the database still holds checkpoints for.
