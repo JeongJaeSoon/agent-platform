@@ -10,8 +10,7 @@ const stateOf = (profile: ProfileSummary) =>
 export const pickable = (profile: ProfileSummary) =>
   stateOf(profile) === "usable";
 
-/** Whether a session may start on a release pinned to it: retiring spares those. */
-export const startable = (profile: ProfileSummary) => {
+export const startableWhenPinned = (profile: ProfileSummary) => {
   const state = stateOf(profile);
   return (
     state === undefined ||

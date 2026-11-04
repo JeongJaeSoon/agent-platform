@@ -38,28 +38,20 @@ import { profilesQuery } from "../../api/queries.ts";
 import { useCan, useMe } from "../../auth/guard.tsx";
 import { ReasonButton } from "../../auth/reason-button.tsx";
 import { FormError } from "../../components/auth-page.tsx";
-import { startable } from "../../components/profile-options.tsx";
+import { startableWhenPinned } from "../../components/profile-options.tsx";
 import { errorKey, type Translate, useI18n } from "../../i18n/i18n.tsx";
 
 type AgentBlock = "archived" | "paused" | "noRelease";
 type ReleaseBlock = "profile" | "repository";
 
-/**
- * What the agent's own state stops. The server does not refuse a paused or
- * archived agent's release; keeping it off here is the console's policy.
- */
-export function agentBlock(
+function consolePolicyBlock(
   agent: Pick<Agent, "status" | "active_release_id">,
 ): AgentBlock | null {
   if (agent.status !== "active") return agent.status;
   return agent.active_release_id === null ? "noRelease" : null;
 }
 
-/**
- * What the server would refuse of this release. Without `profile` nothing is
- * known yet, so nothing is withheld: its refusal speaks in the dialog.
- */
-export function releaseBlock(
+function foreseenServerRefusal(
   release: Pick<AgentRelease, "runtime_profile_id" | "repository_id"> & {
     readonly policy_pins: Pick<AgentRelease["policy_pins"], "github">;
   },
@@ -69,7 +61,7 @@ export function releaseBlock(
   const profile = profiles.find(
     (listed) => listed.id === release.runtime_profile_id,
   );
-  if (profile === undefined || !startable(profile)) return "profile";
+  if (profile === undefined || !startableWhenPinned(profile)) return "profile";
   const repository = release.repository_id;
   if (repository === null) {
     return profile.repository_mode === "required" ? "repository" : null;
@@ -88,7 +80,6 @@ function useScopeReason(): string | undefined {
     : t("guard.missingScope", { scope: "sessions:write" });
 }
 
-/** Why someone with the agent's whole detail cannot start a session. */
 export function useNewSessionReason(detail: AgentDetail): string | undefined {
   const { t } = useI18n();
   const { client } = useAgentPlatform();
@@ -98,24 +89,22 @@ export function useNewSessionReason(detail: AgentDetail): string | undefined {
     ...profilesQuery(client),
     enabled: release !== null,
   });
-  const stopped = agentBlock(detail.agent);
+  const stopped = consolePolicyBlock(detail.agent);
   if (stopped !== null) return t(AGENT_REASONS[stopped]);
   if (scopeReason !== undefined) return scopeReason;
-  const refused = release ? releaseBlock(release, profiles.data?.items) : null;
+  const refused = release
+    ? foreseenServerRefusal(release, profiles.data?.items)
+    : null;
   return refused === null ? undefined : t(RELEASE_REASONS[refused]);
 }
 
-/**
- * The same for a member outside the agent, who reads only its row: the
- * release's profile and repository are the server's to judge.
- */
 export function useOutsiderNewSessionReason(
   agent: Pick<Agent, "status" | "active_release_id">,
 ): string | undefined {
   const { t } = useI18n();
   const scopeReason = useScopeReason();
   const access = useMe()?.workspace?.settings.agent_outsider_access;
-  const block = agentBlock(agent);
+  const block = consolePolicyBlock(agent);
   if (block !== null) return t(AGENT_REASONS[block]);
   if (scopeReason !== undefined) return scopeReason;
   return access === "use" || access === undefined
@@ -134,7 +123,6 @@ const RELEASE_REASONS = {
   repository: "agent.newSession.blocked.repository",
 } as const satisfies Record<ReleaseBlock, Parameters<Translate>[0]>;
 
-/** The reason on the page itself: a tooltip alone needs hover, focus or a tap. */
 export function NewSessionReason({
   reason,
 }: {
@@ -146,7 +134,6 @@ export function NewSessionReason({
 type CreateBody = { agent_release_id: string; message: string };
 type Attempt = { readonly key: string; readonly body: CreateBody };
 
-/** The server said no, so it took nothing under this attempt's key. */
 const refusedByServer = (error: ApiError) =>
   error.status >= 400 && error.status < 500;
 
@@ -156,7 +143,6 @@ export function NewSessionButton({
   reason,
 }: {
   readonly releaseId: string | null;
-  /** The release's repository; undefined when this viewer cannot read it. */
   readonly repository?: string | null | undefined;
   readonly reason: string | undefined;
 }) {
@@ -166,13 +152,9 @@ export function NewSessionButton({
   const navigate = useNavigate();
   const fieldId = useId();
   const [open, setOpen] = useState(false);
-  // Outside the dialog's content, so closing it does not lose what was typed.
   const [message, setMessage] = useState("");
   const [blank, setBlank] = useState(false);
-  // An answer that never came may still have made the session. Sending the
-  // same key and the same body gets that session back; the release may have
-  // changed by then, and the server hashes the whole body.
-  const attempt = useRef<Attempt | null>(null);
+  const unanswered = useRef<Attempt | null>(null);
   const create = useMutation<CreateSessionResponse, ApiError, Attempt>({
     mutationFn: ({ key, body }) =>
       unwrap(
@@ -197,11 +179,9 @@ export function NewSessionButton({
       });
     },
     onError: (error) => {
-      if (refusedByServer(error)) attempt.current = null;
+      if (refusedByServer(error)) unanswered.current = null;
     },
   });
-  // Not every code the session refuses with has a line in the console's
-  // catalog; the shared guidance has the rest.
   const refusal = (error: ApiError) => {
     const key = errorKey(error.code);
     return key === "error.UNKNOWN"
@@ -215,26 +195,24 @@ export function NewSessionButton({
       setBlank(true);
       return;
     }
-    const last = attempt.current;
+    const resend = unanswered.current;
     const next =
-      last?.body.message === message
-        ? last
+      resend?.body.message === message
+        ? resend
         : {
             key: crypto.randomUUID(),
             body: { agent_release_id: releaseId, message },
           };
-    attempt.current = next;
+    unanswered.current = next;
     create.mutate(next);
   };
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // Once sent the answer decides where this goes.
         if (!create.isPending) setOpen(next);
       }}
     >
-      {/* As the trigger, the button gets the focus back when the dialog closes. */}
       <DialogTrigger asChild>
         <ReasonButton className={buttonVariants()} reason={reason}>
           {t("agent.newSession")}

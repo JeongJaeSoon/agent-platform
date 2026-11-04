@@ -90,8 +90,6 @@ const card = {
   rules: [],
 };
 
-// What the console's button sends, with the console's credential: the
-// session cookie and the CSRF header, no API key.
 integration("starting an agent's session from the console", () => {
   let database: TempDatabase;
   let pool: Pool;

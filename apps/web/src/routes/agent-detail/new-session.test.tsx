@@ -52,7 +52,6 @@ type Routes = Record<
   (request: Request) => Response | Promise<Response>
 >;
 
-/** The fake server with its one version released and active. */
 async function released(repositoryMode: ProfileSummary["repository_mode"]) {
   const server = agentServer({ repositoryMode });
   const routes = server.routes as Routes;
@@ -86,7 +85,6 @@ function withRelease(
 
 type ProfileChange = (items: ProfileSummary[]) => ProfileSummary[];
 
-/** Profiles answered as `items`, on top of what the fake lists. */
 function profilesRoute(server: { routes: unknown }, change: ProfileChange) {
   return {
     "GET /v1/profiles": async (request: Request) => {
@@ -116,7 +114,6 @@ async function button() {
   return screen.findByRole("button", { name: BUTTON });
 }
 
-/** The way a person gets there, with the button's aria-disabled settled. */
 async function openDialog() {
   const user = await setupUser();
   await waitFor(async () =>
@@ -127,7 +124,6 @@ async function openDialog() {
 }
 
 async function expectBlocked(reason: string) {
-  // On the page before any hover, focus or tap, and nowhere only in a tooltip.
   const lines = await screen.findAllByText(reason);
   expect(
     lines.some((line) => line.closest("[hidden], [role=tooltip]") === null),
@@ -209,7 +205,9 @@ describe("이 에이전트로 새 세션", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog") === null).toBe(true),
     );
-    await user.click(await button());
+    const start = await button();
+    await waitFor(() => expect(document.activeElement === start).toBe(true));
+    await user.click(start);
     const reopened = await screen.findByRole("dialog");
     expect(
       (within(reopened).getByLabelText(MESSAGE) as HTMLTextAreaElement).value,
@@ -240,7 +238,6 @@ describe("이 에이전트로 새 세션", () => {
       user.click(within(dialog).getByRole("button", { name: SUBMIT }));
     await send();
     await within(dialog).findByRole("alert");
-    // The release moved on while the first answer was lost.
     served = withRelease(first, { id: NEWER_RELEASE });
     await services.queryClient.invalidateQueries();
     await send();

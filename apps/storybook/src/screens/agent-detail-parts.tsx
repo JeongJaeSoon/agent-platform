@@ -228,7 +228,6 @@ function AgentStateBadge({
   );
 }
 
-/** agent-detail/new-session.tsx: a dialog, or the button off saying why. */
 function NewSessionButton({
   reason,
   repository,
