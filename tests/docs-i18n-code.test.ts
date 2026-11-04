@@ -17,6 +17,9 @@ function fencedBlocks(text: string): string[] {
   for (const line of text.split("\n")) {
     if (open === undefined) {
       if (/^```\S*$/.test(line)) open = [line];
+      // Indented or ~~~ fences are real code blocks to a Markdown parser but
+      // invisible to this extractor, so refuse them instead of skipping them.
+      else expect(line).not.toMatch(/^\s*(```|~~~)/);
     } else if (line === "```") {
       blocks.push([...open, line].join("\n"));
       open = undefined;
@@ -47,6 +50,12 @@ describe("translated pages keep the Korean code blocks", () => {
       });
     }
   }
+
+  test("the extractor rejects fences it cannot compare", () => {
+    expect(() => fencedBlocks("~~~sh\necho a\n~~~\n")).toThrow();
+    expect(() => fencedBlocks("   ```sh\necho a\n   ```\n")).toThrow();
+    expect(() => fencedBlocks("```sh\necho a\n")).toThrow();
+  });
 
   test("the extractor sees an edited block as a difference", () => {
     const original = "text\n```bash\necho a\n```\n";
