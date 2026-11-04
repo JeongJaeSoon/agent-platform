@@ -71,6 +71,15 @@ const basePins = Object.fromEntries(
   }),
 ) as Record<(typeof apps)[number], { pin?: string; source: string }>;
 
+// The `runtime` stage: what `release` (and, for the control host, `local`)
+// ship, up to the next stage.
+function shippedStage(source: string): string {
+  const start = source.indexOf("\nFROM ${BUN_IMAGE} AS runtime");
+  expect(start).toBeGreaterThan(-1);
+  const next = source.indexOf("\nFROM ", start + 1);
+  return source.slice(start, next === -1 ? undefined : next);
+}
+
 describe("app Dockerfiles", () => {
   test.each(apps)("%s pins its base image by digest", (app) => {
     const { pin, source } = basePins[app];
@@ -78,10 +87,66 @@ describe("app Dockerfiles", () => {
     // Every FROM goes through the ARG; a literal tag would silently float.
     const froms = source.match(/^FROM .*$/gm) ?? [];
     expect(froms.length).toBeGreaterThan(0);
+    // The stages derived from one of ours (pruned, local, release) inherit
+    // its base.
     for (const line of froms)
       expect(line).toMatch(
-        /^FROM (--platform=\$BUILDPLATFORM )?\$\{BUN_IMAGE\}/,
+        /^FROM ((--platform=\$BUILDPLATFORM )?\$\{BUN_IMAGE\}|(deps|runtime) AS (pruned|local|release)$)/,
       );
+  });
+
+  // Published images are the default target and images.yml names it; the
+  // local stack's extras live in a target nothing publishes.
+  test.each(apps)("%s ends in a release stage", (app) => {
+    const source = basePins[app].source;
+    expect(source.trimEnd().split("\n").at(-1)).toBe("FROM runtime AS release");
+    expect(source.match(/^FROM .* AS (local|release)$/gm)).toEqual(
+      app === "control-host"
+        ? ["FROM runtime AS local", "FROM runtime AS release"]
+        : ["FROM runtime AS release"],
+    );
+  });
+
+  test.each(installingApps)(
+    "%s prunes test and demo sources before the shipped stage",
+    (app) => {
+      const source = basePins[app].source;
+      expect(source).toMatch(
+        /^FROM deps AS pruned\nRUN --mount=type=bind,source=scripts\/image-prune\.sh,target=\/tmp\/image-prune\.sh \\\n {2}sh \/tmp\/image-prune\.sh --delete \/app$/m,
+      );
+      expect(source).toContain("COPY --from=pruned --chown=1000:1000 /app /app");
+      expect(source).not.toContain("COPY --from=deps --chown=1000:1000 /app /app");
+    },
+  );
+
+  test("the control-host local target adds back only testkit and the demo tools", () => {
+    const source = basePins["control-host"].source;
+    const local = source.slice(
+      source.indexOf("FROM runtime AS local"),
+      source.indexOf("FROM runtime AS release"),
+    );
+    expect(local.match(/^(COPY|RUN) .*$/gm)).toEqual([
+      "COPY --from=deps --chown=1000:1000 /app/packages/testkit /app/packages/testkit",
+      "COPY --from=deps --chown=1000:1000 /app/apps/control-host/src/api/demo-accounts.ts /app/apps/control-host/src/api/demo-data.ts /app/apps/control-host/src/api/",
+    ]);
+  });
+
+  test("images.yml builds the release target, and only the local stack builds local", () => {
+    const workflow = read(".github/workflows/images.yml");
+    expect(workflow.match(/^ {10}target: release$/gm)?.length).toBe(2);
+    expect(workflow).not.toMatch(/target: local/);
+    const local = read("infra/compose.local.yml");
+    // api is also the image of scheduler, slack, reconciler and mock-slack.
+    expect(local.match(/^ {6}target: local$/gm)?.length).toBe(3);
+    expect(local).not.toMatch(/target: release/);
+    expect(read("deploy/kind/up.sh")).toContain("--target local");
+  });
+
+  test("the image smoke counts test and demo files in every published image", () => {
+    const smoke = read(".github/scripts/image-smoke.sh");
+    expect(smoke).toContain('assert_published_tree "$image"');
+    expect(smoke).toContain("image-prune.sh --list /app");
+    expect(smoke).toContain("Module not found");
   });
 
   test("all of them share one base digest", () => {
@@ -155,8 +220,7 @@ describe("app Dockerfiles", () => {
   // The Bun pin freezes Debian too, so the stage that ships upgrades it,
   // under the key images.yml changes daily.
   test.each(apps)("%s upgrades Debian in the stage it ships", (app) => {
-    const source = basePins[app].source;
-    const shipped = source.slice(source.lastIndexOf("\nFROM "));
+    const shipped = shippedStage(basePins[app].source);
     expect(shipped).toMatch(
       /^ARG APT_UPGRADE_KEY=\nRUN apt-get update --error-on=any \\\n {2}&& DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \\$/m,
     );
@@ -168,8 +232,7 @@ describe("app Dockerfiles", () => {
   test.each(apps)(
     "%s writes DEBIAN_SOURCES.md after its last apt-get, before dropping root",
     (app) => {
-      const source = basePins[app].source;
-      const shipped = source.slice(source.lastIndexOf("\nFROM "));
+      const shipped = shippedStage(basePins[app].source);
       const write = shipped.indexOf(
         "bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md",
       );

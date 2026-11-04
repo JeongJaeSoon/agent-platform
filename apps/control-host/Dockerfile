@@ -39,6 +39,12 @@ COPY apps ./apps
 COPY packages ./packages
 COPY docs/api/index.html docs/api/scalar.js ./docs/api/
 
+# What is published: deps without test sources, testkit and the demo tools
+# (scripts/image-prune.sh). `deps` itself stays whole for the `local` target.
+FROM deps AS pruned
+RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
+  sh /tmp/image-prune.sh --delete /app
+
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
 # repository (94S-228); without the executable every checkpoint finalize
@@ -56,7 +62,7 @@ RUN apt-get update --error-on=any \
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
 RUN test "$(id -u bun)" = 1000
 WORKDIR /app
-COPY --from=deps --chown=1000:1000 /app /app
+COPY --from=pruned --chown=1000:1000 /app /app
 COPY --from=web --chown=1000:1000 /app/apps/web/dist /app/apps/web/dist
 # The corresponding source of every Debian package in this image (94S-375);
 # see apps/worker/Dockerfile.
@@ -79,3 +85,15 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
 # Other roles: `bun run apps/control-host/src/main.ts <scheduler|reconciler>`
 # runs that role's pass loop (compose's services); add `--once` for one pass.
 CMD ["bun", "run", "apps/control-host/src/main.ts", "api"]
+
+# The local stack's image (scripts/local.sh, the e2e and kind stacks): the
+# published image plus what they run from it: testkit's fake git host and
+# mock IdPs, and the demo-account CLIs, which DEMO_ACCOUNTS=local gates. Never
+# published; demo-data.ts imports demo-accounts.ts, so they travel together.
+FROM runtime AS local
+COPY --from=deps --chown=1000:1000 /app/packages/testkit /app/packages/testkit
+COPY --from=deps --chown=1000:1000 /app/apps/control-host/src/api/demo-accounts.ts /app/apps/control-host/src/api/demo-data.ts /app/apps/control-host/src/api/
+
+# The last stage is the default target, and the one images.yml builds
+# (`target: release`): a stage added above never becomes the published image.
+FROM runtime AS release

@@ -12,7 +12,7 @@ ARG BUN_IMAGE=oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188a
 # own files. tests/images.test.ts fails once apps/egress-proxy/package.json
 # gains a dependency; that is when this grows the deps stage the other apps
 # have.
-FROM ${BUN_IMAGE}
+FROM ${BUN_IMAGE} AS runtime
 # Debian's security fixes: see APT_UPGRADE_KEY in apps/worker/Dockerfile.
 ARG APT_UPGRADE_KEY=
 RUN apt-get update --error-on=any \
@@ -33,3 +33,7 @@ USER 1000:1000
 ENV NODE_ENV=production
 EXPOSE 3128
 CMD ["bun", "run", "src/main.ts"]
+
+# The last stage is the default target, and the one images.yml builds
+# (`target: release`). The proxy ships only src/ minus .dockerignore's tests.
+FROM runtime AS release
