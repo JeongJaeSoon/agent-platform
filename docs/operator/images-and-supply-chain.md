@@ -6,6 +6,8 @@
 
 앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다. 셋 다 저장소 루트를 context로 `oven/bun:1.3.14`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다.
 
+게시하는 target은 `release`이고 Dockerfile의 마지막 stage라 기본 target이다. images.yml이 `target: release`로 빌드한다. 게시 이미지에는 테스트 소스(`*.test.ts(x)`, `*.stories.*`, `src/testing`, `src/test-support`, `__fixtures__`, `bench`), `apps/storybook`, `packages/testkit`, 데모 계정 CLI(`demo-accounts.ts`·`demo-data.ts`)가 없다. 설치(`bun install --frozen-lockfile`)가 끝난 뒤 `scripts/image-prune.sh --delete`가 지우므로 workspace manifest는 그대로 고정된다. `image-smoke.sh`가 이미지를 열어 같은 목록과 이름 목록을 세고, 하나라도 있으면 실패한다. control-host에는 `local` target이 따로 있다. `release`에 testkit과 데모 CLI를 다시 얹은 것이고, 게시하지 않는다. `scripts/local.sh`(compose)와 `deploy/kind/up.sh`가 이 target으로 빌드한다. 게시 이미지에서 `DEMO_ACCOUNTS=local`로 데모 CLI를 부르면 파일이 없어 `Module not found`로 실패한다.
+
 digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-25 기준 `oven/bun:1.3.14`의 마지막 빌드는 2026-05-13이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다. Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
 
 | 이미지 | 내용 | 실행 주체 |
@@ -41,7 +43,8 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
   ```bash
   TAG="main-$(git rev-parse HEAD | cut -c1-12)"   # 배포할 commit의 checkout에서
   for app in control-host worker egress-proxy; do
-    docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{json .Manifest.Digest}}'
+    digest="$(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{.Manifest.Digest}}')"
+    echo "werft-${app}@${digest}"
   done
   ```
 

@@ -155,7 +155,16 @@ image_repo="localhost:${REGISTRY_PORT}/werft"
 publish() {
   local ref="${image_repo}-$1:dev"
   [ "$CLUSTER_PROVIDER" = kind ] || ref="${image_repo}-$1:${IMAGE_TAG:-kind-dev}"
+  # The control host's fake-git runs testkit from this image, so a stack takes
+  # its `local` target. A head from before the target existed (a preview of an
+  # older PR runs this script against that PR's tree) has none: its default
+  # image still carries testkit.
+  local target=()
+  if [ "$1" = control-host ] && grep -q '^FROM .* AS local$' "$root/apps/$1/Dockerfile"; then
+    target=(--target local)
+  fi
   docker build -q -f "$root/apps/$1/Dockerfile" -t "$ref" \
+    ${target[@]+"${target[@]}"} \
     ${BUN_IMAGE:+--build-arg "BUN_IMAGE=$BUN_IMAGE"} \
     ${BUILDKIT_SYNTAX:+--build-arg "BUILDKIT_SYNTAX=$BUILDKIT_SYNTAX"} \
     "$root" >/dev/null || return
