@@ -2,7 +2,7 @@
 
 측정 창은 2026-10-29 18:00 UTC 이상, 2026-11-05 18:00 UTC 미만의 168시간이다. workflow run 수는 전수 집계(3,421건), job·시간은 각 workflow의 창 안 최신 성공 실행 최대 3건을 표본으로 삼았다. Forbidden terms는 2건, CI image mirror는 창 안 실행이 2건이다. 취소·실패 실행의 runner 시간을 합산한 주간 사용량은 아니며, 최근 성공 표본이 한 시점의 계정 부하에 치우치는 한계가 있다.
 
-`timing` API의 billable은 모든 표본에서 0이다. 공개 저장소의 무료 job이므로 청구 절감으로 해석하지 않는다. runner 분은 건너뛰지 않은 job의 `(completed_at - started_at) / 60` 합계, 큐 분은 `max(0, started_at - created_at) / 60`이다. 집계 job의 created_at은 선행 job 종료 뒤이므로 이 큐 수치에 의존성 대기는 포함하지 않는다. run elapsed는 timing API의 `run_duration_ms`이며, 재시도·queued 기록의 의미를 임의로 바꾸지 않는다.
+`timing` API의 billable은 모든 표본에서 0이다. 공개 저장소의 무료 job이므로 청구 절감으로 해석하지 않는다. runner 분은 건너뛰지 않은 job의 `(completed_at - started_at) / 60` 합계, 큐 분은 `max(0, started_at - created_at) / 60`이다. 집계 job의 created_at은 선행 job 종료 뒤이므로 이 큐 수치에 의존성 대기는 포함하지 않는다. run elapsed는 timing API의 `run_duration_ms`이다.
 
 | workflow | 7일 run 수 | 표본 수 | run당 전체/실행 job 중앙값 | runner 분 중앙값 | job 큐 분 p50 / p95 | billable 분 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -10,7 +10,7 @@
 | Images | 1245 | 3 | 21 / 7 | 19.15 | 4.40 / 10.72 | 0 |
 | D2 gate | 85 | 3 | 2 / 1 | 8.55 | 0.72 / 1.87 | 0 |
 | sdk-release | 360 | 3 | 4 / 1 | 1.37 | 7.18 / 13.02 | 0 |
-| main push run | 14 | 3 | 1 / 1 | 5.28 | 0.03 / 0.72 | 0 |
+| main push run (정기 감시) | 14 | 3 | 1 / 1 | 5.28 | 0.03 / 0.72 | 0 |
 | ui-release | 74 | 3 | 2 / 1 | 1.03 | 1.03 / 1.30 | 0 |
 | Forbidden terms | 401 | 2 | 1 / 1 | 0.43 | 1.65 / 4.62 | 0 |
 | CI image mirror | 2 | 2 | 11 / 11 | 4.47 | 0.07 / 3.02 | 0 |
@@ -46,7 +46,7 @@ CI의 lint·라이선스 검사를 typecheck runner에 합친다. 표본 세 건
 
 PR concurrency와 Bun 캐시는 이미 적용돼 있어 반복 추가하지 않는다. main push의 run별 concurrency 분리, 수동 `only=check`, `allow_parallel`, Images·release·publish·배포 job은 유지한다. `check (typecheck)`·`check (lint)`·`check (licenses)`는 필수 체크가 아닌 내부 matrix context이며 `check (static)`으로 모인다. 세 검사는 독립 step으로 남아 로그에서 원인을 구분한다.
 
-문서 전용 감지는 quickstart·API 가이드의 실행 검증, 사이트 조립, supply-chain을 함께 판단해야 한다. 이 PR의 작은 변경과 섞지 않는다(LATER: 변경 후에도 문서 PR이 계정 큐 병목을 만들면 보수적 경로 allowlist와 필수 집계의 fail-closed 검증을 갖춰 재검토). draft의 무거운 job 생략도 검증 신호를 줄이므로 적용하지 않는다.
+문서 전용 감지는 quickstart·API 가이드의 실행 검증, 사이트 조립, supply-chain을 함께 판단해야 하므로 별도 PR에서 설계한다. 이 정적 검사 통합 PR에서는 draft의 무거운 job 생략을 적용하지 않는다.
 
 ## 재현
 

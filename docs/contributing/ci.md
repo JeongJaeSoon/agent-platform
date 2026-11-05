@@ -8,7 +8,7 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 서비스를 job마다 나누면 새 구멍이 하나 생긴다: 필요한 서비스가 없는 job에 들어간 파일은 opt-in 변수가 꺼져 있어 테스트가 실패하지 않고 **skip된다**. 그래서 각 job은 `bun test --reporter=junit`의 보고서를 같은 스크립트로 다시 읽어, 자기 파일이 전부 돌았는지, 다른 파일이 끼지 않았는지, matrix에 선언하지 않은 skip이 없는지 확인하고 하나라도 어긋나면 실패한다. 선언된 skip은 두 종류다. `integration (storage)`의 `packages/storage/src/git-runner.test.ts` 1건(Linux에서 의도적으로 skip)과, `integration (worker)`의 D2 gate 테스트(`tests/d2-gate/*.e2e.test.ts`, 스택 전체가 필요해 [D2 gate](#d2-gate-nightly)만 돌린다)다. 선언했는데 skip되지 않아도 실패한다. skip을 세지 못하는 유일한 형태 — opt-in이 꺼지면 테스트를 아예 선언하지 않는 것 — 는 쓰지 않는다(`tests/checkpoint-flow.test.ts`의 LocalStack 변형도 `describe.skip`으로 선언한다).
 
-`check`는 **정적 검사 한 부분과 unit 네 부분**으로 나뉜다: `check (static)`, `check (unit: packages)`, `check (unit: db)`, `check (unit: worker, web)`, `check (unit: other apps, tests)`. `static`은 typecheck → lint → `THIRD_PARTY_NOTICES.md` 대조를 각각 독립 step으로 실행한다. lint와 라이선스 검사는 수 초이므로 runner 설정을 두 번 더 반복하지 않는다([측정 기록](ci-optimization-2026-11.md)). unit은 `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 `packages/db/`를 `packages-db`로, 나머지 `packages/`를 `packages`로, `apps/worker/`·`apps/web/`를 `worker-web`으로, 나머지 전부를 `rest`로 나눈다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 typecheck·lint·전체 테스트를 직렬로 돈다.
+`check`는 **정적 검사 한 부분과 unit 네 부분**으로 나뉜다: `check (static)`, `check (unit: packages)`, `check (unit: db)`, `check (unit: worker, web)`, `check (unit: other apps, tests)`. `static`은 typecheck → lint → `THIRD_PARTY_NOTICES.md` 대조를 각각 별도 step으로 실행한다. 설치가 성공하면 typecheck가 실패해도 lint·라이선스 검사는 취소 전까지 실행돼 한 번에 결과를 보고한다. lint와 라이선스 검사는 수 초이므로 runner 설정을 두 번 더 반복하지 않는다([측정 기록](ci-optimization-2026-11.md)). unit은 `.github/scripts/unit-part.ts`가 integration과 같은 파일 찾기(`.github/scripts/test-files.ts`)로 `packages/db/`를 `packages-db`로, 나머지 `packages/`를 `packages`로, `apps/worker/`·`apps/web/`를 `worker-web`으로, 나머지 전부를 `rest`로 나눈다. 빈 부분은 전체 스위트로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 typecheck·lint·전체 테스트를 직렬로 돈다.
 
 브랜치 보호의 필수 체크는 `check`·`integration`·`e2e`·`quickstart`와 images.yml의 `supply-chain`이다. matrix는 부분·도메인마다 context를 따로 올리므로 `check`는 다섯 부분을, `integration`은 일곱 도메인 job을 기다리는 집계 job이다. 결과가 `success`가 아니면(실패·취소·timeout·skip) 빨갛게 끝난다. `workspace-quota`와 `agent-sdk-compat`는 집계 job `check`를 `needs`로 기다린다. 조건이 `always()`인 이유는 skip된 필수 체크가 통과로 취급되기 때문이다. matrix는 `fail-fast: false`라 한 job의 실패가 다른 job을 취소하지 않는다. 이 둘만으로 시작 순간 최대 12개 job(`check` 부분 5 + integration 도메인 7)을 요청하며, Storybook·docs·e2e 등 독립 job도 동시에 요청한다. 전체 CI run의 job 수와 runner 점유 시간, 실제 큐 대기는 [측정 기록](ci-optimization-2026-11.md)에서 별도로 구분한다.
 
@@ -46,17 +46,15 @@ gh workflow run CI --ref <branch> -f allow_parallel=true        # 진행 중 수
 
 외부 action은 태그가 아니라 **커밋 SHA로 고정하고 버전은 뒤 주석에 적는다.** 태그는 움직인다 — 메인테이너(혹은 탈취된 계정)가 `v7`을 임의 커밋으로 다시 가리키면 다음 run이 그 코드를 받는다. 릴리스 태그를 악성 커밋으로 옮기는 것이 tj-actions/changed-files 공급망 공격이 수천 개 저장소에 닿은 경로였다. 고정만 하고 방치하면 그 자체가 문제이므로 `.github/dependabot.yml`이 주 1회 올린다(composite action은 `directory`를 따로 잡아야 스캔된다). 올라온 PR에서는 새 버전이 요구하는 러너 버전도 같이 본다.
 
-bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (typecheck)`가 쓰는 `bun-root-*`는 root lockfile만(나머지 `check` 부분과 integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
+bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup`에 모여 있다. 캐시 키는 **그 job이 실제로 설치하는 lockfile만** 해시한다 — `check (static)`가 쓰는 `bun-root-*`는 root lockfile만(나머지 `check` 부분과 integration 도메인 job은 읽기만 한다), `agent-sdk-compat`가 쓰는 `bun-agent-sdk-compat-*`는 root와 harness lockfile을 함께 해시한다. 키가 두 lockfile을 약속하면서 root만 설치한 job이 저장하면, harness 전용 의존성은 exact hit인데도 매번 다시 받게 된다. scope마다 쓰기 job은 하나뿐이라 같은 키에 동시 저장하는 레이스도 없다.
 
 서비스 이미지 이름은 upstream tag로 적었다. 실제로는 ghcr.io 미러에서 digest로 받는다([§ 서드파티 이미지 미러](#서드파티-이미지-미러)).
 
 | job | 서비스 컨테이너 | 켜지는 opt-in 변수 | 실행 명령 | 머지 차단 |
 |---|---|---|---|---|
-| `check (typecheck)` | 없음 | 없음 | `bun run typecheck` (workspace 패키지 + 루트 `tsconfig.json`의 `scripts/**`·`.github/scripts/*`) | 집계로 |
-| `check (lint)` | 없음 | 없음 | `bun run lint` (Biome) | 집계로 |
-| `check (licenses)` | 없음 | 없음 | `bun scripts/third-party-notices.ts --check` | 집계로 |
-| `check (unit: packages)`, `check (unit: worker, web)`, `check (unit: other apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/` 아래 / `apps/worker/`·`apps/web/` 아래 / 그 나머지) | 집계로 |
-| `check` | 없음 | 없음 | 여섯 부분의 결과가 `success`인지 확인 | ✅ |
+| `check (static)` | 없음 | 없음 | `bun run typecheck`, `bun run lint`, `bun scripts/third-party-notices.ts --check` | 집계로 |
+| `check (unit: packages)`, `check (unit: db)`, `check (unit: worker, web)`, `check (unit: other apps, tests)` | 없음 | 없음 | `bun test <unit-part.ts가 고른 파일>` (`packages/db/` / 나머지 `packages/` / `apps/worker/`·`apps/web/` 아래 / 그 나머지) | 집계로 |
+| `check` | 없음 | 없음 | 다섯 부분의 결과가 `success`인지 확인 | ✅ |
 | `integration (db)` | `postgres:16` | `QUEUE_DATABASE_URL` | `bun test <db 파일>` | 집계로 |
 | `integration (api)` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1` | `bun test <api 파일>` | 집계로 |
 | `integration (surface)` | `postgres:16`, `localstack/localstack:3` | `QUEUE_DATABASE_URL`, `STORAGE_LOCALSTACK_TEST=1` | `bun test <surface 파일>` | 집계로 |
@@ -70,7 +68,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `quickstart` | 없음 — `docs/quickstart.md`와 `apps/docs/content/docs/reference/api-guide.mdx`가 차례로 띄우는 기본 project·포트 그대로 | 없음 | `tests/e2e/quickstart.sh [문서]` — 두 문서의 `bash` 블록을 각각 한 셸(`bash -euo pipefail`)에서 실행. runner에 Bun을 설치하지 않는다 | ✅ |
 | `agent-sdk-compat` | 없음 | 없음 | `scripts/agent-sdk-compat`의 `probe:version`·`check` (uv로 `litellm[proxy]==1.100.1` 설치) | ❌ |
 
-`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 도메인 job들이 각자 필요한 변수를 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(ci.yml `skips`에 선언된 것 — `git-runner.test.ts` 1건과 D2 gate 테스트 — 만 남고, 그 외의 skip은 job을 실패시킨다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/checkpoint-objects.localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check` unit 부분들의 skip 합과 integration 도메인 job들의 skip 합을 같이 확인한다. 나뉜 뒤에는 세 unit 부분(또는 일곱 도메인 job)의 `N pass`·`N skip`·`across N files`를 더한 값이 단일 job으로 돌릴 때의 숫자다. 합계는 이렇게 낸다(정규식은 도메인별로 나누기 전의 숫자 샤드 run도 잡는다):
+`check`는 opt-in 변수를 하나도 켜지 않으므로 PostgreSQL·LocalStack·Docker를 요구하는 테스트가 **의도적으로 skip된다**. 반대로 외부 의존이 없는 테스트는 파일 이름에 `integration`이 들어 있어도 여기서 그대로 돈다 — 로컬 fake Messages API를 쓰는 SDK adapter suite가 그렇다. 같은 스위트를 integration 도메인 job들이 각자 필요한 변수를 켠 채 다시 돌려 opt-in 때문에 생기는 skip을 없앤다(ci.yml `skips`에 선언된 것 — `git-runner.test.ts` 1건과 D2 gate 테스트 — 만 남고, 그 외의 skip은 job을 실패시킨다). 파일 이름으로 integration만 골라 돌리지 않는 이유는 `packages/storage/src/checkpoint-objects.localstack.test.ts`처럼 `*.integration.test.ts` 규칙을 따르지 않으면서 opt-in에 걸린 테스트가 있어서다 — 이름 필터는 테스트를 조용히 빠뜨린다. 로그에서 pass 숫자만 보지 말고 `check` unit 부분들의 skip 합과 integration 도메인 job들의 skip 합을 같이 확인한다. 나뉜 뒤에는 네 unit 부분(또는 일곱 도메인 job)의 `N pass`·`N skip`·`across N files`를 더한 값이 단일 job으로 돌릴 때의 숫자다. 합계는 이렇게 낸다(정규식은 도메인별로 나누기 전의 숫자 샤드 run도 잡는다):
 
 ```bash
 gh run view <run-id> --log | grep -E '^integration \([^)]+\)' | grep -oE '\s[0-9]+ (pass|fail)$' \
