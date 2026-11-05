@@ -119,7 +119,15 @@ function endpointOrDefault(id: string, entry: unknown): unknown {
           entry.kind as keyof typeof CONNECTION_ENDPOINT_DEFAULTS
         ]
       : undefined;
-  if (endpoint === undefined) return rest;
+  if (endpoint === undefined) {
+    // The schema would only say "expected string, received undefined".
+    if (entry.kind === "litellm") {
+      throw new SettingsDocumentError(
+        `The settings document is invalid: connections.${id}.endpoint: a litellm connection needs an endpoint, it has no default address`,
+      );
+    }
+    return rest;
+  }
   if (!billingFitsEndpoint({ billing: entry.billing, endpoint })) {
     throw new SettingsDocumentError(
       `The settings document is invalid: connections.${id}.billing: ${BILLING_NONE_ENDPOINT_MESSAGE}`,

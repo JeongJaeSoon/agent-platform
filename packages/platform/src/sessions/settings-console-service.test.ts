@@ -216,15 +216,20 @@ describe("settings console service", () => {
     }
     const { settings, writes } = service();
     const { endpoint: _named, ...open } = NEW_CONNECTION;
-    const litellm = await refusal(
-      settings.createConnection(caller("owner"), {
-        ...open,
-        kind: "litellm",
-      }),
-    );
-    expect(litellm.code).toBe("BAD_REQUEST");
-    expect(litellm.details).toMatchObject({ reason_code: "invalid_entry" });
-    expect(litellm.message).toContain("connections.console");
+    for (const endpoint of [undefined, "", "  "]) {
+      const litellm = await refusal(
+        settings.createConnection(caller("owner"), {
+          ...open,
+          ...(endpoint === undefined ? {} : { endpoint }),
+          kind: "litellm",
+        }),
+      );
+      expect(litellm.code).toBe("BAD_REQUEST");
+      expect(litellm.details).toMatchObject({ reason_code: "invalid_entry" });
+      expect(litellm.message).toContain("connections.console.endpoint");
+      expect(litellm.message).toContain("litellm connection needs an endpoint");
+      expect(litellm.message).not.toContain("Invalid input");
+    }
     const paid = await refusal(
       settings.createConnection(caller("owner"), {
         ...open,
