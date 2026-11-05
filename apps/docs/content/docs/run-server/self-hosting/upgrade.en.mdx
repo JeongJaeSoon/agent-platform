@@ -102,7 +102,7 @@ Rebuild `release.json` from the digests of the new tag, check out the new source
 
 Take a [backup](/run-server/self-hosting/single-server#backup-and-restore) right before upgrading. Rolling back means calling `upgrade` again with the previous release file; the worker image changes again, so the same rules apply.
 
-If an upgrade stops before the new release is up (for example, the scheduler's quota check fails), the installation can stay stopped and `pending.json` stays in the state directory. In that state every command except `status` and `reset` is refused, including an `upgrade` back to the previous release. Fix the cause and call `upgrade` again with the same target release file to clear it.
+If an upgrade stops before the new release is up (for example, the scheduler's quota check fails), the installation can stay stopped and `pending.json` stays in the state directory. In that state only `status`, `reset` and an `upgrade` whose release file has the same content as `pending.json` are allowed; every other command is refused, including an `upgrade` back to the previous release. Fix the cause and call `upgrade` again with the same target release file to clear it.
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

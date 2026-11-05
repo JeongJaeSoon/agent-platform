@@ -170,7 +170,7 @@ jq -n \
 
 ## 5. 設置する
 
-オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し(bucket 名に `.` が含まれる場合は `s3.ap-northeast-1.amazonaws.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備は[専用の S3 bucket](#専用の-s3-bucket)に従います。この S3 の設置は実行して確認していません。上の手順1〜6の検証は LocalStack の設置で行いました。
+オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し(bucket 名に `.` が含まれる場合は `s3.ap-northeast-1.amazonaws.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備は[専用の S3 bucket](#専用の-s3-bucket)に従います。この S3 の設置は実行して確認していません。このページの手順1〜6の検証は LocalStack の設置で行いました。
 
 `preflight` が、Docker のバージョン、checkout、env ファイル、release ファイルを先に検査します。ディスクの quota は `deploy` で scheduler が検査します。通れば、`deploy` が同じファイルで設置します。
 
