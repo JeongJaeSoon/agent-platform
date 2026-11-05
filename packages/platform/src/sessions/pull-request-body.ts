@@ -175,6 +175,7 @@ function cleanAll(
 }
 
 const FENCE_RUN = /`{3,}|~{3,}/g;
+const FENCE_LINE = /^\s{0,3}(`{3,}|~{3,})/;
 const breakRun = (run: string) => [...run].join(ZWSP);
 
 // A task item with no text, in a list, a quote or both, takes the next line
@@ -270,7 +271,9 @@ export function renderPullRequestBody(input: {
         };
   // The validation judged the comment boundaries on the text as read. A row
   // inside or at the edge of a comment that redaction rewrote may have lost
-  // its `-->` (or its `<!--`), so the checked structure no longer holds.
+  // its `-->` (or its `<!--`), and a rewritten fence line may have lost its
+  // marker, so a closing fence would open one: the checked structure no longer
+  // holds.
   if (
     template !== null &&
     input.template != null &&
@@ -278,6 +281,7 @@ export function renderPullRequestBody(input: {
       (row, at) =>
         row.text !== template?.rows[at]?.text &&
         (row.startsInComment ||
+          FENCE_LINE.test(row.text) ||
           row.text.includes("<!--") ||
           row.text.includes("-->")),
     )

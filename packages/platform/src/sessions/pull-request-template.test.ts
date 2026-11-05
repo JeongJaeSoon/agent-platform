@@ -193,6 +193,18 @@ describe("finding the repository's template", () => {
     }
   });
 
+  test("a name that matches two files by case alone chooses neither", async () => {
+    expect(
+      await readRepositoryTemplate(
+        fakeRepositoryReads({
+          "docs/PULL_REQUEST_TEMPLATE/Bug.md": "x",
+          "docs/PULL_REQUEST_TEMPLATE/bug.md": "y",
+        }).reads,
+        { templateName: "BUG.MD" },
+      ),
+    ).toMatchObject({ kind: "skipped", reason: "multiple" });
+  });
+
   test("a configured name changes nothing for one file, and a single template file still wins", async () => {
     expect(
       await readRepositoryTemplate(
@@ -368,6 +380,13 @@ describe("a template typed into the settings", () => {
     expect(prepareTemplateText("한".repeat(6_000))).toEqual({
       ok: false,
       reason: "too_large",
+    });
+  });
+
+  test("a NUL cannot be stored, so the text is refused", () => {
+    expect(prepareTemplateText("## Summary\u0000")).toEqual({
+      ok: false,
+      reason: "not_utf8",
     });
   });
 
@@ -665,7 +684,15 @@ describe("markup the scan and a renderer could read differently", () => {
     );
     expect(out).not.toMatch(/(?<!&)#\d|GH-\d|\/(?:issues|pull)\/\d/);
     expect(out).toContain("https://example.com/docs");
-    expect(out).toContain("&#35;");
+    expect(out).toContain("35;");
+  });
+
+  test("a character reference cannot spell the path of a live reference", () => {
+    const out = inert(
+      "[a](https://github.com/acme/app/iss&#117;es/13) [b](https://github.com/acme/app/issues&sol;13) &#x23;12",
+    );
+    expect(out).not.toMatch(/&#117;|&sol;|&#x23;/);
+    expect(out).not.toMatch(/&(?!​)#?\w+;/);
   });
 
   test("an address is broken in its path whatever its scheme or host is written as, and so is a commit", () => {

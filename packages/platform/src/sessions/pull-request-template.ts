@@ -18,8 +18,15 @@ const COMMIT_PATH = /(\/commit\/)(?=[^\s])/gi;
 const COMMIT_REFERENCE = /(^|[^\w/.-])([\w.-]+\/[\w.-]+@)(?=[0-9a-f]{7})/gi;
 const COMMIT_HASH = /\b([0-9a-f]{7})(?=[0-9a-f]{33}\b)/gi;
 
+// A character reference that spells a printable ASCII character is how a
+// path or an address would be written to get past the checks below; it is
+// shown as text instead of being resolved.
+const ASCII_ENTITY =
+  /&(?=#(?:x[0-9a-f]+|\d+);|(?:sol|bsol|num|colon|commat|period);)/gi;
+
 function breakLinks(text: string): string {
   return text
+    .replace(ASCII_ENTITY, `&${ZWSP}`)
     .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
     .replace(NUMBERED_PATH, `$1${ZWSP}`)
     .replace(COMMIT_PATH, `$1${ZWSP}`)
@@ -184,10 +191,15 @@ export async function readRepositoryTemplate(
       const inside = await tree(directory.sha);
       const files = named(inside, (name) => name.endsWith(".md"));
       if (files.length === 0) continue;
+      const matching = files.filter(
+        (file) => file.name.toLowerCase() === wanted,
+      );
       const chosen =
         files.length === 1
           ? files[0]
-          : files.find((file) => file.name.toLowerCase() === wanted);
+          : matching.length === 1
+            ? matching[0]
+            : undefined;
       if (chosen === undefined) {
         throw new Skip("multiple", recordedPath([...here.at, directory.name]));
       }
@@ -451,7 +463,8 @@ export type TemplateTextResult =
 
 export function prepareTemplateText(text: string): TemplateTextResult {
   // A lone surrogate cannot be written as UTF-8; a pair is one code point.
-  if (/\p{Cs}/u.test(text)) return { ok: false, reason: "not_utf8" };
+  // PostgreSQL text and jsonb cannot hold NUL either.
+  if (/\p{Cs}|\u0000/u.test(text)) return { ok: false, reason: "not_utf8" };
   if (new TextEncoder().encode(text).length > TEMPLATE_MAX_BYTES) {
     return { ok: false, reason: "too_large" };
   }
