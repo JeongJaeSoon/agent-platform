@@ -22,7 +22,7 @@ API로 세션을 만들고 쓰는 사람.
 | --- | --- |
 | [단일 서버 배포](operator/server-deployment.md) | compose로 서버 한 대에 배포 |
 | [Kubernetes 설치](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/) | Helm chart로 설치 |
-| [실행 기반과 worker 격리](operator/execution.md) | reconciler·scheduler, 세션 실패 처리, workspace 상한과 회수, worker 네트워크 |
+| [실행 기반과 worker 격리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/) | reconciler·scheduler, 세션 실패 처리, workspace 상한과 회수, worker 네트워크 |
 | [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/) | worker를 Pod로 띄울 때의 동작, chart가 넣는 env, probe |
 | [API 서버](operator/api-server.md) | 운영자 카탈로그, 자격 증명, checkpoint 저장소, 인증과 권한 |
 | [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/) | 이미지와 Compose `apps` profile, 업그레이드·롤백, 취약점 정책 |
