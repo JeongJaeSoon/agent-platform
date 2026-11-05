@@ -262,7 +262,9 @@ describe("scripts/test-ops.sh", () => {
   // The provider key rotation in docs/operator/test-ops.md: the deployed release again,
   // worker unchanged, so nothing is approved ( found it dying under
   // `set -u` and leaving pending.json behind).
-  test("upgrade to the same worker image needs no approval", async () => {
+  // Each `upgrade` run costs about a second under CI load, so the three cases
+  // live in separate tests: one test running all three sat at the 5 s bun limit.
+  async function deployedSameWorker() {
     const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
     await mkdir(join(dir, "state"));
     await writeFile(
@@ -301,7 +303,11 @@ exit 0
     };
     for (const [name, body] of Object.entries(stubs))
       await writeFile(join(dir, "bin", name), body, { mode: 0o755 });
+    return stubs.docker as string;
+  }
 
+  test("upgrade to the same worker image needs no approval", async () => {
+    await deployedSameWorker();
     const result = await run(["upgrade", join(dir, "release.json")], env);
     expect(result.stderr).not.toContain("unbound variable");
     expect(result.exitCode).toBe(0);
@@ -312,10 +318,13 @@ exit 0
         () => null,
       ),
     ).toBeNull();
+  });
 
+  test("upgrade refuses when the database lacks the settings document", async () => {
+    const docker = await deployedSameWorker();
     await writeFile(
       join(dir, "bin", "docker"),
-      (stubs.docker as string).replace('"add":[]', '"add":[{"id":"gone"}]'),
+      docker.replace('"add":[]', '"add":[{"id":"gone"}]'),
       { mode: 0o755 },
     );
     const missing = await run(["upgrade", join(dir, "release.json")], env);
@@ -323,12 +332,15 @@ exit 0
     expect(missing.stderr).toContain(
       "the database does not hold the settings document",
     );
+  });
 
-    // A repository the import leaves out adds nothing, so `.add == []` holds;
-    // the deployment would run with no repository.
+  // A repository the import leaves out adds nothing, so `.add == []` holds;
+  // the deployment would run with no repository.
+  test("upgrade refuses when the import leaves a repository out", async () => {
+    const docker = await deployedSameWorker();
     await writeFile(
       join(dir, "bin", "docker"),
-      (stubs.docker as string).replace(
+      docker.replace(
         `*" --dry-run") echo '{"add":[]}' ;;`,
         `*" --dry-run") echo '{"add":[]}'; echo 'note: repository sample-app is not imported: it names no GitHub App' >&2 ;;`,
       ),
