@@ -30,7 +30,7 @@ import {
   type PushWriteResult,
   type ToolSummaryContext,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import {
   findIdempotent,
@@ -149,28 +149,60 @@ export async function toolSummaryContext(
 
 type RecordedPullRequest = { number: number | null; url: string };
 
-/** The pull request rows of these push requests, by push request id. */
+/**
+ * The pull request of each push request. A pull request row belongs to the
+ * push request that created it; a later push to the same branch finds that
+ * pull request open and only records its verified number, so the row is found
+ * by session and number.
+ */
 async function recordedPullRequests(
   db: Database,
-  ids: readonly string[],
+  rows: readonly {
+    id: string;
+    sessionId: string;
+    prVerifiedNumber: number | null;
+  }[],
 ): Promise<Map<string, RecordedPullRequest>> {
-  if (ids.length === 0) return new Map();
+  if (rows.length === 0) return new Map();
+  const reusedSessions = [
+    ...new Set(
+      rows
+        .filter((row) => row.prVerifiedNumber !== null)
+        .map((row) => row.sessionId),
+    ),
+  ];
   const found = await db
     .select({
+      sessionId: pullRequests.sessionId,
       pushRequestId: pullRequests.pushRequestId,
       number: pullRequests.number,
       url: pullRequests.url,
     })
     .from(pullRequests)
-    .where(inArray(pullRequests.pushRequestId, [...ids]));
+    .where(
+      or(
+        inArray(
+          pullRequests.pushRequestId,
+          rows.map((row) => row.id),
+        ),
+        reusedSessions.length === 0
+          ? undefined
+          : inArray(pullRequests.sessionId, reusedSessions),
+      ),
+    );
   const byRequest = new Map<string, RecordedPullRequest>();
-  for (const entry of found) {
-    if (entry.pushRequestId !== null) {
-      byRequest.set(entry.pushRequestId, {
-        number: entry.number,
-        url: entry.url,
-      });
-    }
+  for (const row of rows) {
+    const own = found.find((entry) => entry.pushRequestId === row.id);
+    const reused =
+      row.prVerifiedNumber === null
+        ? undefined
+        : found.find(
+            (entry) =>
+              entry.sessionId === row.sessionId &&
+              entry.number === row.prVerifiedNumber,
+          );
+    const entry = own ?? reused;
+    if (entry) byRequest.set(row.id, { number: entry.number, url: entry.url });
   }
   return byRequest;
 }
@@ -648,10 +680,7 @@ export function createPostgresPushRequests(
           ),
         )
         .orderBy(desc(pushRequests.createdAt), desc(pushRequests.id));
-      const recorded = await recordedPullRequests(
-        db,
-        rows.map((row) => row.id),
-      );
+      const recorded = await recordedPullRequests(db, rows);
       return rows.map((row) =>
         publicPushRequest(row, recorded.get(row.id) ?? null),
       );
@@ -670,7 +699,7 @@ export function createPostgresPushRequests(
         )
         .limit(1);
       if (!row) return null;
-      const recorded = await recordedPullRequests(db, [row.id]);
+      const recorded = await recordedPullRequests(db, [row]);
       return publicPushRequest(row, recorded.get(row.id) ?? null);
     },
 

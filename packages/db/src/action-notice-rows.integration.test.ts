@@ -310,6 +310,42 @@ integration("action_notice rows on PostgreSQL", () => {
     });
   });
 
+  test("a later push that finds the pull request already open lists the same number and link", async () => {
+    const sessionId = await threadedSession("en");
+    const pullRequest = {
+      number: 7,
+      url: "https://github.com/acme/app/pull/7",
+      head: `agent/${sessionId}`,
+      base: "main",
+      headSha: COMMIT,
+      title: "Add the thing",
+    };
+    const first = await pushedWithIntent(sessionId);
+    const firstJob = await drain.claimNextDue(60_000);
+    if (firstJob?.id !== first) throw new Error("claimed another request");
+    await drain.settle(firstJob, {
+      kind: "opened",
+      pullRequest: { ...pullRequest, created: true },
+    });
+
+    const second = await pushedWithIntent(sessionId);
+    const secondJob = await drain.claimNextDue(60_000);
+    if (secondJob?.id !== second) throw new Error("claimed another request");
+    await drain.settle(secondJob, {
+      kind: "opened",
+      pullRequest: { ...pullRequest, created: false },
+    });
+
+    const items = await pushes.list(OWNER, sessionId);
+    for (const id of [first, second]) {
+      expect(items?.find((item) => item.id === id)).toMatchObject({
+        pr_state: "opened",
+        pr_number: 7,
+        pr_url: pullRequest.url,
+      });
+    }
+  });
+
   test("an uncertain stage tells the thread once, and a settle that lost its claim adds nothing", async () => {
     const sessionId = await threadedSession("en");
     const id = await pushedWithIntent(sessionId);
