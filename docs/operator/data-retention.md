@@ -111,7 +111,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 - **API·worker·scheduler·reconciler·egress proxy의 stdout 로그**
   - 형식: JSON 한 줄(`packages/observability/src/index.ts:131-177`). worker는 자체 logger(`apps/worker/src/console-logger.ts`)를 쓴다.
   - 만드는 시점: 프로세스가 동작할 때마다. `LOG_LEVEL` 기본 `info`.
-  - 보존 기간: `infra/compose.core.yml`에 정의된 compose 서비스는 json-file driver로 컨테이너마다 50 MB 파일 5개까지 남기고 오래된 것부터 지운다(`infra/compose.core.yml`의 `x-logging`). `docker inspect -f '{{json .HostConfig.LogConfig}}' <컨테이너>`로 확인한다. scheduler가 띄운 worker 컨테이너와 Kubernetes는 플랫폼이 정하지 않는다. Docker daemon 기본값, 노드의 로그 회전, Datadog의 index 보존이 적용된다([monitoring-datadog.md](monitoring-datadog.md)).
+  - 보존 기간: `infra/compose.core.yml`에 정의된 compose 서비스는 json-file driver로 컨테이너마다 50 MB 파일 5개까지 남기고 오래된 것부터 지운다(`infra/compose.core.yml`의 `x-logging`). `docker inspect -f '{{json .HostConfig.LogConfig}}' <컨테이너>`로 확인한다. scheduler가 띄운 worker 컨테이너와 Kubernetes는 플랫폼이 정하지 않는다. Docker daemon 기본값, 노드의 로그 회전, Datadog의 index 보존이 적용된다([Datadog 감시 기준](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)).
   - 삭제 조건: 위 회전 말고는 플랫폼이 정하지 않는다.
   - 바꾸기: compose는 `infra/compose.core.yml`의 `x-logging`을 고친다. 그 밖에는 설치처가 Docker log driver, 노드 로그 회전, 수집기에서 정한다. 플랫폼 쪽 설정은 `LOG_LEVEL`(Helm `config.logLevel`) 하나로, 양만 바꾼다.
 
