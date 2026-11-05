@@ -669,6 +669,9 @@ describe("markup the scan and a renderer could read differently", () => {
       "## Summary\nuse `</details>` to close",
       // An opener in a tag's attribute is not a comment, and hides a real tag.
       '<span title="<!--"> <details> -->">\n\n## Summary',
+      '<!--\n<x a=" --> <span title="> <!--"> <details> -->">\n\n## Summary',
+      "<span x=a'> <span title='> <!--'> <details> -->'>\n\n## Summary",
+      '<span x=a"> <span title="> <!--"> <details> -->">\n\n## Summary',
       "<a href=x <!-- >\n</a>\n## Summary",
       // A closer that is code, escaped, or swallowed by a comment is not a closer.
       "<details>\n\n    </details>\n\n## Summary",
@@ -701,6 +704,8 @@ describe("markup the scan and a renderer could read differently", () => {
       '<div align="center">\n\n![logo](x.png)\n</div>\n## Summary',
       "## Summary\nUse \\<Type here and <br> too.",
       "## Summary\nA \\<?x and \\<!x are text.",
+      "Use `<img` <!-- note -->\n\n## Summary",
+      '<img src="a.png"> <!-- note -->\na < b <!-- x -->\n<br/><!-- x -->\n<https://example.com> <me@example.com>',
       "<details>\n<summary>More</summary>\n<table>\n<tr><td>a</td></tr>\n</table>\n</details>\n## Summary",
     ]) {
       expect(prepareTemplate(text)).not.toBeNull();

@@ -428,7 +428,11 @@ function scan(text: string): Scanned {
         }
         // Inside a tag's attribute it is not a comment, and what the scan
         // would hide as one a renderer shows.
-        if (endsInsideTag(line.slice(0, found.index))) unbalanced = true;
+        const before = [
+          ...row.parts.filter((part) => !part.comment).map((part) => part.text),
+          line.slice(at, found.index),
+        ].join(" ");
+        if (hasLooseTag(before)) unbalanced = true;
         if (found.index > at) {
           row.parts.push({ text: line.slice(at, found.index), comment: false });
         }
@@ -458,7 +462,7 @@ function scan(text: string): Scanned {
       .map((part) => part.text.replace(/(`+)[^`]*?\1/g, " "))
       .join(" ");
     // A tag split over lines hides what follows it from every line-wise scan.
-    if (endsInsideTag(seen)) unbalanced = true;
+    if (hasLooseTag(seen)) unbalanced = true;
     for (const match of seen.matchAll(OPEN_ENDED)) {
       if (!escaped(seen, match.index)) unbalanced = true;
     }
@@ -525,29 +529,27 @@ function elementsIn(
   return [[only[1] === "/", (only[2] ?? "").toLowerCase()]];
 }
 
-/** Whether an HTML tag opened in `text` is still open at its end (quotes honoured). */
-function endsInsideTag(text: string): boolean {
-  let inTag = false;
-  let quote: string | null = null;
-  for (let i = 0; i < text.length; i += 1) {
-    const char = text[i] ?? "";
-    if (!inTag) {
-      if (
-        char === "<" &&
-        /[A-Za-z/]/.test(text[i + 1] ?? "") &&
-        !escaped(text, i)
-      ) {
-        inTag = true;
-      }
-    } else if (quote !== null) {
-      if (char === quote) quote = null;
-    } else if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === ">") {
-      inTag = false;
-    }
+// A tag in its plain form: attribute values are quoted without `<` or `>`
+// inside, or bare without quotes. Two readers cannot differ on where such a
+// tag ends or which quote opens its value.
+const PLAIN_TAG =
+  /<\/?[A-Za-z][\w:-]*(?:\s+[\w:-]+(?:=(?:"[^"<>]*"|'[^'<>]*'|[^\s"'<>=`]+))?)*\s*\/?>/g;
+const AUTOLINK = /<(?:[A-Za-z][A-Za-z0-9+.-]*:[^\s<>]*|[^\s<>@]+@[^\s<>]+)>/g;
+
+/**
+ * Whether `text` has a tag that is not in plain form (cut off, with a quote
+ * or `>` where the scan and a renderer may read it differently). Code spans,
+ * autolinks and plain tags are set aside first; an escaped `<` is text.
+ */
+function hasLooseTag(text: string): boolean {
+  const rest = text
+    .replace(/(`+)[^`]*?\1/g, " ")
+    .replace(AUTOLINK, " ")
+    .replace(PLAIN_TAG, " ");
+  for (const match of rest.matchAll(/<[A-Za-z/]/g)) {
+    if (!escaped(rest, match.index)) return true;
   }
-  return inTag;
+  return false;
 }
 
 function escaped(line: string, index: number): boolean {
