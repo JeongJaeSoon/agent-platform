@@ -199,21 +199,34 @@ export async function ensureRepositoryCeilingWhenUnset(
   db: Database,
   workspaceId: string,
 ): Promise<RepositoryCeiling> {
-  const [read] = await db
-    .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
-    .from(githubWorkspaceSettings)
-    .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
-    .limit(1);
-  const unlocked = repositoryCeilingOf(read?.repositoryCeiling);
-  if (unlocked !== null) return unlocked;
-  await ensureInstalledRepositoryCeiling(db, workspaceId);
-  // Read back what is stored, so the caller judges against the real value.
-  return (
-    (await workspaceRepositoryCeiling(db, workspaceId)) ?? {
+  return db.transaction(async (tx) => {
+    await tx
+      .insert(githubWorkspaceSettings)
+      .values({ workspaceId, ceiling: GITHUB_CEILING_NONE })
+      .onConflictDoNothing();
+    // Judged under the row lock, so a ceiling written meanwhile is kept.
+    const [held] = await tx
+      .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
+      .from(githubWorkspaceSettings)
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+      .limit(1)
+      .for("update");
+    const current = repositoryCeilingOf(held?.repositoryCeiling);
+    if (current !== null) return current;
+    const written: RepositoryCeiling = {
       repository_ids: [],
       github_app_repositories: "installed",
-    }
-  );
+    };
+    await tx
+      .update(githubWorkspaceSettings)
+      .set({
+        repositoryCeiling: written,
+        revision: sql`${githubWorkspaceSettings.revision} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(githubWorkspaceSettings.workspaceId, workspaceId));
+    return written;
+  });
 }
 
 /**

@@ -398,7 +398,11 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
       "PUT",
       `/v1/workspaces/${workspaceId}/github-settings`,
       asCookie(cookies.owner),
-      { ceiling: { ...GITHUB.features }, revision: 0 },
+      {
+        ceiling: { ...GITHUB.features },
+        // Bootstrap already wrote the repository ceiling, which counts.
+        revision: (await ceilingOfWorkspace())?.revision ?? 0,
+      },
     );
     expect(ceiling.status).toBe(200);
     expect(
