@@ -42,7 +42,7 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
   // The product's former name: stack defaults such as secret names still carry
   // it into a recording. A stopgap until the full rename.
-  ["former product name", /agent[-_\s]?platform/gi],
+  ["former product name", /agent[-_.\s]*platform/gi],
 ];
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
@@ -100,16 +100,19 @@ export function scanFixtures(fixtures: {
         findings.push({ rule, match, answer });
       };
       if (encoded) found("still encoded after the decoding cap", "");
-      const text = stages.join("\n");
-      for (const [rule, pattern] of RULES)
-        for (const [match] of text.matchAll(pattern)) found(rule, match);
-      const pinsOnly = pinned.has(value);
-      if (!pinsOnly)
-        for (const [match] of text.matchAll(EMAIL))
-          if (!ALLOWED_EMAIL.test(match))
-            found("email outside example.test", match);
-      for (const [match] of text.matchAll(IPV6_CANDIDATE))
-        if (isPrivateIpv6(match)) found("private address", match);
+      // Each stage alone: joined, the end of one and the start of the next
+      // would read as one string.
+      for (const text of stages) {
+        for (const [rule, pattern] of RULES)
+          for (const [match] of text.matchAll(pattern)) found(rule, match);
+        const pinsOnly = pinned.has(value);
+        if (!pinsOnly)
+          for (const [match] of text.matchAll(EMAIL))
+            if (!ALLOWED_EMAIL.test(match))
+              found("email outside example.test", match);
+        for (const [match] of text.matchAll(IPV6_CANDIDATE))
+          if (isPrivateIpv6(match)) found("private address", match);
+      }
     }
   });
   return findings;

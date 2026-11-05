@@ -68,7 +68,17 @@ describe("demo fixture scan", () => {
     expect(describeFinding(finding as Finding)).toBe(
       "former product name: 14 chars (answer 0)",
     );
+    for (const value of [
+      "agent.platform",
+      "agent  platform",
+      "agent%20%20platform",
+      "Agent - Platform",
+      "agent\nplatform",
+    ])
+      expect(scan({ value }), value).toEqual(["former product name"]);
     expect(scan({ title: "Werft", note: "a platform for agents" })).toEqual([]);
+    // Decoded, this reads "platform agent": no stage holds the name.
+    expect(scan({ value: "\\u0070latform agent" })).toEqual([]);
   });
 
   const catalog = (json: unknown) =>
