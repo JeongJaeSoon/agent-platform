@@ -188,6 +188,21 @@ describe("Slack prompt cards", () => {
       expect(confirm?.text.text.length).toBeLessThanOrEqual(300);
     });
 
+    test("replacement patterns in a rule are shown as written", () => {
+      for (const content of ["printf $'hello'", "echo $$", "echo $`x"]) {
+        const { blocks } = slackPromptMessage(
+          permission(
+            { command: "x" },
+            { rememberOffer: [{ toolName: "Bash", ruleContent: content }] },
+          ),
+          { locale: "en", requesterSlackUserId: null },
+        );
+        expect(actionsOf(blocks)[1]?.confirm?.text.text).toContain(
+          `Bash(${content})`,
+        );
+      }
+    });
+
     test("an offer too long to name in full gets no button", () => {
       const { blocks } = slackPromptMessage(
         permission(

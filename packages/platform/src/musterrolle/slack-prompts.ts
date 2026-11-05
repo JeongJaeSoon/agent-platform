@@ -616,9 +616,10 @@ export function slackPromptMessage(
                 {
                   title: plain(copy.allowSession, 100),
                   text: plain(
-                    copy.allowSessionConfirm.replace(
-                      "{rule}",
-                      ruleSentence(prompt.rememberOffer),
+                    // A function, so `$'` or `$$` in a rule is not read as a
+                    // replacement pattern.
+                    copy.allowSessionConfirm.replace("{rule}", () =>
+                      ruleSentence(prompt.rememberOffer ?? []),
                     ),
                     300,
                   ),
