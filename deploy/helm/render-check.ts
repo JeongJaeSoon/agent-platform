@@ -79,7 +79,7 @@ const SCHEDULER_RULES = {
   persistentvolumeclaims: ["create", "delete", "get", "list"],
 };
 const WORKER_LABELS = {
-  "app.kubernetes.io/part-of": "agent-platform",
+  "app.kubernetes.io/part-of": "werft",
   "app.kubernetes.io/component": "worker",
 };
 
@@ -200,7 +200,7 @@ function check(
     for (const [key, value] of Object.entries(WORKER_LABELS)) {
       if (selector[key] !== value) fail(workerPolicy, `selector ${key}`);
     }
-    if (!selector["agent-platform.installation"]) {
+    if (!selector["werft.installation"]) {
       fail(workerPolicy, "selector has no installation label");
     }
     if (

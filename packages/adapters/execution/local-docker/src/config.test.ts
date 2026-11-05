@@ -27,6 +27,8 @@ describe("localDockerConfigFromEnv", () => {
       stopTimeoutSeconds: 120,
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",
+      volumeLabelNamespace: "werft",
+      volumeNamePrefix: "werft-ws-",
       workspaceDir: "/workspace",
       workspaceGcMinAgeMs: 3_600_000,
       workspaceQuota: {
@@ -37,6 +39,33 @@ describe("localDockerConfigFromEnv", () => {
       },
     });
   });
+
+  test("an install whose volumes carry other names points the two settings at them", () => {
+    expect(
+      localDockerConfigFromEnv({
+        ...base,
+        EXECUTION_VOLUME_LABEL_NAMESPACE: "legacy-ns",
+        EXECUTION_VOLUME_NAME_PREFIX: "legacy-ws-",
+      }),
+    ).toMatchObject({
+      volumeLabelNamespace: "legacy-ns",
+      volumeNamePrefix: "legacy-ws-",
+    });
+  });
+
+  test.each([
+    [{ EXECUTION_VOLUME_LABEL_NAMESPACE: "Bad Ns" }, "LABEL_NAMESPACE"],
+    [{ EXECUTION_VOLUME_LABEL_NAMESPACE: "ns-" }, "LABEL_NAMESPACE"],
+    [{ EXECUTION_VOLUME_NAME_PREFIX: "no-trailing-dash" }, "NAME_PREFIX"],
+    [{ EXECUTION_VOLUME_NAME_PREFIX: "Upper-" }, "NAME_PREFIX"],
+  ])(
+    "rejects a volume naming setting that is not label- or name-safe (%o)",
+    (extra, name) => {
+      expect(() => localDockerConfigFromEnv({ ...base, ...extra })).toThrow(
+        name,
+      );
+    },
+  );
 
   test("the workspace quota is on unless it is turned off by name", () => {
     expect(

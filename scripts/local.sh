@@ -238,7 +238,7 @@ installation_id() {
   proxy=$(compose ps -aq egress-proxy) || return 1
   proxy=${proxy%%$'\n'*}
   if [ -n "$proxy" ]; then
-    docker inspect --format '{{index .Config.Labels "agent-platform.egress-proxy"}}' "$proxy"
+    docker inspect --format '{{index .Config.Labels "werft.egress-proxy"}}' "$proxy"
   else
     rendered | jq -r '.services.scheduler.environment.EXECUTION_INSTALLATION_ID // empty'
   fi
@@ -246,7 +246,7 @@ installation_id() {
 
 down() {
   # Whichever mode the stack was started in (reset's included).
-  local id overlay="" keep=""
+  local id overlay="" keep="" volume_namespace
   case "$*" in
     "") ;;
     --keep-volumes) keep=1 ;;
@@ -255,6 +255,11 @@ down() {
   command -v jq >/dev/null || die "jq is not installed"
   id=$(installation_id) || true
   [ -n "$id" ] || die "cannot tell the stack's EXECUTION_INSTALLATION_ID; nothing was deleted"
+  if [ -z "$keep" ]; then
+    # Read before compose goes down: the scheduler's setting, not this shell's.
+    volume_namespace=$(rendered | jq -r '.services.scheduler.environment.EXECUTION_VOLUME_LABEL_NAMESPACE // empty') ||
+      die "cannot read the scheduler's volume label namespace; nothing was deleted"
+  fi
   if [ -n "$keep" ]; then
     echo "local.sh: stopping the local stack and deleting its workers; volumes and checkpoint objects kept" >&2
     compose down --remove-orphans
@@ -263,15 +268,17 @@ down() {
     compose down -v --remove-orphans
   fi
   # What the scheduler created is not compose's: worker containers, their
-  # networks and workspace volumes carry the installation label instead.
-  local label=agent-platform.installation=$id
+  # networks and workspace volumes carry the installation label instead. The
+  # volumes' label prefix is the scheduler's setting, so a volume made under
+  # another prefix is only found (and only deleted) when the same value is set.
+  local label=werft.installation=$id
   docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null
   docker network ls -q --filter "label=$label" | xargs -r docker network rm >/dev/null
   if [ -n "$keep" ]; then
     echo "local.sh: stopped" >&2
     return
   fi
-  docker volume ls -q --filter "label=$label" | xargs -r docker volume rm >/dev/null
+  docker volume ls -q --filter "label=${volume_namespace:-werft}.installation=$id" | xargs -r docker volume rm >/dev/null
   echo "local.sh: deleted" >&2
 }
 
