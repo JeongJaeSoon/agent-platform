@@ -12,7 +12,7 @@ description: 設置済みの Werft を新しい公開バージョンに上げ、
 ## Kubernetes
 
 <Callout type="warn">
-UNVERIFIED。この Kubernetes のアップグレード手順は運用ドキュメントのコマンドを移したもので、この順序のままクラスターで実行して確認していません。新しい control-host と直前の worker イメージの組み合わせは CI で検査していないため、実サーバーの前に試用環境で実行してください。内容が違う場合は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기) に従ってください。
+UNVERIFIED。この Kubernetes のアップグレード手順は運用ドキュメントのコマンドを移したもので、この順序のままクラスターで実行して確認していません。新しい control-host と直前の worker イメージの組み合わせは CI で検査していないため、実サーバーの前に試用環境で実行してください。内容が違う場合は [Kubernetes の設置 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#公開chartのアップグレード) に従ってください。
 </Callout>
 
 この手順は `jq` も使います。公開 chart は新しい worker イメージを持ちますが、直前の worker イメージは持ちません。直前のイメージは設置ごとに違うからです。worker イメージが変わるアップグレードは、`images.workerPrevious` が今デプロイされているイメージでなければ `refused` で止まり、承認でも越えられません。そのため、今のイメージをファイルに保存して一緒に渡します。`--reuse-values` は使いません。古い chart の値が新しい chart のイメージを上書きします。
@@ -70,7 +70,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | `refused` | 止まります。選ばれたセッションが承認リストと違うか、worker イメージが変わるのに `images.workerPrevious` が今デプロイされているイメージではありません。後者は承認で越えられません。worker イメージが変わらなくても、今デプロイされている直前のイメージを外すか変えるとセッションを比較するので、ここで止まることがあります。この場合は承認で越えられます |
 | `check_failed` | 止まります。DB またはイメージの組み合わせを読めませんでした |
 
-選ばれたセッションが再開できなくてもよい場合は、`affected` のリストを `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` で渡し、同じアップグレードをもう一度実行します。承認リストは release の values に残るので、アップグレードのたびに `[]` で空にしてリストを読み直します。判定表と例外は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) にあります。
+選ばれたセッションが再開できなくてもよい場合は、`affected` のリストを `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` で渡し、同じアップグレードをもう一度実行します。承認リストは release の values に残るので、アップグレードのたびに `[]` で空にしてリストを読み直します。判定表と例外は [Kubernetes の設置 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#アップグレード前の検査) にあります。
 
 ### 4. 確認する
 
@@ -90,7 +90,7 @@ kill "$PF"
 
 ### 戻す
 
-`helm rollback` は hook を実行しないので、アップグレード前の検査も実行されません。worker イメージを戻すロールバックの前に手で実行する検査は通常 `refused` で、ロールフォワードが先です。戻すときの検査コマンドと限界は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) の `helm rollback` の項にあります。
+`helm rollback` は hook を実行しないので、アップグレード前の検査も実行されません。worker イメージを戻すロールバックの前に手で実行する検査は通常 `refused` で、ロールフォワードが先です。戻すときの検査コマンドと限界は [Kubernetes の設置 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#アップグレード前の検査) の `helm rollback` の項にあります。
 
 ## 単一サーバー (Docker Compose)
 

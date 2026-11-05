@@ -20,7 +20,7 @@ import { MIGRATIONS_FOLDER } from "./migration-folder.ts";
 
 const integrationTest = testDatabaseUrl() ? test : test.skip;
 
-// The packaged folder cut just before 0232_profile_one_kind_base.
+// The packaged folder cut just before 0233_profile_one_kind_base.
 function folderBefore(): string {
   const folder = mkdtempSync(join(tmpdir(), "profile-one-kind-"));
   cpSync(MIGRATIONS_FOLDER, folder, { recursive: true });

@@ -18,7 +18,6 @@ import {
   Badge,
   Button,
   buttonVariants,
-  Card,
   Code,
   ConfirmDialog,
   DangerZone,
@@ -383,17 +382,20 @@ export function ProfileDetailScreen() {
     >
       <Notice>{notice?.on === profile.id ? notice.text : undefined}</Notice>
       {retireError === null || retireOpen ? null : (
-        <Alert variant="red" role="alert">
+        <Alert variant="red" role="alert" className="border-0">
           <AlertDescription>{retireError}</AlertDescription>
         </Alert>
       )}
       {blockError === null || blockOpen ? null : (
-        <Alert variant="red" role="alert">
+        <Alert variant="red" role="alert" className="border-0">
           <AlertDescription>{blockError}</AlertDescription>
         </Alert>
       )}
       {state === "usable" ? null : (
-        <Alert variant={STATE_BADGE[state] === "red" ? "red" : "blue"}>
+        <Alert
+          variant={STATE_BADGE[state] === "red" ? "red" : "blue"}
+          className="border-0"
+        >
           <AlertDescription>
             {t(`profiles.stateReason.${state}`, {
               base: profile.workspace?.base_profile_id ?? "",
@@ -402,7 +404,7 @@ export function ProfileDetailScreen() {
         </Alert>
       )}
       {blockedNew.tools.length === 0 ? null : (
-        <Alert variant="amber">
+        <Alert variant="amber" className="border-0">
           <AlertTitle>
             {t("profiles.tools.blockedNew", {
               count: blockedNew.tools.length,
@@ -432,7 +434,10 @@ export function ProfileDetailScreen() {
           </AlertDescription>
         </Alert>
       )}
-      <Section title={t("profiles.detail.settings")}>
+      <Section
+        title={t("profiles.detail.settings")}
+        className="[&>div:first-child]:mb-4"
+      >
         {changes ? null : (
           <Text variant="meta" className="mb-3 flex items-center gap-1">
             <Lock aria-hidden="true" className="size-3.5 shrink-0" />
@@ -441,14 +446,21 @@ export function ProfileDetailScreen() {
         )}
         <Settings profile={profile} />
       </Section>
-      <Section title={t("profiles.detail.audit.title")}>
+      <Section
+        title={t("profiles.detail.audit.title")}
+        className="[&>div:first-child]:mb-4"
+      >
         <Audit profile={profile} />
       </Section>
       <History profile={profile} versions={lineOf(profile, items)} />
       {ceiling ? <Narrowings ceiling={profile} items={items} /> : null}
       <AgentsOn profile={profile} />
       {canRetire || canBlock ? (
-        <DangerZone title={t("workspace.danger")}>
+        <DangerZone
+          title={t("workspace.danger")}
+          framed={false}
+          className="gap-4 [--werft-row-padding-x:0px]"
+        >
           {canBlock ? (
             <DangerZoneRow
               title={t("profiles.blockRow")}
@@ -499,7 +511,7 @@ export function ProfileDetailScreen() {
         }}
       >
         {retireError === null ? null : (
-          <Alert variant="red" role="alert">
+          <Alert variant="red" role="alert" className="border-0">
             <AlertDescription>{retireError}</AlertDescription>
           </Alert>
         )}
@@ -535,7 +547,7 @@ export function ProfileDetailScreen() {
         }}
       >
         {blockError === null ? null : (
-          <Alert variant="red" role="alert">
+          <Alert variant="red" role="alert" className="border-0">
             <AlertDescription>{blockError}</AlertDescription>
           </Alert>
         )}
@@ -582,7 +594,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
     value,
   });
   return (
-    <Card className="p-4">
+    <div className="flex flex-col gap-4">
       <KeyValueList
         items={[
           item("id", t("profiles.detail.id"), <Mono>{profile.id}</Mono>),
@@ -695,7 +707,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
             : []),
         ]}
       />
-    </Card>
+    </div>
   );
 }
 
@@ -717,7 +729,7 @@ function Audit({ profile }: { readonly profile: ProfileSummary }) {
   if (record === undefined) return null;
   const previous = profile.installation?.previous_id;
   return (
-    <Card className="p-4">
+    <div className="flex flex-col gap-4">
       <KeyValueList
         items={[
           ...(profile.installation
@@ -768,7 +780,7 @@ function Audit({ profile }: { readonly profile: ProfileSummary }) {
             : []),
         ]}
       />
-    </Card>
+    </div>
   );
 }
 
@@ -793,6 +805,7 @@ function History({
   return (
     <Section
       title={t("profiles.detail.history.title")}
+      className="[&>div:first-child]:mb-4"
       description={t(
         profile.installation
           ? "profiles.detail.history.ceilingDescription"
@@ -800,11 +813,12 @@ function History({
       )}
     >
       <GridTable
+        className="[--werft-row-padding-x:0px]"
         aria-label={t("profiles.detail.history.title")}
         columns={HISTORY_COLUMNS[0]}
         narrowAt={640}
         narrowColumns={HISTORY_COLUMNS[1]}
-        framed={true}
+        framed={false}
       >
         <GridTableHeader>
           <GridTableColumnHeader>
@@ -890,6 +904,7 @@ function Narrowings({
   return (
     <Section
       title={t("profiles.detail.narrowings.title")}
+      className="[&>div:first-child]:mb-4"
       badge={
         rows.length === 0 ? null : (
           <Badge variant="gray">
@@ -903,11 +918,12 @@ function Narrowings({
         <EmptyState title={t("profiles.detail.narrowings.empty")} />
       ) : (
         <GridTable
+          className="[--werft-row-padding-x:0px]"
           aria-label={t("profiles.detail.narrowings.title")}
           columns={HISTORY_COLUMNS[0]}
           narrowAt={640}
           narrowColumns={HISTORY_COLUMNS[1]}
-          framed={true}
+          framed={false}
         >
           <GridTableHeader>
             <GridTableColumnHeader>
@@ -977,6 +993,7 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
   return (
     <Section
       title={t("profiles.detail.agents.title")}
+      className="[&>div:first-child]:mb-4"
       badge={
         // A count only once every page is read; until then the footer says more.
         agents.data && !agents.hasNextPage && using.length > 0 ? (
@@ -1002,8 +1019,9 @@ function AgentsOn({ profile }: { readonly profile: ProfileSummary }) {
       ) : using.length === 0 ? (
         <EmptyState title={t("profiles.detail.agents.empty")} />
       ) : (
-        <div className="rounded-card border bg-card">
+        <div>
           <GridTable
+            className="[--werft-row-padding-x:0px]"
             aria-label={t("profiles.detail.agents.title")}
             columns={AGENT_COLUMNS}
           >

@@ -359,9 +359,15 @@ export function createWorkspaceProfileService(deps: {
       const base = Object.hasOwn(catalog.profiles, request.base_profile_id)
         ? catalog.profiles[request.base_profile_id]
         : undefined;
-      const baseState = catalog.installation?.get(
-        request.base_profile_id,
-      )?.state;
+      // Another workspace's version reads as unknown whatever its state, so
+      // this comes before the state is looked at.
+      const baseWorkspace = catalog.installation?.get(request.base_profile_id)
+        ?.record?.workspace_id;
+      const foreignBase =
+        baseWorkspace != null && baseWorkspace !== actor.workspaceId;
+      const baseState = foreignBase
+        ? undefined
+        : catalog.installation?.get(request.base_profile_id)?.state;
       if (baseState !== undefined && baseState !== "usable") {
         throw new SessionServiceError(
           "BAD_REQUEST",
@@ -372,13 +378,7 @@ export function createWorkspaceProfileService(deps: {
           { reason_code: baseState, field: "base_profile_id" },
         );
       }
-      // Another workspace's version reads as unknown, as it does everywhere.
-      const baseWorkspace = catalog.installation?.get(request.base_profile_id)
-        ?.record?.workspace_id;
-      if (
-        !base ||
-        (baseWorkspace != null && baseWorkspace !== actor.workspaceId)
-      ) {
+      if (!base || foreignBase) {
         throw new SessionServiceError(
           "BAD_REQUEST",
           `Unknown operator profile ${request.base_profile_id}`,

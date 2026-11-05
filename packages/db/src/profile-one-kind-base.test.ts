@@ -265,7 +265,7 @@ describe("profile one-kind base migration", () => {
   test("runs again over its own result", async () => {
     await applyMigration();
     const sql = readFileSync(
-      join(MIGRATIONS_FOLDER, "0232_profile_one_kind_base.sql"),
+      join(MIGRATIONS_FOLDER, "0233_profile_one_kind_base.sql"),
       "utf8",
     );
     for (const statement of sql.split("--> statement-breakpoint")) {

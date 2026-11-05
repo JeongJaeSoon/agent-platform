@@ -125,6 +125,7 @@ describe("database schema", () => {
       "receipts",
       "secret_values",
       "session_achievements",
+      "session_commit_attributions",
       "session_event_archives",
       "session_links",
       "session_model_usage",

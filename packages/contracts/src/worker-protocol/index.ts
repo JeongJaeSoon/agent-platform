@@ -390,6 +390,16 @@ export const claimGitAuthorSchema = z
  */
 export const ENGINE_COAUTHOR_EMAILS = ["noreply@anthropic.com"] as const;
 
+/**
+ * The author and committer of a worker image's commits when a claim names no
+ * App bot (apps/worker/Dockerfile sets the same pair in the image's git
+ * config). A push expects it for such a claim.
+ */
+export const IMAGE_GIT_AUTHOR = {
+  name: "Werft",
+  email: "noreply@werft.invalid",
+} as const;
+
 export const claimGitStripSchema = z
   .array(
     z
@@ -897,6 +907,20 @@ export const checkpointRequestResponseSchema = z.discriminatedUnion("status", [
   }),
 ]);
 
+// The commits the worker's attribution repair must never remake: the
+// workspace commit of each of the session's recent confirmed checkpoints. A
+// push request pins exactly such a commit, so what a request already holds,
+// or a later one can, is inside. Newest first; the server bounds the list.
+export const MAX_PROTECTED_COMMITS = 32;
+export const protectedCommitsRequestSchema = workerScopeSchema.strict();
+export const protectedCommitsResponseSchema = z
+  .object({
+    commits: z
+      .array(z.string().regex(/^[0-9a-f]{40}$/))
+      .max(MAX_PROTECTED_COMMITS),
+  })
+  .strict();
+
 // What the worker runs, so the server can say whether the committed
 // checkpoint can be resumed by it (runtime-core RuntimeFingerprint).
 export const runtimeFingerprintSchema = z
@@ -1124,6 +1148,12 @@ export type HeartbeatRequest = z.infer<typeof heartbeatRequestSchema>;
 export type CheckpointRequest = z.infer<typeof checkpointRequestSchema>;
 export type CheckpointRequestResponse = z.infer<
   typeof checkpointRequestResponseSchema
+>;
+export type ProtectedCommitsRequest = z.infer<
+  typeof protectedCommitsRequestSchema
+>;
+export type ProtectedCommitsResponse = z.infer<
+  typeof protectedCommitsResponseSchema
 >;
 export type RuntimeFingerprintWire = z.infer<typeof runtimeFingerprintSchema>;
 export type RestorePlanRequest = z.infer<typeof restorePlanRequestSchema>;

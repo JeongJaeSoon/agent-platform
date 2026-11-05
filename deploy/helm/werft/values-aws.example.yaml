@@ -66,7 +66,7 @@ ingress:
     - host: agent-platform.example.com
   console:
     # "/" serves the web console; /internal gets the ALB's own 404 ahead of
-    # it. See docs/operator/kubernetes-deployment.md before turning it on.
+    # it. See the Kubernetes install page of the docs site (operate/kubernetes-deployment) before turning it on.
     enabled: false
 
 networkPolicy:

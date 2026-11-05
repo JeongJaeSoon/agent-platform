@@ -1,4 +1,5 @@
 import {
+  type AttributionMismatchDetail,
   type CreatePushRequestRequest,
   type ListPushRequestsResponse,
   type Principal,
@@ -87,14 +88,17 @@ export function mayDecidePush(
     : "unverified_principal";
 }
 
-function refused(refusal: PushRefusal, receiptId: string | null): never {
+function refused(
+  refusal: PushRefusal,
+  receiptId: string | null,
+  mismatches?: readonly AttributionMismatchDetail[],
+): never {
   const { code, message } = PUSH_REFUSAL_ERRORS[refusal];
-  throw new SessionServiceError(
-    code,
-    message,
-    undefined,
-    receiptId === null ? { refusal } : { refusal, receipt_id: receiptId },
-  );
+  throw new SessionServiceError(code, message, undefined, {
+    refusal,
+    ...(receiptId === null ? {} : { receipt_id: receiptId }),
+    ...(mismatches === undefined ? {} : { mismatches }),
+  });
 }
 
 function settled(result: PushWriteResult): PushRequest {
@@ -148,7 +152,10 @@ export function createPushRequestService(deps: {
       await requireSession(actor, "session.submit", sessionId);
       const refuse = async (
         refusal: PushRefusal,
-        fields: { repository_id?: string } = {},
+        fields: {
+          repository_id?: string;
+          mismatches?: AttributionMismatchDetail[];
+        } = {},
       ) =>
         refused(
           refusal,
@@ -167,8 +174,12 @@ export function createPushRequestService(deps: {
               checkpoint_revision: null,
               git_commit: null,
               target_branch: null,
+              ...(fields.mismatches === undefined
+                ? {}
+                : { mismatches: fields.mismatches }),
             },
           }),
+          fields.mismatches,
         );
       const replay = await store.replayCreate({
         ownerId: actor.ownerId,
@@ -198,6 +209,14 @@ export function createPushRequestService(deps: {
       if (pinned.status === "none") return refuse("no_checkpoint", repository);
       if (pinned.status === "unavailable") {
         return refuse("checkpoint_unavailable", repository);
+      }
+      // The worker's own look at the commits it holds; a checkpoint from a
+      // worker that makes none passes here and meets the push's check.
+      if (pinned.mismatches !== undefined && pinned.mismatches.length > 0) {
+        return refuse("attribution_mismatch", {
+          ...repository,
+          mismatches: pinned.mismatches,
+        });
       }
       return settled(
         await store.create({

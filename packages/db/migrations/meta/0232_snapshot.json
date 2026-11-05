@@ -1,5 +1,5 @@
 {
-  "id": "be752e3c-2c27-4c55-8593-8a538c0270ce",
+  "id": "6667e092-82eb-4bdd-a989-44ddb61a1cb2",
   "prevId": "2c29ada5-d2e8-4e73-967f-672a920bfcdd",
   "version": "7",
   "dialect": "postgresql",
@@ -1818,51 +1818,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "profile_tracking": {
-          "name": "profile_tracking",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'follow'"
-        },
-        "behavior_revision": {
-          "name": "behavior_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "model_source": {
-          "name": "model_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'fixed'"
-        },
-        "draft_version_id": {
-          "name": "draft_version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "draft_profile_id": {
-          "name": "draft_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "draft_model_source": {
-          "name": "draft_model_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "draft_failure": {
-          "name": "draft_failure",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -1942,15 +1897,6 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "agents_draft_version_fk": {
-          "name": "agents_draft_version_fk",
-          "tableFrom": "agents",
-          "tableTo": "agent_versions",
-          "columnsFrom": ["id", "draft_version_id"],
-          "columnsTo": ["agent_id", "id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "agents_managing_team_fk": {
           "name": "agents_managing_team_fk",
           "tableFrom": "agents",
@@ -1980,22 +1926,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "agents_profile_tracking_check": {
-          "name": "agents_profile_tracking_check",
-          "value": "\"agents\".\"profile_tracking\" IN ('follow', 'pinned')"
-        },
-        "agents_model_source_check": {
-          "name": "agents_model_source_check",
-          "value": "\"agents\".\"model_source\" IN ('fixed', 'profile')"
-        },
-        "agents_behavior_revision_check": {
-          "name": "agents_behavior_revision_check",
-          "value": "\"agents\".\"behavior_revision\" >= 0"
-        },
-        "agents_draft_check": {
-          "name": "agents_draft_check",
-          "value": "(\"agents\".\"draft_version_id\" IS NULL) = (\"agents\".\"draft_profile_id\" IS NULL) AND (\"agents\".\"draft_version_id\" IS NULL) = (\"agents\".\"draft_model_source\" IS NULL) AND (\"agents\".\"draft_model_source\" IS NULL OR \"agents\".\"draft_model_source\" IN ('fixed', 'profile')) AND (\"agents\".\"draft_failure\" IS NULL OR \"agents\".\"draft_version_id\" IS NOT NULL)"
-        },
         "agents_status_check": {
           "name": "agents_status_check",
           "value": "\"agents\".\"status\" IN ('active','paused','archived')"
@@ -5061,39 +4991,15 @@
           "name": "github_app_repositories",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "default": "'listed'"
         },
         "repository_scope": {
           "name": "repository_scope",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "default": "'profile'"
-        },
-        "derived_from": {
-          "name": "derived_from",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "display_name": {
-          "name": "display_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "migrated_from": {
-          "name": "migrated_from",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "deny": {
           "name": "deny",
@@ -5173,62 +5079,9 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "installation_profiles_migrated_from_key": {
-          "name": "installation_profiles_migrated_from_key",
-          "columns": [
-            {
-              "expression": "migrated_from",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"installation_profiles\".\"migrated_from\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "installation_profiles_workspace_lineage_key": {
-          "name": "installation_profiles_workspace_lineage_key",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "display_name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "version",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"installation_profiles\".\"workspace_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
-        "installation_profiles_workspace_id_workspaces_id_fk": {
-          "name": "installation_profiles_workspace_id_workspaces_id_fk",
-          "tableFrom": "installation_profiles",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "installation_profiles_created_by_users_id_fk": {
           "name": "installation_profiles_created_by_users_id_fk",
           "tableFrom": "installation_profiles",
@@ -5252,15 +5105,6 @@
           "tableFrom": "installation_profiles",
           "tableTo": "users",
           "columnsFrom": ["blocked_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "installation_profiles_derived_from_fk": {
-          "name": "installation_profiles_derived_from_fk",
-          "tableFrom": "installation_profiles",
-          "tableTo": "installation_profiles",
-          "columnsFrom": ["derived_from"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -5308,7 +5152,7 @@
         },
         "installation_profiles_repository_ids_check": {
           "name": "installation_profiles_repository_ids_check",
-          "value": "\"installation_profiles\".\"repository_ids\" IS NOT NULL OR \"installation_profiles\".\"origin\" = 'catalog' OR \"installation_profiles\".\"repository_scope\" IS NULL"
+          "value": "\"installation_profiles\".\"repository_ids\" IS NOT NULL OR \"installation_profiles\".\"origin\" = 'catalog'"
         },
         "installation_profiles_github_app_repositories_check": {
           "name": "installation_profiles_github_app_repositories_check",
@@ -6934,230 +6778,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.profile_rollout_items": {
-      "name": "profile_rollout_items",
-      "schema": "",
-      "columns": {
-        "rollout_id": {
-          "name": "rollout_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "generation": {
-          "name": "generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "reason_code": {
-          "name": "reason_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "locked_until": {
-          "name": "locked_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "locked_by": {
-          "name": "locked_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "profile_rollout_items_pending_idx": {
-          "name": "profile_rollout_items_pending_idx",
-          "columns": [
-            {
-              "expression": "locked_until",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"profile_rollout_items\".\"status\" = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "profile_rollout_items_agent_idx": {
-          "name": "profile_rollout_items_agent_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "profile_rollout_items_rollout_id_profile_rollouts_id_fk": {
-          "name": "profile_rollout_items_rollout_id_profile_rollouts_id_fk",
-          "tableFrom": "profile_rollout_items",
-          "tableTo": "profile_rollouts",
-          "columnsFrom": ["rollout_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "profile_rollout_items_agent_id_agents_id_fk": {
-          "name": "profile_rollout_items_agent_id_agents_id_fk",
-          "tableFrom": "profile_rollout_items",
-          "tableTo": "agents",
-          "columnsFrom": ["agent_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "profile_rollout_items_pkey": {
-          "name": "profile_rollout_items_pkey",
-          "columns": ["rollout_id", "agent_id", "generation"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "profile_rollout_items_generation_check": {
-          "name": "profile_rollout_items_generation_check",
-          "value": "\"profile_rollout_items\".\"generation\" >= -1"
-        },
-        "profile_rollout_items_attempts_check": {
-          "name": "profile_rollout_items_attempts_check",
-          "value": "\"profile_rollout_items\".\"attempts\" >= 0"
-        },
-        "profile_rollout_items_status_check": {
-          "name": "profile_rollout_items_status_check",
-          "value": "\"profile_rollout_items\".\"status\" IN ('pending','applied','superseded','failed')"
-        },
-        "profile_rollout_items_failed_check": {
-          "name": "profile_rollout_items_failed_check",
-          "value": "\"profile_rollout_items\".\"status\" <> 'failed' OR \"profile_rollout_items\".\"reason_code\" IS NOT NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.profile_rollouts": {
-      "name": "profile_rollouts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_profile_id": {
-          "name": "target_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "profile_rollouts_target_profile_id_installation_profiles_id_fk": {
-          "name": "profile_rollouts_target_profile_id_installation_profiles_id_fk",
-          "tableFrom": "profile_rollouts",
-          "tableTo": "installation_profiles",
-          "columnsFrom": ["target_profile_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "profile_rollouts_created_by_users_id_fk": {
-          "name": "profile_rollouts_created_by_users_id_fk",
-          "tableFrom": "profile_rollouts",
-          "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "profile_rollouts_target_kind_key": {
-          "name": "profile_rollouts_target_kind_key",
-          "nullsNotDistinct": false,
-          "columns": ["target_profile_id", "kind"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "profile_rollouts_kind_check": {
-          "name": "profile_rollouts_kind_check",
-          "value": "\"profile_rollouts\".\"kind\" IN ('profile_update','tool_unlock')"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.provider_connections": {
       "name": "provider_connections",
       "schema": "",
@@ -8703,6 +8323,88 @@
         "session_achievements_reviewed_check": {
           "name": "session_achievements_reviewed_check",
           "value": "(\"session_achievements\".\"reviewed_by\" IS NULL) = (\"session_achievements\".\"reviewed_at\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.session_commit_attributions": {
+      "name": "session_commit_attributions",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_name": {
+          "name": "author_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_email": {
+          "name": "author_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "co_author_name": {
+          "name": "co_author_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "co_author_email": {
+          "name": "co_author_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_session": {
+          "name": "agent_session",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_commit_attributions_session_id_sessions_id_fk": {
+          "name": "session_commit_attributions_session_id_sessions_id_fk",
+          "tableFrom": "session_commit_attributions",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "session_commit_attributions_pk": {
+          "name": "session_commit_attributions_pk",
+          "columns": ["session_id", "digest"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "session_commit_attributions_co_author_check": {
+          "name": "session_commit_attributions_co_author_check",
+          "value": "(\"session_commit_attributions\".\"co_author_name\" IS NULL) = (\"session_commit_attributions\".\"co_author_email\" IS NULL)"
         }
       },
       "isRLSEnabled": false

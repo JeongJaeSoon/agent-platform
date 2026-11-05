@@ -90,9 +90,7 @@ export function SlackApps() {
       ) : apps.isError ? (
         <LoadFailure error={apps.error} onRetry={() => void apps.refetch()} />
       ) : apps.data.items.length === 0 ? (
-        <Text variant="sub" className="rounded-card border border-dashed p-4">
-          {t("workspace.slackAppsEmpty")}
-        </Text>
+        <Text variant="sub">{t("workspace.slackAppsEmpty")}</Text>
       ) : (
         <AppTable items={apps.data.items} />
       )}
@@ -109,7 +107,7 @@ function AppTable({ items }: { readonly items: readonly MadeApp[] }) {
       columns={COLUMNS[0]}
       narrowAt={640}
       narrowColumns={COLUMNS[1]}
-      framed={true}
+      framed={false}
     >
       <GridTableHeader>
         <GridTableColumnHeader>

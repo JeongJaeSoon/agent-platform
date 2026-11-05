@@ -15,6 +15,7 @@ export {
 } from "./checkpoint-runtime.ts";
 export * from "./checkpoint-store.ts";
 export * from "./close-control.ts";
+export * from "./commit-attributions.ts";
 export * from "./control-unit-of-work.ts";
 export * from "./credential-bindings.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";

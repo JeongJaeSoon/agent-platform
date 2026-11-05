@@ -273,6 +273,16 @@ describe("a workspace's own version", () => {
       display_name: "Theirs",
     }),
     row("op_shared_v1"),
+    row("op_theirs_retired_v1", {
+      workspace_id: OTHER_WORKSPACE,
+      retired_at: AT,
+      retired_by: OWNER,
+    }),
+    row("op_theirs_blocked_v1", {
+      workspace_id: OTHER_WORKSPACE,
+      blocked_at: AT,
+      blocked_by: OWNER,
+    }),
   ];
 
   test("reads as unknown to another workspace", async () => {
@@ -323,11 +333,18 @@ describe("a workspace's own version", () => {
         tools: [],
         permission_mode: "default",
       });
-    const refused = await narrow("op_theirs_v1").then(
-      () => null,
-      (e: { details?: unknown }) => e.details,
-    );
-    expect(refused).toMatchObject({ reason_code: "unknown_base" });
+    // Whatever state it is in, another workspace's version is unknown.
+    for (const base of [
+      "op_theirs_v1",
+      "op_theirs_retired_v1",
+      "op_theirs_blocked_v1",
+    ]) {
+      const refused = await narrow(base).then(
+        () => null,
+        (e: { details?: unknown }) => e.details,
+      );
+      expect(refused).toMatchObject({ reason_code: "unknown_base" });
+    }
     expect(writes).toEqual([]);
     // Its own workspace's and the installation's go through to the store.
     for (const base of ["op_mine_v1", "op_shared_v1"]) {
@@ -341,7 +358,12 @@ describe("a workspace's own version", () => {
     const idsFor = (workspaceId: string | null) =>
       listCatalogProfiles(catalog, workspaceId).items.map((item) => item.id);
     expect(idsFor(WORKSPACE)).toEqual(["op_mine_v1", "op_shared_v1"]);
-    expect(idsFor(OTHER_WORKSPACE)).toEqual(["op_shared_v1", "op_theirs_v1"]);
+    expect(idsFor(OTHER_WORKSPACE)).toEqual([
+      "op_shared_v1",
+      "op_theirs_blocked_v1",
+      "op_theirs_retired_v1",
+      "op_theirs_v1",
+    ]);
     expect(idsFor(null)).toEqual(["op_shared_v1"]);
   });
 });

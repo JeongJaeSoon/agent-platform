@@ -69,6 +69,8 @@ Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택�
 
 ## Gotchas
 
+- 실제 GitHub App 키를 쓰지 않고 채워진 연결 행의 레이아웃만 볼 때는 `browser.mjs <run> mockshot <path> <responses.json> <name> [full]`을 쓴다. JSON은 정확한 `/v1/…` 경로를 키로, 가짜 GET 응답 본문을 값으로 둔다. 이 명령은 해당 verify origin에서만 돌고, 모의 캡처 중 쓰기 요청은 차단한다. `<name>.response-mock.json`에 `response_mock: true`와 실제 바꾼 경로를 기록하므로 PR에서도 응답 모의 캡처임을 명시한다. 실제 App 연결·발급·권한 검증을 대신하지 않는다. 비밀값이나 실제 App 키는 fixture에 넣지 않는다.
+
 - headless Chrome의 `--window-size=360,…`은 최소 창 폭(약 500px) 때문에 360px로 그려지지 않는다. `browser.mjs`는 창 크기 대신 device metrics를 바꿔서 390px도 그대로 그린다.
 - `__Host-ap_session`은 `Secure`지만 Chromium은 `http://127.0.0.1`을 안전한 origin으로 보아 cookie를 저장한다. 브라우저 profile이 run마다 따로라 다른 스택의 cookie와 섞이지 않는다.
 - `session-ended`를 몰려면 페이지에서 `fetch('/v1/auth/logout',{method:'POST',headers:{'x-requested-with':'agent-platform-web'}})`로 세션을 끝내고, 30초(`me`의 staleTime) 뒤 `window.dispatchEvent(new Event('visibilitychange'))`로 포커스 복귀를 흉내 낸다. `document`에 보내면 React Query가 듣지 않는다.
