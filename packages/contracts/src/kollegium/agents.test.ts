@@ -438,7 +438,13 @@ describe("agent, version and release", () => {
         ...extra,
       });
     expect(request({}).success).toBe(true);
-    for (const key of ["pull_request", "pull_request_template", "formatting"]) {
+    for (const key of [
+      "pull_request",
+      "pull_request_template",
+      "formatting",
+      "template",
+      "template_name",
+    ]) {
       expect(
         request({
           [key]: { formatting: "off", template: null, template_name: null },
