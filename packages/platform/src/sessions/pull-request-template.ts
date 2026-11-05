@@ -310,7 +310,7 @@ const OPEN_ENDED = /<(?:[!?](?!--)|plaintext(?![\w-]))/gi;
 const ELEMENT_ANY = new RegExp(`<(/?)(${ELEMENT_NAMES})(?![\\w-])`, "gi");
 // A tag whose attributes are bare words or `name=value` with a plain value.
 const ELEMENT_SIMPLE = new RegExp(
-  `^<(?:/?)(?:${ELEMENT_NAMES})(?:\\s+[\\w:-]+(?:=(?:"[^"<>\`]*"|'[^'<>\`]*'|[^\\s"'<>\`=]+))?)*\\s*/?>`,
+  `^<(?:/?)(?:${ELEMENT_NAMES})(?:[ \\t\\n\\r\\f]+[\\w:-]+(?:[ \\t\\n\\r\\f]*=[ \\t\\n\\r\\f]*(?:"[^"<>\`]*"|'[^'<>\`]*'|[^ \\t\\n\\r\\f"'<>\`=]+))?)*[ \\t\\n\\r\\f]*/?>`,
   "i",
 );
 // A comment the platform reads or whose text it writes itself: its own tail
@@ -532,9 +532,13 @@ function elementsIn(
 // A tag in its plain form: attribute values are quoted without `<` or `>`
 // inside, or bare without quotes. Two readers cannot differ on where such a
 // tag ends or which quote opens its value.
+// Only the ASCII whitespace a parser splits a tag on: a no-break space is part
+// of a name or a value there, though `\s` takes it for a gap.
 const PLAIN_TAG =
-  /<\/?[A-Za-z][\w:-]*(?:\s+[\w:-]+(?:=(?:"[^"<>]*"|'[^'<>]*'|[^\s"'<>=`]+))?)*\s*\/?>/g;
-const AUTOLINK = /<(?:[A-Za-z][A-Za-z0-9+.-]*:[^\s<>]*|[^\s<>@]+@[^\s<>]+)>/g;
+  /<\/?[A-Za-z][\w:-]*(?:[ \t\n\r\f]+[\w:-]+(?:[ \t\n\r\f]*=[ \t\n\r\f]*(?:"[^"<>]*"|'[^'<>]*'|[^ \t\n\r\f"'<>=`]+))?)*[ \t\n\r\f]*\/?>/g;
+// Nothing with a quote: that could be an attribute's start, not a link.
+const AUTOLINK =
+  /<(?:[A-Za-z][A-Za-z0-9+.-]*:[^\s<>"'`]*|[^\s<>@"'`]+@[^\s<>"'`]+)>/g;
 
 /**
  * Whether `text` has a tag that is not in plain form (cut off, with a quote

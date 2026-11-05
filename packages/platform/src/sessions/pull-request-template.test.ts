@@ -670,6 +670,10 @@ describe("markup the scan and a renderer could read differently", () => {
       // An opener in a tag's attribute is not a comment, and hides a real tag.
       '<span title="<!--"> <details> -->">\n\n## Summary',
       '<!--\n<x a=" --> <span title="> <!--"> <details> -->">\n\n## Summary',
+      // A no-break space is part of the tag's name, not a gap before an attribute.
+      `<div>\n</div>\n<span a="x b='"> <!--'> <details> -->'>\n\n## Summary`,
+      // A link-looking tag that holds a quote may be an attribute's start.
+      '<div>\n</div>\n<span/a="x@y> <!--"> <details> -->">\n\n## Summary',
       "<span x=a'> <span title='> <!--'> <details> -->'>\n\n## Summary",
       '<span x=a"> <span title="> <!--"> <details> -->">\n\n## Summary',
       "<a href=x <!-- >\n</a>\n## Summary",
@@ -705,6 +709,7 @@ describe("markup the scan and a renderer could read differently", () => {
       "## Summary\nUse \\<Type here and <br> too.",
       "## Summary\nA \\<?x and \\<!x are text.",
       "Use `<img` <!-- note -->\n\n## Summary",
+      '<img src = "a.png">\n\n## Summary',
       '<img src="a.png"> <!-- note -->\na < b <!-- x -->\n<br/><!-- x -->\n<https://example.com> <me@example.com>',
       "<details>\n<summary>More</summary>\n<table>\n<tr><td>a</td></tr>\n</table>\n</details>\n## Summary",
     ]) {
