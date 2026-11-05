@@ -20,8 +20,13 @@ type Message = {
   text: string;
   options: { blocks?: string };
 };
-type Update = { channelId: string; ts: string; text: string };
 type Element = { action_id?: string; value?: string };
+type Update = {
+  channelId: string;
+  ts: string;
+  text: string;
+  blocks?: { elements?: Element[] }[];
+};
 
 const get = async (path: string) => (await fetch(`${MOCK}${path}`)).json();
 const elementsOf = (message: Message): Element[] =>
@@ -53,18 +58,20 @@ if (mode === "cards") {
 } else if (mode === "click") {
   const actionId = ACTIONS[pick];
   if (actionId === undefined) throw new Error(`unknown action ${pick}`);
-  // The newest card that still offers the button: a card the platform has
-  // already updated was answered.
+  // The newest card whose current blocks (the last update's, else the
+  // posted ones) still offer the button; an answered card has none.
   const { updates } = (await get("/fake/updates")) as { updates: Update[] };
-  const card = cards.findLast(
-    (message) =>
-      !updates.some((update) => update.ts === message.ts) &&
-      elementsOf(message).some((element) => element.action_id === actionId),
-  );
+  const current = (message: Message): Element[] => {
+    const last = updates.findLast((update) => update.ts === message.ts);
+    return last === undefined
+      ? elementsOf(message)
+      : (last.blocks ?? []).flatMap((block) => block.elements ?? []);
+  };
+  const open = (message: Message) =>
+    current(message).find((element) => element.action_id === actionId);
+  const card = cards.findLast((message) => open(message) !== undefined);
   if (!card) throw new Error(`no open card offers ${actionId}`);
-  const element = elementsOf(card).find(
-    (candidate) => candidate.action_id === actionId,
-  );
+  const element = open(card);
   const response = await fetch(`${MOCK}/fake/interactions`, {
     method: "POST",
     body: JSON.stringify({
