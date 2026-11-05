@@ -6,7 +6,7 @@ description: 게시된 이미지로 Linux 서버 한 대에 Werft를 설치하�
 Linux 서버 한 대에 Docker Compose로 Werft를 설치한다. 이미지는 직접 빌드하지 않고 게시된 것을 digest로 고정해 받는다. 이 페이지는 `/readyz`가 200을 돌려줄 때까지의 순서를 적는다. Kubernetes에 올린다면 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 읽는다.
 
 <Callout type="warn">
-이 절차는 OrbStack의 Ubuntu(arm64) 머신에서 게시 이미지로 1~6단계와 7단계의 `key create`까지 실행해 확인했다. 7단계의 `/bootstrap` 화면으로 첫 owner를 만드는 일과 실제 모델 호출은 확인하지 못했다. `reset`은 세션이 없는 설치에서 컨테이너를 `-v` 없이 내린 뒤 한 번 실행해 exit 0과 postgres volume 삭제를 확인했다. 내용이 다르면 저장소의 `scripts/test-ops.sh`와 `infra/` 파일이 기준이다.
+이 절차는 OrbStack의 Ubuntu(arm64) 머신에서 게시 이미지로 1~6단계와 7단계의 `key create`까지 실행해 확인했다. 7단계의 `/bootstrap` 화면으로 첫 owner를 만드는 일은 확인하지 못했다. 실제 모델 호출은 확인했다. 콘솔에서 만든 GitHub App으로 `claude-coding` 프로필 세션을 만들었고, turn 1이 `completed`로 끝났다. `reset`은 세션이 없는 설치에서 컨테이너를 `-v` 없이 내린 뒤 한 번 실행해 exit 0과 postgres volume 삭제를 확인했다. 내용이 다르면 저장소의 `scripts/test-ops.sh`와 `infra/` 파일이 기준이다.
 </Callout>
 
 <Callout type="warn">
@@ -80,12 +80,12 @@ bun install --frozen-lockfile
 비밀 값은 저장소 밖의 env 파일에만 둔다. 파일은 운영자만 읽을 수 있어야 한다. group이나 other에 권한이 있으면 스크립트가 거부한다.
 
 ```bash
-sudo mkdir -p /etc/agent-platform
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
-sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-`/etc/agent-platform/test-ops.env`를 편집기로 열어 다음을 채운다. `sed -i`처럼 임시 파일을 만드는 도구는 `/etc/agent-platform`에서 `Permission denied`로 실패하니 제자리에 쓰는 편집기를 쓴다.
+`/etc/werft/test-ops.env`를 편집기로 열어 다음을 채운다. `sed -i`처럼 임시 파일을 만드는 도구는 `/etc/werft`에서 `Permission denied`로 실패하니 제자리에 쓰는 편집기를 쓴다.
 
 | 변수 | 값 |
 | --- | --- |
@@ -95,16 +95,16 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 | `ANTHROPIC_API_KEY` | 세션이 쓸 Anthropic key. API 컨테이너에만 간다 |
 | `BOOTSTRAP_TOKEN` | 주석을 풀고 32~256자 무작위 값을 넣는다. 첫 owner를 만드는 토큰이다. 넣지 않으면 API가 만들어 컨테이너 로그에 출력한다 |
 
-예시 파일에는 `EXECUTION_INSTALLATION_ID`(`test-ops`), `PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`), `EXECUTION_WORKSPACE_QUOTA`(`on`)가 이미 채워져 있다. 기본 LocalStack 설치라면 그대로 둔다. 비어 있으면 compose가 렌더를 거부한다.
+예시 파일에는 `EXECUTION_INSTALLATION_ID`(`test-ops`), `PLATFORM_SETTINGS_DOCUMENT`(`/etc/werft/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`), `EXECUTION_WORKSPACE_QUOTA`(`on`)가 이미 채워져 있다. 기본 LocalStack 설치라면 그대로 둔다. 비어 있으면 compose가 렌더를 거부한다.
 
 값을 터미널에 출력하거나 명령 인자로 넘기지 않는다. 무작위 값은 `openssl rand -hex 32`로 만들어 편집기에 붙인다.
 
-설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
+설정 문서는 `/etc/werft/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
 
 migrate 컨테이너가 읽어야 하므로 파일은 `0644`로 둔다. 빈 파일을 먼저 만들고 편집기로 아래 내용을 채운다.
 
 ```bash
-sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```
 
 ```json
@@ -147,7 +147,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 내용을 채웠으면 파일의 digest를 구한다.
 
 ```bash
-bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 ```
 
 ## 4. release 파일 만들기
@@ -155,7 +155,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.jso
 `release.json`은 설치할 commit, 세 이미지의 digest, 설정 문서의 digest를 적는다. 태그만 적은 이미지는 거부된다. 1단계의 `TAG`가 남아 있는 셸에서 실행한다.
 
 ```bash
-SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
 digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
 jq -n \
   --arg commit "$(git rev-parse HEAD)" \
@@ -181,7 +181,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy`는 migrate를 돌리고 api, scheduler, reconciler를 띄운 뒤 healthcheck를 기다린다. LocalStack은 호스트나 Docker가 재시작되면 checkpoint를 잃고, 재시작 뒤 API가 기동을 거부할 수 있다(복구는 [재부팅](#재부팅)의 `reseed` 또는 `reset`). 시험용으로만 쓴다.
 
-첫 `deploy`가 실패하면 `reset`으로 지울 수 없다. 원인을 고친 뒤 이 project(`agent-platform-test-ops`)의 컨테이너, volume, network를 직접 지우고 다시 `deploy`한다.
+첫 `deploy`가 실패하면 `reset`으로 지울 수 없다. 원인을 고친 뒤 이 project(`werft-test-ops`)의 컨테이너, volume, network를 직접 지우고 다시 `deploy`한다.
 
 ## 6. 확인하기
 
@@ -199,7 +199,7 @@ curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
 ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 ```
 
-내부 DNS로 내보내려면 TLS와 VPN 또는 IP allowlist를 갖춘 reverse proxy를 앞에 둔다. 이벤트 스트림(SSE)을 위해 buffering을 끄고 read timeout을 길게 둔다. PostgreSQL과 Docker socket은 밖에 열지 않는다. 이 reverse proxy는 설정해 확인하지 못했다.
+내부 DNS로 내보내려면 TLS와 VPN 또는 IP allowlist를 갖춘 reverse proxy를 앞에 둔다. 이벤트 스트림(SSE)을 위해 buffering을 끄고 read timeout을 길게 둔다. PostgreSQL과 Docker socket은 밖에 열지 않는다. 자세한 설정과 확인한 범위는 [접근 경로](#접근-경로)에 있다.
 
 ## 7. 첫 owner와 API key
 
@@ -237,12 +237,14 @@ scripts/test-ops.sh start
 
 `start`는 checkout이 release의 source commit이 아니어도 `infra/`가 그 commit의 것과 같으면 올린다. compose 파일만 checkout에서 읽기 때문이다.
 
+env 파일의 값을 바꾼 설치에는 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. `CONSOLE_ORIGIN`을 넣고 이 명령으로 적용하자 api 컨테이너가 다시 만들어지고 `/readyz`가 ready였다. `start`가 바뀐 env 값을 읽는지는 확인하지 못했다.
+
 남는 것은 DB volume이다. LocalStack은 volume 없이 메모리에 저장하므로, 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. DB에 미수거 checkpoint가 남아 있는데 bucket이 비어 있으면 API가 시작을 거부하고, 그때는 [재부팅](#재부팅)의 `reseed`나 `reset`이다. 데이터를 지키려면 S3로 설치한다. 이 명령들은 LocalStack 설치에서 세션이 실패한 채 끝난 뒤(미수거 checkpoint 없음)의 상태로만 확인했다. `stop`을 거치지 않고 손으로 `compose down`한 설치를 `start`로 올린 것, 그리고 재부팅 뒤 `start`로 올린 것은 실행해 확인했다. 두 경우 모두 `/readyz`가 200이었고 owner 로그인이 됐다. 미수거 checkpoint가 있는 LocalStack 설치를 `start`한 경우는 확인하지 못했다.
 
 ## 운영하기
 
 <Callout type="warn">
-이 절은 `scripts/test-ops.sh`와 코드를 읽어 쓴 것이다. 검증 머신(LocalStack 설치)에서 `backup`, `restore-drill`, `reseed`를 각각 실행했다. `backup`은 exit 0에 끝의 `/readyz` 본문이 ready였고, `restore-drill`은 `--bucket` 없이 불러 `PASSED`와 exit 0이었고, `reseed`는 exit 0에 `/readyz`가 HTTP 200이었다. 다만 그 스택에는 object가 0개이고 checkpoint 행이 0개라서 object 업로드 경로와 checkpoint 대조는 쓰이지 않았다. `backup --stop`, 재부팅, `reseed`를 이어서 하는 절차, S3 object store 설치, TLS reverse proxy는 실행하지 않았다. 그 부분의 인자와 동작은 스크립트의 인자 처리와 코드로 확인했을 뿐이다.
+이 절은 `scripts/test-ops.sh`와 코드를 읽어 쓴 것이다. 검증 머신(LocalStack 설치)에서 `backup`, `restore-drill`, `reseed`를 각각 실행했다. `backup`은 exit 0에 끝의 `/readyz` 본문이 ready였고, `restore-drill`은 `--bucket` 없이 불러 `PASSED`와 exit 0이었고, `reseed`는 exit 0에 `/readyz`가 HTTP 200이었다. 다만 그 스택에는 object가 0개이고 checkpoint 행이 0개라서 object 업로드 경로와 checkpoint 대조는 쓰이지 않았다. `backup --stop`, 재부팅, `reseed`를 이어서 하는 절차와 S3 object store 설치는 실행하지 않았다. TLS reverse proxy는 [접근 경로](#접근-경로)에 적은 범위까지 실행해 확인했다. 실행하지 않은 부분의 인자와 동작은 스크립트의 인자 처리와 코드로 확인했을 뿐이다.
 </Callout>
 
 ### 접근 경로
@@ -250,6 +252,15 @@ scripts/test-ops.sh start
 API(기본 3000)와 PostgreSQL(기본 5432)은 호스트 loopback에만 열린다. 사용자는 SSH tunnel로 들어오고, PostgreSQL은 운영자가 서버 안에서만 쓴다. 방화벽은 SSH와 선택한 TLS endpoint만 허용한다.
 
 내부 DNS 이름으로 API를 내보내려면 reverse proxy를 앞에 둔다. upstream은 계속 `127.0.0.1:3000`이다. 접속 주소는 VPN 대역이나 IP allowlist로 좁히고, TLS 연결은 proxy에서 처리한다. proxy는 브라우저가 보낸 `Host`를 그대로 upstream에 넘긴다. API는 상태를 바꾸는 브라우저 요청에서 `Origin`의 host와 `Host`가 다르면 거부하므로, upstream host로 바꿔 넘기면 웹 콘솔의 변경 요청이 실패한다. 이벤트 스트림(SSE)은 연결을 오래 유지하므로 `proxy_buffering`과 요청 buffering을 끄고 read, send timeout을 1시간처럼 길게 둔다. 어떤 경로를 택해도 PostgreSQL과 Docker socket은 proxy나 방화벽 밖으로 열지 않는다. Docker socket은 scheduler가 worker를 관리할 때만 쓰며 호스트 TCP socket을 켜지 않는다.
+
+이 구성은 검증 머신(Ubuntu 24.04, Nginx 1.24)에서 사설 CA 인증서로 확인했다. 운영 문서 `server-deployment.md` 2절의 Nginx 예시에서 `deny all;` 앞에 `allow 127.0.0.1;`을 한 줄 더했다. 같은 머신에서 보내는 시험 요청이 `deny all`에 걸리지 않게 하려는 것이다.
+
+- `https`로 `/readyz`, `/docs`, `/docs/scalar.js`가 모두 200이었다. allowlist 밖 주소에서는 403이었다. 5432는 loopback에서만 열려 있었고 2375는 열려 있지 않았다.
+- API key로 `GET /v1/sessions/<id>`가 200이었고, `https` 이벤트 스트림을 `curl -sSN --max-time 5`로 받자 7,968 bytes가 오고 `curl: (28)`로 끝났다.
+- 비밀번호 로그인이 200이었고 `__Host-` cookie가 저장됐다. 상태를 바꾸는 요청은 `Origin`이 다르면 403, 같으면 로그아웃이 204였다.
+- `TEST_OPS_API_URL`은 바꾸지 않았다. 기본값 그대로 proxy를 세워도 위 확인은 모두 통과했다. `status`와 `deploy`의 `/readyz` 확인이 proxy 주소를 거치게 값을 넣은 경우는 확인하지 못했다.
+
+사설 CA를 쓰면 클라이언트가 그 CA를 믿게 해야 한다. `curl`은 `--cacert`로 CA 인증서를 넘기고 `-k`는 쓰지 않는다. 믿게 하지 않은 브라우저는 `NET::ERR_CERT_AUTHORITY_INVALID`로 막힌다. 브라우저의 `https` 로그인은 이 때문에 확인하지 못했고, 위 로그인은 `curl`로 확인했다. 공인 인증서를 쓰거나 사용자 PC가 CA를 믿게 하는 방법은 조직마다 다르므로 이 문서가 정하지 않는다. 실제 내부 DNS 이름과 VPN 대역에서의 접속도 확인하지 못했다.
 
 ### 전용 S3 bucket
 
@@ -280,7 +291,7 @@ scripts/test-ops.sh backup
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
-scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
 출력은 상태 디렉터리의 `restore-drills/`에 남고 판정은 `history.log`에 한 줄 남는다. 끝나면 훈련 project는 지워진다(조사하려면 `--keep`을 붙이고, 포트가 겹치면 `--port-base`로 바꾼다. 기본은 25432부터다). 훈련 bucket의 object에는 legal hold가 걸려 있으므로, bucket을 지우려면 version마다 hold를 풀고 version을 지운 뒤 bucket을 지운다.
@@ -295,7 +306,7 @@ LocalStack 설치는 재부팅하면 object를 잃는다. 미리 아는 재부�
 # Back up, leave the writers stopped, restart the host, then restore the objects
 scripts/test-ops.sh backup --stop
 sudo reboot
-scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
 `reseed`는 백업의 manifest, project, bucket, checksum을 확인하고, 비어 있는 LocalStack에 object를 올린 뒤 모든 미수거 checkpoint를 다시 고정하고 설치를 다시 띄운다. 마지막 백업 뒤에 새 checkpoint가 생겼으면 거부하고, 그때는 `reset`밖에 없다. 예상하지 못한 재시작이 있었을 때 API가 기동을 거부하는 것도 같은 상태이며 같은 방법으로 푼다. `reseed`는 재시작하지 않은 스택에서도 bucket이 비어 있으면 통과했고, 비어 있지 않은 bucket은 거부한다. object가 있을 때의 동작은 확인하지 못했다.

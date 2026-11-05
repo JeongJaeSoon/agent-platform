@@ -60,14 +60,14 @@ chartはGitサーバーも作りません。設定ドキュメントのリポジ
 
 ### kind(ローカル)
 
-`deploy/kind/up.sh`が上の順序を一度に行います。クラスターとregistryの作成、イメージのビルドとpush(digestの確保)、namespace・PostgreSQL・LocalStack・Secretの作成、`helm upgrade --install`、rolloutと`/readyz`・`/docs`の確認までです。kubeconfigは`~/.kube/config`ではなく`~/.cache/agent-platform/kind/<cluster>/kubeconfig`に書きます。**kind**
+`deploy/kind/up.sh`が上の順序を一度に行います。クラスターとregistryの作成、イメージのビルドとpush(digestの確保)、namespace・PostgreSQL・LocalStack・Secretの作成、`helm upgrade --install`、rolloutと`/readyz`・`/docs`の確認までです。kubeconfigは`~/.kube/config`ではなく`~/.cache/werft/kind/<cluster>/kubeconfig`に書きます。**kind**
 
 ```bash
 CLUSTER_NAME=<cluster> REGISTRY_PORT=<port> deploy/kind/up.sh
-export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
+export KUBECONFIG=~/.cache/werft/kind/<cluster>/kubeconfig
 ```
 
-`CLUSTER_NAME`(既定`agent-platform-dev`)と`REGISTRY_PORT`(既定5001)は省略できます。ほかのクラスターやregistryと衝突するときに変えます。削除するコマンドは`CLUSTER_NAME=… deploy/kind/up.sh down`です(クラスターとregistryコンテナだけを消します)。
+`CLUSTER_NAME`(既定`werft-dev`)と`REGISTRY_PORT`(既定5001)は省略できます。ほかのクラスターやregistryと衝突するときに変えます。削除するコマンドは`CLUSTER_NAME=… deploy/kind/up.sh down`です(クラスターとregistryコンテナだけを消します)。
 
 `EXTRA_VALUES=<ファイル>`を渡すと、valuesファイル1つをほかのvaluesファイル(モデル用を含む)の上に最後に重ねます。ノートPCでapiとegress-proxyを1つずつだけ立てるときに使います(`api.replicas: 1`、`egressProxy.replicas: 1`)。
 
@@ -365,5 +365,5 @@ helm -n werft uninstall werft
 
 **kind**。`helm uninstall`が残すものは次のとおりです。
 
-- schedulerが作ったworker Pod、nonce Secret、workspace PVC。消す前に、セッションが終わったか(またはcheckpointされたか)を見ます。PVCを消すと、checkpointされていない作業が消えます。一覧: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=agent-platform,agent-platform.installation=<installationId>`
+- schedulerが作ったworker Pod、nonce Secret、workspace PVC。消す前に、セッションが終わったか(またはcheckpointされたか)を見ます。PVCを消すと、checkpointされていない作業が消えます。一覧: `kubectl -n werft get pods,secrets,pvc -l app.kubernetes.io/part-of=werft,werft.installation=<installationId>`
 - hookで作ったmigrate Jobとupgrade-check Job、ExternalSecretとそれが書いたSecret(`creationPolicy: Orphan`)。手で作ったSecretも残ります。残ったJobは次のインストールを妨げません。同じ名前のhookが走るときにHelmが先に消します。いま消すなら`kubectl -n werft delete job werft-migrate werft-upgrade-check --ignore-not-found`を実行します。
