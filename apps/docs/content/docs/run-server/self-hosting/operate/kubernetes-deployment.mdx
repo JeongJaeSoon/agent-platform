@@ -60,14 +60,14 @@ chart는 Git 서버도 만들지 않는다. 설정 문서의 저장소에는 Pod
 
 ### kind (로컬)
 
-`deploy/kind/up.sh`가 위 순서를 한 번에 한다. 클러스터·registry 생성, 이미지 빌드·push(digest 확보), namespace·PostgreSQL·LocalStack·Secret 생성, `helm upgrade --install`, rollout과 `/readyz`·`/docs` 확인까지다. kubeconfig는 `~/.kube/config`가 아니라 `~/.cache/agent-platform/kind/<cluster>/kubeconfig`에 쓴다. **kind**
+`deploy/kind/up.sh`가 위 순서를 한 번에 한다. 클러스터·registry 생성, 이미지 빌드·push(digest 확보), namespace·PostgreSQL·LocalStack·Secret 생성, `helm upgrade --install`, rollout과 `/readyz`·`/docs` 확인까지다. kubeconfig는 `~/.kube/config`가 아니라 `~/.cache/werft/kind/<cluster>/kubeconfig`에 쓴다. **kind**
 
 ```bash
 CLUSTER_NAME=<cluster> REGISTRY_PORT=<port> deploy/kind/up.sh
-export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
+export KUBECONFIG=~/.cache/werft/kind/<cluster>/kubeconfig
 ```
 
-`CLUSTER_NAME`(기본 `agent-platform-dev`)과 `REGISTRY_PORT`(기본 5001)는 생략할 수 있다. 다른 클러스터나 registry와 겹치면 바꾼다. 지우는 명령은 `CLUSTER_NAME=… deploy/kind/up.sh down`이다(클러스터와 registry 컨테이너만 지운다).
+`CLUSTER_NAME`(기본 `werft-dev`)과 `REGISTRY_PORT`(기본 5001)는 생략할 수 있다. 다른 클러스터나 registry와 겹치면 바꾼다. 지우는 명령은 `CLUSTER_NAME=… deploy/kind/up.sh down`이다(클러스터와 registry 컨테이너만 지운다).
 
 `EXTRA_VALUES=<파일>`을 주면 values 파일 하나를 다른 values 파일(모델 포함) 위에 마지막으로 얹는다. 노트북에서 api·egress-proxy를 1개씩만 띄울 때 쓴다(`api.replicas: 1`, `egressProxy.replicas: 1`).
 

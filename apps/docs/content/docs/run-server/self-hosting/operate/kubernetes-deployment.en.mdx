@@ -60,14 +60,14 @@ The order is Secret → image digests → migrate → control plane. In the char
 
 ### kind (local)
 
-`deploy/kind/up.sh` does the order above in one go: it creates the cluster and registry, builds and pushes the images (to get digests), creates the namespace, PostgreSQL, LocalStack and Secret, runs `helm upgrade --install`, and then checks the rollout, `/readyz` and `/docs`. It writes the kubeconfig to `~/.cache/agent-platform/kind/<cluster>/kubeconfig`, not to `~/.kube/config`. **kind**
+`deploy/kind/up.sh` does the order above in one go: it creates the cluster and registry, builds and pushes the images (to get digests), creates the namespace, PostgreSQL, LocalStack and Secret, runs `helm upgrade --install`, and then checks the rollout, `/readyz` and `/docs`. It writes the kubeconfig to `~/.cache/werft/kind/<cluster>/kubeconfig`, not to `~/.kube/config`. **kind**
 
 ```bash
 CLUSTER_NAME=<cluster> REGISTRY_PORT=<port> deploy/kind/up.sh
-export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
+export KUBECONFIG=~/.cache/werft/kind/<cluster>/kubeconfig
 ```
 
-`CLUSTER_NAME` (default `agent-platform-dev`) and `REGISTRY_PORT` (default 5001) can be left out. Change them when they collide with another cluster or registry. The command to remove it is `CLUSTER_NAME=… deploy/kind/up.sh down` (it removes only the cluster and the registry container).
+`CLUSTER_NAME` (default `werft-dev`) and `REGISTRY_PORT` (default 5001) can be left out. Change them when they collide with another cluster or registry. The command to remove it is `CLUSTER_NAME=… deploy/kind/up.sh down` (it removes only the cluster and the registry container).
 
 With `EXTRA_VALUES=<file>`, one values file is laid last on top of the other values files (the model one included). Use it to run only one api and one egress-proxy on a laptop (`api.replicas: 1`, `egressProxy.replicas: 1`).
 

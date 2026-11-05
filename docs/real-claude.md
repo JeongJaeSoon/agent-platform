@@ -69,7 +69,7 @@ docker image rm "werft-control-host:$P" "werft-worker:$P" "werft-egress-proxy:$P
 
 ## B. 실제 Claude와 직접 대화하기
 
-스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`agent-platform`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행해도 DB는 그대로이고 설정 문서의 연결만 더해진다. 상한은 표가 비어 있을 때만 문서에서 만들어지므로 `claude-coding-real`은 생기지 않는다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다).
+스택을 띄워 두고 대본 없이 자유 문장을 보낸다. quickstart의 `--fake-model` 스택과 같은 project(`werft`)와 포트를 쓰므로 둘을 동시에 띄울 수 없다. fake 스택이 떠 있을 때 `up`을 실행해도 DB는 그대로이고 설정 문서의 연결만 더해진다. 상한은 표가 비어 있을 때만 문서에서 만들어지므로 `claude-coding-real`은 생기지 않는다([api-server.md](operator/api-server.md#운영자-카탈로그-agent-profile--repository)). 처음부터 하려면 `up` 대신 `scripts/local.sh reset`을 쓴다(기존 세션과 데이터가 지워진다).
 
 **1. 스택 띄우기.** key 입력 세 줄 뒤에 이어서 붙여 넣는다.
 
