@@ -4,8 +4,10 @@ import {
   attributionMismatches,
   attributionProblems,
   type CommitFacts,
+  namesWorkingTreeSnapshot,
   parseCommitFacts,
   rangeAttribution,
+  workingTreeSnapshotMismatch,
 } from "./commit-attribution.ts";
 
 const bot = {
@@ -180,5 +182,38 @@ describe("rangeAttribution", () => {
 
   test("a git that fails is unreadable, never clean", async () => {
     expect(await run([commit()], 128)).toEqual({ status: "unreadable" });
+  });
+});
+
+describe("working-tree snapshot marker", () => {
+  const sha = "a".repeat(40);
+
+  test("names the pinned commit only when its entry carries no problems", () => {
+    expect(
+      namesWorkingTreeSnapshot([workingTreeSnapshotMismatch(sha)], sha),
+    ).toBe(true);
+    expect(
+      namesWorkingTreeSnapshot([{ commit: sha, problems: ["author"] }], sha),
+    ).toBe(false);
+    expect(
+      namesWorkingTreeSnapshot(
+        [workingTreeSnapshotMismatch("b".repeat(40))],
+        sha,
+      ),
+    ).toBe(false);
+  });
+
+  test("judging never yields an empty problem list, so the marker is not a real finding", () => {
+    const facts: CommitFacts = {
+      sha,
+      authorName: "x",
+      authorEmail: "x@x",
+      committerName: "x",
+      committerEmail: "x@x",
+      message: "m\n",
+    };
+    for (const found of attributionMismatches([facts], [expected], strip)) {
+      expect(found.problems.length).toBeGreaterThan(0);
+    }
   });
 });

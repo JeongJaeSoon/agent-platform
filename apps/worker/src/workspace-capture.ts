@@ -45,6 +45,11 @@ export type WorkspaceCapture = {
   };
   /** The snapshot commit, `refs/checkpoint/worktree` in the bundle. */
   gitCommit: string;
+  /**
+   * The commit HEAD is on. It is not `gitCommit` exactly when tracked files
+   * were left uncommitted and `gitCommit` is the platform's snapshot.
+   */
+  headCommit: string;
   untracked: Array<{ bytes: Uint8Array; executable: boolean; path: string }>;
 };
 
@@ -762,6 +767,7 @@ async function captureWorkspaceOnce(
       capture: {
         bundle: { ...built, path: input.bundlePath },
         gitCommit,
+        headCommit,
         untracked,
       },
     };
