@@ -83,7 +83,7 @@ worker는 claim을 받을 때마다 engine의 HOME(tmpfs)에 user 수준 설정�
 
 `GOPROXY`에 `direct`를 두지 않으므로 Go가 VCS host로 직접 나가지 않는다. `GONOSUMDB`·`GOPRIVATE`·`GONOSUMCHECK`는 두지 않아 모든 모듈이 checksum DB 검증을 받는다. 이 파일은 token이 들어 있어 0600이고, claim에 `packages`가 없는 옛 API를 만나면 지운다. 세션 안에서 사용자가 `go env -w`나 `npm config set`으로 바꿀 수는 있지만 경계는 proxy이므로 바꿔도 다른 곳에 닿지 않는다.
 
-lockfile 밖 버전을 막는 일은 proxy가 하지 않는다. proxy는 lockfile을 모른다. 세션에서는 frozen 설치(`npm ci`, `bundle install --deployment` 또는 `BUNDLE_FROZEN=true`, `go mod download`와 `-mod=readonly`)를 쓴다. 저장소의 npm 설정이 registry를 고정할 때의 동작과 E2E 결과는 [이미지와 공급망 § worker 안의 패키지 도구](images-and-supply-chain.md#worker-안의-패키지-도구)에 있다.
+lockfile 밖 버전을 막는 일은 proxy가 하지 않는다. proxy는 lockfile을 모른다. 세션에서는 frozen 설치(`npm ci`, `bundle install --deployment` 또는 `BUNDLE_FROZEN=true`, `go mod download`와 `-mod=readonly`)를 쓴다. 저장소의 npm 설정이 registry를 고정할 때의 동작과 E2E 결과는 [이미지와 공급망 § worker 안의 패키지 도구](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#worker-안의-패키지-도구)에 있다.
 
 CONNECT 터널은 TLS만 나른다. proxy는 `200 Connection Established`를 쓴 뒤 클라이언트의 첫 바이트를 upstream에 흘리기 전에 TLS ClientHello로 읽어, DNS 이름 authority면 `server_name`이 그 authority와(대소문자만 무시하고) 같아야 하고, allowlist에 명시된 IP literal authority면 `server_name`이 없어야 한다. `encrypted_client_hello`(0xfe0d)는 GREASE 여부와 관계없이 거부한다 — proxy는 둘을 구별할 수 없고, 진짜 ECH는 검사 대상인 이름을 숨긴다. handshake가 아닌 첫 레코드, host_name이 둘인 hello, 최초 16KiB(record header 포함) 또는 15초(`handshakeTimeoutMs`) 안에 완성되지 않는 hello는 전부 연결을 끊는다. 거부는 200 뒤에 일어나므로 클라이언트에는 handshake 도중 연결 종료로 보인다.
 

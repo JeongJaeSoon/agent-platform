@@ -119,19 +119,19 @@ describe("signOutAll", () => {
       try {
         const reachable = new DemoClient(
           `http://127.0.0.1:${server.port}`,
-          "__Host-ap_session=owner",
+          "__Host-werft_session=owner",
         );
         // Port 9 (discard) refuses: every attempt throws.
         const unreachable = new DemoClient(
           "http://127.0.0.1:9",
-          "__Host-ap_session=member",
+          "__Host-werft_session=member",
         );
         await expect(signOutAll([unreachable, reachable])).rejects.toThrow(
           "signing out failed",
         );
         expect(logouts).toEqual([
-          "__Host-ap_session=owner",
-          "__Host-ap_session=owner",
+          "__Host-werft_session=owner",
+          "__Host-werft_session=owner",
         ]);
         // Signed out: a second pass sends nothing more.
         await signOutAll([reachable]);

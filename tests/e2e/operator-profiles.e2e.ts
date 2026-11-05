@@ -67,7 +67,7 @@ async function login(email: string): Promise<string | null> {
   return (
     response.headers
       .getSetCookie()
-      .find((value) => value.startsWith("__Host-ap_session="))
+      .find((value) => value.startsWith("__Host-werft_session="))
       ?.split(";")[0] ?? null
   );
 }

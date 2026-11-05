@@ -5,7 +5,7 @@ description: Where session events are stored, where secrets are masked, who can 
 
 The session data the worker receives from the engine (model replies, tool calls and results, permission requests, state changes) goes to the `events` table in the database. This table is the source of truth that features rely on. This page says what the table holds, what breaks when the flow is cut, where secrets are masked, who can read the content, and how to start the Langfuse collector example. Each item names the file it rests on.
 
-Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md). The app has no OpenTelemetry (OTel) dependency and no trace exporter. The `trace_id` in the logs exists only as a field of `ObservabilityContext` in `packages/observability/src/index.ts`, and nothing fills it.
+Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](/run-server/self-hosting/operate/monitoring-datadog). The app has no OpenTelemetry (OTel) dependency and no trace exporter. The `trace_id` in the logs exists only as a field of `ObservabilityContext` in `packages/observability/src/index.ts`, and nothing fills it.
 
 ## At a glance
 

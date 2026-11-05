@@ -783,7 +783,7 @@ export function runtimeProviderOf(
  * Whether a claim runs a session's release tools instead of its profile's.
  * An API older than the one that offers both lists as restore configs
  * cannot resume a checkpoint made with the release's, so that one is the
- * rollback floor (docs/operator/images-and-supply-chain.md).
+ * rollback floor (site page run-server/self-hosting/operate/images-and-supply-chain).
  */
 export const CLAIM_RUNS_RELEASE_TOOLS = true;
 

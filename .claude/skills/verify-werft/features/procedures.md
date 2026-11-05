@@ -10,11 +10,11 @@ zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bi
 
 ```sh
 RUN='<run-id>'
-. .claude/skills/verify-agent-platform/scripts/lib.sh "$RUN"
-U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
-B=.claude/skills/verify-agent-platform/scripts/browser.mjs
+. .claude/skills/verify-werft/scripts/lib.sh "$RUN"
+U=.claude/skills/verify-werft/scripts/web-user.mjs
+B=.claude/skills/verify-werft/scripts/browser.mjs
 [ ! -f "$VERIFY_RUN/ids.sh" ] || . "$VERIFY_RUN/ids.sh"
-.claude/skills/verify-agent-platform/scripts/doctor.sh "$RUN"
+.claude/skills/verify-werft/scripts/doctor.sh "$RUN"
 ```
 
 ID 저장은 아래 `printf`처럼 값이 UUID인 ID에만 쓴다. key·cookie·OAuth 값은 `ids.sh`에 저장하지 않는다. 새 run에서는 그 run의 파일만 복원한다.
@@ -739,7 +739,7 @@ node "$B" "$RUN" open /
 ```sh
 # Actor: stack operator; select owner after login below.
 export PLATFORM_SECRET_KEY=$(openssl rand -hex 32)
-.claude/skills/verify-agent-platform/scripts/up.sh infra/compose.mock-slack.yml
+.claude/skills/verify-werft/scripts/up.sh infra/compose.mock-slack.yml
 ```
 
 새 RUN으로 P-SETUP·P-WEB-LOGIN의 owner 생성/로그인, P-API-AGENTS의 agent 생성·release·활성화까지만 실행한다(팀·관리자 부분 제외). WS·AID를 기록한다. config token은 helper로 저장한다.
@@ -861,7 +861,7 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
-전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh --keep-volumes`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
+전제: 새 run. 기본 run·Slack run과 같이 띄우지 않는다. `up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml`과 버리는 master key로 띄우고, [github-sandbox.md](github-sandbox.md)의 1–7을 순서대로 실행한다(App 등록 → 상한 → 에이전트 릴리스 → 세션 clone·commit → push·PR → dispatch·rerun 거절과 receipt → 자기 PR 닫기·`down.sh --keep-volumes`). 실제 GitHub에 브랜치와 PR이 생기므로 7의 정리까지가 한 절차다.
 
 ## P-DEMO-SEED — 데모 별도 run
 
@@ -869,7 +869,7 @@ node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
 
 ```sh
 # Actor: stack operator; select demo-owner after login below.
-VERIFY_DEMO_ACCOUNTS=1 .claude/skills/verify-agent-platform/scripts/up.sh
+VERIFY_DEMO_ACCOUNTS=1 .claude/skills/verify-werft/scripts/up.sh
 ```
 
 출력 id로 P-SETUP 후:
@@ -926,8 +926,8 @@ node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 # Actor: owner. 그 run의 postgres에서만 돈다. 두 번째 실행은 아무것도 더하지 않는다.
 ap_compose exec -T postgres psql -U postgres -d sessions -v ON_ERROR_STOP=1 \
   -v sessions=50000 -v agents=2000 -v members=2000 -v teams=300 \
-  -v team_members=500 -v keys=1000 < .claude/skills/verify-agent-platform/scripts/seed-scale.sql
-. .claude/skills/verify-agent-platform/scripts/bench-lists.sh
+  -v team_members=500 -v keys=1000 < .claude/skills/verify-werft/scripts/seed-scale.sql
+. .claude/skills/verify-werft/scripts/bench-lists.sh
 ap_as owner
 ap_bench 15 '/v1/sessions?limit=50'
 ap_bench 15 '/v1/sessions?limit=50&q=zzznomatch'

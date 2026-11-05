@@ -5,7 +5,7 @@ description: セッションイベントの保存先、秘密値を隠す場所�
 
 workerがエンジンから受け取ったセッションデータ(モデルの回答、ツール呼び出しと結果、権限リクエスト、状態の変化)は、DBの`events`テーブルに入ります。このテーブルが、機能が頼る正本です。このページでは、テーブルが何を持つか、途切れると何が壊れるか、秘密値をどこで隠すか、誰が内容を読めるかを説明し、Langfuseコレクターのサンプルを起動する方法を示します。内容ごとに、根拠となるファイルも書いています。
 
-現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)にあります。アプリにはOpenTelemetry(OTel)の依存もtrace exporterもありません。ログの`trace_id`は、`packages/observability/src/index.ts`の`ObservabilityContext`にフィールドがあるだけで、値を入れる場所はありません。
+現在の監視(stdoutのJSONログ、`/readyz`、DB queryをDatadog Agentが収集)は[Datadog監視基準](/run-server/self-hosting/operate/monitoring-datadog)にあります。アプリにはOpenTelemetry(OTel)の依存もtrace exporterもありません。ログの`trace_id`は、`packages/observability/src/index.ts`の`ObservabilityContext`にフィールドがあるだけで、値を入れる場所はありません。
 
 ## 全体像
 

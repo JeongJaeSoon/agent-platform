@@ -184,7 +184,7 @@ case "$app" in
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && git lfs version && gh --version && test -d /workspace'
     docker run --rm "$image" bun build --target=bun --outdir=/tmp/resolve apps/worker/src/main.ts >/dev/null
     # a commit in a fresh repository needs no identity of its own
-    # and carries the one docs/operator/images-and-supply-chain.md names.
+    # and carries the one the site page operate/images-and-supply-chain names.
     ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
     echo "default commit identity: $ident"
     expected="Werft <noreply@werft.invalid>"

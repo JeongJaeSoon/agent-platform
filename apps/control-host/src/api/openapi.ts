@@ -1355,7 +1355,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Auth",
     summary: "Email/password login; sets the session cookie",
     description:
-      "Checks an email and password and starts a browser session: the response sets the `__Host-ap_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.",
+      "Checks an email and password and starts a browser session: the response sets the `__Host-werft_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.",
     auth: "public",
     csrf: "always",
     body: "LoginRequest",
