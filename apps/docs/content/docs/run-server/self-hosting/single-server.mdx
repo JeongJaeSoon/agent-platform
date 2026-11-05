@@ -237,7 +237,7 @@ scripts/test-ops.sh start
 
 `start`는 checkout이 release의 source commit이 아니어도 `infra/`가 그 commit의 것과 같으면 올린다. compose 파일만 checkout에서 읽기 때문이다.
 
-남는 것은 DB volume이다. LocalStack은 volume 없이 메모리에 저장하므로, 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. DB에 미수거 checkpoint가 남아 있는데 bucket이 비어 있으면 API가 시작을 거부하고, 그때는 [재부팅](#재부팅)의 `reseed`나 `reset`이다. 데이터를 지키려면 S3로 설치한다. 이 명령들은 LocalStack 설치에서 세션이 실패한 채 끝난 뒤(미수거 checkpoint 없음)의 상태로만 확인했다. `stop`을 거치지 않고 손으로 `compose down`한 설치를 `start`로 올린 것, 그리고 재부팅 뒤 `start`로 올린 것은 실행해 확인했다. 두 경우 모두 `/readyz`가 200이었고 owner 로그인이 됐다. 미수거 checkpoint가 있는 LocalStack 설치를 `start`한 경우는 확인하지 못했다.
+남는 것은 DB volume이다. LocalStack은 volume 없이 메모리에 저장하므로, 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. DB에 미수거 checkpoint가 남아 있는데 bucket이 비어 있으면 API가 시작을 거부하고, 그때는 [재부팅](#재부팅)의 `reseed`나 `reset`이다. 데이터를 지키려면 S3로 설치한다. 이 명령들은 LocalStack 설치에서 세션이 실패한 채 끝난 뒤(미수거 checkpoint 없음)의 상태로만 확인했다. `stop`으로 내린 설치를 `start`로 올린 것도 실행해 확인했다. `stop` 뒤 컨테이너와 network가 0개, volume은 그대로였고, `start`는 exit 0, `/readyz`는 200이었다. `stop`을 거치지 않고 손으로 `compose down`한 설치를 `start`로 올린 것, 그리고 재부팅 뒤 `start`로 올린 것은 실행해 확인했다. 두 경우 모두 `/readyz`가 200이었고 owner 로그인이 됐다. 미수거 checkpoint가 있는 LocalStack 설치를 `start`한 경우는 확인하지 못했다.
 
 ## 운영하기
 
