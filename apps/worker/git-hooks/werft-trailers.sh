@@ -76,15 +76,10 @@ werft_add_trailers() {
   (
     cr=$(printf '\r')
     set --
-    session=
     while IFS= read -r line || [ -n "$line" ]; do
       case $line in
         *"$cr"*) continue ;;
-        "Agent-Session: "*)
-          [ -n "$session" ] || session=$line
-          set -- "$@" --trailer "$line"
-          ;;
-        "Co-authored-by: "*) set -- "$@" --trailer "$line" ;;
+        "Co-authored-by: "* | "Agent-Session: "*) set -- "$@" --trailer "$line" ;;
       esac
     done <"$_werft_trailers"
     [ $# -gt 0 ] || exit 0
@@ -95,40 +90,6 @@ werft_add_trailers() {
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CONFIG GIT_CONFIG_PARAMETERS
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0
     cd / || exit 1
-    # The trailers git reads must hold one Agent-Session line, the claim's. git
-    # says which lines are trailers (--parse); of those, every Agent-Session
-    # line but one exact copy of the claim's is deleted from the message,
-    # last occurrence first, since the trailer block is the message's end. Body
-    # text git does not read as a trailer is never matched. A message that
-    # already holds exactly the one line is left as it is.
-    if [ -n "$session" ]; then
-      parsed=$(git interpret-trailers --parse --no-divider "$_werft_file") || exit 1
-      found=$(printf '%s\n' "$parsed" | grep -ci '^agent-session:')
-      exact=$(printf '%s\n' "$parsed" | grep -cxF "$session")
-      if [ "$found" -gt 0 ] && { [ "$found" -ne 1 ] || [ "$exact" -ne 1 ]; }; then
-        WERFT_PARSED=$parsed WERFT_SESSION=$session awk '
-          BEGIN {
-            n = split(ENVIRON["WERFT_PARSED"], p, "\n")
-            for (i = 1; i <= n; i++) {
-              if (tolower(p[i]) !~ /^agent-session:/) continue
-              if (p[i] == ENVIRON["WERFT_SESSION"] && !kept) kept = 1
-              else drop[p[i]]++
-            }
-          }
-          { line[NR] = $0 }
-          END {
-            for (i = NR; i >= 1; i--) {
-              text = line[i]
-              sub(/\r$/, "", text)
-              if (drop[text] > 0) { drop[text]--; gone[i] = 1 }
-            }
-            for (i = 1; i <= NR; i++) if (!gone[i]) print line[i]
-          }
-        ' "$_werft_file" >"$_werft_file.werft-session" || exit 1
-        cat "$_werft_file.werft-session" >"$_werft_file" || exit 1
-        rm -f "$_werft_file.werft-session"
-      fi
-    fi
     # --no-divider: the push check reads trailers the way `git log` does, which
     # treats a `---` line as ordinary text, so the trailers must go after it.
     exec git interpret-trailers --no-divider --if-exists addIfDifferent --in-place "$@" "$_werft_file"

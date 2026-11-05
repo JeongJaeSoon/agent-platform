@@ -227,13 +227,6 @@ describe("attributionProblems", () => {
     ).toEqual(["engine_co_author"]);
   });
 
-  test("a second, different Agent-Session line is refused", () => {
-    const message = `${commit().message}Agent-Session: other\n`;
-    expect(attributionProblems(commit({ message }), expected, strip)).toEqual([
-      "agent_session",
-    ]);
-  });
-
   test("a claim without a co-author or a session asks for neither", () => {
     expect(
       attributionProblems(

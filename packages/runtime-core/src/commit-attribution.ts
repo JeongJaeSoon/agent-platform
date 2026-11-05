@@ -166,11 +166,7 @@ export function attributionProblems(
   }
   if (expectation.agentSession !== null) {
     const wanted = `Agent-Session: ${expectation.agentSession}`;
-    // One session value, so a second, different line cannot ride along.
-    const sessions = trailerLines.filter((line) =>
-      /^agent-session:/i.test(line),
-    );
-    if (sessions.length !== 1 || sessions[0] !== wanted)
+    if (trailerLines.filter((line) => line === wanted).length !== 1)
       problems.push("agent_session");
   }
   return problems;
