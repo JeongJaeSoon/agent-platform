@@ -94,12 +94,14 @@ function refused(
   refusal: PushRefusal,
   receiptId: string | null,
   mismatches?: readonly AttributionMismatchDetail[],
+  reason?: string,
 ): never {
   const { code, message } = PUSH_REFUSAL_ERRORS[refusal];
   throw new SessionServiceError(code, message, undefined, {
     refusal,
     ...(receiptId === null ? {} : { receipt_id: receiptId }),
     ...(mismatches === undefined ? {} : { mismatches }),
+    ...(reason === undefined ? {} : { reason }),
   });
 }
 
@@ -108,7 +110,12 @@ function settled(result: PushWriteResult): PushRequest {
     case "conflict":
       return idempotencyConflict();
     case "refused":
-      return refused(result.refusal, result.receiptId);
+      return refused(
+        result.refusal,
+        result.receiptId,
+        undefined,
+        result.reason,
+      );
     default:
       return result.request;
   }

@@ -1016,6 +1016,13 @@
       "when": 1793884485577,
       "tag": "0235_agent_github_push_attached",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793894608956,
+      "tag": "0236_push_intents",
+      "breakpoints": true
     }
   ]
 }

@@ -91,6 +91,7 @@ export const ACTION_REFUSAL_CODES = {
   // Calling again can succeed once it is.
   not_pushed: actionRefusalSpec("platform", true),
   checkpoint_unavailable: actionRefusalSpec("platform", true),
+  pinned_source_invalid: actionRefusalSpec("platform"),
   lease_expired: actionRefusalSpec("platform", true),
   push_failed: actionRefusalSpec("platform", true),
   request_open: actionRefusalSpec("platform", true),
