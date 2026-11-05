@@ -547,7 +547,8 @@ describe("app shell", () => {
     expect(document.activeElement === docs).toBe(true);
 
     await user.click(docs);
-    expect(screen.queryByRole("menu")).toBeNull();
+    // Not toBeNull(): Bun passes it for an element that is still there.
+    expect(screen.queryByRole("menu") === null).toBe(true);
     expect(document.activeElement === pill).toBe(true);
   });
 

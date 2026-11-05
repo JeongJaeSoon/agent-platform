@@ -2,8 +2,9 @@ import type { Locale } from "@werft-ai/react";
 
 /**
  * The public documentation site. Every console link to it reads this one
- * constant. The site's bare root only redirects by the browser's language;
- * the console links its own language, which can differ from the browser's.
+ * constant. The site's bare root redirects by the language the docs site
+ * remembers or the browser's; the console links its own language, which can
+ * differ from both.
  */
 export const DOCS_SITE_URL = "https://jeongjaesoon.github.io/werft/";
 
