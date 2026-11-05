@@ -67,7 +67,7 @@ const EMPTY_RESULT: PullRequestReceiptResult = {
 
 /** The hidden line that tells the platform's comment apart on the forge. */
 export function commentMarker(sessionId: string, marker: string): string {
-  return `<!-- agent-platform:${sessionId}:${marker} -->`;
+  return `<!-- werft:${sessionId}:${marker} -->`;
 }
 
 /**
