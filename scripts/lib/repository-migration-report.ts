@@ -105,6 +105,7 @@ export type Snapshot = {
     status: string;
     workspace_id: string | null;
     has_agent: boolean;
+    agent_id: string | null;
     profile_id: string | null;
     policy_source: string;
     repository_id: string | null;
@@ -157,7 +158,7 @@ export async function readSnapshot(client: PoolClient): Promise<Snapshot> {
     ),
     sessions: await q(
       `SELECT s.id, s.status, coalesce(a.workspace_id, s.workspace_id) AS workspace_id,
-              s.agent_release_id IS NOT NULL AS has_agent, s.profile_id,
+              s.agent_release_id IS NOT NULL AS has_agent, a.id AS agent_id, s.profile_id,
               s.github_policy_source AS policy_source, s.repository_id,
               s.attached_repository_ids AS attached
        FROM sessions s
@@ -244,12 +245,9 @@ export function buildReport(
   const profileRow = new Map(snapshot.profiles.map((p) => [p.id, p]));
   const profileIds = (profileId: string): Set<string> => {
     const base = baseId(profileId);
-    const ids = new Set(strings(profileRow.get(base)?.repository_ids));
-    for (const row of snapshot.repositories) {
-      const named = strings(row.profiles);
-      if (named.includes(base) || named.includes(profileId)) ids.add(row.id);
-    }
-    return ids;
+    // The runtime reads the profile row's list; the catalog row's own
+    // `profiles` is seed metadata and not a grant.
+    return new Set(strings(profileRow.get(base)?.repository_ids));
   };
   const profileSet = (profileId: string): Set<string> => {
     const ids = profileIds(profileId);
@@ -453,12 +451,17 @@ export function buildReport(
     .map((row) => {
       const perWorkspace = new Map<
         string,
-        { in_ceiling: boolean; agents: Map<string, Set<string>> }
+        {
+          in_ceiling: boolean;
+          agents: Map<string, Set<string>>;
+          active_sessions: Set<string>;
+        }
       >();
       const slot = (workspaceId: string) => {
         const entry = perWorkspace.get(workspaceId) ?? {
           in_ceiling: false,
           agents: new Map<string, Set<string>>(),
+          active_sessions: new Set<string>(),
         };
         perWorkspace.set(workspaceId, entry);
         return entry;
@@ -485,6 +488,18 @@ export function buildReport(
         if (strings(agent.pinned).includes(row.id))
           use(agent.id, "release_pin");
       }
+      // An active session names the value whatever release it runs on.
+      const sessionOf = new Map(snapshot.sessions.map((s) => [s.id, s]));
+      for (const candidate of snapshot.candidates) {
+        if (candidate.repository_id !== row.id) continue;
+        const session = sessionOf.get(candidate.session_id);
+        if (candidate.workspace_id !== null) {
+          slot(candidate.workspace_id).active_sessions.add(
+            candidate.session_id,
+          );
+        }
+        if (session?.agent_id != null) use(session.agent_id, "active_session");
+      }
       for (const setting of snapshot.settings) {
         if (strings(setting.repositories).includes(row.id)) {
           use(setting.agent_id, "agent_settings");
@@ -501,6 +516,7 @@ export function buildReport(
           .map(([workspaceId, entry]) => ({
             workspace_id: workspaceId,
             in_ceiling: entry.in_ceiling,
+            active_session_count: entry.active_sessions.size,
             agents: [...entry.agents.entries()]
               .map(([id, via]) => ({
                 id,
@@ -510,12 +526,11 @@ export function buildReport(
               .sort((a, b) => a.id.localeCompare(b.id)),
           }))
           .sort((a, b) => a.workspace_id.localeCompare(b.workspace_id)),
-        profiles: sorted([
-          ...snapshot.profiles
+        profiles: sorted(
+          snapshot.profiles
             .filter((p) => strings(p.repository_ids).includes(row.id))
             .map((p) => p.id),
-          ...strings(row.profiles),
-        ]),
+        ),
       };
     });
 

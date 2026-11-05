@@ -272,6 +272,10 @@ integration("the read-only repository migration report", () => {
     await repository("old-x", "github_app_explicit");
     await repository("recent-x", "github_app_explicit");
     await repository("loose-x", "github_app_explicit");
+    // Seed metadata naming a profile is not a grant.
+    await repository("stale-meta", "github_app_explicit", {
+      profiles: ["p-list"],
+    });
 
     // A holds a URL value in its ceiling; B's ceiling is NULL; C's is not
     // shaped like a ceiling.
@@ -379,6 +383,11 @@ integration("the read-only repository migration report", () => {
     await session("agentless-b", {
       workspaceId: ids.b,
       repositoryId: "shared-x",
+      profile: "p-list",
+    });
+    await session("agentless-url", {
+      workspaceId: ids.b,
+      repositoryId: "none-url",
       profile: "p-list",
     });
     await session("recent", {
@@ -504,7 +513,13 @@ integration("the read-only repository migration report", () => {
       bearer?.workspaces
         .flatMap((w) => w.agents)
         .find((a) => a.name === "agent-two")?.via,
-    ).toEqual(["agent_settings", "start_repository"]);
+    ).toEqual(["active_session", "agent_settings", "start_repository"]);
+    // an agentless session still places the value in its workspace
+    const none = report.repositories.find((r) => r.id === "none-url");
+    expect(
+      none?.workspaces.find((w) => w.workspace_id === ids.b)
+        ?.active_session_count,
+    ).toBe(1);
     expect(report.repositories.find((r) => r.id === "gone-url")?.removed).toBe(
       true,
     );
