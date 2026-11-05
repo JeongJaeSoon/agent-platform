@@ -44,6 +44,9 @@ const RULES: readonly (readonly [string, RegExp])[] = [
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const ALLOWED_EMAIL = /@example\.test$/i;
+// `<id>@1.2` or `<id>@1.2.3` is a version pin (profile version ids), not a
+// mailbox. Four dotted parts stay a finding: that is an IPv4 literal.
+const VERSION_PIN = /@\d+(?:\.\d+){1,2}$/;
 
 /**
  * Addresses of the recording stack that a visitor's copy should not carry:
@@ -80,7 +83,7 @@ export function scanFixtures(fixtures: {
       for (const [rule, pattern] of RULES)
         for (const [match] of text.matchAll(pattern)) found(rule, match);
       for (const [match] of text.matchAll(EMAIL))
-        if (!ALLOWED_EMAIL.test(match))
+        if (!ALLOWED_EMAIL.test(match) && !VERSION_PIN.test(match))
           found("email outside example.test", match);
       for (const [match] of text.matchAll(IPV6_CANDIDATE))
         if (isPrivateIpv6(match)) found("private address", match);

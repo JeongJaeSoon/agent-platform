@@ -41,6 +41,19 @@ describe("demo fixture scan", () => {
     ]);
   });
 
+  test("version pins are not addresses, real domains and IP literals are", () => {
+    expect(scan({ id: "readonly-review@2", also: "profile_x@1.2.3" })).toEqual(
+      [],
+    );
+    expect(
+      scan({ a: "someone@gmail.com", b: "x@corp.example.com", c: "x@8.8.8.8" }),
+    ).toEqual([
+      "email outside example.test",
+      "email outside example.test",
+      "email outside example.test",
+    ]);
+  });
+
   test("the fixture key itself is scanned", () => {
     expect(
       scanFixtures({
