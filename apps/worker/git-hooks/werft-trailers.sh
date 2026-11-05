@@ -30,32 +30,19 @@ werft_strip_engine_coauthors() {
       }
       sessionLine = ENVIRON["WERFT_SESSION_LINE"]
     }
-    # One record is a line with the lines folded under it (git joins a line
-    # that starts with a space or tab to the one before).
-    function flush(   line, email) {
+    # One record is a line with the lines folded under it: git joins a line
+    # that starts with a space or tab to the one before, a whitespace-only
+    # one included (runtime-core commit-attribution.ts unfolds the same way).
+    # A blank record is never extended.
+    function flush() {
       if (!have) return
       have = 0
-      line = unfolded
-      sub(/\r$/, "", line)
-      if (line ~ /^co-authored-by:/ && match(line, /<[^<>]*>[ \t]*$/)) {
-        email = substr(line, RSTART + 1, RLENGTH - 1)
-        sub(/>[ \t]*$/, "", email)
-        if (email in engine) return
-      }
-      # The session line the claim asks for stays once, where it is; any other
-      # Agent-Session line (another value, another case, a repeat) goes.
-      if (sessionLine != "" && line ~ /^agent-session:/) {
-        if (record == sessionLine && !keptSession) keptSession = 1
-        else return
-      }
-      # Blank lines are held until a line follows, so a removed last line
-      # leaves no blank tail for a verbatim commit-tree -F.
-      if (record ~ /^[ \t\r]*$/) { held = held record "\n"; return }
-      printf "%s%s\n", held, record
-      held = ""
+      count++
+      rec[count] = record
+      unf[count] = unfolded
     }
     {
-      if (have && $0 ~ /^[ \t]+[^ \t\r]/) {
+      if (have && record !~ /^[ \t\r]*$/ && $0 ~ /^[ \t]/) {
         text = $0
         sub(/^[ \t]+/, "", text)
         record = record "\n" $0
@@ -67,7 +54,33 @@ werft_strip_engine_coauthors() {
       record = $0
       unfolded = tolower($0)
     }
-    END { flush() }
+    END {
+      flush()
+      # The Agent-Session rule applies in the last paragraph only, where git
+      # reads trailers; the same words in the body are the author text.
+      lastBlank = 0
+      for (i = 1; i <= count; i++) if (rec[i] ~ /^[ \t\r]*$/) lastBlank = i
+      for (i = 1; i <= count; i++) {
+        line = unf[i]
+        sub(/\r$/, "", line)
+        if (line ~ /^co-authored-by:/ && match(line, /<[^<>]*>[ \t]*$/)) {
+          email = substr(line, RSTART + 1, RLENGTH - 1)
+          sub(/>[ \t]*$/, "", email)
+          if (email in engine) continue
+        }
+        # The session line the claim asks for stays once, where it is; any
+        # other Agent-Session line (another value, case, a repeat) goes.
+        if (sessionLine != "" && i > lastBlank && line ~ /^agent-session:/) {
+          if (rec[i] == sessionLine && !keptSession) keptSession = 1
+          else continue
+        }
+        # Blank lines are held until a line follows, so a removed last line
+        # leaves no blank tail for a verbatim commit-tree -F.
+        if (rec[i] ~ /^[ \t\r]*$/) { held = held rec[i] "\n"; continue }
+        printf "%s%s\n", held, rec[i]
+        held = ""
+      }
+    }
   ' "$_werft_file" >"$_werft_file.werft-strip" || {
     rm -f "$_werft_file.werft-strip"
     return 1

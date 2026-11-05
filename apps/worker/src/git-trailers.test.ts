@@ -589,6 +589,29 @@ describe("werft-trailers.sh sourced on its own", () => {
     expect(lines).toEqual([`Agent-Session: ${SESSION_URL}`]);
   });
 
+  test("werft_fix_message strips an engine line folded around a whitespace-only line", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    writeFileSync(
+      file,
+      "Subject\n\nCo-authored-by: Claude\n \n <noreply@anthropic.com>\n",
+    );
+    expect(fix(file).exitCode).toBe(0);
+    expect(readFileSync(file, "utf8")).not.toContain("anthropic");
+  });
+
+  test("werft_fix_message leaves an Agent-Session example in the body alone", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    const body =
+      "Subject\n\nExample for the parser:\nAgent-Session: user-written-example\n  keep this explanation\n\nMore body.\n";
+    writeFileSync(file, body);
+    expect(fix(file).exitCode).toBe(0);
+    const text = readFileSync(file, "utf8");
+    expect(text.startsWith(body)).toBe(true);
+    expect(text).toContain(`Agent-Session: ${SESSION_URL}`);
+  });
+
   test("werft_fix_message strips the engine line and adds the trailers once", async () => {
     await writeGitTrailers(home, claim(LINKED));
     const file = join(root, "message");
