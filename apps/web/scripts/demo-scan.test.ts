@@ -60,6 +60,11 @@ describe("demo fixture scan", () => {
       "http://user@192.168.1/",
       "user@1.2。corp.example.com",
       "user@1.2é.corp.example.com",
+      "user@127.0.1",
+      "user@0177.0.1",
+      "user@192.168.1",
+      "user@10.1.2",
+      "user@127.0.1+tool@0.3.270",
       "user%401.2.3 and more",
       "profile_x@1.2.3 user@gmail.com",
     ])

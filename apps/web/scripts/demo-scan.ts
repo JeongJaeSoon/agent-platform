@@ -50,6 +50,28 @@ const ALLOWED_EMAIL = /@example\.test$/i;
 const VERSION_PINS = /^[\w-]+@\d+\.\d+\.\d+(?:\+[\w-]+@\d+\.\d+\.\d+)*$/;
 
 /**
+ * `user@127.0.1` is a pin by shape but a URL parser reads its version as the
+ * loopback address 127.0.0.1, so a pin whose version resolves to a private
+ * range is not exempt.
+ */
+function isVersionPins(text: string): boolean {
+  if (!VERSION_PINS.test(text)) return false;
+  return text.split("+").every((pin) => {
+    const [a = 0, b = 0] = new URL(`http://${pin.split("@")[1]}/`).hostname
+      .split(".")
+      .map(Number);
+    return !(
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  });
+}
+
+/**
  * Addresses of the recording stack that a visitor's copy should not carry:
  * the Slack app's redirect URL names the local API port.
  */
@@ -83,7 +105,7 @@ export function scanFixtures(fixtures: {
       const text = stages.join("\n");
       for (const [rule, pattern] of RULES)
         for (const [match] of text.matchAll(pattern)) found(rule, match);
-      const pinsOnly = stages.every((stage) => VERSION_PINS.test(stage));
+      const pinsOnly = stages.every(isVersionPins);
       if (!pinsOnly)
         for (const [match] of text.matchAll(EMAIL))
           if (!ALLOWED_EMAIL.test(match))
