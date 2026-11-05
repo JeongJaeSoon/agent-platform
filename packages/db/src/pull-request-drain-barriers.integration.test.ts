@@ -217,20 +217,24 @@ integration("pull request drain, writers overlapped by a barrier", () => {
     expect(rows.map((entry) => entry.number)).toEqual([5]);
   });
 
-  test("a claim passes over a session someone else holds instead of waiting for it", async () => {
+  test("a claim does not wait for a session someone else holds", async () => {
     const { id, sessionId } = await due();
     const barrier = holdSession(sessionId, async () => {});
     await barrier.held;
 
-    // Settled well inside the pause `stillWaiting` allows a blocked call.
-    const claiming = drain.claimNextDue(60_000);
-    expect(await stillWaiting(claiming)).toBe(false);
-    expect(await claiming).toBeNull();
-    expect(await row(id)).toMatchObject({ prState: "due", prAttempts: 0 });
-
-    barrier.release();
-    await barrier.done;
-    expect((await drain.claimNextDue(60_000))?.id).toBe(id);
+    try {
+      // Settled well inside the pause `stillWaiting` allows a blocked call.
+      const claiming = drain.claimNextDue(60_000);
+      expect(await stillWaiting(claiming)).toBe(false);
+      expect((await claiming)?.id).toBe(id);
+      expect(await row(id)).toMatchObject({
+        prState: "opening",
+        prAttempts: 1,
+      });
+    } finally {
+      barrier.release();
+      await barrier.done;
+    }
   });
 
   test("a claim whose lease lapsed and was taken over is fenced, and its successor settles", async () => {
