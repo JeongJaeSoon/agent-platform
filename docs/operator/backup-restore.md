@@ -94,7 +94,7 @@ scripts/restore.sh <dir> --into <project> --check-only   # 검사만, 아무것�
 scripts/restore.sh <dir> --into ap-drill-1 --object-store env --bucket ap-drill-1-checkpoints   # 새 빈 bucket
 ```
 
-`localstack`이면 새 project의 로컬 S3에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 로컬 S3를 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다.
+`localstack`이면 새 project의 로컬 S3에 백업의 bucket 이름으로 복원한다. `env`면 `--bucket`이 필수이고, 새 project에는 로컬 S3를 띄우지 않는다. 대상 bucket은 운영자가 미리 만든다. versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)를 켜고, 아무것도 없는 상태여야 한다. Object Lock 기본 보존 기간(default retention)은 두지 않는다. checkpoint는 legal hold로만 지키고, 기본 보존이 있으면 restore가 거부한다. Object Lock은 bucket을 만들 때만 켤 수 있다. AWS CLI가 없는 로컬 S3 호환 저장소(SeaweedFS)에서는 `AWS_*`를 셸에 두고 `S3_BUCKET=ap-drill-1-checkpoints bun run scripts/lib/object-store-cli.ts check-target --create`가 이 조건으로 bucket을 만들고 검사한다.
 
 순서와 거부 조건:
 
@@ -225,6 +225,7 @@ bun run scripts/dev/seed-checkpoint.ts
 
 # 2. 백업 → 복원 → 검증. writer(api·scheduler·reconciler·maintenance)가 돌면 backup이 거부한다
 docker compose stop api scheduler reconciler maintenance
+docker ps --filter label=werft.installation --format '{{.Names}}'   # scheduler가 띄운 worker. 남아 있으면 docker stop <이름>
 dir=$(scripts/backup.sh --project werft)
 scripts/restore.sh "$dir" --into ap-restore-1 --port-base 25432
 scripts/verify-restore.sh --project ap-restore-1   # 마지막 줄들: bucket PASS, "<session>@<rev> plan: ready under locked"
