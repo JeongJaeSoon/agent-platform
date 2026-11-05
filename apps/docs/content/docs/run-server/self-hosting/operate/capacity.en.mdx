@@ -45,7 +45,7 @@ The rule (set on 2026-10-21): **the worst-case peak when resuming a transcript w
 
 ### How it was measured
 
-We measured on a dedicated compose stack (fake model, OrbStack, cgroup v2). The source worker put a synthetic transcript into the mirror, checkpointed, and paused. Then a new worker restored that checkpoint and ran the first resume turn. Throughout, every 0.5 seconds, we recorded the cgroup of the worker container (`memory.peak`, anon, file, shmem, swap, oom_kill) and the VmHWM of each process. `memory.peak` includes reclaimable page cache (file). We counted it toward the rule anyway. The worker image has claude-agent-sdk 0.3.270 and Claude Code CLI 2.1.270.
+We measured on a dedicated compose stack (fake model, cgroup v2). The source worker put a synthetic transcript into the mirror, checkpointed, and paused. Then a new worker restored that checkpoint and ran the first resume turn. Throughout, every 0.5 seconds, we recorded the cgroup of the worker container (`memory.peak`, anon, file, shmem, swap, oom_kill) and the VmHWM of each process. `memory.peak` includes reclaimable page cache (file). We counted it toward the rule anyway. The worker image has claude-agent-sdk 0.3.270 and Claude Code CLI 2.1.270.
 
 ### 4608 MiB limit (the current default)
 
@@ -55,7 +55,7 @@ We measured on a dedicated compose stack (fake model, OrbStack, cgroup v2). The 
 | 511 MiB | yes | succeeded | 1338 (29%) | 533 | 716 | 0 | 0 | 588 | 237 |
 | 64 MiB | none | succeeded | 726 (16%) | 558 | 75 | 0 | 0 | 504 | 329 |
 
-### 6144 MiB limit (when considering an 800 MiB limit)
+### 6144 MiB limit (measured for comparison)
 
 | transcript | compaction | first resume turn | memory.peak MiB (of limit) | anon | file | swap | worker (bun) VmHWM | CLI VmHWM |
 |---|---|---|---|---|---|---|---|---|
@@ -71,11 +71,10 @@ We measured on a dedicated compose stack (fake model, OrbStack, cgroup v2). The 
 - The worker (bun) uses 440 to 720 MiB whatever the transcript size, because restore streams part by part.
 - The share that grows with size is the engine (the CLI). Without compaction the engine uses about **210 + 1.85 × T MiB** (T is the transcript in MiB). At 511 MiB the formula gives 1155 MiB and the measurement was 1129 MiB. With compaction, the engine's share is about 235 MiB whatever the size.
 - The total peak, with page cache added, grows by about 3 MiB per 1 MiB of transcript in the 150 to 800 MiB range (828 MiB at 150.2 MiB, 2178 MiB at 600 MiB, 2785 MiB at 800 MiB). The 256 and 400 MiB values in the table below are **estimates** interpolated on this line.
-- Before this structural change (a 2048 MiB limit and a path that loaded the whole transcript into tmpfs and memory), restore failed from 300 MiB up.
 
 ## Why 512 MiB / 4608 MiB
 
-For each candidate limit we compared the memory needed and the sessions per node. The memory is 2 × peak rounded up to a multiple of 512 MiB. The session count assumes a node with 30 GiB (30720 MiB) allocatable. The distribution is 12 real transcripts measured on two PCs on 2026-10-21. The top 10 on one PC are 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4 and 68.5 MiB, and the top 2 on the other are 591.8 and 150 MiB. The sample collects only the top values, so it does not represent the whole distribution.
+For each candidate limit we compared the memory needed and the sessions per node. The memory is 2 × peak rounded up to a multiple of 512 MiB. The session count assumes a node with 30 GiB (30720 MiB) allocatable. The distribution is 12 real transcripts measured on two development machines on 2026-10-21. The top 10 on one machine are 400.1, 217.2, 113.4, 102.0, 96.3, 86.0, 85.2, 78.8, 70.4 and 68.5 MiB, and the top 2 on the other machine are 591.8 and 150 MiB. The sample collects only the top values, so it does not represent the whole distribution.
 
 | Limit | Peak without compaction | Memory by the half rule | Sessions per node | Within the limit in the distribution | 80% warning |
 |---|---|---|---|---|---|
@@ -115,11 +114,11 @@ On the local Docker execution base, `EXECUTION_SLOT_LIMIT` (default 10) workers 
 | Method | What it does | What you gain | Cost |
 |---|---|---|---|
 | ① Lower `worker.memoryMb` | Change one value (`WORKER_MEMORY_MB`, applied from the next launch) | More sessions per node. For example 3584 MiB gives 8 on a 30 GiB node | The room to resume a large transcript with no compaction shrinks with it. To keep the half rule, lower the limit too (about 400 MiB for 3584 MiB, an estimate). The limit is a code constant, so it needs a build |
-| ② Overcommit with `requests` below `limits` | Set the worker Pod requests of the chart below its limits | Many more sessions per node when sessions are small. In the measurements, the resume peak of 64 to 150 MiB transcripts was 726 to 839 MiB | Today the chart and the scheduler create Pods only with requests = limits. Changing it needs a code change. QoS drops to Burstable, and when several large sessions resume at once, node memory pressure causes OOM kills or evictions |
+| ② (not available today) Overcommit with `requests` below `limits` | Set the worker Pod requests of the chart below its limits | Many more sessions per node when sessions are small. In the measurements, the resume peak of 64 to 150 MiB transcripts was 726 to 839 MiB | Today the chart and the scheduler create Pods only with requests = limits. Changing it needs a code change. QoS drops to Burstable, and when several large sessions resume at once, node memory pressure causes OOM kills or evictions |
 | ③ Grow the node group | Add worker nodes or make nodes bigger | More sessions in total, with the per-session guarantee unchanged | Cost goes up. No code change |
-| ④ Pod size by session size | The scheduler picks the Pod memory from the size of the transcript to restore | Small sessions start small, and only large ones start large | Needs a code change. The scheduler must know the checkpoint size before launch, and it must handle a transcript that grows inside the same Pod while it runs |
+| ④ (not available today) Pod size by session size | The scheduler picks the Pod memory from the size of the transcript to restore | Small sessions start small, and only large ones start large | Needs a code change. The scheduler must know the checkpoint size before launch, and it must handle a transcript that grows inside the same Pod while it runs |
 
-We do not recommend raising only the limit (`MAX_TRANSCRIPT_BYTES`) and leaving memory alone. When the resume of a large transcript with no compaction hits the limit, the worker keeps restarting and the session becomes `recovery_required`. When you change the limit, measure again with the method on this page and update the tables above.
+We do not recommend raising only the limit (`MAX_TRANSCRIPT_BYTES`) and leaving memory alone. When the resume of a large transcript with no compaction hits the limit, the worker keeps restarting and the session becomes `recovery_required`. When you change the limit, measure again with the method on this page.
 
 ## Index limits for results (`out/`)
 

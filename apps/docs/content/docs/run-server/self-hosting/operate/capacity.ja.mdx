@@ -45,7 +45,7 @@ checkpoint 1つに入るtranscript(rootとすべてのsubagentの合計)は、51
 
 ### 測定方法
 
-専用のcomposeスタック(fake model、OrbStack、cgroup v2)で測りました。source workerが合成transcriptをmirrorに入れてcheckpointし、pauseします。続けて新しいworkerがそのcheckpointを復元し、最初のresume turnを実行します。その間、0.5秒ごとに、workerコンテナのcgroup(`memory.peak`、anon、file、shmem、swap、oom_kill)と、プロセスごとのVmHWMを記録しました。`memory.peak`には、回収可能なpage cache(file)も含まれます。それでも基準には含めました。workerイメージは、claude-agent-sdk 0.3.270、Claude Code CLI 2.1.270です。
+専用のcomposeスタック(fake model、cgroup v2)で測りました。source workerが合成transcriptをmirrorに入れてcheckpointし、pauseします。続けて新しいworkerがそのcheckpointを復元し、最初のresume turnを実行します。その間、0.5秒ごとに、workerコンテナのcgroup(`memory.peak`、anon、file、shmem、swap、oom_kill)と、プロセスごとのVmHWMを記録しました。`memory.peak`には、回収可能なpage cache(file)も含まれます。それでも基準には含めました。workerイメージは、claude-agent-sdk 0.3.270、Claude Code CLI 2.1.270です。
 
 ### 4608 MiB上限(現在の既定)
 
@@ -55,7 +55,7 @@ checkpoint 1つに入るtranscript(rootとすべてのsubagentの合計)は、51
 | 511 MiB | あり | 成功 | 1338 (29%) | 533 | 716 | 0 | 0 | 588 | 237 |
 | 64 MiB | なし | 成功 | 726 (16%) | 558 | 75 | 0 | 0 | 504 | 329 |
 
-### 6144 MiB上限(上限800 MiBを検討したとき)
+### 6144 MiB上限(比較のための測定)
 
 | transcript | compaction | 最初のresume turn | memory.peak MiB(上限比) | anon | file | swap | worker(bun) VmHWM | CLI VmHWM |
 |---|---|---|---|---|---|---|---|---|
@@ -71,11 +71,10 @@ checkpoint 1つに入るtranscript(rootとすべてのsubagentの合計)は、51
 - worker(bun)は、transcriptのサイズに関係なく440〜720 MiBを使います。restoreがpart単位でストリーミングするからです。
 - サイズに比例する分は、エンジン(CLI)です。compactionがなければ、エンジンはおよそ**210 + 1.85 × T MiB**を使います(Tはtranscriptの MiB)。511 MiBで式は1155 MiB、実測は1129 MiBでした。compactionがあれば、エンジンの分はサイズに関係なく約235 MiBです。
 - 全体のpeakは、page cacheを足して、150〜800 MiBの区間でtranscript 1 MiBあたり約3 MiBずつ増えます(150.2 MiBで828 MiB、600 MiBで2178 MiB、800 MiBで2785 MiB)。下の表の256・400 MiBの値は、この直線で補間した**推定**です。
-- この構造変更の前(2048 MiB上限で、transcriptをtmpfsとメモリにそのまま載せていた経路)は、300 MiBからrestoreが失敗しました。
 
 ## 512 MiB / 4608 MiBを選んだ理由
 
-候補の上限ごとに、必要なメモリとノードあたりのセッション数を比べました。メモリは、2 × peakを512 MiB単位に切り上げた値です。セッション数は、allocatableが30 GiB(30720 MiB)のノードが基準です。分布は、2026-10-21にPC 2台で測った実際のtranscript 12個です。1台のPCの上位10個は400.1、217.2、113.4、102.0、96.3、86.0、85.2、78.8、70.4、68.5 MiBで、もう1台の上位2個は591.8、150 MiBです。上位の値だけを集めた標本なので、全体の分布を代表するものではありません。
+候補の上限ごとに、必要なメモリとノードあたりのセッション数を比べました。メモリは、2 × peakを512 MiB単位に切り上げた値です。セッション数は、allocatableが30 GiB(30720 MiB)のノードが基準です。分布は、2026-10-21に開発機2台で測った実際のtranscript 12個です。1台目の上位10個は400.1、217.2、113.4、102.0、96.3、86.0、85.2、78.8、70.4、68.5 MiBで、もう1台の上位2個は591.8、150 MiBです。上位の値だけを集めた標本なので、全体の分布を代表するものではありません。
 
 | 上限 | compactionなしのpeak | 半分基準のメモリ | ノードあたりのセッション | 分布のうち上限内 | 80%の警告 |
 |---|---|---|---|---|---|
@@ -115,11 +114,11 @@ local Docker実行基盤では、1台のマシンのメモリを`EXECUTION_SLOT_
 | 方法 | すること | 得るもの | 代償 |
 |---|---|---|---|
 | ① `worker.memoryMb`を下げる | valuesの値を1つ変える(`WORKER_MEMORY_MB`、次のlaunchから適用) | ノードあたりのセッションが増える。たとえば3584 MiBなら30 GiBのノードに8個 | compactionのない大きなtranscriptをresumeする余裕も一緒に減る。半分の基準を守るには上限も一緒に下げる(3584 MiBなら上限約400 MiB、推定)。上限はコードの定数なのでビルドが必要 |
-| ② `requests`を`limits`より小さくするオーバーコミット | chartのworker Podのrequestsをlimitsより小さくする | 小さなセッションが多いとき、ノードあたりのセッションが大きく増える。実測で64〜150 MiBのtranscriptのresume peakは726〜839 MiBだった | 今のchartとschedulerは、requests = limitsでしかPodを作らない。変えるにはコード変更が必要。QoSがBurstableに下がり、大きなセッションが何個か同時にresumeすると、ノードのメモリ圧迫でOOM killやevictionが起きる |
+| ② (現在は未対応)`requests`を`limits`より小さくするオーバーコミット | chartのworker Podのrequestsをlimitsより小さくする | 小さなセッションが多いとき、ノードあたりのセッションが大きく増える。実測で64〜150 MiBのtranscriptのresume peakは726〜839 MiBだった | 今のchartとschedulerは、requests = limitsでしかPodを作らない。変えるにはコード変更が必要。QoSがBurstableに下がり、大きなセッションが何個か同時にresumeすると、ノードのメモリ圧迫でOOM killやevictionが起きる |
 | ③ ノードグループを大きくする | workerノードの数やノードのサイズを増やす | セッションあたりの保証はそのままに、総セッション数を増やす | コストが増える。コード変更はない |
-| ④ セッションの大きさ別のPodサイズ | 復元するtranscriptのサイズを見て、schedulerがPodのメモリを選ぶ | 小さなセッションは小さく、大きなセッションだけ大きく起動する | コード変更が必要。schedulerがlaunchの前にcheckpointのサイズを知る必要があり、実行中に同じPodの中でtranscriptが大きくなる場合を別に扱う必要がある |
+| ④ (現在は未対応)セッションの大きさ別のPodサイズ | 復元するtranscriptのサイズを見て、schedulerがPodのメモリを選ぶ | 小さなセッションは小さく、大きなセッションだけ大きく起動する | コード変更が必要。schedulerがlaunchの前にcheckpointのサイズを知る必要があり、実行中に同じPodの中でtranscriptが大きくなる場合を別に扱う必要がある |
 
-上限(`MAX_TRANSCRIPT_BYTES`)だけを上げて、メモリをそのままにするのはお勧めしません。compactionのない大きなtranscriptのresumeが上限に届くと、workerが再起動を繰り返し、セッションが`recovery_required`になります。上限を変えるときは、このページの方法でもう一度測り、上の表を更新します。
+上限(`MAX_TRANSCRIPT_BYTES`)だけを上げて、メモリをそのままにするのはお勧めしません。compactionのない大きなtranscriptのresumeが上限に届くと、workerが再起動を繰り返し、セッションが`recovery_required`になります。上限を変えるときは、このページの方法でもう一度測ります。
 
 ## 成果物(`out/`)の索引上限
 

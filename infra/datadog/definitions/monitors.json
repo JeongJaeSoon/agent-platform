@@ -6,7 +6,7 @@
       "name": "[Werft] readyz unavailable",
       "type": "service check",
       "query": "\"http.can_connect\".over(\"instance:werft-readyz\").by(\"env\").last(3).count_by_status()",
-      "message": "API readiness failed. Follow https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#api-설정.",
+      "message": "API readiness failed. Follow https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#api-settings.",
       "tags": ["service:api", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 1, "warning": 1, "ok": 1 },
@@ -29,7 +29,7 @@
       "name": "[Werft] terminate acceptance latency",
       "type": "metric alert",
       "query": "avg(last_5m):p95:werft.terminate.acceptance.duration_ms{*} > 200",
-      "message": "Terminate acceptance p95 exceeded 200 ms. Correlate the API and control transaction logs by request_id; see https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#api-설정.",
+      "message": "Terminate acceptance p95 exceeded 200 ms. Correlate the API and control transaction logs by request_id; see https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#api-settings.",
       "tags": ["service:api", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 200 },
@@ -194,7 +194,7 @@
       "name": "[Werft] provider hourly cost",
       "type": "metric alert",
       "query": "max(last_1h):max:werft.provider.cost_usd_1h{*} > 20",
-      "message": "Provider cost for the last hour exceeded the initial alpha threshold. Check installation and session limits in https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#설치-상한.",
+      "message": "Provider cost for the last hour exceeded the initial alpha threshold. Check installation and session limits in https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#installation-limits.",
       "tags": ["service:egress-proxy", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 20 },

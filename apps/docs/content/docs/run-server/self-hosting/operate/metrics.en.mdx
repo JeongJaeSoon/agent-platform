@@ -44,7 +44,7 @@ curl -s localhost:9464/metrics
 | Datadog Agent (Helm) | The Autodiscovery `openmetrics` check. Put `ad.datadoghq.com/metrics.checks` in `metrics.podAnnotations`. The names under which Datadog stores the metrics (dotted names and so on) are set on the collector side |
 | OpenTelemetry Collector | Scrape the same endpoint with the `prometheus` receiver and send it on as OTLP |
 
-The platform does not push metrics over OTLP. One pull endpoint lets any kind of collector read the same definitions, and the app needs no collector address or SDK settings. Exporting session traces (OTLP, Langfuse) is a separate setting.
+The platform does not push metrics over OTLP. One pull endpoint lets any kind of collector read the same definitions, and the app needs no collector address or SDK settings. Werft does not export session traces yet. See [Observability (OTel)](/observability).
 
 ## How the values are made
 

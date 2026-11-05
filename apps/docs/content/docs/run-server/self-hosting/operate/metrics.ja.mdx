@@ -44,7 +44,7 @@ curl -s localhost:9464/metrics
 | Datadog Agent(Helm) | Autodiscoveryの`openmetrics`チェック。`metrics.podAnnotations`に`ad.datadoghq.com/metrics.checks`を入れます。Datadogにどんな名前(ドット表記など)で保存するかは、コレクター側の設定です |
 | OpenTelemetry Collector | `prometheus` receiverで同じエンドポイントをscrapeし、OTLPで送る |
 
-プラットフォームがOTLPでメトリクスを押し出すことはありません。pullのエンドポイントを1つ置けば、コレクターの種類に関係なく同じ定義を読め、アプリにコレクターのアドレスやSDK設定は要りません。セッショントレースのエクスポート(OTLP・Langfuse)は、別の設定が担います。
+プラットフォームがOTLPでメトリクスを押し出すことはありません。pullのエンドポイントを1つ置けば、コレクターの種類に関係なく同じ定義を読め、アプリにコレクターのアドレスやSDK設定は要りません。セッショントレースはまだエクスポートしません。[オブザーバビリティ (OTel)](/observability)を参照してください。
 
 ## 値の作り方
 
