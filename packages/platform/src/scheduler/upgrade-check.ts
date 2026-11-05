@@ -50,12 +50,12 @@ export function assessNothingReplaced(
 }
 
 /**
- * Whether a release may replace the deployed worker image, or drop the
- * previous one. It goes ahead when both stay, or when the worker image moves
- * within the support window
- * (the target's previous image is the deployed one) and every session it
- * leaves with no image to resume on was approved, exactly: one more or one
- * fewer means the list the operator read is not the one that would break.
+ * Whether a release may replace the deployed worker image, or drop or
+ * replace the previous one. It goes ahead when both stay and nothing is
+ * approved, or when every session it leaves with no image to resume on was
+ * approved, exactly: one more or one fewer means the list the operator read
+ * is not the one that would break. A moved worker image must also stay within
+ * the support window (the target's previous image is the deployed one).
  */
 export function assessUpgrade(input: {
   readonly deployedWorker: string;
