@@ -165,13 +165,13 @@ export async function ensureInstalledRepositoryCeiling(
       .limit(1)
       .for("update");
     const current = repositoryCeilingOf(held?.repositoryCeiling);
-    const ids = [
-      ...new Set([...(current?.repository_ids ?? []), ...repositoryIds]),
-    ];
+    const heldIds = new Set(current?.repository_ids ?? []);
+    const ids = [...new Set([...heldIds, ...repositoryIds])];
+    // A stored list may repeat an id, so compare membership, not length.
     if (
       current !== null &&
       current.github_app_repositories === "installed" &&
-      ids.length === current.repository_ids.length
+      repositoryIds.every((id) => heldIds.has(id))
     ) {
       return { changed: false };
     }
@@ -205,6 +205,16 @@ export async function captureGitHubPolicyStart(
     revision: 0,
     settings: GITHUB_POLICY_CLOSED,
   };
+  // The agent row first, then its settings: the order lockAgentUse already
+  // takes, so a switch change waits for the session to exist, as a save does.
+  const [agent] = await tx
+    .select({ id: agents.id })
+    .from(agentReleases)
+    .innerJoin(agents, eq(agents.id, agentReleases.agentId))
+    .where(eq(agentReleases.id, releaseId))
+    .limit(1)
+    .for("share", { of: agents });
+  if (agent === undefined) return closed;
   const [row] = await tx
     .select({ enabled: agents.githubEnabled, ...agentPolicyColumns })
     .from(agentReleases)

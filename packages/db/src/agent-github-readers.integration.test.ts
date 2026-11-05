@@ -650,6 +650,34 @@ integration("the readers of an agent's GitHub settings", () => {
       });
     });
 
+    test("capturing also holds the agent's switch until the session exists", async () => {
+      const { workspaceId, agentId, releaseId } = await fixture({
+        source: "agent",
+      });
+      await settingsRow(workspaceId, agentId, {
+        features: REVIEW_ON,
+        updatedBy: PERSON,
+      });
+      let settled = false;
+      let competing: Promise<unknown> = Promise.resolve();
+      const captured = await db.transaction(async (tx) => {
+        const taken = await captureGitHubPolicyStart(tx, releaseId);
+        competing = pool
+          .query("UPDATE agents SET github_enabled = false WHERE id = $1", [
+            agentId,
+          ])
+          .then(() => {
+            settled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(settled).toBe(false);
+        return taken;
+      });
+      await competing;
+      // The snapshot saw the switch as it was, on.
+      expect(captured.enabled).toBe(true);
+    });
+
     test("capturing with no row, or one that cannot be read, is closed", async () => {
       const closed = {
         enabled: false,
@@ -885,6 +913,31 @@ integration("the readers of an agent's GitHub settings", () => {
         repository_ids: ["kept", "added"],
         github_app_repositories: "installed",
       });
+      expect(
+        await ensureInstalledRepositoryCeiling(db, workspaceId, ["added"]),
+      ).toEqual({ changed: false });
+    });
+
+    test("a stored list with a repeated id still takes a new id", async () => {
+      const workspaceId = await workspaceOnly();
+      await pool.query(
+        `INSERT INTO github_workspace_settings (workspace_id, ceiling, repository_ceiling)
+         VALUES ($1, $2, $3)`,
+        [
+          workspaceId,
+          JSON.stringify(GITHUB_CEILING_NONE),
+          JSON.stringify({
+            repository_ids: ["kept", "kept"],
+            github_app_repositories: "installed",
+          }),
+        ],
+      );
+      expect(
+        await ensureInstalledRepositoryCeiling(db, workspaceId, ["added"]),
+      ).toEqual({ changed: true });
+      expect(
+        (await workspaceRepositoryCeiling(db, workspaceId))?.repository_ids,
+      ).toContain("added");
       expect(
         await ensureInstalledRepositoryCeiling(db, workspaceId, ["added"]),
       ).toEqual({ changed: false });
