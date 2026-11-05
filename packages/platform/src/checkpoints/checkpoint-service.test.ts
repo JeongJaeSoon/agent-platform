@@ -197,7 +197,11 @@ function memoryCheckpointStore(owner: CheckpointFence = fence()) {
   let pointer: CheckpointPointer | null = null;
   const history: CheckpointPointer[] = [];
   const committed: CommitCheckpointInput[] = [];
+  const pinned: string[] = [];
   const store: CheckpointStore = {
+    async listPinnedCommits(_sessionId, limit) {
+      return pinned.slice(0, limit);
+    },
     async readPointer() {
       return pointer;
     },
@@ -237,7 +241,7 @@ function memoryCheckpointStore(owner: CheckpointFence = fence()) {
     history.push(pointer);
     return { outcome: "committed", revision: pointer.revision };
   }
-  return { commit, committed, history, store, pointer: () => pointer };
+  return { commit, committed, history, pinned, store, pointer: () => pointer };
 }
 
 /** A turn's finalize of `input`, judged by `on`, committed to `checkpoints`. */
@@ -498,6 +502,69 @@ describe("protectedCommits", () => {
     expect(await service.protectedCommits({ sessionId, pointer })).toEqual([
       workspaceBundle.commit,
     ]);
+  });
+
+  test("a commit a push request pinned stays protected after its checkpoint left the recent window", async () => {
+    // The pushed commit's checkpoint is long gone from the newest 32; only
+    // the push request still names it.
+    const pushed = "1".repeat(40);
+    checkpoints.pinned.push(pushed);
+    for (let revision = 0; revision < 40; revision += 1) {
+      await commitRevision(revision);
+    }
+    const list = await service.protectedCommits({
+      sessionId,
+      pointer: checkpoints.pointer(),
+    });
+    expect(list).toContain(pushed);
+    expect(list).toContain(workspaceBundle.commit);
+    expect(list.length).toBeLessThanOrEqual(32);
+  });
+
+  test("more pinned commits than the list can hold make it unavailable, not shorter", async () => {
+    for (let n = 0; n < 33; n += 1) {
+      checkpoints.pinned.push(n.toString(16).padStart(40, "0"));
+    }
+    await commitRevision(0);
+    await expect(
+      service.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).rejects.toThrow("cannot be listed");
+  });
+
+  test("a checkpoint that recorded an attribution mismatch protects nothing, so the next turn judges it again", async () => {
+    await commitRevision(0, true);
+    expect(
+      await service.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).toEqual([]);
+  });
+
+  test("a working-tree snapshot entry is no finding and the commit stays protected", async () => {
+    const body = manifest({
+      revision: 0,
+      attribution: {
+        mismatches: [{ commit: workspaceBundle.commit, problems: [] }],
+      },
+    } as Partial<CheckpointManifest>);
+    const uploaded = await upload(body);
+    await finalizeWith(service, {
+      ...uploaded,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: "1",
+    });
+    expect(
+      await service.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).toEqual([workspaceBundle.commit]);
   });
 
   test("an earlier checkpoint whose manifest is gone makes the list unavailable, not shorter", async () => {

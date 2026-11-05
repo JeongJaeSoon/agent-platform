@@ -294,6 +294,32 @@ describe("workspaceMismatches", () => {
     ).toEqual([{ commit: wrong, problems: ["author", "committer"] }]);
   });
 
+  test("a wrong commit from an earlier turn is found again once the server stops protecting it", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    const pushed = commit("pushed earlier", "good");
+    // Left wrong by a turn the repair could not fix (nested_merge).
+    const left = commit("left wrong", "bad");
+    commit("this turn's commit", "good");
+    const judge = (protectedCommits: string[]) =>
+      workspaceMismatches({
+        root: repo,
+        tip: "HEAD",
+        expectation: {
+          author: { name: "good", email: "a@b.c" },
+          coAuthor: null,
+          agentSession: null,
+        },
+        stripEmails: [],
+        protectedCommits,
+      });
+    // The server no longer lists a checkpoint that recorded a mismatch.
+    expect(await judge([pushed])).toEqual([
+      { commit: left, problems: ["author", "committer"] },
+    ]);
+    // Listed, as it was before the fix, it would drop out of the check.
+    expect(await judge([pushed, left])).toEqual([]);
+  });
+
   test("a protected commit this repository lacks does not start a fetch from a configured program", async () => {
     git(["update-ref", "refs/remotes/origin/main", commit("base")]);
     commit("wrong");

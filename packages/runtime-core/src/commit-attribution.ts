@@ -26,6 +26,13 @@ export type CommitFacts = {
   committerName: string;
   committerEmail: string;
   message: string;
+  /**
+   * The trailer block git itself recognizes in `message`, one unfolded
+   * `Key: value` line each (`git interpret-trailers --parse`). Only these lines
+   * count as attribution: GitHub and git read a `Co-authored-by` or
+   * `Agent-Session` line from anywhere else in the body as plain text.
+   */
+  trailers: string;
 };
 
 export const ATTRIBUTION_PROBLEMS = [
@@ -74,16 +81,18 @@ export const MAX_REPORTED_MISMATCHES = 20;
  * `git log --no-walk=unsorted --stdin --format=<this>`: one record per commit,
  * fields split by US, records ended by RS. Neither byte occurs in names,
  * emails or messages git accepts in practice; a message holding one fails the
- * parse, which callers treat as a mismatch.
+ * parse, which callers treat as a mismatch. The trailer block comes from git's
+ * own parser (`%(trailers)`), so this judgment cannot drift from git's.
  */
-export const COMMIT_FACTS_FORMAT = "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e";
+export const COMMIT_FACTS_FORMAT =
+  "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1f%(trailers:only,unfold)%x1e";
 
 export function parseCommitFacts(stdout: string): CommitFacts[] | null {
   const facts: CommitFacts[] = [];
   for (const record of stdout.split("\x1e")) {
     if (record.trim() === "") continue;
     const fields = record.replace(/^\n/, "").split("\x1f");
-    if (fields.length !== 6) return null;
+    if (fields.length !== 7) return null;
     const [sha, authorName, authorEmail, committerName, committerEmail] =
       fields as [string, string, string, string, string, string];
     if (!/^[0-9a-f]{40}$/.test(sha)) return null;
@@ -94,6 +103,7 @@ export function parseCommitFacts(stdout: string): CommitFacts[] | null {
       committerName,
       committerEmail,
       message: fields[5] as string,
+      trailers: fields[6] as string,
     });
   }
   return facts;
@@ -123,29 +133,35 @@ export function attributionProblems(
     problems.push("committer");
 
   const strip = new Set(stripEmails.map((email) => email.toLowerCase()));
-  const lines = commit.message
-    .split("\n")
-    .map((line) => line.replace(/\r$/, ""));
-  const coAuthorLines = lines.flatMap((line) => {
-    const match = COAUTHOR_LINE.exec(line);
-    return match === null ? [] : [match[1] as string];
-  });
+  const coAuthors = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => line.replace(/\r$/, ""))
+      .flatMap((line) => {
+        const match = COAUTHOR_LINE.exec(line);
+        return match === null ? [] : [match[1] as string];
+      });
+  // An engine line is refused wherever it sits (the hook strips it from the
+  // whole message); a required line counts only inside git's trailer block.
   if (
-    coAuthorLines.some((value) => {
+    coAuthors(commit.message).some((value) => {
       const email = emailOf(value);
       return email !== null && strip.has(email);
     })
   ) {
     problems.push("engine_co_author");
   }
+  const trailerLines = commit.trailers
+    .split("\n")
+    .map((line) => line.replace(/\r$/, ""));
   if (expectation.coAuthor !== null) {
     const wanted = `${expectation.coAuthor.name} <${expectation.coAuthor.email}>`;
-    if (coAuthorLines.filter((value) => value === wanted).length !== 1)
+    if (coAuthors(commit.trailers).filter((v) => v === wanted).length !== 1)
       problems.push("co_author");
   }
   if (expectation.agentSession !== null) {
     const wanted = `Agent-Session: ${expectation.agentSession}`;
-    if (lines.filter((line) => line === wanted).length !== 1)
+    if (trailerLines.filter((line) => line === wanted).length !== 1)
       problems.push("agent_session");
   }
   return problems;
