@@ -433,6 +433,14 @@ function scan(text: string): Scanned {
           line.slice(at, found.index),
         ].join(" ");
         if (hasLooseTag(before)) unbalanced = true;
+        // Renderers differ on a comment that opens after text and runs over
+        // lines; only one that opens its row, or ends on it, is taken.
+        if (
+          line.indexOf("-->", found.index + 4) === -1 &&
+          line.slice(0, found.index).trim() !== ""
+        ) {
+          unbalanced = true;
+        }
         if (found.index > at) {
           row.parts.push({ text: line.slice(at, found.index), comment: false });
         }

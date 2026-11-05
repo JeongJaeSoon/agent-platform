@@ -710,6 +710,8 @@ describe("markup the scan and a renderer could read differently", () => {
       "<details>\n```\n<select>\n```\n</details>\n\n## Summary",
       "<details>\n`<select>`\n</details>\n\n## Summary",
       "<div>\n</div>\n`<select>`\n\n## Summary",
+      // A comment that opens after text and runs over lines is read differently.
+      "text <!--\n<details>\n-->\n\n## Summary",
       "<select>\n\n## Summary",
       "## Summary\nUse \\<Type here.",
       "## Summary\nA \\<?x is text.",
