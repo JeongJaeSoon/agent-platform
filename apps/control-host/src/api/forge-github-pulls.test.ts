@@ -69,6 +69,7 @@ describe("GitHub pull requests", () => {
       number: 1,
       state: "open",
       head,
+      headSha: "1".repeat(40),
       base: "main",
     });
     expect(opened.url).toBe(`${github.origin}/acme/app/pull/1`);
@@ -414,6 +415,8 @@ describe("reading a pull request for the outcome refresher", () => {
         pullRequest: expect.objectContaining({
           number: 1,
           state: "open",
+          head,
+          headSha: "1".repeat(40),
           mergedAt: null,
           closedAt: null,
           mergeCommitSha: null,

@@ -91,6 +91,7 @@ function app(
       url: "https://github.com/acme/app/pull/5",
       state: "open",
       head: input.head,
+      headSha: "a".repeat(40),
       base: input.base,
       mergedAt: null,
       closedAt: null,

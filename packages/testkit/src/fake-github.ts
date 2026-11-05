@@ -53,6 +53,8 @@ export type FakeGitHubApiRequest = {
 export type FakeGitHubPullRequest = {
   number: number;
   head: string;
+  /** The commit the head branch points at; a fixed placeholder when unset. */
+  head_sha?: string;
   base: string;
   title: string;
   body: string;
@@ -572,7 +574,11 @@ export async function startFakeGitHub(
       state: pull.state,
       title: pull.title,
       body: pull.body,
-      head: { ref: pull.head, label: `${owner}:${pull.head}` },
+      head: {
+        ref: pull.head,
+        sha: pull.head_sha ?? "1".repeat(40),
+        label: `${owner}:${pull.head}`,
+      },
       base: { ref: pull.base },
       merged_at: pull.merged_at,
       closed_at: pull.closed_at,
