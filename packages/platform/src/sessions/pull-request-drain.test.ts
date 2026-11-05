@@ -13,6 +13,7 @@ import {
   type PullRequestDrainStore,
   type PullRequestJob,
   type PullRequestSettled,
+  pullRequestBackoffMs,
 } from "../ports/pull-request-drain.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import { pushRequestMarker, pushRequestMarkerOf } from "./git-attribution.ts";
@@ -77,6 +78,9 @@ function harness(
     createdHeadSha?: string;
     /** The base a created pull request reports, when it is not the asked one. */
     createdBase?: string;
+    /** Commits the compare answers are ancestors of the pushed commit. */
+    ancestors?: string[];
+    compareFails?: boolean;
     lookupFails?: boolean;
     createFails?: boolean;
     refuse?: boolean;
@@ -103,6 +107,11 @@ function harness(
       calls.push(`list ${branch}`);
       if (options.lookupFails) throw new ForgeCredentialError("lookup (502)");
       return options.existing ?? [];
+    },
+    isAncestor: async (ancestor, descendant) => {
+      calls.push(`compare ${ancestor.slice(0, 1)}..${descendant.slice(0, 1)}`);
+      if (options.compareFails) throw new ForgeCredentialError("compare (502)");
+      return (options.ancestors ?? []).includes(ancestor);
     },
     createPullRequest: async (input) => {
       calls.push(`create ${input.head}`);
@@ -210,6 +219,66 @@ describe("opening a pull request for a pushed request", () => {
       details: { expected_sha: COMMIT, actual_sha: "b".repeat(40) },
     });
     expect(calls).not.toContain(`create ${HEAD}`);
+  });
+
+  test("a head that is still the pushed commit's ancestor waits for the backoff instead of ending", async () => {
+    const old = "b".repeat(40);
+    const { service, calls } = harness({
+      existing: [listed({ headSha: old })],
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({
+      kind: "retry",
+      error: "head_moved",
+      delayMs: pullRequestBackoffMs(1),
+    });
+    expect(calls).toContain("compare b..a");
+    expect(calls).not.toContain(`create ${HEAD}`);
+  });
+
+  test("a pull request created at a lagging head waits, then the next claim adopts it", async () => {
+    const old = "c".repeat(40);
+    const { service } = harness({ createdHeadSha: old, ancestors: [old] });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "retry", error: "head_moved" });
+  });
+
+  test("a head that is not an ancestor ends head_moved at once", async () => {
+    const { service } = harness({
+      existing: [listed({ headSha: "d".repeat(40) })],
+      ancestors: [],
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "stop", stage: "failed", error: "head_moved" });
+  });
+
+  test("a compare that fails closes the question as head_moved", async () => {
+    const { service } = harness({
+      existing: [listed({ headSha: "b".repeat(40) })],
+      ancestors: ["b".repeat(40)],
+      compareFails: true,
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({ kind: "stop", stage: "failed", error: "head_moved" });
+  });
+
+  test("the last attempt does not ask the forge again and ends head_moved", async () => {
+    const old = "b".repeat(40);
+    const { service, calls } = harness({
+      existing: [listed({ headSha: old })],
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(job({ attempt: 3 }), {
+        deadline: deadline(),
+      }),
+    ).toMatchObject({ kind: "stop", stage: "failed", error: "head_moved" });
+    expect(calls.some((call) => call.startsWith("compare"))).toBe(false);
   });
 
   test("a created pull request whose head is not the pushed commit is compared before it is stored", async () => {

@@ -23,6 +23,7 @@ import {
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
+  type GitHubApi,
   type GitHubGrant,
   GitHubUnavailableError,
 } from "../ports/github-gate.ts";
@@ -554,6 +555,34 @@ export function createPullRequestService(deps: {
               error,
               delayMs: pullRequestBackoffMs(job.attempt),
             };
+      // GitHub can report the pull request's old head for a moment after a
+      // push. A head that is an ancestor of the pushed commit is that lag, so
+      // the stage waits out its backoff; any other commit, a failed compare
+      // and the last attempt all end the stage.
+      const headMoved = async (
+        forge: GitHubApi,
+        seen: { number: number; url: string; headSha: string },
+      ): Promise<PullRequestDrainOutcome> => {
+        if (job.attempt < PULL_REQUEST_MAX_ATTEMPTS) {
+          try {
+            if (await forge.isAncestor(seen.headSha, job.gitCommit)) {
+              return {
+                kind: "retry",
+                error: "head_moved",
+                delayMs: pullRequestBackoffMs(job.attempt),
+              };
+            }
+          } catch (error) {
+            if (!isForgeFailure(error)) throw error;
+          }
+        }
+        return stop("failed", "head_moved", {
+          number: seen.number,
+          url: seen.url,
+          expected_sha: job.gitCommit,
+          actual_sha: seen.headSha,
+        });
+      };
       if (job.attempt > PULL_REQUEST_MAX_ATTEMPTS) {
         return stop("uncertain", "lease_expired");
       }
@@ -633,14 +662,7 @@ export function createPullRequestService(deps: {
       }
       const [adopted] = open;
       if (adopted !== undefined) {
-        if (adopted.headSha !== job.gitCommit) {
-          return stop("failed", "head_moved", {
-            number: adopted.number,
-            url: adopted.url,
-            expected_sha: job.gitCommit,
-            actual_sha: adopted.headSha,
-          });
-        }
+        if (adopted.headSha !== job.gitCommit) return headMoved(forge, adopted);
         // A later push request of the session reuses the branch's open
         // pull request; its tail names this push's commit from now on.
         try {
@@ -715,14 +737,7 @@ export function createPullRequestService(deps: {
           urls: [made.url],
         });
       }
-      if (made.headSha !== job.gitCommit) {
-        return stop("failed", "head_moved", {
-          number: made.number,
-          url: made.url,
-          expected_sha: job.gitCommit,
-          actual_sha: made.headSha,
-        });
-      }
+      if (made.headSha !== job.gitCommit) return headMoved(forge, made);
       return {
         kind: "opened",
         pullRequest: {

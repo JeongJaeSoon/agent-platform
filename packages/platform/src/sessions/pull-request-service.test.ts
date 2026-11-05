@@ -205,6 +205,7 @@ function harness(
     rerunWorkflow: unused,
     submitReview: unused,
     findPullRequestsForBranch: unused,
+    isAncestor: unused,
     findPullRequestForBranch: async (branch) => {
       calls.push(`find ${branch}`);
       fail();

@@ -70,6 +70,9 @@ function harness(
     findPullRequestsForBranch: async () => {
       throw new Error("not used");
     },
+    isAncestor: async () => {
+      throw new Error("not used");
+    },
     createPullRequest: async () => {
       throw new Error("not used");
     },
