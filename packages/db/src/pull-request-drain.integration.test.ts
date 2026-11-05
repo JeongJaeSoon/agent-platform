@@ -297,6 +297,17 @@ integration("postgres pull request drain", () => {
       await client.query("SET session_replication_role = replica");
       const workspace = crypto.randomUUID();
       const installation = crypto.randomUUID();
+      const agent = crypto.randomUUID();
+      // The outbox row references these two for real, from another
+      // connection, so they are rows and not skipped checks.
+      await client.query(
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'w')",
+        [workspace, `w-${workspace}`],
+      );
+      await client.query(
+        "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'a')",
+        [agent, workspace],
+      );
       const appId = `A${crypto.randomUUID().slice(0, 8)}`;
       await client.query(
         "INSERT INTO slack_apps (id, workspace_id, kind, state, app_id, redirect_url) VALUES ($1, $2, 'link', 'creating', $3, 'https://example.invalid/cb')",
@@ -316,7 +327,7 @@ integration("postgres pull request drain", () => {
           installation,
           crypto.randomUUID(),
           `ref-${sessionId}`,
-          crypto.randomUUID(),
+          agent,
         ],
       );
     } finally {
