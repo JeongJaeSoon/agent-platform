@@ -40,6 +40,9 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["private address", PRIVATE_IPV4],
   ["machine name", /\b(?:jaesoon|94soon|soons?-mac[\w-]*|wjdwotns\w*)\b/gi],
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
+  // The product's former name: stack defaults such as secret names still carry
+  // it into a recording. A stopgap until the full rename.
+  ["former product name", /agent[-_]?platform/gi],
 ];
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
