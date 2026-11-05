@@ -22,6 +22,7 @@ import type {
   ListMyTeamsResponse,
   ListPendingRequestsResponse,
   ListProfilesResponse,
+  ListPushRequestsResponse,
   ListSessionsResponse,
   ListTeamsResponse,
   ListTurnsResponse,
@@ -193,6 +194,9 @@ export function queryKeysOf(client: ApiClient) {
     pendingRequests: (id: string) =>
       [s, "sessions", id, "pending-requests"] as const,
     sessionTurns: (id: string) => [s, "sessions", id, "turns"] as const,
+    /** A session's push requests and intents, as the web's GitHub work list. */
+    sessionGithubWork: (id: string) =>
+      [s, "sessions", id, "github-work"] as const,
     usageSeries: (
       scope: UsageSummaryScope,
       since: string,
@@ -787,6 +791,45 @@ export function sessionTurnsQuery(client: ApiClient, id: string) {
       return { items, next_cursor: null };
     },
     retry: false,
+  });
+}
+
+// Something is moving (waiting for approval, a turn to end, a pull request to
+// open): look often; otherwise at the pace GitHub outcomes are read.
+const GITHUB_WORK_ACTIVE_MS = 10_000;
+const GITHUB_WORK_IDLE_MS = 60_000;
+const OPEN_PUSH_STATES = new Set(["requested", "approved", "pushing"]);
+const OPEN_PR_STAGES = new Set(["due", "opening"]);
+const WAITING_INTENTS = new Set(["deferred", "pinned"]);
+
+/** A session's push requests and the pushes its turns asked for. */
+export function sessionGithubWorkQuery(
+  client: ApiClient,
+  id: string,
+  options: { enabled?: boolean } = {},
+) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).sessionGithubWork(id),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/{id}/push-requests", {
+          params: { path: { id } },
+        }),
+      ) as Promise<ListPushRequestsResponse>,
+    retry: false,
+    ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const active =
+        data !== undefined &&
+        (data.items.some(
+          (request) =>
+            OPEN_PUSH_STATES.has(request.state) ||
+            (request.pr_state !== null && OPEN_PR_STAGES.has(request.pr_state)),
+        ) ||
+          data.intents.some((intent) => WAITING_INTENTS.has(intent.status)));
+      return active ? GITHUB_WORK_ACTIVE_MS : GITHUB_WORK_IDLE_MS;
+    },
   });
 }
 

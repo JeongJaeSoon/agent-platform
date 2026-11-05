@@ -29,6 +29,7 @@ export {
   queryScopeFilter,
   queryScopeOf,
   scopedKey,
+  sessionGithubWorkQuery,
   sessionQuery,
   sessionsQuery,
   sessionTurnsQuery,

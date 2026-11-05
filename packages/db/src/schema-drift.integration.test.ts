@@ -35,7 +35,11 @@ const MIGRATIONS_ONLY = [
   // 0226: a state write marks the session's Slack thread status due at commit.
   "constraint pending_requests.pending_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint pending_requests.pending_requests_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  // 0236: a push intent or pull request stage change does the same.
+  "constraint push_intents.push_intents_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint push_intents.push_intents_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint push_requests.push_requests_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint push_requests.push_requests_slack_thread_status_pr_state TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint push_requests.push_requests_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint session_links.session_links_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint session_links.session_links_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
@@ -85,7 +89,10 @@ const MIGRATIONS_ONLY = [
   "function tool_ms_bucket(ms bigint) integer language sql volatility=i parallel=s body md5 6a2f107430551d1a26c5afd7b02f7985",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_insert AFTER INSERT ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER pending_requests_slack_thread_status_update AFTER UPDATE ON public.pending_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((old.resolved_at IS DISTINCT FROM new.resolved_at) OR (old.answered_at IS DISTINCT FROM new.answered_at) OR (old.parked_at IS DISTINCT FROM new.parked_at) OR (old.expires_at IS DISTINCT FROM new.expires_at))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER push_intents_slack_thread_status_insert AFTER INSERT ON public.push_intents DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER push_intents_slack_thread_status_update AFTER UPDATE ON public.push_intents DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER push_requests_slack_thread_status_insert AFTER INSERT ON public.push_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER push_requests_slack_thread_status_pr_state AFTER UPDATE ON public.push_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.pr_state IS DISTINCT FROM new.pr_state)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER push_requests_slack_thread_status_update AFTER UPDATE ON public.push_requests DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.state IS DISTINCT FROM new.state)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER session_links_slack_thread_status_insert AFTER INSERT ON public.session_links DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((new.session_id IS NOT NULL)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER session_links_slack_thread_status_update AFTER UPDATE ON public.session_links DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((new.session_id IS NOT NULL) AND ((old.session_id IS DISTINCT FROM new.session_id) OR (old.revoked_at IS DISTINCT FROM new.revoked_at) OR (old.muted IS DISTINCT FROM new.muted)))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",

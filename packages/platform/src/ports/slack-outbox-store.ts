@@ -211,6 +211,12 @@ export type SlackThreadStatusFacts = {
     gitCommit: string;
     origin: PushRequestOrigin;
   }[];
+  /** Push intents still waiting and pull request stages still open. */
+  actionStages: {
+    kind: "push_intent" | "pull_request";
+    id: string;
+    state: string;
+  }[];
 };
 
 export type SlackThreadStatusTarget = {
