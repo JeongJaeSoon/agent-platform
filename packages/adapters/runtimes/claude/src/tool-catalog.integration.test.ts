@@ -719,45 +719,21 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
               continue;
             }
             expect(judged.offered).toBe(true);
-            if (permissionMode === "bypassPermissions") {
-              // canUseTool is never consulted here; PreToolUse is the gate.
-              expect({
-                step: step.id,
-                pre: judged.pre,
-                asked: judged.asked,
-              }).toEqual({
-                step: step.id,
-                pre: {
-                  tool: step.name,
-                  decision: `deny: ${OUTSIDE_ALLOWLIST}`,
-                  ...agentId,
-                },
-                asked: undefined,
-              });
-            } else if (RUNS_UNASKED.has(step.name)) {
-              // Nothing but the SDK's tool set keeps these out while attended.
-              expect({
-                step: step.id,
-                pre: judged.pre?.decision,
-                asked: judged.asked,
-                ran: judged.ran,
-              }).toEqual({
-                step: step.id,
-                pre: "pass",
-                asked: undefined,
-                ran: true,
-              });
-              continue;
-            } else {
-              expect({ step: step.id, asked: judged.asked }).toEqual({
-                step: step.id,
-                asked: {
-                  tool: step.name,
-                  decision: `deny: ${OUTSIDE_ALLOWLIST}`,
-                  ...agentId,
-                },
-              });
-            }
+            // PreToolUse binds in every mode, so canUseTool (and any session
+            // rule that would skip it) is never what keeps the tool out.
+            expect({
+              step: step.id,
+              pre: judged.pre,
+              asked: judged.asked,
+            }).toEqual({
+              step: step.id,
+              pre: {
+                tool: step.name,
+                decision: `deny: ${OUTSIDE_ALLOWLIST}`,
+                ...agentId,
+              },
+              asked: undefined,
+            });
             expect(refused(judged)).toEqual({
               step: step.id,
               ran: false,

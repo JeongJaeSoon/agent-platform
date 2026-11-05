@@ -5,6 +5,7 @@ import {
   type ParkedDelivery,
   PENDING_SETTLEMENTS_MAX,
   type PendingQuestion,
+  type PendingRememberRule,
   type PendingSettlement,
   type PostSessionAnswerRequest,
   pendingQuestionSchema,
@@ -26,6 +27,7 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import { settledWithin } from "./waits.ts";
 
 export type PendingRequestsOptions = {
@@ -90,6 +92,8 @@ type Pending = {
   rawInput: unknown;
   inputHash: string;
   localId: string;
+  /** The rules registered as offered for the session; the answer names them back. */
+  rememberOffer: readonly { toolName: string; ruleContent?: string }[];
   /** The gateway holds its row. */
   registered: boolean;
   tool: string;
@@ -183,6 +187,8 @@ export class PendingRequestRegistry {
       rawInput: request.tool.input,
       inputHash: request.inputHash,
       localId: request.localId,
+      rememberOffer:
+        request.kind === "permission" ? (request.rememberOffer ?? []) : [],
       registered: false,
       tool: request.tool.name,
       toolCallId: request.toolCallId,
@@ -496,7 +502,24 @@ export class PendingRequestRegistry {
     }
     const body: RegisterPendingRequest["request"] =
       request.kind === "permission"
-        ? { kind: "permission", tool, input: request.display }
+        ? {
+            kind: "permission",
+            tool,
+            input: request.display,
+            ...(request.rememberOffer === undefined ||
+            request.rememberOffer.length === 0
+              ? {}
+              : {
+                  remember_offer: request.rememberOffer.map(
+                    (rule): PendingRememberRule => ({
+                      tool_name: rule.toolName,
+                      ...(rule.ruleContent === undefined
+                        ? {}
+                        : { rule_content: rule.ruleContent }),
+                    }),
+                  ),
+                }),
+          }
         : { kind: "question", questions: shown ?? [] };
     const turnId = this.options.scope().turn_id;
     if (turnId === null) {
@@ -646,6 +669,7 @@ export class PendingRequestRegistry {
       try {
         const response = await this.options.gateway.pendingControl({
           ...this.options.scope(),
+          capabilities: WORKER_CAPABILITIES,
           answers_after: this.answersAfter,
           ...(batch.length > 0 ? { settled: batch } : {}),
           ...(delivered.length > 0 ? { delivered } : {}),
@@ -790,7 +814,19 @@ export class PendingRequestRegistry {
       this.close(
         answer.request_id,
         answer.decision === "allow"
-          ? { kind: "selected", optionKind: "allow_once" }
+          ? {
+              kind: "selected",
+              optionKind: "allow_once",
+              ...(answer.remember === undefined ||
+              entry.rememberOffer.length === 0
+                ? {}
+                : {
+                    remember: {
+                      scope: answer.remember,
+                      rules: entry.rememberOffer,
+                    },
+                  }),
+            }
           : {
               kind: "selected",
               optionKind: "reject_once",

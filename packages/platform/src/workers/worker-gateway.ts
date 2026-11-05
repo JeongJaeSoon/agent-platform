@@ -23,6 +23,7 @@ import type {
   ParkDeclinedResponse,
   PendingControlRequest,
   PendingControlResponse,
+  PostSessionAnswerRequest,
   RegisterPendingRequest,
   RegisterPendingResponse,
   ReleaseRequest,
@@ -34,6 +35,7 @@ import type {
   RestorePlanResponse,
   RuntimeConfig,
   SessionRuntime,
+  WorkerCapabilities,
   WorkerEvent,
   WorkerReadyRequest,
   WorkerReadyResponse,
@@ -329,6 +331,26 @@ function fenceOf(scope: WorkerScope): WorkerFence {
     executionGeneration: scope.execution_generation,
     authRevision: scope.auth_revision,
   };
+}
+
+/**
+ * The answer as the polling worker can parse it. A permission answer's
+ * `remember` is a field an image without `approval_remember` refuses along
+ * with the whole response, so it gets the plain allow the person also gave.
+ */
+function withoutUnparsedRemember(
+  answer: PostSessionAnswerRequest,
+  capabilities: WorkerCapabilities | undefined,
+): PostSessionAnswerRequest {
+  if (
+    answer.kind !== "permission" ||
+    answer.remember === undefined ||
+    capabilities?.approval_remember === true
+  ) {
+    return answer;
+  }
+  const { remember: _remember, ...plain } = answer;
+  return plain;
 }
 
 function rejected(rejection: FenceRejection): never {
@@ -1662,7 +1684,17 @@ export function createWorkerGateway(deps: {
               : Math.max(0, deps.options.sessionCostLimitUsd - binding.costUsd),
             ...(binding.grants === undefined || binding.grants.length === 0
               ? {}
-              : { grants: [...binding.grants] }),
+              : {
+                  // An image that did not announce `approval_remember` has a
+                  // strict grant schema that would refuse the whole claim.
+                  grants: binding.grants.map(
+                    ({ remember_offer: offer, ...grant }) =>
+                      request.capabilities?.approval_remember === true &&
+                      offer !== undefined
+                        ? { ...grant, remember_offer: offer }
+                        : grant,
+                  ),
+                }),
             ...(git === undefined
               ? {}
               : { git, git_strip: [...ENGINE_COAUTHOR_EMAILS] }),
@@ -2265,7 +2297,7 @@ export function createWorkerGateway(deps: {
               },
         answers: result.answers.map((item) => ({
           sequence: item.sequence,
-          answer: item.answer,
+          answer: withoutUnparsedRemember(item.answer, request.capabilities),
           input_hash: item.inputHash,
         })),
       };

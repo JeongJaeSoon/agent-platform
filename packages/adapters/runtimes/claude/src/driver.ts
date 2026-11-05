@@ -31,16 +31,40 @@ export type AgentFrame = {
   inputs?: readonly string[];
 };
 
+/** An engine permission rule, as the engine names its fields. */
+export type EngineRule = { toolName: string; ruleContent?: string };
+
+/**
+ * The one permission update the adapter ever hands back: allow rules kept
+ * for the session. Nothing else the engine proposes (a mode change, a
+ * directory, a deny rule) is passed on.
+ */
+export type SessionRuleUpdate = {
+  type: "addRules";
+  behavior: "allow";
+  destination: "session";
+  rules: EngineRule[];
+};
+
 export type PermissionRequest = {
   input: Record<string, unknown>;
   requestId: string;
   signal: AbortSignal;
   tool: string;
   toolUseId: string;
+  /**
+   * The allow rules the engine proposed that the run may offer to keep for
+   * the session, already filtered; empty when there are none.
+   */
+  suggestedRules?: readonly EngineRule[];
 };
 
 export type PermissionDecision =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | {
+      behavior: "allow";
+      updatedInput?: Record<string, unknown>;
+      updatedPermissions?: SessionRuleUpdate[];
+    }
   | { behavior: "deny"; message: string; interrupt?: boolean };
 
 export type RuntimeHooks = {

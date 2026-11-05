@@ -6,8 +6,16 @@ import {
 } from "@werft-ai/contracts";
 
 /**
+ * A rule the engine proposed to keep allowing for the session, as people see
+ * it: the run's redacted copy, never what the engine gets back.
+ */
+export type RememberRule = { toolName: string; ruleContent?: string };
+
+/**
  * `tool.input` is what the engine will act on; `display` and `questions` are
  * the run's redacted copy for people to see, which the host shows as it is.
+ * `rememberOffer` is the allow rules the engine proposed and the run kept (it
+ * drops the rest); absent, the request cannot be allowed for the session.
  */
 export type ApprovalRequested = {
   /** Minted by the run, fresh per request: an engine-side id can come round again. */
@@ -22,7 +30,11 @@ export type ApprovalRequested = {
    */
   askedAt: number;
 } & (
-  | { kind: "permission"; display: Record<string, unknown> }
+  | {
+      kind: "permission";
+      display: Record<string, unknown>;
+      rememberOffer?: readonly RememberRule[];
+    }
   | {
       kind: "question";
       /** Ids are the run's own; an answer names them, never the engine's text. */
@@ -44,7 +56,10 @@ export type CancelReason =
 
 /**
  * `message` is what the engine is told on a refusal; absent, the run says
- * something for the reason.
+ * something for the reason. `remember` on an allow keeps the offered rules
+ * for the session: `rules` are the ones the person agreed to, and the run
+ * installs a rule only if the engine's offer is still exactly those (a
+ * resumed turn asks again, and may offer something else).
  */
 export type ApprovalAnswer =
   | {
@@ -52,6 +67,7 @@ export type ApprovalAnswer =
       inputHash: string;
       kind: "selected";
       optionKind: "allow_once";
+      remember?: { scope: "session"; rules: readonly RememberRule[] };
     }
   | {
       localId: string;

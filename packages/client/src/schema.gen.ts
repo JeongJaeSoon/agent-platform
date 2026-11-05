@@ -4277,6 +4277,8 @@ export interface components {
             /** @constant */
             kind: "permission";
             reason?: string;
+            /** @constant */
+            remember?: "session";
             /** @enum {string} */
             action: "allow" | "deny";
         } | {

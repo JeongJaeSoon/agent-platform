@@ -27,6 +27,7 @@ import { relayedToolDescriptions } from "./remote-mcp.ts";
 import { systemPromptAppend } from "./repository-instructions.ts";
 import { ResumedHistory } from "./resumed-history.ts";
 import { ClaudeSdkRun, InputStream } from "./run.ts";
+import { offerableRules } from "./session-rules.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
@@ -152,12 +153,17 @@ export function buildSdkOptions(
       if (!admission.allowed) return deny(admission.message);
       let allowed = false;
       try {
+        const suggestedRules = offerableRules(
+          options.suggestions,
+          permittedTools,
+        );
         const decision = await hooks.onPermission({
           input: toolInput,
           requestId: options.requestId,
           signal: options.signal,
           tool,
           toolUseId: options.toolUseID,
+          ...(suggestedRules.length === 0 ? {} : { suggestedRules }),
         });
         allowed = decision.behavior === "allow";
         return { ...decision, toolUseID: options.toolUseID };
@@ -186,10 +192,11 @@ export function buildSdkOptions(
                   permissionDecisionReason: reason,
                 },
               });
-              // The allowlist canUseTool enforces has to hold here too; a
-              // hook deny binds in every mode.
+              // The allowlist canUseTool enforces has to hold here too, in
+              // every mode: a session rule lets the engine pass a call
+              // without asking canUseTool at all, and a hook deny binds
+              // whatever the mode or the rules say.
               if (
-                unattended &&
                 "tool_name" in input &&
                 !permittedTools.has(input.tool_name)
               ) {

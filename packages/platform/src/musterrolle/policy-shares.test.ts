@@ -702,6 +702,45 @@ describe("the pending requests a viewer is offered (94S-798)", () => {
     expect(answered).toBe(0);
   });
 
+  test("the key that started the session cannot allow for the session either", async () => {
+    const { caller, identity } = subject("service_key");
+    let answered = 0;
+    const pending = createPendingRequestService({
+      authorization: createAuthorizationPolicy({ identity, agents, sessions }),
+      store: {
+        async listOpen() {
+          return [];
+        },
+        async answerAtomic() {
+          answered += 1;
+          throw new Error("never reached");
+        },
+        async recordSelfApproval() {
+          return "receipt-self";
+        },
+        async requestOutcome() {
+          throw new Error("never reached");
+        },
+      },
+    });
+    const error = await pending
+      .answer(caller, KEYS_OPEN, {
+        idempotencyKey: "k",
+        body: {
+          request_id: "req_1",
+          kind: "permission",
+          decision: "allow",
+          remember: "session",
+        },
+      })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      code: "FORBIDDEN",
+      details: { reason_code: "self_approval", receipt_id: "receipt-self" },
+    });
+    expect(answered).toBe(0);
+  });
+
   test("out of the share it is still not found", async () => {
     const { pending, caller } = service("member");
     const error = await pending

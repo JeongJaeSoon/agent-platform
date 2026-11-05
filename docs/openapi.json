@@ -909,6 +909,10 @@
                 "type": "string",
                 "minLength": 1
               },
+              "remember": {
+                "type": "string",
+                "const": "session"
+              },
               "action": {
                 "type": "string",
                 "enum": [
