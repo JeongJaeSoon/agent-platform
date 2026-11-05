@@ -94,9 +94,11 @@ exit 1
       `#!/bin/sh\necho "$*" >> "${dir}/docker-calls"\n[ "$1" = ps ]\n`,
       { mode: 0o755 },
     );
-    await writeFile(join(dir, "bin", "git"), "#!/bin/sh\nexit 0\n", {
-      mode: 0o755,
-    });
+    await writeFile(
+      join(dir, "bin", "git"),
+      `#!/bin/sh\necho "$*" >> "${dir}/git-calls"\nexit 0\n`,
+      { mode: 0o755 },
+    );
     await writeFile(join(dir, "bin", "orb"), "#!/bin/sh\necho false\n", {
       mode: 0o755,
     });
@@ -474,6 +476,20 @@ exit 1
     const files = (await readdir(join(dir, "home"))).sort();
     expect(files).toEqual(["kubeconfig", ...contexts.map(digest)].sort());
     expect(new Set(files.map((file) => file.toLowerCase())).size).toBe(4);
+  });
+
+  test("down on another context leaves the local images, checkout and refs alone", async () => {
+    await mkdir(join(dir, "home", "pr-32"), { recursive: true });
+    const result = await reap([{ name: "pr-32", upAt: hoursAgo(100) }], {
+      PREVIEW_KUBE_CONTEXT: "kind-scratch",
+      STUB_CONTEXTS: "kind-scratch",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual(["pr-32"]);
+    expect(result.stdout).toContain("pr-32: local images and checkout kept");
+    expect(await calls("docker-calls")).toEqual([]);
+    expect(await calls("git-calls")).toEqual([]);
+    expect(await readdir(join(dir, "home", "pr-32"))).toEqual([]);
   });
 
   test("refuses a context name that is not plain", async () => {

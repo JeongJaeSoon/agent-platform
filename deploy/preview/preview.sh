@@ -330,6 +330,12 @@ down() {
     fi
     kubectl delete namespace "$namespace" --wait --timeout 5m
   fi
+  # The images, the checkout and the refs below belong to OrbStack's previews
+  # on this Mac, not to another cluster's namespace of the same name.
+  if [ "$PREVIEW_KUBE_CONTEXT" != orbstack ]; then
+    echo "${namespace}: local images and checkout kept, not the orbstack context"
+    return
+  fi
   # The kubelet removes the pods' exited containers within about a minute;
   # until then they hold the images.
   for _ in $(seq 1 24); do
