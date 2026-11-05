@@ -412,6 +412,49 @@ describe("Claude SDK adapter options", () => {
     expect(seen).toEqual([[{ toolName: "Read" }], undefined]);
   });
 
+  test("canUseTool offers no session rule that misses the call or that the engine marks too broad", async () => {
+    const seen: (readonly unknown[] | undefined)[] = [];
+    const options = buildSdkOptions(
+      { ...config, tools: ["Bash"] },
+      {
+        onPermission: async (request) => {
+          seen.push(request.suggestedRules);
+          return { behavior: "allow" };
+        },
+      },
+    );
+    const canUseTool = options.canUseTool;
+    if (canUseTool === undefined) throw new Error("canUseTool is required");
+    const ask = (
+      command: string,
+      ruleContent: string,
+      extra: Record<string, unknown> = {},
+    ) =>
+      canUseTool("Bash", { command }, {
+        requestId: "request-1",
+        signal: new AbortController().signal,
+        toolUseID: "tool-1",
+        suggestions: [
+          {
+            type: "addRules",
+            behavior: "allow",
+            destination: "localSettings",
+            rules: [{ toolName: "Bash", ruleContent }],
+          },
+        ],
+        ...extra,
+      } as Parameters<typeof canUseTool>[2]);
+
+    await ask("echo alpha > hello.txt", "echo alpha *");
+    await ask("touch a.txt", "touch a.txt");
+    await ask("touch a.txt", "touch a.txt", { suppressAlwaysAllowRule: true });
+    expect(seen).toEqual([
+      undefined,
+      [{ toolName: "Bash", ruleContent: "touch a.txt" }],
+      undefined,
+    ]);
+  });
+
   test("the PreToolUse gate admits tools into the ledger and refuses them under a checkpoint lease", async () => {
     const ledger = new TurnLedger("s1");
     const options = buildSdkOptions(

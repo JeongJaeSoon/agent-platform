@@ -691,6 +691,59 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(await readFile(outputPath, "utf8")).toBe("x");
   }, 60_000);
 
+  // The engine proposes a rule for the call it asks about, and for a command
+  // with a redirect or a second command the rule does not match that call.
+  // The adapter's offerableRules relies on this; it has no API to ask.
+  test.each([
+    ["touch a.txt", "touch a.txt", 1],
+    ["git commit -m 'x y'", "git commit *", 1],
+    ["echo alpha > hello.txt", "echo alpha *", 2],
+    ["echo alpha >> hello.txt", "echo alpha *", 2],
+    ["cd sub && touch b.txt", "cd sub *", 2],
+  ])(
+    "the rule the engine suggests for %s is %s and the same call is asked %d time(s)",
+    async (command, suggested, askedCount) => {
+      context = await createProbeContext();
+      server = startFakeAnthropicServer((_request, index) =>
+        index < 2
+          ? toolReply("Bash", { command }, `toolu_sdkcompat_suggest_${index}`)
+          : textReply("suggestion complete"),
+      );
+      const rules: string[] = [];
+      let asked = 0;
+
+      await runSdkQuery(context, server.url, "Run the command.", {
+        canUseTool: async (_name, input, options) => {
+          asked += 1;
+          const proposed = (options.suggestions ?? []).flatMap((update) =>
+            update.type === "addRules" && update.behavior === "allow"
+              ? update.rules
+              : [],
+          );
+          for (const rule of proposed) rules.push(rule.ruleContent ?? "");
+          return {
+            behavior: "allow",
+            updatedInput: input,
+            updatedPermissions: [
+              {
+                type: "addRules",
+                behavior: "allow",
+                destination: "session",
+                rules: proposed,
+              },
+            ],
+          };
+        },
+        permissionMode: "default",
+        tools: ["Bash"],
+      });
+
+      expect(new Set(rules)).toEqual(new Set([suggested]));
+      expect(asked).toBe(askedCount);
+    },
+    60_000,
+  );
+
   test("bypasses canUseTool for a fully allowed Bash rule", async () => {
     context = await createProbeContext();
     const outputPath = join(context.workspace, "rule-allowed.txt");

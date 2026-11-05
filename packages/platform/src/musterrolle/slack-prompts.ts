@@ -636,6 +636,23 @@ export function slackPromptMessage(
         ),
       ],
     });
+    // The rules the session button keeps, in the card itself and not only in
+    // the dialog behind the button.
+    if (
+      prompt.rememberOffer !== undefined &&
+      prompt.rememberOffer.length > 0 &&
+      ruleSentence(prompt.rememberOffer).length <= RULE_SENTENCE_MAX
+    ) {
+      blocks.push({
+        type: "context",
+        elements: [
+          plain(
+            `${copy.allowSession}: ${copy.allowSessionConfirm.replace("{rule}", () => ruleSentence(prompt.rememberOffer ?? []))}`,
+            300,
+          ),
+        ],
+      });
+    }
   } else if (prompt.kind === "question" && !drawable(prompt.questions)) {
     line = clip(prompt.questions[0]?.prompt ?? "", QUESTION_HEAD_MAX);
     blocks.push({ type: "section", text: plain(copy.answerOnWeb) });
