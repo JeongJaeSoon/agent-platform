@@ -1608,7 +1608,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "Read a workflow run of the session's repository.",
+    "description": "Read a workflow run of the session's repository. \`wait_seconds\` (0 to 8, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -1616,6 +1616,11 @@ exports[`tools/list every tool has a description of its fields and an outputSche
         "run_id": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "wait_seconds": {
+          "maximum": 8,
+          "minimum": 0,
           "type": "integer",
         },
       },
@@ -1643,6 +1648,9 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     "string",
                     "null",
                   ],
+                },
+                "final": {
+                  "type": "boolean",
                 },
                 "head_branch": {
                   "type": [
@@ -1676,6 +1684,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                 "status",
                 "conclusion",
                 "html_url",
+                "final",
               ],
               "type": "object",
             },
@@ -2109,7 +2118,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. Attaching an attached repository changes nothing.",
+    "description": "Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to 8, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2118,6 +2127,11 @@ exports[`tools/list every tool has a description of its fields and an outputSche
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
+        },
+        "wait_seconds": {
+          "maximum": 8,
+          "minimum": 0,
+          "type": "integer",
         },
       },
       "required": [
@@ -2169,6 +2183,9 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     },
                   ],
                 },
+                "final": {
+                  "type": "boolean",
+                },
                 "receipt_id": {
                   "type": [
                     "string",
@@ -2196,6 +2213,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                 "failure",
                 "already_attached",
                 "receipt_id",
+                "final",
               ],
               "type": "object",
             },

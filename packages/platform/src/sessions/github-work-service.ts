@@ -74,8 +74,17 @@ export function createGitHubWorkService(deps: {
   authorization: AuthorizationPolicy;
   gate: GitHubGate;
   store: GitHubWorkStore;
+  pollMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  /** A monotonic clock in milliseconds. */
+  now?: () => number;
 }) {
   const { authorization, gate, store } = deps;
+  const pollMs = deps.pollMs ?? 1_000;
+  const sleep =
+    deps.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = deps.now ?? (() => performance.now());
 
   async function granted(
     actor: PushActor,
@@ -202,25 +211,54 @@ export function createGitHubWorkService(deps: {
       return { receipt_id: receiptId, run };
     },
 
+    /**
+     * With `waitSeconds`, reads again until the run is `completed` or the
+     * seconds, counted from the start of the call, have passed; the last run
+     * read is answered. A read still running at the deadline is dropped.
+     */
     async getRun(
       actor: PushActor,
       sessionId: string,
       runId: number,
+      options: { waitSeconds?: number } = {},
     ): Promise<GitHubWorkflowRunView> {
+      const deadline = now() + (options.waitSeconds ?? 0) * 1000;
       const grant = await granted(actor, sessionId, "session.read", {
         purpose: "actions_read",
       });
-      try {
-        return await grant.api.getWorkflowRun(runId);
-      } catch (error) {
-        if (error instanceof GitHubCallError) {
-          if (error.status === 404) {
-            throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      const read = async () => {
+        try {
+          return await grant.api.getWorkflowRun(runId);
+        } catch (error) {
+          if (error instanceof GitHubCallError) {
+            if (error.status === 404) {
+              throw new SessionServiceError("NOT_FOUND", "Resource not found");
+            }
+            throw unavailable(null);
           }
-          throw unavailable(null);
+          throw error;
         }
-        throw error;
+      };
+      let run = await read();
+      while (run.status !== "completed" && now() < deadline) {
+        await sleep(Math.min(pollMs, deadline - now()));
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const pending = read();
+        // A read dropped at the deadline must not surface as unhandled.
+        pending.catch(() => {});
+        const next = await Promise.race([
+          pending,
+          new Promise<"late">((resolve) => {
+            timer = setTimeout(
+              () => resolve("late"),
+              Math.max(0, deadline - now()),
+            );
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (next === "late") break;
+        run = next;
       }
+      return run;
     },
 
     async rerun(

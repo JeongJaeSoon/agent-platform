@@ -320,17 +320,17 @@ export function createGitHubMcpServer(deps: {
         return done(await services.attachments.list(sessionId));
       }
       if (tool === "attach_repository") {
-        const { repository_id } = parsed.data as z.infer<
+        const { repository_id, wait_seconds } = parsed.data as z.infer<
           (typeof GITHUB_MCP_TOOL_ARGUMENTS)["attach_repository"]
         >;
-        return done(
-          await services.attachments.attach({
-            sessionId,
-            attemptId: grant.attemptId,
-            actor: state.actor,
-            repositoryId: repository_id,
-          }),
-        );
+        const attachment = await services.attachments.attach({
+          sessionId,
+          attemptId: grant.attemptId,
+          actor: state.actor,
+          repositoryId: repository_id,
+          ...(wait_seconds === undefined ? {} : { waitSeconds: wait_seconds }),
+        });
+        return done({ ...attachment, final: attachment.status !== "pending" });
       }
       // Read before the request, so a refusal handled late cannot mark the
       // turn that started after this one ended.
@@ -565,10 +565,13 @@ async function run(
         >,
       );
     case "get_workflow_run": {
-      const { run_id } = args as z.infer<
+      const { run_id, wait_seconds } = args as z.infer<
         (typeof GITHUB_MCP_TOOL_ARGUMENTS)["get_workflow_run"]
       >;
-      return services.githubWork.getRun(actor, sessionId, run_id);
+      const view = await services.githubWork.getRun(actor, sessionId, run_id, {
+        ...(wait_seconds === undefined ? {} : { waitSeconds: wait_seconds }),
+      });
+      return { ...view, final: view.status === "completed" };
     }
     case "rerun_workflow": {
       const { run_id, ...body } = args as z.infer<

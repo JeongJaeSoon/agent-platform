@@ -94,7 +94,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     runningTurn: number | null;
     marks: Array<{ sessionId: string; turnId: number }>;
     marked: boolean;
+    /** The status each read of a workflow run answers. */
+    runStatus: string;
   } = {
+    runStatus: "completed",
     pushRefusal: null,
     notPushed: null,
     resolutionReason: null,
@@ -115,7 +118,14 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       id: 42,
       html_url: "https://github.com/acme/app/actions/runs/42",
     }),
-    getWorkflowRun: unused,
+    getWorkflowRun: async (runId) => ({
+      id: runId,
+      path: ".github/workflows/ci.yml",
+      head_branch: "main",
+      status: control.runStatus,
+      conclusion: control.runStatus === "completed" ? "success" : null,
+      html_url: `https://github.com/acme/app/actions/runs/${runId}`,
+    }),
     rerunWorkflow: unused,
     submitReview: unused,
   };
@@ -201,12 +211,12 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         authorization,
         gate,
         store: workStore,
+        pollMs: 10,
       }),
       attachments: createRepositoryAttachmentService({
         store: attachmentStore,
         context: { context: async () => attachContext },
         catalog: attachCatalog,
-        waitMs: 0,
       }),
     };
   };
@@ -970,10 +980,72 @@ describe("attach_repository", () => {
           failure: null,
           already_attached: false,
           receipt_id: "receipt-1",
+          final: false,
         },
       },
     });
     expect(h.attachmentStore.rows.get("docs")?.attemptId).toBe("att_1");
+  });
+
+  test("a repository already attached answers final at once", async () => {
+    const h = harness();
+    await h.call("attach_repository", { repository_id: "docs" });
+    await h.attachmentStore.settle(SESSION, [
+      {
+        repository_id: "docs",
+        receipt_id: "receipt-1",
+        status: "attached",
+        commit: "c".repeat(40),
+      },
+    ]);
+    const started = performance.now();
+    const answer = payload(
+      await h.call("attach_repository", {
+        repository_id: "docs",
+        wait_seconds: 8,
+      }),
+    );
+    expect(answer.body.result).toMatchObject({
+      status: "attached",
+      already_attached: true,
+      final: true,
+    });
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  test("waits no longer than wait_seconds and answers final false", async () => {
+    const h = harness();
+    const started = performance.now();
+    const answer = payload(
+      await h.call("attach_repository", {
+        repository_id: "docs",
+        wait_seconds: 1,
+      }),
+    );
+    const took = performance.now() - started;
+    expect(answer.body.result).toMatchObject({
+      status: "pending",
+      final: false,
+    });
+    expect(took).toBeGreaterThanOrEqual(900);
+    expect(took).toBeLessThan(1_500);
+  });
+
+  test("a wait over the cap, or not a whole number, is refused before the service", async () => {
+    for (const wait_seconds of [9, -1, 1.5, "3"]) {
+      const h = harness();
+      const answer = payload(
+        await h.call("attach_repository", {
+          repository_id: "docs",
+          wait_seconds,
+        }),
+      );
+      expect(answer).toMatchObject({
+        isError: true,
+        body: { refusal: { code: "validation_error" } },
+      });
+      expect(h.attachmentStore.rows.size).toBe(0);
+    }
   });
 
   test("anything but a repository id is refused before the service", async () => {
@@ -989,6 +1061,85 @@ describe("attach_repository", () => {
       body: { refusal: { code: "validation_error" } },
     });
     expect(h.attachmentStore.receipts).toEqual([]);
+  });
+});
+
+describe("get_workflow_run", () => {
+  const actionsOn = () =>
+    harness({ github: github({ actions: true }) as never });
+
+  test("without wait_seconds answers at once; a finished run is final", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "completed";
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7 })).body,
+    ).toMatchObject({
+      ok: true,
+      result: { id: 7, status: "completed", final: true },
+    });
+    h.control.runStatus = "in_progress";
+    for (const args of [{ run_id: 7 }, { run_id: 7, wait_seconds: 0 }]) {
+      const started = performance.now();
+      const answer = payload(await h.call("get_workflow_run", args));
+      expect(answer.body.result).toMatchObject({
+        status: "in_progress",
+        final: false,
+      });
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+  });
+
+  test("a run still going at the deadline answers final false at the deadline", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "in_progress";
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 1 }),
+    );
+    const took = performance.now() - started;
+    expect(answer.body.result).toMatchObject({ final: false });
+    expect(took).toBeGreaterThanOrEqual(900);
+    expect(took).toBeLessThan(1_500);
+  });
+
+  test("a run that finishes inside the wait answers the finished run", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "in_progress";
+    setTimeout(() => {
+      h.control.runStatus = "completed";
+    }, 200);
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 5 }),
+    );
+    expect(answer.body.result).toMatchObject({
+      status: "completed",
+      conclusion: "success",
+      final: true,
+    });
+    expect(performance.now() - started).toBeLessThan(1_500);
+  });
+
+  test("a wait over the cap is refused, and concurrent waits answer alike", async () => {
+    const h = actionsOn();
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7, wait_seconds: 9 })),
+    ).toMatchObject({
+      isError: true,
+      body: { refusal: { code: "validation_error" } },
+    });
+    h.control.runStatus = "queued";
+    setTimeout(() => {
+      h.control.runStatus = "completed";
+    }, 100);
+    const answers = await Promise.all(
+      [1, 2, 3].map((_) =>
+        h.call("get_workflow_run", { run_id: 7, wait_seconds: 3 }),
+      ),
+    );
+    for (const answer of answers) {
+      expect(payload(answer).body.result).toMatchObject({ final: true });
+    }
   });
 });
 

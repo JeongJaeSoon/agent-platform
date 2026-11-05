@@ -52,7 +52,6 @@ function service(
     store,
     context: { context: async () => attachmentContext(options.context) },
     catalog: attachCatalog,
-    waitMs: options.waitMs ?? 0,
     pollMs: 10,
     sleep: async (ms) => {
       clock += ms;
@@ -61,7 +60,15 @@ function service(
     now: () => clock,
   });
   const attach = (repositoryId: string, attemptId = "att_1") =>
-    attachments.attach({ sessionId: SESSION, attemptId, actor, repositoryId });
+    attachments.attach({
+      sessionId: SESSION,
+      attemptId,
+      actor,
+      repositoryId,
+      ...(options.waitMs === undefined
+        ? {}
+        : { waitSeconds: options.waitMs / 1000 }),
+    });
   return {
     store,
     attach,
@@ -417,6 +424,46 @@ describe("attach", () => {
     expect(s.store.rows.size).toBe(0);
   });
 
+  test("answers pending at once when no wait is asked for", async () => {
+    let sleeps = 0;
+    const s = service({
+      onSleep: () => {
+        sleeps += 1;
+      },
+    });
+    expect((await s.attach("docs")).status).toBe("pending");
+    expect(sleeps).toBe(0);
+    expect(s.reads()).toBe(0);
+  });
+
+  test("two calls waiting on the same fetch both answer what it fetched", async () => {
+    let store: ReturnType<typeof memoryAttachmentStore> | undefined;
+    let sleeps = 0;
+    const s = service({
+      waitMs: 1_000,
+      onSleep: async () => {
+        if (++sleeps === 2) {
+          await store?.settle(SESSION, [
+            {
+              repository_id: "docs",
+              receipt_id: "receipt-1",
+              status: "attached",
+              commit: COMMIT,
+            },
+          ]);
+        }
+      },
+    });
+    store = s.store;
+    const [first, second] = await Promise.all([
+      s.attach("docs"),
+      s.attach("docs"),
+    ]);
+    expect(first.status).toBe("attached");
+    expect(second.status).toBe("attached");
+    expect(s.store.rows.size).toBe(1);
+  });
+
   test("waits for the worker's report and answers what it fetched", async () => {
     let store: ReturnType<typeof memoryAttachmentStore> | undefined;
     let sleeps = 0;
@@ -453,7 +500,7 @@ describe("attach", () => {
       },
     });
     expect((await s.attach("docs")).status).toBe("pending");
-    expect(sleeps).toBe(4);
+    expect(sleeps).toBe(5);
     await s.store.settle(SESSION, [
       {
         repository_id: "docs",
@@ -487,7 +534,6 @@ describe("attach", () => {
       store,
       context: { context: async () => attachmentContext() },
       catalog: attachCatalog,
-      waitMs: 100,
       pollMs: 10,
     });
     const started = performance.now();
@@ -496,6 +542,7 @@ describe("attach", () => {
       attemptId: "att_1",
       actor,
       repositoryId: "docs",
+      waitSeconds: 0.1,
     });
     expect(answered.status).toBe("pending");
     expect(performance.now() - started).toBeLessThan(1_000);

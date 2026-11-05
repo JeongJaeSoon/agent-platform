@@ -43,6 +43,22 @@ export const GITHUB_MCP_SERVER = "github";
 const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
 /**
+ * The longest a waiting read may hold its answer. The built-in server is
+ * served by the control host's authorizer listener, which keeps Bun's default
+ * 10 second idle timeout; a call that has sent nothing by then gets a cut
+ * connection instead of an answer. The wait is counted from the start of the
+ * call, so the cap leaves two seconds for the work around it.
+ */
+export const GITHUB_MCP_WAIT_SECONDS_MAX = 8;
+
+const waitSecondsSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(GITHUB_MCP_WAIT_SECONDS_MAX)
+  .optional();
+
+/**
  * Each tool's arguments: the session API's body plus what that API takes
  * from the path. Never a session id: the attempt token names the session.
  */
@@ -64,14 +80,19 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
     .object({ push_request_id: pushRequestIdSchema })
     .strict(),
   dispatch_workflow: dispatchWorkflowRequestSchema,
-  get_workflow_run: z.object({ run_id: runIdSchema }).strict(),
+  get_workflow_run: z
+    .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
+    .strict(),
   rerun_workflow: rerunWorkflowRequestSchema.extend({ run_id: runIdSchema }),
   submit_review: submitPullRequestReviewRequestSchema.safeExtend({
     number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),
   list_repositories: z.object({}).strict(),
   attach_repository: z
-    .object({ repository_id: z.string().min(1).max(128) })
+    .object({
+      repository_id: z.string().min(1).max(128),
+      wait_seconds: waitSecondsSchema,
+    })
     .strict(),
 } as const;
 
@@ -178,6 +199,21 @@ export const repositoryAttachmentSchema = z.object({
   receipt_id: z.string().nullable(),
 });
 export type RepositoryAttachment = z.infer<typeof repositoryAttachmentSchema>;
+
+/**
+ * What the MCP tool answers: the attachment and whether it can still change.
+ * `final` is false only while `status` is `pending` at the end of the wait.
+ */
+export const waitedRepositoryAttachmentSchema =
+  repositoryAttachmentSchema.safeExtend({ final: z.boolean() });
+
+/**
+ * What `get_workflow_run` answers: the run and whether it can still change.
+ * `final` is true once GitHub reports it `completed`.
+ */
+export const waitedWorkflowRunSchema = githubWorkflowRunSchema.safeExtend({
+  final: z.boolean(),
+});
 export type RepositoryAttachFailure = z.infer<
   typeof repositoryAttachFailureSchema
 >;
@@ -242,7 +278,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Reopen the closed pull request of a pushed push request. `changed` is false when it was already open.",
   dispatch_workflow:
     "Dispatch an allow-listed workflow on a branch. `inputs` go to GitHub only.",
-  get_workflow_run: "Read a workflow run of the session's repository.",
+  get_workflow_run: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
   rerun_workflow:
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
@@ -250,7 +286,7 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   list_repositories:
     "List the repositories the session can work on. `status` is `primary` (the session's own), `attached`, `pending` or `failed` (fetch in progress or failed), `available` (attach_repository would add it) or `allowed_in_newer_release` (only the agent's current release allows it).",
   attach_repository:
-    "Attach a repository the release allows to the session as a git remote named `repository_id`, with its default branch fetched to `<repository_id>/<branch>`. `status` is `pending` while the fetch runs. Attaching an attached repository changes nothing.",
+    "Attach a repository the release allows to the session as a git remote named `repository_id`, with its default branch fetched to `<repository_id>/<branch>`. `status` is `pending` while the fetch runs. `wait_seconds` (0 to 8, default 0) holds the answer until the fetch ends or the seconds have passed; `final` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.",
 };
 
 const requestPushResultSchema = z.union([
@@ -274,11 +310,11 @@ export const GITHUB_MCP_TOOL_OUTPUTS = {
   close_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
   reopen_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
   dispatch_workflow: actionResultSchema(dispatchWorkflowResponseSchema),
-  get_workflow_run: actionResultSchema(githubWorkflowRunSchema),
+  get_workflow_run: actionResultSchema(waitedWorkflowRunSchema),
   rerun_workflow: actionResultSchema(rerunWorkflowResponseSchema),
   submit_review: actionResultSchema(submitPullRequestReviewResponseSchema),
   list_repositories: actionResultSchema(listRepositoriesResponseSchema),
-  attach_repository: actionResultSchema(repositoryAttachmentSchema),
+  attach_repository: actionResultSchema(waitedRepositoryAttachmentSchema),
 } as const satisfies Record<GitHubMcpTool, z.ZodType>;
 
 const COMMON_REFUSALS = [

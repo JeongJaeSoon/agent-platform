@@ -23,13 +23,6 @@ import type { SessionCatalog } from "./catalog.ts";
 import { pathNameOf } from "./session-repository.ts";
 import { SessionServiceError } from "./session-service.ts";
 
-/**
- * How long a call may take, from its start, before answering `pending`. The
- * authorizer listener that serves the call keeps Bun's default 10 second
- * idle timeout, which a silent wait counts against; past it the agent would
- * get a cut connection instead of an answer.
- */
-export const ATTACH_WAIT_MS = 8_000;
 const ATTACH_POLL_MS = 500;
 
 export type AttachRepositoryInput = {
@@ -37,6 +30,12 @@ export type AttachRepositoryInput = {
   attemptId: string;
   actor: ReceiptActor;
   repositoryId: string;
+  /**
+   * How long the call may wait, from its start, for the fetch to end before
+   * answering `pending`. Omitted or 0: answer at once. The caller bounds it
+   * (`GITHUB_MCP_WAIT_SECONDS_MAX`).
+   */
+  waitSeconds?: number;
 };
 
 function answer(
@@ -64,14 +63,12 @@ export function createRepositoryAttachmentService(deps: {
   store: RepositoryAttachmentStore;
   context: Pick<GitHubGateStore, "context">;
   catalog: SessionCatalog;
-  waitMs?: number;
   pollMs?: number;
   sleep?: (ms: number) => Promise<void>;
   /** A monotonic clock in milliseconds. */
   now?: () => number;
 }) {
   const { store, catalog } = deps;
-  const waitMs = deps.waitMs ?? ATTACH_WAIT_MS;
   const pollMs = deps.pollMs ?? ATTACH_POLL_MS;
   const sleep =
     deps.sleep ??
@@ -84,8 +81,8 @@ export function createRepositoryAttachmentService(deps: {
     deadline: number,
   ): Promise<RepositoryAttachmentRow> {
     let current = row;
-    while (current.status === "pending" && now() + pollMs < deadline) {
-      await sleep(pollMs);
+    while (current.status === "pending" && now() < deadline) {
+      await sleep(Math.min(pollMs, deadline - now()));
       // A slow read is cut at the deadline and the last state answered.
       let timer: ReturnType<typeof setTimeout> | undefined;
       const read = await Promise.race([
@@ -192,7 +189,7 @@ export function createRepositoryAttachmentService(deps: {
     },
 
     async attach(input: AttachRepositoryInput): Promise<RepositoryAttachment> {
-      const deadline = now() + waitMs;
+      const deadline = now() + (input.waitSeconds ?? 0) * 1000;
       const sessionId = input.sessionId.toLowerCase();
       const { repositoryId } = input;
       const context = await deps.context.context(sessionId);
