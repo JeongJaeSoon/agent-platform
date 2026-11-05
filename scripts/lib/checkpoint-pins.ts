@@ -51,6 +51,7 @@ import type {
   RuntimeFingerprint,
   TranscriptRevision,
 } from "@werft-ai/runtime-core";
+import { storedOutputs } from "@werft-ai/runtime-core";
 
 /** One `checkpoints` row, as far as its objects are concerned. */
 export type CheckpointRow = {
@@ -512,6 +513,9 @@ export function refsOf(manifest: CheckpointManifest): ObjectRef[] {
     ...(manifest.workspace.baseBundles ?? []),
     manifest.workspace.bundle,
     ...manifest.workspace.untracked,
+    // An omitted output has no object; a stored one lives in the directory of
+    // the checkpoint that uploaded it.
+    ...storedOutputs(manifest.outputs),
   ];
 }
 
@@ -847,8 +851,15 @@ export async function planRepin(input: {
         if (revision !== undefined)
           subagents[subpath] = await pinRevision(revision);
       }
+      const outputs =
+        manifest.outputs === undefined
+          ? undefined
+          : await sequential(manifest.outputs, (output) =>
+              "omitted" in output ? Promise.resolve(output) : pin(output),
+            );
       const repinned: CheckpointManifest = {
         ...manifest,
+        ...(outputs === undefined ? {} : { outputs }),
         transcripts: {
           root: await pinRevision(manifest.transcripts.root),
           subagents,
