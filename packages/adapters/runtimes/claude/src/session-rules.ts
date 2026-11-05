@@ -54,12 +54,22 @@ export function offerableRules(
   return kept;
 }
 
-/** Shell syntax that makes one command line into more than one act. */
-const SHELL_SYNTAX = /[|&;<>()$`\\\n\r*?]/;
+/**
+ * The only characters a command or a rule prefix may hold to be judged
+ * here: words, paths, `NAME=value`, quotes and single spaces. An allowlist,
+ * because shell syntax (redirects, pipes, `$`, `#`, globs, escapes) and the
+ * engine's own rule syntax each keep turning up another way to miss.
+ */
+const PLAIN_COMMAND = /^[\w./=@%+,:'"-]+(?: [\w./=@%+,:'"-]+)*$/;
+/** The engine reads a first word such as `certified:` as syntax of its own. */
+const FIRST_WORD_COLON = /^[^ ]*:(?: |$)/;
+
+const isPlain = (text: string) =>
+  PLAIN_COMMAND.test(text) && !FIRST_WORD_COLON.test(text);
 
 /**
  * True when a Bash rule is the command itself or a prefix rule over a
- * command with no shell syntax. Other tools are not judged here.
+ * plain command (see PLAIN_COMMAND). Other tools are not judged here.
  */
 function coversCall(
   rule: { toolName: string; ruleContent?: string },
@@ -70,18 +80,12 @@ function coversCall(
   const command = (input as { command?: unknown } | null)?.command;
   const content = rule.ruleContent;
   if (typeof command !== "string" || content === undefined) return false;
-  // The engine trims the command but keeps the rule as written, so padding on
-  // either side can make an equal-looking pair miss.
-  if (command !== command.trim() || content !== content.trim()) return false;
-  if (SHELL_SYNTAX.test(command) && content !== command) return false;
+  // PLAIN_COMMAND also rules out padding: the engine trims the command but
+  // keeps the rule as written, so padding can make an equal-looking pair miss.
+  if (!isPlain(command)) return false;
   const prefix = /^(.*?)(?: \*|:\*)$/s.exec(content)?.[1];
-  if (prefix === undefined) {
-    // Exact rule: a `*` in it is a wildcard to the engine, not a literal.
-    return content === command && !content.includes("*");
-  }
-  if (prefix === "" || prefix !== prefix.trim() || SHELL_SYNTAX.test(prefix)) {
-    return false;
-  }
+  if (prefix === undefined) return isPlain(content) && content === command;
+  if (!isPlain(prefix)) return false;
   return command === prefix || command.startsWith(`${prefix} `);
 }
 
