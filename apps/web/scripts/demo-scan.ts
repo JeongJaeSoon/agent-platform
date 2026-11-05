@@ -42,7 +42,7 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
   // The product's former name: stack defaults such as secret names still carry
   // it into a recording. A stopgap until the full rename.
-  ["former product name", /agent[-_]?platform/gi],
+  ["former product name", /agent[-_\s]?platform/gi],
 ];
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;

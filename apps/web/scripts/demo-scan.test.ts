@@ -43,7 +43,13 @@ describe("demo fixture scan", () => {
   });
 
   test("the former product name is caught in any spelling and position, and reported by position only", () => {
-    const old = ["agent-platform", "agent_platform", "agentplatform"];
+    const old = [
+      "agent-platform",
+      "agent_platform",
+      "agentplatform",
+      "agent platform",
+      "Agent Platform",
+    ];
     const cased = old.flatMap((name) => [name, name.toUpperCase()]);
     for (const name of cased) {
       expect(scan({ secret_id: `${name}/default` }), name).toEqual([
@@ -62,7 +68,7 @@ describe("demo fixture scan", () => {
     expect(describeFinding(finding as Finding)).toBe(
       "former product name: 14 chars (answer 0)",
     );
-    expect(scan({ title: "Werft", note: "agent platform-free" })).toEqual([]);
+    expect(scan({ title: "Werft", note: "a platform for agents" })).toEqual([]);
   });
 
   const catalog = (json: unknown) =>
