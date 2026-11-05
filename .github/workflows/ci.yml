@@ -40,13 +40,8 @@ jobs:
   # external — the SDK adapter against a local fake Messages API, for one — do
   # run here despite the `integration` in their file names.
   #
-  # Split by role across runners: `bun run check` ran typecheck, lint
-  # and the suite one after another in 5m10s (1m, 1s and 4m10s), which made it
-  # the longest path of every PR run. Each part is now its own job, and the
-  # suite is cut once more along the repo layout — packages/ in one part,
-  # everything else in the other — because one bun process over it was still
-  # longer than the integration shards. The parts are names, not numbers: a red
-  # `check (lint)` says what broke without opening the log.
+  # Keep the unit parts parallel; lint and licenses take only seconds, so
+  # they share the typecheck runner instead of each paying setup and queue time.
   check-part:
     name: check (${{ matrix.part }})
     # A non-dispatch event has no `only`, so it reads as `all`.
@@ -64,12 +59,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - part: typecheck
-          - part: lint
-          # THIRD_PARTY_NOTICES.md against bun.lock: a dependency
-          # added without regenerating the notices, or one under a license
-          # nobody reviewed, fails the required check. Offline by design.
-          - part: licenses
+          - part: static
           - part: "unit: packages"
             unit: packages
           # PGlite migration fixtures otherwise exhaust the packages job's ceiling.
@@ -88,13 +78,13 @@ jobs:
       - uses: ./.github/actions/bun-setup
         with:
           # One writer per cache scope; the other parts restore what it saved.
-          save-cache: ${{ matrix.part == 'typecheck' }}
+          save-cache: ${{ matrix.part == 'static' }}
       - run: bun install --frozen-lockfile
-      - if: matrix.part == 'typecheck'
+      - if: matrix.part == 'static'
         run: bun run typecheck
-      - if: matrix.part == 'lint'
+      - if: matrix.part == 'static'
         run: bun run lint
-      - if: matrix.part == 'licenses'
+      - if: matrix.part == 'static'
         run: bun scripts/third-party-notices.ts --check
       - if: matrix.unit
         name: Tests of this part
@@ -276,6 +266,7 @@ jobs:
               - tests/architecture.
               - tests/ci-images.
               - tests/ci-services.
+              - tests/ci-static-checks.
               - tests/d2-gate/
               - tests/dev/
               - tests/docs-i18n-code.
