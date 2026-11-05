@@ -95,7 +95,7 @@ PR 本文の末尾には、プラットフォームが書く末尾ブロック�
 セッションを作るときに `attached_repository_ids` を送らなければ、セッション自身のリポジトリのほかは何も付けずに始まる。最初から必要なリポジトリはその一覧に入れ、残りはエージェントが必要なときに付ける。
 
 - 付けたリポジトリは、作業スペースで名前が `repository_id` の git リモートになり、デフォルトブランチを `<repository_id>/<branch>` に取得する。エージェントはトークンを見ない。
-- 同じリポジトリをもう一度付けても何も変えずに成功する。取得中なら `pending` を返し、もう一度呼ぶと結果を読める。
+- 同じリポジトリをもう一度付けても何も変えずに成功する。取得中なら `pending` と `final: false` をすぐ返す。`wait_seconds`（0〜7 秒、既定 0）を渡すと、取得が終わるかその秒数が過ぎるまで待ってから答え、終わっていれば `final: true` になる。
 - 取得には 300 秒と 2 GiB の上限がある。超えると付けるのは失敗で終わり、`failure` に理由（`fetch_timeout`、`fetch_too_large`）が残る。
 - 付けるたびに `attach_repository` の[レシート](/approvals/receipt)が残る。要求した人と attempt、リポジトリ、リリース、取得したコミット、拒否の理由（`repository_not_allowed`・`allowed_in_newer_release`）が入る。
 - セッションが別の worker で再開すると（restore）、付けたリポジトリのリモートをもう一度付ける。付けたリポジトリの CLAUDE.md は指示として読まない。

@@ -40,12 +40,17 @@ function harness(
     refuse?: GitHubGateError | ForgeCredentialError;
     fail?: GitHubCallError;
     run?: { id: number; html_url: string } | null;
+    /** The status of each successive run read; the last one repeats. */
+    statuses?: string[];
+    /** Which call never answers: the grant, the first read or a later one. */
+    hang?: "grant" | "read" | "later-read";
     /** Fails the pull request read only; `fail` fails the writes. */
     failRead?: GitHubCallError;
     /** The head the forge reports; the reviewed commit by default. */
     head?: string;
   } = {},
 ) {
+  let clock = 0;
   const works: GitHubWork[] = [];
   const calls: string[] = [];
   const receipts: GitHubGateReceipt[] = [];
@@ -107,12 +112,21 @@ function harness(
     getWorkflowRun: async (runId) => {
       calls.push(`run ${runId}`);
       fail();
+      const reads = calls.filter((call) => call.startsWith("run ")).length;
+      if (
+        (options.hang === "read" && reads === 1) ||
+        (options.hang === "later-read" && reads > 1)
+      ) {
+        return new Promise<never>(() => {});
+      }
+      const statuses = options.statuses ?? ["completed"];
+      const status = statuses[Math.min(reads, statuses.length) - 1] ?? null;
       return {
         id: runId,
         path: ".github/workflows/ci.yml",
         head_branch: "main",
-        status: "completed",
-        conclusion: "success",
+        status,
+        conclusion: status === "completed" ? "success" : null,
         html_url: `https://github.com/acme/app/actions/runs/${runId}`,
       };
     },
@@ -134,6 +148,7 @@ function harness(
   const gate: GitHubGate = {
     grant: async (work) => {
       works.push(work);
+      if (options.hang === "grant") return new Promise<never>(() => {});
       if (options.refuse) throw options.refuse;
       const grant: GitHubGrant = {
         role: "author",
@@ -192,8 +207,21 @@ function harness(
     gate,
     store,
     redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+    pollMs: 1_000,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+    now: () => clock,
   });
-  return { service, works, calls, receipts, dispatches, reviews };
+  return {
+    service,
+    works,
+    calls,
+    receipts,
+    dispatches,
+    reviews,
+    elapsedMs: () => clock,
+  };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -357,6 +385,69 @@ describe("reading a run", () => {
       conclusion: "success",
     });
     expect(works[0]?.purpose).toBe("actions_read");
+  });
+
+  test("reads once and does not wait when no wait is asked for", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["in_progress"],
+    });
+    const run = await service.getRun(actor, SESSION, 7);
+    expect(run.status).toBe("in_progress");
+    expect(calls).toEqual(["run 7"]);
+    expect(elapsedMs()).toBe(0);
+  });
+
+  test("a spent budget is a deadline that has passed, not a call that never waits", async () => {
+    for (const hang of ["read", "grant"] as const) {
+      const { service } = harness({ hang });
+      const started = performance.now();
+      const error = await refusal(
+        service.getRun(actor, SESSION, 7, { waitMs: 0 }),
+      );
+      expect(error.code).toBe("BACKEND_UNAVAILABLE");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+
+  test("waits until the run completes and answers the finished run", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["queued", "in_progress", "completed"],
+    });
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 8_000 });
+    expect(run).toMatchObject({ status: "completed", conclusion: "success" });
+    expect(calls).toEqual(["run 7", "run 7", "run 7"]);
+    expect(elapsedMs()).toBe(2_000);
+  });
+
+  test("answers the last read when the run is still going at the deadline", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["in_progress"],
+    });
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 3_000 });
+    expect(run.status).toBe("in_progress");
+    // Reads at 0, 1, 2 and 3 seconds; the last one lands on the deadline.
+    expect(calls.length).toBe(4);
+    expect(elapsedMs()).toBe(3_000);
+  });
+
+  test("a first read or a grant that outlasts the deadline is cut at it", async () => {
+    for (const hang of ["read", "grant"] as const) {
+      const { service } = harness({ hang });
+      const started = performance.now();
+      const error = await refusal(
+        service.getRun(actor, SESSION, 7, { waitMs: 100 }),
+      );
+      expect(error.code).toBe("BACKEND_UNAVAILABLE");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+
+  test("a later read that outlasts the deadline is dropped and the last run answered", async () => {
+    const { service } = harness({ statuses: ["queued"], hang: "later-read" });
+    const started = performance.now();
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 100 });
+    expect(run.status).toBe("queued");
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("a run GitHub does not have is NOT_FOUND", async () => {
