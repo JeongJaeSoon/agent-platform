@@ -175,7 +175,7 @@ Tailwind에는 `theme.css`가 이어 붙인다(`--color-surface: var(--werft-col
 - 화면마다 콘텐츠 왼쪽 선은 하나다. 제목, 설명, 탭 글자, 표 첫 열 글자, 카드 테두리가 같은 x에 선다. line 탭은 좌우 padding 없이 `gap-6`으로 띄워 첫 탭 글자가 선 위에 온다.
 - 목록으로 돌아가는 링크는 제목 위 줄이 아니라 `PageHeader`의 `actions`(outline sm 버튼, 왼쪽 화살표)에 둔다. 그래야 제목 y가 화면마다 같다.
 - 사이드바 머리는 topbar와 높이(`--werft-topbar-h`)와 아래 경계선이 같아 한 줄로 이어진다.
-- 실측은 verify 스킬의 `browser.mjs measure`와 `layout-report.mjs`로 한다([web-console.md](../../.claude/skills/verify-agent-platform/features/web-console.md)).
+- 실측은 verify 스킬의 `browser.mjs measure`와 `layout-report.mjs`로 한다([web-console.md](../../.claude/skills/verify-werft/features/web-console.md)).
 
 ## 들어 있는 것
 

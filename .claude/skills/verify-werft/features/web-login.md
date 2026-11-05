@@ -1,6 +1,6 @@
 # 웹 로그인
 
-웹 사용자는 이메일·비밀번호로(설정했으면 Google로도) 로그인해 `__Host-ap_session` cookie를 받고, 웹 앱은 `GET /v1/auth/me`로 누가 어느 workspace에서 어떤 scope·권한(`permissions`)으로 로그인했는지 읽는다. 로그인 화면은 `GET /v1/auth/login-methods`로 고를 수 있는 수단을 읽는다. 설치 직후 첫 owner와 workspace는 bootstrap token으로 한 번만 만든다. 여기서는 브라우저가 보내는 요청을 그대로 보낸다. 화면으로 모는 절차는 [web-console.md](./web-console.md)다.
+웹 사용자는 이메일·비밀번호로(설정했으면 Google로도) 로그인해 `__Host-werft_session` cookie를 받고, 웹 앱은 `GET /v1/auth/me`로 누가 어느 workspace에서 어떤 scope·권한(`permissions`)으로 로그인했는지 읽는다. 로그인 화면은 `GET /v1/auth/login-methods`로 고를 수 있는 수단을 읽는다. 설치 직후 첫 owner와 workspace는 bootstrap token으로 한 번만 만든다. 여기서는 브라우저가 보내는 요청을 그대로 보낸다. 화면으로 모는 절차는 [web-console.md](./web-console.md)다.
 
 ## Sub-features
 
@@ -31,8 +31,8 @@ Preconditions:
 비밀번호는 명령에 쓰지 않는다. 명령 텍스트에 비밀번호 JSON 리터럴이 있으면 agent-guard PreToolUse hook이 "secret-like value detected in shell command"로 그 호출을 거부한다. `web-user.mjs`가 처음 쓸 때 사람마다 무작위 비밀번호를 만들어 run 디렉터리의 `users/<who>`(0600)에 두고, 요청 본문을 스스로 만들어 응답 본문과 상태 코드만 출력한다. 이메일은 `<who>@example.test`다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
-U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+. .claude/skills/verify-werft/scripts/lib.sh <run id>
+U=.claude/skills/verify-werft/scripts/web-user.mjs
 ```
 
 - **로그인 전.** `ap_web GET /v1/auth/me` → `401`, `error.code` `UNAUTHORIZED`.
@@ -55,5 +55,5 @@ U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
 - 비밀번호는 12자 이상이다. 짧으면 400. `web-user.mjs`는 32자를 만든다.
 - bootstrap token 없이 띄운 스택(기본 `local.sh up`)은 token을 api 로그(stderr)에 한 번 찍는다. 이 스킬은 run마다 token을 정해 넣으므로 로그를 읽지 않는다.
 - member 초대·수락·역할 변경은 [musterrolle.md](./musterrolle.md) a, 화면은 [web-members-agents.md](./web-members-agents.md).
-- `ap_web`은 `__Host-ap_session`만 저장한다. Google 시작 cookie(`__Host-ap_google_login`)는 나르지 않으니 Google 흐름은 브라우저로 몬다.
+- `ap_web`은 `__Host-werft_session`만 저장한다. Google 시작 cookie(`__Host-werft_google_login`)는 나르지 않으니 Google 흐름은 브라우저로 몬다.
 - zsh(Bash 도구의 셸)는 `$c` 같은 변수를 단어로 나누지 않는다. `for c in "login owner" …; do node $U <run> $c; done`은 인자 하나로 넘어가 사용법만 출력한다. 하위 명령과 사람을 따로 적는다.

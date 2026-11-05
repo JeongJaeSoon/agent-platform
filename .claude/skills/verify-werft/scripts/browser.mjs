@@ -47,7 +47,7 @@ if (!runArg || !cmd) {
 }
 const root =
   process.env.VERIFY_AP_ROOT ??
-  join(process.env.TMPDIR ?? tmpdir(), "verify-agent-platform");
+  join(process.env.TMPDIR ?? tmpdir(), "verify-werft");
 // realpath so start and stop name the same profile in Chrome's command line
 // whether the run came by id or by a /private/var… path.
 const run = realpathSync(
@@ -417,7 +417,7 @@ switch (cmd) {
       throw new Error("mock team id like T0OTHER");
     const extra = `${team ? `&mock_team=${team}` : ""}${nameless ? "&mock_team_name=&mock_user_name=" : ""}`;
     const authorize = await evaluate(
-      'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"agent-platform-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
+      'fetch("/v1/linked-accounts/slack/start",{method:"POST",headers:{"x-requested-with":"werft-web"}}).then(r=>r.json()).then(j=>j.authorize_url ?? "")',
     );
     if (!/^https?:/.test(authorize ?? ""))
       throw new Error(
