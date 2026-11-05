@@ -21,10 +21,10 @@
 - **turn과 입력 원문** — `turns` 표(`schema.ts:1241`)
   - 담는 것: 사용자가 보낸 메시지 원문 `message`(`schema.ts:1249`), 보낸 사람 `actor_id`(`schema.ts:1262`), 끝난 turn의 결과·사용량 `result_json`(`schema.ts:1253`, 쓰는 곳 `packages/db/src/worker-unit-of-work.ts:2512-2522`).
   - 만드는 시점: 입력을 받을 때(`postgres-unit-of-work.ts:177`).
-  - 보존 기간: 무기한. 입력 원문의 바이트는 설치 상한 `STORAGE_LIMIT_BYTES`에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. 설치처는 `STORAGE_LIMIT_BYTES`(Helm `config.limits.STORAGE_LIMIT_BYTES`, 기본 1 GiB, `values.yaml:126`)로 상한을 바꾼다([configuration.md](configuration.md)).
+  - 보존 기간: 무기한. 입력 원문의 바이트는 설치 상한 `STORAGE_LIMIT_BYTES`에 계속 센다. 상한은 지우지 않고 새 입력을 413으로 거절할 뿐이다. 설치처는 `STORAGE_LIMIT_BYTES`(Helm `config.limits.STORAGE_LIMIT_BYTES`, 기본 1 GiB, `values.yaml:126`)로 상한을 바꾼다([configuration.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)).
   - 삭제 조건: 없음. close·terminate는 대기 중인 turn을 `cancelled`로 바꿀 뿐이다.
 - **세션 이벤트** — `events` 표(`schema.ts:1303`)
-  - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts:1310`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([observability.md](observability.md)).
+  - 담는 것: `system`·`assistant`·`tool_use`·`tool_result`·`question`·`result`·`status`·`error` 이벤트. `payload`(`schema.ts:1310`)에 assistant 텍스트, 도구 입력, 도구 결과 본문이 그대로 들어간다. 이 표가 기능의 정본이다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
   - 만드는 시점: worker가 `/append-events`로 보낼 때(`worker-unit-of-work.ts:2364`). 제어 단계의 상태 이벤트는 `packages/db/src/session-events.ts`의 `recordEvent`.
   - 보존 기간: 무기한. 내용은 지우지 않는다. 오래 쉰 세션의 행은 [세션 이벤트 보관](#세션-이벤트-보관)이 bucket의 object로 옮기고, API는 그 object에서 같은 응답을 읽는다. 그래서 SSE의 410 `CURSOR_EXPIRED`는 지금 생기지 않는다([API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/)).
   - 삭제 조건: 보관 job이 object를 쓰고, hold를 걸고, 다시 읽어 확인한 뒤에만 그 행을 DB에서 뺀다.
@@ -82,7 +82,7 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 - **transcript** — `sessions/<id>/transcripts/generation-<10자리>/…/part-<n>.jsonl`
   - 담는 것: 엔진(Claude Code)이 쓴 대화 기록 JSONL 원문. 프롬프트, 답변, 도구 입출력이 모두 들어간다.
   - 만드는 시점: turn 도중 엔진이 transcript에 쓸 때마다(`packages/adapters/runtimes/claude/src/session-store.ts:216`, key `:259`, 디렉터리 이름 `packages/runtime-core/src/checkpoint-manifest.ts:482-486`).
-  - 상한: part 하나 16 MiB, 합계 512 MiB(`checkpoint-manifest.ts:164-165`). 넘으면 세션이 새 turn을 받지 않는다([capacity.md](capacity.md)).
+  - 상한: part 하나 16 MiB, 합계 512 MiB(`checkpoint-manifest.ts:164-165`). 넘으면 세션이 새 turn을 받지 않는다([capacity.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/capacity/)).
   - 보존 기간·삭제 조건: 아래 checkpoint GC를 따른다. 지금 실행 세대(generation)보다 오래된 세대만 지운다.
   - 바꾸기: 상한은 코드 상수라 바꿀 수 없다.
 - **checkpoint** — `sessions/<id>/checkpoints/<10자리 revision>/<attempt>/<publish>/` 아래의 `manifest.json`, `workspace-<sha256>.bundle`, `untracked/<sha256>`, `outputs/<sha256>`
@@ -159,8 +159,8 @@ bucket은 `S3_BUCKET`(기본 `claude-sessions`, `infra/compose.core.yml:290`, `d
 - **입력 메시지 원문** — `turns.message`
   - 마스킹: 없음. 받은 그대로 저장한다. 크기만 검사한다(32 KiB, `MESSAGE_MAX_BYTES`, `packages/contracts/src/api/session.ts:555`).
 - **이벤트** — `events.payload`의 assistant 텍스트, `tool_use` 입력, `tool_result` 본문, `question`과 `pending_requests.payload`
-  - 마스킹: 두 겹이다. Claude adapter의 `sanitizeNativeMessage`가 민감한 키의 값, `Bearer …`·`sk-ant…` 같은 비밀 모양, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다(`packages/adapters/runtimes/claude/src/mapper.ts:52-56`). worker의 `scrubbingGateway`가 이 attempt가 받은 비밀값 자체를 `<redacted>`로 바꾼다(`apps/worker/src/secret-scrubber.ts:107-123`). 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다(`secret-scrubber.ts:36-40`). 규칙의 차이는 [observability.md](observability.md#비밀값을-어디서-가리나).
-  - 열람: 그 세션을 볼 수 있는 주체만 읽는다([observability.md](observability.md)).
+  - 마스킹: 두 겹이다. Claude adapter의 `sanitizeNativeMessage`가 민감한 키의 값, `Bearer …`·`sk-ant…` 같은 비밀 모양, `password=…` 같은 이름 붙은 값을 `[REDACTED]`로 바꾼다(`packages/adapters/runtimes/claude/src/mapper.ts:52-56`). worker의 `scrubbingGateway`가 이 attempt가 받은 비밀값 자체를 `<redacted>`로 바꾼다(`apps/worker/src/secret-scrubber.ts:107-123`). 엔진이 base64처럼 다시 인코딩한 값은 잡지 못한다(`secret-scrubber.ts:36-40`). 규칙의 차이는 [세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/#비밀값을-어디서-가리나).
+  - 열람: 그 세션을 볼 수 있는 주체만 읽는다([세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/)).
 - **transcript object** — `sessions/<id>/transcripts/…`
   - 마스킹: 없음. 엔진이 쓴 JSONL을 그대로 올린다(`session-store.ts:255-262`). 세션을 다시 열 때 엔진에 그대로 돌려줘야 하는 원본이라서다. 그래서 이벤트에서 가려진 값도 transcript에는 남을 수 있다.
   - 접근: worker는 자기 세션 prefix에만 쓰고 읽는다. object store 자격 증명은 API에만 있다([api-server.md](api-server.md)).

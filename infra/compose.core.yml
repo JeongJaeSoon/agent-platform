@@ -45,7 +45,7 @@ x-egress-ports:
   worker-proxy-url: &worker-proxy-url ${EXECUTION_EGRESS_PROXY_URL:-http://egress-proxy:3128}
   proxy-authorizer-url: &proxy-authorizer-url ${EGRESS_AUTHORIZER_URL:-http://api:3100}
 
-# The worker images' runtime combinations (docs/operator/configuration.md).
+# The worker images' runtime combinations (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
 # api and slack judge profile pins by them and the scheduler picks each
 # session's image by them, so all three take these anchors. Empty is unset.
 x-worker-runtimes:
@@ -73,7 +73,7 @@ services:
     # a statement_timeout on a row lock can be traced to its holder. A
     # statement slower than log_min_duration_statement is logged with its
     # text; pg_stat_statements is loaded so an operator can CREATE EXTENSION
-    # it without a restart (docs/operator/database.md).
+    # it without a restart (apps/docs/content/docs/run-server/self-hosting/operate/database.mdx).
     command:
       - postgres
       - -c

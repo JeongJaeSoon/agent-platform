@@ -188,7 +188,7 @@ services:
       # needs no opt-in.
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
       # This stack builds the API, the Slack role and the worker from one
-      # tree, so every claimant knows the revision (docs/operator/configuration.md).
+      # tree, so every claimant knows the revision (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
       SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
     depends_on:
       localstack:

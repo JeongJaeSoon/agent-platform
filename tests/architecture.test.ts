@@ -205,6 +205,10 @@ const engineMentions = (cwd: string) =>
     "@werft-ai/runtime-claude|@anthropic-ai/claude-agent-sdk|adapters/runtimes/claude",
   ]);
 
+// The docs site describes the engine package paths and event fields the
+// operator pages cite as evidence; prose is not a code dependency.
+const isSiteDoc = (path: string) => /^apps\/docs\/content\/.*\.mdx$/.test(path);
+
 const kindMentions = (cwd: string) =>
   grepOutsideAdapters(cwd, ["-w", "claude_agent_sdk"]);
 
@@ -269,6 +273,8 @@ function engineShapeReadAllowed(hit: string): boolean {
     path === "packages/testkit/src/scripted-messages.ts" ||
     (path === "apps/egress-proxy/src/usage.ts" &&
       text.includes("SDK's `total_cost_usd`")) ||
+    // Operator pages explain the cost and event fields they cite.
+    isSiteDoc(path) ||
     // The usage reader's name for the platform's own cost sum.
     (path === "packages/db/src/usage-reader.ts" &&
       /\btotal_cost_usd\b/.test(text) &&
@@ -1246,7 +1252,9 @@ describe("architecture", () => {
   // G1: outside the runtime adapters nothing names an engine package or path,
   // in sources, tests, manifests and Dockerfiles alike.
   test("nothing outside the runtime adapters names an engine package (G1)", () => {
-    expect(engineMentions(root)).toEqual([]);
+    expect(
+      engineMentions(root).filter((hit) => !isSiteDoc(hit.split(":")[0] ?? "")),
+    ).toEqual([]);
   });
 
   // G2: the runtime kind is data. Code outside the adapters never spells one
