@@ -315,6 +315,13 @@ export function githubSettings(
       review: false,
     },
     revision: 0,
+    pull_request: {
+      formatting: "on",
+      default_template: null,
+      template_mode: "repository_first",
+      session_link: "url",
+    },
+    pull_request_revision: 0,
     agents_using: {
       workflows: 0,
       actions: 0,

@@ -996,6 +996,33 @@ describe("WorkerGateway", () => {
     );
     expect(agentKey.git).toEqual({ co_author: null, session_url: sessionUrl });
     expect(asked).toEqual([scope.session_id, scope.session_id]);
+
+    // The workspace chose `id`: the claim sends no address, so the worker's
+    // trailer names the session id. Asked for the claim's workspace.
+    const linksAsked: string[] = [];
+    const idOnly = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: { attribution: async () => null },
+        consoleOrigin: "https://console.example.com",
+        sessionLink: async (workspaceId) => {
+          linksAsked.push(workspaceId);
+          return "id";
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const bare = await idOnly.bootstrapClaim({ kind: "bootstrap" }, request);
+    expect(bare.git).toEqual({ co_author: null, session_url: null });
+    expect(linksAsked).toEqual([binding.ownerScope]);
     // No bot lookup wired: the claim leaves the image's author alone.
     expect("git_author" in linked).toBe(false);
 

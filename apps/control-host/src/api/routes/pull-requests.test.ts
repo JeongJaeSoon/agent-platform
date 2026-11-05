@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   apiErrorResponseSchema,
   commentPullRequestResponseSchema,
+  DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   openPullRequestResponseSchema,
   type PullRequest,
@@ -185,6 +186,13 @@ function app(
     gate,
     redact: (line) => line,
     attribution: { attribution: async () => null },
+    settings: {
+      get: async () => ({
+        settings: DEFAULT_PULL_REQUEST_SETTINGS,
+        revision: 0,
+      }),
+      put: async () => ({ outcome: "revision_conflict" }),
+    },
     consoleOrigin: null,
     logger: { warn: () => {} },
     store: {

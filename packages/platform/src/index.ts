@@ -64,6 +64,7 @@ export * from "./ports/github-gate.ts";
 export * from "./ports/github-mcp.ts";
 export * from "./ports/github-packages.ts";
 export * from "./ports/github-settings.ts";
+export * from "./ports/pull-request-settings.ts";
 export * from "./ports/identity-store.ts";
 export * from "./ports/installation-profile-store.ts";
 export * from "./ports/installation-settings-store.ts";

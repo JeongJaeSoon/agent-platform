@@ -12,6 +12,7 @@ import { renderPullRequestBody } from "./pull-request-body.ts";
 import {
   fillTemplate,
   prepareTemplate,
+  prepareTemplateText,
   readRepositoryTemplate,
   type SectionBlocks,
   sectionOfHeading,
@@ -165,6 +166,53 @@ describe("finding the repository's template", () => {
     expect(templateRecord(two)).toMatchObject({ skipped: "multiple" });
   });
 
+  test("a configured name picks one of several in the directory, without regard to case, and only a name the tree lists", async () => {
+    const files = {
+      "docs/PULL_REQUEST_TEMPLATE/Bug.md": "x",
+      "docs/PULL_REQUEST_TEMPLATE/feature.md": "y",
+    };
+    const named = (templateName: string | null) =>
+      readRepositoryTemplate(fakeRepositoryReads(files).reads, {
+        templateName,
+      });
+    expect(await named("feature.md")).toMatchObject({
+      kind: "found",
+      path: "docs/PULL_REQUEST_TEMPLATE/feature.md",
+    });
+    expect(await named("BUG.MD")).toMatchObject({
+      kind: "found",
+      path: "docs/PULL_REQUEST_TEMPLATE/Bug.md",
+    });
+    // None named, a name that is not there, and one that reaches for a path
+    // all leave the choice to nobody.
+    for (const name of [null, "other.md", "../feature.md", "docs/feature.md"]) {
+      expect(await named(name)).toMatchObject({
+        kind: "skipped",
+        reason: "multiple",
+      });
+    }
+  });
+
+  test("a configured name changes nothing for one file, and a single template file still wins", async () => {
+    expect(
+      await readRepositoryTemplate(
+        fakeRepositoryReads({ ".github/PULL_REQUEST_TEMPLATE/bug.md": "x" })
+          .reads,
+        { templateName: "other.md" },
+      ),
+    ).toMatchObject({ kind: "found" });
+    expect(
+      await readRepositoryTemplate(
+        fakeRepositoryReads({
+          "pull_request_template.md": "single",
+          "PULL_REQUEST_TEMPLATE/a.md": "a",
+          "PULL_REQUEST_TEMPLATE/b.md": "b",
+        }).reads,
+        { templateName: "b.md" },
+      ),
+    ).toMatchObject({ kind: "found", path: "pull_request_template.md" });
+  });
+
   test("a single template file wins over a directory; a directory with no .md is nothing", async () => {
     expect(
       await read({
@@ -299,6 +347,47 @@ describe("finding the repository's template", () => {
 function inertRows(template: { rows: readonly { text: string }[] }): string {
   return template.rows.map((row) => row.text).join("\n");
 }
+
+describe("a template typed into the settings", () => {
+  test("is held to the repository's limits and then made inert the same way", () => {
+    const text = "## Summary\n<!-- ours -->\n";
+    const accepted = prepareTemplateText(text);
+    const direct = prepareTemplate(text);
+    expect(direct).not.toBeNull();
+    expect(accepted.ok).toBe(true);
+    expect(accepted.ok ? accepted.template : null).toEqual(direct);
+  });
+
+  test("over 16 KiB in UTF-8 bytes, not in characters", () => {
+    expect(prepareTemplateText("a".repeat(TEMPLATE_MAX_BYTES)).ok).toBe(true);
+    expect(prepareTemplateText("a".repeat(TEMPLATE_MAX_BYTES + 1))).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+    // 6,000 characters, 18,000 bytes.
+    expect(prepareTemplateText("한".repeat(6_000))).toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  test("a lone surrogate is not UTF-8; a pair is", () => {
+    expect(prepareTemplateText("a\ud800b")).toEqual({
+      ok: false,
+      reason: "not_utf8",
+    });
+    expect(prepareTemplateText("😀 done").ok).toBe(true);
+  });
+
+  test("a comment left open, or markup the platform cannot write around, is unsupported", () => {
+    for (const text of ["# S\n<!-- open", "# S\n<details>\n"]) {
+      expect(prepareTemplateText(text)).toEqual({
+        ok: false,
+        reason: "unsupported",
+      });
+    }
+  });
+});
 
 describe("a template from the repository is made inert", () => {
   test("a mention, a closing keyword and a reference outside comments are broken", () => {

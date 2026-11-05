@@ -33,6 +33,64 @@ export const GITHUB_CEILING_NONE: GitHubCeiling = {
   review: false,
 };
 
+/**
+ * How the platform lays out a pull request body (design pr-template 6).
+ * `on` fills a template with the agent's fields; `off` keeps the repository's
+ * and the workspace's templates out of it, so the fields land on the
+ * platform's default layout.
+ */
+export const PULL_REQUEST_FORMATTING_VALUES = ["on", "off"] as const;
+/**
+ * `repository_first`: the repository's own template, the workspace's when it
+ * has none. `override`: the workspace's template always (the repository's is
+ * not read), the platform's default when the workspace sets none.
+ */
+export const PULL_REQUEST_TEMPLATE_MODE_VALUES = [
+  "repository_first",
+  "override",
+] as const;
+/**
+ * What names the session in a pull request's tail and in the commit trailer:
+ * its console address, or only its id (nothing of the console's host leaves).
+ */
+export const PULL_REQUEST_SESSION_LINK_VALUES = ["url", "id"] as const;
+/** A template's size in UTF-8 bytes, a repository's and a workspace's alike. */
+export const PULL_REQUEST_TEMPLATE_MAX_BYTES = 16 * 1024;
+
+export const pullRequestTemplateTextSchema = z
+  .string()
+  .refine(
+    (text) =>
+      new TextEncoder().encode(text).length <= PULL_REQUEST_TEMPLATE_MAX_BYTES,
+    { message: "The template is over 16 KiB" },
+  );
+
+export const pullRequestSettingsSchema = z
+  .object({
+    formatting: z.enum(PULL_REQUEST_FORMATTING_VALUES),
+    /** Null: the platform's default template. */
+    default_template: pullRequestTemplateTextSchema.nullable(),
+    template_mode: z.enum(PULL_REQUEST_TEMPLATE_MODE_VALUES),
+    session_link: z.enum(PULL_REQUEST_SESSION_LINK_VALUES),
+  })
+  .strict();
+
+/** What no saved setting reads as. */
+export const DEFAULT_PULL_REQUEST_SETTINGS: PullRequestSettings = {
+  formatting: "on",
+  default_template: null,
+  template_mode: "repository_first",
+  session_link: "url",
+};
+
+/** `details.reason_code` of a template the platform will not lay text around. */
+export const PULL_REQUEST_TEMPLATE_REFUSAL_VALUES = [
+  "template_too_large",
+  "template_not_utf8",
+  // A comment left open, or markup the platform cannot put text around.
+  "template_unsupported",
+] as const;
+
 /** `details.reason_code` of a refused GitHub token (`GITHUB_REFUSED`). */
 export const GITHUB_REFUSAL_VALUES = [
   "github_disabled",
@@ -386,6 +444,10 @@ export const githubSettingsResponseSchema = z.object({
     review: z.number().int().nonnegative(),
   }),
   oauth: githubOAuthSchema,
+  /** The pull request layout; the defaults until first saved. */
+  pull_request: pullRequestSettingsSchema,
+  /** Its own revision, 0 until first saved: saving it never moves `revision`. */
+  pull_request_revision: z.number().int().nonnegative(),
   /** Every registered App, author ones first; several may share a role. */
   connections: z.array(githubSettingsConnectionSchema),
   /**
@@ -409,6 +471,25 @@ export const putGitHubSettingsRequestSchema = z
     revision: z.number().int().nonnegative(),
   })
   .strict();
+
+/**
+ * CAS on `pull_request_revision`: a stale one answers 409 REVISION_CONFLICT.
+ * A template the platform will not use is 400 with a `reason_code` from
+ * PULL_REQUEST_TEMPLATE_REFUSAL_VALUES.
+ */
+export const putGitHubPullRequestSettingsRequestSchema = z
+  .object({
+    pull_request: pullRequestSettingsSchema,
+    revision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const putGitHubPullRequestSettingsResponseSchema = z.object({
+  pull_request: pullRequestSettingsSchema,
+  pull_request_revision: z.number().int().positive(),
+  /** Null when the values already held: nothing changed. */
+  receipt_id: z.uuid().nullable(),
+});
 
 // Printable ASCII without spaces, as GitHub hands it out; a pasted space or
 // newline is refused rather than kept. The same rule as the Slack secrets
@@ -474,6 +555,13 @@ export type GitHubSettingsResponse = z.infer<
 >;
 export type PutGitHubSettingsRequest = z.infer<
   typeof putGitHubSettingsRequestSchema
+>;
+export type PullRequestSettings = z.infer<typeof pullRequestSettingsSchema>;
+export type PutGitHubPullRequestSettingsRequest = z.infer<
+  typeof putGitHubPullRequestSettingsRequestSchema
+>;
+export type PutGitHubPullRequestSettingsResponse = z.infer<
+  typeof putGitHubPullRequestSettingsResponseSchema
 >;
 export type GitHubPurpose = z.infer<typeof githubPurposeSchema>;
 export type GitHubAppRole = z.infer<typeof githubAppRoleSchema>;

@@ -1,7 +1,10 @@
 // The template is input from the repository: anyone who may write to its
 // default branch wrote it.
 
-import type { PullRequestTemplateRecord } from "@werft-ai/contracts";
+import {
+  PULL_REQUEST_TEMPLATE_MAX_BYTES,
+  type PullRequestTemplateRecord,
+} from "@werft-ai/contracts";
 import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
 import { closeOpenBlocks } from "./git-attribution.ts";
 import { breakReferences, stripEngineSignatures } from "./pull-request-text.ts";
@@ -37,7 +40,7 @@ export type SectionName = (typeof SECTION_NAMES)[number];
 /** What a section is filled with, without its heading. Absent or empty: nothing to place. */
 export type SectionBlocks = Partial<Record<SectionName, string>>;
 
-export const TEMPLATE_MAX_BYTES = 16 * 1024;
+export const TEMPLATE_MAX_BYTES = PULL_REQUEST_TEMPLATE_MAX_BYTES;
 const ZWSP = "​";
 
 type TemplateSkip = NonNullable<PullRequestTemplateRecord["skipped"]>;
@@ -95,7 +98,15 @@ function recordedPath(parts: readonly string[]): string {
  */
 export async function readRepositoryTemplate(
   forge: TemplateForge,
+  options: {
+    /**
+     * Which file of `PULL_REQUEST_TEMPLATE/` to use when it holds several.
+     * Only compared with the names the tree lists, never read as a path.
+     */
+    templateName?: string | null;
+  } = {},
 ): Promise<TemplateRead> {
+  const wanted = options.templateName?.toLowerCase() ?? null;
   let commit: string | null = null;
   try {
     const { defaultBranch } = await forge.getRepository();
@@ -180,13 +191,14 @@ export async function readRepositoryTemplate(
       const inside = await tree(directory.sha);
       const files = named(inside, (name) => name.endsWith(".md"));
       if (files.length === 0) continue;
-      if (files.length > 1) {
+      const chosen =
+        files.length === 1
+          ? files[0]
+          : files.find((file) => file.name.toLowerCase() === wanted);
+      if (chosen === undefined) {
         throw new Skip("multiple", recordedPath([...here.at, directory.name]));
       }
-      return await candidate(files[0] as GitTreeEntry, [
-        ...here.at,
-        directory.name,
-      ]);
+      return await candidate(chosen, [...here.at, directory.name]);
     }
     return { kind: "none", commit: head.commitSha };
   } catch (error) {
@@ -448,6 +460,28 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
     return result;
   });
   return { rows };
+}
+
+export type TemplateTextResult =
+  | { ok: true; template: PreparedTemplate }
+  | { ok: false; reason: "too_large" | "not_utf8" | "unsupported" };
+
+/**
+ * A template someone typed into the settings rather than one read from the
+ * repository: the same size and encoding limits the repository's blob has,
+ * then the same `prepareTemplate`. The settings save and the rendering both
+ * come through here, so what was accepted is what is laid out.
+ */
+export function prepareTemplateText(text: string): TemplateTextResult {
+  // A lone surrogate cannot be written as UTF-8; a pair is one code point.
+  if (/\p{Cs}/u.test(text)) return { ok: false, reason: "not_utf8" };
+  if (new TextEncoder().encode(text).length > TEMPLATE_MAX_BYTES) {
+    return { ok: false, reason: "too_large" };
+  }
+  const template = prepareTemplate(text);
+  return template === null
+    ? { ok: false, reason: "unsupported" }
+    : { ok: true, template };
 }
 
 function isSection(name: string): name is SectionName {

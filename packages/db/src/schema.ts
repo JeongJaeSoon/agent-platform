@@ -676,6 +676,10 @@ export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   // The repositories agent sessions and `repository_scope = workspace`
   // profiles may reach. Null allows none. `revision` covers it.
   repositoryCeiling: jsonb("repository_ceiling").$type<unknown>(),
+  // How pull request bodies are laid out. Null reads as the defaults. Its
+  // own revision keeps a save here from conflicting with one of the ceiling.
+  pullRequest: jsonb("pull_request").$type<unknown>(),
+  pullRequestRevision: integer("pull_request_revision").notNull().default(0),
   oauthClientSecretSet: boolean("oauth_client_secret_set")
     .notNull()
     .default(false),

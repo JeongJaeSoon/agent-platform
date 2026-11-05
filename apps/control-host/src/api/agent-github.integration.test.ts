@@ -24,6 +24,7 @@ import {
   createPostgresGitHubGateStore,
   createPostgresGitHubOAuthStore,
   createPostgresGitHubSettingsStore,
+  createPostgresPullRequestSettingsStore,
   createPostgresWorkspaceKeyStore,
   memberships,
   users,
@@ -189,6 +190,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
           createGitHubSettingsService({
             authorization,
             store: githubSettings,
+            pullRequestSettings: createPostgresPullRequestSettingsStore(db),
             oauth: createPostgresGitHubOAuthStore(db, null),
             callbackUrl: null,
             secretsOn: false,

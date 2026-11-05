@@ -34,6 +34,7 @@ import {
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
   createPostgresPendingRequests,
+  createPostgresPullRequestSettingsStore,
   createPostgresPullRequests,
   createPostgresPushFollowUpStore,
   createPostgresPushRequests,
@@ -857,9 +858,11 @@ const githubWork = createGitHubWorkService({
 });
 const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
 const githubCallback = githubCallbackUrl(consoleOrigin);
+const pullRequestSettings = createPostgresPullRequestSettingsStore(db);
 const githubSettings = createGitHubSettingsService({
   authorization,
   store: githubSettingsStore,
+  pullRequestSettings,
   oauth: githubOAuth,
   callbackUrl: githubCallback,
   secretsOn: secretKey !== null,
@@ -906,6 +909,7 @@ const pullRequests = createPullRequestService({
   gate: github,
   redact: sanitizeText,
   attribution: sessionAttribution,
+  settings: pullRequestSettings,
   consoleOrigin,
   logger,
 });
@@ -943,6 +947,7 @@ const githubMcp = createGitHubMcpServer({
       gate: github,
       redact: sanitizeText,
       attribution: sessionAttribution,
+      settings: pullRequestSettings,
       consoleOrigin,
       logger,
     }),
@@ -1035,6 +1040,8 @@ const workers = createWorkerGateway({
     store: sessionAttribution,
     ledger: commitAttributions,
     consoleOrigin,
+    sessionLink: async (workspaceId) =>
+      (await pullRequestSettings.get(workspaceId)).settings.session_link,
     appBotUserId: createAppBotUsers({ logger }),
     commitPin: {
       resolver: githubResolver,

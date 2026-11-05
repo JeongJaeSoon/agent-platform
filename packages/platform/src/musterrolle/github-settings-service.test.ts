@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_PULL_REQUEST_SETTINGS,
   GITHUB_CEILING_NONE,
   type GitHubAppCheckFailure,
   type GitHubAppRole,
   type GitHubCeiling,
+  type PullRequestSettings,
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -21,6 +23,10 @@ import type {
   GitHubSettingsStore,
   GitHubWorkspaceSettings,
 } from "../ports/github-settings.ts";
+import type {
+  PullRequestSettingsRead,
+  PullRequestSettingsStore,
+} from "../ports/pull-request-settings.ts";
 import { fakeGitHubClientSecret } from "../testing/github-fakes.ts";
 import { refusal } from "../testing/refusal.ts";
 import { createGitHubSettingsService } from "./github-settings-service.ts";
@@ -247,9 +253,27 @@ function harness(
       return { outcome: "stored", settings };
     },
   };
+  // Revision-checked like the Postgres store; a save with the values held is a no-op.
+  let layout: PullRequestSettingsRead = {
+    settings: DEFAULT_PULL_REQUEST_SETTINGS,
+    revision: 0,
+  };
+  const layoutPuts: PullRequestSettings[] = [];
+  const pullRequestSettings: PullRequestSettingsStore = {
+    get: async () => layout,
+    put: async (input) => {
+      if (input.revision !== layout.revision) {
+        return { outcome: "revision_conflict" };
+      }
+      layoutPuts.push(input.settings);
+      layout = { settings: input.settings, revision: layout.revision + 1 };
+      return { ...layout, outcome: "stored", receiptId: "receipt-1" };
+    },
+  };
   const service = createGitHubSettingsService({
     authorization: createAuthorizationPolicy(),
     store,
+    pullRequestSettings,
     oauth,
     callbackUrl: CALLBACK,
     secretsOn: options.secretsOn ?? true,
@@ -259,7 +283,13 @@ function harness(
     newId: () => "019a0000-0000-7000-8000-0000000000aa",
     now: options.now ?? (() => NOW),
   });
-  return { service, puts, secrets, recorded: fake.recorded };
+  return {
+    service,
+    puts,
+    layoutPuts,
+    secrets,
+    recorded: fake.recorded,
+  };
 }
 
 const ACTIONS_ON: GitHubCeiling = { ...GITHUB_CEILING_NONE, actions: true };
@@ -275,6 +305,8 @@ describe("GitHub settings service", () => {
     expect(await service.get(user("member"), WORKSPACE)).toEqual({
       ceiling: GITHUB_CEILING_NONE,
       revision: 0,
+      pull_request: DEFAULT_PULL_REQUEST_SETTINGS,
+      pull_request_revision: 0,
       agents_using: {
         workflows: 0,
         actions: 2,
@@ -724,6 +756,100 @@ describe("GitHub settings service", () => {
         )
       ).code,
     ).toBe("REVISION_CONFLICT");
+  });
+});
+
+describe("the pull request settings", () => {
+  const layout = (
+    over: Partial<PullRequestSettings> = {},
+  ): PullRequestSettings => ({ ...DEFAULT_PULL_REQUEST_SETTINGS, ...over });
+  const put = (
+    caller: Caller,
+    service: ReturnType<typeof harness>["service"],
+    pull_request: PullRequestSettings,
+    revision = 0,
+  ) =>
+    service.putPullRequest(caller, WORKSPACE, async () => ({
+      pull_request,
+      revision,
+    }));
+
+  test("an owner stores them and the next GET shows them with the new revision", async () => {
+    const { service, layoutPuts, puts } = harness();
+    const next = layout({ session_link: "id", formatting: "off" });
+    expect(await put(user("owner"), service, next)).toEqual({
+      pull_request: next,
+      pull_request_revision: 1,
+      receipt_id: "receipt-1",
+    });
+    const read = await service.get(user("member"), WORKSPACE);
+    expect(read.pull_request).toEqual(next);
+    expect(read.pull_request_revision).toBe(1);
+    // The ceiling keeps its own revision.
+    expect(read.revision).toBe(0);
+    expect(layoutPuts).toEqual([next]);
+    expect(puts).toEqual([]);
+  });
+
+  test("a stale revision is a conflict and nothing is stored", async () => {
+    const { service, layoutPuts } = harness();
+    await put(user("admin"), service, layout({ session_link: "id" }));
+    expect((await refusal(put(user("admin"), service, layout(), 0))).code).toBe(
+      "REVISION_CONFLICT",
+    );
+    expect(layoutPuts).toHaveLength(1);
+  });
+
+  test("a member and an API key are refused before the body is read", async () => {
+    const { service, layoutPuts } = harness();
+    for (const caller of [user("member"), apiKey()]) {
+      const refused = await refusal(
+        service.putPullRequest(caller, WORKSPACE, async () => {
+          throw new Error("the body was read");
+        }),
+      );
+      expect(["FORBIDDEN", "NOT_FOUND"]).toContain(refused.code);
+    }
+    expect(layoutPuts).toEqual([]);
+  });
+
+  test("another workspace is not found", async () => {
+    const { service } = harness();
+    expect(
+      (
+        await refusal(
+          service.putPullRequest(user("owner"), OTHER, async () => ({
+            pull_request: layout(),
+            revision: 0,
+          })),
+        )
+      ).code,
+    ).toBe("NOT_FOUND");
+  });
+
+  test.each([
+    ["template_too_large", "x".repeat(16 * 1024 + 1)],
+    ["template_not_utf8", "a\ud800b"],
+    ["template_unsupported", "# Summary\n<!-- never closed"],
+  ])("a template that is %s is refused up front", async (reason, text) => {
+    const { service, layoutPuts } = harness();
+    const refused = await refusal(
+      put(user("owner"), service, layout({ default_template: text })),
+    );
+    expect(refused.code).toBe("BAD_REQUEST");
+    expect(refused.details).toMatchObject({ reason_code: reason });
+    expect(layoutPuts).toEqual([]);
+  });
+
+  test("a usable template is stored", async () => {
+    const { service } = harness();
+    const text = "## Summary\n\n## Testing\n- [ ] ran it\n";
+    const stored = await put(
+      user("owner"),
+      service,
+      layout({ default_template: text, template_mode: "override" }),
+    );
+    expect(stored.pull_request.default_template).toBe(text);
   });
 });
 

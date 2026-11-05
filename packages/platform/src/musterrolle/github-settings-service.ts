@@ -7,6 +7,8 @@ import {
   githubPermissionsMissing,
   type PutGitHubOAuthClientSecretRequest,
   type PutGitHubOAuthClientSecretResponse,
+  type PutGitHubPullRequestSettingsRequest,
+  type PutGitHubPullRequestSettingsResponse,
   type PutGitHubSettingsRequest,
   type PutGitHubUserLinkAppRequest,
   type PutGitHubUserLinkAppResponse,
@@ -26,6 +28,8 @@ import type {
   GitHubOAuthStore,
   GitHubSettingsStore,
 } from "../ports/github-settings.ts";
+import type { PullRequestSettingsStore } from "../ports/pull-request-settings.ts";
+import { prepareTemplateText } from "../sessions/pull-request-template.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -58,6 +62,7 @@ const noAuthorApp = () =>
 export function createGitHubSettingsService(deps: {
   authorization: AuthorizationPolicy;
   store: GitHubSettingsStore;
+  pullRequestSettings: PullRequestSettingsStore;
   oauth: GitHubOAuthStore;
   /** Null when the console has no origin to be called back on. */
   callbackUrl: string | null;
@@ -291,17 +296,19 @@ export function createGitHubSettingsService(deps: {
     workspaceId: string,
     manager: boolean,
   ): Promise<GitHubSettingsResponse> {
-    const [settings, agentsUsing, apps, oauth, connections] = await Promise.all(
-      [
+    const [settings, pullRequest, agentsUsing, apps, oauth, connections] =
+      await Promise.all([
         store.get(workspaceId),
+        deps.pullRequestSettings.get(workspaceId),
         store.agentsUsing(workspaceId),
         store.appPermissions(workspaceId),
         oauthOf(workspaceId),
         connectionsOf(workspaceId, manager),
-      ],
-    );
+      ]);
     return {
       ...settings,
+      pull_request: pullRequest.settings,
+      pull_request_revision: pullRequest.revision,
       agents_using: agentsUsing,
       oauth,
       connections,
@@ -379,6 +386,60 @@ export function createGitHubSettingsService(deps: {
           throw ACTOR_INACTIVE();
         default:
           throw NOT_FOUND();
+      }
+    },
+
+    /**
+     * How pull request bodies are laid out. Its own revision, so a save here
+     * never conflicts with the ceiling's. A template the platform would not
+     * lay text around is refused here, not at the first pull request.
+     */
+    async putPullRequest(
+      caller: Caller,
+      workspaceId: string,
+      readBody: () => Promise<PutGitHubPullRequestSettingsRequest>,
+    ): Promise<PutGitHubPullRequestSettingsResponse> {
+      const principal = await requireConsoleManager(
+        caller,
+        workspaceId,
+        "The pull request settings",
+      );
+      const body = await readBody();
+      const template = body.pull_request.default_template;
+      if (template !== null) {
+        const prepared = prepareTemplateText(template);
+        if (!prepared.ok) {
+          throw new SessionServiceError(
+            "BAD_REQUEST",
+            "The pull request template cannot be used",
+            undefined,
+            { reason_code: `template_${prepared.reason}` },
+          );
+        }
+      }
+      const actor = receiptActorOf(caller);
+      if (actor === null) throw ACTOR_INACTIVE();
+      const result = await deps.pullRequestSettings.put({
+        workspaceId,
+        settings: body.pull_request,
+        revision: body.revision,
+        updatedBy: principal.id,
+        actor,
+      });
+      switch (result.outcome) {
+        case "stored":
+          return {
+            pull_request: result.settings,
+            pull_request_revision: result.revision,
+            receipt_id: result.receiptId,
+          };
+        case "revision_conflict":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            "The pull request settings changed since they were read",
+          );
+        case "actor_inactive":
+          throw ACTOR_INACTIVE();
       }
     },
 

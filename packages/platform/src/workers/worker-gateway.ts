@@ -592,6 +592,10 @@ export function createWorkerGateway(deps: {
     // against them.
     ledger?: CommitAttributionLedger;
     consoleOrigin: string | null;
+    // What names the session in the commit trailer: `id` leaves the console's
+    // address out. Read at claim, so a change reaches commits made after the
+    // worker's next claim. Absent, the address.
+    sessionLink?: (workspaceId: string) => Promise<"url" | "id">;
     // The numeric id of an App's bot user; null when GitHub does not say.
     // Absent, a claim names no commit author and the image's default stays.
     appBotUserId?: (app: {
@@ -1665,6 +1669,8 @@ export function createWorkerGateway(deps: {
                   record,
                   attribution.consoleOrigin,
                   binding.sessionId,
+                  (await attribution.sessionLink?.(binding.ownerScope)) ??
+                    "url",
                 );
           const gitAuthor = await gitAuthorOf(
             attribution,

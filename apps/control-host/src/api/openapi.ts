@@ -191,6 +191,8 @@ import {
   putGitHubOAuthClientSecretResponseSchema,
   putGitHubPackagesAllowlistRequestSchema,
   putGitHubPackagesTokenRequestSchema,
+  putGitHubPullRequestSettingsRequestSchema,
+  putGitHubPullRequestSettingsResponseSchema,
   putGitHubRepositoryAppPinRequestSchema,
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubSettingsRequestSchema,
@@ -360,6 +362,8 @@ const requestComponents = {
   RerunWorkflowRequest: rerunWorkflowRequestSchema,
   SubmitPullRequestReviewRequest: submitPullRequestReviewRequestSchema,
   PutGitHubSettingsRequest: putGitHubSettingsRequestSchema,
+  PutGitHubPullRequestSettingsRequest:
+    putGitHubPullRequestSettingsRequestSchema,
   PutGitHubOAuthClientSecretRequest: putGitHubOAuthClientSecretRequestSchema,
   PutGitHubPackagesTokenRequest: putGitHubPackagesTokenRequestSchema,
   PutGitHubPackagesAllowlistRequest: putGitHubPackagesAllowlistRequestSchema,
@@ -501,6 +505,8 @@ const responseComponents = {
   DeleteGitHubAppResponse: deleteGitHubAppResponseSchema,
   ListGitHubAppsResponse: listGitHubAppsResponseSchema,
   PutGitHubUserLinkAppResponse: putGitHubUserLinkAppResponseSchema,
+  PutGitHubPullRequestSettingsResponse:
+    putGitHubPullRequestSettingsResponseSchema,
   GetGitHubRepositoryAppPinsResponse: getGitHubRepositoryAppPinsResponseSchema,
   PutGitHubRepositoryAppPinResponse: putGitHubRepositoryAppPinResponseSchema,
   ListGitHubRepositoriesResponse: listGitHubRepositoriesResponseSchema,
@@ -780,6 +786,13 @@ const EXAMPLE_GITHUB_INSTALLATION_SUMMARY = {
   permissions: { contents: "write", pull_requests: "write", metadata: "read" },
   repository_count: 1,
 };
+
+const EXAMPLE_PULL_REQUEST_SETTINGS = {
+  formatting: "on",
+  default_template: null,
+  template_mode: "repository_first",
+  session_link: "url",
+} as const;
 
 const EXAMPLE_GITHUB_CONNECTION = {
   connection_id: "019a0000-0000-7000-8000-0000000000b1",
@@ -2250,6 +2263,8 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        pull_request: EXAMPLE_PULL_REQUEST_SETTINGS,
+        pull_request_revision: 0,
         connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: {
           author: {
@@ -2312,8 +2327,49 @@ export const API_ROUTE_DECLARATIONS = [
           callback_url:
             "https://console.example.com/settings/linked-accounts/github",
         },
+        pull_request: EXAMPLE_PULL_REQUEST_SETTINGS,
+        pull_request_revision: 0,
         connections: [EXAMPLE_GITHUB_CONNECTION],
         apps: { author: { permissions: null }, reviewer: null },
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 413, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"] },
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspaces/{id}/github-settings/pull-request",
+    operationId: "putGitHubPullRequestSettings",
+    tag: "Workspace settings",
+    summary:
+      "Change how the workspace's pull request bodies are laid out (owner or admin)",
+    description:
+      "Replaces `formatting` (`off` leaves every template out, so the fields land on the platform's default layout), `template_mode` (`repository_first`: the repository's template, else `default_template`; `override`: `default_template` always, the repository's is not read), `default_template` (markdown up to 16 KiB, or null for the platform's default) and `session_link` (`id` leaves the console's address out of the pull request tail and the `Agent-Session` trailer). `revision` is `pull_request_revision` as last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. It is separate from the ceiling's `revision`. A template the platform will not lay text around is 400 with `reason_code` `template_too_large`, `template_not_utf8` or `template_unsupported`. A change reaches pull requests opened or updated afterwards and commits made after a worker's next claim; text already on GitHub is not rewritten. Writes a `set_github_pull_request_settings` receipt with the values before and after (a template as its size and hash, never its text); `receipt_id` is null when nothing changed. API keys are refused.",
+    auth: "session",
+    body: "PutGitHubPullRequestSettingsRequest",
+    requestExample: {
+      pull_request: {
+        formatting: "on",
+        default_template: null,
+        template_mode: "repository_first",
+        session_link: "id",
+      },
+      revision: 0,
+    },
+    success: {
+      status: 200,
+      schema: "PutGitHubPullRequestSettingsResponse",
+      description: "Stored; the settings and their new revision.",
+      example: {
+        pull_request: {
+          formatting: "on",
+          default_template: null,
+          template_mode: "repository_first",
+          session_link: "id",
+        },
+        pull_request_revision: 1,
+        receipt_id: EXAMPLE_RECEIPT_ID,
       },
     },
     errors: [400, 401, 403, 404, 409, 413, 503],
