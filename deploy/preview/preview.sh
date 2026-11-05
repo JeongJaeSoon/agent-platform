@@ -18,9 +18,9 @@
 # checkout's deploy/kind/up.sh, copied into it, so a head that predates
 # up.sh's orbstack mode still installs. The fake model only.
 #
-# Each preview namespace carries the label agent-platform.dev/preview=true
-# and the annotations agent-platform.dev/preview-head (the installed head)
-# and agent-platform.dev/preview-up-at (when `up` last started).
+# Each preview namespace carries the label werft.dev/preview=true
+# and the annotations werft.dev/preview-head (the installed head)
+# and werft.dev/preview-up-at (when `up` last started).
 #
 #   PREVIEW_HOME       checkouts and up.sh state, outside any git worktree
 #                      (default ~/.cache/agent-platform/preview)
@@ -192,11 +192,6 @@ up() {
   require_local_only
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
-    # A second release beside it would share its postgres and installation id.
-    if helm status agent-platform --namespace "$namespace" >/dev/null 2>&1; then
-      echo "${namespace} holds a release from before the werft rename: run down ${n} first" >&2
-      exit 1
-    fi
   else
     require_memory "$namespace"
   fi
@@ -213,9 +208,9 @@ up() {
   echo "${namespace}: head ${head}"
 
   kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl label namespace "$namespace" --overwrite agent-platform.dev/preview=true >/dev/null
+  kubectl label namespace "$namespace" --overwrite werft.dev/preview=true >/dev/null
   kubectl annotate namespace "$namespace" --overwrite \
-    "agent-platform.dev/preview-up-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
+    "werft.dev/preview-up-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
 
   CLUSTER_PROVIDER=orbstack KIND_MODEL=fake RELEASE=werft \
     NAMESPACE="$namespace" IMAGE_TAG="$namespace" \
@@ -243,7 +238,7 @@ spec:
                 port:
                   number: 3000
 EOF
-  kubectl annotate namespace "$namespace" --overwrite "agent-platform.dev/preview-head=${head}" >/dev/null
+  kubectl annotate namespace "$namespace" --overwrite "werft.dev/preview-head=${head}" >/dev/null
 
   for _ in $(seq 1 30); do
     code="$(readyz "$host")"
@@ -259,9 +254,9 @@ EOF
 # Refuses a namespace this script did not make.
 require_preview() {
   local label
-  label="$(kubectl get namespace "$1" -o jsonpath='{.metadata.labels.agent-platform\.dev/preview}')"
+  label="$(kubectl get namespace "$1" -o jsonpath='{.metadata.labels.werft\.dev/preview}')"
   if [ "$label" != true ]; then
-    echo "namespace $1 exists without the label agent-platform.dev/preview=true: not a preview" >&2
+    echo "namespace $1 exists without the label werft.dev/preview=true: not a preview" >&2
     exit 1
   fi
 }
@@ -279,7 +274,7 @@ down() {
     require_preview "$namespace"
     if [ -n "${PREVIEW_REAP_UP_AT+set}" ]; then
       up_at="$(kubectl get namespace "$namespace" \
-        -o jsonpath='{.metadata.annotations.agent-platform\.dev/preview-up-at}')"
+        -o jsonpath='{.metadata.annotations.werft\.dev/preview-up-at}')"
       if [ "$up_at" != "$PREVIEW_REAP_UP_AT" ]; then
         echo "${namespace}: up again at ${up_at} after reap read ${PREVIEW_REAP_UP_AT:-none}" >&2
         exit 75
@@ -295,11 +290,9 @@ down() {
     sleep 5
   done
   echo "${namespace}: ${left} containers left"
-  # agent-platform-*: the tags of a preview up since before the werft rename.
   for app in "${APPS[@]}"; do
-    for image in "werft-${app}:${namespace}" "agent-platform-${app}:${namespace}"; do
-      docker image rm "$image" >/dev/null 2>&1 && echo "removed ${image}"
-    done
+    image="werft-${app}:${namespace}"
+    docker image rm "$image" >/dev/null 2>&1 && echo "removed ${image}"
   done
   if [ -d "${dir}/src" ]; then
     git -C "$root" worktree remove --force "${dir}/src"
@@ -324,10 +317,10 @@ memory_used_mi() {
 list() {
   local namespace head up_at memory
   printf '%-10s %-44s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
-  kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
+  kubectl get namespaces -l werft.dev/preview=true -o json | jq -r '.items[]
     | [.metadata.name,
-       (.metadata.annotations["agent-platform.dev/preview-head"] // "-"),
-       (.metadata.annotations["agent-platform.dev/preview-up-at"] // "-")] | @tsv' \
+       (.metadata.annotations["werft.dev/preview-head"] // "-"),
+       (.metadata.annotations["werft.dev/preview-up-at"] // "-")] | @tsv' \
     | while IFS=$'\t' read -r namespace head up_at; do
       memory="$(memory_used_mi "$namespace")Mi used"
       printf '%-10s %-44s %-12s %-20s %-14s %s\n' "$namespace" \
@@ -343,8 +336,8 @@ reap() {
   local rows namespace up_at age n reason state code deleted=() failed=()
   echo "reap $(date -u +%Y-%m-%dT%H:%M:%SZ): TTL ${PREVIEW_TTL_HOURS}h"
   # \x1f, not a tab: read collapses empty fields between whitespace separators.
-  rows="$(kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
-    | (.metadata.annotations["agent-platform.dev/preview-up-at"] // "") as $at
+  rows="$(kubectl get namespaces -l werft.dev/preview=true -o json | jq -r '.items[]
+    | (.metadata.annotations["werft.dev/preview-up-at"] // "") as $at
     | [.metadata.name, $at, ($at | try (now - fromdateiso8601 | floor | tostring) catch "")]
     | join("\u001f")')"
   while IFS=$'\x1f' read -r namespace up_at age; do
@@ -356,7 +349,7 @@ reap() {
     n="${BASH_REMATCH[1]}"
     reason=""
     if [ -z "$age" ]; then
-      echo "${namespace}: no readable agent-platform.dev/preview-up-at, TTL not applied"
+      echo "${namespace}: no readable werft.dev/preview-up-at, TTL not applied"
     elif [ "$age" -gt $((PREVIEW_TTL_HOURS * 3600)) ]; then
       reason="last up $((age / 3600))h ago"
     fi
