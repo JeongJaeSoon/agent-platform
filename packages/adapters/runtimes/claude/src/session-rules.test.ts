@@ -77,6 +77,11 @@ describe("offerableRules against the call being asked about", () => {
     ["git commit-tree HEAD", "git commit *"],
     ["git commit-tree HEAD", "git commit:*"],
     ["find . -name '*.tmp' -delete", "find . -name '*.tmp' -delete"],
+    [" touch a", " touch a"],
+    ["touch a ", "touch a "],
+    ["\ttouch a", "\ttouch a"],
+    [" touch a", " touch a:*"],
+    ["touch a ", "touch a :*"],
   ])("offers nothing for %s with rule %s", (command, rule) => {
     expect(offered(command, rule)).toEqual([]);
   });

@@ -70,13 +70,18 @@ function coversCall(
   const command = (input as { command?: unknown } | null)?.command;
   const content = rule.ruleContent;
   if (typeof command !== "string" || content === undefined) return false;
+  // The engine trims the command but keeps the rule as written, so padding on
+  // either side can make an equal-looking pair miss.
+  if (command !== command.trim() || content !== content.trim()) return false;
   if (SHELL_SYNTAX.test(command) && content !== command) return false;
   const prefix = /^(.*?)(?: \*|:\*)$/s.exec(content)?.[1];
   if (prefix === undefined) {
     // Exact rule: a `*` in it is a wildcard to the engine, not a literal.
     return content === command && !content.includes("*");
   }
-  if (prefix === "" || SHELL_SYNTAX.test(prefix)) return false;
+  if (prefix === "" || prefix !== prefix.trim() || SHELL_SYNTAX.test(prefix)) {
+    return false;
+  }
   return command === prefix || command.startsWith(`${prefix} `);
 }
 
