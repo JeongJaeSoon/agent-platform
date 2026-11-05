@@ -176,7 +176,8 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
         releaseId: session.agentReleaseId,
         source: policy.source,
         github: policy.settings === "invalid" ? null : policy.settings,
-        enabled: session.enabled ?? false,
+        // Off now, or off as the session started: both close it.
+        enabled: (session.enabled ?? false) && policy.enabledAtStart,
         actor: creatorOf(session, session.agentId),
       };
     },

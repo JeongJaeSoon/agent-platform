@@ -7,6 +7,7 @@ import {
   attachCatalog,
   attachGitHub,
   attachmentContext,
+  manyRepositoriesCatalog,
   memoryAttachmentStore,
 } from "../testing/repository-attachment-fakes.ts";
 import { createRepositoryAttachmentService } from "./repository-attachment-service.ts";
@@ -70,7 +71,8 @@ function service(
   return {
     store,
     attach,
-    list: () => attachments.list(SESSION),
+    list: (page?: Parameters<typeof attachments.list>[1]) =>
+      attachments.list(SESSION, page),
     reads: () => reads,
   };
 }
@@ -89,6 +91,7 @@ describe("list", () => {
           status: "available",
         },
       ],
+      next_cursor: null,
     });
   });
 
@@ -599,5 +602,83 @@ describe("attach", () => {
       commit: COMMIT,
     });
     expect(s.store.receipts.map((r) => r.status)).toEqual(["succeeded"]);
+  });
+});
+
+describe("list in pages", () => {
+  const COUNT = 250;
+  const names = Array.from(
+    { length: COUNT },
+    (_, i) => `r${String(i).padStart(4, "0")}`,
+  );
+  const many = () =>
+    createRepositoryAttachmentService({
+      store: memoryAttachmentStore(),
+      context: {
+        context: async () =>
+          attachmentContext({
+            policy: releasePolicy(attachGitHub(["app", ...names])),
+            attachedRepositoryIds: null,
+          }),
+      },
+      catalog: manyRepositoriesCatalog(COUNT),
+    });
+
+  test("a call from before pages gets the first page and a cursor, with the session's own on top", async () => {
+    const first = await many().list(SESSION);
+    expect(first.repositories).toHaveLength(101);
+    expect(first.repositories[0]).toMatchObject({
+      id: "app",
+      status: "primary",
+    });
+    expect(first.repositories.at(-1)?.id).toBe("r0099");
+    expect(first.next_cursor).toBe("r0099");
+  });
+
+  test("walking the cursor returns every repository once, in id order", async () => {
+    const service = many();
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await service.list(SESSION, {
+        limit: 100,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      seen.push(...page.repositories.map(({ id }) => id));
+      cursor = page.next_cursor ?? undefined;
+      pages += 1;
+    } while (cursor !== undefined);
+    expect(pages).toBe(3);
+    expect(seen).toEqual(["app", ...names]);
+  });
+
+  test("the last page has no cursor, and a cursor past the end is an empty page", async () => {
+    const last = await many().list(SESSION, { cursor: "r0200", limit: 100 });
+    expect(last.repositories).toHaveLength(49);
+    expect(last.next_cursor).toBeNull();
+    const past = await many().list(SESSION, { cursor: "zzzz" });
+    expect(past).toEqual({ repositories: [], next_cursor: null });
+  });
+
+  test("query keeps repositories whose id or name contains it", async () => {
+    const found = await many().list(SESSION, { query: "R0042" });
+    expect(found.repositories.map(({ id }) => id)).toEqual(["r0042"]);
+    expect(found.next_cursor).toBeNull();
+  });
+
+  test("a small page continues after its cursor", async () => {
+    const service = many();
+    const before = await service.list(SESSION, { limit: 2 });
+    const after = await service.list(SESSION, {
+      limit: 2,
+      cursor: before.next_cursor ?? "",
+    });
+    expect(before.repositories.map(({ id }) => id)).toEqual([
+      "app",
+      "r0000",
+      "r0001",
+    ]);
+    expect(after.repositories.map(({ id }) => id)).toEqual(["r0002", "r0003"]);
   });
 });

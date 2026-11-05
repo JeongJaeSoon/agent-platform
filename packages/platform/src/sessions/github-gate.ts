@@ -228,6 +228,14 @@ export function createGitHubGate(deps: {
         ) {
           return await refuse("repository_not_allowed");
         }
+        // A release without a pin has no list of its own, but a person's
+        // saved list still takes repositories away from it.
+        if (
+          policy.currentRepositories !== null &&
+          !policy.currentRepositories.includes(repositoryId)
+        ) {
+          return await refuse("repository_not_allowed");
+        }
       }
       const features = githubEffectiveFeatures(
         settings?.features ?? GITHUB_CEILING_NONE,
@@ -270,6 +278,19 @@ export function createGitHubGate(deps: {
           entry.branch,
         );
         if (allowedBy === null) return await refuse("workflow_not_allowed");
+        // Globs and default-branch meanings cannot be intersected, so the
+        // list the session started with must allow the run as well.
+        if (
+          policy.startActionsAllow !== null &&
+          githubAllowedBy(
+            policy.startActionsAllow,
+            target.file,
+            target.ref,
+            entry.branch,
+          ) === null
+        ) {
+          return await refuse("workflow_not_allowed");
+        }
         fields.allowed_by = allowedBy;
       }
 

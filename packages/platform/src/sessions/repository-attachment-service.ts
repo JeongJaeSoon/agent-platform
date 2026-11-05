@@ -1,5 +1,6 @@
 import {
   githubPolicyReceiptFields,
+  LIST_REPOSITORIES_LIMIT_DEFAULT,
   type ListedRepository,
   type ListRepositoriesResponse,
   type ReceiptActor,
@@ -132,7 +133,14 @@ export function createRepositoryAttachmentService(deps: {
   }
 
   return {
-    async list(rawSessionId: string): Promise<ListRepositoriesResponse> {
+    async list(
+      rawSessionId: string,
+      page: {
+        limit?: number | undefined;
+        cursor?: string | undefined;
+        query?: string | undefined;
+      } = {},
+    ): Promise<ListRepositoriesResponse> {
       const sessionId = rawSessionId.toLowerCase();
       const context = await deps.context.context(sessionId);
       if (context === null) {
@@ -141,13 +149,14 @@ export function createRepositoryAttachmentService(deps: {
       const nameOf = (id: string, url: string | undefined) =>
         (url === undefined ? null : pathNameOf(url)) ?? id;
       const repositories: ListedRepository[] = [];
+      let primary: ListedRepository | null = null;
       if (context.repositoryId !== null) {
-        repositories.push({
+        primary = {
           id: context.repositoryId,
           name: nameOf(context.repositoryId, context.repository?.url),
           branch: context.repository?.branch ?? null,
           status: "primary",
-        });
+        };
       }
       // Without `attached: null` the cap drops what is not attached yet.
       const allowed = additionalRepositoriesOf(catalog, {
@@ -173,7 +182,10 @@ export function createRepositoryAttachmentService(deps: {
               : "available"),
         });
       }
-      const listed = new Set(repositories.map(({ id }) => id));
+      const listed = new Set([
+        ...(primary === null ? [] : [primary.id]),
+        ...repositories.map(({ id }) => id),
+      ]);
       for (const { id, repository } of await newerReleaseAllowed(
         sessionId,
         context,
@@ -186,7 +198,34 @@ export function createRepositoryAttachmentService(deps: {
           status: "allowed_in_newer_release",
         });
       }
-      return { repositories };
+      // Pages walk the ids, never the status: a fetch settling between two
+      // calls moves a row's status but not its place.
+      const needle = page.query?.toLowerCase();
+      const matches = ({ id, name }: ListedRepository) =>
+        needle === undefined ||
+        id.toLowerCase().includes(needle) ||
+        name.toLowerCase().includes(needle);
+      const after = page.cursor;
+      const rest = repositories
+        .filter(
+          (repository) =>
+            matches(repository) &&
+            (after === undefined || repository.id > after),
+        )
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      const limit = page.limit ?? LIST_REPOSITORIES_LIMIT_DEFAULT;
+      const shown = rest.slice(0, limit);
+      return {
+        // The session's own comes first on the first page and is not counted.
+        repositories: [
+          ...(primary !== null && after === undefined && matches(primary)
+            ? [primary]
+            : []),
+          ...shown,
+        ],
+        next_cursor:
+          rest.length > limit ? (shown[shown.length - 1]?.id ?? null) : null,
+      };
     },
 
     async attach(input: AttachRepositoryInput): Promise<RepositoryAttachment> {

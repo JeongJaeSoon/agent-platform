@@ -1002,6 +1002,13 @@
       "when": 1793875595434,
       "tag": "0233_profile_one_kind_base",
       "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "7",
+      "when": 1793881927439,
+      "tag": "0234_session_github_policy_start",
+      "breakpoints": true
     }
   ]
 }
