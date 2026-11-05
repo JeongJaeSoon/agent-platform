@@ -3,7 +3,7 @@ title: "셀프 호스팅"
 description: 여러 사람이 쓰는 Werft 서버를 설치하는 방법을 고른다
 ---
 
-Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다. Kubernetes 설치는 게시 chart로 kind에서 확인했으나 DB Secret 단계는 문서 블록 그대로가 아니었고, 고친 kind Secret 블록은 실행하지 않았다. Kubernetes 업그레이드는 kind에서 한 번, 세션이 없는 상태로 1~4단계를 실행해 `proceed` 판정만 확인했다. 단일 서버 페이지는 LocalStack 설치로 1~6단계와 `key create`까지 실행해 확인했다.
+Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다. Kubernetes 설치는 게시 chart로 kind에서 확인했으나 DB Secret 단계는 문서 블록 그대로가 아니었고, 고친 kind Secret 블록은 그대로 실행하지 않았다. Secret의 토큰으로 첫 owner를 만들고 API key를 발급해 인증하는 것까지는 kind에서 확인했다. Kubernetes 업그레이드는 kind에서 세션이 없는 상태로 1~4단계를 실행해 `proceed`를 확인했고, 승인할 수 없는 `refused` 두 경우와 NetworkPolicy 격리도 확인했다. 단일 서버 페이지는 LocalStack 설치로 1~6단계와 `key create`까지 실행해 확인했다.
 
 ## 설치 방식 고르기
 

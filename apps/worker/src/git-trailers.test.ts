@@ -154,6 +154,23 @@ describe("the commit-msg hook", () => {
     expect(lastMessage()).toBe(`${message}\nAgent-Session: ${SESSION_URL}`);
   });
 
+  test("a message with a --- line gets its trailers where git log reads them", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    git([
+      "commit",
+      "-q",
+      "--allow-empty",
+      "--cleanup=verbatim",
+      "-m",
+      "Fix the thing\n\nExplanation\n\n---\nAdditional body text",
+    ]);
+    const log = git(["log", "-1", "--format=%(trailers:only,unfold)"]).out;
+    expect(log).toContain(
+      `Co-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>`,
+    );
+    expect(log).toContain(`Agent-Session: ${SESSION_URL}`);
+  });
+
   test("with co_author null only Agent-Session is added", async () => {
     await writeGitTrailers(
       home,
@@ -542,6 +559,28 @@ describe("werft-trailers.sh sourced on its own", () => {
     );
     expect(run.exitCode).toBe(0);
     expect(run.stdout.toString().trim()).toBe("werft_fix_message");
+  });
+
+  test("werft_fix_message takes no text of the author with an engine line: a line after a whitespace-only line stays", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    const body =
+      "Subject\n\nCo-authored-by: Claude\n \n    Keep this explanation <noreply@anthropic.com>\n\nMore body.\n";
+    writeFileSync(file, body);
+    expect(fix(file).exitCode).toBe(0);
+    const text = readFileSync(file, "utf8");
+    expect(text).toContain("    Keep this explanation <noreply@anthropic.com>");
+    expect(text).toContain("More body.");
+  });
+
+  test("werft_fix_message leaves a folded engine line as written, for the push check to refuse", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    const body =
+      "Subject\n\nCo-authored-by: Claude\n <noreply@anthropic.com>\n";
+    writeFileSync(file, body);
+    expect(fix(file).exitCode).toBe(0);
+    expect(readFileSync(file, "utf8").startsWith(body)).toBe(true);
   });
 
   test("werft_fix_message strips the engine line and adds the trailers once", async () => {

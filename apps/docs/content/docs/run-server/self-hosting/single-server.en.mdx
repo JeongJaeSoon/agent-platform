@@ -226,20 +226,18 @@ scripts/test-ops.sh reset --yes
 
 `reset` removes this installation's containers and volumes (the database and LocalStack), and the worker containers and workspace volumes that sessions created. Sessions, checkpoints and API keys go with them, so take a [backup](#backup-and-restore) first.
 
-`reset` removes the volumes too. To take the containers down and keep the volumes, run `down` without `-v`, with the same compose layers you installed with. `docker compose -p agent-platform-test-ops down` alone reads the development setup at the repository root and the api, scheduler and reconciler do not appear in its service list (checked with the read-only `docker compose config --services`; the down command itself was not run). The last `-f` follows the object store: `infra/compose.test-ops.localstack.yml` for LocalStack, `infra/compose.test-ops.s3.yml` for S3.
+`reset` removes the volumes too. To take it down and keep the volumes, use `stop`; to bring a stopped installation back on the same volumes, use `start`.
 
 ```bash
-# Compose needs the release's images to render the files, even for down.
-API_IMAGE="$(jq -r .images.control_host release.json)" \
-WORKER_IMAGE="$(jq -r .images.worker release.json)" \
-EGRESS_PROXY_IMAGE="$(jq -r .images.egress_proxy release.json)" \
-docker compose --project-name agent-platform-test-ops \
-  --env-file /etc/agent-platform/test-ops.env --profile apps \
-  -f infra/compose.core.yml -f infra/compose.test-ops.yml \
-  -f infra/compose.test-ops.localstack.yml down
+scripts/test-ops.sh stop
+scripts/test-ops.sh start
 ```
 
-What stays is the database volume. LocalStack keeps S3 in memory with no volume, so taking its container down loses the checkpoint objects even without `-v`. Bringing the installation up again then leaves the database holding checkpoints while the bucket is empty, and the API refuses to start (read from the compose file and the code, not run). With LocalStack, take it down knowing this. To keep the data, install with S3. The command with exactly these compose layers was not run. Bringing the same project down without `-v` was checked on an installation with no sessions: the containers and network were removed and the postgres volume stayed. Running `deploy` again on the volume that stays was not checked.
+`stop` stops the api, scheduler, reconciler and the workers the scheduler launched, and removes the containers and network but keeps the volumes. `start` brings up the release that `current.json` in the state directory names and waits for the healthchecks. It works the same whether the installation went down through `stop`, a `compose down` or a host reboot. Do not use `deploy`: once a release is recorded it refuses with `use upgrade`, and `upgrade` on a stopped installation fails because postgres is not running. `start` also refuses a host that never deployed and an installation with an unfinished upgrade (`pending.json`); for the latter, call `upgrade` again with the same release file.
+
+`start` accepts a checkout that is not the release's source commit as long as `infra/` is the same as at that commit, because only the compose files are read from the checkout.
+
+What stays is the database volume. LocalStack keeps S3 in memory with no volume, so taking its container down loses the checkpoint objects even without `-v`. If the database still holds uncollected checkpoints while the bucket is empty, the API refuses to start; then use `reseed` or `reset` from [Reboot](#reboot). To keep the data, install with S3. These commands were checked on a LocalStack installation whose only session had failed (no uncollected checkpoint). Bringing back, with `start`, an installation that a hand-run `compose down` had taken down, and bringing one back after a reboot, were both run: `/readyz` returned 200 and the owner could log in. `start` on a LocalStack installation with uncollected checkpoints was not checked.
 
 ## Operations
 
@@ -291,7 +289,7 @@ A restore drill restores only PostgreSQL and the object store and does not start
 
 ### Reboot
 
-A LocalStack install loses its objects on reboot. Leave a backup before a reboot you know about and restore from it. This reboot procedure was not run.
+A LocalStack install loses its objects on reboot. Leave a backup before a reboot you know about and restore from it. The `backup --stop` and `reseed` procedure below was not run.
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects
@@ -302,7 +300,7 @@ scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<time
 
 `reseed` checks the backup's manifest, project, bucket and checksum, uploads the objects into the empty LocalStack, pins every uncollected checkpoint again and brings the installation back up. If a new checkpoint appeared after the last backup it refuses, and then only `reset` is left. An API that refuses to start after an unexpected restart is in the same state and is fixed the same way.
 
-An S3 install keeps its objects across a restart. After the reboot, call `scripts/test-ops.sh upgrade` with the current release file (`current.json` in the state directory) to start the stopped services again.
+After a reboot the stack does not come back by itself. On the verification machine (OrbStack, Docker starting at boot) only egress-proxy, reconciler and scheduler (`restart: unless-stopped`) were up afterwards; postgres, api and localstack (no restart policy) were `Exited`. After a reboot, run `scripts/test-ops.sh start` yourself. On that machine `start` exited 0, `/readyz` returned 200, the owner from before the reboot could log in and the session record was still there. An S3 install keeps its objects across a restart, so `start` alone is enough.
 
 Before the reboot, check that no turn is in progress, that `status` is healthy and that the latest backup has been copied off the host. After it, check NTP, XFS `prjquota`, Docker's automatic start, and disk and inode headroom again. Then check that `status` and `/readyz` are healthy, and that resuming a session from before the reboot lets a new worker continue the old workspace. The API must be reachable only through the path you chose, and PostgreSQL and the Docker socket must be closed from outside.
 
