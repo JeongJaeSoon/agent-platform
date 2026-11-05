@@ -131,6 +131,19 @@ function assemble(fields: Cleaned, locale: UserLocale): string {
   return sections.join("\n\n");
 }
 
+const ZWSP = "​";
+
+/**
+ * A change item as one bullet line. A run of three or more backticks or
+ * tildes is broken with zero-width spaces: after `- ` it would open a fenced
+ * block that takes the rest of the line as its info string and hides the text.
+ */
+function oneLine(item: string): string {
+  return item
+    .replace(/\s*\n\s*/g, " ")
+    .replace(/`{3,}|~{3,}/g, (run) => [...run].join(ZWSP));
+}
+
 // Slack for the closing text a cut may add.
 const CLOSING_ROOM = 16;
 
@@ -208,7 +221,7 @@ export function renderPullRequestBody(input: {
     summary: block(0),
     changes: texts
       .slice(1, 1 + changeCount)
-      .map((change) => change.replace(/\s*\n\s*/g, " "))
+      .map((change) => oneLine(change))
       .filter((change) => change !== ""),
     rationale: block(1 + changeCount),
     testing: block(2 + changeCount),
