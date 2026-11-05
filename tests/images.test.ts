@@ -2580,7 +2580,7 @@ describe("compose layers", () => {
         services?: unknown;
       };
       expect(entry).toEqual({
-        name: "agent-platform",
+        name: "werft",
         include: [
           { path: LOCAL_LAYERS.map((path) => path.replace(/^infra\//, "")) },
         ],
