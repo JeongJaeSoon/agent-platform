@@ -79,7 +79,9 @@ export const checkpointRefSchema = z.object({
 //   platform_tool_trust: an `mcp_servers` entry may carry `platform` and
 //     `trusted`, and the worker lets the named tools past the engine's
 //     permission stage
-// A server older than this field refuses the body, so servers deploy first.
+// A server older than a key refuses the body as a 400 whose `details.issues`
+// names it; the worker sends once more without `platform_tool_trust`, so
+// neither side has to deploy first.
 export const workerCapabilitiesSchema = z
   .object({
     approval_remember: z.literal(true).optional(),
