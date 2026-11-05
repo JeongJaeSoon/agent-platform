@@ -2,13 +2,21 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
-import { cn, IconTile, Text, type TileHue } from "@werft-ai/ui";
+import {
+  cn,
+  IconTile,
+  Text,
+  Link as TextLink,
+  type TileHue,
+} from "@werft-ai/ui";
 import {
   Bell,
+  BookOpen,
   Bot,
   Check,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Gauge,
   Globe,
   House,
@@ -33,6 +41,7 @@ import {
   useState,
 } from "react";
 import { useCan, useHasPermission, useMe, useRole } from "../auth/guard.tsx";
+import { docsSiteUrl } from "../docs-site.ts";
 import {
   isMessageKey,
   LOCALE_NAMES,
@@ -815,6 +824,29 @@ function UserMenu({
             <KeyRound aria-hidden="true" className={MENU_ICON} />
             {t("nav.apiKeys")}
           </Link>
+          {/* The public site, not the API reference the API keys page links. */}
+          <TextLink
+            href={docsSiteUrl(locale)}
+            target="_blank"
+            newTabLabel={t("shell.docsNewTab")}
+            role="menuitem"
+            data-menu="account"
+            tabIndex={-1}
+            className={cn(MENU_ITEM, "font-normal hover:no-underline")}
+            // The page stays; the menu goes away with the focused item, so
+            // focus returns to the pill it opened from.
+            onClick={() => {
+              setOpen(false);
+              triggerRef.current?.focus();
+            }}
+          >
+            <BookOpen aria-hidden="true" className={MENU_ICON} />
+            {t("shell.docs")}
+            <ExternalLink
+              aria-hidden="true"
+              className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+            />
+          </TextLink>
           <hr className={MENU_RULE} />
           <button
             type="button"
