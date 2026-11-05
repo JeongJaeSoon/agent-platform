@@ -124,7 +124,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 
 ## compose 지표와의 대응
 
-compose의 Datadog overlay는 PostgreSQL custom query로 비슷한 값을 낸다([Datadog 감시 기준](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md), `infra/datadog/conf.d/postgres.d/conf.yaml`). Kubernetes 설치에서는 이 지표를 읽으면 된다.
+compose의 Datadog overlay는 PostgreSQL custom query로 비슷한 값을 낸다([Datadog 감시 기준](/run-server/self-hosting/operate/monitoring-datadog), `infra/datadog/conf.d/postgres.d/conf.yaml`). Kubernetes 설치에서는 이 지표를 읽으면 된다.
 
 | compose(DB query) | 이 지표 |
 |---|---|

@@ -77,7 +77,7 @@ export async function firstOwnerCookie(
   const login = await post("/v1/auth/login", { email, password });
   const cookie = login.headers
     .getSetCookie()
-    .find((value) => value.startsWith("__Host-ap_session="))
+    .find((value) => value.startsWith("__Host-werft_session="))
     ?.split(";")[0];
   if (login.status !== 200 || !cookie) {
     throw new Error(

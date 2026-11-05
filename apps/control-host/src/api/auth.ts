@@ -633,12 +633,6 @@ export function createAuthenticator(
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Scripts written before the rename still send the old literal.
-const ACCEPTED_CSRF_HEADER_VALUES = new Set<string | undefined>([
-  CSRF_HEADER_VALUE,
-  "agent-platform-web",
-]);
-
 /**
  * Why a cookie-authenticated mutation is refused, or null. The custom header
  * cannot be sent cross-site without a CORS preflight the API never answers,
@@ -662,7 +656,7 @@ export function csrfViolation(
  * account. A custom header cannot be sent cross-site without a preflight.
  */
 export function browserRequestViolation(context: Context): string | null {
-  if (!ACCEPTED_CSRF_HEADER_VALUES.has(context.req.header(CSRF_HEADER_NAME))) {
+  if (context.req.header(CSRF_HEADER_NAME) !== CSRF_HEADER_VALUE) {
     return `${CSRF_HEADER_NAME} header is required`;
   }
   if (context.req.header("Sec-Fetch-Site") === "cross-site") {

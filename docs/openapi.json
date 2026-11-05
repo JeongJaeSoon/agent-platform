@@ -139,7 +139,7 @@
       "cookieSession": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "__Host-ap_session",
+        "name": "__Host-werft_session",
         "description": "For the web console: the browser session cookie set by `POST /v1/auth/login`. It holds the scopes of the user's workspace role (`owner`: all; `admin` and `member`: all but `sessions:recover`). Requests other than GET must also send `X-Requested-With: werft-web`."
       }
     },
@@ -26068,7 +26068,7 @@
           "Auth"
         ],
         "summary": "Email/password login; sets the session cookie",
-        "description": "Checks an email and password and starts a browser session: the response sets the `__Host-ap_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
+        "description": "Checks an email and password and starts a browser session: the response sets the `__Host-werft_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.\n\n**Auth:** public; no credential. **Idempotency-Key:** ignored.",
         "security": [],
         "parameters": [
           {

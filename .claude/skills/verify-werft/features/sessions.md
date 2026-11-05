@@ -28,7 +28,7 @@ Preconditions:
 - `KEY`가 `sessions:read,sessions:write`(권한 응답에는 `sessions:approve`, 제어에는 `sessions:control`, 복구에는 `sessions:recover`)를 가진다. [api-keys.md](./api-keys.md)로 발급한다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
+. .claude/skills/verify-werft/scripts/lib.sh <run id>
 KEY=$(ap_key verify --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover 2>/dev/null)
 body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$m}'; }
 ```
@@ -44,8 +44,8 @@ body() { jq -nc --arg m "$1" '{profile_id:"claude-coding-local", repository_id:"
 웹 사용자의 세션. 웹 `/sessions`는 로그인한 사람이 볼 수 있는 세션을 보여 준다. 운영자 key(`ap_key`)로 만든 세션은 웹 사용자의 것이 아니다. 웹 사용자가 만든 세션이 필요하면 그 사람의 개인 key로 만든다. 웹 `/settings/api-keys`의 "개인 key 발급"이 보내는 것과 같은 `POST /v1/api-keys`를 `web-user.mjs key`가 그 사람의 cookie로 보내고, secret은 run 디렉터리의 `keys/<who>`(0600)에만 둔다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
-U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+. .claude/skills/verify-werft/scripts/lib.sh <run id>
+U=.claude/skills/verify-werft/scripts/web-user.mjs
 node $U <run id> invite owner member member && node $U <run id> accept member   # owner는 web-login.md로 login했다
 node $U <run id> key member personal sessions:read,sessions:write   # 201, secret: (saved, N chars)
 ap_as member                                  # acting as member (cookie, key of N chars). KEY와 cookie가 member 것
@@ -53,7 +53,7 @@ created=$(ap_post /v1/sessions "$(body 'GATE-SPEC {"id":"v1","steps":[],"final":
 ap_web GET /v1/sessions | head -1 | jq -c '[.items[] | {id, status}]'   # member cookie로 SID가 보인다
 ```
 
-- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-agent-platform/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 세션·상태·모델·저장소·최근 열의 행에 제목과 모델·저장소가 보인다. 완료된 행 상태는 "쉬는 중"이다. 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 세션 항목의 답변 대기 배지은 없을 때 `aria-label` "답변 대기 없음"이다.
+- 화면은 member로 로그인한 브라우저에서 `node .claude/skills/verify-werft/scripts/browser.mjs <run id> login member` 뒤 `open /sessions`. 제목 "세션" 아래 "답변 대기" 영역(없으면 "답을 기다리는 세션이 없습니다."), 그 아래 세션·상태·모델·저장소·최근 열의 행에 제목과 모델·저장소가 보인다. 완료된 행 상태는 "쉬는 중"이다. 권한 요청 대본으로 만든 세션이면 "답변 대기"에 "답을 기다리는 세션 1개", "권한 요청: Bash"와 "요청 내용 보기"·"허용"·"거부"가 있고, 표의 작업 상태는 "답변 대기"다. `click 허용` 뒤 turn 1이 `completed`, 영역은 다시 비고 행은 "쉬는 중"이 된다. 사이드바 세션 항목의 답변 대기 배지은 없을 때 `aria-label` "답변 대기 없음"이다.
 - 개인 key의 scope는 그 사람의 지금 scope 안에서만 된다(member는 `recover` 없음, 넘으면 `403 SCOPE_NOT_GRANTABLE`).
 - 2026-10-21 run `20261021-031642-23898`에서 이 순서로 member 세션을 만들었고(turn 1 `completed`), member cookie의 `GET /v1/sessions`와 브라우저 `/sessions`에 그 세션이 보였다. 같은 workspace의 owner cookie 목록에도 보였다.
 - 2026-10-23 run `20261023-155226-40022`(main `6971cdf0`)에서 생성 → 완료 → 닫기 → 권한 요청(answers 202 → completed)을, run `20261023-160737-96495`(main `e7490124`, JeongJaeSoon/agent-platform#568 포함)에서 닫기(202 → `closing`·메시지 `409 SESSION_CLOSING` → 네 번째 조회에 `closed`/`stopped` → 메시지 `409 SESSION_CLOSED`)와 member 개인 key 세션의 `/sessions` "답변 대기" → "허용" → completed를 확인했다.

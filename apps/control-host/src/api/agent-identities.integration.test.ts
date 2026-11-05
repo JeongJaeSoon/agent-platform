@@ -148,10 +148,10 @@ integration("agent identities over HTTP on PostgreSQL", () => {
       body: JSON.stringify({ email, password: PASSWORD }),
     });
     expect(response.status).toBe(200);
-    const match = /__Host-ap_session=([^;]+)/.exec(
+    const match = /__Host-werft_session=([^;]+)/.exec(
       response.headers.get("Set-Cookie") ?? "",
     );
-    return `__Host-ap_session=${match?.[1] ?? ""}`;
+    return `__Host-werft_session=${match?.[1] ?? ""}`;
   }
 
   async function addMember(email: string) {
