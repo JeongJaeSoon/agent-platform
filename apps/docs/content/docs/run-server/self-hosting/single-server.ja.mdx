@@ -80,12 +80,12 @@ bun install --frozen-lockfile
 秘密の値はリポジトリの外にある env ファイルにだけ置きます。ファイルは運用者だけが読めるようにします。group や other に権限があると、スクリプトは拒否します。
 
 ```bash
-sudo mkdir -p /etc/agent-platform
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
-sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-`/etc/agent-platform/test-ops.env` をエディタで開き、次を埋めます。`sed -i` のように一時ファイルを作るツールは、`/etc/agent-platform` で `Permission denied` になります。その場で書き込むエディタを使ってください。
+`/etc/werft/test-ops.env` をエディタで開き、次を埋めます。`sed -i` のように一時ファイルを作るツールは、`/etc/werft` で `Permission denied` になります。その場で書き込むエディタを使ってください。
 
 | 変数 | 値 |
 | --- | --- |
@@ -95,16 +95,16 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 | `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API コンテナにだけ渡る |
 | `BOOTSTRAP_TOKEN` | コメントを外して32〜256文字のランダムな値を入れる。最初の owner を作るトークン。入れないと API が生成してコンテナのログに出力する |
 
-例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
+例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/werft/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
 
 値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
 
-設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
+設定ドキュメントは `/etc/werft/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
 
 migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
 
 ```bash
-sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```
 
 ```json
@@ -147,7 +147,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 内容を書き込んだら、ファイルの digest を求めます。
 
 ```bash
-bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 ```
 
 ## 4. release ファイルを作る
@@ -155,7 +155,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.jso
 `release.json` には、設置する commit、3つのイメージの digest、設定ドキュメントの digest を書きます。タグだけのイメージは拒否されます。手順1の `TAG` が残っているシェルで実行します。
 
 ```bash
-SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
 digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
 jq -n \
   --arg commit "$(git rev-parse HEAD)" \
@@ -181,7 +181,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。LocalStack はホストや Docker が再起動すると checkpoint を失い、再起動後に API が起動を拒否することがあります(復旧は[再起動](#再起動)の `reseed` または `reset`)。試用だけに使います。
 
-最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`agent-platform-test-ops`)のコンテナ、volume、network を手で削除し、もう一度 `deploy` します。
+最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`werft-test-ops`)のコンテナ、volume、network を手で削除し、もう一度 `deploy` します。
 
 ## 6. 確認する
 
@@ -291,7 +291,7 @@ scripts/test-ops.sh backup
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
-scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
 出力は状態ディレクトリの `restore-drills/` に残り、判定は `history.log` に1行残ります。訓練の project は終わると削除されます(調べるには `--keep` を付け、ポートが重なる場合は `--port-base` で変えます。既定は 25432 からです)。訓練用 bucket の object には legal hold が掛かっているので、bucket を削除するには version ごとに hold を解除し、version を削除してから bucket を削除します。
@@ -306,7 +306,7 @@ LocalStack の設置は再起動すると object を失います。あらかじ�
 # Back up, leave the writers stopped, restart the host, then restore the objects
 scripts/test-ops.sh backup --stop
 sudo reboot
-scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
 `reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。`reseed` は再起動していないスタックでも bucket が空なら通り、空でない bucket は拒否します。object があるときの動作は確認していません。

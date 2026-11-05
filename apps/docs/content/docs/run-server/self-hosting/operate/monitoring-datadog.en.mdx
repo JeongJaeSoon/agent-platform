@@ -11,7 +11,7 @@ Every threshold is **an initial value to tune during the first 7 days after the 
 
 The Agent is created only by the optional [`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/compose.datadog.yml). The default stack, which does not name this file, gets no Agent, mount, label or required environment variable at all. The Agent image is pinned to `gcr.io/datadoghq/agent:7.83.3`.
 
-Do not put `DD_API_KEY` or the PostgreSQL password for Datadog in the repository or in shell history. On the server, the operator creates `/etc/agent-platform/datadog.env` and checks that its mode is 600. Change it with `DATADOG_ENV_FILE` only when you must use a different absolute path. The values are example placeholders, so do not copy real values into documents, tickets or logs.
+Do not put `DD_API_KEY` or the PostgreSQL password for Datadog in the repository or in shell history. On the server, the operator creates `/etc/werft/datadog.env` and checks that its mode is 600. Change it with `DATADOG_ENV_FILE` only when you must use a different absolute path. The values are example placeholders, so do not copy real values into documents, tickets or logs.
 
 ```dotenv
 DD_API_KEY=<operator-supplied>
@@ -22,9 +22,9 @@ DD_POSTGRES_PASSWORD=<read-only-role-password>
 ```
 
 ```bash
-sudo chown root:root /etc/agent-platform/datadog.env
-sudo chmod 600 /etc/agent-platform/datadog.env
-stat -c '%a %U:%G' /etc/agent-platform/datadog.env
+sudo chown root:root /etc/werft/datadog.env
+sudo chmod 600 /etc/werft/datadog.env
+stat -c '%a %U:%G' /etc/werft/datadog.env
 ```
 
 The Agent service reads this absolute path only as an `env_file`. The compose YAML has no interpolation of the name or value of `DD_API_KEY`, so an ambient `DD_API_KEY` cannot bypass it. `DD_ENV` and `DD_VERSION` are read from the same file as compose's `--env-file` and used for the unified tags of the product containers.
@@ -43,7 +43,7 @@ Keep the layers of the existing deploy command as they are, add only this overla
 
 ```bash
 docker compose \
-  --env-file /etc/agent-platform/datadog.env \
+  --env-file /etc/werft/datadog.env \
   -f infra/compose.yml \
   -f infra/compose.datadog.yml \
   --profile apps up -d
@@ -96,6 +96,6 @@ The definitions are not applied automatically. After reviewing the JSON, the ope
 On the server deployment, check the following.
 
 1. When the default stack is rendered and started without the overlay, the service list and settings are the same as before.
-2. `docker compose config` with the overlay refuses a missing `DD_ENV` or `DD_VERSION`, the Agent's Docker socket mount is `ro`, and it reads only `/etc/agent-platform/datadog.env`.
+2. `docker compose config` with the overlay refuses a missing `DD_ENV` or `DD_VERSION`, the Agent's Docker socket mount is `ro`, and it reads only `/etc/werft/datadog.env`.
 3. In the Agent status, the Docker logs, `http_check:werft-readyz` and the PostgreSQL custom queries all succeed.
 4. On the server, make `/readyz` fail briefly and check that the service check changes and recovers. Local verification evidence does not replace an actual long-running stack run or monitor notification delivery.
