@@ -69,6 +69,7 @@ export RESTORE_POSTGRES_PORT="$port_base"
 export RESTORE_LOCALSTACK_PORT="$((port_base + 1))"
 export RESTORE_GIT_HOST_PORT="$((port_base + 2))"
 label="werft.installation=${EXECUTION_INSTALLATION_ID}"
+volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTION_INSTALLATION_ID}"
 src_files=(-f infra/compose.yml -f infra/compose.fake-model.yml -f tests/e2e/compose.yml)
 dst_files=("${src_files[@]}" -f infra/compose.restore.yml)
 src() { docker compose -p "$project" "${src_files[@]}" --profile apps "$@"; }
@@ -85,7 +86,7 @@ remove_installation() {
   [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
   ids="$(docker network ls -q --filter "label=${label}")"
   [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
-  ids="$(docker volume ls -q --filter "label=${label}")"
+  ids="$(docker volume ls -q --filter "label=${volume_label}")"
   [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
 }
 
@@ -115,7 +116,7 @@ cleanup() {
 for name in "$project" "$restored"; do
   ! project_has_resources "$name" || fail "project ${name} already exists"
 done
-[ -z "$(docker ps -aq --filter "label=${label}")$(docker network ls -q --filter "label=${label}")$(docker volume ls -q --filter "label=${label}")" ] \
+[ -z "$(docker ps -aq --filter "label=${label}")$(docker network ls -q --filter "label=${label}")$(docker volume ls -q --filter "label=${volume_label}")" ] \
   || fail "installation ${EXECUTION_INSTALLATION_ID} already has containers, networks or volumes"
 trap cleanup EXIT
 
@@ -252,7 +253,7 @@ jq -e 'has("gitea") or has("repos") or (.images | has("gitea")) | not' "$out/bac
 src down -v --remove-orphans >/dev/null 2>&1
 remove_installation
 ! project_has_resources "$project" || fail "source project ${project} still has resources"
-[ -z "$(docker ps -aq --filter "label=${label}")$(docker network ls -q --filter "label=${label}")$(docker volume ls -q --filter "label=${label}")" ] \
+[ -z "$(docker ps -aq --filter "label=${label}")$(docker network ls -q --filter "label=${label}")$(docker volume ls -q --filter "label=${volume_label}")" ] \
   || fail "installation ${EXECUTION_INSTALLATION_ID} still has containers, networks or volumes"
 pass "source ${project} removed: no container, volume or network left"
 
