@@ -77,6 +77,8 @@ describe("offerableRules against the call being asked about", () => {
     ["git commit-tree HEAD", "git commit *"],
     ["git commit-tree HEAD", "git commit:*"],
     ["find . -name '*.tmp' -delete", "find . -name '*.tmp' -delete"],
+    ["FOO=1 then echo x", "FOO=1 *"],
+    ["FOO=1 then echo x", "FOO=1:*"],
     ["then echo x", "then *"],
     ["then echo x", "then:*"],
     ["for x'", "for *"],

@@ -64,9 +64,12 @@ const PLAIN_COMMAND = /^[\w./=@%+,:'"-]+(?: [\w./=@%+,:'"-]+)*$/;
 /** The engine reads a first word such as `certified:` as syntax of its own. */
 const FIRST_WORD_COLON = /^[^ ]*:(?: |$)/;
 
-/** A first word that starts or continues a shell construct, not a command. */
+/**
+ * A word that starts or continues a shell construct. Checked on every word,
+ * not only the first: `FOO=1 then echo x` hides it behind an assignment.
+ */
 const SHELL_KEYWORD =
-  /^(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|select|function|coproc|time)(?: |$)/;
+  /(?:^| )(?:if|then|else|elif|fi|for|while|until|do|done|case|esac|select|function|coproc|time)(?: |$)/;
 
 const isPlain = (text: string) =>
   PLAIN_COMMAND.test(text) &&
