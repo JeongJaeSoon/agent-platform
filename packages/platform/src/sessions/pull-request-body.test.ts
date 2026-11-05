@@ -193,6 +193,30 @@ describe("the default template", () => {
     }
   });
 
+  test("a fence in a list item or quote, or closed with a Unicode space, cannot open a block over the rest", () => {
+    for (const summary of [
+      "- ```\n  x\n  ```",
+      "- ~~~\n  x\n  ~~~",
+      "> ```\n> x\n```",
+      "```\nx\n``` \nafter",
+      "~~~\nx\n~~~\u000b\nafter",
+      "   ```\nx\n```",
+    ]) {
+      const { body } = render({ summary, testing: "SECOND" });
+      const html = Bun.markdown.html(body);
+      expect(html).toContain("<h2>테스트</h2>");
+      expect(html).toContain("SECOND");
+      expect(html.match(/<hr/g)?.length).toBe(1);
+      expect(html.slice(html.lastIndexOf("<h2>"))).not.toContain("<pre>");
+    }
+  });
+
+  test("an ordinary fenced block keeps its fence and content", () => {
+    const { body } = render({ testing: "```sh\nbun test\n```" });
+    expect(body).toContain("```sh\nbun test\n```");
+    expect(Bun.markdown.html(body)).toContain("<pre>");
+  });
+
   test("an open code fence in one field does not swallow the next section or the references", () => {
     const { body } = render({
       summary: "```text\nexample",

@@ -168,7 +168,29 @@ function cleanAll(
     ),
     Number.MAX_SAFE_INTEGER,
     redact,
-  ).map((text) => text.trim().replace(HTML_START, `<${ZWSP}`));
+  ).map((text) => fenceSafe(text.trim().replace(HTML_START, `<${ZWSP}`)));
+}
+
+const FENCE_RUN = /`{3,}|~{3,}/g;
+const breakRun = (run: string) => [...run].join(ZWSP);
+
+/**
+ * A field's fences made the one shape the fence tracker judges the way
+ * Markdown does: a fence starts at the beginning of a line (its indent
+ * dropped). A run of three or more backticks or tildes anywhere else is broken
+ * with zero-width spaces, so a fence inside a list item, a quote or an indented
+ * block cannot leave the tracker and the renderer disagreeing about what is
+ * open.
+ */
+function fenceSafe(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      const start = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
+      if (start === null) return line.replace(FENCE_RUN, breakRun);
+      return `${start[1]}${(start[2] ?? "").replace(FENCE_RUN, breakRun)}`;
+    })
+    .join("\n");
 }
 
 /**

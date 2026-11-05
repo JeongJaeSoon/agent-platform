@@ -370,7 +370,7 @@ export function withPullRequestTail(body: string, tail: string): string {
         if (
           marks[0] === fence[0] &&
           marks.length >= fence.length &&
-          after.trim() === ""
+          /^[ \t]*$/.test(after)
         ) {
           fence = null;
         }
