@@ -7,7 +7,7 @@ import type {
   InstallationProfileStore,
   TeamActor,
 } from "@werft-ai/platform";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { lockPeople, receiptActorOf } from "./control-shared.ts";
 import { lockSettingsGeneration } from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
@@ -59,7 +59,10 @@ export function recordOf(
   row: typeof installationProfiles.$inferSelect,
 ): InstallationProfileRecord {
   const scope = row.repositoryScope;
-  const knownScope = scope === "profile" || scope === "workspace";
+  // Null says nothing about repositories; any other value this image does
+  // not know is unknown.
+  const knownScope =
+    scope === null || scope === "profile" || scope === "workspace";
   return {
     id: row.id,
     name: row.name,
@@ -72,6 +75,9 @@ export function recordOf(
     github_app_repositories:
       row.githubAppRepositories === "installed" ? "installed" : "listed",
     repository_scope: knownScope ? scope : "profile",
+    derived_from: row.derivedFrom,
+    workspace_id: row.workspaceId,
+    display_name: row.displayName,
     deny: row.deny,
     tool_catalog_id: row.toolCatalogId,
     previous_id: row.previousId,
@@ -127,7 +133,14 @@ export function createPostgresInstallationProfileStore(
         const unmigrated = await tx
           .select({ id: installationProfiles.id })
           .from(installationProfiles)
-          .where(isNull(installationProfiles.repositoryIds))
+          // A row with no scope names no repository on purpose: filling it
+          // would write the repositories it leaves to the workspace.
+          .where(
+            and(
+              isNull(installationProfiles.repositoryIds),
+              isNotNull(installationProfiles.repositoryScope),
+            ),
+          )
           .orderBy(asc(installationProfiles.id));
         for (const { id } of unmigrated) {
           await tx
