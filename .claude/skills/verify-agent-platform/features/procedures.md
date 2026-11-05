@@ -777,7 +777,7 @@ ap_compose logs slack | grep -E 'Slack event claimed|Slack inbox pass'
 
 기대: challenge 200 `challenge:"verify-challenge"`; bad/stale 401 `UNAUTHORIZED`; 서명은 맞지만 JSON이 틀리면 400 `BAD_REQUEST`. event/duplicate/bot 모두 200 `ok:true`. EvVerify1은 한 행뿐이다. slack loop가 처리하면 status processed, attempts 1, claim_clear·lease_clear true. EvVerifyBot은 dropped, drop_reason bot_message, attempts 0. SQL이 received를 보여도 완료로 보고하지 않는다. 다음 pass 뒤 재조회한다. 로그 “Slack event claimed”와 “Slack inbox pass”의 claimed/processed를 실제 출력으로 확인한다.
 
-claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. 이 짧은 no-op handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. slack role의 handler는 더 이상 no-op이 아니다. 채널 binding과 연결된 계정이 맞으면 멘션이 세션을 열고(P-SLACK-MENTION-ONLY), 세션이 기다리는 요청은 카드로 게시되며 그 카드의 버튼은 서명된 interaction으로 처리된다(P-SLACK-APPROVAL-CLICK). 이 절차는 서명·inbox·claim 상태만 본다.
+claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. slack role의 handler는 더 이상 no-op이 아니다. 채널 binding과 연결된 계정이 맞으면 멘션이 세션을 열고(P-SLACK-MENTION-ONLY), 세션이 기다리는 요청은 카드로 게시되며 그 카드의 버튼은 서명된 interaction으로 처리된다(P-SLACK-APPROVAL-CLICK). 이 절차는 서명·inbox·claim 상태만 본다.
 
 ## P-SLACK-REVOKED — 앱 제거 뒤 연결 해제와 재설치
 
@@ -831,7 +831,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref 
 
 ## P-SLACK-APPROVAL-CLICK — Slack 스레드 세션의 승인 카드를 눌러 처리
 
-전제: P-SLACK-SETUP과 owner의 Slack 계정(`U0MOCK`) 연결([musterrolle.md](musterrolle.md) c의 4를 owner로), 에이전트 활성화, `C0SUP`에 `home` binding(P-SLACK-MENTION-ONLY의 첫 PUT). worker 슬롯이 기본 3개이고 idle 세션도 슬롯을 쥔다. 세션이 `queued`에 머물면 이미 끝난 세션을 `POST /v1/sessions/{id}/terminate`(`expected_revision`)로 닫는다. 서명은 mock이 자기 앱 secret으로 만든다. helper는 secret도 컨테이너 환경도 읽지 않는다.
+전제: P-SLACK-SETUP과 owner의 Slack 계정(`U0MOCK`) 연결([musterrolle.md](musterrolle.md) c의 4를 owner로), 에이전트 활성화, `C0SUP`에 `home` binding(P-SLACK-MENTION-ONLY의 첫 PUT). worker 슬롯이 기본 3개이고 idle 세션도 슬롯을 쥔다. 세션이 `queued`에 머물면 이미 끝난 세션을 `POST /v1/sessions/{id}/terminate`(`expected_revision`)로 닫는다. mock의 카드 기록에는 앱 표시가 없으므로 한 run에는 Slack 에이전트를 하나만 둔다(`slack-cards`·`slack-click`은 모든 카드를 본다). 이미 update된 카드는 답한 카드로 보고 건너뛴다. 서명은 mock이 자기 앱 secret으로 만든다. helper는 secret도 컨테이너 환경도 읽지 않는다.
 
 ```sh
 # Actor: owner. 세션 허용: 같은 규칙의 다음 호출은 카드 없이 지나간다.

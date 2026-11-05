@@ -53,11 +53,15 @@ if (mode === "cards") {
 } else if (mode === "click") {
   const actionId = ACTIONS[pick];
   if (actionId === undefined) throw new Error(`unknown action ${pick}`);
-  // The newest card that still offers the button.
-  const card = cards.findLast((message) =>
-    elementsOf(message).some((element) => element.action_id === actionId),
+  // The newest card that still offers the button: a card the platform has
+  // already updated was answered.
+  const { updates } = (await get("/fake/updates")) as { updates: Update[] };
+  const card = cards.findLast(
+    (message) =>
+      !updates.some((update) => update.ts === message.ts) &&
+      elementsOf(message).some((element) => element.action_id === actionId),
   );
-  if (!card) throw new Error(`no card offers ${actionId}`);
+  if (!card) throw new Error(`no open card offers ${actionId}`);
   const element = elementsOf(card).find(
     (candidate) => candidate.action_id === actionId,
   );
