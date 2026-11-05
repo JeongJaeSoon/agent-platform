@@ -95,10 +95,14 @@ kill "$PF"
 ## 単一サーバー (Docker Compose)
 
 <Callout type="warn">
-単一サーバーのアップグレードは、公開イメージで実行して確認していません。以下は運用 runbook の順序であり、実行を保証しません。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드) に従ってください。
+単一サーバーのアップグレードは、公開イメージで実行して確認していません。以下は `scripts/test-ops.sh` とコードを読んで書いた順序であり、実行を保証しません。内容が違う場合は、スクリプトが基準です。
 </Callout>
 
-新しいタグの digest で `release.json` を作り直し、新しい source commit を checkout して `upgrade` を呼びます。worker イメージが変わっていれば新しいイメージで現在の checkpoint を検査し、互換性のないセッションがあれば終了コード 3 で拒否します。承認の手順は runbook に従ってください。
+新しいタグの digest で `release.json` を作り直し、新しい source commit を checkout して `upgrade` を呼びます。worker イメージが変わっていれば新しいイメージで現在の checkpoint を検査し、互換性のないセッションがあれば終了コード 3 で拒否します。このとき影響を受けるセッションの id が `$TEST_OPS_STATE_DIR/upgrade-<時刻>.sessions` に書かれます。一覧を確認して利用者に知らせた後、まさにその id を入れたファイルで `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` をもう一度呼びます。一覧が1つでも違えば拒否し、進めると承認の記録を状態ディレクトリに残します。互換性のないセッションを `start_fresh` で復旧すると、以前の checkpoint の context を失います。影響を受けるセッションがなければ承認なしで進みます。
+
+アップグレードの直前に[バックアップ](/run-server/self-hosting/single-server#バックアップと復元)を一度取ります。元に戻すには、以前の release ファイルで `upgrade` をもう一度呼びます。worker イメージがまた変わるので、同じ規則が適用されます。
+
+アップグレードが新しい release の起動前に止まると(例: scheduler の quota 検査の失敗)、設置は止まったままになり、状態ディレクトリに `pending.json` が残ります。この状態で許可されるのは、`status`、`reset`、そして `pending.json` と内容が同じ release ファイルを使う `upgrade` だけです。以前の release へ戻す `upgrade` を含め、他のコマンドは拒否されます。原因を直した後、同じ対象の release ファイルでもう一度 `upgrade` を呼ぶと解消します。
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

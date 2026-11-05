@@ -103,9 +103,9 @@ If you see `{"status":"ready",…}` and `200`, the install works. `/docs` return
 
 Create the first owner and workspace at the web console's `/bootstrap`. When the API Pod starts, it generates a token and prints it to its log as a single `BOOTSTRAP_TOKEN=…` line. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators.
 
-The chart runs two API replicas, and each Pod generates its own token and prints it to its own log (that the value differs per Pod was checked on kind). A `/bootstrap` request that reaches a Pod other than the one whose token you read gets 401. There are two ways around it. Put `BOOTSTRAP_TOKEN` in the Secret so every Pod uses the same value, or start with one replica. For the first, add a key `BOOTSTRAP_TOKEN` to the Secret and hand it to the API with `--set-json 'secrets.catalogEnv=["ANTHROPIC_API_KEY","BOOTSTRAP_TOKEN"]'`. This value replaces the default `["ANTHROPIC_API_KEY"]`, so list `ANTHROPIC_API_KEY` too. That an API installed this way reaches `/readyz` 200 was checked on kind. The call that creates the owner with that token was not checked, and starting with one replica was not run.
+The chart runs two API replicas, and each Pod generates its own token and prints it to its own log (that the value differs per Pod was checked on kind). A `/bootstrap` request that reaches a Pod other than the one whose token you read can get 401 (read from the API's behavior that a wrong token gets 401; the 401 itself was not reproduced). There are two ways around it. Put `BOOTSTRAP_TOKEN` in the Secret so every Pod uses the same value, or start with one replica. For the first, add a key `BOOTSTRAP_TOKEN` to the Secret and hand it to the API with `--set-json 'secrets.catalogEnv=["ANTHROPIC_API_KEY","BOOTSTRAP_TOKEN"]'`. This value replaces the default `["ANTHROPIC_API_KEY"]`, so list `ANTHROPIC_API_KEY` too. A token you choose yourself must be 32 to 256 characters, or the API does not start. That an API installed this way reaches `/readyz` 200 was checked on kind. The call that creates the owner with that token was not checked, and starting with one replica was not run.
 
-Issue API keys inside the API Pod. The `kubectl exec` form below needs no checkout; the `bun run keys:k8s` shortcut is described in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-keys-run-permissions-and-the-settings-document).
+Issue API keys inside the API Pod. The `kubectl exec` form below needs no checkout. Issuing a key this way and authenticating with the key were not checked on kind (no owner could be created, so the `<owner_id>` step was never reached); the `bun run keys:k8s` shortcut is described in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-keys-run-permissions-and-the-settings-document).
 
 ```bash
 kubectl -n werft exec deploy/werft-api -c api -- \
@@ -157,7 +157,7 @@ When an upgrade changes the worker image, you must pass the previous worker imag
 helm -n werft uninstall werft
 ```
 
-`uninstall` leaves the worker Pods the scheduler created, the workspace PVCs, any Secret you made yourself and the `werft-migrate` Job (checked on kind). A leftover Job does not block installing again in the same namespace. Deleting a PVC loses work that was not checkpointed, so check first that sessions have ended.
+`uninstall` leaves the `werft-migrate` Job (checked on kind). It should also leave the worker Pods the scheduler created, the workspace PVCs and any Secret you made yourself, but the kind run had no sessions, so that was not checked. A leftover Job does not block installing again in the same namespace. Deleting a PVC loses work that was not checkpointed, so check first that sessions have ended.
 
 ## Next
 
