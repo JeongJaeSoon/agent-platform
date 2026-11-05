@@ -74,7 +74,7 @@ function harness(
           url: `https://github.com/acme/app/pull/${number}`,
           state: "open",
           head: "agent/x",
-          headSha: options.head ?? HEAD,
+          headSha: ("head" in options ? options.head : HEAD) as string,
           base: "main",
           mergedAt: null,
           closedAt: null,
@@ -552,6 +552,44 @@ describe("reviewing a pull request", () => {
       ).code,
     ).toBe("BACKEND_UNAVAILABLE");
     expect(calls.some((call) => call.startsWith("review "))).toBe(false);
+  });
+
+  // A wrong head check may only fail toward not submitting.
+  const badHeads: Array<[string, string | undefined]> = [
+    ["an empty head sha", ""],
+    ["a missing head sha", undefined],
+    ["an upper-case head sha", COMMIT.toUpperCase()],
+    ["an abbreviated head sha", COMMIT.slice(0, 7)],
+    ["a head sha with trailing whitespace", `${COMMIT} `],
+  ];
+  for (const [name, head] of badHeads) {
+    test(`${name} is stale_commit and nothing is submitted`, async () => {
+      const { service, calls, reviews } = harness({ head: head as string });
+      const failure = await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "APPROVE",
+          commit_id: COMMIT,
+        }),
+      );
+      expect(failure.code).toBe("GITHUB_REFUSED");
+      expect(failure.details).toMatchObject({ reason_code: "stale_commit" });
+      expect(calls.filter((call) => call.startsWith("review "))).toEqual([]);
+      expect(reviews).toEqual([]);
+    });
+  }
+
+  test("an unexpected error from the pull request read propagates and nothing is submitted", async () => {
+    const { service, calls, reviews } = harness({
+      failRead: new TypeError("boom") as never,
+    });
+    await expect(
+      service.review(actor, SESSION, 12, {
+        event: "APPROVE",
+        commit_id: COMMIT,
+      }),
+    ).rejects.toThrow("boom");
+    expect(calls.filter((call) => call.startsWith("review "))).toEqual([]);
+    expect(reviews).toEqual([]);
   });
 
   test("the body goes out with mentions neutralized and a secret-shaped line redacted", async () => {
