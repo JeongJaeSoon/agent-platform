@@ -24,13 +24,13 @@ describe("open_pull_request input", () => {
     ).toBe(true);
   });
 
-  test("structured fields parse, and `related.closes` defaults to false", () => {
+  test("structured fields parse, and `related.closes` may be left out", () => {
     const parsed = openPullRequestRequestSchema.parse({
       summary: "s",
       changes: ["a"],
       related: [{ number: 3 }],
     });
-    expect(parsed.related).toEqual([{ number: 3, closes: false }]);
+    expect(parsed.related).toEqual([{ number: 3 }]);
   });
 
   test("the schema stays strict: unknown fields, in the request and in `related`", () => {

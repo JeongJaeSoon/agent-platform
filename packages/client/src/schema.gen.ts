@@ -4383,8 +4383,7 @@ export interface components {
             related?: {
                 number: number;
                 repository_id?: string;
-                /** @default false */
-                closes: boolean;
+                closes?: boolean;
             }[];
             body?: string;
         };

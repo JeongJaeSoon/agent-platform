@@ -36,7 +36,9 @@ export const relatedIssueSchema = z
     // Omitted: the pull request's own repository.
     repository_id: z.string().min(1).max(128).optional(),
     // Only an issue of the pull request's own repository is closed on merge.
-    closes: z.boolean().default(false),
+    // Left out is false; optional rather than defaulted so a client's input
+    // type does not require it.
+    closes: z.boolean().optional(),
   })
   .strict();
 export type RelatedIssue = z.infer<typeof relatedIssueSchema>;

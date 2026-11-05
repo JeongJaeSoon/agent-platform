@@ -1417,7 +1417,6 @@
                   "maxLength": 128
                 },
                 "closes": {
-                  "default": false,
                   "type": "boolean"
                 }
               },

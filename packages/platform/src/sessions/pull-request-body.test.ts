@@ -208,6 +208,12 @@ describe("related issues", () => {
     expect(rendered.body).not.toContain("#2");
   });
 
+  test("`closes` left out is a reference, not a closing line", () => {
+    const text = body([{ number: 8 }]);
+    expect(text).toContain("- Refs #8");
+    expect(text).not.toContain("Closes");
+  });
+
   test("the same issue twice is one line", () => {
     const text = body([
       { number: 5, closes: false },

@@ -438,7 +438,6 @@ exports[`tools/list every tool has a description of its fields and an outputSche
             "additionalProperties": false,
             "properties": {
               "closes": {
-                "default": false,
                 "type": "boolean",
               },
               "number": {
@@ -700,7 +699,6 @@ exports[`tools/list every tool has a description of its fields and an outputSche
             "additionalProperties": false,
             "properties": {
               "closes": {
-                "default": false,
                 "type": "boolean",
               },
               "number": {
