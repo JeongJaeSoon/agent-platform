@@ -224,7 +224,9 @@ describe("settings console service", () => {
     );
     expect(litellm.code).toBe("BAD_REQUEST");
     expect(litellm.details).toMatchObject({ reason_code: "invalid_entry" });
-    expect(litellm.message).toContain("connections.console");
+    expect(litellm.message).toContain("connections.console.endpoint");
+    expect(litellm.message).toContain("litellm connection needs an endpoint");
+    expect(litellm.message).not.toContain("Invalid input");
     const paid = await refusal(
       settings.createConnection(caller("owner"), {
         ...open,
