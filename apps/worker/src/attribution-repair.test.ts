@@ -15,6 +15,7 @@ import {
   IMAGE_GIT_AUTHOR,
   type WorkerScope,
 } from "@werft-ai/contracts";
+import { ATTRIBUTION_PROBLEMS } from "@werft-ai/runtime-core";
 import {
   claimExpectation,
   repairAttribution,
@@ -294,6 +295,32 @@ describe("workspaceMismatches", () => {
     ).toEqual([{ commit: wrong, problems: ["author", "committer"] }]);
   });
 
+  test("a wrong commit from an earlier turn is found again once the server stops protecting it", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base")]);
+    const pushed = commit("pushed earlier", "good");
+    // Left wrong by a turn the repair could not fix (nested_merge).
+    const left = commit("left wrong", "bad");
+    commit("this turn's commit", "good");
+    const judge = (protectedCommits: string[]) =>
+      workspaceMismatches({
+        root: repo,
+        tip: "HEAD",
+        expectation: {
+          author: { name: "good", email: "a@b.c" },
+          coAuthor: null,
+          agentSession: null,
+        },
+        stripEmails: [],
+        protectedCommits,
+      });
+    // The server no longer lists a checkpoint that recorded a mismatch.
+    expect(await judge([pushed])).toEqual([
+      { commit: left, problems: ["author", "committer"] },
+    ]);
+    // Listed, as it was before the fix, it would drop out of the check.
+    expect(await judge([pushed, left])).toEqual([]);
+  });
+
   test("a protected commit this repository lacks does not start a fetch from a configured program", async () => {
     git(["update-ref", "refs/remotes/origin/main", commit("base")]);
     commit("wrong");
@@ -343,7 +370,29 @@ describe("workspaceMismatches", () => {
     ).toEqual([]);
   });
 
-  test("no expectation, or a repository git cannot read, reports nothing", async () => {
+  test("a folded engine co-author is found though the workspace's trailer.* setting renames the key", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base", "good")]);
+    git(["config", "trailer.Co-authored-by.key", "Other"]);
+    const sneaky = commit(
+      "Subject\n\nAgent-Session: s1\nCo-authored-by: Claude\n <noreply@anthropic.com>",
+      "good",
+    );
+    expect(
+      await workspaceMismatches({
+        root: repo,
+        tip: "HEAD",
+        expectation: {
+          author: { name: "good", email: "a@b.c" },
+          coAuthor: null,
+          agentSession: "s1",
+        },
+        stripEmails: ["noreply@anthropic.com"],
+        protectedCommits: [],
+      }),
+    ).toEqual([{ commit: sneaky, problems: ["engine_co_author"] }]);
+  });
+
+  test("with no expectation there is nothing to judge", async () => {
     commit("wrong");
     expect(
       await workspaceMismatches({
@@ -354,14 +403,18 @@ describe("workspaceMismatches", () => {
         protectedCommits: [],
       }),
     ).toEqual([]);
+  });
+
+  test("a repository git cannot read is unverified, never clean", async () => {
+    const tip = "d".repeat(40);
     expect(
       await workspaceMismatches({
         root: join(root, "missing"),
-        tip: "HEAD",
+        tip,
         expectation,
         stripEmails: [],
         protectedCommits: [],
       }),
-    ).toEqual([]);
+    ).toEqual([{ commit: tip, problems: [...ATTRIBUTION_PROBLEMS] }]);
   });
 });

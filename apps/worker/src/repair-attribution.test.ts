@@ -215,6 +215,8 @@ describe("werft-repair-attribution", () => {
     expect(git(["rev-parse", "HEAD"])).not.toBe(q);
   });
 
+  // The tool remakes whatever the list leaves out, so the server never leaves
+  // out a commit a push request pinned (checkpoint-service protectedCommits).
   test("without that protection the same history would have been remade (what the list is for)", () => {
     remoteTracking(commit("base"));
     const pushed = commit("already pushed");
