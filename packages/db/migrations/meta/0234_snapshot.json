@@ -1,5 +1,5 @@
 {
-  "id": "59d884f0-d312-4d4b-994c-5d5535f5b8b4",
+  "id": "da6e200f-b8ff-452e-95d5-93c317defaae",
   "prevId": "103c310a-aaf6-4331-a552-4191025145e7",
   "version": "7",
   "dialect": "postgresql",
@@ -1265,7 +1265,7 @@
       "checkConstraints": {
         "agent_github_settings_repositories_check": {
           "name": "agent_github_settings_repositories_check",
-          "value": "jsonb_typeof(\"agent_github_settings\".\"repositories\") = 'array' AND jsonb_array_length(\"agent_github_settings\".\"repositories\") <= 32"
+          "value": "jsonb_typeof(\"agent_github_settings\".\"repositories\") = 'array'"
         },
         "agent_github_settings_start_check": {
           "name": "agent_github_settings_start_check",
@@ -4678,19 +4678,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "pull_request": {
-          "name": "pull_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pull_request_revision": {
-          "name": "pull_request_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "oauth_client_secret_set": {
           "name": "oauth_client_secret_set",
@@ -10364,6 +10351,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'release'"
+        },
+        "github_policy_start": {
+          "name": "github_policy_start",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

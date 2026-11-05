@@ -54,7 +54,7 @@ export type UpdateAgentResult =
 
 export type InsertReleaseResult =
   | { outcome: "created" | "exists"; release: AgentRelease }
-  | { outcome: "not_found" }
+  | { outcome: "not_found" | "github_settings_exist" }
   | Inactive
   | Outranked;
 
@@ -158,8 +158,15 @@ export interface AgentStore {
       principal: Principal;
       workspaceId: string;
       release: NewAgentRelease;
+      /**
+       * The request carried `github`: `github_settings_exist` instead of a
+       * release when the agent has a settings row, judged under the lock.
+       */
+      refuseGitHubWhenSettings?: boolean;
     },
   ): Promise<InsertReleaseResult>;
+  /** Whether the agent has an `agent_github_settings` row. */
+  hasGitHubSettings(agentId: string): Promise<boolean>;
   /**
    * `UPDATE agents … WHERE activation_revision = expected`, the release's
    * first approval, an `activated` event and a receipt in one transaction.

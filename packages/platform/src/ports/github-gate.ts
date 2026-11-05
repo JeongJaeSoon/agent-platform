@@ -309,6 +309,15 @@ export interface GitHubConnection {
    */
   installed(repo: RepoRef): Promise<boolean | null>;
   /**
+   * `installed` for many repositories at once, from the App's installations
+   * rather than one lookup per repository. Keyed by `repoKeyOf`; a
+   * repository GitHub could not tell about maps to null. Rejects when
+   * GitHub does not answer at all.
+   */
+  installedOn(
+    repos: readonly RepoRef[],
+  ): Promise<ReadonlyMap<string, boolean | null>>;
+  /**
    * The GitHub rate-limit unit a request for `repo` spends from:
    * `app:<api_base>:<installation id>`, or `pat:<api_base>:<user id>` for
    * the user `GET /user` names. Throws when that cannot be told now.

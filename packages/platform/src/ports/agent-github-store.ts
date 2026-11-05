@@ -1,4 +1,5 @@
 import type {
+  AgentGitHub,
   AgentGitHubSettingsRow,
   Receipt,
   RepositoryCeiling,
@@ -10,6 +11,15 @@ import type { SessionViewer } from "./session-share-store.ts";
 /** `outranked`: the right to manage the agent ended before the write. */
 export type SetAgentGitHubResult =
   | { outcome: "saved"; receiptId: string | null }
+  | { outcome: "not_found" | "actor_inactive" | "outranked" };
+
+/**
+ * `conflict`: the row's revision is not the one expected, or it is there (or
+ * not) against what the caller read.
+ */
+export type PutAgentGitHubSettingsResult =
+  | { outcome: "saved"; revision: number; receiptId: string | null }
+  | { outcome: "conflict"; revision: number | null }
   | { outcome: "not_found" | "actor_inactive" | "outranked" };
 
 /** An agent's GitHub switch (`agents.github_enabled`) and its activity. */
@@ -29,6 +39,24 @@ export interface AgentGitHubStore {
     /** Roles holding the right outright; anyone else must administer the agent. */
     managerRoles: readonly WorkspaceRole[];
   }): Promise<SetAgentGitHubResult>;
+  /**
+   * Replaces the agent's settings row in one transaction: the agent row is
+   * locked first (as a session start does), then the settings row, whose
+   * revision must be `expectedRevision` (null: no row yet). `updated_by` is
+   * always `userId`, so a first save also marks the row a person's.
+   * `check` runs on the locked current row and may refuse the write.
+   */
+  putSettings(input: {
+    workspaceId: string;
+    agentId: string;
+    expectedRevision: number | null;
+    settings: AgentGitHub;
+    startRepositoryId: string | null;
+    userId: string;
+    principal: Principal;
+    managerRoles: readonly WorkspaceRole[];
+    check: (current: AgentGitHubSettingsRow | null) => void;
+  }): Promise<PutAgentGitHubSettingsResult>;
   /**
    * The latest GitHub receipts for the agent, newest first: those naming it,
    * and those of its sessions that `viewer` sees, filtered before the limit.

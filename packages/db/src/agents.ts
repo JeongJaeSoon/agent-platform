@@ -50,6 +50,7 @@ import { earlierInSecond, releaseLabel } from "./release-labels.ts";
 import {
   agentActivationEvents,
   agentAdmins,
+  agentGitHubSettings,
   agentReleases,
   agents,
   agentVersions,
@@ -619,6 +620,15 @@ export function createPostgresAgentStore(db: Database): AgentStore {
       });
     },
 
+    async hasGitHubSettings(agentId) {
+      const [row] = await db
+        .select({ agentId: agentGitHubSettings.agentId })
+        .from(agentGitHubSettings)
+        .where(eq(agentGitHubSettings.agentId, agentId.toLowerCase()))
+        .limit(1);
+      return row !== undefined;
+    },
+
     insertRelease(input) {
       const { release } = input;
       return db.transaction(async (tx) => {
@@ -628,6 +638,17 @@ export function createPostgresAgentStore(db: Database): AgentStore {
         const held = await lockAgentToChange(tx, input, release.agent_id);
         if ("outcome" in held) return held;
         const locked = held.agent;
+        // Agent row locked, settings row next: the session start's order.
+        if (input.refuseGitHubWhenSettings === true) {
+          const [row] = await tx
+            .select({ agentId: agentGitHubSettings.agentId })
+            .from(agentGitHubSettings)
+            .where(eq(agentGitHubSettings.agentId, release.agent_id))
+            .for("share");
+          if (row !== undefined) {
+            return { outcome: "github_settings_exist" as const };
+          }
+        }
         const [owned] = await tx
           .select({ id: agentVersions.id })
           .from(agentVersions)

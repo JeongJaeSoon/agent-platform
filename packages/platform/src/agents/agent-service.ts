@@ -159,6 +159,16 @@ export function createAgentService(deps: {
   // Who names any live team as an agent's managing team, as setManagingTeam.
   const TEAM_ASSIGNERS = MANAGEMENT_ROLES["agent.admin.manage"] ?? [];
 
+  // An agent with a settings row takes its GitHub settings from `PUT
+  // …/github/settings`; a release no longer carries them (design 3.6).
+  const githubSettingsOwned = () =>
+    new SessionServiceError(
+      "ALREADY_EXISTS",
+      "github: this agent's GitHub settings are saved with PUT /v1/agents/{id}/github/settings, not in a release",
+      undefined,
+      { field: "github", reason_code: "github_settings_exist" },
+    );
+
   const githubInvalid = (
     field: string,
     reason: GitHubRefusal | "release_repository_outside",
@@ -450,6 +460,14 @@ export function createAgentService(deps: {
         request.version_id,
       );
       if (!version) throw NOT_FOUND();
+      // Checked ahead of the other refusals so it is the answer; the store
+      // checks again under the agent's lock against a concurrent first save.
+      if (
+        request.github !== undefined &&
+        (await store.hasGitHubSettings(agentId))
+      ) {
+        throw githubSettingsOwned();
+      }
       const profileId = request.runtime_profile_id;
       await refreshWorkspaceProfilesFor(catalog, [profileId], { strict: true });
       const workspaceRefusal = workspaceProfileRefusal(
@@ -501,11 +519,14 @@ export function createAgentService(deps: {
       }
       // A release made from a card edit keeps the GitHub settings of the
       // active one, so the edit cannot drop them. One on a `none` profile has
-      // nothing for them to act on. Kept settings are checked as sent ones
-      // are: the edit may move the release to another repository.
+      // nothing for them to act on, and an agent with its own settings row
+      // has no release pins to keep: the row decides. Kept settings are
+      // checked as sent ones are: the edit may move the release to another
+      // repository.
       const github =
         request.github ??
-        (repositoryModeOf(profile) === "none"
+        (repositoryModeOf(profile) === "none" ||
+        (await store.hasGitHubSettings(agentId))
           ? undefined
           : (await store.get(caller.ownerId, agentId))?.active_release
               ?.policy_pins.github);
@@ -533,6 +554,7 @@ export function createAgentService(deps: {
         principal: caller,
         workspaceId: caller.ownerId,
         managerRoles: AGENT_MANAGERS,
+        refuseGitHubWhenSettings: request.github !== undefined,
         release: {
           id: deriveReleaseId(identity),
           version_id: version.id,
@@ -548,6 +570,8 @@ export function createAgentService(deps: {
           throw ACTOR_INACTIVE();
         case "outranked":
           throw OUTRANKED();
+        case "github_settings_exist":
+          throw githubSettingsOwned();
         default:
           assertReleaseIdentity(result.release);
           return {

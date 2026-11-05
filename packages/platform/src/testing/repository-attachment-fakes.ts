@@ -36,21 +36,38 @@ const repo = (name: string, branch = "main") => ({
  * `app` is the session's own; `docs` and `tools` are on the release's list,
  * `secret` is not. `lab` is allowed for profile `q` alone.
  */
-export const attachCatalog = withSeededInstallation(
-  resolveSessionCatalog(
-    sessionCatalogConfigSchema.parse({
-      profiles: { p: profile, q: profile },
-      repositories: {
-        app: repo("app"),
-        docs: repo("docs", "trunk"),
-        tools: repo("tools"),
-        secret: repo("secret"),
-        lab: { ...repo("lab"), profiles: ["q"] },
-      },
-    }),
-    environmentCredentials({ ANTHROPIC_KEY_MAIN: "resolved-key" }),
-  ),
-);
+function catalogOf(repositories: Record<string, ReturnType<typeof repo>>) {
+  return withSeededInstallation(
+    resolveSessionCatalog(
+      sessionCatalogConfigSchema.parse({
+        profiles: { p: profile, q: profile },
+        repositories,
+      }),
+      environmentCredentials({ ANTHROPIC_KEY_MAIN: "resolved-key" }),
+    ),
+  );
+}
+
+export const attachCatalog = catalogOf({
+  app: repo("app"),
+  docs: repo("docs", "trunk"),
+  tools: repo("tools"),
+  secret: repo("secret"),
+  lab: { ...repo("lab"), profiles: ["q"] },
+});
+
+/** `app` and `count` more, named `r0000`, `r0001`, ... */
+export function manyRepositoriesCatalog(count: number) {
+  return catalogOf({
+    app: repo("app"),
+    ...Object.fromEntries(
+      Array.from({ length: count }, (_, i) => {
+        const name = `r${String(i).padStart(4, "0")}`;
+        return [name, repo(name)];
+      }),
+    ),
+  });
+}
 
 export function attachGitHub(
   repositories = ["app", "docs", "tools"],

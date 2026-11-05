@@ -387,8 +387,49 @@ export const agentGitHubSchema = z
  * the list may be empty: switched on, with no repository yet.
  */
 export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
-  repositories: z.array(z.string().min(1).max(128)).max(32),
+  repositories: z.array(z.string().min(1).max(128)),
 });
+
+/**
+ * The agent's settings as a session read them when it started
+ * (`sessions.github_policy_start`). The envelope is not strict so a later
+ * image may add a field; `settings` is, so a list this image cannot read
+ * closes the session instead of being guessed at.
+ */
+export const githubPolicyStartSchema = z.object({
+  /** `agents.github_enabled` at start: off then stays off for the session. */
+  enabled: z.boolean(),
+  /** `agent_github_settings.revision` the snapshot was taken from. */
+  revision: z.number().int(),
+  settings: agentGitHubSettingsSchema,
+});
+export type GitHubPolicyStart = z.infer<typeof githubPolicyStartSchema>;
+
+/**
+ * What a session may do when it started under `start` and the settings are
+ * `current` now. Only narrows, per field: the repository lists intersect, a
+ * push needs approval if either asks for it, a feature needs both.
+ * `actions_allow` holds globs and branch meanings, so it is not intersected:
+ * the result keeps the current list and the caller also checks the start's.
+ */
+export function meetGitHubSettings(
+  start: AgentGitHub,
+  current: AgentGitHub,
+): AgentGitHub {
+  const kept = new Set(current.repositories);
+  return {
+    repositories: start.repositories.filter((id) => kept.has(id)),
+    push_approval: start.push_approval || current.push_approval,
+    features: {
+      workflows: start.features.workflows && current.features.workflows,
+      actions: start.features.actions && current.features.actions,
+      checks: start.features.checks && current.features.checks,
+      issues: start.features.issues && current.features.issues,
+      review: start.features.review && current.features.review,
+    },
+    actions_allow: current.actions_allow,
+  };
+}
 
 /** Whose GitHub policy a session runs on, fixed when it starts. */
 export const GITHUB_POLICY_SOURCE_VALUES = ["release", "agent"] as const;
@@ -411,6 +452,11 @@ export type AgentGitHubSettingsRow = {
   actionsAllow: unknown;
   startRepositoryId: string | null;
   revision: number;
+  /**
+   * Who saved the row; null for a row a migration wrote. Required so a read
+   * path that forgets to project it fails the type check.
+   */
+  updatedBy: string | null;
 };
 
 /** What an agent session reads when it has no row: nothing, a person asked. */
@@ -432,19 +478,47 @@ export type EffectiveGitHubPolicy = {
   /**
    * Null only on a release from before GitHub settings: no list applies and
    * a person approves each push. Closed is GITHUB_POLICY_CLOSED, never null.
+   * Once a session has a start to compare with (its pin, or its snapshot)
+   * this is the meet of that start and the agent's settings now.
    */
   settings: AgentGitHub | "invalid" | null;
   /** The agent's start repository; a release's is `repository_id`. */
   startRepositoryId: string | null;
   agentSettingsRevision: number | null;
+  /**
+   * A `release` session with no pin whose agent has a person-saved row: the
+   * row's list. `settings` stays null (no list applies, as before) but the
+   * repositories the person took off stop being reachable.
+   */
+  currentRepositories: string[] | null;
+  /**
+   * The `actions_allow` the session started with. It cannot be intersected
+   * with the current one, so a workflow must be allowed by both lists.
+   */
+  startActionsAllow: AgentGitHub["actions_allow"] | null;
+  /** False when GitHub was off for the agent as the session started. */
+  enabledAtStart: boolean;
 };
+
+const UNSET = {
+  startRepositoryId: null,
+  agentSettingsRevision: null,
+  currentRepositories: null,
+  startActionsAllow: null,
+  enabledAtStart: true,
+} as const;
 
 /**
  * The one answer to what GitHub work a session may do (design
  * profile-github 4.2). Everything that judges a session's GitHub work reads
- * this: an `agent` session the agent's row now, a `release` session the pin
- * it started on. A value this image cannot read is "invalid", which every
- * reader refuses.
+ * this. A value this image cannot read is "invalid", which every reader
+ * refuses.
+ *
+ * - `release`: the pin it started on. A row a person saved narrows it
+ *   further (meet with the pin; with no pin only `currentRepositories`). A
+ *   row a migration wrote (`updatedBy` null) and no row change nothing.
+ * - `agent`: the agent's row now, met with the settings the session started
+ *   under (`start`). A session with no snapshot reads the row alone.
  */
 export function effectiveGitHubPolicy(input: {
   /** `sessions.github_policy_source`. */
@@ -452,45 +526,93 @@ export function effectiveGitHubPolicy(input: {
   /** `policy_pins -> 'github'`. */
   releasePin: unknown;
   agentRow: AgentGitHubSettingsRow | null;
+  /** `sessions.github_policy_start`; null when the session has none. */
+  start?: unknown;
 }): EffectiveGitHubPolicy {
-  const unset = { startRepositoryId: null, agentSettingsRevision: null };
+  const { agentRow } = input;
+  const current =
+    agentRow === null
+      ? null
+      : agentGitHubSettingsSchema.safeParse({
+          repositories: agentRow.repositories,
+          push_approval: agentRow.pushApproval,
+          features: agentRow.features,
+          actions_allow: agentRow.actionsAllow,
+        });
+  const invalid = (source: GitHubPolicySource): EffectiveGitHubPolicy => ({
+    ...UNSET,
+    source,
+    settings: "invalid",
+    agentSettingsRevision: agentRow?.revision ?? null,
+  });
   if (input.source === "release") {
-    if (input.releasePin === null || input.releasePin === undefined) {
-      return { source: "release", settings: null, ...unset };
+    const hasPin = input.releasePin !== null && input.releasePin !== undefined;
+    const pin = hasPin ? agentGitHubSchema.safeParse(input.releasePin) : null;
+    if (agentRow === null || current === null) {
+      if (pin === null) return { ...UNSET, source: "release", settings: null };
+      return {
+        ...UNSET,
+        source: "release",
+        settings: pin.success ? pin.data : "invalid",
+      };
     }
-    const pin = agentGitHubSchema.safeParse(input.releasePin);
+    // A row this image cannot read closes the session whoever wrote it.
+    if (
+      !current.success ||
+      (agentRow.updatedBy !== null && typeof agentRow.updatedBy !== "string")
+    ) {
+      return invalid("release");
+    }
+    if (pin !== null && !pin.success) return invalid("release");
+    if (agentRow.updatedBy === null) {
+      // A migration's row must not narrow a session that started before it.
+      return {
+        ...UNSET,
+        source: "release",
+        settings: pin === null ? null : pin.data,
+      };
+    }
+    if (pin === null) {
+      return {
+        ...UNSET,
+        source: "release",
+        settings: null,
+        agentSettingsRevision: agentRow.revision,
+        currentRepositories: current.data.repositories,
+      };
+    }
     return {
+      ...UNSET,
       source: "release",
-      settings: pin.success ? pin.data : "invalid",
-      ...unset,
+      settings: meetGitHubSettings(pin.data, current.data),
+      agentSettingsRevision: agentRow.revision,
+      startActionsAllow: pin.data.actions_allow,
     };
   }
   if (input.source !== "agent") {
-    return { source: "agent", settings: "invalid", ...unset };
+    return { ...UNSET, source: "agent", settings: "invalid" };
   }
-  const { agentRow } = input;
-  if (agentRow === null) {
-    return { source: "agent", settings: GITHUB_POLICY_CLOSED, ...unset };
+  if (agentRow === null || current === null) {
+    return { ...UNSET, source: "agent", settings: GITHUB_POLICY_CLOSED };
   }
-  const settings = agentGitHubSettingsSchema.safeParse({
-    repositories: agentRow.repositories,
-    push_approval: agentRow.pushApproval,
-    features: agentRow.features,
-    actions_allow: agentRow.actionsAllow,
-  });
-  return settings.success
-    ? {
-        source: "agent",
-        settings: settings.data,
-        startRepositoryId: agentRow.startRepositoryId,
-        agentSettingsRevision: agentRow.revision,
-      }
-    : {
-        source: "agent",
-        settings: "invalid",
-        startRepositoryId: null,
-        agentSettingsRevision: agentRow.revision,
-      };
+  if (!current.success) return invalid("agent");
+  const base = {
+    ...UNSET,
+    source: "agent" as const,
+    startRepositoryId: agentRow.startRepositoryId,
+    agentSettingsRevision: agentRow.revision,
+  };
+  if (input.start === null || input.start === undefined) {
+    return { ...base, settings: current.data };
+  }
+  const start = githubPolicyStartSchema.safeParse(input.start);
+  if (!start.success) return invalid("agent");
+  return {
+    ...base,
+    settings: meetGitHubSettings(start.data.settings, current.data),
+    startActionsAllow: start.data.settings.actions_allow,
+    enabledAtStart: start.data.enabled,
+  };
 }
 
 /** The policy a session started now would run on: the agent's row, if any. */
@@ -846,6 +968,7 @@ export type ListAgentsResponse = z.infer<typeof listAgentsResponseSchema>;
 export type CountAgentsResponse = z.infer<typeof countAgentsResponseSchema>;
 export type PolicyPins = z.infer<typeof policyPinsSchema>;
 export type AgentGitHub = z.infer<typeof agentGitHubSchema>;
+export type AgentGitHubSettings = z.infer<typeof agentGitHubSettingsSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;
 export type CardToolPolicy = z.infer<typeof cardToolPolicySchema>;
 export type CreateAgentReleaseRequest = z.infer<

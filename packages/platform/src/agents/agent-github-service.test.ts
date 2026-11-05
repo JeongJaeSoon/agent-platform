@@ -86,42 +86,58 @@ const ALL_ON: GitHubCeiling = {
   review: true,
 };
 
+// Every fixture repository is under it: `installed` reaches the two console
+// App ones, the list names the Enterprise one.
+const DEFAULT_CEILING: RepositoryCeiling = {
+  repository_ids: ["ghe-app"],
+  github_app_repositories: "installed",
+};
+
 function serviceWith(input: {
-  repository?: string | null;
   github?: AgentGitHub;
+  store?: Partial<AgentGitHubStore>;
   /** The agent's own settings row. */
   settings?: AgentGitHubSettingsRow;
-  repositoryCeiling?: RepositoryCeiling;
+  repositoryCeiling?: RepositoryCeiling | null;
   catalog?: SessionCatalog;
   ceiling?: GitHubCeiling;
   author?: Record<string, "read" | "write" | "admin"> | null;
   reviewer?: Record<string, "read" | "write" | "admin"> | null | "none";
   noRelease?: boolean;
-  profile?: string;
   /** `<repository>:<role>` → GitHub's answer; absent: no connection. */
   installed?: Record<string, boolean | null | Error>;
+  /** Counts the asks the tab makes of a connection, by kind. */
+  asks?: { batch: number; single: number };
 }) {
   const release = input.noRelease
     ? null
     : {
         id: "sha256:release",
-        runtime_profile_id: input.profile ?? PROFILE,
-        repository_id:
-          input.repository === undefined ? "sample-app" : input.repository,
+        runtime_profile_id: PROFILE,
+        repository_id: "sample-app",
         policy_pins: input.github === undefined ? {} : { github: input.github },
       };
   const store: AgentGitHubStore = {
     settings: () => Promise.resolve(input.settings ?? null),
-    repositoryCeiling: () => Promise.resolve(input.repositoryCeiling ?? null),
+    repositoryCeiling: () =>
+      Promise.resolve(
+        input.repositoryCeiling === undefined
+          ? DEFAULT_CEILING
+          : input.repositoryCeiling,
+      ),
     async enabled() {
       return true;
     },
     async setEnabled() {
       return { outcome: "saved", receiptId: null };
     },
+    async putSettings() {
+      return { outcome: "saved", revision: 1, receiptId: null };
+    },
     async activity() {
       return [];
     },
+    ...input.store,
   };
   return createAgentGitHubService({
     authorization: createAuthorizationPolicy(),
@@ -158,6 +174,16 @@ function serviceWith(input: {
           kind: "app",
           githubCom: true,
           appId: 1,
+          installedOn: async (repos) => {
+            if (input.asks) input.asks.batch += 1;
+            if (answer instanceof Error) throw answer;
+            return new Map(
+              repos.map((repo) => [
+                `${repo.owner}/${repo.name}`.toLowerCase(),
+                answer,
+              ]),
+            );
+          },
           quotaKey: () => {
             throw new Error("not used");
           },
@@ -168,6 +194,7 @@ function serviceWith(input: {
             throw new Error("not used");
           },
           installed: async () => {
+            if (input.asks) input.asks.single += 1;
             if (answer instanceof Error) throw answer;
             return answer;
           },
@@ -189,6 +216,41 @@ const caller = callerFor(
   crypto.randomUUID(),
 );
 
+type Put = Parameters<AgentGitHubStore["putSettings"]>[0];
+
+/**
+ * A service whose `putSettings` store runs the service's `check` against
+ * `current`, as the real one does under its lock, then answers `outcome`.
+ */
+function serviceWithPuts(input: {
+  current?: AgentGitHubSettingsRow;
+  outcome?: Awaited<ReturnType<AgentGitHubStore["putSettings"]>>;
+  ceiling?: GitHubCeiling;
+  repositoryCeiling?: RepositoryCeiling | null;
+}) {
+  const puts: Put[] = [];
+  const service = serviceWith({
+    ...(input.ceiling === undefined ? {} : { ceiling: input.ceiling }),
+    ...(input.repositoryCeiling === undefined
+      ? {}
+      : { repositoryCeiling: input.repositoryCeiling }),
+    store: {
+      async putSettings(put) {
+        puts.push(put);
+        put.check(input.current ?? null);
+        return (
+          input.outcome ?? {
+            outcome: "saved",
+            revision: (input.current?.revision ?? 0) + 1,
+            receiptId: "receipt-1",
+          }
+        );
+      },
+    },
+  });
+  return { service, puts };
+}
+
 const WITH_SETTINGS: AgentGitHub = {
   repositories: ["sample-app"],
   push_approval: true,
@@ -198,7 +260,12 @@ const WITH_SETTINGS: AgentGitHub = {
 
 describe("the agent GitHub tab's options", () => {
   test("repositories: each with why it cannot be picked", async () => {
-    const read = await serviceWith({}).get(caller, AGENT);
+    const read = await serviceWith({
+      repositoryCeiling: {
+        repository_ids: ["ghe-app", "sample-app"],
+        github_app_repositories: "listed",
+      },
+    }).get(caller, AGENT);
     const unknown = { author: null, reviewer: null };
     expect(read.options.repositories).toEqual([
       {
@@ -244,6 +311,21 @@ describe("the agent GitHub tab's options", () => {
     });
   });
 
+  test("installed: the tab asks in batches and never repeats a failed batch one repository at a time", async () => {
+    const asks = { batch: 0, single: 0 };
+    await serviceWith({
+      asks,
+      installed: {
+        "sample-app:author": true,
+        "sample-app:reviewer": new Error("GitHub failed (502)"),
+        "elsewhere-app:author": false,
+        "elsewhere-app:reviewer": new Error("GitHub failed (502)"),
+      },
+    }).get(caller, AGENT);
+    expect(asks.single).toBe(0);
+    expect(asks.batch).toBe(4);
+  });
+
   test("features: the ceiling, the reviewer App and the App's permissions, in that order", async () => {
     const read = await serviceWith({
       github: WITH_SETTINGS,
@@ -278,7 +360,6 @@ describe("the agent GitHub tab's options", () => {
 
   test("only GitHub Enterprise repositories chosen: every optional permission is unsupported", async () => {
     const read = await serviceWith({
-      repository: "ghe-app",
       github: { ...WITH_SETTINGS, repositories: ["ghe-app"] },
     }).get(caller, AGENT);
     for (const option of Object.values(read.options.features)) {
@@ -294,12 +375,12 @@ describe("the agent GitHub tab's options", () => {
     expect(mixed.options.features.actions.available).toBe(true);
   });
 
-  test("legacy defaults: the release's repository alone, push approval off, nothing optional", async () => {
+  test("legacy defaults: no repository, push approval off, nothing optional", async () => {
     const read = await serviceWith({}).get(caller, AGENT);
     expect(read.github).toBeNull();
-    expect(read.unsavable).toBeNull();
     expect(read.legacy_defaults).toEqual({
       ...WITH_SETTINGS,
+      repositories: [],
       push_approval: false,
     });
     const saved = await serviceWith({ github: WITH_SETTINGS }).get(
@@ -318,6 +399,7 @@ describe("the agent GitHub tab's options", () => {
       actionsAllow: [],
       startRepositoryId: null,
       revision: 2,
+      updatedBy: null,
     };
     const read = await serviceWith({
       github: WITH_SETTINGS,
@@ -336,19 +418,7 @@ describe("the agent GitHub tab's options", () => {
     expect(bad.github).toBeNull();
   });
 
-  describe("which repositories can be picked, as the gate would answer", () => {
-    const ROW: AgentGitHubSettingsRow = {
-      repositories: ["sample-app"],
-      pushApproval: true,
-      features: { ...GITHUB_CEILING_NONE },
-      actionsAllow: [],
-      startRepositoryId: null,
-      revision: 1,
-    };
-    const CEILING: RepositoryCeiling = {
-      repository_ids: ["elsewhere-app"],
-      github_app_repositories: "listed",
-    };
+  describe("which repositories can be picked: the workspace's ceiling alone", () => {
     const reasons = async (input: Parameters<typeof serviceWith>[0]) => {
       const read = await serviceWith(input).get(caller, AGENT);
       return Object.fromEntries(
@@ -356,76 +426,249 @@ describe("the agent GitHub tab's options", () => {
       );
     };
 
-    test("no row: the profile's list and the App, whatever the ceiling says", async () => {
-      expect(await reasons({ repositoryCeiling: CEILING })).toEqual({
-        "elsewhere-app": "repository_not_allowed",
-        "ghe-app": null,
-        "sample-app": null,
-      });
-    });
-
-    test("a row: the workspace's ceiling", async () => {
-      expect(
-        await reasons({ settings: ROW, repositoryCeiling: CEILING }),
-      ).toEqual({
-        "elsewhere-app": null,
-        "ghe-app": "repository_not_allowed",
-        "sample-app": "repository_not_allowed",
-      });
-    });
-
-    test("a row and no ceiling: nothing can be picked", async () => {
-      expect(Object.values(await reasons({ settings: ROW }))).toEqual(
-        Array(3).fill("repository_not_allowed"),
-      );
-    });
-
-    test("a workspace profile on its release: the ceiling, not the profile's list", async () => {
-      const installation = new Map(catalog.installation);
-      const entry = installation.get(PROFILE);
-      if (entry === undefined) throw new Error("no profile");
-      installation.set(PROFILE, { ...entry, repository_scope: "workspace" });
+    test("`installed` reaches the console App's repositories; a listed id reaches its own", async () => {
       expect(
         await reasons({
-          catalog: { ...catalog, installation },
-          repositoryCeiling: CEILING,
+          repositoryCeiling: {
+            repository_ids: [],
+            github_app_repositories: "installed",
+          },
         }),
       ).toEqual({
         "elsewhere-app": null,
         "ghe-app": "repository_not_allowed",
+        "sample-app": null,
+      });
+      expect(
+        await reasons({
+          repositoryCeiling: {
+            repository_ids: ["ghe-app"],
+            github_app_repositories: "listed",
+          },
+        }),
+      ).toEqual({
+        "elsewhere-app": "repository_not_allowed",
+        "ghe-app": null,
         "sample-app": "repository_not_allowed",
       });
     });
+
+    test("no ceiling: nothing can be picked", async () => {
+      expect(Object.values(await reasons({ repositoryCeiling: null }))).toEqual(
+        Array(3).fill("repository_not_allowed"),
+      );
+    });
+
+    test("no active release, a row or not: the same answer", async () => {
+      const bare = await reasons({ noRelease: true });
+      expect(bare).toEqual(await reasons({}));
+      expect(
+        await reasons({
+          noRelease: true,
+          settings: {
+            repositories: ["sample-app"],
+            pushApproval: true,
+            features: { ...GITHUB_CEILING_NONE },
+            actionsAllow: [],
+            startRepositoryId: null,
+            revision: 1,
+            updatedBy: null,
+          },
+        }),
+      ).toEqual(bare);
+    });
   });
 
-  test("why nothing can be saved: no release, no repository", async () => {
+  test("a save starts from the row's revision; none without a row", async () => {
+    const none = await serviceWith({ noRelease: true }).get(caller, AGENT);
+    expect(none.settings_revision).toBeNull();
+    expect(none.start_repository_id).toBeNull();
+    // The defaults may list no repository: nothing is picked yet.
+    expect(none.legacy_defaults?.repositories).toEqual([]);
+    const row = await serviceWith({
+      settings: {
+        repositories: ["sample-app"],
+        pushApproval: true,
+        features: { ...GITHUB_CEILING_NONE },
+        actionsAllow: [],
+        startRepositoryId: "sample-app",
+        revision: 4,
+        updatedBy: crypto.randomUUID(),
+      },
+    }).get(caller, AGENT);
+    expect(row.settings_revision).toBe(4);
+    expect(row.start_repository_id).toBe("sample-app");
+    expect(row.legacy_defaults).toBeNull();
+  });
+});
+
+describe("saving the agent's GitHub settings", () => {
+  const SAVED: AgentGitHub = {
+    ...WITH_SETTINGS,
+    repositories: ["sample-app"],
+    features: { ...GITHUB_CEILING_NONE, actions: true },
+    actions_allow: [{ workflow: "ci.yml" }],
+  };
+  const HELD: AgentGitHubSettingsRow = {
+    repositories: ["sample-app"],
+    pushApproval: true,
+    features: { ...GITHUB_CEILING_NONE, actions: true },
+    actionsAllow: [],
+    startRepositoryId: null,
+    revision: 2,
+    updatedBy: "019a0000-0000-7000-8000-0000000000d1",
+  };
+  const request = (
+    over: Partial<{
+      expected_revision: number | null;
+      settings: AgentGitHub;
+      start_repository_id: string | null;
+    }> = {},
+  ) => ({
+    expected_revision: null,
+    settings: SAVED,
+    start_repository_id: null,
+    ...over,
+  });
+  const refusal = async (promise: Promise<unknown>) => {
+    try {
+      await promise;
+    } catch (error) {
+      const failure = error as {
+        code: string;
+        details?: { reason_code?: string };
+      };
+      return `${failure.code}:${failure.details?.reason_code ?? ""}`;
+    }
+    return "saved";
+  };
+
+  test("saves as the caller and returns the store's revision", async () => {
+    const { service, puts } = serviceWithPuts({});
+    const result = await service.putSettings(caller, AGENT, request());
+    expect(result).toEqual({ settings_revision: 1, receipt_id: "receipt-1" });
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatchObject({
+      agentId: AGENT,
+      expectedRevision: null,
+      userId: caller.actor?.userId,
+      settings: SAVED,
+    });
+  });
+
+  test("only a signed-in console user may save; an API key is refused", async () => {
+    const { service, puts } = serviceWithPuts({});
+    const keyCaller = callerFor(
+      {
+        kind: "user",
+        id: "019a0000-0000-7000-8000-0000000000d1",
+        workspace_id: WORKSPACE,
+        role: "owner",
+        scopes: ["sessions:read", "sessions:write"],
+      },
+      { kind: "api" },
+      crypto.randomUUID(),
+    );
     expect(
-      (await serviceWith({ noRelease: true }).get(caller, AGENT)).unsavable,
-    ).toBe("no_active_release");
+      await refusal(service.putSettings(keyCaller, AGENT, request())),
+    ).toBe("FORBIDDEN:web_session_required");
+    expect(puts).toHaveLength(0);
+  });
+
+  test("the fields hold together: an allow-list needs Actions, the start repository is listed", async () => {
+    const { service, puts } = serviceWithPuts({});
     expect(
-      (await serviceWith({ repository: null }).get(caller, AGENT)).unsavable,
-    ).toBe("repository_none");
-    expect(
-      (
-        await serviceWith({ repository: null, profile: NONE }).get(
+      await refusal(
+        service.putSettings(
           caller,
           AGENT,
-        )
-      ).unsavable,
-    ).toBe("repository_none");
+          request({
+            settings: { ...SAVED, features: { ...GITHUB_CEILING_NONE } },
+          }),
+        ),
+      ),
+    ).toBe("BAD_REQUEST:actions_off");
+    expect(
+      await refusal(
+        service.putSettings(
+          caller,
+          AGENT,
+          request({ start_repository_id: "elsewhere-app" }),
+        ),
+      ),
+    ).toBe("BAD_REQUEST:start_repository_outside");
+    expect(puts).toHaveLength(0);
   });
 
-  test("a release without a repository on an optional profile is savable, from no repository picked", async () => {
-    const read = await serviceWith({ repository: null, profile: OPTIONAL }).get(
+  test("a repository the save adds must be under the ceiling and an App one", async () => {
+    const { service } = serviceWithPuts({
+      repositoryCeiling: {
+        repository_ids: [],
+        github_app_repositories: "listed",
+      },
+    });
+    expect(await refusal(service.putSettings(caller, AGENT, request()))).toBe(
+      "BAD_REQUEST:repository_not_allowed",
+    );
+  });
+
+  test("a repository the row holds stays, even when the ceiling dropped it", async () => {
+    const { service } = serviceWithPuts({
+      repositoryCeiling: {
+        repository_ids: [],
+        github_app_repositories: "listed",
+      },
+      current: HELD,
+    });
+    expect(
+      await refusal(
+        service.putSettings(caller, AGENT, request({ expected_revision: 2 })),
+      ),
+    ).toBe("saved");
+  });
+
+  test("a feature the save turns on must be under the feature ceiling; one already on may stay", async () => {
+    const off = { ...ALL_ON, actions: false };
+    expect(
+      await refusal(
+        serviceWithPuts({ ceiling: off }).service.putSettings(
+          caller,
+          AGENT,
+          request(),
+        ),
+      ),
+    ).toBe("BAD_REQUEST:over_workspace_ceiling");
+    expect(
+      await refusal(
+        serviceWithPuts({ ceiling: off, current: HELD }).service.putSettings(
+          caller,
+          AGENT,
+          request({ expected_revision: 2 }),
+        ),
+      ),
+    ).toBe("saved");
+  });
+
+  test("a stale revision answers REVISION_CONFLICT", async () => {
+    const { service } = serviceWithPuts({
+      outcome: { outcome: "conflict", revision: 5 },
+    });
+    expect(
+      await refusal(
+        service.putSettings(caller, AGENT, request({ expected_revision: 4 })),
+      ),
+    ).toBe("REVISION_CONFLICT:");
+  });
+
+  test("duplicate repositories are saved once", async () => {
+    const { service, puts } = serviceWithPuts({});
+    await service.putSettings(
       caller,
       AGENT,
+      request({
+        settings: { ...SAVED, repositories: ["sample-app", "sample-app"] },
+      }),
     );
-    expect(read.unsavable).toBeNull();
-    expect(read.release_repository_id).toBeNull();
-    expect(read.github).toBeNull();
-    // The contract's defaults need a repository; the tab starts from none.
-    expect(read.legacy_defaults).toBeNull();
-    const sample = read.options.repositories.find((r) => r.id === "sample-app");
-    expect(sample).toMatchObject({ available: true, reason: null });
+    expect(puts[0]?.settings.repositories).toEqual(["sample-app"]);
   });
 });

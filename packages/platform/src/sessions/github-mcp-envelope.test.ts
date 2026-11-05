@@ -144,6 +144,7 @@ function server(failure: SessionServiceError | null) {
             status: "primary" as const,
           },
         ],
+        next_cursor: null,
       }),
       attach: answer({
         repository_id: "docs",

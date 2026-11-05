@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import type { AgentDetail } from "@werft-ai/contracts";
+import { beforeEach, describe, expect, test } from "bun:test";
+import type { AgentDetail, RepositoryCeiling } from "@werft-ai/contracts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,
@@ -147,6 +147,14 @@ const ROW = {
   updated_at: "",
 } as const;
 
+let ceilingHeld: RepositoryCeiling | null = {
+  repository_ids: [],
+  github_app_repositories: "installed",
+};
+beforeEach(() => {
+  ceilingHeld = { repository_ids: [], github_app_repositories: "installed" };
+});
+
 function serviceWith(
   directory: Partial<GitHubAppDirectory>,
   registered: GitHubAppStore = apps,
@@ -196,26 +204,11 @@ function serviceWith(
     } as GitHubAppDirectory,
     agents: {
       async get() {
-        return {
-          active_release: { runtime_profile_id: "op_open_v1" },
-        } as unknown as AgentDetail;
+        // No active release: the workspace's ceiling decides alone.
+        return { active_release: null } as unknown as AgentDetail;
       },
     },
-    catalog: {
-      profiles: {},
-      installation: new Map([
-        [
-          "op_open_v1",
-          {
-            id: "op_open_v1",
-            origin: "console",
-            state: "usable",
-            repository_ids: [],
-            github_app_repositories: "installed",
-          },
-        ],
-      ]),
-    },
+    repositoryCeiling: async () => ceilingHeld,
     changed: async () => {},
   });
   const pick = (githubRepositoryId: number) =>
@@ -477,6 +470,24 @@ describe("the workspace's page of App installations", () => {
     const page = await list();
     expect([page.installation_id, page.unavailable]).toEqual([21, null]);
     expect((await agentPage()).unavailable).toBe("no_author_app");
+  });
+
+  test("the picker follows the workspace ceiling, not a release profile", async () => {
+    const { agentPage, pick } = serviceWith({
+      async installationRepositoriesPage() {
+        return { repositories: [], totalCount: 0 };
+      },
+    });
+    // The fixture agent has no active release; `installed` still opens it.
+    expect((await agentPage()).unavailable).toBeNull();
+    ceilingHeld = {
+      repository_ids: ["named"],
+      github_app_repositories: "listed",
+    };
+    expect((await agentPage()).unavailable).toBe("ceiling_listed");
+    ceilingHeld = null;
+    expect((await agentPage()).unavailable).toBe("ceiling_listed");
+    expect(await reasonOf(pick(5))).toBe("repository_not_allowed");
   });
 });
 

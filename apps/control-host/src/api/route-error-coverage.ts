@@ -176,6 +176,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/agent-github.test.ts": [
     "GET /v1/agents/{id}/github",
     "PUT /v1/agents/{id}/github/enabled",
+    "PUT /v1/agents/{id}/github/settings",
     "GET /v1/agents/{id}/github/activity",
   ],
   "routes/github-settings.test.ts": [

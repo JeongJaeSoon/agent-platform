@@ -15,6 +15,7 @@ import {
   type PickAgentGitHubRepositoryResponse,
   type PutGitHubRepositoryAppPinRequest,
   type PutGitHubRepositoryAppPinResponse,
+  type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import type { AgentStore } from "../ports/agent-store.ts";
 import type {
@@ -31,11 +32,6 @@ import {
   type GitHubPinStore,
   githubUnavailableOf,
 } from "../ports/github-app-store.ts";
-import {
-  type CatalogProfileView,
-  ceilingAppRepositories,
-  type ProfileLookup,
-} from "../sessions/catalog.ts";
 import {
   requirePermitted,
   SessionServiceError,
@@ -143,8 +139,8 @@ export function createGitHubRepositoryService(deps: {
   pins: GitHubPinStore | null;
   directory: GitHubAppDirectory;
   agents: Pick<AgentStore, "get">;
-  /** For the ceiling of an agent's active release. */
-  catalog: ProfileLookup<CatalogProfileView>;
+  /** The workspace's repository ceiling; null allows none. */
+  repositoryCeiling: (workspaceId: string) => Promise<RepositoryCeiling | null>;
   /** Called after a write commits, so this replica's catalog picks it up. */
   changed: () => Promise<void>;
   newId?: () => string;
@@ -475,14 +471,16 @@ export function createGitHubRepositoryService(deps: {
     };
   }
 
-  /** The active release's repositories may be picked among the App's. */
+  /**
+   * An agent's repositories may be picked among the App's when the
+   * workspace's ceiling says `installed` (design 3.2); the profile of its
+   * release no longer decides.
+   */
   async function installedCeiling(workspaceId: string, agentId: string) {
     const detail = await deps.agents.get(workspaceId, agentId);
     if (detail === null) throw NOT_FOUND();
-    const release = detail.active_release;
-    if (release === null) return "no_active_release" as const;
-    return ceilingAppRepositories(deps.catalog, release.runtime_profile_id) ===
-      "installed"
+    const ceiling = await deps.repositoryCeiling(workspaceId);
+    return ceiling?.github_app_repositories === "installed"
       ? null
       : ("ceiling_listed" as const);
   }

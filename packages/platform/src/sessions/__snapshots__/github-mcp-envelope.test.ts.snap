@@ -1992,11 +1992,27 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "List the repositories the session can work on. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).",
+    "description": "List the repositories the session can work on, 100 a page. The session's own comes first on the first page and is not counted in \`limit\` (1 to 500); the others are in id order. \`next_cursor\` is non-null when more follow: send it back as \`cursor\`. \`query\` keeps those whose id or name contains it. \`status\` is \`primary\` (the session's own), \`attached\`, \`pending\` or \`failed\` (fetch in progress or failed), \`available\` (attach_repository would add it) or \`allowed_in_newer_release\` (only the agent's current release allows it).",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "properties": {},
+      "properties": {
+        "cursor": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+        "limit": {
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "query": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
       "type": "object",
     },
     "name": "list_repositories",
@@ -2013,6 +2029,12 @@ exports[`tools/list every tool has a description of its fields and an outputSche
             "result": {
               "additionalProperties": false,
               "properties": {
+                "next_cursor": {
+                  "type": [
+                    "string",
+                    "null",
+                  ],
+                },
                 "repositories": {
                   "items": {
                     "additionalProperties": false,
@@ -2055,6 +2077,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
               },
               "required": [
                 "repositories",
+                "next_cursor",
               ],
               "type": "object",
             },
