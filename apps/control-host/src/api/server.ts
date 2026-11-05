@@ -799,7 +799,8 @@ const githubRepositories = createGitHubRepositoryService({
   pins: githubAppStore === null ? null : githubPins,
   directory: githubAppDirectory,
   agents: agentStore,
-  catalog,
+  repositoryCeiling: (workspaceId) =>
+    workspaceRepositoryCeiling(db, workspaceId),
   changed: () => workspaceProfileVersions.refresh(),
 });
 const githubInstallations = createPostgresGitHubInstallationStore(db);

@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import {
-  agentGitHubSchema,
-  agentGitHubSettingsSchema,
-} from "../kollegium/agents.ts";
+import { agentGitHubSettingsSchema } from "../kollegium/agents.ts";
 import { receiptIdSchema } from "../shared/index.ts";
 import { receiptSchema } from "./receipt.ts";
 
@@ -26,14 +23,6 @@ export const AGENT_GITHUB_REPOSITORY_UNAVAILABLE_VALUES = [
   "app_required",
 ] as const;
 
-/** Why the release settings cannot be saved at all. */
-export const AGENT_GITHUB_UNSAVABLE_VALUES = [
-  "no_active_release",
-  "repository_none",
-  // The active release's repository is a PAT one.
-  "app_required",
-] as const;
-
 const featureOptionSchema = z.object({
   available: z.boolean(),
   reason: z.enum(AGENT_GITHUB_FEATURE_UNAVAILABLE_VALUES).nullable(),
@@ -43,21 +32,23 @@ export const agentGitHubResponseSchema = z.object({
   /** `agents.github_enabled`: applies at once, not through a release. */
   enabled: z.boolean(),
   active_release_id: z.string().nullable(),
-  /** The active release's repository; it must stay among `repositories`. */
-  release_repository_id: z.string().nullable(),
   /**
    * The agent's settings when it has any, else the active release's
    * `policy_pins.github`. The agent's may list no repository.
    */
   github: agentGitHubSettingsSchema.nullable(),
   /**
-   * When `github` is null and the release has a repository: what a first
-   * save starts from (its repository alone, push approval on, nothing
-   * optional). Until then the release runs as before, on every repository
-   * its profile allows.
+   * `agent_github_settings.revision`; null while the agent has no row. A
+   * save sends it back as `expected_revision`.
    */
-  legacy_defaults: agentGitHubSchema.nullable(),
-  unsavable: z.enum(AGENT_GITHUB_UNSAVABLE_VALUES).nullable(),
+  settings_revision: z.number().int().nullable(),
+  /** The repository a session that names none starts on. */
+  start_repository_id: z.string().nullable(),
+  /**
+   * When `github` is null: what a first save starts from (no repository,
+   * nothing optional). Until then the release runs as before.
+   */
+  legacy_defaults: agentGitHubSettingsSchema.nullable(),
   options: z.object({
     /** The catalog's GitHub repositories. */
     repositories: z.array(
@@ -77,6 +68,12 @@ export const agentGitHubResponseSchema = z.object({
         }),
       }),
     ),
+    /**
+     * The workspace has no repository ceiling yet. `repositories` is then
+     * judged against the default the first save writes; reading writes
+     * nothing.
+     */
+    repository_ceiling_unset: z.boolean(),
     features: z.object({
       workflows: featureOptionSchema,
       actions: featureOptionSchema,
@@ -85,6 +82,26 @@ export const agentGitHubResponseSchema = z.object({
       review: featureOptionSchema,
     }),
   }),
+});
+
+/**
+ * The whole settings row, replaced. Never a release: a save applies to the
+ * next session, and narrowing also to running ones.
+ */
+export const putAgentGitHubSettingsRequestSchema = z
+  .object({
+    /** `settings_revision` as read; null when the agent had no row. */
+    expected_revision: z.number().int().nullable(),
+    settings: agentGitHubSettingsSchema,
+    /** Must be one of `settings.repositories`. */
+    start_repository_id: z.string().min(1).max(128).nullable(),
+  })
+  .strict();
+
+/** `receipt_id` is null when a person's row already held these values. */
+export const putAgentGitHubSettingsResponseSchema = z.object({
+  settings_revision: z.number().int(),
+  receipt_id: receiptIdSchema.nullable(),
 });
 
 export const putAgentGitHubEnabledRequestSchema = z
@@ -113,6 +130,12 @@ export type AgentGitHubFeatureUnavailable =
   (typeof AGENT_GITHUB_FEATURE_UNAVAILABLE_VALUES)[number];
 export type AgentGitHubRepositoryUnavailable =
   (typeof AGENT_GITHUB_REPOSITORY_UNAVAILABLE_VALUES)[number];
+export type PutAgentGitHubSettingsRequest = z.infer<
+  typeof putAgentGitHubSettingsRequestSchema
+>;
+export type PutAgentGitHubSettingsResponse = z.infer<
+  typeof putAgentGitHubSettingsResponseSchema
+>;
 export type PutAgentGitHubEnabledRequest = z.infer<
   typeof putAgentGitHubEnabledRequestSchema
 >;

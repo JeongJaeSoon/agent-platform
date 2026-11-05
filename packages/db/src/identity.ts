@@ -34,6 +34,7 @@ import {
 import { insertBuiltinAchievementTypes } from "./achievement-rules.ts";
 import { rowsOf } from "./control-unit-of-work.ts";
 import { DB_NOW, fromDbNow } from "./db-clock.ts";
+import { ensureInstalledRepositoryCeiling } from "./github-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   bootstrapTokenUses,
@@ -177,7 +178,12 @@ export async function bootstrapOwner(
     if (!user || !workspace) {
       throw new Error("bootstrap insert returned no row");
     }
-    if (!existing) await insertBuiltinAchievementTypes(tx, workspace.id);
+    if (!existing) {
+      await insertBuiltinAchievementTypes(tx, workspace.id);
+      // A workspace is born with its repository ceiling written, so a null
+      // ceiling (which rejects everything) never reaches a new workspace.
+      await ensureInstalledRepositoryCeiling(tx, workspace.id);
+    }
     await tx
       .insert(loginMethods)
       .values({ id: input.loginMethodId, userId: user.id, kind: "password" })

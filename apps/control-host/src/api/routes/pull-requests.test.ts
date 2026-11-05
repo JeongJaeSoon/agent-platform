@@ -142,6 +142,10 @@ function app(
     kind: "app",
     githubCom: true,
     appId: 101,
+    installedOn: async (repos) =>
+      new Map(
+        repos.map((repo) => [`${repo.owner}/${repo.name}`.toLowerCase(), true]),
+      ),
     quotaKey: () => {
       throw new Error("not used");
     },
