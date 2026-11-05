@@ -1,6 +1,7 @@
 import type {
   AdmissionState,
   PendingQuestion,
+  PushRequestOrigin,
   UserLocale,
 } from "@werft-ai/contracts";
 import type {
@@ -178,7 +179,11 @@ export type SlackPromptCard = {
   /** Where a decided request was decided; null while none was. */
   decidedVia: "slack" | "web" | null;
   /** A push's checkpoint revisions, for `pushApprovability`. */
-  pushRevisions?: { session: number | null; request: number };
+  pushRevisions?: {
+    session: number | null;
+    request: number;
+    origin: PushRequestOrigin;
+  };
   linkUrl: string | null;
   deciderSlackUserId: string | null;
   display: PendingRequestDisplay | ({ kind: "push" } & PushRequestDisplay);
@@ -204,6 +209,7 @@ export type SlackThreadStatusFacts = {
   requestedPushes: {
     checkpointRevision: number;
     gitCommit: string;
+    origin: PushRequestOrigin;
   }[];
 };
 
@@ -357,6 +363,7 @@ export type SlackOpenPushCard = {
   sessionCheckpointRevision: number | null;
   checkpointRevision: number;
   gitCommit: string;
+  origin: PushRequestOrigin;
 };
 
 /**

@@ -217,6 +217,9 @@ export const pushRequestSchema = z.object({
   push_receipt_id: receiptIdSchema.nullable(),
   // A server from before intents sends none: that is a direct request.
   origin: pushRequestOriginSchema.default("direct"),
+  flow: pushRequestFlowSchema.default("legacy"),
+  // Where the pull request step stands; null when none was asked for.
+  pr_state: pullRequestStageSchema.nullable().default(null),
 });
 
 export const createPushRequestRequestSchema = z
@@ -241,6 +244,8 @@ export const resolvePushRequestRequestSchema = z
 
 export const listPushRequestsResponseSchema = z.object({
   items: z.array(pushRequestSchema),
+  // Pushes a turn asked for that have no request yet, or ended without one.
+  intents: z.array(pushIntentSchema).default([]),
 });
 
 // Why a push operation was refused, as its receipt and error details say.

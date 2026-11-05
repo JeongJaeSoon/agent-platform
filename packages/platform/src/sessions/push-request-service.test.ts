@@ -857,6 +857,8 @@ describe("a release with push_approval off", () => {
             finished_at: null,
             push_receipt_id: null,
             origin: "direct" as const,
+            flow: "legacy" as const,
+            pr_state: null,
           };
           return { outcome: "written", request };
         },

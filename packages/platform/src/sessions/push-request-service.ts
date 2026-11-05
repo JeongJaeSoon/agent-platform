@@ -451,7 +451,7 @@ export function createPushRequestService(deps: {
       if (items === null) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
-      return { items };
+      return { items, intents: await intents.list(actor.ownerId, sessionId) };
     },
 
     async get(

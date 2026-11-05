@@ -8,9 +8,11 @@ import {
   githubPolicySourceOf,
   OPEN_PULL_REQUEST_STAGES,
   OPEN_PUSH_REQUEST_STATES,
+  type PullRequestStage,
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestFlow,
   type PushRequestOrigin,
   type PushRequestState,
   pushBranchFor,
@@ -160,6 +162,8 @@ function publicPushRequest(row: Row): PushRequest {
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
     origin: row.origin as PushRequestOrigin,
+    flow: row.flow as PushRequestFlow,
+    pr_state: (row.prState as PullRequestStage | null) ?? null,
   };
 }
 
