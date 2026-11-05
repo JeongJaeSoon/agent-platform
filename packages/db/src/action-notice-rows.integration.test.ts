@@ -153,14 +153,14 @@ integration("action_notice rows on PostgreSQL", () => {
   }
 
   /** A push request that carries a pull request intent, pushed by `finish`. */
-  async function pushedWithIntent(sessionId: string) {
+  async function pushedWithIntent(sessionId: string, repositoryId = "app") {
     const created = await pushes.create({
       ownerId: OWNER,
       sessionId,
       actor: HUMAN,
       idempotencyKey: `k-${crypto.randomUUID()}`,
       payloadHash: "h",
-      repositoryId: "app",
+      repositoryId,
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: COMMIT,
@@ -344,6 +344,40 @@ integration("action_notice rows on PostgreSQL", () => {
         pr_url: pullRequest.url,
       });
     }
+  });
+
+  test("a reused pull request is found in its own repository, not in another with the same number", async () => {
+    const sessionId = await threadedSession("en");
+    const open = async (repositoryId: string, created: boolean) => {
+      const id = await pushedWithIntent(sessionId, repositoryId);
+      const job = await drain.claimNextDue(60_000);
+      if (job?.id !== id) throw new Error("claimed another request");
+      await drain.settle(job, {
+        kind: "opened",
+        pullRequest: {
+          number: 7,
+          url: `https://github.com/acme/${repositoryId}/pull/7`,
+          head: `agent/${sessionId}`,
+          base: "main",
+          headSha: COMMIT,
+          title: "Add the thing",
+          created,
+        },
+      });
+      return id;
+    };
+    await open("app", true);
+    await open("docs", true);
+    const later = await open("docs", false);
+
+    const items = await pushes.list(OWNER, sessionId);
+    expect(items?.find((item) => item.id === later)).toMatchObject({
+      pr_number: 7,
+      pr_url: "https://github.com/acme/docs/pull/7",
+    });
+    expect(await pushes.get(OWNER, sessionId, later)).toMatchObject({
+      pr_url: "https://github.com/acme/docs/pull/7",
+    });
   });
 
   test("an uncertain stage tells the thread once, and a settle that lost its claim adds nothing", async () => {

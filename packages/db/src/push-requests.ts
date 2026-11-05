@@ -152,28 +152,25 @@ type RecordedPullRequest = { number: number | null; url: string };
 /**
  * The pull request of each push request. A pull request row belongs to the
  * push request that created it; a later push to the same branch finds that
- * pull request open and only records its verified number, so the row is found
- * by session and number.
+ * pull request open and only records its verified number. A number is unique
+ * within a repository only, so that row is found by session, repository and
+ * number.
  */
 async function recordedPullRequests(
   db: Database,
   rows: readonly {
     id: string;
     sessionId: string;
+    repositoryId: string;
     prVerifiedNumber: number | null;
   }[],
 ): Promise<Map<string, RecordedPullRequest>> {
   if (rows.length === 0) return new Map();
-  const reusedSessions = [
-    ...new Set(
-      rows
-        .filter((row) => row.prVerifiedNumber !== null)
-        .map((row) => row.sessionId),
-    ),
-  ];
+  const reusing = rows.filter((row) => row.prVerifiedNumber !== null);
   const found = await db
     .select({
       sessionId: pullRequests.sessionId,
+      repositoryId: pullRequests.repositoryId,
       pushRequestId: pullRequests.pushRequestId,
       number: pullRequests.number,
       url: pullRequests.url,
@@ -185,9 +182,16 @@ async function recordedPullRequests(
           pullRequests.pushRequestId,
           rows.map((row) => row.id),
         ),
-        reusedSessions.length === 0
+        reusing.length === 0
           ? undefined
-          : inArray(pullRequests.sessionId, reusedSessions),
+          : and(
+              inArray(pullRequests.sessionId, [
+                ...new Set(reusing.map((row) => row.sessionId)),
+              ]),
+              inArray(pullRequests.number, [
+                ...new Set(reusing.map((row) => row.prVerifiedNumber ?? 0)),
+              ]),
+            ),
       ),
     );
   const byRequest = new Map<string, RecordedPullRequest>();
@@ -199,6 +203,7 @@ async function recordedPullRequests(
         : found.find(
             (entry) =>
               entry.sessionId === row.sessionId &&
+              entry.repositoryId === row.repositoryId &&
               entry.number === row.prVerifiedNumber,
           );
     const entry = own ?? reused;
