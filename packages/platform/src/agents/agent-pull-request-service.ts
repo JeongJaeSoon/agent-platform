@@ -21,12 +21,6 @@ import {
   SessionServiceError,
 } from "../sessions/session-service.ts";
 
-/**
- * What an agent sets over the workspace's pull request layout: whoever
- * manages the agent reads it, and it is saved from a signed-in console
- * session. The values apply to the pull requests the agent's sessions open or
- * update afterwards.
- */
 export function createAgentPullRequestService(deps: {
   authorization: AuthorizationPolicy;
   agents: Pick<AgentStore, "get">;
@@ -56,10 +50,6 @@ export function createAgentPullRequestService(deps: {
       };
     },
 
-    /**
-     * A template the platform would not lay text around is refused here, not
-     * at the agent's first pull request.
-     */
     async put(
       caller: Caller,
       agentId: string,

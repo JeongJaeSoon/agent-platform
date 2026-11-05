@@ -3,10 +3,8 @@ import type {
   PullRequestSettings,
 } from "@werft-ai/contracts";
 
-/** What a rendering is told, after the agent's settings met the workspace's. */
 export type ResolvedPullRequestSettings = {
   sessionLink: "url" | "id";
-  /** Whether the repository's own template is read at all. */
   readRepository: boolean;
   templateName: string | null;
   /**
@@ -17,12 +15,6 @@ export type ResolvedPullRequestSettings = {
   text: { layer: "agent" | "workspace"; template: string } | null;
 };
 
-/**
- * One answer to how a pull request body is laid out (design pr-template 6).
- * The agent's setting wins over the workspace's; `formatting: off` leaves
- * every template out, so a structured field is still placed, on the
- * platform's default layout. Pure: the caller reads the two rows.
- */
 export function resolvePullRequestSettings(
   workspace: PullRequestSettings,
   agent: AgentPullRequestSettings | null,

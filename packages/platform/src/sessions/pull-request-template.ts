@@ -37,7 +37,6 @@ export const SECTION_NAMES = [
 ] as const;
 export type SectionName = (typeof SECTION_NAMES)[number];
 
-/** What a section is filled with, without its heading. Absent or empty: nothing to place. */
 export type SectionBlocks = Partial<Record<SectionName, string>>;
 
 export const TEMPLATE_MAX_BYTES = PULL_REQUEST_TEMPLATE_MAX_BYTES;
@@ -59,11 +58,9 @@ export type TemplateRead =
       commit: string | null;
       reason: TemplateSkip;
       path?: string;
-      /** Why a read failed, for the log: an error name, never a message. */
       error?: string;
     };
 
-/** The reads the detection makes; the pull request grant's `api` has them. */
 export type TemplateForge = Pick<
   GitHubApi,
   "getRepository" | "getBranchHead" | "readTree" | "readBlob"
@@ -99,10 +96,6 @@ function recordedPath(parts: readonly string[]): string {
 export async function readRepositoryTemplate(
   forge: TemplateForge,
   options: {
-    /**
-     * Which file of `PULL_REQUEST_TEMPLATE/` to use when it holds several.
-     * Only compared with the names the tree lists, never read as a path.
-     */
     templateName?: string | null;
   } = {},
 ): Promise<TemplateRead> {
@@ -219,7 +212,6 @@ export async function readRepositoryTemplate(
   }
 }
 
-/** What the receipt and the response record of a read, never the template's text. */
 export function templateRecord(read: TemplateRead): PullRequestTemplateRecord {
   switch (read.kind) {
     case "found":
@@ -254,13 +246,9 @@ type Part = { text: string; comment: boolean };
 
 export type TemplateRow = {
   text: string;
-  /** The row begins inside an HTML comment that began on an earlier row. */
   startsInComment: boolean;
-  /** Nothing the reader sees: blank, or only comments. */
   skippable: boolean;
-  /** `field` of a `<!-- werft:slot field -->` row that may be filled. */
   slot?: SectionName;
-  /** A heading row that may be filled: its text as the reader sees it. */
   heading?: string;
 };
 
@@ -388,9 +376,6 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
   const scanned = scan(cleaned);
   if (scanned.rejected) return null;
 
-  // Judged as the reader gets it, a comment gone and a space where it was, so
-  // `Fixes <!-- x -->#1` is caught as well. Breaking only adds zero-width spaces, so they are put back at the same
-  // places in the original.
   const visible = scanned.rows
     .map((row) =>
       row.parts.map((part) => (part.comment ? " " : part.text)).join(""),
@@ -416,8 +401,6 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
     let line = "";
     for (const part of row.parts) {
       if (part.comment) {
-        // Hidden text is broken too: a renderer that reads the markup another
-        // way than the scan did would otherwise show it live.
         line += breakLinks(breakReferences(part.text)).replace(
           PLATFORM_COMMENT,
           `$1$2${ZWSP}$3`,
@@ -466,12 +449,6 @@ export type TemplateTextResult =
   | { ok: true; template: PreparedTemplate }
   | { ok: false; reason: "too_large" | "not_utf8" | "unsupported" };
 
-/**
- * A template someone typed into the settings rather than one read from the
- * repository: the same size and encoding limits the repository's blob has,
- * then the same `prepareTemplate`. The settings save and the rendering both
- * come through here, so what was accepted is what is laid out.
- */
 export function prepareTemplateText(text: string): TemplateTextResult {
   // A lone surrogate cannot be written as UTF-8; a pair is one code point.
   if (/\p{Cs}/u.test(text)) return { ok: false, reason: "not_utf8" };
@@ -572,7 +549,6 @@ const MATCHERS = SECTION_NAMES.flatMap((section) =>
   }),
 );
 
-/** The field a heading is for: the longest phrase it holds, the table's order on a tie. */
 export function sectionOfHeading(heading: string): SectionName | null {
   const norm = normalizeHeading(heading);
   let best: { section: SectionName; length: number } | null = null;
@@ -624,8 +600,6 @@ export function fillTemplate(
       if (next === undefined || !next.skippable) break;
       at += 1;
     }
-    // A row that ends a comment and goes on with markup is no place to put
-    // text before: it would land in the comment, or in what that markup opens.
     if (rows[at]?.startsInComment) return;
     put(at, name);
   });

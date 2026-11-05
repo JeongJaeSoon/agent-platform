@@ -30,8 +30,6 @@ import { useI18n } from "../i18n/i18n.tsx";
 import { githubSettingsKey } from "./workspace-github-access.tsx";
 import type { OnOutcome } from "./workspace-settings.tsx";
 
-// The server's ceiling; the web takes contracts as types only, so a test
-// keeps this equal to the contract's value.
 export const PULL_REQUEST_TEMPLATE_MAX_BYTES = 16 * 1024;
 
 const byteLength = (text: string) => new TextEncoder().encode(text).length;
@@ -42,7 +40,6 @@ const REFUSALS = {
   template_unsupported: "github.pullRequest.unsupported",
 } as const;
 
-/** Workspace › GitHub: how agents' pull request bodies and commit links are written. */
 export function PullRequestSettingsCard({
   settings,
   onOutcome,

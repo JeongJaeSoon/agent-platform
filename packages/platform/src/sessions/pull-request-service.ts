@@ -100,7 +100,6 @@ export function createPullRequestService(deps: {
   redact: (line: string) => string;
   /** Who the session's work is attributed to, for the body's tail. */
   attribution: SessionAttributionStore;
-  /** How a body is laid out and how the tail names the session. */
   settings: Pick<PullRequestSettingsStore, "get" | "agentOfSession">;
   consoleOrigin: string | null;
   logger: {
@@ -109,10 +108,6 @@ export function createPullRequestService(deps: {
 }) {
   const { authorization, store, catalog, gate, redact, logger } = deps;
 
-  /**
-   * The workspace's layout settings joined with those of the agent the
-   * session ran under, read now: a change applies to the next body written.
-   */
   async function settingsFor(ownerId: string, sessionId: string) {
     const [{ settings }, agent] = await Promise.all([
       deps.settings.get(ownerId),
@@ -171,8 +166,6 @@ export function createPullRequestService(deps: {
   }> {
     if (hasStructuredFields(content)) {
       const { settings } = where;
-      // Only fields the platform lays out read the repository's template; a
-      // legacy `body` is the agent's own layout and is kept as written.
       const read: TemplateRead | null = settings.readRepository
         ? await readRepositoryTemplate(forge, {
             templateName: settings.templateName,
@@ -181,9 +174,6 @@ export function createPullRequestService(deps: {
       if (read?.kind === "skipped" && read.error !== undefined) {
         logger.warn("Pull request template not read", { error: read.error });
       }
-      // The settings' own template stands in where the repository supplies
-      // none. It passed the same preparation when it was saved; it is
-      // prepared again here, so what is laid out is what was checked.
       let supplied: {
         layer: "agent" | "workspace";
         template: PreparedTemplate;
@@ -216,8 +206,6 @@ export function createPullRequestService(deps: {
         template:
           read?.kind === "found" ? read.template : (supplied?.template ?? null),
       });
-      // A template the fields could not fit beside is passed over like one
-      // that is too large.
       const commit = read === null ? null : (read.commit ?? null);
       const record: PullRequestTemplateRecord =
         read?.kind === "found"
@@ -542,7 +530,6 @@ export function createPullRequestService(deps: {
         head,
         base: opened.base,
         created,
-        // An adopted pull request keeps the body it has.
         template: created ? written.template : null,
       });
       return {

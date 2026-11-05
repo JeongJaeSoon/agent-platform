@@ -6,7 +6,6 @@ import type {
 } from "@werft-ai/contracts";
 import type { Principal } from "../musterrolle/policy.ts";
 
-/** The workspace's pull request layout and the revision that guards it. */
 export type PullRequestSettingsRead = {
   settings: PullRequestSettings;
   /** 0 until first saved. */
@@ -23,7 +22,6 @@ export type PutPullRequestSettingsResult =
     }
   | { outcome: "revision_conflict" | "actor_inactive" };
 
-/** An agent's own pull request values and the revision that guards them. */
 export type AgentPullRequestSettingsRead = {
   settings: AgentPullRequestSettings;
   /** 0 until first saved. */
@@ -53,7 +51,6 @@ export type PutAgentPullRequestSettingsResult =
  * that holds only these reads as no ceiling.
  */
 export interface PullRequestSettingsStore {
-  /** The defaults (`inherit`, nothing set) for an agent with no row. */
   agent(agentId: string): Promise<AgentPullRequestSettingsRead>;
   /**
    * The row of the agent the session ran under, read at the moment of use;
@@ -76,7 +73,6 @@ export interface PullRequestSettingsStore {
     userId: string;
     managerRoles: readonly WorkspaceRole[];
   }): Promise<PutAgentPullRequestSettingsResult>;
-  /** The defaults for a workspace with none saved, or a value this image cannot read. */
   get(workspaceId: string): Promise<PullRequestSettingsRead>;
   /** CAS on `revision`; writes `set_github_pull_request_settings`. */
   put(input: {

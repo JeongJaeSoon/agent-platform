@@ -22,8 +22,6 @@ import { SECTION_BODY } from "../../components/section-body.ts";
 import { errorKey, useI18n } from "../../i18n/i18n.tsx";
 import type { Notify } from "./toast.tsx";
 
-// The server's ceiling; the web takes contracts as types only, so a test
-// keeps this equal to the contract's value.
 export const AGENT_TEMPLATE_MAX_BYTES = 16 * 1024;
 export const AGENT_TEMPLATE_NAME_MAX_LENGTH = 100;
 
@@ -38,11 +36,6 @@ const REFUSALS = {
   template_unsupported: "agentPullRequest.unsupported",
 } as const;
 
-/**
- * The agent's pull request layout, on its own card with its own Save and its
- * own error: a separate PUT from the GitHub settings above it, so neither
- * save carries the other's draft.
- */
 export function AgentPullRequestSettingsCard({
   agentId,
   notify,
@@ -78,7 +71,6 @@ export function AgentPullRequestSettingsCard({
   }
   return (
     <Form
-      // A refetched revision starts the form over from the server's values.
       key={read.data.pull_request_revision}
       agentId={agentId}
       saved={read.data.pull_request}

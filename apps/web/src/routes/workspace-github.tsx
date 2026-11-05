@@ -149,7 +149,6 @@ export function WorkspaceGitHubScreen() {
           ) : null}
           {connected ? (
             <PullRequestSettingsCard
-              // A refetched revision starts the form over from the server's values.
               key={settings.data.pull_request_revision}
               settings={settings.data}
               onOutcome={setOutcome}

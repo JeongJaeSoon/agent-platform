@@ -389,11 +389,6 @@ export function createGitHubSettingsService(deps: {
       }
     },
 
-    /**
-     * How pull request bodies are laid out. Its own revision, so a save here
-     * never conflicts with the ceiling's. A template the platform would not
-     * lay text around is refused here, not at the first pull request.
-     */
     async putPullRequest(
       caller: Caller,
       workspaceId: string,

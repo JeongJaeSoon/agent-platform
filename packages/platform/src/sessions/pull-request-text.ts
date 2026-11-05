@@ -18,7 +18,6 @@ const closingKeyword =
 const crossReference = /\b([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#(\d)/g;
 const mention = /(^|[^\w])@([A-Za-z0-9])/g;
 
-/** Breaks mentions, cross-repository references and closing keywords; only inserts zero-width spaces. */
 export function breakReferences(text: string): string {
   return text
     .replace(
@@ -30,7 +29,6 @@ export function breakReferences(text: string): string {
     .replace(mention, `$1@${ZWSP}$2`);
 }
 
-/** Breaks mentions, cross-repository references, closing keywords and HTML comments. */
 export function neutralizeReferences(text: string): string {
   return breakReferences(text).replaceAll("<!--", `<!${ZWSP}--`);
 }
@@ -93,10 +91,6 @@ export function cleanBodies(
   });
 }
 
-/**
- * `redact` per line, in the order the lines are given, with a private key
- * block hidden from its first line to its last.
- */
 export function lineRedactor(
   redact: (line: string) => string,
 ): (line: string) => string {

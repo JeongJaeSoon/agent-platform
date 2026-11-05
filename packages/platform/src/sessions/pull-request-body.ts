@@ -108,7 +108,6 @@ type Cleaned = {
   related: string[];
 };
 
-/** What each field puts in a body, without its heading. */
 function blocksOf(fields: Cleaned): SectionBlocks {
   const bullets = (items: readonly string[]) =>
     items.map((item) => `- ${item}`).join("\n");
@@ -122,10 +121,6 @@ function blocksOf(fields: Cleaned): SectionBlocks {
   };
 }
 
-/**
- * The fields on the platform's default layout, or on the repository's
- * template when there is one: its own sections kept, the fields put in.
- */
 function assemble(
   fields: Cleaned,
   locale: UserLocale,
@@ -260,12 +255,9 @@ export function renderPullRequestBody(input: {
     id: string;
     repositories: Readonly<Record<string, { url: string }>>;
   };
-  /** The repository's template, made inert; absent: the default layout. */
   template?: PreparedTemplate | null | undefined;
 }): { body: string; relatedDropped: number; templateUsed: boolean } {
   const { fields, locale, tail, maxLength, redact } = input;
-  // The template is the repository's text, but what is posted goes through
-  // the same redaction as the agent's.
   const redactRow = lineRedactor(redact);
   let template: PreparedTemplate | null =
     input.template == null
@@ -336,8 +328,6 @@ export function renderPullRequestBody(input: {
     const field = SHRINK_ORDER.find(shrinkable);
     if (field === undefined) {
       if (template !== null) {
-        // The fields are gone and the template alone is too long: the
-        // platform's own layout, with the fields as they were given.
         template = null;
         return renderPullRequestBody({ ...input, template: null });
       }

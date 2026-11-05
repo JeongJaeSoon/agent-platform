@@ -22,13 +22,11 @@ import {
   sessions,
 } from "./schema.ts";
 
-/** None saved, or a value a later image wrote in another shape: the defaults. */
 export function pullRequestSettingsOf(stored: unknown): PullRequestSettings {
   const parsed = pullRequestSettingsSchema.safeParse(stored);
   return parsed.success ? parsed.data : DEFAULT_PULL_REQUEST_SETTINGS;
 }
 
-/** What a receipt keeps of a template: that it is set, its size and a hash. */
 function templateRecord(text: string | null) {
   return text === null
     ? null
@@ -49,7 +47,6 @@ function receiptView(settings: PullRequestSettings | null) {
       };
 }
 
-/** A row this image cannot read is no row: the workspace's values apply. */
 function agentSettingsOf(row: {
   formatting: string;
   template: string | null;
