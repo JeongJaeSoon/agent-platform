@@ -16,6 +16,7 @@ import { eq, inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
+import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
@@ -72,7 +73,7 @@ integration("push intent runner on PostgreSQL", () => {
   const intents = () => createPostgresPushIntents(db);
   const requests = () => createPostgresPushRequests(db);
 
-  function runner() {
+  function pushService() {
     const real = requests();
     const service = createPushRequestService({
       authorization: createAuthorizationPolicy(),
@@ -96,6 +97,11 @@ integration("push intent runner on PostgreSQL", () => {
         readPushSourceAt: async () => pinned,
       },
     });
+    return service;
+  }
+
+  function runner() {
+    const service = pushService();
     return createPushIntentRunner({
       store: intents(),
       createFromIntent: (job) => service.createFromIntent(job),
@@ -226,6 +232,30 @@ integration("push intent runner on PostgreSQL", () => {
       gitCommit: PINNED_COMMIT,
       intent: { title: "from the turn" },
     });
+  });
+
+  test("a reservation made after the runner claimed the intent still reaches the request", async () => {
+    pinned = { status: "ready", revision: 1, gitCommit: PINNED_COMMIT };
+    const intent = await pinnedIntent();
+    await db
+      .update(pushIntents)
+      .set({ pullRequest: null })
+      .where(eq(pushIntents.id, intent.id));
+    const job = await intents().claimNext(60_000);
+    if (job?.id !== intent.id) throw new Error("claimed another intent");
+    expect(job.pullRequest ?? null).toBeNull();
+    // The model reserves the pull request while the runner holds the claim.
+    const reserved = await createPostgresPullRequests(db).schedule({
+      ownerId: OWNER,
+      sessionId: intent.sessionId,
+      ref: { pushIntentId: intent.id },
+      content: { title: "reserved late" },
+      actor: ACTOR,
+    });
+    expect(reserved.kind).toBe("scheduled");
+    await pushService().createFromIntent(job);
+    const [request] = await requestsOf(intent.sessionId);
+    expect(request?.pullRequestIntent).toEqual({ title: "reserved late" });
   });
 
   test("the session's list shows the request's flow and PR stage beside the intents", async () => {

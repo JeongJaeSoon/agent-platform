@@ -13,7 +13,7 @@ import {
   type PullRequestStore,
   type ScheduleOutcome,
 } from "@werft-ai/platform";
-import { and, asc, desc, eq, gt, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import type { Database } from "./queries.ts";
 import {
@@ -414,7 +414,9 @@ export function createPostgresPullRequests(db: Database): PullRequestStore {
               eq(pushRequests.sessionId, sessionId),
               eq(pushRequests.repositoryId, request.repositoryId),
               eq(pushRequests.targetBranch, request.targetBranch),
-              gt(pushRequests.createdAt, request.createdAt),
+              // Compared inside the database: a JavaScript Date keeps only
+              // milliseconds, and two requests may share one.
+              sql`${pushRequests.createdAt} > (SELECT created_at FROM push_requests WHERE id = ${request.id})`,
               ne(pushRequests.id, request.id),
             ),
           )

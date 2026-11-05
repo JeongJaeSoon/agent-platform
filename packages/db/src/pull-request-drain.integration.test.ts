@@ -297,6 +297,17 @@ integration("postgres pull request drain", () => {
       await client.query("SET session_replication_role = replica");
       const workspace = crypto.randomUUID();
       const installation = crypto.randomUUID();
+      const agent = crypto.randomUUID();
+      // The outbox row references these two for real, from another
+      // connection, so they are rows and not skipped checks.
+      await client.query(
+        "INSERT INTO workspaces (id, slug, name) VALUES ($1, $2, 'w')",
+        [workspace, `w-${workspace}`],
+      );
+      await client.query(
+        "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'a')",
+        [agent, workspace],
+      );
       const appId = `A${crypto.randomUUID().slice(0, 8)}`;
       await client.query(
         "INSERT INTO slack_apps (id, workspace_id, kind, state, app_id, redirect_url) VALUES ($1, $2, 'link', 'creating', $3, 'https://example.invalid/cb')",
@@ -316,7 +327,7 @@ integration("postgres pull request drain", () => {
           installation,
           crypto.randomUUID(),
           `ref-${sessionId}`,
-          crypto.randomUUID(),
+          agent,
         ],
       );
     } finally {
@@ -346,6 +357,30 @@ integration("postgres pull request drain", () => {
     expect((notices[0]?.body as { text: string }).text).toContain(
       "intent_invalid",
     );
+  });
+
+  test("a session someone else holds does not stall a younger request in another session", async () => {
+    const older = await due();
+    const younger = await due();
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        older.sessionId,
+      ]);
+      const claimed = await Promise.race([
+        drain.claimNextDue(60_000),
+        new Promise<"stalled">((resolve) =>
+          setTimeout(() => resolve("stalled"), 3_000),
+        ),
+      ]);
+      expect(claimed).not.toBe("stalled");
+      expect(claimed).toMatchObject({ id: younger.id });
+      expect((await row(older.id))?.prState).toBe("due");
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
   });
 
   test("a legacy request with an invalid intent is failed without a notice", async () => {

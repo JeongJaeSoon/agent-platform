@@ -997,6 +997,21 @@ export function createPostgresPushRequests(
 
     finish(job, outcome) {
       return db.transaction(async (tx) => {
+        // The session first, then the request, as every other writer does:
+        // the notice written below references the session, and a schedule
+        // that holds the session while it waits for this request would
+        // otherwise wait on each other.
+        const [owner] = await tx
+          .select({ sessionId: pushRequests.sessionId })
+          .from(pushRequests)
+          .where(eq(pushRequests.id, job.id))
+          .limit(1);
+        if (!owner) return false;
+        await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.id, owner.sessionId))
+          .for("update");
         const [row] = await tx
           .select()
           .from(pushRequests)
