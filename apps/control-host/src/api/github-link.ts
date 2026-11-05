@@ -21,7 +21,7 @@ export function githubCallbackUrl(consoleOrigin: string | null): string | null {
 // no record (as for Slack), and GitHub's code is single-use on its side
 // ---------------------------------------------------------------------------
 
-export const GITHUB_LINK_COOKIE_NAME = "ap_github_link";
+export const GITHUB_LINK_COOKIE_NAME = "werft_github_link";
 const GITHUB_LINK_COOKIE_PATH = "/v1/linked-accounts/github";
 export const GITHUB_LINK_TTL_MS = 10 * 60 * 1000;
 

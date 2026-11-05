@@ -1457,12 +1457,12 @@ describe("principal middleware", () => {
       ).status,
     ).toBe(401);
 
-    // A sibling subdomain can set `ap_session` with Domain and a longer Path,
+    // A sibling subdomain can set `werft_session` with Domain and a longer Path,
     // which browsers send first; it cannot set the `__Host-` name, so the
     // planted cookie is simply not ours.
     expect(WEB_SESSION_COOKIE_NAME).toStartWith("__Host-");
     const shadowed = await h.app.request("/v1/whoami", {
-      headers: { Cookie: `ap_session=aps_planted; ${cookie}` },
+      headers: { Cookie: `werft_session=aps_planted; ${cookie}` },
     });
     expect(shadowed.status).toBe(200);
     expect(await shadowed.json()).toMatchObject({
@@ -1715,7 +1715,7 @@ describe("CSRF", () => {
     expect(read.status).toBe(200);
   });
 
-  test("the header takes the current value, the pre-rename value and nothing else", async () => {
+  test("the header takes the current value and nothing else, the pre-rename value included", async () => {
     const h = harness();
     await h.bootstrap();
     const cookie = cookieOf(await h.login());
@@ -1726,25 +1726,24 @@ describe("CSRF", () => {
         { Cookie: cookie, [CSRF_HEADER_NAME]: value, ...extra },
       );
 
-    for (const value of ["werft-web", "agent-platform-web"]) {
-      expect((await send(value)).status).toBe(201);
-      expect(
-        (await send(value, { "Sec-Fetch-Site": "cross-site" })).status,
-      ).toBe(403);
-      expect(
-        (
-          await send(value, {
-            Host: "app.example",
-            Origin: "https://evil.example",
-          })
-        ).status,
-      ).toBe(403);
-    }
+    expect((await send("werft-web")).status).toBe(201);
+    expect(
+      (await send("werft-web", { "Sec-Fetch-Site": "cross-site" })).status,
+    ).toBe(403);
+    expect(
+      (
+        await send("werft-web", {
+          Host: "app.example",
+          Origin: "https://evil.example",
+        })
+      ).status,
+    ).toBe(403);
 
     for (const value of [
       "",
       "werft",
       "WERFT-WEB",
+      "agent-platform-web",
       "agent-platform",
       "XMLHttpRequest",
       "werft-web, agent-platform-web",

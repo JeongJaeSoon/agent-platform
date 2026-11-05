@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * The verify-agent-platform skill's up.sh and its address pool check against
+ * The verify-werft skill's up.sh and its address pool check against
  * a stand-in for docker: what the daemon reports as its pools and networks.
  */
 
 const scripts = join(
   import.meta.dir,
   "..",
-  ".claude/skills/verify-agent-platform/scripts",
+  ".claude/skills/verify-werft/scripts",
 );
 
 // OrbStack's shape: every pool a single /24.
@@ -33,7 +33,7 @@ const network = (
   IPAM: { Config: subnets.map((Subnet) => ({ Subnet })) },
 });
 
-describe("verify-agent-platform up.sh and address-pool.sh", () => {
+describe("verify-werft up.sh and address-pool.sh", () => {
   let dir: string;
 
   beforeEach(async () => {

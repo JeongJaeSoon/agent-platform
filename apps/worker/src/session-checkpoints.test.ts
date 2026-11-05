@@ -892,6 +892,7 @@ describe("a publish that fails for a reason other than the mirror", () => {
             tips: [],
           },
           gitCommit: "c".repeat(40),
+          headCommit: "c".repeat(40),
           untracked,
         },
       };
@@ -1268,6 +1269,51 @@ describe("unchanged untracked files", () => {
       untracked_unchanged: 0,
       untracked_uploads: 1,
     });
+  });
+});
+
+describe("a checkpoint of uncommitted tracked files", () => {
+  const manifestAfter = async (headMoved: boolean) => {
+    const objects = createMemoryCheckpointObjectStore();
+    const h = harness({
+      objects,
+      captureWorkspace: async (input) => {
+        const captured = await captureWorkspace(input);
+        return captured.status === "refused" || !headMoved
+          ? captured
+          : {
+              ...captured,
+              // A HEAD other than the workspace commit is what a snapshot
+              // of uncommitted edits looks like to the publisher.
+              capture: { ...captured.capture, headCommit: "f".repeat(40) },
+            };
+      },
+    });
+    const { claim, mirror } = await opened(h);
+    await mirror.append(root, [{ type: "user", uuid: "u1", message: "hi" }]);
+    const ref = await h.port.capture(ready, {
+      scope: scopeOf(claim),
+      recheck: async () => ready,
+    });
+    if (ref === null) {
+      throw new Error(
+        `checkpoint was not published: ${JSON.stringify(h.warnings)}`,
+      );
+    }
+    const bytes = await objects.get(ref.manifest_ref, ref.manifest_version);
+    if (bytes === undefined) throw new Error("manifest missing");
+    return claudeCheckpointCodec.decode(bytes);
+  };
+
+  test("names the snapshot commit without judging it, so request_push can say what to do", async () => {
+    const manifest = await manifestAfter(true);
+    expect(manifest.attribution).toEqual({
+      mismatches: [{ commit: manifest.workspace.gitCommit, problems: [] }],
+    });
+  });
+
+  test("leaves the manifest without an attribution entry when HEAD is the workspace commit", async () => {
+    expect((await manifestAfter(false)).attribution).toBeUndefined();
   });
 });
 

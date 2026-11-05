@@ -26,8 +26,17 @@ export type InstallationProfileRecord = {
    */
   repository_ids: string[] | null;
   github_app_repositories: GitHubAppRepositories;
-  /** Which ceiling judges its repositories; absent reads as `profile`. */
-  repository_scope?: RepositoryScope;
+  /**
+   * Which ceiling judges its repositories; absent reads as `profile`. Null:
+   * the row names no repository, and the workspace's ceiling judges them.
+   */
+  repository_scope?: RepositoryScope | null;
+  /** The version this one narrows; a block on it stops this one too. */
+  derived_from?: string | null;
+  /** The workspace an admin made it for; null or absent is installation-wide. */
+  workspace_id?: string | null;
+  /** The author's name for it, when `name` is the server's lineage key. */
+  display_name?: string | null;
   /**
    * The tools blocked when it was made with a deny, as named in the tool
    * catalog `tool_catalog_id`; null (or absent, before T1b) from an allow

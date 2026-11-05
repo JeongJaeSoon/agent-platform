@@ -115,6 +115,13 @@ export const PUSH_REFUSAL_ERRORS: Record<
     message:
       "A commit lacks the author or trailers the platform issues for this session; details lists the commits",
   },
+  // The agent reads this text: it says what to do, and that the retry comes a
+  // turn later because a checkpoint is taken when a turn ends.
+  uncommitted_changes: {
+    code: "FORBIDDEN",
+    message:
+      "The last checkpoint holds uncommitted changes to tracked files, so its commit is a platform snapshot, not yours. Commit them, then call request_push again in a later turn, after the turn in which you committed has ended",
+  },
   unrelated_history: {
     code: "FORBIDDEN",
     message:

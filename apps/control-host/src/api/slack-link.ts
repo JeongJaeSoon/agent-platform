@@ -98,7 +98,7 @@ export function signInWithSlackOff(
 // One-time state, held by the browser
 // ---------------------------------------------------------------------------
 
-export const SLACK_LINK_COOKIE_NAME = "ap_slack_link";
+export const SLACK_LINK_COOKIE_NAME = "werft_slack_link";
 const SLACK_LINK_COOKIE_PATH = "/v1/linked-accounts/slack";
 export const SLACK_LINK_TTL_MS = 10 * 60 * 1000;
 

@@ -6,7 +6,7 @@
 npm install @werft-ai/sdk
 ```
 
-이 명령은 릴리스(dist-tag `latest`)를 설치한다. main 프리릴리스(dist-tag `main`)는 아직 게시되지 않았다. 게시되기 전까지는 위 명령으로 `latest`를 설치한다. 게시되면 `npm install @werft-ai/sdk@main`으로 설치하고, 버전은 `<릴리스 버전>-main.<커밋 12자>`이다. dist-tag는 `npm view @werft-ai/sdk dist-tags`로 본다.
+이 명령은 릴리스(dist-tag `latest`)를 설치한다. main의 최신 프리릴리스는 `npm install @werft-ai/sdk@main`이다. 버전은 `<릴리스 버전>-main.<커밋 12자>`이고, dist-tag는 `npm view @werft-ai/sdk dist-tags`로 본다.
 
 ```ts
 import { Werft, waitForTurn } from "@werft-ai/sdk";

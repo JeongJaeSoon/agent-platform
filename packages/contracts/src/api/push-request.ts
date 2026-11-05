@@ -184,6 +184,9 @@ export const PUSH_REFUSAL_VALUES = [
   // A commit the session made lacks the author, committer, co-author or
   // Agent-Session line the platform issued; `mismatches` names them.
   "attribution_mismatch",
+  // The pinned checkpoint commit is the platform's snapshot of tracked files
+  // the agent left uncommitted, not a commit of the session's.
+  "uncommitted_changes",
   // The deciding key is the key that started the session (GA-8).
   "self_approval",
   // A policy's approval the agent's settings no longer give: it went back to

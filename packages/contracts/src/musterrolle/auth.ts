@@ -28,7 +28,7 @@ import {
  * Path other than `/`, so a sibling subdomain cannot plant a same-named
  * cookie that shadows the real one (fixation or a lasting 401).
  */
-export const WEB_SESSION_COOKIE_NAME = "__Host-ap_session";
+export const WEB_SESSION_COOKIE_NAME = "__Host-werft_session";
 /** Cookie-path mutations must also carry this header (03 §3.2 CSRF). */
 export const CSRF_HEADER_NAME = "x-requested-with";
 export const CSRF_HEADER_VALUE = "werft-web";
@@ -108,7 +108,7 @@ export const loginResponseSchema = z
  * Holds one Google sign-in flow's state, nonce and PKCE verifier. `__Host-`
  * for the reason given at WEB_SESSION_COOKIE_NAME.
  */
-export const GOOGLE_LOGIN_COOKIE_NAME = "__Host-ap_google_login";
+export const GOOGLE_LOGIN_COOKIE_NAME = "__Host-werft_google_login";
 export const GOOGLE_LOGIN_FLOW_TTL_MINUTES = 10;
 export const startGoogleLoginResponseSchema = z
   .object({ authorization_url: z.url() })

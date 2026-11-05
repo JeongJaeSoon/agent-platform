@@ -330,7 +330,7 @@ export class DemoClient {
     this.cookie =
       response.headers
         .getSetCookie()
-        .find((value) => value.startsWith("__Host-ap_session="))
+        .find((value) => value.startsWith("__Host-werft_session="))
         ?.split(";")[0] ?? "";
   }
 
