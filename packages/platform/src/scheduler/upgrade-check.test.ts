@@ -182,6 +182,18 @@ describe("assessUpgrade", () => {
       ).toBe("proceed");
     });
 
+    test("a session with no recorded combination is listed too, as for a replaced image", () => {
+      const assessment = assessUpgrade({
+        ...kept,
+        sessions: [on("s-unrecorded", null)],
+        approved: [],
+      });
+      expect(assessment.verdict).toBe("refused");
+      expect(assessment.affected).toEqual([
+        { sessionId: "s-unrecorded", reason: "unrecorded" },
+      ]);
+    });
+
     test("proceeds when no session was sealed on it", () => {
       expect(
         assessUpgrade({

@@ -51,7 +51,7 @@ if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VER
 fi
 ```
 
-- `worker-previous.json` は設置の隣に保管し、次のアップグレードにも渡します。抜かすと、直前としてデプロイされているイメージがサポート期間から外れます。アップグレード前の検査は、対象の 2 つのイメージのどちらとも合わないセッションを選び、承認するまで `refused` で止まります。該当するセッションがなければ通り、サポート期間だけが縮みます。
+- `worker-previous.json` は設置の隣に保管し、次のアップグレードにも渡します。worker イメージが変わらないアップグレードで抜かすと、今デプロイされている直前のイメージがサポート期間から外れます。アップグレード前の検査は、対象の 2 つのイメージのどちらとも合わないセッションと、組み合わせが記録されていないセッションを選び、承認するまで `refused` で止まります。誤って抜かした場合は承認せず、ファイルを入れてもう一度実行します。選ばれたセッションがなければ通ります。ただし、最初の checkpoint の前のセッションと、検査の後に直前のイメージの worker が残す checkpoint は検査に見えないため、そのセッションは再開時に `recovery_required` で止まることがあります。
 - `--revision` を付けないと、失敗したアップグレードがある場合に上げようとしたイメージが出ます。今デプロイされている revision を指定します。
 - `helm get values --all` の全体を values ファイルとして渡しません。古い digest が新しい chart の値を上書きします。`.images.worker` だけを取り出します。
 - 初めての設置の後で worker イメージが変わらないアップグレードには、渡すファイルがありません。それで構いません。
@@ -67,7 +67,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | `verdict` | 意味 |
 | --- | --- |
 | `proceed` | 進みます |
-| `refused` | 止まります。選ばれたセッションが承認リストと違うか、worker イメージが変わるのに `images.workerPrevious` が今デプロイされているイメージではありません。後者は承認で越えられません。worker イメージが変わらなくても、今デプロイされている直前のイメージを外すと、対象の 2 つのイメージのどちらとも合わないセッションがリストに載ります |
+| `refused` | 止まります。選ばれたセッションが承認リストと違うか、worker イメージが変わるのに `images.workerPrevious` が今デプロイされているイメージではありません。後者は承認で越えられません。worker イメージが変わらなくても、今デプロイされている直前のイメージを外すか変えるとセッションを比較するので、ここで止まることがあります。この場合は承認で越えられます |
 | `check_failed` | 止まります。DB またはイメージの組み合わせを読めませんでした |
 
 選ばれたセッションが再開できなくてもよい場合は、`affected` のリストを `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` で渡し、同じアップグレードをもう一度実行します。承認リストは release の values に残るので、アップグレードのたびに `[]` で空にしてリストを読み直します。判定表と例外は [Kubernetes の設置 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사) にあります。

@@ -51,7 +51,7 @@ if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VER
 fi
 ```
 
-- Keep `worker-previous.json` next to the installation and pass it on the next upgrade too. If you leave it out, the image deployed as previous drops out of the support window. The pre-upgrade check then lists the sessions that match neither target image and stops with `refused` until you approve them. With no such session, it passes and the window just shrinks.
+- Keep `worker-previous.json` next to the installation and pass it on the next upgrade too. If you leave it out of an upgrade that keeps the worker image, the previous image deployed now drops out of the support window. The pre-upgrade check then picks the sessions that match neither target image and those with no recorded combination, and stops with `refused` until you approve them. If you left the file out by mistake, do not approve: add it and run the upgrade again. With no picked session it passes. The check cannot see sessions with no first checkpoint, or checkpoints that workers on the previous image leave after it runs, so those sessions may stop with `recovery_required` when they resume.
 - Without `--revision`, a failed upgrade makes the command return the image it tried to deploy. Name the revision that is deployed now.
 - Do not pass the whole `helm get values --all` output as a values file. The old digests would override the new chart's values. Take `.images.worker` only.
 - An upgrade after a first install, where the worker image has not changed, has no file to pass. That is fine.
@@ -67,7 +67,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | `verdict` | Meaning |
 | --- | --- |
 | `proceed` | The upgrade continues |
-| `refused` | Stops. The picked sessions differ from the approved list, or the worker image changes and `images.workerPrevious` is not the image deployed now. The second case cannot be approved. Even when the worker image stays, dropping the previous image deployed now lists the sessions that match neither target image |
+| `refused` | Stops. The picked sessions differ from the approved list, or the worker image changes and `images.workerPrevious` is not the image deployed now. The second case cannot be approved. Even when the worker image stays, dropping or replacing the previous image deployed now compares the sessions, so the upgrade can stop here. That case can be approved |
 | `check_failed` | Stops. The database or the image combination could not be read |
 
 If it is acceptable that the picked sessions do not resume, pass the `affected` list as `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` and run the same upgrade again. The approved list stays in the release values, so reset it to `[]` on each upgrade and read the list again. The verdict table and its exceptions are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
