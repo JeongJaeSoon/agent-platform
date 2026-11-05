@@ -6,7 +6,7 @@ description: The steps to install Werft on one Linux server from the published i
 Install Werft on one Linux server with Docker Compose. You do not build the images. You pull the published ones, pinned by digest. This page lists the steps up to the point where `/readyz` returns 200. To run on Kubernetes, read [Kubernetes install](/run-server/self-hosting/kubernetes) instead.
 
 <Callout type="warn">
-These steps were run with the published images on an Ubuntu (arm64) machine in OrbStack, from step 1 through step 6 and `key create` in step 7. Creating the first owner on the `/bootstrap` screen in step 7, `reset`, and a real model call were not checked. If anything differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md) (in Korean).
+These steps were run with the published images on an Ubuntu (arm64) machine in OrbStack, from step 1 through step 6 and `key create` in step 7. Creating the first owner on the `/bootstrap` screen in step 7 and a real model call were not checked. `reset` was run once on an installation with no sessions, after its containers were taken down without `-v`; it exited 0 and removed the postgres volume. If anything differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md) (in Korean).
 </Callout>
 
 <Callout type="warn">
@@ -204,7 +204,16 @@ scripts/test-ops.sh reset --yes
 
 `reset` removes this installation's containers and volumes (the database and LocalStack), and the worker containers and workspace volumes that sessions created. Sessions, checkpoints and API keys go with them, so take a [backup](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md) first.
 
-`reset` removes the volumes too. To take the containers down and keep the volumes, use `docker compose -p agent-platform-test-ops down`. It does not take `-v`, so the volumes of the database and LocalStack stay. This was checked on an installation with no sessions; running `deploy` again on the volumes that stay was not checked.
+`reset` removes the volumes too. To take the containers down and keep the volumes, run `down` without `-v`, with the same compose layers you installed with. `docker compose -p agent-platform-test-ops down` alone reads the development setup at the repository root and does not find this installation's services. The last `-f` follows the object store: `infra/compose.test-ops.localstack.yml` for LocalStack, `infra/compose.test-ops.s3.yml` for S3.
+
+```bash
+docker compose --project-name agent-platform-test-ops \
+  --env-file /etc/agent-platform/test-ops.env --profile apps \
+  -f infra/compose.core.yml -f infra/compose.test-ops.yml \
+  -f infra/compose.test-ops.localstack.yml down
+```
+
+What stays is the database volume. LocalStack keeps S3 in memory with no volume, so taking its container down loses the checkpoint objects even without `-v`. Bringing the installation up again then leaves the database holding checkpoints while the bucket is empty, and the API refuses to start. With LocalStack, keep that in mind before taking the containers down; to keep the data, use an S3 installation. The command with exactly these compose layers was not run. Bringing the same project down without `-v` was checked on an installation with no sessions: the containers and network were removed and the postgres volume stayed. Running `deploy` again on the volume that stays was not checked.
 
 ## Next
 

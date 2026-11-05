@@ -6,7 +6,7 @@ description: 公開イメージで Linux サーバー1台に Werft を設置す�
 Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページは、`/readyz` が 200 を返すところまでの手順を書いています。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
 
 <Callout type="warn">
-この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成、`reset`、実際のモデル呼び出しは確認していません。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)(韓国語)に従ってください。
+この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成と実際のモデル呼び出しは確認していません。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)(韓国語)に従ってください。
 </Callout>
 
 <Callout type="warn">
@@ -204,7 +204,16 @@ scripts/test-ops.sh reset --yes
 
 `reset` は、この設置のコンテナと volume(DB、LocalStack)、セッションが作った worker コンテナと workspace volume を削除します。セッション、checkpoint、API key も一緒に消えるので、削除前に[バックアップ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)を取ります。
 
-`reset` は volume まで消します。volume を残してコンテナだけを止めるには `docker compose -p agent-platform-test-ops down` を使います。`-v` を付けないので、DB と LocalStack の volume は残ります。セッションがない設置で確認しており、残った volume に対して再度 `deploy` する動作は確認していません。
+`reset` は volume まで消します。volume を残してコンテナだけを止めるには、設置したときと同じ compose 構成で `-v` なしの `down` を使います。構成を省いて `docker compose -p agent-platform-test-ops down` だけにすると、リポジトリ直下の開発用構成を読み、この設置のサービスが見つかりません。最後の `-f` は object store に合わせ、LocalStack なら `infra/compose.test-ops.localstack.yml`、S3 なら `infra/compose.test-ops.s3.yml` です。
+
+```bash
+docker compose --project-name agent-platform-test-ops \
+  --env-file /etc/agent-platform/test-ops.env --profile apps \
+  -f infra/compose.core.yml -f infra/compose.test-ops.yml \
+  -f infra/compose.test-ops.localstack.yml down
+```
+
+残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。その状態で再び起動すると、DB には checkpoint が残っているのに bucket が空なので、API は起動を拒否します。LocalStack の設置では、コンテナを止める前にこの点を考慮してください。データを守るなら S3 の設置を使います。この compose 構成そのままのコマンドは実行して確認していません。同じ project を `-v` なしで止めたとき、コンテナと network が削除され postgres の volume が残ることは、セッションがない設置で確認しました。残った volume に対して再度 `deploy` する動作は確認していません。
 
 ## 次のステップ
 
