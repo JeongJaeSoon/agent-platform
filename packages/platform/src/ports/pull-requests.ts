@@ -54,6 +54,15 @@ export const PULL_REQUEST_REFUSAL_ERRORS: Record<
     code: "PULL_REQUEST_MERGED",
     message: "The pull request was merged; it cannot be closed or reopened",
   },
+  superseded: {
+    code: "PUSH_REQUEST_RESOLVED",
+    message:
+      "A later push request to the same target exists; attach the pull request content to it",
+  },
+  intent_ended: {
+    code: "PUSH_REQUEST_RESOLVED",
+    message: "The push intent ended before it became a push request",
+  },
 };
 
 export type PullRequestOperation =
@@ -75,6 +84,34 @@ export type PullRequestSource = {
   gitCommit: string;
 };
 
+/** What a pull request is scheduled against: one id, never both. */
+export type ScheduleRef =
+  | { pushRequestId: string; pushIntentId?: undefined }
+  | { pushIntentId: string; pushRequestId?: undefined };
+
+export type ScheduleOutcome =
+  /** The content is held; the drain opens the pull request after the push. */
+  | {
+      kind: "scheduled";
+      pushRequestId: string | null;
+      pushIntentId: string | null;
+      /** Written in the transaction that held the content. */
+      receiptId: string;
+    }
+  /**
+   * The push request is past scheduling (a pull request is recorded, or its
+   * stage ended); the caller answers through the open path, which also
+   * retries a failed stage on an explicit call.
+   */
+  | { kind: "open_now"; pushRequestId: string }
+  | {
+      kind: "refused";
+      refusal: PullRequestRefusal;
+      /** Set for `not_pushed`, so the caller can tell rejected from failed. */
+      pushRequestState?: PushRequestState;
+      details?: Readonly<Record<string, unknown>>;
+    };
+
 export type PullRequestReceipt = {
   ownerId: string;
   sessionId: string;
@@ -86,6 +123,24 @@ export type PullRequestReceipt = {
 };
 
 export interface PullRequestStore {
+  /**
+   * Holds `content` for a pull request that cannot be opened yet, in one
+   * transaction that takes the session row, then the intent, then the push
+   * request (the order every writer uses). The first content stays: a second
+   * call answers `scheduled` and changes nothing, and no call moves a
+   * finished stage back. An already `pushed` request with no stage becomes
+   * `due` here. A later request to the same repository and target refuses
+   * `superseded`, judged by `created_at` under the session lock. The
+   * `scheduled` receipt is written in the same transaction; a refusal or
+   * `open_now` writes none (the caller does).
+   */
+  schedule(input: {
+    ownerId: string;
+    sessionId: string;
+    ref: ScheduleRef;
+    content: unknown;
+    actor: ReceiptActor | null;
+  }): Promise<ScheduleOutcome>;
   /** null when the owner has no such push request in the session. */
   findSource(
     ownerId: string,
@@ -110,7 +165,12 @@ export interface PullRequestStore {
    * Writes the receipt and returns its id: `failed` with the refusal's
    * error when `result.refusal` is set, `succeeded` otherwise.
    */
-  recordReceipt(input: PullRequestReceipt): Promise<string>;
+  recordReceipt(
+    input: Omit<PullRequestReceipt, "pushRequestId"> & {
+      // Null for a refusal on a push intent that has no push request yet.
+      pushRequestId: string | null;
+    },
+  ): Promise<string>;
   /**
    * The receipt of a close or reopen GitHub took, and in the same
    * transaction the session's outcome for `url` made due for the

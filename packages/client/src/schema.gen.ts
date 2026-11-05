@@ -1387,7 +1387,7 @@ export interface paths {
         put?: never;
         /**
          * Open a pull request from a pushed request
-         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.
+         * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one (without `?schedule=true`; a request that is not pushed yet is refused with `PUSH_NOT_PUSHED`, as before; with `?schedule=true` the call is held until the push finishes, and `PUSH_REQUEST_RESOLVED` answers a request a later one superseded), and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.
          *
          *     The content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on its default template, a heading per field that has content, in Korean; `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.
          *
@@ -4317,6 +4317,10 @@ export interface components {
             }[];
             body?: string;
         };
+        OpenPullRequestQuery: {
+            /** @constant */
+            schedule?: "true";
+        };
         CommentPullRequestRequest: {
             body: string;
             marker?: string;
@@ -6022,6 +6026,15 @@ export interface components {
             /** Format: uuid */
             receipt_id: string;
         };
+        ScheduledPullRequestResponse: {
+            /** @constant */
+            status: "scheduled";
+            push_request_id: string | null;
+            push_intent_id: string | null;
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        OpenPullRequestResult: components["schemas"]["OpenPullRequestResponse"] | components["schemas"]["ScheduledPullRequestResponse"];
         CommentPullRequestResponse: {
             pull_request: {
                 /** Format: uuid */
@@ -18937,7 +18950,9 @@ export interface operations {
     };
     openPullRequest: {
         parameters: {
-            query?: never;
+            query?: {
+                schedule?: "true";
+            };
             header?: {
                 /** @description Required with a cookie session: the literal `werft-web`. */
                 "X-Requested-With"?: "werft-web";
@@ -18959,7 +18974,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The pull request: 201 when this call opened it, 200 with `created: false` when it was already open. */
+            /** @description The pull request: 201 when this call opened it, 200 with `created: false` when it was already open. With `?schedule=true` and a push that is not finished, 202 with `status: "scheduled"`: the platform keeps the content of the first call and opens the pull request once the push is done (a repeated call answers `scheduled` again and changes nothing). */
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -18986,10 +19001,10 @@ export interface operations {
                      *       "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                      *     }
                      */
-                    "application/json": components["schemas"]["OpenPullRequestResponse"];
+                    "application/json": components["schemas"]["OpenPullRequestResult"];
                 };
             };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; a query parameter or the page cursor is invalid. Fix the request before retrying. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

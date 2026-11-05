@@ -4,19 +4,22 @@ import {
   PULL_REQUEST_OUTCOME_TITLE_MAX_LENGTH,
   type PullRequest,
   type PullRequestReceiptResult,
+  type PullRequestRefusal,
   type PushRequestState,
 } from "@werft-ai/contracts";
 import {
   PULL_REQUEST_REFUSAL_ERRORS,
   type PullRequestReceipt,
   type PullRequestStore,
+  type ScheduleOutcome,
 } from "@werft-ai/platform";
-import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, ne, sql } from "drizzle-orm";
 import { queueAchievementJudgment } from "./achievement-judgments.ts";
 import type { Database } from "./queries.ts";
 import {
   agentReleases,
   pullRequests,
+  pushIntents,
   pushRequests,
   receipts,
   sessionOutcomes,
@@ -53,7 +56,10 @@ function publicPullRequest(row: Row): PullRequest {
 
 async function insertReceipt(
   tx: Database,
-  input: PullRequestReceipt,
+  // Null for the schedule of a push intent that has no push request yet.
+  input: Omit<PullRequestReceipt, "pushRequestId"> & {
+    pushRequestId: string | null;
+  },
 ): Promise<string> {
   const id = randomUUID();
   const { refusal } = input.result;
@@ -288,6 +294,152 @@ export async function savePullRequestIn(
 
 export function createPostgresPullRequests(db: Database): PullRequestStore {
   return {
+    schedule({ ownerId, sessionId: rawSessionId, ref, content, actor }) {
+      const sessionId = rawSessionId.toLowerCase();
+      const refused = (
+        refusal: PullRequestRefusal,
+        extra: Partial<Extract<ScheduleOutcome, { kind: "refused" }>> = {},
+      ): ScheduleOutcome => ({ kind: "refused", refusal, ...extra });
+      return db.transaction(async (tx): Promise<ScheduleOutcome> => {
+        // Lock order: session row, intent row, push request row.
+        const [session] = await tx
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(and(eq(sessions.id, sessionId), eq(sessions.ownerId, ownerId)))
+          .limit(1)
+          .for("update");
+        if (!session) return refused("not_found");
+        const scheduled = async (
+          repositoryId: string,
+          pushRequestId: string | null,
+          pushIntentId: string | null,
+        ): Promise<ScheduleOutcome> => ({
+          kind: "scheduled",
+          pushRequestId,
+          pushIntentId,
+          receiptId: await insertReceipt(tx, {
+            ownerId,
+            sessionId,
+            pushRequestId,
+            actor,
+            operation: "open_pull_request",
+            result: {
+              push_request_id: pushRequestId,
+              verdict: "allow",
+              refusal: null,
+              repository_id: repositoryId,
+              number: null,
+              url: null,
+              head: null,
+              base: null,
+              created: null,
+            },
+          }),
+        });
+        let requestId: string;
+        let intentId: string | null = null;
+        if (ref.pushIntentId !== undefined) {
+          const [intent] = await tx
+            .select()
+            .from(pushIntents)
+            .where(
+              and(
+                eq(pushIntents.id, ref.pushIntentId.toLowerCase()),
+                eq(pushIntents.sessionId, sessionId),
+                eq(pushIntents.ownerId, ownerId),
+              ),
+            )
+            .limit(1)
+            .for("update");
+          if (!intent) return refused("not_found");
+          if (intent.pushRequestId === null) {
+            if (intent.status !== "deferred" && intent.status !== "pinned") {
+              return refused("intent_ended", {
+                details: { intent_refusal: intent.refusalCode },
+              });
+            }
+            // The first content stays.
+            if (intent.pullRequest === null) {
+              await tx
+                .update(pushIntents)
+                .set({ pullRequest: content, updatedAt: sql`now()` })
+                .where(eq(pushIntents.id, intent.id));
+            }
+            return await scheduled(intent.repositoryId, null, intent.id);
+          }
+          requestId = intent.pushRequestId;
+          intentId = intent.id;
+        } else {
+          requestId = ref.pushRequestId.toLowerCase();
+        }
+        const [request] = await tx
+          .select()
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.id, requestId),
+              eq(pushRequests.sessionId, sessionId),
+              eq(pushRequests.ownerId, ownerId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!request) return refused("not_found");
+        const stage = request.prState;
+        // A recorded pull request or a finished stage is the open path's to
+        // answer; a scheduled call never moves either back.
+        // A pushed request made on the legacy flow, with no stage, still
+        // opens at once as it always did; only the actions flow schedules.
+        if (
+          (await findPullRequest(tx, ownerId, request.id)) !== null ||
+          (stage !== null && stage !== "due" && stage !== "opening") ||
+          (request.state === "pushed" &&
+            request.flow === "legacy" &&
+            stage === null &&
+            request.pullRequestIntent === null)
+        ) {
+          return { kind: "open_now", pushRequestId: request.id };
+        }
+        if (request.state === "rejected" || request.state === "failed") {
+          return refused("not_pushed", {
+            pushRequestState: request.state as PushRequestState,
+            details: { push_request_id: request.id },
+          });
+        }
+        const [later] = await tx
+          .select({ id: pushRequests.id })
+          .from(pushRequests)
+          .where(
+            and(
+              eq(pushRequests.sessionId, sessionId),
+              eq(pushRequests.repositoryId, request.repositoryId),
+              eq(pushRequests.targetBranch, request.targetBranch),
+              gt(pushRequests.createdAt, request.createdAt),
+              ne(pushRequests.id, request.id),
+            ),
+          )
+          .orderBy(asc(pushRequests.createdAt))
+          .limit(1);
+        if (later) {
+          return refused("superseded", {
+            details: { push_request_id: later.id },
+          });
+        }
+        const keep = request.pullRequestIntent !== null;
+        const due = request.state === "pushed" && stage === null;
+        if (!keep || due) {
+          await tx
+            .update(pushRequests)
+            .set({
+              pullRequestIntent: request.pullRequestIntent ?? content,
+              ...(due ? { prState: "due", prNextAttemptAt: null } : {}),
+            })
+            .where(eq(pushRequests.id, request.id));
+        }
+        return await scheduled(request.repositoryId, request.id, intentId);
+      });
+    },
+
     async findSource(ownerId, sessionId, pushRequestId) {
       const [row] = await db
         .select()

@@ -122,6 +122,7 @@ describe("githubMcpTools", () => {
     expect(githubMcpTools(settings({}))).toEqual([
       "request_push",
       "open_pull_request",
+      "get_push_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",
@@ -134,6 +135,7 @@ describe("githubMcpTools", () => {
     ).toEqual([
       "request_push",
       "open_pull_request",
+      "get_push_request",
       "update_pull_request",
       "comment_pull_request",
       "close_pull_request",
