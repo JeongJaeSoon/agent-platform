@@ -104,6 +104,8 @@ Take a [backup](/run-server/self-hosting/single-server#backup-and-restore) right
 
 If an upgrade stops before the new release is up (for example, the scheduler's quota check fails), the installation can stay stopped and `pending.json` stays in the state directory. In that state only `status`, `reset` and an `upgrade` whose release file has the same content as `pending.json` are allowed; every other command is refused, including an `upgrade` back to the previous release. Fix the cause and call `upgrade` again with the same target release file to clear it.
 
+If the installation was only taken down by a `compose down` or a host reboot, not by an upgrade, bring it back on the same volumes with `scripts/test-ops.sh start`, not `upgrade` or `deploy` ([Take it down](/run-server/self-hosting/single-server#take-it-down)). `start` refuses while `pending.json` exists.
+
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
 scripts/test-ops.sh upgrade release-new.json

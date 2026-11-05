@@ -104,6 +104,8 @@ kill "$PF"
 
 アップグレードが新しい release の起動前に止まると(例: scheduler の quota 検査の失敗)、設置は止まったままになり、状態ディレクトリに `pending.json` が残ります。この状態で許可されるのは、`status`、`reset`、そして `pending.json` と内容が同じ release ファイルを使う `upgrade` だけです。以前の release へ戻す `upgrade` を含め、他のコマンドは拒否されます。原因を直した後、同じ対象の release ファイルでもう一度 `upgrade` を呼ぶと解消します。
 
+アップグレードではなく `compose down` やホストの再起動で設置が止まっただけなら、`upgrade` や `deploy` ではなく `scripts/test-ops.sh start` で同じ volume のまま起動し直します([片付ける](/run-server/self-hosting/single-server#片付ける))。`pending.json` があるあいだ `start` は拒否します。
+
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
 scripts/test-ops.sh upgrade release-new.json
