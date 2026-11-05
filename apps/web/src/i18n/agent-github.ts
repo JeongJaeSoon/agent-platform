@@ -57,8 +57,6 @@ export const agentGitHubKo = {
     "워크스페이스가 허용한 GitHub App 저장소 가운데 고릅니다. 토큰은 고른 저장소 하나로만 좁혀 발급합니다.",
   "agentGitHub.repositoriesNone":
     "카탈로그에 GitHub 저장소가 없습니다. 운영자가 카탈로그에 추가합니다.",
-  "agentGitHub.repositoriesRequired":
-    "저장소를 하나 이상 고르면 저장할 수 있습니다.",
   "agentGitHub.repositoryUse": "사용",
   "agentGitHub.repositoryUnused": "안 씀",
   "agentGitHub.repositoryReason.repository_not_allowed":
@@ -244,7 +242,6 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Pick from the catalog's repositories that use a GitHub App. Each token is narrowed to the one repository.",
   "agentGitHub.repositoriesNone":
     "The catalog has no GitHub repository. The operator adds them.",
-  "agentGitHub.repositoriesRequired": "Pick at least one repository to save.",
   "agentGitHub.repositoryUse": "Used",
   "agentGitHub.repositoryUnused": "Not used",
   "agentGitHub.repositoryReason.repository_not_allowed":
@@ -434,8 +431,6 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "GitHub App を使うカタログのリポジトリから選びます。トークンは選んだリポジトリ 1 つに絞って発行します。",
   "agentGitHub.repositoriesNone":
     "カタログに GitHub のリポジトリがありません。運用者が追加します。",
-  "agentGitHub.repositoriesRequired":
-    "リポジトリを 1 つ以上選ぶと保存できます。",
   "agentGitHub.repositoryUse": "使う",
   "agentGitHub.repositoryUnused": "使わない",
   "agentGitHub.repositoryReason.repository_not_allowed":

@@ -696,7 +696,66 @@ describe("에이전트 GitHub 탭", () => {
     expect(sent[0]?.start_repository_id).toBeNull();
   });
 
-  test("저장소 없이 시작한 설정은 하나 이상 골라야 저장한다", async () => {
+  test("마지막 저장소까지 끄는 변경도 저장하고, 시작 저장소는 함께 풀린다", async () => {
+    const { server } = await activeAgent();
+    const sent: {
+      settings: Settings;
+      start_repository_id: string | null;
+    }[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(
+        server,
+        { ...TAB, start_repository_id: "werft-sandbox" },
+        {
+          [`PUT ${PATH}/github/settings`]: async (request) => {
+            sent.push(await request.json());
+            return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+          },
+        },
+      ),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "저장소" });
+    await user.click(switchNamed("werft-sandbox"));
+    const save = (await screen.findByRole("button", {
+      name: "저장",
+    })) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    await user.click(save);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.settings.repositories).toEqual([]);
+    expect(sent[0]?.start_repository_id).toBeNull();
+  });
+
+  test("시작 저장소가 없던 초안은, 다른 곳에서 시작 저장소를 정해도 손으로 되돌리면 사라진다", async () => {
+    const { server } = await activeAgent();
+    let live: Tab = TAB;
+    const { services } = renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github`]: () => json(200, live),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "권한" });
+    await user.click(switchNamed("push 전 사람 승인"));
+    await screen.findByText("저장하지 않은 변경 1건");
+    live = {
+      ...TAB,
+      settings_revision: 4,
+      start_repository_id: "werft-sandbox",
+    };
+    await services.queryClient.invalidateQueries();
+    await screen.findByText(/다른 곳에서 GitHub 설정이 바뀌어/);
+    await user.click(switchNamed("push 전 사람 승인"));
+    await waitFor(() =>
+      expect(screen.queryByText(/저장하지 않은 변경/)).toBeNull(),
+    );
+    expect(screen.queryByText(/다른 곳에서 GitHub 설정이 바뀌어/)).toBeNull();
+  });
+
+  test("저장소 없이 시작한 설정도 첫 저장은 바로 낼 수 있다", async () => {
     const { server } = await activeAgent({ repository: null, github: null });
     const sent: unknown[] = [];
     const empty: Settings = {
@@ -742,22 +801,14 @@ describe("에이전트 GitHub 탭", () => {
     expect(switchNamed("push 전 사람 승인").getAttribute("aria-checked")).toBe(
       "false",
     );
-    // The first save is on offer before any change, held until a repository.
+    // The first save is on offer before any change, even with no repository.
     await screen.findByText("GitHub 설정을 아직 저장하지 않았습니다");
-    await screen.findByText("저장소를 하나 이상 고르면 저장할 수 있습니다.");
     const save = screen.getByRole("button", {
       name: "저장",
     }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
-    await user.click(switchNamed("push 전 사람 승인"));
-    expect(save.disabled).toBe(true);
-    await user.click(switchNamed("push 전 사람 승인"));
+    expect(save.disabled).toBe(false);
 
     await user.click(switchNamed("werft-sandbox"));
-    expect(
-      screen.queryByText("저장소를 하나 이상 고르면 저장할 수 있습니다.") ===
-        null,
-    ).toBe(true);
     await user.click(screen.getByRole("button", { name: "저장" }));
     await screen.findByText(
       "GitHub 설정을 저장했습니다. 새 릴리스는 만들지 않았습니다.",

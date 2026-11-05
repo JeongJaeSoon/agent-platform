@@ -505,8 +505,6 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
   const pending = base && draft ? pendingCount(base, draft) : 0;
   // github.tsx firstSave: the defaults alone are worth a save.
   const firstSave = !readOnly && data.github === null;
-  const noRepository =
-    (draft !== undefined || firstSave) && settings?.repositories.length === 0;
   const pendingTitle = firstSave
     ? "GitHub 설정을 아직 저장하지 않았습니다"
     : `저장하지 않은 변경 ${pending}건`;
@@ -549,16 +547,9 @@ function GitHubSettings({ data, draft, pick, activity }: TabProps) {
             저장하면 다음에 시작하는 세션부터 적용됩니다. 저장소를 빼거나 권한을
             좁히는 변경은 진행 중인 세션에도 적용됩니다. 새 릴리스는 만들지
             않습니다.
-            {noRepository ? (
-              <div className="mt-2">
-                <FieldError>
-                  저장소를 하나 이상 고르면 저장할 수 있습니다.
-                </FieldError>
-              </div>
-            ) : null}
           </AlertDescription>
           <AlertActions>
-            <Button type="button" size="sm" disabled={noRepository}>
+            <Button type="button" size="sm">
               저장
             </Button>
             {draft !== undefined ? (
@@ -1114,7 +1105,7 @@ export const AgentGitHubNoRepositoryUnpicked: Story = {
   play: async ({ canvas }) => {
     await expect(
       await canvas.findByRole("button", { name: "저장" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   },
 };
 export const AgentGitHubNoRepositoryUnpickedMobile: Story = {

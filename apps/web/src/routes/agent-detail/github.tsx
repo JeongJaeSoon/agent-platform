@@ -483,7 +483,8 @@ function GitHubSettings({
   const [draft, setDraft] = useState<Draft | null>(null);
   // The settings the server holds, or what a first save starts from.
   const base = draft?.from.base ?? data.github ?? data.legacy_defaults;
-  const baseStart = draft?.from.start ?? data.start_repository_id;
+  // `null` is a real start value, so `??` would swap it for the server's.
+  const baseStart = draft ? draft.from.start : data.start_repository_id;
   const settings = draft?.settings ?? base;
   const start = draft ? draft.start : baseStart;
   const saveError = useRef<HTMLDivElement>(null);
@@ -572,8 +573,6 @@ function GitHubSettings({
     base && draft
       ? pendingCount(base, draft.settings, baseStart, draft.start)
       : 0;
-  const noRepository =
-    (draft !== null || firstSave) && settings?.repositories.length === 0;
   // A first save turns the github MCP on whatever else it changes, so it
   // keeps its own title instead of a change count.
   const pendingTitle = firstSave
@@ -643,11 +642,6 @@ function GitHubSettings({
           <AlertTitle>{pendingTitle}</AlertTitle>
           <AlertDescription>
             {t("agentGitHub.pending.body")}
-            {noRepository ? (
-              <div className="mt-2">
-                <FieldError>{t("agentGitHub.repositoriesRequired")}</FieldError>
-              </div>
-            ) : null}
             {saveFailure ? (
               <div ref={saveError} tabIndex={-1} className="mt-2 outline-none">
                 <FieldError>{saveFailure}</FieldError>
@@ -659,10 +653,7 @@ function GitHubSettings({
               type="button"
               size="sm"
               disabled={
-                (pending === 0 && !firstSave) ||
-                noRepository ||
-                stale ||
-                save.isPending
+                (pending === 0 && !firstSave) || stale || save.isPending
               }
               onClick={() => save.mutate()}
             >

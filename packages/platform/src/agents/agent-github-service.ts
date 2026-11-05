@@ -84,9 +84,10 @@ const writes = (level: string | undefined) =>
 
 /**
  * The agent's GitHub tab (design github-agent.md §6, §7): the switch that
- * applies at once, what the active release pins, and what the tab may
- * offer. Whoever manages the agent reads it; the switch is turned from a
- * signed-in console session.
+ * applies at once, the agent's saved settings (the active release's pins
+ * while it has none), and what the tab may offer. Whoever manages the agent
+ * reads it; the switch is turned and the settings are saved from a signed-in
+ * console session.
  */
 export function createAgentGitHubService(deps: {
   authorization: AuthorizationPolicy;
