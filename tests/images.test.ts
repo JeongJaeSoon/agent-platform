@@ -3033,7 +3033,7 @@ describe("compose layers", () => {
       const proxy = services["egress-proxy"] as
         | { labels?: Record<string, string> }
         | undefined;
-      expect(proxy?.labels?.["agent-platform.egress-proxy"]).toBe(id);
+      expect(proxy?.labels?.["werft.egress-proxy"]).toBe(id);
       const published = Object.values(services).flatMap(
         (service) => service.ports?.map((port) => port.published) ?? [],
       );

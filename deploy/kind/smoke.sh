@@ -201,7 +201,7 @@ post() {
 }
 installation="$(k get "deploy/${fullname}-scheduler" \
   -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXECUTION_INSTALLATION_ID")].value}')"
-workers="app.kubernetes.io/part-of=agent-platform,app.kubernetes.io/component=worker,agent-platform.installation=${installation}"
+workers="app.kubernetes.io/part-of=werft,app.kubernetes.io/component=worker,werft.installation=${installation}"
 
 if [ "$KIND_MODEL" = fake ]; then
   body="$(jq -nc '{profile_id: "claude-coding-local", repository_id: "sample-app",
@@ -218,11 +218,12 @@ sid="$(echo "$created_session" | jq -r .session_id)"
 pod=""
 turn=""
 for _ in $(seq 1 600); do
-  [ -n "$pod" ] || pod="$(k get pods -l "${workers},agent-platform.session-id=${sid}" -o name 2>/dev/null | head -n 1)"
+  [ -n "$pod" ] || pod="$(k get pods -l "${workers},werft.session-id=${sid}" -o name 2>/dev/null | head -n 1)"
   if [ -n "$pod" ] && [ -z "${pod_listing:-}" ]; then
     # Gone again before it was read: look for the next one.
     pod_listing="$(k get "$pod" -o wide --show-labels 2>/dev/null)" &&
-      execution="$(k get "$pod" -o jsonpath='{.metadata.labels.agent-platform\.session-execution-id}' 2>/dev/null)" ||
+      execution="$(k get "$pod" -o jsonpath='{.metadata.labels.werft\.session-execution-id}' 2>/dev/null)" &&
+      mounted="$(k get "$pod" -o jsonpath='{.spec.volumes[?(@.name=="workspace")].persistentVolumeClaim.claimName}' 2>/dev/null)" ||
       { pod=""; pod_listing=""; }
   fi
   turn="$(get "/v1/sessions/${sid}/turns/1" | jq -r .status)"
@@ -234,6 +235,15 @@ echo "turn 1: ${turn}"
 [ -n "${pod_listing:-}" ] || fail "no Pod labelled ${workers} ran the session"
 echo "worker Pod the scheduler launched:"
 echo "$pod_listing"
+# The claim the backend looks up by a derived name is the one the Pod mounts,
+# and it carries the labels the NetworkPolicy and the log-read check select on.
+[ "${mounted:-}" = "werft-ws-${installation}-${sid}" ] ||
+  fail "the Pod mounts claim '${mounted:-}', not werft-ws-${installation}-${sid}"
+k get pvc "$mounted" -o json |
+  jq -e --arg sid "$sid" --arg inst "$installation" '.metadata.labels
+    | .["app.kubernetes.io/part-of"] == "werft" and .["werft.session-id"] == $sid
+      and .["werft.installation"] == $inst' >/dev/null ||
+  fail "claim ${mounted} does not carry the werft labels"
 # A turn can complete without its workspace, so ask the git host itself.
 clones="$(k exec deploy/fake-git -- bun -e 'console.log(await (await fetch("http://127.0.0.1:3000/requests")).text())')"
 echo "$clones" | jq -c '[.[] | select(.path | contains("sample-app"))]'
@@ -250,8 +260,8 @@ step reclaim
 # execution the Pod ran.
 [ -n "${execution:-}" ] || fail "no execution id on ${pod}"
 session_resources() {
-  k get pods,pvc -l "agent-platform.session-id=${sid}" "$@"
-  k get secrets -l "agent-platform.session-execution-id=${execution}" "$@"
+  k get pods,pvc -l "werft.session-id=${sid}" "$@"
+  k get secrets -l "werft.session-execution-id=${execution}" "$@"
 }
 echo "before terminate:"
 session_resources
@@ -305,7 +315,7 @@ spec:
 EOF
   k wait --for=condition=Ready "pod/${name}" --timeout=120s >/dev/null
 }
-probe_pod k8s-smoke-worker "app.kubernetes.io/part-of: agent-platform, app.kubernetes.io/component: worker, agent-platform.installation: \"${installation}\""
+probe_pod k8s-smoke-worker "app.kubernetes.io/part-of: werft, app.kubernetes.io/component: worker, werft.installation: \"${installation}\""
 probe_pod k8s-smoke-control "app: k8s-smoke-probe"
 k get pod k8s-smoke-worker k8s-smoke-control --show-labels
 bad=0

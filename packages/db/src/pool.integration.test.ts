@@ -30,7 +30,7 @@ integration("enforced pool on PostgreSQL", () => {
       expect(rows[0]).toEqual({
         statement_timeout: "10s",
         idle_in_transaction: "30s",
-        application_name: "agent-platform:reconciler",
+        application_name: "werft:reconciler",
       });
     } finally {
       await pool.end();

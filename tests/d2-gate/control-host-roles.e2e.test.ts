@@ -444,7 +444,7 @@ describe.skipIf(env === null)("control host roles", () => {
         // run.sh's cleanup removes what carries the installation label, even
         // if this test is killed before its finally.
         "--label",
-        `agent-platform.installation=${env.installation}`,
+        `werft.installation=${env.installation}`,
         "--network",
         env.network,
         "--user",

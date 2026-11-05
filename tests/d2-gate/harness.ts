@@ -604,13 +604,13 @@ export class Workers {
       "ps",
       "-a",
       "--filter",
-      `label=agent-platform.installation=${this.installation}`,
+      `label=werft.installation=${this.installation}`,
       "--filter",
-      `label=agent-platform.session-id=${sessionId}`,
+      `label=werft.session-id=${sessionId}`,
       "--filter",
       "name=ap-worker-",
       "--format",
-      '{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "agent-platform.generation"}}\t{{.Label "agent-platform.session-execution-id"}}\t{{.Image}}',
+      '{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Label "werft.generation"}}\t{{.Label "werft.session-execution-id"}}\t{{.Image}}',
     ]);
     return stdout
       .split("\n")
@@ -684,7 +684,7 @@ export class Workers {
           "ps",
           "-a",
           "--filter",
-          `label=agent-platform.installation=${this.installation}`,
+          `label=werft.installation=${this.installation}`,
           "--filter",
           "name=ap-worker-",
           "--format",

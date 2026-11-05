@@ -376,7 +376,7 @@ stop_writers() {
   [ -n "$installation" ] || die "no EXECUTION_INSTALLATION_ID; cannot tell this installation's workers apart"
   log "stopping admissions and writers: api, scheduler, reconciler"
   ops_compose stop api scheduler reconciler
-  workers="$(docker ps -q --filter "label=agent-platform.installation=${installation}")" \
+  workers="$(docker ps -q --filter "label=werft.installation=${installation}")" \
     || die "docker ps failed; cannot tell whether workers of installation $installation run"
   if [ -n "$workers" ]; then
     log "stopping $(printf '%s\n' "$workers" | grep -c .) worker container(s) of installation $installation"
@@ -389,8 +389,8 @@ stop_writers() {
 in_use_by_others() {
   local installation found
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
-  found="$(docker ps -aq --filter "label=agent-platform.installation=${installation}" \
-    && docker ps -aq --filter "label=agent-platform.egress-proxy=${installation}")" \
+  found="$(docker ps -aq --filter "label=werft.installation=${installation}" \
+    && docker ps -aq --filter "label=werft.egress-proxy=${installation}")" \
     || die "docker ps failed; cannot tell whether installation id $installation is in use"
   [ -z "$found" ] \
     || die "containers on this daemon already carry installation id $installation; pick another EXECUTION_INSTALLATION_ID"
@@ -696,17 +696,20 @@ reseed() {
 # volume from an older release is not deleted: no backup of this checkout holds
 # it, so it may be the last copy.
 reset() {
-  local installation old
+  local installation volume_namespace old
   take_lock
   load_current
   render
   check_identity
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
+  # The workspace volumes' label prefix is what the scheduler renders; an
+  # install that sets another one is found by that value, and by no other.
+  volume_namespace="$(rendered scheduler EXECUTION_VOLUME_LABEL_NAMESPACE)"
   log "reset: deleting project $PROJECT (installation $installation) and ALL its data"
   ops_compose down -v --remove-orphans
-  docker ps -aq --filter "label=agent-platform.installation=${installation}" | xargs -r docker rm -f >/dev/null
-  docker network ls -q --filter "label=agent-platform.installation=${installation}" | xargs -r docker network rm >/dev/null
-  docker volume ls -q --filter "label=agent-platform.installation=${installation}" | xargs -r docker volume rm >/dev/null
+  docker ps -aq --filter "label=werft.installation=${installation}" | xargs -r docker rm -f >/dev/null
+  docker network ls -q --filter "label=werft.installation=${installation}" | xargs -r docker network rm >/dev/null
+  docker volume ls -q --filter "label=${volume_namespace:-werft}.installation=${installation}" | xargs -r docker volume rm >/dev/null
   old="${STATE_DIR}/reset-$(date -u +%Y%m%dT%H%M%SZ).json"
   mv "$CURRENT" "$old"
   rm -f "$IDENTITY" "$PENDING"

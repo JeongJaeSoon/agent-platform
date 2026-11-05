@@ -141,9 +141,9 @@ echo '{"status":"ready"}'
 
   const deletions = (id: string) => [
     `${noMode} down -v --remove-orphans`,
-    `ps -aq --filter label=agent-platform.installation=${id}`,
-    `network ls -q --filter label=agent-platform.installation=${id}`,
-    `volume ls -q --filter label=agent-platform.installation=${id}`,
+    `ps -aq --filter label=werft.installation=${id}`,
+    `network ls -q --filter label=werft.installation=${id}`,
+    `volume ls -q --filter label=werft.installation=${id}`,
   ];
 
   test("parses as bash", () => {
@@ -159,7 +159,7 @@ echo '{"status":"ready"}'
     expect(result.exitCode).toBe(0);
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
-      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
       ...deletions("ap434local"),
     ]);
   });
@@ -178,6 +178,20 @@ echo '{"status":"ready"}'
     },
   );
 
+  test("down finds the workspace volumes by the scheduler's volume label prefix and the workers by the fixed one", async () => {
+    await writeFile(config, rendered("local"));
+    const result = await run(["down"], {
+      EXECUTION_VOLUME_LABEL_NAMESPACE: "other-ns",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toEqual([
+      `${noMode} ps -aq egress-proxy`,
+      `${noMode} config --format json`,
+      ...deletions("local").slice(0, 3),
+      "volume ls -q --filter label=other-ns.installation=local",
+    ]);
+  });
+
   test("down --keep-volumes deletes the workers and their networks, and no volume", async () => {
     await writeFile(config, rendered("local"));
     const workers = {
@@ -194,11 +208,11 @@ echo '{"status":"ready"}'
     expect(kept.stderr).not.toContain("checkpoint objects lost");
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
-      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
       `${noMode} down --remove-orphans`,
-      "ps -aq --filter label=agent-platform.installation=ap434local",
+      "ps -aq --filter label=werft.installation=ap434local",
       "rm -f worker-1 worker-2",
-      "network ls -q --filter label=agent-platform.installation=ap434local",
+      "network ls -q --filter label=werft.installation=ap434local",
       "network rm net-1 net-2",
     ]);
 

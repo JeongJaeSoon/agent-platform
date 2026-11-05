@@ -238,7 +238,7 @@ installation_id() {
   proxy=$(compose ps -aq egress-proxy) || return 1
   proxy=${proxy%%$'\n'*}
   if [ -n "$proxy" ]; then
-    docker inspect --format '{{index .Config.Labels "agent-platform.egress-proxy"}}' "$proxy"
+    docker inspect --format '{{index .Config.Labels "werft.egress-proxy"}}' "$proxy"
   else
     rendered | jq -r '.services.scheduler.environment.EXECUTION_INSTALLATION_ID // empty'
   fi
@@ -263,15 +263,17 @@ down() {
     compose down -v --remove-orphans
   fi
   # What the scheduler created is not compose's: worker containers, their
-  # networks and workspace volumes carry the installation label instead.
-  local label=agent-platform.installation=$id
+  # networks and workspace volumes carry the installation label instead. The
+  # volumes' label prefix is the scheduler's setting, so a volume made under
+  # another prefix is only found (and only deleted) when the same value is set.
+  local label=werft.installation=$id
   docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null
   docker network ls -q --filter "label=$label" | xargs -r docker network rm >/dev/null
   if [ -n "$keep" ]; then
     echo "local.sh: stopped" >&2
     return
   fi
-  docker volume ls -q --filter "label=$label" | xargs -r docker volume rm >/dev/null
+  docker volume ls -q --filter "label=${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=$id" | xargs -r docker volume rm >/dev/null
   echo "local.sh: deleted" >&2
 }
 

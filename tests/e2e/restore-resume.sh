@@ -68,7 +68,7 @@ export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 export RESTORE_POSTGRES_PORT="$port_base"
 export RESTORE_LOCALSTACK_PORT="$((port_base + 1))"
 export RESTORE_GIT_HOST_PORT="$((port_base + 2))"
-label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
+label="werft.installation=${EXECUTION_INSTALLATION_ID}"
 src_files=(-f infra/compose.yml -f infra/compose.fake-model.yml -f tests/e2e/compose.yml)
 dst_files=("${src_files[@]}" -f infra/compose.restore.yml)
 src() { docker compose -p "$project" "${src_files[@]}" --profile apps "$@"; }
@@ -168,7 +168,7 @@ manifest() {
 # The image the session's running worker container was started from.
 session_image() {
   local id
-  id="$(docker ps -q --filter "label=${label}" --filter "label=agent-platform.session-id=$1" \
+  id="$(docker ps -q --filter "label=${label}" --filter "label=werft.session-id=$1" \
     --filter "name=ap-worker-" | head -n1)"
   [ -n "$id" ] || return 1
   docker inspect -f '{{.Image}}' "$id"

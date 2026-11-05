@@ -4,7 +4,7 @@
 # (infra/compose.core.yml); size them per installation.
 
 # EXECUTION_INSTALLATION_ID. Also the value of the
-# agent-platform.installation label the worker NetworkPolicy selects on, so
+# werft.installation label the worker NetworkPolicy selects on, so
 # it must be a valid label value.
 installationId: local
 
