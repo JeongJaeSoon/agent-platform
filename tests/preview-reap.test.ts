@@ -185,7 +185,11 @@ exit 1
       [
         { name: "pr-20", upAt: hoursAgo(1), labels: OLD_LABEL },
         { name: "pr-21", upAt: hoursAgo(1), labels: NEW_LABEL },
-        { name: "pr-22", upAt: hoursAgo(1), labels: { ...OLD_LABEL, ...NEW_LABEL } },
+        {
+          name: "pr-22",
+          upAt: hoursAgo(1),
+          labels: { ...OLD_LABEL, ...NEW_LABEL },
+        },
       ],
       { STUB_STATES: "20=CLOSED 21=CLOSED 22=CLOSED" },
     );
@@ -201,15 +205,29 @@ exit 1
         {
           name: "pr-24",
           upAt: hoursAgo(100),
-          labels: { "agent-platform.dev/preview": "true", "werft.dev/preview": "false" },
+          labels: {
+            "agent-platform.dev/preview": "true",
+            "werft.dev/preview": "false",
+          },
         },
         {
           name: "pr-25",
           upAt: hoursAgo(100),
-          labels: { "agent-platform.dev/preview": "false", "werft.dev/preview": "true" },
+          labels: {
+            "agent-platform.dev/preview": "false",
+            "werft.dev/preview": "true",
+          },
         },
-        { name: "pr-26", upAt: hoursAgo(100), labels: { "werft.dev/preview": "yes" } },
-        { name: "pr-27", upAt: hoursAgo(100), labels: { "app.kubernetes.io/name": "x" } },
+        {
+          name: "pr-26",
+          upAt: hoursAgo(100),
+          labels: { "werft.dev/preview": "yes" },
+        },
+        {
+          name: "pr-27",
+          upAt: hoursAgo(100),
+          labels: { "app.kubernetes.io/name": "x" },
+        },
       ],
       { STUB_STATES: states },
     );
@@ -227,7 +245,10 @@ exit 1
           {
             metadata: {
               name: "pr-28",
-              labels: { "agent-platform.dev/preview": "true", "werft.dev/preview": "false" },
+              labels: {
+                "agent-platform.dev/preview": "true",
+                "werft.dev/preview": "false",
+              },
             },
           },
         ],
