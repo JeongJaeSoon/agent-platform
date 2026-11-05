@@ -52,6 +52,77 @@ describe("offerableRules", () => {
   });
 });
 
+describe("offerableRules against the call being asked about", () => {
+  const bashRule = (ruleContent: string): PermissionUpdate => ({
+    type: "addRules",
+    behavior: "allow",
+    destination: "localSettings",
+    rules: [{ toolName: "Bash", ruleContent }],
+  });
+  const offered = (command: string, ruleContent: string) =>
+    offerableRules([bashRule(ruleContent)], permitted, {
+      tool: "Bash",
+      input: { command },
+    });
+
+  // Suggestions the engine really made (scripts/agent-sdk-compat), where the
+  // rule did not cover the call and the same call was asked again.
+  test.each([
+    ["echo alpha > hello.txt", "echo alpha *"],
+    ["echo alpha >> hello.txt", "echo alpha *"],
+    ["cd sub && touch b.txt", "cd sub *"],
+    ["echo a | tee out.txt", "echo a *"],
+    ["make; rm x", "make *"],
+    ["echo $(date)", "echo *"],
+    ["git commit-tree HEAD", "git commit *"],
+    ["git commit-tree HEAD", "git commit:*"],
+    ["find . -name '*.tmp' -delete", "find . -name '*.tmp' -delete"],
+  ])("offers nothing for %s with rule %s", (command, rule) => {
+    expect(offered(command, rule)).toEqual([]);
+  });
+
+  test.each([
+    ["touch a.txt", "touch a.txt"],
+    ["git commit -m 'x y'", "git commit *"],
+    ["git commit", "git commit *"],
+    ["git commit -m x", "git commit:*"],
+    ["FOO=1 npm test", "FOO=1 npm test"],
+  ])("still offers %s with rule %s", (command, rule) => {
+    expect(offered(command, rule)).toEqual([
+      { toolName: "Bash", ruleContent: rule },
+    ]);
+  });
+
+  test("a rule with a missing command or content is not offered", () => {
+    expect(
+      offerableRules([bashRule("ls *")], permitted, {
+        tool: "Bash",
+        input: {},
+      }),
+    ).toEqual([]);
+    expect(
+      offerableRules(
+        [{ ...allowBash, rules: [{ toolName: "Bash" }] }],
+        permitted,
+        { tool: "Bash", input: { command: "ls" } },
+      ),
+    ).toEqual([]);
+  });
+
+  test("a rule for another tool is not judged by the command check", () => {
+    const read: PermissionUpdate = {
+      ...allowBash,
+      rules: [{ toolName: "Read", ruleContent: "/a/**" }],
+    };
+    expect(
+      offerableRules([read], permitted, {
+        tool: "Read",
+        input: { file_path: "/a/b" },
+      }),
+    ).toHaveLength(1);
+  });
+});
+
 describe("sessionRuleUpdate", () => {
   test("always names the session as the destination", () => {
     expect(sessionRuleUpdate([{ toolName: "Read" }])).toEqual([

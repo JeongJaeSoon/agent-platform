@@ -167,6 +167,15 @@ describe("Slack prompt cards", () => {
           type: "plain_text",
           text: copies[locale],
         });
+        // The card itself names the rule, as plain text, not only the dialog.
+        const hints = (blocks as { type: string; elements?: unknown[] }[])
+          .filter((block) => block.type === "context")
+          .flatMap((block) => block.elements ?? []);
+        expect(hints).toContainEqual({
+          type: "plain_text",
+          text: `${labels[locale]}: ${copies[locale]}`,
+          emoji: false,
+        });
       }
     });
 
@@ -220,6 +229,7 @@ describe("Slack prompt cards", () => {
         SLACK_INTERACTION_ACTIONS.permissionAllow,
         SLACK_INTERACTION_ACTIONS.permissionDeny,
       ]);
+      expect(JSON.stringify(blocks)).not.toContain("Allow for session");
     });
   });
 

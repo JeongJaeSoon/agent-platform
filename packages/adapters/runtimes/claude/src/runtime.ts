@@ -153,10 +153,13 @@ export function buildSdkOptions(
       if (!admission.allowed) return deny(admission.message);
       let allowed = false;
       try {
-        const suggestedRules = offerableRules(
-          options.suggestions,
-          permittedTools,
-        );
+        // The engine says a rule would grant more than this ask's own verb.
+        const suggestedRules = options.suppressAlwaysAllowRule
+          ? []
+          : offerableRules(options.suggestions, permittedTools, {
+              tool,
+              input: toolInput,
+            });
         const decision = await hooks.onPermission({
           input: toolInput,
           requestId: options.requestId,
