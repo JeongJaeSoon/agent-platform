@@ -18,6 +18,8 @@ export type DangerZoneProps = Omit<ComponentProps<"section">, "title"> & {
   readonly titleAs?: "h2" | "h3" | undefined;
   /** For a page whose section links point at the heading. */
   readonly titleId?: string | undefined;
+  /** Keep the danger heading and actions without a structural frame. */
+  readonly framed?: boolean | undefined;
   /** `DangerZoneRow`s. */
   readonly children: ReactNode;
 };
@@ -32,6 +34,7 @@ export function DangerZone({
   title,
   titleAs: Heading = "h2",
   titleId,
+  framed = true,
   children,
   className,
   ...props
@@ -51,7 +54,7 @@ export function DangerZone({
       >
         {title}
       </Heading>
-      <RowList variant="joined" className="border-destructive">
+      <RowList variant="joined" framed={framed} className="border-destructive">
         {children}
       </RowList>
     </section>

@@ -10,6 +10,7 @@
 //   browser.mjs <run> login <who> [--here] | accept <who>  web-user.mjs credentials, typed, never printed
 //   browser.mjs <run> bootstrap <who>            /bootstrap form from state.env's token and users/<who>
 //   browser.mjs <run> shot <name> [full]         evidence/<name>.png, prints scrollWidth/innerWidth
+//   browser.mjs <run> mockshot <path> <responses.json> <name> [full]   GET response fixtures, explicitly recorded
 //   browser.mjs <run> blockshot <path> <url pattern> <name>   that request fails (error state)
 //   browser.mjs <run> slowshot <path> <name> [ms]  2.5 s latency, capture mid-load (loading state)
 //   browser.mjs <run> click <text|css> | type <css|@N> <text> | select <css|@N> <value>
@@ -530,6 +531,89 @@ switch (cmd) {
     console.log(
       `${file} ${W}px ${THEME} scrollWidth/innerWidth=${await evaluate("document.documentElement.scrollWidth + '/' + innerWidth")}`,
     );
+    break;
+  }
+  case "mockshot": {
+    const [target, fixtureFile, name, full] = args;
+    if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-"))
+      throw new Error("response fixtures require a verification project");
+    if (new URL(url(target)).origin !== new URL(state.VERIFY_API).origin)
+      throw new Error(
+        "response fixtures must stay on this verification origin",
+      );
+    const fixtures = JSON.parse(readFileSync(fixtureFile, "utf8"));
+    const routes = Object.keys(fixtures);
+    if (routes.length === 0 || routes.some((path) => !path.startsWith("/v1/")))
+      throw new Error("response fixtures must name exact /v1/ paths");
+    const mocked = new Set();
+    const failures = [];
+    const responding = new Set();
+    const intercept = (event) => {
+      const message = JSON.parse(String(event.data));
+      if (message.method !== "Fetch.requestPaused") return;
+      const { requestId, request } = message.params;
+      const path = new URL(request.url).pathname;
+      const response =
+        request.method !== "GET"
+          ? send("Fetch.failRequest", {
+              requestId,
+              errorReason: "BlockedByClient",
+            })
+          : Object.hasOwn(fixtures, path)
+            ? (() => {
+                mocked.add(path);
+                return send("Fetch.fulfillRequest", {
+                  requestId,
+                  responseCode: 200,
+                  responseHeaders: [
+                    { name: "content-type", value: "application/json" },
+                  ],
+                  body: Buffer.from(JSON.stringify(fixtures[path])).toString(
+                    "base64",
+                  ),
+                });
+              })()
+            : send("Fetch.continueRequest", { requestId });
+      const pendingResponse = response
+        .catch((error) => failures.push(error))
+        .finally(() => responding.delete(pendingResponse));
+      responding.add(pendingResponse);
+    };
+    ws.addEventListener("message", intercept);
+    try {
+      await send("Fetch.enable", {
+        patterns: [
+          { urlPattern: `${state.VERIFY_API}/v1/*`, requestStage: "Request" },
+        ],
+      });
+      await navigate(target);
+      await settle();
+      await Promise.all(responding);
+      if (failures.length > 0) throw failures[0];
+      if (mocked.size !== routes.length)
+        throw new Error("not every response fixture was requested");
+      const file = await capture(name, full === "full");
+      const record = {
+        response_mock: true,
+        target,
+        fixture_file: fixtureFile,
+        mocked_routes: [...mocked].sort(),
+        width: W,
+        theme: THEME,
+        screenshot: file,
+        overflow: await evaluate(
+          "document.documentElement.scrollWidth > innerWidth",
+        ),
+      };
+      writeFileSync(
+        join(run, "evidence", `${name}.response-mock.json`),
+        JSON.stringify(record, null, 2),
+      );
+      console.log(JSON.stringify(record));
+    } finally {
+      await send("Fetch.disable");
+      ws.removeEventListener("message", intercept);
+    }
     break;
   }
   case "blockshot": {

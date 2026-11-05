@@ -110,7 +110,7 @@ export function McpServersScreen() {
             columns={COLUMNS[0]}
             narrowAt={860}
             narrowColumns={COLUMNS[1]}
-            framed={true}
+            framed={false}
           >
             <GridTableHeader>
               <GridTableColumnHeader>

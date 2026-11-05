@@ -141,7 +141,7 @@ export function ProfileNewScreen() {
       );
     if (!manages && !operates)
       return (
-        <Alert variant="amber">
+        <Alert variant="amber" className="border-0">
           <AlertDescription>
             {permissionReason(t, "workspace.manage", role)}
           </AlertDescription>
@@ -149,7 +149,7 @@ export function ProfileNewScreen() {
       );
     const missing =
       search.from !== undefined && from === undefined ? (
-        <Alert variant="amber">
+        <Alert variant="amber" className="border-0">
           <AlertDescription>
             {t("profiles.new.fromMissing", { id: search.from })}
           </AlertDescription>
@@ -198,7 +198,7 @@ export function ProfileNewScreen() {
 
     if (!manages)
       return (
-        <Alert variant="amber">
+        <Alert variant="amber" className="border-0">
           <AlertDescription>
             {permissionReason(t, "workspace.manage", role)}
           </AlertDescription>
