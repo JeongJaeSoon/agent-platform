@@ -318,6 +318,7 @@ describe("the agent GitHub tab's options", () => {
       actionsAllow: [],
       startRepositoryId: null,
       revision: 2,
+      updatedBy: null,
     };
     const read = await serviceWith({
       github: WITH_SETTINGS,
@@ -344,6 +345,7 @@ describe("the agent GitHub tab's options", () => {
       actionsAllow: [],
       startRepositoryId: null,
       revision: 1,
+      updatedBy: null,
     };
     const CEILING: RepositoryCeiling = {
       repository_ids: ["elsewhere-app"],

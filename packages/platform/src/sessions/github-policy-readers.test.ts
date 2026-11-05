@@ -85,6 +85,7 @@ const row = (
   actionsAllow: [],
   startRepositoryId: "docs",
   revision: 3,
+  updatedBy: null,
   ...overrides,
 });
 
@@ -116,6 +117,9 @@ describe("with no settings row, every reader answers as before", () => {
       settings: null,
       startRepositoryId: null,
       agentSettingsRevision: null,
+      currentRepositories: null,
+      startActionsAllow: null,
+      enabledAtStart: true,
     });
     expect(newSessionGitHubPolicy(null, SETTINGS)).toMatchObject({
       source: "release",

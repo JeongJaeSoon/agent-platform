@@ -2259,7 +2259,7 @@ describe("compose layers", () => {
     expect(agent?.pid).toBe("host");
     expect(agent?.cgroup).toBe("host");
     expect(agent?.env_file).toEqual([
-      `\${DATADOG_ENV_FILE:-/etc/agent-platform/datadog.env}`,
+      `\${DATADOG_ENV_FILE:-/etc/werft/datadog.env}`,
     ]);
     expect(agent?.environment?.DD_API_KEY).toBeUndefined();
     expect(read(DATADOG_OVERLAY)).not.toContain("${DD_API_KEY");

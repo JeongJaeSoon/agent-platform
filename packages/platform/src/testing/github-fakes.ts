@@ -10,6 +10,9 @@ export function releasePolicy(
     settings,
     startRepositoryId: null,
     agentSettingsRevision: null,
+    currentRepositories: null,
+    startActionsAllow: null,
+    enabledAtStart: true,
   };
 }
 
@@ -23,6 +26,9 @@ export function agentPolicy(
     settings,
     startRepositoryId: options.startRepositoryId ?? null,
     agentSettingsRevision: options.revision ?? 1,
+    currentRepositories: null,
+    startActionsAllow: null,
+    enabledAtStart: true,
   };
 }
 
