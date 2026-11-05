@@ -2,7 +2,7 @@
 
 test-ops는 여러 사람이 함께 쓰는 상시 설치다. Linux 호스트 한 대에서 compose로 돈다. checkpoint object는 기본으로 같은 호스트의 LocalStack에 두고, 설정 하나로 AWS S3(도쿄)로 바꾼다(아래 "object store"). 배포·업그레이드·키 발급·백업·복원 훈련·재시작 복구는 모두 `scripts/test-ops.sh` 하나로 한다. 이 문서는 운영자용 절차다. 각 구성 요소가 어떻게 동작하는지는 [docs 색인의 운영자 문서](../README.md#운영자), 백업 번들의 형식과 검사는 [backup-restore.md](backup-restore.md)를 본다.
 
-Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 하는 명령은 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
+Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 하는 명령은 [kubernetes-deployment.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/)에 있다.
 
 | test-ops | Kubernetes 설치 |
 |---|---|
@@ -12,7 +12,7 @@ Kubernetes 설치는 `scripts/test-ops.sh`를 쓰지 않는다. 같은 일을 �
 | `deploy`·`upgrade` | `helm upgrade --install`. migrate는 hook이 먼저 돌린다 |
 | `key create`·`key revoke`, `grants.ts` | `bun run keys:k8s`·`grants:k8s` |
 | `backup`·`restore-drill` | RDS 백업·스냅샷과 S3 version([backup-restore.md § Kubernetes 설치](backup-restore.md#kubernetes-설치)) |
-| 재시작 복구 | Deployment가 다시 띄운다. 확인은 [health 확인](kubernetes-deployment.md#health-확인) |
+| 재시작 복구 | Deployment가 다시 띄운다. 확인은 [health 확인](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/#health-확인) |
 
 지키는 규칙은 다음과 같다.
 

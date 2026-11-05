@@ -940,7 +940,7 @@ scripts/slack-funnel.sh off                  # on과 같은 --https·--set-path�
 
 **Slack inbox 처리 (`slack` 역할)**
 
-`received` 행은 control host의 `slack` 역할(`main.ts slack`)이 비운다. reconciler와 같은 감독 루프로, pass 하나가 "claim → 처리 → 할 것이 없거나 pass 예산(pass 제한 시간의 절반)이 끝나면 종료"다. `main.ts slack --once`는 pass 하나, `--health`는 상태 파일을 본다. compose에서는 `slack` 서비스(profile `apps`와 `slack`)이고 api image를 쓴다. Helm은 `slack` Deployment다([Kubernetes 배포](kubernetes-deployment.md)).
+`received` 행은 control host의 `slack` 역할(`main.ts slack`)이 비운다. reconciler와 같은 감독 루프로, pass 하나가 "claim → 처리 → 할 것이 없거나 pass 예산(pass 제한 시간의 절반)이 끝나면 종료"다. `main.ts slack --once`는 pass 하나, `--health`는 상태 파일을 본다. compose에서는 `slack` 서비스(profile `apps`와 `slack`)이고 api image를 쓴다. Helm은 `slack` Deployment다([Kubernetes 배포](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/)).
 
 | 설정 | 기본 | 의미 |
 |---|---|---|
