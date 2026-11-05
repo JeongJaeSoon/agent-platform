@@ -21,7 +21,7 @@ Werft의 사용자와 운영자에게 보이는 변경을 적는다. 게시 패�
    - Prometheus: `agent_platform_*`가 `werft_*`가 됐다. 이름 외에 라벨, 단위, 의미는 같다. 이 지표로 만든 규칙과 대시보드의 쿼리를 바꾼다.
    - Datadog: 사용자 지표 `agent_platform.*`가 `werft.*`가 됐다. 정의(`infra/datadog/definitions`의 log metric, 모니터, 대시보드)는 자동으로 적용되지 않는다. 새 정의를 적용하기 전에는 옛 지표 id가 계속 쌓이고, 적용하면 새 id로 시계열이 새로 시작한다. 옛 시계열은 이어지지 않는다. Datadog Agent의 postgres 설정 `metric_prefix`도 `werft`가 됐다.
    - 로그 파이프라인의 grok 규칙 이름 `agent_platform_json`은 `werft_json`이 됐다. 규칙 이름만 바뀌고 동작은 같다.
-   - Datadog `http_check` 인스턴스 이름 `agent-platform-readyz`는 `werft-readyz`가, 로그 `source:agent-platform`은 `source:werft`가 됐다. 옛 이름으로 만든 모니터 쿼리(`instance:agent-platform-readyz`)와 로그 필터를 새 이름으로 바꾼다.
+   - Datadog `http_check` 인스턴스 이름 `agent-platform-readyz`는 `werft-readyz`가, 로그 `source:agent-platform`은 `source:werft`가 됐다(JeongJaeSoon/werft#1189). 옛 이름으로 만든 모니터 쿼리(`instance:agent-platform-readyz`)와 로그 필터를 새 이름으로 바꾼다.
 2. **CSS 이름이 `werft`로 바뀌었다**(JeongJaeSoon/werft#1188). 웹 콘솔을 임베드하며 스타일을 덮어쓰는 곳이 해당한다. 옛 이름은 조용히 무시된다.
 
    | 옛 | 새 |
