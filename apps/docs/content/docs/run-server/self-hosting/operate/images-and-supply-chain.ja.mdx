@@ -177,9 +177,9 @@ commit `95b0e7b5`から、workerは直前のcheckpointのbundleチェーンの�
 
 ### control-hostのロールバック下限: releaseのツールで実行
 
-この変更から、control-hostはreleaseで作ったセッションを、releaseに固定されたツール(`agent_releases.runtime_config_snapshot.tools`、profileのツールの範囲内)で実行します。それ以前はprofileのツールすべてでした。ツールはworkerの起動時に受け取るclaimに載り、workerは終わるまでそのツールで動きます。そのため、カードで`tools`を選んだり`forbidden`を書いたりしたエージェントは、すでに進行中のセッションも次のclaimから絞られます。デプロイ前に起動したworkerは、最後のturnが終わった後に入力なしで`WORKER_IDLE_TIMEOUT_SEC`(既定1800秒)が過ぎるか、pause・再起動で終わるまで、profileのツールを使います。releaseのないセッションと、カードがprofileのツールをすべて残すreleaseのセッションはそのままです。workerイメージとworker protocolは変わりません。
+コミット`756f0a220`から、control-hostはreleaseで作ったセッションを、releaseに固定されたツール(`agent_releases.runtime_config_snapshot.tools`、profileのツールの範囲内)で実行します。それ以前はprofileのツールすべてでした。ツールはworkerの起動時に受け取るclaimに載り、workerは終わるまでそのツールで動きます。そのため、カードで`tools`を選んだり`forbidden`を書いたりしたエージェントは、すでに進行中のセッションも次のclaimから絞られます。デプロイ前に起動したworkerは、最後のturnが終わった後に入力なしで`WORKER_IDLE_TIMEOUT_SEC`(既定1800秒)が過ぎるか、pause・再起動で終わるまで、profileのツールを使います。releaseのないセッションと、カードがprofileのツールをすべて残すreleaseのセッションはそのままです。workerイメージとworker protocolは変わりません。
 
-- **ロールバック下限はcommit `2648f2ac`です。** ツール一覧はcheckpointのprofile digestに入ります。`2648f2ac`以降のcontrol-hostは、claimの復元候補にprofileのツールとreleaseのツールの2つの一覧をどちらも入れるので、この変更と`2648f2ac`の間は、どちらへ移っても互いのcheckpointを復元します(下の復元候補上限の例外は除きます)。それより前のビルドにロールバックすると、releaseのツールで作ったcheckpointを復元できず、そのセッションは最初のlaunch後に`recovery_required`(`incompatible_checkpoint`)で止まります。ロールフォワードした後、`retry_restore`で同じcheckpointを再試行すれば済みます。そのため、`2648f2ac`より前のビルドからこの変更を含むビルドへ直接上げず、`2648f2ac`以上のビルドを先にデプロイしてロールバック先にします。
+- **ロールバック下限はcommit `2648f2ac`です。** ツール一覧はcheckpointのprofile digestに入ります。`2648f2ac`以降のcontrol-hostは、claimの復元候補にprofileのツールとreleaseのツールの2つの一覧をどちらも入れるので、`756f0a220`と`2648f2ac`の間は、どちらへ移っても互いのcheckpointを復元します(下の復元候補上限の例外は除きます)。それより前のビルドにロールバックすると、releaseのツールで作ったcheckpointを復元できず、そのセッションは最初のlaunch後に`recovery_required`(`incompatible_checkpoint`)で止まります。ロールフォワードした後、`retry_restore`で同じcheckpointを再試行すれば済みます。そのため、`2648f2ac`より前のビルドから`756f0a220`を含むビルドへ直接上げず、`2648f2ac`以上のビルドを先にデプロイしてロールバック先にします。
 - **絞られるreleaseの数。** デプロイ前に読み取りクエリで数えます。カードがprofileのツールをすべて選んだreleaseも数えるので、上限値です。
 
 ```sql
@@ -200,7 +200,7 @@ SELECT
 ```
 
 `unreadable`は、`tools`がないか文字列の配列ではないsnapshotです。そのようなreleaseのセッションは、内蔵ツールなしで動きます(許可しない側に読みます)。正常な経路で作ったreleaseは、常に文字列配列の`tools`を載せます。
-- **復元候補の上限。** claimの復元候補は16個までです(worker契約)。すべてのprofile一覧をrelease一覧より先に入れます。実際にツールが絞られるreleaseのセッションのうち、以前のprofileが多いセッション(GitHub設定がなければ16個、あれば8個以上)は、2つのものを失います。① この変更の後は、現在のprofileのprofile一覧がもう1枠使うので、最も古い以前のprofileの候補が1つ外れます。その候補でのみ合うcheckpointは、復元が`incompatible_checkpoint`で止まり、同じ候補ルールを使うビルドでは再試行しても同じです。そのセッションは`start_fresh`(以前のcontextを捨てる)か`close`で終えます。② `2648f2ac`にロールバックすると、そのビルドのclaimはprofile一覧だけで上限が埋まり、releaseのツールの候補を入れられないので、この変更の後にreleaseのツールで作ったcheckpointを復元できません。こちらは、ロールフォワードした後に`retry_restore`で再試行すれば済みます。
+- **復元候補の上限。** claimの復元候補は16個までです(worker契約)。すべてのprofile一覧をrelease一覧より先に入れます。実際にツールが絞られるreleaseのセッションのうち、以前のprofileが多いセッション(GitHub設定がなければ16個、あれば8個以上)は、2つのものを失います。① `756f0a220`の後は、現在のprofileのprofile一覧がもう1枠使うので、最も古い以前のprofileの候補が1つ外れます。その候補でのみ合うcheckpointは、復元が`incompatible_checkpoint`で止まり、同じ候補ルールを使うビルドでは再試行しても同じです。そのセッションは`start_fresh`(以前のcontextを捨てる)か`close`で終えます。② `2648f2ac`にロールバックすると、そのビルドのclaimはprofile一覧だけで上限が埋まり、releaseのツールの候補を入れられないので、`756f0a220`の後にreleaseのツールで作ったcheckpointを復元できません。こちらは、ロールフォワードした後に`retry_restore`で再試行すれば済みます。
 
 ### worker protocolのフィールドを取り除く順序
 
