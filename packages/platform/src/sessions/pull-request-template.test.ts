@@ -282,13 +282,16 @@ describe("finding the repository's template", () => {
     }
   });
 
-  test("an opener that is not a comment does not reject: fenced, escaped, in a code span", () => {
+  test("an opener that is not a comment of its own row is not judged: it rejects", () => {
     for (const text of [
       "```\n<!-- not a comment\n```\n## Summary",
       "\\<!-- escaped\n## Summary",
       "use `<!--` to open one\n## Summary",
+      "Fixes <!-- x -->#12\n## Summary",
+      "    <!-- shown as code\n@victim",
+      "> <!-- quoted\n@victim",
     ]) {
-      expect(prepareTemplate(text)).not.toBeNull();
+      expect(prepareTemplate(text)).toBeNull();
     }
   });
 });
@@ -315,10 +318,8 @@ describe("a template from the repository is made inert", () => {
   });
 
   test("a comment hidden between a keyword and its issue does not hide the keyword", () => {
-    expect(inert("Fixes <!-- x -->#12")).toContain(
-      `F${ZWSP}ixes <!-- x -->#${ZWSP}12`,
-    );
     expect(inert("Fixes\n<!--\nx\n-->\n#12")).toContain(`F${ZWSP}ixes`);
+    expect(inert("Fixes\n<!-- x -->\n#12")).toContain(`F${ZWSP}ixes`);
   });
 
   test("text inside a comment keeps its characters and only gains zero-width spaces", () => {
@@ -326,19 +327,6 @@ describe("a template from the repository is made inert", () => {
     const out = inert(text);
     expect(out).not.toBe(text);
     expect(out.replaceAll(ZWSP, "")).toBe(text);
-  });
-
-  test("an opener that a renderer would show is text: indented, quoted, escaped, in raw elements", () => {
-    for (const text of [
-      "    <!-- shown as code\n@victim",
-      "> <!-- quoted\n@victim",
-      "\\<!-- escaped @victim -->",
-      "<textarea>\n<!-- @victim -->\n</textarea>",
-      "<pre>\n<!-- @victim -->\n</pre>",
-    ]) {
-      const out = inert(text);
-      expect(out).toContain(`@${ZWSP}victim`);
-    }
   });
 
   test("a template cannot pass for the platform's tail, and keeps its comment syntax", () => {
@@ -491,20 +479,8 @@ describe("laying fields into a template", () => {
     );
   });
 
-  test("a slot that is inside a comment, a fence or an element is not one", () => {
-    const text = [
-      "<!--",
-      "<!-- werft:slot summary -->",
-      "-->",
-      "```",
-      "<!-- werft:slot summary -->",
-      "## Summary",
-      "```",
-      "<details>",
-      "<!-- werft:slot summary -->",
-      "## Summary",
-      "</details>",
-    ].join("\n");
+  test("a slot that is inside a comment is not one", () => {
+    const text = ["<!--", "<!-- werft:slot summary -->", "-->"].join("\n");
     const out = filled(text, { summary: "S" });
     // None of them holds a place, so the template has none: the platform's
     // layout first, the template as it was below.
@@ -582,50 +558,18 @@ const FRAGMENTS = [
 ];
 
 describe("markup the scan and a renderer could read differently", () => {
-  test("a tag split over lines is rejected: it would hide the fields and the tail", () => {
-    for (const text of [
-      "## Notes\n<details\n><summary>hidden</summary>\n\n## Summary",
-      '## Notes\n<span title="a\nb">x</span>\n## Summary',
-    ]) {
-      expect(prepareTemplate(text)).toBeNull();
-    }
-    expect(
-      prepareTemplate(
-        '<details open><summary>a > b</summary>\n<a href="x">y</a>\n</details>',
-      ),
-    ).not.toBeNull();
-  });
-
-  test("an opener inside a tag's attribute does not exempt what follows from breaking", () => {
-    // The quote is left open at the line's end, so the template is rejected;
-    // closed on the line, the text after it is text and is broken.
-    expect(
-      prepareTemplate('<span title="<!--"> @victim --></span>'),
-    ).toBeNull();
-    const out = inert('<span title="a"> <!-- x --> @victim Fixes #1 </span>');
-    expect(out).not.toMatch(/@victim|Fixes #1/);
-  });
-
   test("a hidden comment's mentions and references are broken as well", () => {
     const out = inert("## Summary\n<!-- ping @victim, see acme/app#9 -->");
     expect(out).not.toMatch(/@victim|app#9/);
     expect(out.replaceAll(ZWSP, "")).toContain("ping @victim, see acme/app#9");
   });
 
-  test("a field is not put at a row that ends a comment and goes on with text", () => {
-    const out = filled("## Summary\n<!--\nguidance\n--> **note**\nmore", {
+  test("a field is not put at a row that starts inside a comment", () => {
+    const out = filled("## Summary\n<!--\nguidance\n-->\nmore", {
       summary: "REAL SUMMARY",
     });
-    // Not between the comment's rows, where it would be hidden: after all.
-    expect(out.indexOf("REAL SUMMARY")).toBeGreaterThan(out.indexOf("more"));
-  });
-
-  test("a row that ends a comment and opens an element rejects the template", () => {
-    expect(
-      prepareTemplate(
-        "## Summary\n<!--\nguidance\n--><details>\nx\n</details>",
-      ),
-    ).toBeNull();
+    expect(out.indexOf("REAL SUMMARY")).toBeGreaterThan(out.indexOf("-->") - 1);
+    expect(out).toContain("guidance");
   });
 
   test("references to issues and pull requests are not live, links to anything else stay", () => {
@@ -641,7 +585,6 @@ describe("markup the scan and a renderer could read differently", () => {
     const sha = "a5c3785ed8d6a35868bc169f07e40e889087fd2e";
     const out = inert(
       [
-        "[issue]: //github.com/acme/app/issues/12",
         "[t](https&#58;//github.com/acme/app/issues/13)",
         "www.github.com/acme/app/issues/14",
         `https://github.com/acme/app/commit/${sha}`,
@@ -658,7 +601,7 @@ describe("markup the scan and a renderer could read differently", () => {
     expect(inert("x-#12 a/#13 ##14")).not.toMatch(/(?<!&)#\d/);
   });
 
-  test("an element named where its role is unclear, or left open, rejects the template", () => {
+  test("markup, tables, definitions and comments that share a row are not judged: they reject", () => {
     for (const text of [
       // A code span inside an HTML block is not code.
       '<details>\n`<details title="`\n">\n</details>\n\n## Summary',
@@ -727,11 +670,24 @@ describe("markup the scan and a renderer could read differently", () => {
       expect(prepareTemplate(text)).toBeNull();
     }
     for (const text of [
+      // Ordinary HTML and tables are not judged either: the default layout is used.
       "<details>\n<summary>More</summary>\n\n- [ ] a\n</details>\n\n## Summary",
-      '<div align="center">\n\n![logo](x.png)\n</div>\n## Summary',
-      '<img src = "a.png">\n\n## Summary',
-      '<img src="a.png"> <!-- note -->\na < b <!-- x -->\n<br/><!-- x -->\n<https://example.com> <me@example.com>',
-      "<details>\n<summary>More</summary>\n<table>\n<tr><td>a</td></tr>\n</table>\n</details>\n## Summary",
+      '<img src="a.png">\n\n## Summary',
+      "a < b\n<br/>\n## Summary",
+      "## Summary\n| a | b |\n| --- | --- |\n| 1 | 2 |",
+      "[ref]: https://example.com\n\n## Summary",
+      "## Summary\n--> text\n<!-- x --> text",
+      "<!-- a --> b\n## Summary",
+    ]) {
+      expect(prepareTemplate(text)).toBeNull();
+    }
+  });
+
+  test("headings, paragraphs, lists, checkboxes, links, fences and comments of their own rows are taken", () => {
+    for (const text of [
+      "## Summary\n<!-- what changed -->\n\nPlain text, a [link](https://example.com) and <https://example.com/x>.\n\n- [ ] one\n- [x] two\n\n> a quote\n\n```sh\nbun test a < b\n```",
+      "<!--\nmulti-row\nguidance\n-->\n## Testing\n1. step\n2. step",
+      "**Summary**\n<!-- werft:slot summary -->\n\n*emphasis* and `code` and a lone \\< sign.",
     ]) {
       expect(prepareTemplate(text)).not.toBeNull();
     }

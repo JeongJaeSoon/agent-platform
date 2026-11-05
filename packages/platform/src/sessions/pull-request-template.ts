@@ -276,43 +276,28 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const SLOT_LINE = /^<!--\s*werft:slot\s+([a-z]+)\s*-->$/;
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 const BOLD_HEADING = /^ {0,3}(?:\*\*|__)([^*_].*?)(?:\*\*|__)[ \t]*:?[ \t]*$/;
-// Elements that hold text the reader sees as written, not as Markdown.
-const RAW_ELEMENTS: ReadonlySet<string> = new Set([
-  "pre",
-  "textarea",
-  "script",
-  "style",
-  "title",
-  "xmp",
-  "noembed",
-  "noframes",
-  "noscript",
-  "iframe",
-]);
-const ELEMENT_NAMES =
-  "details|pre|div|table|blockquote|section|textarea|script|style|title|xmp|noembed|noframes|noscript|iframe|template";
-// The tags a template may use inside an element it has opened: the tracked
-// elements and plain text-level and table markup. Anything else (a `select`,
-// `svg`, `form`...) changes how a parser reads the end tags that follow.
-const KNOWN_INSIDE: ReadonlySet<string> = new Set([
-  ...ELEMENT_NAMES.split("|"),
-  ...[
-    "summary,br,p,a,b,i,u,s,em,strong,code,kbd,img,ul,ol,li,span,hr,sub,sup",
-    "h1,h2,h3,h4,h5,h6,tr,td,th,thead,tbody,tfoot,caption,colgroup,col",
-    "picture,source,dl,dt,dd,del,ins,mark,small,abbr,center",
-  ]
-    .join(",")
-    .split(","),
-]);
-// Markup that has no end the scan could follow: a declaration, a processing
-// instruction, a CDATA section, a malformed comment opener, `<plaintext>`.
-const OPEN_ENDED = /<(?:[!?](?!--)|plaintext(?![\w-]))/gi;
-const ELEMENT_ANY = new RegExp(`<(/?)(${ELEMENT_NAMES})(?![\\w-])`, "gi");
-// A tag whose attributes are bare words or `name=value` with a plain value.
-const ELEMENT_SIMPLE = new RegExp(
-  `^<(?:/?)(?:${ELEMENT_NAMES})(?:[ \\t\\n\\r\\f]+[\\w:-]+(?:[ \\t\\n\\r\\f]*=[ \\t\\n\\r\\f]*(?:"[^"<>\`]*"|'[^'<>\`]*'|[^ \\t\\n\\r\\f"'<>\`=]+))?)*[ \\t\\n\\r\\f]*/?>`,
-  "i",
-);
+// What the template may hold is what the platform lays fields out around:
+// headings, paragraphs, lists, checkboxes, quotes, fenced code, links, and
+// comments that are rows of their own. Markup a renderer reads in its own
+// way (an HTML tag or declaration, a table, a reference definition) is not
+// judged: the template is passed over for the platform's default.
+//
+// `<` followed by one of these starts a tag, a closing tag, a declaration, a
+// processing instruction or a comment.
+const MARKUP = /<[A-Za-z/!?]/;
+// A link in angle brackets; one holding a quote could be a tag's attribute.
+const AUTOLINK =
+  /<(?:[A-Za-z][A-Za-z0-9+.-]*:[^\s<>"'`]*|[^\s<>@"'`]+@[^\s<>"'`]+)>/g;
+// The row under a table's header, and a definition (`[label]: address`, a
+// footnote too) that may take the next row as its address.
+const TABLE_DELIMITER =
+  /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+const DEFINITION = /^ {0,3}\[[^\]\n]*\]:/;
+
+function hasMarkup(text: string): boolean {
+  return MARKUP.test(text.replace(AUTOLINK, " "));
+}
+
 // A comment the platform reads or whose text it writes itself: its own tail
 // markers, and the identifiers it may add later. A template's comment cannot
 // pass for one of them. The identifier is changed, not the comment's syntax, so
@@ -335,42 +320,39 @@ type Scanned = {
   rows: Array<{
     parts: Part[];
     startsInComment: boolean;
-    inHtml: boolean;
     code: boolean;
     indent: number;
   }>;
-  /** A comment still open at the end, or one that ends in a way readers differ on. */
+  /** Something the scan will not judge, or a comment left open at the end. */
   unbalanced: boolean;
 };
 
 /**
- * The template cut into what GitHub shows and what it hides. A comment is
- * recognised only where a renderer surely reads one: outside a fenced block,
- * outside the elements that show text as written, not escaped, not in a code
- * span, not in a quote or an indented block. Every `<!--` that is not such a
- * comment stays text, and text is made inert.
+ * The template cut into what GitHub shows and what it hides. The only hidden
+ * text is a comment that is rows of its own; the only other thing that may hold
+ * a `<` is a fenced or plain row with no tag, declaration or comment in it.
+ * Whatever else the template holds that a renderer might read in its own way
+ * makes `unbalanced` true.
  */
 function scan(text: string): Scanned {
   const rows: Scanned["rows"] = [];
   let fence: string | null = null;
   let inComment = false;
   let unbalanced = false;
-  const open: string[] = [];
   for (const line of text.split("\n")) {
     const row = {
       parts: [] as Part[],
       startsInComment: inComment,
-      inHtml: open.length > 0,
       code: false,
       indent: indentOf(line),
     };
     rows.push(row);
-    const raw = open.some((tag) => RAW_ELEMENTS.has(tag));
-    if (!inComment && !raw) {
+    if (!inComment) {
       const marks = FENCE_OPEN.exec(line);
       if (fence !== null) {
         row.code = true;
         row.parts.push({ text: line, comment: false });
+        if (hasMarkup(line)) unbalanced = true;
         const run = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1] ?? "";
         if (run !== "" && run[0] === fence[0] && run.length >= fence.length) {
           fence = null;
@@ -384,204 +366,41 @@ function scan(text: string): Scanned {
         fence = marks[1];
         row.code = true;
         row.parts.push({ text: line, comment: false });
+        if (hasMarkup(line)) unbalanced = true;
         continue;
       }
     }
-    // A reference definition whose address is on the next row takes that row,
-    // an end tag included, so the scan and a renderer would count it differently.
-    if (/^ {0,3}\[[^\]\n]*\]:[ \t]*$/.test(line)) unbalanced = true;
-    const literal =
-      raw ||
-      /^\s*>/.test(line) ||
-      row.indent >= 4 ||
-      /<(?:pre|textarea|script|style)\b/i.test(line);
-    let at = 0;
-    let closeFrom = 0;
-    let inside: boolean = inComment;
-    while (at < line.length) {
-      if (inside) {
-        const close = line.indexOf("-->", Math.max(at, closeFrom));
-        const end = close === -1 ? line.length : close + 3;
-        const chunk = line.slice(at, end);
-        // Some parsers end a comment at `--!>`; the renderer here does not.
-        if (chunk.includes("--!>")) unbalanced = true;
-        // A table cell ends at `|` whatever is open, so a comment holding one
-        // may end in another cell than it began in.
-        if (/(?<!\\)\|/.test(chunk)) unbalanced = true;
-        row.parts.push({ text: chunk, comment: true });
-        at = end;
-        if (close !== -1) inside = false;
-        continue;
-      }
-      const marks = /<!--|`+/g;
-      marks.lastIndex = at;
-      let found = marks.exec(line);
-      // An escaped `<` is text.
-      while (found?.[0] === "<!--" && escaped(line, found.index)) {
-        found = marks.exec(line);
-      }
-      if (found === null) break;
-      const run = found[0];
-      if (run === "<!--") {
-        if (literal) {
-          // Text: broken later with the rest of the text's references.
-          row.parts.push({
-            text: line.slice(at, found.index + 4),
-            comment: false,
-          });
-          at = found.index + 4;
-          continue;
-        }
-        // Inside a tag's attribute it is not a comment, and what the scan
-        // would hide as one a renderer shows.
-        const before = [
-          ...row.parts.filter((part) => !part.comment).map((part) => part.text),
-          line.slice(at, found.index),
-        ].join(" ");
-        if (hasLooseTag(before)) unbalanced = true;
-        // Renderers differ on a comment that opens after text or an indent
-        // (a list item, a quote) and runs over lines; only one that opens at
-        // the start of its row, or ends on it, is taken.
-        if (line.indexOf("-->", found.index + 4) === -1 && found.index !== 0) {
-          unbalanced = true;
-        }
-        if (found.index > at) {
-          row.parts.push({ text: line.slice(at, found.index), comment: false });
-        }
-        // `<!-->` and `<!--->` end at once for some parsers and not for others.
-        if (line.startsWith(">", found.index + 4)) unbalanced = true;
-        if (line.startsWith("->", found.index + 4)) unbalanced = true;
-        at = found.index;
-        closeFrom = found.index + 4;
-        inside = true;
-        continue;
-      }
-      // A code span closes on a run of its own length; otherwise it is text.
-      const closing = new RegExp(`(?<!\`)${run}(?!\`)`, "g");
-      closing.lastIndex = found.index + run.length;
-      const end = closing.exec(line);
-      const stop =
-        end === null ? found.index + run.length : end.index + run.length;
-      row.parts.push({ text: line.slice(at, stop), comment: false });
-      at = stop;
-    }
-    if (!inside && at < line.length) {
-      row.parts.push({ text: line.slice(at), comment: false });
-    }
-    inComment = inside;
-    const seen = row.parts
-      .filter((part) => !part.comment)
-      .map((part) => part.text.replace(/(`+)[^`]*?\1/g, " "))
-      .join(" ");
-    // A tag split over lines hides what follows it from every line-wise scan.
-    const shown = row.parts
-      .filter((part) => !part.comment)
-      .map((part) => part.text)
-      .join(" ");
-    if (hasLooseTag(shown)) unbalanced = true;
-    if (new RegExp(OPEN_ENDED).test(shown)) unbalanced = true;
-    // Whether text in a code span or fence is code or markup depends on the
-    // renderer's block rules; an element named there is not judged, it rejects.
-    const code = row.parts
-      .filter((part) => !part.comment)
-      .map((part) => (part.text.match(/(`+)[^`]*?\1/g) ?? []).join(" "))
-      .join(" ");
-    if (mentionsElement(code)) unbalanced = true;
-    const tags = elementsIn(seen, line);
-    if (tags === null) unbalanced = true;
-    // A parser ignores or reroutes the end tags of elements it treats in
-    // their own way, and an HTML block runs on to the next blank line, so a
-    // tag the scan does not know is not taken anywhere in a template.
+    // A definition may take the next row as its address, and a table's cells
+    // are cut at `|` whatever else is open: both re-read what lies around them.
     if (
-      [...shown.replace(AUTOLINK, " ").matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
-        ([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase()),
-      )
+      !inComment &&
+      (DEFINITION.test(line) ||
+        (line.includes("|") && TABLE_DELIMITER.test(line)))
     ) {
       unbalanced = true;
     }
-    for (const [closing, tag] of tags ?? []) {
-      if (!closing) open.push(tag);
-      // Closed in the order opened, or a parser may ignore the end tag.
-      else if (open.at(-1) === tag) open.pop();
-      else unbalanced = true;
+    if (inComment || line.startsWith("<!--")) {
+      // `<!-->` and `<!--->` end at once for some parsers and not for others.
+      if (!inComment && (line.startsWith(">", 4) || line.startsWith("->", 4))) {
+        unbalanced = true;
+      }
+      const close = line.indexOf("-->", inComment ? 0 : 4);
+      const end = close === -1 ? line.length : close + 3;
+      const chunk = line.slice(0, end);
+      // Some parsers end a comment at `--!>`; the renderer here does not.
+      if (chunk.includes("--!>")) unbalanced = true;
+      // Text after a comment's end shares its row with markup the scan hid.
+      if (close !== -1 && line.slice(end).trim() !== "") unbalanced = true;
+      row.parts.push({ text: chunk, comment: true });
+      inComment = close === -1;
+      continue;
     }
+    // Everything else is text, and text holds no markup: a `<!--` that does
+    // not open its row is markup too.
+    if (hasMarkup(line)) unbalanced = true;
+    if (line !== "") row.parts.push({ text: line, comment: false });
   }
-  const fenced = rows.some(
-    (row) =>
-      row.code &&
-      row.parts.some(
-        (part) =>
-          mentionsElement(part.text) ||
-          hasLooseTag(part.text) ||
-          [
-            ...part.text
-              .replace(AUTOLINK, " ")
-              .matchAll(/<\/?([A-Za-z][\w-]*)/g),
-          ].some(([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase())) ||
-          new RegExp(OPEN_ENDED).test(part.text),
-      ),
-  );
-  // An element the template leaves open would take the platform's text in.
-  return {
-    rows,
-    unbalanced: unbalanced || inComment || open.length > 0 || fenced,
-  };
-}
-
-function mentionsElement(text: string): boolean {
-  return new RegExp(ELEMENT_ANY).test(text);
-}
-
-/**
- * The element `seen` (a row's text outside comments and code spans) opens or
- * closes, or null when the row writes one in a way the scan does not follow:
- * more than one, one that does not begin the row (after at most three spaces),
- * one escaped, indented as code, quoted or in a list item, or one with a quote or `>`
- * inside the tag. Whether a renderer reads those as markup depends on block
- * rules the scan does not model, so none is judged.
- */
-function elementsIn(
-  seen: string,
-  line: string,
-): Array<[boolean, string]> | null {
-  const named = [...seen.matchAll(ELEMENT_ANY)];
-  if (named.length === 0) return [];
-  const [only] = named;
-  if (named.length > 1 || only === undefined) return null;
-  const start = new RegExp(`^ {0,3}(?=<(/?)(${ELEMENT_NAMES})(?![\\w-]))`, "i");
-  const at = start.exec(line);
-  if (at === null) return null;
-  if (!ELEMENT_SIMPLE.test(line.slice(at[0].length))) return null;
-  return [[only[1] === "/", (only[2] ?? "").toLowerCase()]];
-}
-
-// A tag in its plain form: attribute values are quoted without `<` or `>`
-// inside, or bare without quotes. Two readers cannot differ on where such a
-// tag ends or which quote opens its value.
-// Only the ASCII whitespace a parser splits a tag on: a no-break space is part
-// of a name or a value there, though `\s` takes it for a gap.
-const PLAIN_TAG =
-  /<\/?[A-Za-z][\w:-]*(?:[ \t\n\r\f]+[\w:-]+(?:[ \t\n\r\f]*=[ \t\n\r\f]*(?:"[^"<>]*"|'[^'<>]*'|[^ \t\n\r\f"'<>=`]+))?)*[ \t\n\r\f]*\/?>/g;
-// Nothing with a quote: that could be an attribute's start, not a link.
-const AUTOLINK =
-  /<(?:[A-Za-z][A-Za-z0-9+.-]*:[^\s<>"'`]*|[^\s<>@"'`]+@[^\s<>"'`]+)>/g;
-
-/**
- * Whether `text` has a tag that is not in plain form (cut off, with a quote
- * or `>` where the scan and a renderer may read it differently). Autolinks and
- * plain tags are set aside first. Neither a code span nor a backslash is
- * trusted: inside an HTML block a renderer honours neither.
- */
-function hasLooseTag(text: string): boolean {
-  return /<[A-Za-z/]/.test(text.replace(AUTOLINK, " ").replace(PLAIN_TAG, " "));
-}
-
-function escaped(line: string, index: number): boolean {
-  let slashes = 0;
-  while (index - 1 - slashes >= 0 && line[index - 1 - slashes] === "\\") {
-    slashes += 1;
-  }
-  return slashes % 2 === 1;
+  return { rows, unbalanced: unbalanced || inComment };
 }
 
 /**
@@ -607,11 +426,7 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
       row.parts.map((part) => (part.comment ? " " : part.text)).join(""),
     )
     .join("\n");
-  // A text `<!--` loses its `<` to the text, not its dashes: `<!` followed by
-  // anything else opens a bogus comment that runs to the next `>`.
-  const broken = breakLinks(
-    breakReferences(visible).replaceAll("<!--", `<${ZWSP}!--`),
-  );
+  const broken = breakLinks(breakReferences(visible));
   const added: number[] = new Array(visible.length + 1).fill(0);
   let j = 0;
   for (let i = 0; i <= visible.length; i += 1) {
@@ -660,8 +475,7 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
       startsInComment: row.startsInComment,
       skippable: !row.code && shown.trim() === "",
     };
-    const fillable =
-      !row.startsInComment && !row.inHtml && !row.code && row.indent <= 3;
+    const fillable = !row.startsInComment && !row.code && row.indent <= 3;
     if (fillable) {
       const only = row.parts.length === 1 ? row.parts[0] : undefined;
       const slot = only?.comment ? SLOT_LINE.exec(only.text.trim()) : null;
