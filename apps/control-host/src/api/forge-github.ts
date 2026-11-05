@@ -1219,7 +1219,9 @@ export function connectionsOf(
     connections.clear();
     for (const [id, repository] of Object.entries(repositories)) {
       const { auth } = repository;
-      if ("registered" in auth) continue;
+      // Only App entries carry credentials; the migration report still feeds
+      // the gate a catalog with the legacy URL entries it reports on.
+      if (auth?.kind !== "github_app" || "registered" in auth) continue;
       connections.set(
         id,
         createGitHubConnection({
