@@ -479,7 +479,9 @@ export type TemplateTextResult =
 export function prepareTemplateText(text: string): TemplateTextResult {
   // A lone surrogate cannot be written as UTF-8; a pair is one code point.
   // PostgreSQL text and jsonb cannot hold NUL either.
-  if (/\p{Cs}|\u0000/u.test(text)) return { ok: false, reason: "not_utf8" };
+  if (/\p{Cs}/u.test(text) || text.includes("\u0000")) {
+    return { ok: false, reason: "not_utf8" };
+  }
   if (new TextEncoder().encode(text).length > TEMPLATE_MAX_BYTES) {
     return { ok: false, reason: "too_large" };
   }

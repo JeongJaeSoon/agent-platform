@@ -1027,8 +1027,8 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     expect((await send("GET", path, asCookie(cookies.other))).status).toBe(403);
     // The receipt keeps a template's size and hash, never its text.
     const { rows } = await pool.query(
-      "SELECT result FROM receipts WHERE operation = 'set_agent_pull_request_settings' AND owner_id = $1",
-      [workspaceId],
+      "SELECT result FROM receipts WHERE operation = 'set_agent_pull_request_settings' AND owner_id = $1 AND target_ref->'resource'->>'id' = $2",
+      [workspaceId, id],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].result.after.template).toEqual({
