@@ -21,13 +21,13 @@
 # reads the store the environment names (AWS_REGION, AWS_ACCESS_KEY_ID,
 # AWS_SECRET_ACCESS_KEY, and AWS_ENDPOINT_URL unless it is AWS S3).
 #
-# Usage: scripts/backup.sh [--project agent-platform] [--out backups] [--bucket claude-sessions]
+# Usage: scripts/backup.sh [--project werft] [--out backups] [--bucket claude-sessions]
 #                          [--object-store localstack|env] [--allow-running-writers]
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup-lib.sh"
 
-PROJECT=agent-platform
+PROJECT=werft
 OUT="${REPO_ROOT}/backups"
 BUCKET=claude-sessions
 ALLOW_RUNNING_WRITERS=0
@@ -86,10 +86,10 @@ if [ -n "$SCHEDULER" ]; then
     || die "cannot read the installation id of the scheduler of project '$PROJECT'"
 fi
 if [ -n "$INSTALLATION" ]; then
-  LABEL="agent-platform.installation=${INSTALLATION}"
+  LABEL="werft.installation=${INSTALLATION}"
   WORKERS_OF="installation ${INSTALLATION}"
 else
-  LABEL="agent-platform.installation"
+  LABEL="werft.installation"
   WORKERS_OF="any installation (project '$PROJECT' names none)"
 fi
 WORKERS="$(docker ps -q --filter "label=${LABEL}")" \

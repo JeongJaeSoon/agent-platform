@@ -59,13 +59,14 @@ cleanup() {
   else
     # --rmi local: migrate's image, built under the project's default name.
     dc down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
-    local label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
+    local label="werft.installation=${EXECUTION_INSTALLATION_ID}"
+    local volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTION_INSTALLATION_ID}"
     local ids
     ids="$(docker ps -aq --filter "label=${label}")"
     [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
     ids="$(docker network ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
-    ids="$(docker volume ls -q --filter "label=${label}")"
+    ids="$(docker volume ls -q --filter "label=${volume_label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
     docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi

@@ -3,7 +3,7 @@ title: "Self-hosting"
 description: Choose how to install a Werft server that several people share
 ---
 
-This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. The page for your method lists the install steps up to `/readyz` returning 200. The Kubernetes install was checked on kind with the published chart, but its DB Secret step was not the documented block as written, and the revised kind Secret block and the Kubernetes upgrade steps have not been run. The single-server page has not been run from start to finish.
+This is how to install a Werft server yourself so a team can share it. If you only want to try a server alone, [Run a dev server](/run-server/dev-server) is enough. There are two install methods. The page for your method lists the install steps up to `/readyz` returning 200. The Kubernetes install was checked on kind with the published chart, but its DB Secret step was not the documented block as written, and the revised kind Secret block was not run as written. Creating the first owner with the Secret's token, then issuing an API key and authenticating with it, was checked on kind. The Kubernetes upgrade was run on kind with no sessions, steps 1 to 4, with the `proceed` verdict; two `refused` cases that cannot be approved and the NetworkPolicy isolation were also checked. The single-server page was run on a LocalStack install through steps 1 to 6 and `key create`.
 
 ## Choose an install method
 
@@ -29,7 +29,7 @@ The install uses the packages published on every merge to `main`, not ones you b
 The packages need no login. `<12>` is the first 12 characters of the commit SHA.
 
 <Callout type="warn">
-There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, the image tag is `v<version>` and the chart version is `<version>` without the `v`. The install pages' commands stay the same, and the single-server install checks out the same tag. If you cannot pull the published images, check out the repository and [build the three images yourself](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다).
+There is no `v` tag yet. `main-<12>` is not a release, and it can be published without every corresponding source archive being confirmed. Once the first `v` tag exists, the image tag is `v<version>` and the chart version is `<version>` without the `v`. The install pages' commands stay the same, and the single-server install checks out the same tag. If you cannot pull the published images, check out the repository and [build the three images yourself](/run-server/self-hosting/single-server#when-you-build-the-images-yourself).
 </Callout>
 
 ## Read the release manifest
@@ -52,11 +52,12 @@ The SDK and the HTTP API connect with a server address and an API key. The TypeS
 
 ## Operating after the install
 
-These ten documents are on this site.
+These eleven documents are on this site.
 
 - [Configuration reference](/run-server/self-hosting/operate/configuration)
 - [Capacity: transcript limit, worker memory, sessions per node](/run-server/self-hosting/operate/capacity)
 - [Database connections and slow queries](/run-server/self-hosting/operate/database)
+- [Execution backends and worker isolation](/run-server/self-hosting/operate/execution)
 - [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)
 - [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend)
 - [Platform metrics (Kubernetes)](/run-server/self-hosting/operate/metrics)
@@ -68,6 +69,5 @@ These ten documents are on this site.
 The other operations documents are in the repository's `docs/operator/` and are written in Korean only.
 
 - [API server: catalog, credentials, checkpoint store, authentication and permissions](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
-- [Execution backends and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
 - [Data the platform retains](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
 - [Backup and restore](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)

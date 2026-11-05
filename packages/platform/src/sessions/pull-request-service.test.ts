@@ -25,6 +25,7 @@ import type {
   PullRequestStore,
 } from "../ports/pull-requests.ts";
 import type { SessionAttributionRecord } from "../ports/session-attribution.ts";
+import { fakeRepositoryReads } from "../testing/repository-tree-fake.ts";
 import { repositoryBinding, type SessionCatalog } from "./catalog.ts";
 import {
   PULL_REQUEST_TAIL_END_MARKER,
@@ -106,6 +107,9 @@ function harness(
     failUpdate?: boolean;
     /** Someone opened #9 for the head between the find and the create. */
     raced?: boolean;
+    /** The repository's default branch, as the tree and blob reads see it. */
+    repository?: ReturnType<typeof fakeRepositoryReads>;
+    maxBodyLength?: number;
   } = {},
 ) {
   const attribution =
@@ -193,9 +197,10 @@ function harness(
   const unused = async (): Promise<never> => {
     throw new Error("not used");
   };
+  const repository = options.repository ?? fakeRepositoryReads({});
   const forge: GitHubApi = {
-    maxBodyLength: 65_536,
-    getRepository: unused,
+    maxBodyLength: options.maxBodyLength ?? 65_536,
+    ...repository.reads,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
     rerunWorkflow: unused,
@@ -341,6 +346,7 @@ function harness(
     sourceReads,
     saved,
     calls,
+    repository,
     works,
     created,
     comments,
@@ -1554,6 +1560,228 @@ describe("structured fields", () => {
       readBody: async () => ({ summary: "Second" }),
     });
     expect(again).toMatchObject({ created: false, body_source: null });
+  });
+});
+
+describe("the repository's pull request template", () => {
+  const TEMPLATE = [
+    "## Summary",
+    "<!-- What is this -->",
+    "",
+    "## Changes",
+    "- [ ] Docs updated",
+    "",
+    "## Testing",
+    "<!-- How was it tested -->",
+  ].join("\n");
+  const FIELDS = {
+    summary: "Adds the login form.",
+    changes: ["Form"],
+    testing: "bun test",
+  };
+
+  test("fields fill the sections of the default branch's template; the comments and the checkbox stay, and the receipt names the template", async () => {
+    const repository = fakeRepositoryReads({
+      ".github/pull_request_template.md": TEMPLATE,
+    });
+    const { service, created, receipts } = harness({ repository });
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    expect(opened.body_source).toEqual({
+      kind: "repository",
+      path: ".github/pull_request_template.md",
+    });
+    expect(created[0]?.body).toBe(
+      [
+        "## Summary",
+        "<!-- What is this -->",
+        "",
+        "Adds the login form.",
+        "",
+        "## Changes",
+        "",
+        `- ${ZWSP}Form`,
+        "",
+        "- [ ] Docs updated",
+        "",
+        "## Testing",
+        "<!-- How was it tested -->",
+        "",
+        "bun test",
+        "",
+        TAIL,
+      ].join("\n"),
+    );
+    expect(receipts.at(-1)).toMatchObject({
+      template: {
+        commit: "c1",
+        path: ".github/pull_request_template.md",
+        blob_sha: "c1:blob:.github/pull_request_template.md",
+      },
+    });
+  });
+
+  test("the pull request's own base is not where the template is read: the default branch is", async () => {
+    // The catalog's base is `develop`; the repository's default branch is `trunk`.
+    const repository = fakeRepositoryReads(
+      { "pull_request_template.md": "## Summary\n" },
+      { defaultBranch: "trunk" },
+    );
+    const { service, created, calls } = harness({ repository });
+    await service.open(actor, SESSION, PUSH, { readBody: async () => FIELDS });
+    expect(created[0]?.base).toBe("develop");
+    expect(repository.calls).toContain("branch trunk");
+    expect(repository.calls).not.toContain("branch develop");
+    expect(repository.calls.some((call) => call.includes(HEAD))).toBe(false);
+    expect(calls).not.toContain(`read ${HEAD}`);
+  });
+
+  test("two templates in the directory: the platform's layout, and the receipt says why", async () => {
+    const repository = fakeRepositoryReads({
+      "docs/PULL_REQUEST_TEMPLATE/a.md": "## A",
+      "docs/PULL_REQUEST_TEMPLATE/b.md": "## B",
+    });
+    const { service, created, receipts } = harness({ repository });
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    expect(opened.body_source).toEqual({
+      kind: "platform",
+      path: "docs/PULL_REQUEST_TEMPLATE",
+      skipped: "multiple",
+    });
+    expect(created[0]?.body.startsWith("## 요약\nAdds the login form.")).toBe(
+      true,
+    );
+    expect(receipts.at(-1)).toMatchObject({
+      template: { commit: "c1", skipped: "multiple" },
+    });
+  });
+
+  test("a repository with no template is laid out as before and the receipt names the commit read", async () => {
+    const { service, receipts } = harness();
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    expect(opened.body_source).toEqual({ kind: "platform" });
+    expect(receipts.at(-1)).toMatchObject({ template: { commit: "c1" } });
+  });
+
+  test("a template that cannot be read does not stop the pull request: it opens on the default layout", async () => {
+    const repository = fakeRepositoryReads(
+      { ".github/pull_request_template.md": TEMPLATE },
+      { failing: { tree: 502 } },
+    );
+    const { service, created, warnings } = harness({ repository });
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    expect(opened.created).toBe(true);
+    expect(opened.body_source).toEqual({
+      kind: "platform",
+      skipped: "read_failed",
+    });
+    expect(created[0]?.body.startsWith("## 요약\n")).toBe(true);
+    expect(warnings).toContain("Pull request template not read");
+  });
+
+  test("a legacy body is kept as written and the repository is not read for it", async () => {
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": TEMPLATE,
+    });
+    const { service, created, receipts } = harness({ repository });
+    await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: "As written" }),
+    });
+    expect(created[0]?.body).toBe(`As written\n\n${TAIL}`);
+    expect(repository.calls).toEqual([]);
+    expect(
+      (receipts.at(-1) as { template?: unknown }).template ?? null,
+    ).toBeNull();
+  });
+
+  test("a hostile template does not reach the pull request live: no mention, no closing keyword, no tail or co-author of its own", async () => {
+    const hostile = [
+      "## Summary",
+      "Thanks @octocat, Fixes #1",
+      PULL_REQUEST_TAIL_MARKER,
+      "Co-authored-by: Mallory <m@example.com>",
+      PULL_REQUEST_TAIL_END_MARKER,
+    ].join("\n");
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": hostile,
+    });
+    const { service, created } = harness({ repository });
+    await service.open(actor, SESSION, PUSH, { readBody: async () => FIELDS });
+    const body = created[0]?.body ?? "";
+    expect(body).toContain(`@${ZWSP}octocat`);
+    expect(body).toContain(`F${ZWSP}ixes #${ZWSP}1`);
+    expect(body).not.toContain("\nCo-authored-by: Mallory");
+    const lines = body.split("\n");
+    expect(lines.filter((l) => l === PULL_REQUEST_TAIL_MARKER)).toHaveLength(1);
+    expect(body.endsWith(TAIL)).toBe(true);
+  });
+
+  test("update reads the default branch again and records the template it used", async () => {
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": "## Summary\n",
+    });
+    const { service, bodies, receipts } = harness({ repository });
+    await service.open(actor, SESSION, PUSH, { readBody: async () => FIELDS });
+    repository.move({ "docs/pull_request_template.md": "## Testing\n" });
+    const updated = await service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ testing: "bun test", summary: "Later" }),
+    });
+    expect(updated.body_source).toEqual({
+      kind: "repository",
+      path: "docs/pull_request_template.md",
+    });
+    expect(bodies.get(7)).toContain("## Testing\n\nbun test");
+    expect(bodies.get(7)).toContain("## 요약\nLater");
+    expect(receipts.at(-1)).toMatchObject({
+      operation: "update_pull_request",
+      result: {
+        template: { commit: "c2", path: "docs/pull_request_template.md" },
+      },
+    });
+  });
+
+  test("a pull request that was already open records no template: its body was not written", async () => {
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": "## Summary\n",
+    });
+    const h = harness({ repository });
+    h.setOpen({
+      number: 9,
+      url: "https://github.com/acme/app/pull/9",
+      state: "open",
+      head: HEAD,
+      base: "develop",
+    });
+    await h.service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    expect(
+      (h.receipts.at(-1) as { template?: unknown }).template ?? null,
+    ).toBeNull();
+  });
+
+  test("a template too long beside the fields falls back to the platform's layout and says so", async () => {
+    const repository = fakeRepositoryReads({
+      "pull_request_template.md": `## Summary\n${"x".repeat(3000)}`,
+    });
+    const { service, created } = harness({ repository, maxBodyLength: 1500 });
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => FIELDS,
+    });
+    expect(opened.body_source).toMatchObject({
+      kind: "platform",
+      path: "pull_request_template.md",
+      skipped: "too_large",
+    });
+    expect(created[0]?.body.length).toBeLessThanOrEqual(1500);
+    expect(created[0]?.body).not.toContain("xxxx");
   });
 });
 

@@ -25,8 +25,7 @@ export async function fixtureCatalog(
     (ref) =>
       "value_env" in ref
         ? env[ref.value_env]
-        : "secret_id" in ref &&
-            ref.secret_id === "agent-platform/local/fake-github-app"
+        : "secret_id" in ref && ref.secret_id === "werft/local/fake-github-app"
           ? appKey
           : undefined,
   );

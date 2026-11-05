@@ -77,11 +77,35 @@ export type GitHubRateLimit = {
   retryAfterSeconds: number | null;
 };
 
+/** One entry of a git tree, as the Git Database API lists it. */
+export type GitTreeEntry = {
+  name: string;
+  /** Octal mode: 100644 and 100755 are files, 120000 a symlink, 160000 a submodule. */
+  mode: string;
+  type: "blob" | "tree" | "commit";
+  sha: string;
+  /** Blobs only. */
+  size: number | null;
+};
+
 /** REST calls with the one credential a grant holds. */
 export interface GitHubApi {
   /** Longest pull request or comment body GitHub takes. */
   readonly maxBodyLength: number;
   getRepository(): Promise<ForgeRepository>;
+  /**
+   * The commit a branch points at and that commit's root tree. Everything
+   * read from the tree afterwards is by SHA, so it cannot mix two commits.
+   */
+  getBranchHead(
+    branch: string,
+  ): Promise<{ commitSha: string; treeSha: string }>;
+  /** One level of a tree, never recursive. `truncated`: GitHub cut the list. */
+  readTree(
+    treeSha: string,
+  ): Promise<{ entries: GitTreeEntry[]; truncated: boolean }>;
+  /** A blob's bytes, never followed through a link. Failures are GitHubCallError. */
+  readBlob(blobSha: string): Promise<Uint8Array>;
   findPullRequestForBranch(branch: string): Promise<ForgePullRequest | null>;
   /**
    * `created` is false when GitHub refused to create one because the head

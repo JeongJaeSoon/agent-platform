@@ -315,7 +315,7 @@ describe.skipIf(env === null)("control host roles", () => {
     let judged: Record<string, unknown> = {};
     try {
       // Long enough for each loop to fail a pass: the scheduler's DB wait is
-      // bounded near 45s (docs/operator/execution.md), the reconciler's the same.
+      // bounded near 45s (the execution page of the operations docs), the reconciler's the same.
       during = await waitFor(
         "both loops to report a failed pass",
         async () => {
@@ -444,7 +444,7 @@ describe.skipIf(env === null)("control host roles", () => {
         // run.sh's cleanup removes what carries the installation label, even
         // if this test is killed before its finally.
         "--label",
-        `agent-platform.installation=${env.installation}`,
+        `werft.installation=${env.installation}`,
         "--network",
         env.network,
         "--user",

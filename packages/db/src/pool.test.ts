@@ -51,7 +51,7 @@ describe("pool configuration", () => {
         JOB_POOL_TIMEOUTS,
         "scheduler",
       ).application_name,
-    ).toBe("agent-platform:scheduler");
+    ).toBe("werft:scheduler");
   });
 
   test("a job pool keeps the job limits whatever the URL asks for", () => {

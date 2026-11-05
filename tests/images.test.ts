@@ -2241,7 +2241,7 @@ describe("compose layers", () => {
     expect(agent?.pid).toBe("host");
     expect(agent?.cgroup).toBe("host");
     expect(agent?.env_file).toEqual([
-      `\${DATADOG_ENV_FILE:-/etc/agent-platform/datadog.env}`,
+      `\${DATADOG_ENV_FILE:-/etc/werft/datadog.env}`,
     ]);
     expect(agent?.environment?.DD_API_KEY).toBeUndefined();
     expect(read(DATADOG_OVERLAY)).not.toContain("${DD_API_KEY");
@@ -2559,7 +2559,7 @@ describe("compose layers", () => {
         services?: unknown;
       };
       expect(entry).toEqual({
-        name: "agent-platform",
+        name: "werft",
         include: [
           { path: LOCAL_LAYERS.map((path) => path.replace(/^infra\//, "")) },
         ],
@@ -3032,7 +3032,7 @@ describe("compose layers", () => {
       const proxy = services["egress-proxy"] as
         | { labels?: Record<string, string> }
         | undefined;
-      expect(proxy?.labels?.["agent-platform.egress-proxy"]).toBe(id);
+      expect(proxy?.labels?.["werft.egress-proxy"]).toBe(id);
       const published = Object.values(services).flatMap(
         (service) => service.ports?.map((port) => port.published) ?? [],
       );

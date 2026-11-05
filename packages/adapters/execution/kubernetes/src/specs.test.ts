@@ -16,6 +16,7 @@ import {
   podNameFor,
   workerEnvironmentFor,
   workspaceClaimFor,
+  workspaceClaimNameFor,
 } from "./specs.ts";
 import { testConfig } from "./testing.ts";
 
@@ -149,18 +150,18 @@ describe("worker Pod", () => {
   test("carries the contract labels and the launch's identity", () => {
     expect(pod.metadata.name).toBe("ap-worker-prod-exec-1-g3");
     expect(pod.metadata.labels).toEqual({
-      "agent-platform.generation": "3",
-      "agent-platform.installation": "prod",
-      "agent-platform.session-execution-id": "exec-1",
-      "agent-platform.session-id": intent.sessionId,
+      "werft.generation": "3",
+      "werft.installation": "prod",
+      "werft.session-execution-id": "exec-1",
+      "werft.session-id": intent.sessionId,
       "app.kubernetes.io/component": "worker",
-      "app.kubernetes.io/part-of": "agent-platform",
+      "app.kubernetes.io/part-of": "werft",
     });
     expect(pod.metadata.annotations).toEqual({
-      "agent-platform.bootstrap-fingerprint": "fingerprint",
-      "agent-platform.isolation": isolationStampFor(config, PROXY_ADDRESS),
-      "agent-platform.launch-spec": "f".repeat(64),
-      "agent-platform.operation-id": "op-1",
+      "werft.bootstrap-fingerprint": "fingerprint",
+      "werft.isolation": isolationStampFor(config, PROXY_ADDRESS),
+      "werft.launch-spec": "f".repeat(64),
+      "werft.operation-id": "op-1",
     });
   });
 
@@ -168,7 +169,9 @@ describe("worker Pod", () => {
     expect(pod.spec.volumes).toEqual([
       {
         name: "workspace",
-        persistentVolumeClaim: { claimName: `ap-ws-prod-${intent.sessionId}` },
+        persistentVolumeClaim: {
+          claimName: `werft-ws-prod-${intent.sessionId}`,
+        },
       },
       {
         emptyDir: { medium: "Memory", sizeLimit: String(16 * 1024 * 1024) },
@@ -221,6 +224,8 @@ describe("worker Pod", () => {
         workerLimits: config.workerLimits,
         // The checkout below the mount (CHECKOUT_DIRECTORY).
         workspaceDir: checkoutDirOf(config),
+        volumeLabelNamespace: "werft",
+        volumeNamePrefix: "werft-ws-",
         workspaceGcMinAgeMs: 0,
         workspaceQuota: { mode: "off" },
       },
@@ -269,11 +274,11 @@ describe("nonce Secret and workspace claim", () => {
       kind: "Secret",
       metadata: {
         labels: {
-          "agent-platform.generation": "3",
-          "agent-platform.installation": "prod",
-          "agent-platform.session-execution-id": "exec-1",
+          "werft.generation": "3",
+          "werft.installation": "prod",
+          "werft.session-execution-id": "exec-1",
           "app.kubernetes.io/component": "bootstrap",
-          "app.kubernetes.io/part-of": "agent-platform",
+          "app.kubernetes.io/part-of": "werft",
         },
         name: "pod-a-1234",
         namespace: "agents",
@@ -292,10 +297,10 @@ describe("nonce Secret and workspace claim", () => {
       spec: Record<string, unknown>;
     };
     expect(claim.metadata.labels).toEqual({
-      "agent-platform.installation": "prod",
-      "agent-platform.session-id": intent.sessionId,
+      "werft.installation": "prod",
+      "werft.session-id": intent.sessionId,
       "app.kubernetes.io/component": "workspace",
-      "app.kubernetes.io/part-of": "agent-platform",
+      "app.kubernetes.io/part-of": "werft",
     });
     expect(claim.spec).toEqual({
       accessModes: ["ReadWriteOnce"],
@@ -312,5 +317,33 @@ describe("nonce Secret and workspace claim", () => {
         }
       ).spec.storageClassName,
     ).toBe("gp3");
+  });
+
+  test("an existing claim is looked up and mounted under the configured prefix, and only that one", () => {
+    const named = { ...config, volumeNamePrefix: "legacy-ws-" };
+    const expected = `legacy-ws-prod-${intent.sessionId}`;
+    expect(workspaceClaimNameFor(intent.sessionId, named)).toBe(expected);
+    expect(
+      (
+        workspaceClaimFor(named, intent.sessionId) as {
+          metadata: { name: string };
+        }
+      ).metadata.name,
+    ).toBe(expected);
+    const mounted = podFor(
+      named,
+      intent,
+      "secret-name",
+      "fingerprint",
+      PROXY_ADDRESS,
+    ) as PodShape;
+    expect(mounted.spec.volumes).toMatchObject([
+      { persistentVolumeClaim: { claimName: expected } },
+      expect.anything(),
+      expect.anything(),
+    ]);
+    expect(workspaceClaimNameFor(intent.sessionId, config)).toBe(
+      `werft-ws-prod-${intent.sessionId}`,
+    );
   });
 });

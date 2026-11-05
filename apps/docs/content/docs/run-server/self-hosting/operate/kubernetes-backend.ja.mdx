@@ -3,7 +3,7 @@ title: "Kubernetes実行backend"
 description: schedulerがworkerをKubernetes Podとして起動するときの動作と設定
 ---
 
-schedulerがworkerをDockerコンテナではなくKubernetes Podとして起動するときの動作と設定です。Helm chartでインストールする手順は[Kubernetesインストール(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)に、Docker backendの動作は[実行基盤とworkerの隔離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)にあります。
+schedulerがworkerをDockerコンテナではなくKubernetes Podとして起動するときの動作と設定です。Helm chartでインストールする手順は[Kubernetesインストール(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)に、Docker backendの動作は[実行基盤とworkerの隔離](/run-server/self-hosting/operate/execution)にあります。
 
 `packages/adapters/execution/kubernetes`は、launch 1回につきworker Podを1つ作ります。Podごとに、そのPodが所有するnonce Secretが1つ付き、セッションのworkspace PVCがマウントされます。
 

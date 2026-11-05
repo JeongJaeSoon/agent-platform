@@ -7,7 +7,9 @@
 # co-author lines go (the claim's git_strip, one email per line).
 
 # Removes every Co-authored-by line (key in any case) whose email git-strip
-# lists. Other lines, other co-authors included, are kept as written.
+# lists. Whole lines only: a line folded over several lines is not removed
+# (the push check refuses it instead), so no text of the author is ever taken
+# with it. Other lines, other co-authors included, are kept as written.
 werft_strip_engine_coauthors() {
   _werft_file=$1
   _werft_strip=${HOME:-/nonexistent}/.werft/git-strip
@@ -67,7 +69,9 @@ werft_add_trailers() {
     unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CONFIG GIT_CONFIG_PARAMETERS
     export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0
     cd / || exit 1
-    exec git interpret-trailers --if-exists addIfDifferent --in-place "$@" "$_werft_file"
+    # --no-divider: the push check reads trailers the way `git log` does, which
+    # treats a `---` line as ordinary text, so the trailers must go after it.
+    exec git interpret-trailers --no-divider --if-exists addIfDifferent --in-place "$@" "$_werft_file"
   )
 }
 
