@@ -33,7 +33,7 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 
 독자별 전체 문서 색인은 [docs/README.md](docs/README.md)에 있다.
 
-`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
+`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다. merge·rebase에서 이 생성물이 충돌하면 `openapi.ts`와 route 소스만 풀고 같은 명령으로 다시 만든다(생성물의 충돌 표시는 덮어써진다). 쓰지 않고 맞는지만 보려면 `openapi:generate --check`다.
 
 ## UI 컴포넌트 보기 (Storybook)
 
