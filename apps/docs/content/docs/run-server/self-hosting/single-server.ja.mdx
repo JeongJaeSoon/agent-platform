@@ -207,6 +207,10 @@ scripts/test-ops.sh reset --yes
 `reset` は volume まで消します。volume を残してコンテナだけを止めるには、設置したときと同じ compose 構成で `-v` なしの `down` を使います。構成を省いて `docker compose -p agent-platform-test-ops down` だけにすると、リポジトリ直下の開発用構成を読み、この設置のサービスが見つかりません。最後の `-f` は object store に合わせ、LocalStack なら `infra/compose.test-ops.localstack.yml`、S3 なら `infra/compose.test-ops.s3.yml` です。
 
 ```bash
+# Compose needs the release's images to render the files, even for down.
+API_IMAGE="$(jq -r .images.control_host release.json)" \
+WORKER_IMAGE="$(jq -r .images.worker release.json)" \
+EGRESS_PROXY_IMAGE="$(jq -r .images.egress_proxy release.json)" \
 docker compose --project-name agent-platform-test-ops \
   --env-file /etc/agent-platform/test-ops.env --profile apps \
   -f infra/compose.core.yml -f infra/compose.test-ops.yml \

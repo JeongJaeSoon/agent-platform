@@ -207,6 +207,10 @@ scripts/test-ops.sh reset --yes
 `reset`은 volume까지 지운다. volume을 남기고 컨테이너만 내리려면 설치할 때와 같은 compose 구성으로 `-v` 없이 `down`을 쓴다. 구성을 빼고 `docker compose -p agent-platform-test-ops down`만 쓰면 저장소 루트의 개발용 구성을 읽어 이 설치의 서비스를 찾지 못한다. 마지막 `-f`는 object store에 맞춰 LocalStack이면 `infra/compose.test-ops.localstack.yml`, S3이면 `infra/compose.test-ops.s3.yml`이다.
 
 ```bash
+# Compose needs the release's images to render the files, even for down.
+API_IMAGE="$(jq -r .images.control_host release.json)" \
+WORKER_IMAGE="$(jq -r .images.worker release.json)" \
+EGRESS_PROXY_IMAGE="$(jq -r .images.egress_proxy release.json)" \
 docker compose --project-name agent-platform-test-ops \
   --env-file /etc/agent-platform/test-ops.env --profile apps \
   -f infra/compose.core.yml -f infra/compose.test-ops.yml \

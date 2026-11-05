@@ -207,6 +207,10 @@ scripts/test-ops.sh reset --yes
 `reset` removes the volumes too. To take the containers down and keep the volumes, run `down` without `-v`, with the same compose layers you installed with. `docker compose -p agent-platform-test-ops down` alone reads the development setup at the repository root and does not find this installation's services. The last `-f` follows the object store: `infra/compose.test-ops.localstack.yml` for LocalStack, `infra/compose.test-ops.s3.yml` for S3.
 
 ```bash
+# Compose needs the release's images to render the files, even for down.
+API_IMAGE="$(jq -r .images.control_host release.json)" \
+WORKER_IMAGE="$(jq -r .images.worker release.json)" \
+EGRESS_PROXY_IMAGE="$(jq -r .images.egress_proxy release.json)" \
 docker compose --project-name agent-platform-test-ops \
   --env-file /etc/agent-platform/test-ops.env --profile apps \
   -f infra/compose.core.yml -f infra/compose.test-ops.yml \
