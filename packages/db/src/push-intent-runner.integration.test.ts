@@ -15,6 +15,7 @@ import {
 import { eq, inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
 import { createPostgresPushIntents } from "./push-intents.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
@@ -182,6 +183,48 @@ integration("push intent runner on PostgreSQL", () => {
       status: "requested",
       pushRequestId: request?.id,
       claimToken: null,
+    });
+  });
+
+  test("the whole path: intent, request, approval, push, due stage, drain claim with the turn's content", async () => {
+    pinned = { status: "ready", revision: 1, gitCommit: PINNED_COMMIT };
+    const intent = await pinnedIntent();
+    await runner().runOnce();
+    const [request] = await requestsOf(intent.sessionId);
+    if (!request) throw new Error("no request");
+    const store = requests();
+    const decision = await store.decide({
+      ownerId: OWNER,
+      sessionId: intent.sessionId,
+      pushRequestId: request.id,
+      actor: ACTOR,
+      decision: "approve",
+      gitCommit: PINNED_COMMIT,
+      reason: null,
+      idempotencyKey: `d-${request.id}`,
+      payloadHash: "h",
+    });
+    expect(decision.outcome).toBe("written");
+    const job = await store.claimNextApproved(60_000);
+    if (job?.id !== request.id) throw new Error("claimed another request");
+    await store.finish(job, {
+      state: "pushed",
+      remoteUrl: "https://example.invalid/app.git",
+      remoteRef: `refs/heads/${job.targetBranch}`,
+      previousCommit: null,
+    });
+    const [pushed] = await requestsOf(intent.sessionId);
+    expect(pushed).toMatchObject({
+      state: "pushed",
+      prState: "due",
+      pullRequestIntent: { title: "from the turn" },
+    });
+    const claimed =
+      await createPostgresPullRequestDrain(db).claimNextDue(60_000);
+    expect(claimed).toMatchObject({
+      id: request.id,
+      gitCommit: PINNED_COMMIT,
+      intent: { title: "from the turn" },
     });
   });
 

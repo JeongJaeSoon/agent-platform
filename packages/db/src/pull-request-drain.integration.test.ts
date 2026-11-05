@@ -18,7 +18,7 @@ import { createPostgresPullRequestDrain } from "./pull-request-drain.ts";
 import { createPostgresPullRequests } from "./pull-requests.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
-import { pullRequests, pushRequests, sessions } from "./schema.ts";
+import { pullRequests, pushRequests, sessions, slackOutbox } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -284,5 +284,75 @@ integration("postgres pull request drain", () => {
       prState: "failed",
       prError: "intent_invalid",
     });
+  });
+
+  /**
+   * A primary Slack thread for the session. Foreign keys are switched off for
+   * this one connection: the thread's workspace, agent, release and binding
+   * rows are nothing this test reads.
+   */
+  async function slackThread(sessionId: string) {
+    const client = await pool.connect();
+    try {
+      await client.query("SET session_replication_role = replica");
+      const workspace = crypto.randomUUID();
+      const installation = crypto.randomUUID();
+      const appId = `A${crypto.randomUUID().slice(0, 8)}`;
+      await client.query(
+        "INSERT INTO slack_apps (id, workspace_id, kind, state, app_id, redirect_url) VALUES ($1, $2, 'link', 'creating', $3, 'https://example.invalid/cb')",
+        [crypto.randomUUID(), workspace, appId],
+      );
+      await client.query(
+        "INSERT INTO slack_installations (id, workspace_id, app_id, team_id, status) VALUES ($1, $2, $3, 'T1', 'pending')",
+        [installation, workspace, appId],
+      );
+      await client.query(
+        "INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id, profile_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'C1', '1.1', '1.1', $8, 'r1', 'p1')",
+        [
+          crypto.randomUUID(),
+          workspace,
+          OWNER,
+          sessionId,
+          installation,
+          crypto.randomUUID(),
+          `ref-${sessionId}`,
+          crypto.randomUUID(),
+        ],
+      );
+    } finally {
+      await client.query("SET session_replication_role = DEFAULT");
+      client.release();
+    }
+  }
+
+  const noticesOf = (sessionId: string) =>
+    db.select().from(slackOutbox).where(eq(slackOutbox.sessionId, sessionId));
+
+  test("an intent that no longer parses tells the thread in the same transaction, once", async () => {
+    const { id, sessionId } = await due({ title: 42 });
+    await db
+      .update(pushRequests)
+      .set({ flow: "actions" })
+      .where(eq(pushRequests.id, id));
+    await slackThread(sessionId);
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    const notices = await noticesOf(sessionId);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      kind: "action_notice",
+      dedupeKey: `action:${id}:pr_failed`,
+    });
+    expect((notices[0]?.body as { text: string }).text).toContain(
+      "intent_invalid",
+    );
+  });
+
+  test("a legacy request with an invalid intent is failed without a notice", async () => {
+    const { id, sessionId } = await due({ title: 42 });
+    await slackThread(sessionId);
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    expect((await row(id))?.prError).toBe("intent_invalid");
+    expect(await noticesOf(sessionId)).toHaveLength(0);
   });
 });

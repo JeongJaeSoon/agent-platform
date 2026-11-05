@@ -115,6 +115,21 @@ export function createPostgresPullRequestDrain(
                 ...cleared,
               })
               .where(eq(pushRequests.id, candidate.id));
+            // The thread learns of it in the same transaction; only an
+            // `actions` request is told, as for every other result.
+            if (candidate.flow === "actions") {
+              await enqueueActionNotice(tx, {
+                sessionId: candidate.sessionId,
+                pushRequestId: candidate.id,
+                notice: {
+                  result: "pr_failed",
+                  repository: candidate.repositoryId,
+                  branch: candidate.targetBranch,
+                  commit: candidate.gitCommit,
+                  reason: "intent_invalid",
+                },
+              });
+            }
             continue;
           }
           const claimToken = randomUUID();
