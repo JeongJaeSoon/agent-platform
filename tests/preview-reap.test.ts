@@ -43,7 +43,9 @@ describe("deploy/preview/preview.sh reap", () => {
       `#!/bin/sh
 echo "$*" >> "${dir}/kubectl-calls"
 case "$*" in
-  "config view "*) echo "apiVersion: v1" ;;
+  "config view --raw --minify --context "*)
+    # Only the contexts in STUB_CONTEXTS exist.
+    case " \${STUB_CONTEXTS:-orbstack} " in *" $6 "*) echo "apiVersion: v1" ;; *) exit 1 ;; esac ;;
   "get namespaces -o json") cat "${dir}/namespaces.json" ;;
   "get namespace "*" -o json")
     # STUB_CURRENT_UP_AT is an \`up\` that ran after reap read the list.
@@ -421,6 +423,39 @@ exit 1
     expect(result.exitCode).toBe(0);
     expect(await deleted()).toEqual([]);
     expect(result.stderr).toContain("pr-30: up again at ");
+  });
+
+  test("uses the orbstack context by default", async () => {
+    await reap([]);
+    expect((await calls("kubectl-calls"))[0]).toBe(
+      "config view --raw --minify --context orbstack",
+    );
+  });
+
+  test("PREVIEW_KUBE_CONTEXT picks the only context kubectl is pointed at", async () => {
+    const result = await reap([], {
+      PREVIEW_KUBE_CONTEXT: "kind-scratch",
+      STUB_CONTEXTS: "kind-scratch",
+    });
+    expect(result.exitCode).toBe(0);
+    const all = await calls("kubectl-calls");
+    expect(all[0]).toBe("config view --raw --minify --context kind-scratch");
+    expect(all.some((call) => call.includes("orbstack"))).toBe(false);
+  });
+
+  test("a context that does not exist stops before any namespace is read", async () => {
+    const result = await reap([{ name: "pr-31", upAt: hoursAgo(100) }], {
+      PREVIEW_KUBE_CONTEXT: "kind-missing",
+      STUB_CONTEXTS: "orbstack",
+      STUB_STATES: "31=CLOSED",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("no kind-missing context");
+    // No fallback to orbstack and no call past the context check.
+    expect(await calls("kubectl-calls")).toEqual([
+      "config view --raw --minify --context kind-missing",
+    ]);
+    expect(await deleted()).toEqual([]);
   });
 
   test("keeps a preview another up or down holds", async () => {

@@ -33,6 +33,8 @@
 #                      and one session worker)
 #   MAX_MEMORY_MI      the node memory the check counts from, in place of
 #                      its allocatable memory
+#   PREVIEW_KUBE_CONTEXT  the only kubeconfig context used (default orbstack);
+#                      for a disposable cluster in tests
 #   PREVIEW_TTL_HOURS  how long after its last `up` reap deletes a preview
 #                      (default 24)
 set -euo pipefail
@@ -41,6 +43,7 @@ PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/pre
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.94soon.dev}"
 PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
 PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
+PREVIEW_KUBE_CONTEXT="${PREVIEW_KUBE_CONTEXT:-orbstack}"
 INGRESS_NAMESPACE=preview-ingress
 TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
 TRAEFIK_VERSION=42.1.3
@@ -100,10 +103,11 @@ pr_number() {
 
 mkdir -p "$PREVIEW_HOME"
 chmod 700 "$PREVIEW_HOME"
-# Only OrbStack's cluster, whatever the shell's current context is.
+# Only this one context, whatever the shell's current context is. A missing
+# context stops here; kubectl never falls back to another cluster.
 export KUBECONFIG="${PREVIEW_HOME}/kubeconfig"
-if ! env -u KUBECONFIG kubectl config view --raw --minify --context orbstack >"$KUBECONFIG" 2>/dev/null; then
-  echo "no orbstack context in the default kubeconfig: is OrbStack's Kubernetes on?" >&2
+if ! env -u KUBECONFIG kubectl config view --raw --minify --context "$PREVIEW_KUBE_CONTEXT" >"$KUBECONFIG" 2>/dev/null; then
+  echo "no ${PREVIEW_KUBE_CONTEXT} context in the default kubeconfig: is OrbStack's Kubernetes on?" >&2
   exit 1
 fi
 chmod 600 "$KUBECONFIG"
