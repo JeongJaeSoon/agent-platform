@@ -141,7 +141,8 @@ function cleanAll(
 ): string[] {
   return cleanBodies(
     values.map((value) =>
-      stripEngineSignatures(value.replaceAll("\r\n", "\n")),
+      // A lone CR also ends a line for Markdown.
+      stripEngineSignatures(value.replace(/\r\n?/g, "\n")),
     ),
     Number.MAX_SAFE_INTEGER,
     redact,

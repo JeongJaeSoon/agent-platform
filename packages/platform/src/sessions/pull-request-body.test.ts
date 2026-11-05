@@ -114,6 +114,15 @@ describe("the default template", () => {
     expect(body).toContain(`- multi line @${ZWSP}team`);
   });
 
+  test("a lone CR is a line break: a fence after it in a change item or a field cannot swallow the tail", () => {
+    const item = render({ changes: ["example\r```"] }).body;
+    expect(item).toContain("- example ```");
+    expect(item).not.toMatch(/^ *```/m);
+    const field = render({ summary: "example\r```\rmore" }).body;
+    expect(field.split("\n").filter((line) => line === "```").length).toBe(2);
+    expect(field.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+  });
+
   test("a code fence in a change item stays on its line and leaves the tail outside any block", () => {
     const { body } = render({ changes: ["```text\nexample"] });
     expect(body).toContain("- ```text example");
