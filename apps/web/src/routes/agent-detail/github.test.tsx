@@ -39,6 +39,7 @@ const TAB: Tab = {
   push_attached: "ask",
   legacy_defaults: null,
   options: {
+    repository_ceiling_unset: false,
     repositories: [
       {
         id: "werft-sandbox",
@@ -275,6 +276,21 @@ describe("에이전트 GitHub 탭", () => {
     );
   });
 
+  test("워크스페이스에 저장소 상한이 아직 없으면, 저장소를 범위 밖으로 막지 않고 저장 시 기본 허용 목록이 적용된다고 안내한다", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        options: { ...TAB.options, repository_ceiling_unset: true },
+      }),
+    );
+    await screen.findByRole("heading", { name: "저장소" });
+    expect(screen.getByText(/저장하면 기본 허용 목록/)).toBeTruthy();
+    expect(switchNamed("werft-sandbox").disabled).toBe(false);
+    expect(screen.queryByText(/저장소 범위 밖/)).toBeNull();
+  });
+
   test("쓸 수 없는 저장소와 권한은 그 이유를 행에 적고 스위치를 잠근다", async () => {
     const { server } = await activeAgent();
     const reason = <R,>(r: R) => ({ available: false, reason: r });
@@ -287,6 +303,7 @@ describe("에이전트 GitHub 탭", () => {
           features: { ...SETTINGS.features, actions: false },
         },
         options: {
+          repository_ceiling_unset: false,
           repositories: [
             ...TAB.options.repositories,
             {

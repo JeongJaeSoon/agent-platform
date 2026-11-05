@@ -78,6 +78,12 @@ export const agentGitHubResponseSchema = z.object({
         }),
       }),
     ),
+    /**
+     * The workspace has no repository ceiling yet. `repositories` is then
+     * judged against the default the first save writes; reading writes
+     * nothing.
+     */
+    repository_ceiling_unset: z.boolean(),
     features: z.object({
       workflows: featureOptionSchema,
       actions: featureOptionSchema,

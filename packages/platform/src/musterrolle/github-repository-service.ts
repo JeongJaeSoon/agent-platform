@@ -480,7 +480,9 @@ export function createGitHubRepositoryService(deps: {
     const detail = await deps.agents.get(workspaceId, agentId);
     if (detail === null) throw NOT_FOUND();
     const ceiling = await deps.repositoryCeiling(workspaceId);
-    return ceiling?.github_app_repositories === "installed"
+    // No ceiling yet: the first save writes the default ("installed"), so
+    // the picker shows what that save will allow. Reading writes nothing.
+    return ceiling === null || ceiling.github_app_repositories === "installed"
       ? null
       : ("ceiling_listed" as const);
   }

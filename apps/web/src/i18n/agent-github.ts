@@ -57,6 +57,8 @@ export const agentGitHubKo = {
     "워크스페이스가 허용한 GitHub App 저장소 가운데 고릅니다. 토큰은 고른 저장소 하나로만 좁혀 발급합니다.",
   "agentGitHub.repositoriesNone":
     "카탈로그에 GitHub 저장소가 없습니다. 운영자가 카탈로그에 추가합니다.",
+  "agentGitHub.ceilingUnset":
+    "이 워크스페이스에는 아직 저장소 범위가 정해지지 않았습니다. 저장하면 기본 허용 목록(GitHub App이 닿는 저장소)이 적용됩니다.",
   "agentGitHub.repositoryUse": "사용",
   "agentGitHub.repositoryUnused": "안 씀",
   "agentGitHub.repositoryReason.repository_not_allowed":
@@ -250,6 +252,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Pick from the catalog's repositories that use a GitHub App. Each token is narrowed to the one repository.",
   "agentGitHub.repositoriesNone":
     "The catalog has no GitHub repository. The operator adds them.",
+  "agentGitHub.ceilingUnset":
+    "This workspace has no repository scope yet. Saving applies the default allow list (the repositories the GitHub App reaches).",
   "agentGitHub.repositoryUse": "Used",
   "agentGitHub.repositoryUnused": "Not used",
   "agentGitHub.repositoryReason.repository_not_allowed":
@@ -447,6 +451,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "GitHub App を使うカタログのリポジトリから選びます。トークンは選んだリポジトリ 1 つに絞って発行します。",
   "agentGitHub.repositoriesNone":
     "カタログに GitHub のリポジトリがありません。運用者が追加します。",
+  "agentGitHub.ceilingUnset":
+    "このワークスペースにはリポジトリの範囲がまだありません。保存すると既定の許可リスト（GitHub App が届くリポジトリ）が適用されます。",
   "agentGitHub.repositoryUse": "使う",
   "agentGitHub.repositoryUnused": "使わない",
   "agentGitHub.repositoryReason.repository_not_allowed":

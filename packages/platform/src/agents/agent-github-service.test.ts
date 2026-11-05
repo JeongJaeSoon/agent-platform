@@ -237,7 +237,11 @@ function serviceWithPuts(input: {
     store: {
       async putSettings(put) {
         puts.push(put);
-        put.check(input.current ?? null);
+        // The real store writes the default when a workspace has none.
+        put.check(
+          input.current ?? null,
+          input.repositoryCeiling ?? DEFAULT_CEILING,
+        );
         return (
           input.outcome ?? {
             outcome: "saved",
@@ -454,10 +458,24 @@ describe("the agent GitHub tab's options", () => {
       });
     });
 
-    test("no ceiling: nothing can be picked", async () => {
-      expect(Object.values(await reasons({ repositoryCeiling: null }))).toEqual(
-        Array(3).fill("repository_not_allowed"),
+    test("no ceiling yet: shown as the default the first save writes, and flagged; a ceiling that reads is not", async () => {
+      const unset = await serviceWith({ repositoryCeiling: null }).get(
+        caller,
+        AGENT,
       );
+      expect(unset.options.repository_ceiling_unset).toBe(true);
+      expect(await reasons({ repositoryCeiling: null })).toEqual(
+        await reasons({
+          repositoryCeiling: {
+            repository_ids: [],
+            github_app_repositories: "installed",
+          },
+        }),
+      );
+      expect(
+        (await serviceWith({}).get(caller, AGENT)).options
+          .repository_ceiling_unset,
+      ).toBe(false);
     });
 
     test("no active release, a row or not: the same answer", async () => {

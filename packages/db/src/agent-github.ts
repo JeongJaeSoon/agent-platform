@@ -5,6 +5,7 @@ import { lockAgentToChange } from "./agents.ts";
 import { receiptActorOf } from "./control-shared.ts";
 import {
   agentGitHubSettingsOf,
+  ensureRepositoryCeilingWhenUnset,
   workspaceRepositoryCeiling,
 } from "./github-settings.ts";
 import { receiptFromRow } from "./postgres-unit-of-work.ts";
@@ -135,7 +136,14 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
         if (heldRevision !== input.expectedRevision) {
           return { outcome: "conflict" as const, revision: heldRevision };
         }
-        input.check(held ?? null);
+        // First use of a workspace without a ceiling writes the default one,
+        // after the agent and its settings are locked (design 3.2). Judged
+        // against what is stored now, in this transaction.
+        const ceiling = await ensureRepositoryCeilingWhenUnset(
+          tx,
+          input.workspaceId,
+        );
+        input.check(held ?? null, ceiling);
         const next = {
           repositories: input.settings.repositories,
           pushApproval: input.settings.push_approval,
