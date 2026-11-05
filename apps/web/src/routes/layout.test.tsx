@@ -157,6 +157,10 @@ describe("app shell", () => {
       ["언어한국어", null],
       ["테마시스템 설정", null],
       ["API 키", "/settings/api-keys"],
+      [
+        "Werft 문서(새 탭에서 열림)",
+        "https://jeongjaesoon.github.io/werft/ko/",
+      ],
       ["로그아웃", null],
     ]);
   });
@@ -445,6 +449,7 @@ describe("app shell", () => {
       "언어한국어",
       "테마시스템 설정",
       "API 키",
+      "Werft 문서(새 탭에서 열림)",
       "로그아웃",
     ]);
     expect(
@@ -497,6 +502,36 @@ describe("app shell", () => {
     expect(
       await screen.findByRole("menuitem", { name: /^Language/ }),
     ).toBeDefined();
+  });
+
+  test("the docs item opens the public site in the console's language", async () => {
+    renderAt("/", signedIn);
+    const region = await screen.findByRole("region", { name: "사용자 메뉴" });
+    const user = await setupUser();
+    await user.click(within(region).getByRole("button", { name: /Owner/ }));
+
+    const docs = screen.getByRole("menuitem", { name: /^Werft 문서/ });
+    expect(docs.getAttribute("href")).toBe(
+      "https://jeongjaesoon.github.io/werft/ko/",
+    );
+    expect(docs.getAttribute("target")).toBe("_blank");
+    expect(docs.getAttribute("rel")).toBe("noopener noreferrer");
+
+    await user.click(screen.getByRole("menuitem", { name: /^언어/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "English" }));
+    expect(
+      (
+        await screen.findByRole("menuitem", { name: /^Werft docs/ })
+      ).getAttribute("href"),
+    ).toBe("https://jeongjaesoon.github.io/werft/en/");
+
+    await user.click(screen.getByRole("menuitem", { name: /^Language/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "日本語" }));
+    expect(
+      (
+        await screen.findByRole("menuitem", { name: /^Werft ドキュメント/ })
+      ).getAttribute("href"),
+    ).toBe("https://jeongjaesoon.github.io/werft/ja/");
   });
 
   test("following a link in the account menu puts focus on the page", async () => {
