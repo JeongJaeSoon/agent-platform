@@ -3,15 +3,15 @@ title: "Kubernetesインストール(Helm chart)"
 description: Helm chartでKubernetesにインストールし、healthを確認し、アップグレード・ロールバック・削除する手順
 ---
 
-mainをKubernetesに載せる手順です。chartのソースは`deploy/helm/werft`にあり、`main`のマージと`v*`タグのたびに`oci://ghcr.io/jeongjaesoon/werft`へ公開されます。既定値は一般的なKubernetes(kind含む)で動きます。AWS専用の値(ALB Ingress、IRSA、ECR、External Secrets)はchartの`values-aws.example.yaml`にだけあります。各コンポーネントの動作と環境変数は[Kubernetes実行backend](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/kubernetes-backend/)、バックアップは[backup-restore.md § Kubernetesインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)にあります。
+Helm chartでKubernetesにWerftをインストールする手順です。chartのソースは`deploy/helm/werft`にあり、`main`のマージと`v*`タグのたびに`oci://ghcr.io/jeongjaesoon/werft`へ公開されます。既定値は一般的なKubernetes(kind含む)で動きます。AWS専用の値(ALB Ingress、IRSA、ECR、External Secrets)はchartの`values-aws.example.yaml`にだけあります。各コンポーネントの動作と環境変数は[Kubernetes実行backend](/run-server/self-hosting/operate/kubernetes-backend)、バックアップは[backup-restore.md § Kubernetesインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)にあります。
 
 **現在の状態:** 公式リリース(`v*`タグ)はまだありません。`main`のマージごとに公開されるchartには、そのrunのイメージdigestとworker runtimeが入っているので、リポジトリのcheckoutなしで[公開chartでインストール](#公開chartでインストール)します。リポジトリの`values.yaml`はdigestが空なので、checkoutのパスでインストールするときはdigestを自分で入れます。そのままではrenderが失敗します。
 
-Docker単一サーバーのインストール(`local-docker`実行基盤、compose)は引き続き運用します。その手順は[server-deployment.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)で、公開イメージでインストールする順序は[単一サーバーの設置](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/single-server/)にあります。このページはその隣にある2つ目のインストール経路です。
+Docker単一サーバーのインストール(`local-docker`実行基盤、compose)も引き続きサポートします。公開イメージでインストールする順序は[単一サーバーの設置](/run-server/self-hosting/single-server)に、運用手順の全体はリポジトリの[単一サーバーのデプロイ文書](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md)にあります。このページはその隣にある2つ目のインストール経路です。
 
-worker Pod 1つのメモリ(`worker.memoryMb`)はtranscript上限に合わせた値で、requests = limitsなのでノードあたりの同時セッション数を決めます。ノードの大きさを決める前や、この値を変える前に[容量管理](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/capacity/)を読んでください。
+worker Pod 1つのメモリ(`worker.memoryMb`)はtranscript上限に合わせた値で、requests = limitsなのでノードあたりの同時セッション数を決めます。ノードの大きさを決める前や、この値を変える前に[容量管理](/run-server/self-hosting/operate/capacity)を読んでください。
 
-コマンドごとに、どこで確認したかを書いています。**kind**は`deploy/kind/up.sh`で立ち上げたクラスターで実行したコマンド、**AWS専用**はAWSのリソースが必要でローカルでは実行できないコマンドです。**kind**の表示は、次の2つの場合に限って、ドキュメントのブロックそのままの実行を意味しません。直接インストールのSecretブロックは`up.sh`が作る形と違い、ドキュメントのブロックそのままでは実行していません。「公開chartのアップグレード」のコマンドは、公開chartではなくfixture chartで実行しました。アップグレード前の検査の直前イメージの経路(`lookup`で直前イメージを読む分岐と、直前イメージを外したり変えたりする実際の`helm upgrade`)は、kindでも実行していません。
+表示のあるコマンドには、どこで確認したかを書いています。表示のないコマンドは、実行を確認したという意味ではありません。**kind**は`deploy/kind/up.sh`で立ち上げたクラスターで実行したコマンド、**AWS専用**はAWSのリソースが必要でローカルでは実行できないコマンドです。**kind**の表示は、次の2つの場合に限って、ドキュメントのブロックそのままの実行を意味しません。直接インストールのSecretブロックは`up.sh`が作る形と違い、ドキュメントのブロックそのままでは実行していません。「公開chartのアップグレード」のコマンドは、公開chartではなくfixture chartで実行しました。アップグレード前の検査の直前イメージの経路(`lookup`で直前イメージを読む分岐と、直前イメージを外したり変えたりする実際の`helm upgrade`)は、kindでも実行していません。
 
 ## chartが作るもの
 
@@ -28,11 +28,11 @@ worker Pod 1つのメモリ(`worker.memoryMb`)はtranscript上限に合わせた
 | session archive CronJob | 週1回 | `sessionArchive.schedule`(既定`0 5 * * 0`)・`afterDays`(既定180、0=オフ、30〜3650)・`dryRun`(既定`true`)。長く休んでいるセッションのイベントをbucketへ移します([data-retention.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)) |
 | NetworkPolicy | 5 | workerはegress-proxyを通してだけ外へ出ます。制御領域のPodのうち外への接続を塞ぐのはslackだけです |
 | Ingress、ExternalSecret | 任意 | `ingress.enabled`、`secrets.externalSecret.enabled` |
-| metrics Deployment + Service(9464) + NetworkPolicy | 任意、1、`Recreate` | `metrics.enabled`。プラットフォームのメトリクスを出します([プラットフォームのメトリクス](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/metrics/)) |
+| metrics Deployment + Service(9464) + NetworkPolicy | 任意、1、`Recreate` | `metrics.enabled`。プラットフォームのメトリクスを出します([プラットフォームのメトリクス](/run-server/self-hosting/operate/metrics)) |
 
 chartが作らないもの: PostgreSQL 16、S3互換のobject store、Secretの値、worker Pod(schedulerがセッションごとに作ります)。kindでは`deploy/kind/deps.yaml`のPostgreSQLとLocalStackが代わりになります。
 
-chartはGitサーバーも作りません。設定ドキュメントのリポジトリには、Podがegress proxy経由で届くアドレスを書きます。kindの確認環境では、`KIND_MODEL`が`fake`または`real`のとき`deploy/kind/up.sh`が`deploy/kind/deps-session.yaml`で読み取り専用のfake-gitを立ち上げます。fake-gitはcontrol-hostイメージで動き、Service `fake-git:3000`の`/agent/sample-app.git`と`/agent/gate-app.git`を返し、起動のたびに同じコミットで作り直され、pushは403です。
+chartはGitサーバーも作りません。設定ドキュメントのリポジトリには、Podがegress proxy経由で届くアドレスを書きます。kindの確認環境では、`deploy/kind/up.sh`が試験用の読み取り専用Gitサーバーも立ち上げます(`deploy/kind/deps-session.yaml`)。
 
 ## 準備
 
@@ -73,7 +73,7 @@ export KUBECONFIG=~/.cache/agent-platform/kind/<cluster>/kubeconfig
 
 ### 公開chartでインストール
 
-リポジトリのcheckoutは要りません。バージョンは必ず`--version`で正確に書きます。リリースはタグから`v`を除いた形(`v1.2.3`なら`1.2.3`)、`main`のマージは`<Chartバージョン>-main-<12>`で、`<12>`はcommit SHAの先頭12文字です。`main`バージョン同士の順序に意味はありません(プレリリースの比較がSHAの文字列を比べるためです)。そのため`--devel`で「最新」を選ばず、[Images run](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml)でマージしたcommitを探して書きます。パッケージは匿名で取得します。
+リポジトリのcheckoutは要りません。バージョンは必ず`--version`で正確に書きます。リリースはタグから`v`を除いた形(`v1.2.3`なら`1.2.3`)、`main`のマージは`<Chartバージョン>-main-<12>`で、`<12>`はcommit SHAの先頭12文字です。`main`バージョン同士の順序に意味はありません(プレリリースの比較がSHAの文字列を比べるためです)。そのため`--devel`で「最新」を選ばず、[Images run](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml)でマージしたcommitを探して書きます。パッケージは匿名で取得します。**kind**
 
 ```bash
 VERSION=0.1.0-main-<12>
@@ -81,7 +81,7 @@ helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
 ```
 
-`images`のdigestと`images.worker.runtime`が、そのrunの公開した値です。パッケージ1つが3つのイメージとruntimeをまとめて持つので、valuesにもう一度書きません。次の節のnamespace、Secret、インストールごとのvaluesファイルを用意したら、chartのパスだけを替えてインストールします。
+`images`のdigestと`images.worker.runtime`が、そのrunの公開した値です。パッケージ1つが3つのイメージとruntimeをまとめて持つので、valuesにもう一度書きません。次の節のnamespace、Secret、インストールごとのvaluesファイルを用意したら、chartのパスだけを替えてインストールします。**kind**
 
 ```bash
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
@@ -112,15 +112,13 @@ done
 
 release名に`werft`が入っていなければ、リソース名は`<release>-werft-…`になります。
 
-chart名が`agent-platform`だったときにインストールしたreleaseは、その場でアップグレードできません。リソース名が変わり、upgrade-check Jobが既存のschedulerを見つけられずに止まります。セッションが終わっていることを確認して古い名前で削除し(`helm -n agent-platform uninstall agent-platform`、残るものは[削除](#削除)を見ます)、新しくインストールします。ファイルカタログを使っていたreleaseは、削除する前に[「ファイルカタログからのアップグレード」](#ファイルカタログからのアップグレード)のConfigMapを保存します。
-
 最初のインストールが失敗したら(イメージパスやpull権限のエラーが多い)、値を直して同じコマンドをもう一度実行します。Helmはreleaseが`failed`で残っているのでこれをupgradeとして扱い、そのためupgrade-check Jobが初めて走ります。scheduler Deploymentがなく、DBが空かセッションがなければ、Jobは`proceed`で終わってインストールが続きます([アップグレード前の検査](#アップグレード前の検査))。Deploymentが作られた後で失敗したなら、再試行は通常のupgradeの規則に従います。workerイメージを直した再試行はここで止まるので(`check_failed`、runtimeを入れていたなら`refused`)、セッションを始めていなければ[削除](#削除)してからインストールし直します。
 
 ## AWSの値を入れる
 
 `values-aws.example.yaml`をインストールごとのファイルにコピーし、placeholder(account id、ARN、host、digest)を埋めて、`values.yaml`の上に重ねます。下のrenderはローカルで動きますが、その結果を適用するのは**AWS専用**です。
 
-**ALBは内部網専用です。** このインストールは内部網からだけ届く入口を前提にするので、例のIngress annotation `scheme`はすでに`internal`です。インストールごとのファイルでも`internet-facing`に変えません。`render-check`が例のrenderで`internet-facing`を拒否します。適用の後は、ALBが内部網のsubnetにできたことを確認します(**AWS専用**)。
+**AWSの例は内部網専用のALBを前提にしています。** そのため、例のIngress annotation `scheme`はすでに`internal`です。インストールごとのファイルでも`internet-facing`に変えません。`render-check`が例のrenderで`internet-facing`を拒否します。適用の後は、ALBが内部網のsubnetにできたことを確認します(**AWS専用**)。
 
 ### Webコンソールと`/internal`
 
@@ -150,11 +148,11 @@ ingress:
 適用の後、内部網から確認します(**AWS専用**)。`curl -s -o /dev/null -w '%{http_code}\n' https://<host>/`は200です。`curl -si -X POST https://<host>/internal/worker/x`は404で、応答ヘッダーが`content-type: text/plain`で、apiが付ける`x-request-id`がないことが必要です。apiの404は`application/json`で`x-request-id`が付くので、ステータスコードだけではALBが止めたかどうかは分かりません。
 
 ```bash
-helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # kind 머신에서 확인
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # checked on kind
 helm template werft deploy/helm/werft \
-  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # checked on kind
 helm upgrade --install werft deploy/helm/werft \
-  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
+  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS only
 ```
 
 | 値 | 何を変えるか |
@@ -200,7 +198,7 @@ composeインストールの`bun run keys`・`grants`・`settings`はapiコン�
 
 ```bash
 bun run keys:k8s create <owner_id> --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
-# stdout: 평문 key(한 번만 나온다), stderr: key_id
+# stdout: the plain key (shown once), stderr: key_id
 bun run keys:k8s revoke <key_id>
 bun run grants:k8s revoke <session_id> --reason <text>
 bun run grants:k8s restore <session_id> --reason <text>
@@ -245,7 +243,7 @@ worker Podのイメージは、schedulerがlaunchするときに決まります�
 公開chartは`images.worker.runtime`を持ち、`images.workerPrevious`は空にしてあります。直前イメージはchartには分からず、インストールごとに違うためです。workerのdigestが変わるupgradeは、対象の`images.workerPrevious`がいまデプロイされているイメージでなければ`refused`で止まり、承認でも越えられません([アップグレード前の検査](#アップグレード前の検査))。そのため、いまのイメージをファイルに保存して一緒に渡します。
 
 ```bash
-VERSION=<새 버전>
+VERSION=<new version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
 CURRENT="$(helm -n werft get values werft --all --revision "$DEPLOYED" -o json | jq -r '.images.worker.digest')"
 TARGET="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
@@ -275,20 +273,11 @@ fi
 
 ### ファイルカタログからのアップグレード
 
-古いchartの`catalog` ConfigMapは、今回のchartにありません。Helmはhookが終わった後に古いリソースを消すので、pre-upgradeのmigrate Jobが同じConfigMapを`/legacy-config`に任意でマウントし、`settings import --from-dir /legacy-config --if-present`で取り込みます。次のupgradeからはConfigMapがなく、何もしません。一部のファイルだけがあるか値が壊れていれば、Jobが失敗してDeploymentは変わりません。
+`catalog`の値を使っていたchartのConfigMapは、今のchartにありません。Helmはhookが終わった後に古いリソースを消すので、pre-upgradeのmigrate Jobが同じConfigMapを`/legacy-config`に任意でマウントし、`settings import --from-dir /legacy-config --if-present`で取り込みます。次のupgradeからはConfigMapがなく、何もしません。一部のファイルだけがあるか値が壊れていれば、Jobが失敗してDeploymentは変わりません。
 
 1. `PLATFORM_SECRET_KEY`を先にSecretに入れます。すでにあれば同じ値のままにします。
 2. valuesから`catalog`の節を消して`helm upgrade`します。`api.extraEnv`に`PLATFORM_CONFIG_DIR`を置いていたなら消します。
 3. 終わったら`bun run settings:k8s export`で加わった項目を見ます。`installation_profiles`にすでに行があれば、ファイルの上限は入れ直しません。手順と戻すときの下限は[api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기)にあります。
-
-chart名が`agent-platform`だったreleaseは、削除して新しくインストールするのでConfigMapも一緒に消え、新しいchartは別の名前を探します。古いreleaseを消す前にConfigMapを新しい名前で保存し、`helm install`の前に作っておきます。migrate Jobはインストールのときも走り、そのConfigMapを取り込みます。ConfigMapには参照だけがあり、秘密の値はありません。
-
-```bash
-kubectl -n agent-platform get configmap agent-platform-catalog -o json \
-  | jq '{apiVersion, kind, data, metadata: {name: "werft-catalog", namespace: "werft"}}' > catalog-configmap.json
-# 옛 release를 지우고 namespace를 만든 뒤
-kubectl apply -f catalog-configmap.json
-```
 
 ### 変わるものごとのセッション継続方法
 
@@ -322,7 +311,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | workerイメージ1つ、runtime・直前イメージなし | 違うworkerイメージ | `check_failed`。対象に`images.worker.runtime`と、いまのイメージを入れた`images.workerPrevious`を置きます |
 | runtimeか直前イメージがある | `images.worker.runtime`を除いた値 | `check_failed`。組み合わせなしにはセッションを検査できません |
 
-runtimeの値を得る方法は、[設定リファレンス](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/configuration/#api設定)のAPI設定にあります。最小のvaluesのインストールはruntimeなしで始め、workerイメージを初めて変えるupgradeで、2つのイメージのruntimeを一緒に入れます。
+runtimeの値を得る方法は、[設定リファレンス](/run-server/self-hosting/operate/configuration#api設定)のAPI設定にあります。最小のvaluesのインストールはruntimeなしで始め、workerイメージを初めて変えるupgradeで、2つのイメージのruntimeを一緒に入れます。
 
 `images.worker`をそのままにして、デプロイ済みの`images.workerPrevious`を外したり変えたりするupgradeは、セッションを比べます。対象イメージ(現在のイメージと、あれば直前イメージ)のどちらとも組み合わせが合わないか、組み合わせが記録されていないセッションがあれば`refused`で、そのリストを承認すれば通ります。組み合わせが記録されていないセッションは、イメージを変えるupgradeと同じく、どの場合でも選びます。デプロイ済みの直前イメージがなかったか同じなら、セッションを比べず、承認リストが空のとき`proceed`です(残った承認は`refused`です)。イメージだけが違って組み合わせが同じ再ビルドは、直前イメージを外してもセッションが現在のイメージで再開されるので、リストに載りません。
 
@@ -340,16 +329,16 @@ Jobは承認リストを`UPGRADE_APPROVED_SESSIONS`(JSON配列)、デプロイ�
 
 ```bash
 kubectl -n werft exec deploy/werft-api -- env \
-  UPGRADE_DEPLOYED_WORKER_IMAGE='<지금 scheduler의 WORKER_IMAGE>' \
-  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS='<지금 scheduler의 WORKER_IMAGE_PREVIOUS, 없으면 빈 값>' \
-  WORKER_IMAGE='<되돌릴 revision의 worker 이미지>' WORKER_IMAGE_RUNTIME='<그 runtime JSON>' \
-  WORKER_IMAGE_PREVIOUS='<그 revision의 workerPrevious>' WORKER_IMAGE_PREVIOUS_RUNTIME='<그 runtime JSON>' \
+  UPGRADE_DEPLOYED_WORKER_IMAGE='<WORKER_IMAGE of the running scheduler>' \
+  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS='<WORKER_IMAGE_PREVIOUS of the running scheduler, empty if none>' \
+  WORKER_IMAGE='<worker image of the target revision>' WORKER_IMAGE_RUNTIME='<its runtime JSON>' \
+  WORKER_IMAGE_PREVIOUS='<workerPrevious of that revision>' WORKER_IMAGE_PREVIOUS_RUNTIME='<its runtime JSON>' \
   bun run apps/control-host/src/api/upgrade-check.ts
 ```
 
 workerイメージを戻す通常のrollbackは`refused`です。戻すrevisionの`images.workerPrevious`が、いまデプロイされているイメージではないからです(検査は組み合わせではなくイメージ参照を比べます)。設定やDBを読めなければ`check_failed`です。いまのイメージで動いているworkerは、rollbackの後も終わるまでそのイメージの組み合わせでcheckpointを残しますが、検査はそのcheckpointを見られません。出力の`affected`は、検査の時点ですでに選んだセッションです。ロールフォワードが先です。それでも戻すなら、再開するときにschedulerが組み合わせでイメージを選びます。戻したrevisionのworkerイメージと直前イメージ(あれば)のどちらとも組み合わせが合わないセッション(いまのイメージが新しいSDK・CLIを載せていたなら、rollbackの間にいまのイメージでcheckpointを残したセッション)は`recovery_required`で止まります。`images.worker`をそのままにするrollbackは、いまデプロイされている直前イメージが戻すrevisionにもそのままあれば、承認リストが空のとき`proceed`で(残った承認は`refused`)、抜けるか変わるなら上のupgradeのようにセッションを比べます。このコマンドはhookではないので、rollbackを止めてはくれません。`refused`が出たら`affected`を読んで、戻すかどうかを決めます。デプロイされたworkerイメージがあるのに`UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`を抜くと`check_failed`です。
 
-**検査が見ないもの。** 単一サーバーのアップグレード検査([アップグレード](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/upgrade/)を参照)と違い、この検査は対象イメージを実行しません。ポインターに記録された組み合わせ(engine・SDK・CLI・profile digestの方式)だけを比べ、実際のprofile digestは復元のときに判定されます。検査の後にwriterを止めて再検査することもしません。workerイメージが変わるupgradeは、対象の`images.workerPrevious`がいまデプロイされているイメージと同じでなければ通らないので、検査の後にいまのイメージのworkerが残すcheckpointは、対象のサポート窓の中にあります。workerイメージをそのままにして直前イメージを外すupgradeには、この保証がありません。直前イメージで動くworkerは、検査の後もその組み合わせでcheckpointを残せます。最初のcheckpointの前のセッションも同じです。そのため、直前イメージを外す前に、そのworkerが終わったかを先に見ます。それより古いイメージで動くworkerのセッションは、ポインターがすでにその組み合わせならリストに載ります。最初のcheckpointの前のセッションはリストにありません。この限界は、サポート窓から外れるすべてのイメージ、そして直前イメージを変えるupgradeにも同じです。対象イメージをregistryから取得できるかも見ません。取得できなければ、launchの失敗として現れます。
+**検査が見ないもの。** 単一サーバーのアップグレード検査([アップグレード](/run-server/self-hosting/upgrade)を参照)と違い、この検査は対象イメージを実行しません。ポインターに記録された組み合わせ(engine・SDK・CLI・profile digestの方式)だけを比べ、実際のprofile digestは復元のときに判定されます。検査の後にwriterを止めて再検査することもしません。workerイメージが変わるupgradeは、対象の`images.workerPrevious`がいまデプロイされているイメージと同じでなければ通らないので、検査の後にいまのイメージのworkerが残すcheckpointは、対象のサポート窓の中にあります。workerイメージをそのままにして直前イメージを外すupgradeには、この保証がありません。直前イメージで動くworkerは、検査の後もその組み合わせでcheckpointを残せます。最初のcheckpointの前のセッションも同じです。そのため、直前イメージを外す前に、そのworkerが終わったかを先に見ます。それより古いイメージで動くworkerのセッションは、ポインターがすでにその組み合わせならリストに載ります。最初のcheckpointの前のセッションはリストにありません。この限界は、サポート窓から外れるすべてのイメージ、そして直前イメージを変えるupgradeにも同じです。対象イメージをregistryから取得できるかも見ません。取得できなければ、launchの失敗として現れます。
 
 ## 単一サーバー10ステップとの対応
 

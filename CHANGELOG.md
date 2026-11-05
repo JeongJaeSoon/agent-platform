@@ -33,7 +33,7 @@ Werft의 사용자와 운영자에게 보이는 변경을 적는다. 게시 패�
    | 키프레임 `ap-spin`, `ap-pulse`, `ap-fade-in`, `ap-dialog-in` | `werft-*` |
 
    worker 작업 공간, 네트워크, 임시 이름 같은 `ap-ws-*`, `ap-worker-*`, `ap-net-*`는 이미 떠 있는 스택의 소유권 판별에 쓰이므로 바꾸지 않았다. 쿠키 `__Host-ap_session`, compose project 이름도 그대로다.
-3. **chart와 이미지 이름이 `werft`다**(JeongJaeSoon/werft#1166). chart 이름이 `agent-platform`이던 release는 지우고 새로 설치한다. 그 전에 파일 카탈로그의 ConfigMap을 새 이름으로 저장한다. 절차는 [Kubernetes 설치 (Helm chart)](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/#파일-카탈로그에서-올리기)에 있다.
+3. **chart와 이미지 이름이 `werft`다**(JeongJaeSoon/werft#1166). chart 이름이 `agent-platform`이던 release는 지우고 새로 설치한다.
 4. **설정 파일 카탈로그가 없어지고 DB 설정만 쓴다**(JeongJaeSoon/werft#1167). 파일 카탈로그로 돌던 설치는 올리기 전에 같은 문서의 "파일 카탈로그에서 올리기"를 따른다.
 5. **worker 이미지가 같아도 직전 이미지(`images.workerPrevious`)를 빼거나 바꾸면 업그레이드 전 검사가 `refused`로 멈출 수 있다**(JeongJaeSoon/werft#1204). 대상 이미지(현재 이미지와, 있으면 직전 이미지) 어느 쪽과도 맞지 않거나 조합이 기록되지 않은 세션이 있을 때다. 이전에는 그대로 통과했고, 맞지 않는 세션은 재개 때 멈췄다. 보관한 `worker-previous.json`을 계속 넘긴다. 이 검사의 직전 이미지 경로는 클러스터에서 실행해 확인하지 않았다.
 

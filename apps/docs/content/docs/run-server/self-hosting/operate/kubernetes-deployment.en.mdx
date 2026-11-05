@@ -3,15 +3,15 @@ title: "Kubernetes install (Helm chart)"
 description: Install on Kubernetes with the Helm chart, check health, and upgrade, roll back or remove it
 ---
 
-This is the procedure for putting main on Kubernetes. The chart source is in `deploy/helm/werft`, and every `main` merge and every `v*` tag publishes it to `oci://ghcr.io/jeongjaesoon/werft`. The defaults run on any Kubernetes (kind included). The AWS-only values (ALB Ingress, IRSA, ECR, External Secrets) are only in the chart's `values-aws.example.yaml`. How each component behaves and its environment variables are in [Kubernetes execution backend](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/kubernetes-backend/), and backup is in [backup-restore.md § Kubernetes install](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).
+This page installs Werft on Kubernetes with the Helm chart. The chart source is in `deploy/helm/werft`, and every `main` merge and every `v*` tag publishes it to `oci://ghcr.io/jeongjaesoon/werft`. The defaults run on any Kubernetes (kind included). The AWS-only values (ALB Ingress, IRSA, ECR, External Secrets) are only in the chart's `values-aws.example.yaml`. How each component behaves and its environment variables are in [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend), and backup is in [backup-restore.md § Kubernetes install](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).
 
 **Current status:** there is no official release (`v*` tag) yet. The chart published on every `main` merge carries that run's image digests and worker runtime, so you [install from the published chart](#install-from-the-published-chart) without a repository checkout. The repository's `values.yaml` has empty digests, so when you install from a checkout path you must supply the digests yourself. Rendered as is, it fails.
 
-The Docker single-server install (`local-docker` execution base, compose) stays supported. Its procedure is [server-deployment.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md), and the order for installing the published images is in the [single-server install](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/single-server/). This page is the second install path beside it.
+The Docker single-server install (`local-docker` execution base, compose) stays supported. The order for installing the published images is in the [single-server install](/run-server/self-hosting/single-server), and the full operating procedure is in the repository's [single-server deployment document](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md). This page is the second install path beside it.
 
-The memory of one worker Pod (`worker.memoryMb`) is sized to the transcript limit, and since requests = limits it decides how many sessions run on a node at once. Before you size nodes or change this value, read [Capacity](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/capacity/).
+The memory of one worker Pod (`worker.memoryMb`) is sized to the transcript limit, and since requests = limits it decides how many sessions run on a node at once. Before you size nodes or change this value, read [Capacity](/run-server/self-hosting/operate/capacity).
 
-Each command says where it was checked. **kind** means the command was run on a cluster started with `deploy/kind/up.sh`. **AWS only** means the command needs AWS resources and cannot run locally. The **kind** mark does not mean the document block ran as written in two cases. The Secret block under direct install differs from the form `up.sh` creates, and the block as written was not run. The commands under "Upgrading the published chart" were run against a fixture chart, not the published one. The previous-image path of the pre-upgrade check (the branch that reads the previous image with `lookup`, and the real `helm upgrade` that drops or changes the previous image) was not run on kind either.
+A marked command says where it was checked. A command with no mark has no such check behind it. **kind** means the command was run on a cluster started with `deploy/kind/up.sh`. **AWS only** means the command needs AWS resources and cannot run locally. The **kind** mark does not mean the document block ran as written in two cases. The Secret block under direct install differs from the form `up.sh` creates, and the block as written was not run. The commands under "Upgrading the published chart" were run against a fixture chart, not the published one. The previous-image path of the pre-upgrade check (the branch that reads the previous image with `lookup`, and the real `helm upgrade` that drops or changes the previous image) was not run on kind either.
 
 ## What the chart creates
 
@@ -28,11 +28,11 @@ Each command says where it was checked. **kind** means the command was run on a 
 | session archive CronJob | weekly | `sessionArchive.schedule` (default `0 5 * * 0`), `afterDays` (default 180, 0 = off, 30 to 3650), `dryRun` (default `true`). Moves the events of long-idle sessions to the bucket ([data-retention.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md#세션-이벤트-보관)) |
 | NetworkPolicy | 5 | Workers go out only through egress-proxy. Among the control-plane Pods, only slack has its outbound connections restricted |
 | Ingress, ExternalSecret | optional | `ingress.enabled`, `secrets.externalSecret.enabled` |
-| metrics Deployment + Service(9464) + NetworkPolicy | optional, 1, `Recreate` | `metrics.enabled`. Emits platform metrics ([Platform metrics](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/metrics/)) |
+| metrics Deployment + Service(9464) + NetworkPolicy | optional, 1, `Recreate` | `metrics.enabled`. Emits platform metrics ([Platform metrics](/run-server/self-hosting/operate/metrics)) |
 
 What the chart does not create: PostgreSQL 16, an S3-compatible object store, Secret values, and worker Pods (the scheduler creates one per session). On kind, the PostgreSQL and LocalStack in `deploy/kind/deps.yaml` stand in.
 
-The chart does not create a Git server either. The repository in the settings document is an address the Pod can reach through the egress proxy. In the kind check environment, when `KIND_MODEL` is `fake` or `real`, `deploy/kind/up.sh` starts a read-only fake-git from `deploy/kind/deps-session.yaml`. fake-git runs on the control-host image, serves `/agent/sample-app.git` and `/agent/gate-app.git` from Service `fake-git:3000`, is rebuilt with the same commits at every start, and answers push with 403.
+The chart does not create a Git server either. The repository in the settings document is an address the Pod can reach through the egress proxy. In the kind check environment, `deploy/kind/up.sh` also starts a read-only Git server for testing (`deploy/kind/deps-session.yaml`).
 
 ## Prerequisites
 
@@ -73,7 +73,7 @@ With `EXTRA_VALUES=<file>`, one values file is laid last on top of the other val
 
 ### Install from the published chart
 
-No repository checkout is needed. Always give the exact version with `--version`. A release uses the tag without the `v` (`1.2.3` for `v1.2.3`), and a `main` merge is `<chart version>-main-<12>`, where `<12>` is the first 12 characters of the commit SHA. The order among `main` versions has no meaning (the prerelease comparison compares the SHA strings). So do not pick "latest" with `--devel`; find the merged commit in the [Images run](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) and write it down. The package is pulled anonymously.
+No repository checkout is needed. Always give the exact version with `--version`. A release uses the tag without the `v` (`1.2.3` for `v1.2.3`), and a `main` merge is `<chart version>-main-<12>`, where `<12>` is the first 12 characters of the commit SHA. The order among `main` versions has no meaning (the prerelease comparison compares the SHA strings). So do not pick "latest" with `--devel`; find the merged commit in the [Images run](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) and write it down. The package is pulled anonymously. **kind**
 
 ```bash
 VERSION=0.1.0-main-<12>
@@ -81,7 +81,7 @@ helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
 helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
 ```
 
-The digests under `images` and `images.worker.runtime` are the values that run published. One package bundles the three images and the runtime, so you do not write them into values again. Prepare the namespace, Secret and per-installation values file from the next section, then install by changing only the chart path.
+The digests under `images` and `images.worker.runtime` are the values that run published. One package bundles the three images and the runtime, so you do not write them into values again. Prepare the namespace, Secret and per-installation values file from the next section, then install by changing only the chart path. **kind**
 
 ```bash
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
@@ -112,15 +112,13 @@ done
 
 If the release name does not contain `werft`, the resource names become `<release>-werft-…`.
 
-A release installed when the chart was named `agent-platform` cannot be upgraded in place. The resource names changed, so the upgrade-check Job cannot find the existing scheduler and stops. Make sure the sessions have ended, remove it by the old name (`helm -n agent-platform uninstall agent-platform`; see [Uninstall](#uninstall) for what is left), and install again. For a release that used the file catalog, save the ConfigMap from ["Upgrading from the file catalog"](#upgrading-from-the-file-catalog) before you remove it.
-
 If the first install fails (an image path or pull permission error is common), fix the values and run the same command again. Helm leaves the release as `failed` and treats this as an upgrade, so the upgrade-check Job runs for the first time. When the scheduler Deployment is absent and the DB is empty or has no sessions, the Job ends with `proceed` and the install goes on ([Pre-upgrade check](#pre-upgrade-check)). If it failed after the Deployments were created, the retry follows the ordinary upgrade rules. A retry that fixes the worker image stops here (`check_failed`, or `refused` if you supplied a runtime), so if you have not started a session, [uninstall](#uninstall) and install again.
 
 ## Adding AWS values
 
 Copy `values-aws.example.yaml` to the per-installation file, fill in the placeholders (account id, ARN, host, digest), and lay it on top of `values.yaml`. The render below runs locally, but applying its result is **AWS only**.
 
-**The ALB is internal-network only.** This install assumes an entrance reachable only from the internal network, so the example Ingress annotation `scheme` is already `internal`. Do not change it to `internet-facing` in the per-installation file either. `render-check` rejects `internet-facing` in the example render. After applying, check that the ALB was created in the internal-network subnets (**AWS only**).
+**The AWS example assumes an internal-network-only ALB.** So the example Ingress annotation `scheme` is already `internal`. Do not change it to `internet-facing` in the per-installation file either. `render-check` rejects `internet-facing` in the example render. After applying, check that the ALB was created in the internal-network subnets (**AWS only**).
 
 ### The web console and `/internal`
 
@@ -150,11 +148,11 @@ ingress:
 After applying, check from the internal network (**AWS only**). `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/` gives 200. `curl -si -X POST https://<host>/internal/worker/x` gives 404, and the response header must be `content-type: text/plain` without the `x-request-id` the api adds. The api's 404 is `application/json` with an `x-request-id`, so the status code alone does not tell you whether the ALB blocked it.
 
 ```bash
-helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # kind 머신에서 확인
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # checked on kind
 helm template werft deploy/helm/werft \
-  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # checked on kind
 helm upgrade --install werft deploy/helm/werft \
-  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
+  --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS only
 ```
 
 | Value | What it changes |
@@ -200,7 +198,7 @@ On a compose install, `bun run keys`, `grants` and `settings` run inside the api
 
 ```bash
 bun run keys:k8s create <owner_id> --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
-# stdout: 평문 key(한 번만 나온다), stderr: key_id
+# stdout: the plain key (shown once), stderr: key_id
 bun run keys:k8s revoke <key_id>
 bun run grants:k8s revoke <session_id> --reason <text>
 bun run grants:k8s restore <session_id> --reason <text>
@@ -245,7 +243,7 @@ The worker Pod's image is fixed when the scheduler launches it. The image is not
 The published chart carries `images.worker.runtime` and leaves `images.workerPrevious` empty. The chart cannot know the previous image, and it differs per installation. An upgrade that changes the worker digest stops with `refused` unless the target's `images.workerPrevious` is the image deployed now, and an approval cannot get past that ([Pre-upgrade check](#pre-upgrade-check)). So you save the current image to a file and pass it along.
 
 ```bash
-VERSION=<새 버전>
+VERSION=<new version>
 DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
 CURRENT="$(helm -n werft get values werft --all --revision "$DEPLOYED" -o json | jq -r '.images.worker.digest')"
 TARGET="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
@@ -275,20 +273,11 @@ Without `--revision`, when a failed upgrade exists you get that revision's value
 
 ### Upgrading from the file catalog
 
-The old chart's `catalog` ConfigMap is not in this chart. Helm removes old resources after the hooks end, so the pre-upgrade migrate Job optionally mounts the same ConfigMap at `/legacy-config` and imports it with `settings import --from-dir /legacy-config --if-present`. From the next upgrade there is no ConfigMap, so it does nothing. If only some files exist or a value is broken, the Job fails and the Deployments do not change.
+The ConfigMap of a chart that used the `catalog` value is not in the current chart. Helm removes old resources after the hooks end, so the pre-upgrade migrate Job optionally mounts the same ConfigMap at `/legacy-config` and imports it with `settings import --from-dir /legacy-config --if-present`. From the next upgrade there is no ConfigMap, so it does nothing. If only some files exist or a value is broken, the Job fails and the Deployments do not change.
 
 1. Put `PLATFORM_SECRET_KEY` in the Secret first. If it is already there, leave the same value.
 2. Remove the `catalog` section from values and run `helm upgrade`. If you put `PLATFORM_CONFIG_DIR` in `api.extraEnv`, remove it.
 3. When it ends, look at the added entries with `bun run settings:k8s export`. If `installation_profiles` already has rows, the limits from the file are not put in again. The procedure and the floor for reverting are in [api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기).
-
-A release whose chart was named `agent-platform` is removed and installed anew, so the ConfigMap disappears with it, and the new chart looks for a different name. Before you remove the old release, save the ConfigMap under the new name, and create it before `helm install`. The migrate Job also runs on install and imports that ConfigMap. The ConfigMap holds only references and no secret values.
-
-```bash
-kubectl -n agent-platform get configmap agent-platform-catalog -o json \
-  | jq '{apiVersion, kind, data, metadata: {name: "werft-catalog", namespace: "werft"}}' > catalog-configmap.json
-# 옛 release를 지우고 namespace를 만든 뒤
-kubectl apply -f catalog-configmap.json
-```
 
 ### How sessions continue, by what changes
 
@@ -322,7 +311,7 @@ kubectl -n werft logs job/werft-upgrade-check
 | One worker image, no runtime or previous image | A different worker image | `check_failed`. Put `images.worker.runtime` and an `images.workerPrevious` holding the current image in the target |
 | A runtime or previous image exists | Values without `images.worker.runtime` | `check_failed`. Without the combination, sessions cannot be checked |
 
-How to get the runtime value is in the API settings of the [Configuration reference](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/configuration/#api-settings). A minimal-values install starts with no runtime, and the first upgrade that changes the worker image puts in both images' runtimes together.
+How to get the runtime value is in the API settings of the [Configuration reference](/run-server/self-hosting/operate/configuration#api-settings). A minimal-values install starts with no runtime, and the first upgrade that changes the worker image puts in both images' runtimes together.
 
 An upgrade that leaves `images.worker` alone and drops or changes the deployed `images.workerPrevious` compares sessions. If a session's combination matches neither target image (the current image and, when present, the previous image) or has no recorded combination, it is `refused`, and approving that list lets it through. A session with no recorded combination is picked in every case, the same as in an upgrade that changes the image. When the deployed previous image did not exist or is unchanged, sessions are not compared and an empty approval list gives `proceed` (a remaining approval is `refused`). A rebuild that differs only in the image with the same combination is not on the list even when you drop the previous image, because the sessions resume on the current image.
 
@@ -340,16 +329,16 @@ The Job receives the approval list as `UPGRADE_APPROVED_SESSIONS` (a JSON array)
 
 ```bash
 kubectl -n werft exec deploy/werft-api -- env \
-  UPGRADE_DEPLOYED_WORKER_IMAGE='<지금 scheduler의 WORKER_IMAGE>' \
-  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS='<지금 scheduler의 WORKER_IMAGE_PREVIOUS, 없으면 빈 값>' \
-  WORKER_IMAGE='<되돌릴 revision의 worker 이미지>' WORKER_IMAGE_RUNTIME='<그 runtime JSON>' \
-  WORKER_IMAGE_PREVIOUS='<그 revision의 workerPrevious>' WORKER_IMAGE_PREVIOUS_RUNTIME='<그 runtime JSON>' \
+  UPGRADE_DEPLOYED_WORKER_IMAGE='<WORKER_IMAGE of the running scheduler>' \
+  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS='<WORKER_IMAGE_PREVIOUS of the running scheduler, empty if none>' \
+  WORKER_IMAGE='<worker image of the target revision>' WORKER_IMAGE_RUNTIME='<its runtime JSON>' \
+  WORKER_IMAGE_PREVIOUS='<workerPrevious of that revision>' WORKER_IMAGE_PREVIOUS_RUNTIME='<its runtime JSON>' \
   bun run apps/control-host/src/api/upgrade-check.ts
 ```
 
 An ordinary rollback that reverts the worker image is `refused`, because the `images.workerPrevious` of the revision you go back to is not the image deployed now (the check compares image references, not combinations). If the config or the DB cannot be read, it is `check_failed`. A worker running on the current image keeps writing checkpoints with that image's combination after the rollback until it ends, and the check cannot see those checkpoints. `affected` in the output is the sessions already picked at the time of the check. Rolling forward comes first. If you roll back anyway, the scheduler picks the image by combination when it resumes. A session whose combination matches neither the rolled-back revision's worker image nor its previous image (if any) stops at `recovery_required` (if the current image carries a new SDK or CLI, this is a session that wrote checkpoints with the current image during the rollback). A rollback that leaves `images.worker` alone is `proceed` with an empty approval list when the deployed previous image is still in the revision you go back to (a remaining approval is `refused`), and if it drops out or changes, sessions are compared as in the upgrade above. This command is not a hook, so it does not stop a rollback for you. When you get `refused`, read `affected` and decide whether to go back. If a deployed worker image exists and you omit `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`, it is `check_failed`.
 
-**What the check does not see.** Unlike the single-server upgrade check (see [Upgrade](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/upgrade/)), this check does not run the target image. It compares only the combination recorded in the pointer (engine, SDK, CLI and profile digest method), and the actual profile digest is decided at restore. It also does not stop the writers and check again after the check. An upgrade that changes the worker image passes only when the target's `images.workerPrevious` equals the image deployed now, so checkpoints that a worker on the current image writes after the check are inside the target's support window. An upgrade that leaves the worker image alone and drops the previous image has no such guarantee. A worker running on the previous image can still write checkpoints with that combination after the check. The same holds for a session before its first checkpoint. So before you drop the previous image, first see that those workers have ended. For a session of a worker running on an image older than that, if the pointer is already that combination, it goes on the list. A session before its first checkpoint is not on the list. This limit applies equally to every image that falls out of the support window, and to an upgrade that changes the previous image. It also does not check whether the target image can be pulled from the registry. If it cannot be pulled, it appears as a launch failure.
+**What the check does not see.** Unlike the single-server upgrade check (see [Upgrade](/run-server/self-hosting/upgrade)), this check does not run the target image. It compares only the combination recorded in the pointer (engine, SDK, CLI and profile digest method), and the actual profile digest is decided at restore. It also does not stop the writers and check again after the check. An upgrade that changes the worker image passes only when the target's `images.workerPrevious` equals the image deployed now, so checkpoints that a worker on the current image writes after the check are inside the target's support window. An upgrade that leaves the worker image alone and drops the previous image has no such guarantee. A worker running on the previous image can still write checkpoints with that combination after the check. The same holds for a session before its first checkpoint. So before you drop the previous image, first see that those workers have ended. For a session of a worker running on an image older than that, if the pointer is already that combination, it goes on the list. A session before its first checkpoint is not on the list. This limit applies equally to every image that falls out of the support window, and to an upgrade that changes the previous image. It also does not check whether the target image can be pulled from the registry. If it cannot be pulled, it appears as a launch failure.
 
 ## Mapping to the 10 single-server steps
 
