@@ -693,10 +693,11 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
 
   // A platform tool (`trusted`) gets a PreToolUse allow from the adapter and
   // nothing else: the claim is that the allow takes the call out of the
-  // whole permission stage. The fake Messages API cannot show the auto
-  // classifier's own request (the control run asks canUseTool instead of
-  // calling a model), so the evidence is what the stage would have done:
-  // no canUseTool call and no model request beyond the two the turn needs.
+  // whole permission stage, the auto classifier included. The classifier is
+  // observable only on a model it is offered for (`claude-sonnet-5`; on
+  // `claude-sonnet-4-5`, the harness default, auto asks canUseTool and never
+  // calls a model). Its requests carry no tools and quote the tool call, so
+  // the control run shows them and the allowed run must show none.
   // The in-process server stands in for the adapter's relay, which is an
   // SDK MCP server too.
   describe("a PreToolUse allow on an MCP tool", () => {
@@ -719,14 +720,18 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
       hooks: (typeof allowHook | typeof denyHook)[],
     ) {
       context = await createProbeContext();
-      server = startFakeAnthropicServer((_request, index) =>
+      server = startFakeAnthropicServer((request, index) =>
         index === 0
           ? toolReply(PUSH, { value: "p" }, "toolu_sdkcompat_trusted")
-          : textReply("push complete"),
+          : (request.body.tools ?? []).length === 0
+            ? // The classifier's question; no verdict it can parse.
+              textReply("no verdict")
+            : textReply("push complete"),
       );
       const ran: string[] = [];
       const asked: string[] = [];
       await runSdkQuery(context, server.url, "Push it.", {
+        model: "claude-sonnet-5",
         canUseTool: async (name, input) => {
           asked.push(name);
           return { behavior: "allow", updatedInput: input };
@@ -754,23 +759,40 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
         },
         permissionMode,
       });
-      return { asked, ran, requests: server.requests.length };
+      const classifierRequests = server.requests.filter(
+        (request) =>
+          (request.body.tools ?? []).length === 0 &&
+          JSON.stringify(request.body).includes("request_push"),
+      ).length;
+      return { asked, classifierRequests, ran };
     }
 
-    test.each(["auto", "default"] as const)(
-      "skips the permission stage in %s mode, and a control run without it reaches the stage",
-      async (mode) => {
-        const control = await pushRun(mode, []);
-        // Without the allow the engine's permission stage is in play.
-        expect(control).toEqual({ asked: [PUSH], ran: ["p"], requests: 2 });
-        await context?.dispose();
-        server?.stop();
+    test("auto: a control run reaches the classifier, and the allow does not", async () => {
+      const control = await pushRun("auto", []);
+      // The classifier was asked about the call, and its unparsable answer
+      // did not let the tool run: the stage is really in play.
+      expect(control.classifierRequests).toBeGreaterThan(0);
+      expect(control.ran).toEqual([]);
+      await context?.dispose();
+      server?.stop();
 
-        const allowed = await pushRun(mode, [allowHook]);
-        expect(allowed).toEqual({ asked: [], ran: ["p"], requests: 2 });
-      },
-      60_000,
-    );
+      const allowed = await pushRun("auto", [allowHook]);
+      expect(allowed).toEqual({ asked: [], classifierRequests: 0, ran: ["p"] });
+    }, 120_000);
+
+    test("default: a control run asks canUseTool, and the allow does not", async () => {
+      const control = await pushRun("default", []);
+      expect(control).toEqual({
+        asked: [PUSH],
+        classifierRequests: 0,
+        ran: ["p"],
+      });
+      await context?.dispose();
+      server?.stop();
+
+      const allowed = await pushRun("default", [allowHook]);
+      expect(allowed).toEqual({ asked: [], classifierRequests: 0, ran: ["p"] });
+    }, 120_000);
 
     test.each([
       ["deny after allow", [allowHook, denyHook]],
