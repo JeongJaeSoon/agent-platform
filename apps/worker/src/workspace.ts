@@ -741,8 +741,11 @@ export class GitWorkspace implements WorkspacePreparer {
 
 /**
  * Where `GitWorkspace` clones, inside `.git`, before the result moves up.
- * No tracked path can be there, and `.git/agent-platform-*` is the worker's
- * own, as for `workerScratch`.
+ * No tracked path can be there, and `.git/werft-*` is the worker's own, as
+ * for `workerScratch`.
+ *
+ * Keeps its pre-rename name: it is stored on the workspace volume, and a clone
+ * stopped under the old name would otherwise read as a finished checkout.
  */
 const CLONE_STAGING = "agent-platform-clone";
 
@@ -806,7 +809,7 @@ export async function workerScratch(
   const gitDirectory = join(root, ".git");
   const found = await lstat(gitDirectory).catch(() => null);
   if (found?.isDirectory() !== true) return undefined;
-  return mkdtemp(join(gitDirectory, `agent-platform-${purpose}-`));
+  return mkdtemp(join(gitDirectory, `werft-${purpose}-`));
 }
 
 /**
@@ -837,7 +840,7 @@ async function sweepWorkerScratch(root: string): Promise<void> {
 }
 
 /** `mkdtemp`'s six characters: the restored checkpoint directory has none. */
-const WORKER_SCRATCH_NAME = /^agent-platform-[a-z]+-[A-Za-z0-9]{6}$/;
+const WORKER_SCRATCH_NAME = /^werft-[a-z]+-[A-Za-z0-9]{6}$/;
 
 /** Enough for a CLAUDE.md -> AGENTS.md -> docs/... chain; more is a loop. */
 const MAX_LINK_HOPS = 8;
