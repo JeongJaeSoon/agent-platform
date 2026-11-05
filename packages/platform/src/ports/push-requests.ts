@@ -1,6 +1,7 @@
 import type {
   AgentGitHub,
   ApiErrorCode,
+  AttributionMismatchDetail,
   DeciderKey,
   GitHubPolicyReceiptFields,
   GitHubPolicySource,
@@ -108,6 +109,11 @@ export const PUSH_REFUSAL_ERRORS: Record<
   repository_not_allowed: {
     code: "FORBIDDEN",
     message: "The session's release does not let it work on this repository",
+  },
+  attribution_mismatch: {
+    code: "FORBIDDEN",
+    message:
+      "A commit lacks the author or trailers the platform issues for this session; details lists the commits",
   },
   unrelated_history: {
     code: "FORBIDDEN",
@@ -217,6 +223,8 @@ export type PushOutcome =
       state: "failed";
       refusal: PushRefusal;
       reasonCode?: PushReasonCode;
+      /** `attribution_mismatch` only. */
+      mismatches?: AttributionMismatchDetail[];
       /** Set once the remote is known, so the receipt can name it. */
       remoteUrl?: string;
       remoteRef?: string;

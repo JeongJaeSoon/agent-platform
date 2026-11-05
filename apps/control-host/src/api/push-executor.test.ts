@@ -17,6 +17,7 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { releasePolicy } from "@werft-ai/platform/testing/github";
+import type { AttributionExpectation } from "@werft-ai/runtime-core";
 import {
   DEFAULT_MAX_GIT_MEMORY_BYTES,
   defaultGitRunner,
@@ -25,13 +26,9 @@ import {
 } from "@werft-ai/storage";
 import {
   createGitBundleChain,
-  createServedRepository,
   type FakeGitHub,
   type GitBundleFixture,
-  type GitHttpServer,
-  seedServedBranch,
   startFakeGitHub,
-  startGitHttpServer,
 } from "@werft-ai/testkit";
 import { connectionsOf } from "./forge-github.ts";
 import {
@@ -47,10 +44,8 @@ const privateKey = keys.privateKey
 const publicKey = keys.publicKey
   .export({ type: "spki", format: "pem" })
   .toString();
-const BASIC_LOGIN = `Basic ${Buffer.from("push-bot:pat-value-1234").toString("base64")}`;
 
 let github: FakeGitHub;
-let plainHost: GitHttpServer;
 let chain: { base: GitBundleFixture; tip: GitBundleFixture };
 let tempRoot: string;
 
@@ -58,22 +53,13 @@ beforeAll(async () => {
   github = await startFakeGitHub({ appId: 101, publicKey });
   await github.createRepository("acme", "app", { "README.md": "hello\n" });
   await github.createRepository("acme", "other", { "README.md": "no\n" });
-  plainHost = await startGitHttpServer({
-    authorization: BASIC_LOGIN,
-    push: true,
-  });
-  await createServedRepository(plainHost, "app", {
-    "README.md": "plainHost\n",
-  });
   chain = await createGitBundleChain();
   // A checkpoint builds on the repository it was cloned from.
   await github.seedBranch("acme", "app", "main", chain.base);
-  await seedServedBranch(plainHost, "app", "main", chain.base);
   tempRoot = await mkdtemp(join(tmpdir(), "push-executor-test-"));
 });
 afterAll(async () => {
   await github.stop();
-  await plainHost.stop();
   await rm(tempRoot, { force: true, recursive: true });
 });
 
@@ -146,6 +132,8 @@ async function run(
     policy?: GitHubSessionContext["policy"];
     /** The porcelain output of a `git push` that fails instead of running. */
     pushRefusedWith?: string;
+    /** What the session's claims issued; absent, the ledger is empty. */
+    issued?: AttributionExpectation[];
   } = {},
 ): Promise<Run> {
   const finished: PushOutcome[] = [];
@@ -223,6 +211,10 @@ async function run(
       },
     },
     pusher: createGitPusher({ gitRunner: recording }),
+    attributions: {
+      record: async () => {},
+      list: async () => options.issued ?? [],
+    },
     logger: {
       info: (message, fields) =>
         logged.push(JSON.stringify({ message, fields })),
@@ -583,47 +575,15 @@ describe("the platform's push", () => {
     }
   });
 
-  test("a basic credential without a forge (a non-GitHub host, GHES with a PAT) pushes with the catalog login", async () => {
-    const catalog = catalogOf({
-      plainHost: {
-        url: `${plainHost.origin}/app.git`,
-        branch: "main",
-        profiles: ["default"],
-        auth: {
-          kind: "basic",
-          username: "push-bot",
-          value: "pat-value-1234",
-          ref: { value_env: "PLAIN_HOST_TOKEN" },
-        },
-      },
+  test("an App repository with no connection is not pushed to", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const result = await run(catalog, jobFor(catalog, "app"), {
+      connections: () => null,
     });
-    const job = jobFor(catalog, "plainHost");
-    const result = await run(catalog, job);
-    expect(result.outcome).toMatchObject({ state: "pushed" });
-    expectNoCredentialIn(result);
-    const pushes = plainHost.requests.filter((request) =>
-      request.path.includes("git-receive-pack"),
-    );
-    expect(pushes.length).toBeGreaterThan(0);
-    expect(
-      pushes.every((request) => request.authorization === BASIC_LOGIN),
-    ).toBe(true);
-  });
-
-  test("a repository with no credential is not pushed to", async () => {
-    const catalog = catalogOf({
-      open: {
-        url: `${plainHost.origin}/app.git`,
-        branch: "main",
-        profiles: ["d"],
-      },
+    expect(result.outcome).toMatchObject({
+      state: "failed",
+      refusal: "no_push_credential",
     });
-    expect((await run(catalog, jobFor(catalog, "open"))).outcome).toMatchObject(
-      {
-        state: "failed",
-        refusal: "no_push_credential",
-      },
-    );
   });
 
   test("every git runs under resource limits and is cut off before the lease runs out", async () => {
@@ -657,6 +617,125 @@ describe("the platform's push", () => {
       (await run(catalog, jobFor(catalog, "app"), { bundles: [chain.base] }))
         .outcome,
     ).toMatchObject({ state: "failed", refusal: "push_failed" });
+  });
+});
+
+describe("the push's attribution check", () => {
+  // The bundles' commits are by Testkit with no trailers. `base` is on the
+  // remote's main already; `tip` is the one new commit.
+  const testkit = { name: "Testkit", email: "testkit@example.invalid" };
+  const matching: AttributionExpectation = {
+    author: testkit,
+    coAuthor: null,
+    agentSession: null,
+  };
+  const wrong: AttributionExpectation = {
+    author: {
+      name: "werft[bot]",
+      email: "1+werft[bot]@users.noreply.github.com",
+    },
+    coAuthor: null,
+    agentSession: null,
+  };
+
+  test("a new commit that matches an issued bundle is pushed", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const result = await run(catalog, jobFor(catalog, "app"), {
+      issued: [matching],
+    });
+    expect(result.outcome).toMatchObject({ state: "pushed" });
+  });
+
+  test("a commit with the wrong author is refused with its details and nothing reaches the remote", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const job = jobFor(catalog, "app");
+    const before = github.gitRequests.filter(
+      (request) => request.push && request.method === "POST",
+    ).length;
+    const result = await run(catalog, job, { issued: [wrong] });
+    expect(result.outcome).toEqual({
+      state: "failed",
+      refusal: "attribution_mismatch",
+      remoteUrl: `${github.origin}/acme/app.git`,
+      remoteRef: `refs/heads/${job.targetBranch}`,
+      mismatches: [
+        { commit: chain.tip.commit, problems: ["author", "committer"] },
+      ],
+    });
+    expect(
+      (await github.refs("acme", "app"))[`refs/heads/${job.targetBranch}`],
+    ).toBeUndefined();
+    expect(
+      github.gitRequests.filter(
+        (request) => request.push && request.method === "POST",
+      ).length,
+    ).toBe(before);
+  });
+
+  test("any one of the session's issued bundles passes a commit", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const result = await run(catalog, jobFor(catalog, "app"), {
+      issued: [wrong, matching],
+    });
+    expect(result.outcome).toMatchObject({ state: "pushed" });
+  });
+
+  test("a base branch the check cannot use refuses the push instead of switching the check off", async () => {
+    const catalog = catalogOf({
+      app: { ...appRepository(), branch: "topic./child" },
+    });
+    const job = jobFor(catalog, "app");
+    const result = await run(catalog, job, { issued: [matching] });
+    expect(result.outcome).toMatchObject({
+      state: "failed",
+      refusal: "attribution_mismatch",
+    });
+    expect(
+      (await github.refs("acme", "app"))[`refs/heads/${job.targetBranch}`],
+    ).toBeUndefined();
+  });
+
+  test("a session with no issued bundle is not checked", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const result = await run(catalog, jobFor(catalog, "app"), { issued: [] });
+    expect(result.outcome).toMatchObject({ state: "pushed" });
+  });
+
+  test("commits already on the base branch are not the session's to vouch for", async () => {
+    // `base` is main's tip: the range is empty, so a wrong bundle cannot fail it.
+    const catalog = catalogOf({ app: appRepository() });
+    const job = jobFor(catalog, "app", { gitCommit: chain.base.commit });
+    const result = await run(catalog, job, {
+      bundles: [chain.base],
+      issued: [wrong],
+    });
+    expect(result.outcome).toMatchObject({ state: "pushed" });
+  });
+
+  test("a later push is judged on what the target does not hold yet", async () => {
+    const catalog = catalogOf({ app: appRepository() });
+    const first = jobFor(catalog, "app", { gitCommit: chain.base.commit });
+    await run(catalog, first, { bundles: [chain.base], issued: [wrong] });
+    // The target holds `base`; only `tip` is new, and `tip` is wrong.
+    const refused = await run(
+      catalog,
+      { ...first, gitCommit: chain.tip.commit },
+      { issued: [wrong] },
+    );
+    expect(refused.outcome).toMatchObject({
+      state: "failed",
+      refusal: "attribution_mismatch",
+      mismatches: [{ commit: chain.tip.commit }],
+    });
+    const pushed = await run(
+      catalog,
+      { ...first, gitCommit: chain.tip.commit },
+      { issued: [matching] },
+    );
+    expect(pushed.outcome).toMatchObject({
+      state: "pushed",
+      previousCommit: chain.base.commit,
+    });
   });
 });
 

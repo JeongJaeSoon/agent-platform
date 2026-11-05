@@ -84,11 +84,13 @@ const REPOSITORIES: Record<string, CatalogRepository> = {
     url: "https://example.invalid/app.git",
     branch: "main",
     profiles: ["coding", "bypass"],
+    auth: { kind: "github_app", registered: true },
   },
   docs: {
     url: "https://example.invalid/docs.git",
     branch: "trunk",
     profiles: ["coding"],
+    auth: { kind: "github_app", registered: true },
   },
 };
 

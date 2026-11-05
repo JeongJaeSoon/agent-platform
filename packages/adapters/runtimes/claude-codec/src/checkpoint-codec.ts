@@ -14,7 +14,10 @@ import type {
   CompatibilityVerdict,
   RuntimeFingerprint,
 } from "@werft-ai/runtime-core";
-import { workspacePathProblem } from "@werft-ai/runtime-core";
+import {
+  MAX_REPORTED_MISMATCHES,
+  workspacePathProblem,
+} from "@werft-ai/runtime-core";
 import { z } from "zod";
 
 import { digestParts } from "./transcript-digest.ts";
@@ -118,6 +121,30 @@ const runtimeFingerprintSchema = z
 // up resuming something other than what was captured.
 const manifestSchema = z
   .object({
+    attribution: z
+      .object({
+        mismatches: z
+          .array(
+            z
+              .object({
+                commit: z.string().regex(/^[0-9a-f]{40}$/),
+                problems: z.array(
+                  z.enum([
+                    "author",
+                    "committer",
+                    "co_author",
+                    "engine_co_author",
+                    "agent_session",
+                  ]),
+                ),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(MAX_REPORTED_MISMATCHES),
+      })
+      .strict()
+      .optional(),
     createdAt: z.iso.datetime(),
     cwd: z.string().startsWith("/"),
     engine: z.literal(CLAUDE_CHECKPOINT_ENGINE),

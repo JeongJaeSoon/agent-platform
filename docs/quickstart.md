@@ -31,7 +31,7 @@ macOS나 Linux를 기준으로 한다. 셸은 bash나 zsh를 쓴다.
 | git | 아무 버전 | clone |
 | Bun | 1.3.12 이상 | 4장의 자동 검증과 6장의 key 폐기·백업에만 쓴다. 1–3장에는 필요 없다 |
 
-로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager, `--fake-model`일 때만), **3001**(읽기 전용 git 서버 fake-git의 HTTP clone). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
+로컬 스택은 루프백(`127.0.0.1`)에만 포트를 연다. 다음 포트가 비어 있어야 한다: **3000**(API), **5432**(Postgres), **4566**(SeaweedFS S3), **4567**(LocalStack Secrets Manager), **3001**(로컬 GitHub App 모의 서버). 로컬에 Postgres가 떠 있으면 5432가 겹치는 경우가 많다. Docker Desktop은 Settings → Software updates에서 엔진 버전을 확인한다.
 
 ```bash
 docker version --format 'Docker Engine {{.Server.Version}}'
@@ -63,7 +63,7 @@ scripts/local.sh status
 
 `up --fake-model`은 compose project `agent-platform`을 fake 모델로 띄운다(`infra/compose.fake-model.yml` overlay). 첫 실행은 api·scheduler·worker 이미지를 이 checkout에서 빌드하므로 몇 분에서 10분쯤 걸린다. `/readyz`가 `{"status":"ready","checks":{"database":"ok","schema":"ok","config":"ok"}}`를 돌려줄 때까지 기다렸다가 그 응답을 출력하고 끝난다. 컨테이너가 뜬 뒤 이만큼 기다리는 시간은 180초이고, `LOCAL_READY_TIMEOUT_SEC`로 바꾼다. 뜨는 서비스는 다음과 같다.
 
-- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), fake-git(샘플 저장소 `agent/sample-app`을 내주는 읽기 전용 git 호스트), fake-messages와 secrets(API 전용 Secrets Manager, 둘 다 `--fake-model`일 때만), egress-proxy
+- postgres(+ 한 번 도는 `migrate`), localstack(SeaweedFS S3), fake-git(샘플 저장소 `agent/sample-app`을 내주는 GitHub App 모의 서버), secrets(API·로컬 App 전용 Secrets Manager), fake-messages(`--fake-model`일 때만), egress-proxy
 - `api`(`127.0.0.1:3000`)와 `scheduler`(5초마다 한 pass로 세션마다 worker 컨테이너를 띄운다)
 - `reconciler`(pass가 끝날 때마다 10초 쉬고 다음 pass를 돈다. lease가 만료된 세션과 orphan 세션을 다시 queue에 넣거나 복구 대상으로 표시하고, 기한을 넘긴 interrupt·terminate receipt를 `unknown`으로 마감한다. 사용량 API가 읽는 도구 호출 표도 이 pass가 채운다)
 - `worker`는 상주하지 않는다. 이미지 빌드와 `claude --version` 확인만 하고 끝난다. 실제 워커는 scheduler가 세션마다 띄운다
@@ -97,7 +97,7 @@ scripts/local.sh status
 
 **로컬 데이터는 named volume에 남는다.** S3는 SeaweedFS 4.48(서비스 이름은 호환성을 위해 `localstack` 유지), PostgreSQL도 자기 volume에 저장한다. Docker/OrbStack 재시작이나 `scripts/local.sh down --keep-volumes` 뒤 `scripts/local.sh up --fake-model`로 다시 띄워도 checkpoint가 남는다. 옵션 없는 `scripts/local.sh down`과 `reset`은 명시적인 전체 데이터 삭제 명령이므로 보존할 때 쓰지 않는다. 기존 LocalStack 설치에서 전환하는 절차는 [7장](#재부팅이나-docker-재시작-뒤)을 따른다.
 
-fake-git(`http://127.0.0.1:3001`)의 `agent/sample-app`은 읽기 전용이다. 기동할 때마다 같은 커밋 하나로 다시 만들어지고, push는 403으로 거절한다. 볼륨이 없으므로 지켜야 할 데이터도 없다. 내장 Gitea를 쓰던 스택을 올리면 `<project>_gitea-data` 볼륨(기본 `agent-platform_gitea-data`)이 남는다. 그 안의 저장소가 필요 없으면 `docker volume rm`으로 지운다.
+fake-git(`http://127.0.0.1:3001`)은 로컬 GitHub App 모의 서버다. 샘플 `agent/sample-app`은 App JWT를 확인하고 발급한 설치 토큰으로만 clone한다. 키는 스택 안에서 생성해 별도 Secrets Manager에 저장하며 worker에는 전달하지 않는다. 익명 URL 저장소와 basic/bearer 등록은 지원하지 않는다. 실제 저장소는 워크스페이스의 GitHub 연결 설정에서 App 연동으로 등록한다. 기존 URL 저장소 행은 삭제하지 않으며, 지원하지 않는 설정으로 거부·보고한다.
 
 ## 2. curl 준비
 
@@ -337,7 +337,7 @@ get "/v1/sessions/$SID/usage" | jq .
 | API key 추가 발급 | `scripts/local.sh key <owner> --scopes …`. key id는 stderr의 `key_id …` 줄에 있다 |
 | API key 폐기 | `bun run keys revoke <key id>`. 폐기한 key로 호출하면 401이다 |
 | Idempotency 확인 | 같은 `Idempotency-Key`로 같은 본문을 다시 보내면 첫 응답이 그대로 온다. 같은 key에 다른 본문을 보내면 409 `IDEMPOTENCY_CONFLICT`다 |
-| 샘플 저장소 clone | `git clone http://127.0.0.1:3001/agent/sample-app.git`. 읽기 전용이고 웹 UI는 없다 |
+| 샘플 저장소 clone | 위 샘플 세션으로 확인한다. 로컬 GitHub App이 발급한 설치 토큰이 필요하며 익명 clone과 웹 UI는 제공하지 않는다 |
 
 에이전트가 워커 안에서 만든 커밋의 작성자는 워커 이미지의 기본값 `Werft <noreply@werft.invalid>`다. 그래서 Claude가 커밋 전에 이름과 이메일을 묻지 않는다. 세션 안에서 `git config`로 정한 값이 있으면 그 값이 먼저다.
 

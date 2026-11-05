@@ -416,10 +416,20 @@ record_release() {
 }
 
 settings_applied() {
+  local notes
+  notes="$(mktemp)"
   ops_compose run --rm --no-deps -T migrate bun run apps/control-host/src/api/settings.ts \
-    import --document /settings/installation.json --dry-run </dev/null \
+    import --document /settings/installation.json --dry-run </dev/null 2>"$notes" \
     | jq -e '.add == []' >/dev/null \
-    || die "the database does not hold the settings document the manifest names"
+    || { cat "$notes" >&2; rm -f "${notes:?}"; die "the database does not hold the settings document the manifest names"; }
+  # The import leaves out a repository without a GitHub App and says so only
+  # here; `.add == []` alone would call that a settled document.
+  if grep -q 'note: repository .* is not imported' "$notes"; then
+    grep 'note: repository .* is not imported' "$notes" >&2
+    rm -f "${notes:?}"
+    die "the settings document names a repository the import leaves out (add \"auth\": {\"kind\": \"github_app\"}); the deployment would run with no repository"
+  fi
+  rm -f "${notes:?}"
 }
 
 # Sessions with a checkpoint no collection has ended, one id per line.

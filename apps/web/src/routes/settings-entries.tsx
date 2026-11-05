@@ -7,7 +7,6 @@ import { type ApiClient, type ApiError, unwrap } from "@werft-ai/client";
 import type {
   ListSettingsConnectionsResponse,
   ListSettingsMcpServersResponse,
-  ListSettingsRepositoriesResponse,
   SettingsChangeResponse,
   SettingsCredentialView,
   SettingsEntryState,
@@ -40,18 +39,16 @@ import {
 } from "../auth/guard.tsx";
 import { type Translate, useI18n } from "../i18n/i18n.tsx";
 
-export type SettingsKind = "connection" | "mcp" | "repository";
+export type SettingsKind = "connection" | "mcp";
 
 const SEGMENT = {
   connection: "connections",
   mcp: "mcp-servers",
-  repository: "repositories",
 } as const satisfies Record<SettingsKind, string>;
 
 export const PERMISSION: Record<SettingsKind, ManagedPermission> = {
   connection: "installation.settings.manage",
   mcp: "installation.settings.manage",
-  repository: "workspace.manage",
 };
 
 const listKey = (client: ApiClient, kind: SettingsKind) =>
@@ -76,18 +73,6 @@ export function settingsMcpServersQuery(client: ApiClient, enabled = true) {
       unwrap(
         client.GET("/v1/installation/settings/mcp-servers"),
       ) as Promise<ListSettingsMcpServersResponse>,
-    enabled,
-    retry: false,
-  });
-}
-
-export function settingsRepositoriesQuery(client: ApiClient, enabled = true) {
-  return queryOptions({
-    queryKey: listKey(client, "repository"),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/installation/settings/repositories"),
-      ) as Promise<ListSettingsRepositoriesResponse>,
     enabled,
     retry: false,
   });
@@ -176,13 +161,6 @@ export function setCredential(
           params,
         ),
       );
-    case "repositories":
-      return unwrap(
-        client.POST(
-          "/v1/installation/settings/repositories/{id}/credential",
-          params,
-        ),
-      );
   }
 }
 
@@ -204,13 +182,6 @@ export function disableEntry(
       return unwrap(
         client.POST(
           "/v1/installation/settings/mcp-servers/{id}/disable",
-          params,
-        ),
-      );
-    case "repositories":
-      return unwrap(
-        client.POST(
-          "/v1/installation/settings/repositories/{id}/disable",
           params,
         ),
       );

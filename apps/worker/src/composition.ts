@@ -18,6 +18,7 @@ import {
 } from "@werft-ai/runtime-core";
 import { installedRuntimes } from "@werft-ai/runtime-registry";
 
+import { REPAIR_TOOL_PATH } from "./attribution-repair.ts";
 import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerConfig, WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
@@ -106,6 +107,11 @@ export function createWorkerHost(
             objectToken.current(),
           ),
         workspaceRoot: config.runtime.cwd,
+        home: config.runtime.home,
+        // Only the worker image installs the tool.
+        ...(existsSync(REPAIR_TOOL_PATH)
+          ? { repairTool: REPAIR_TOOL_PATH }
+          : {}),
         claudeConfigDir: config.runtime.claudeConfigDir,
         instructionFiles,
         runtime,

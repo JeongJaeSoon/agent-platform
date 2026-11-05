@@ -71,7 +71,6 @@ import {
   createSessionResponseSchema,
   createSettingsConnectionRequestSchema,
   createSettingsMcpServerRequestSchema,
-  createSettingsRepositoryRequestSchema,
   createSlackAppRequestSchema,
   createSlackAppResponseSchema,
   createTeamRequestSchema,
@@ -152,7 +151,6 @@ import {
   listSessionsResponseSchema,
   listSettingsConnectionsResponseSchema,
   listSettingsMcpServersResponseSchema,
-  listSettingsRepositoriesResponseSchema,
   listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsQuerySchema,
@@ -239,7 +237,6 @@ import {
   setSessionShareResponseSchema,
   setSettingsCredentialRequestSchema,
   setSettingsMcpServerRequestSchema,
-  setSettingsRepositoryRequestSchema,
   setTeamMemberRoleRequestSchema,
   settingsChangeResponseSchema,
   settingsDocumentSchema,
@@ -555,13 +552,10 @@ const responseComponents = {
   ImportSettingsResponse: importSettingsResponseSchema,
   ListSettingsConnectionsResponse: listSettingsConnectionsResponseSchema,
   ListSettingsMcpServersResponse: listSettingsMcpServersResponseSchema,
-  ListSettingsRepositoriesResponse: listSettingsRepositoriesResponseSchema,
   CreateSettingsConnectionRequest: createSettingsConnectionRequestSchema,
   CreateSettingsMcpServerRequest: createSettingsMcpServerRequestSchema,
-  CreateSettingsRepositoryRequest: createSettingsRepositoryRequestSchema,
   SetSettingsCredentialRequest: setSettingsCredentialRequestSchema,
   SetSettingsMcpServerRequest: setSettingsMcpServerRequestSchema,
-  SetSettingsRepositoryRequest: setSettingsRepositoryRequestSchema,
   SettingsChangeResponse: settingsChangeResponseSchema,
   AgentDetail: agentDetailSchema,
   CreateAgentReleaseResponse: createAgentReleaseResponseSchema,
@@ -1028,8 +1022,6 @@ const SETTINGS_DOCUMENT_EXAMPLE = {
 
 const SETTINGS_OWNER =
   "The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes.";
-const SETTINGS_MANAGERS =
-  "Owners and admins (`workspace.manage`), signed in; an API key is 403 whatever its scopes.";
 const SETTINGS_LIST =
   "The database's rows, disabled ones included, by id. A credential is shown as `stored` with its `last4`, or as the name of the env or Secrets Manager reference; never a value. `state`: `needs_value` (stored, no value yet), `unresolved` (the credential did not resolve on the replica that answered), `disabled`, else `active`. Changes nothing.";
 const SETTINGS_CREATE =
@@ -1065,18 +1057,6 @@ const SETTINGS_MCP_EXAMPLE = {
   created_at: "2026-11-04T03:00:00.000Z",
   disabled_at: null,
 };
-const SETTINGS_REPOSITORY_EXAMPLE = {
-  id: "docs-site",
-  origin: "console",
-  state: "active",
-  url: "https://git.example.com/acme/docs-site.git",
-  branch: "main",
-  auth_kind: "bearer",
-  credential: { source: "stored", last4: "k2Lm" },
-  created_at: "2026-11-04T03:00:00.000Z",
-  disabled_at: null,
-};
-
 const INSTALLATION_PROFILE_EXAMPLE = {
   id: "op_coding_v2",
   source: "operator",
@@ -3528,7 +3508,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on its default template, a heading per field that has content, in Korean; `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on its default template, a heading per field that has content, in Korean; `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
@@ -3553,7 +3533,7 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errorNotes: {
       FORBIDDEN:
-        "Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (an App or a github.com PAT).",
+        "Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (a GitHub App).",
       CATALOG_MISMATCH:
         "Here: the catalog entry for the repository changed after the push request pinned it.",
       BACKEND_UNAVAILABLE:
@@ -3634,14 +3614,12 @@ export const API_ROUTE_DECLARATIONS = [
         },
       },
     },
-    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: ["GITHUB_REFUSED"],
     },
     errorNotes: {
-      UNSUPPORTED_CAPABILITY:
-        "Here: the session's repository is not a GitHub repository.",
       BACKEND_UNAVAILABLE:
         "Here: GitHub refused or failed the dispatch; the message never repeats the inputs.",
     },
@@ -3669,7 +3647,7 @@ export const API_ROUTE_DECLARATIONS = [
         html_url: "https://github.com/acme/sample-app/actions/runs/9012345678",
       },
     },
-    errors: [401, 403, 404, 409, 422, 503],
+    errors: [401, 403, 404, 409, 503],
     errorCodes: {
       403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: ["GITHUB_REFUSED"],
@@ -3695,14 +3673,10 @@ export const API_ROUTE_DECLARATIONS = [
       description: "Rerun requested; the receipt.",
       example: { receipt_id: EXAMPLE_RECEIPT_ID },
     },
-    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: ["GITHUB_REFUSED"],
-    },
-    errorNotes: {
-      UNSUPPORTED_CAPABILITY:
-        "Here: the session's repository is not a GitHub repository.",
     },
     idempotent: false,
   },
@@ -3979,14 +3953,12 @@ export const API_ROUTE_DECLARATIONS = [
         },
       },
     },
-    errors: [...CONFLICTS, 403, 413, 422, 503],
+    errors: [...CONFLICTS, 403, 413, 503],
     errorCodes: {
       403: ["FORBIDDEN", "GITHUB_REFUSED"],
       409: ["GITHUB_REFUSED"],
     },
     errorNotes: {
-      UNSUPPORTED_CAPABILITY:
-        "Here: the session's repository is not a GitHub repository.",
       BACKEND_UNAVAILABLE:
         "Here: no token for the reviewer App (not installed on the repository; the receipt names the App), or GitHub refused or failed the review (a commit not in the pull request, an approval of the App's own pull request; the receipt has GitHub's status).",
     },
@@ -4975,7 +4947,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "The agent's GitHub switch, settings and what may be turned on",
     description:
-      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release`, `repository_none` (the release names no repository) or `app_required` (its repository is a PAT one). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile, `app_required` for a PAT one), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App, a PAT, or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
+      "`enabled` is the switch that applies at once (`PUT …/github/enabled`). `github` is the active release's GitHub settings; null before one is saved, when `legacy_defaults` is what a first save starts from (the release's repository, push approval off, nothing optional; the release itself keeps asking a person before each push until settings are saved) and the release meanwhile runs on every repository its profile allows. Settings are saved as a new release (`POST /v1/agents/{id}/releases` with `github`). `unsavable` says why none can be: `no_active_release` or `repository_none` (the release names no repository). `options.repositories` lists the catalog's GitHub repositories with why one cannot be picked (`repository_not_allowed` by the release's profile), and `installed`: whether the author and the reviewer App are installed on each, as GitHub answers now (null when there is no such App or no answer). `options.features` says, per optional permission, why it cannot be turned on: `github_host_unsupported` (every chosen repository is on a GitHub Enterprise host), `over_workspace_ceiling`, `no_reviewer_app`, or `app_permission_missing` (the App's permissions as last read lack it; the token request decides). Whoever manages the agent reads it, and so do the live members of its managing team.",
     auth: "session",
     success: {
       status: 200,
@@ -6582,105 +6554,6 @@ export const API_ROUTE_DECLARATIONS = [
       schema: "SettingsChangeResponse",
       description: "The entry's id and the change's receipt.",
       example: SETTINGS_CHANGE_EXAMPLE("docs"),
-    },
-    errors: [401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "get",
-    path: "/v1/installation/settings/repositories",
-    operationId: "listSettingsRepositories",
-    tag: "Agents",
-    summary: "The repositories reached by URL: public, or with their own token",
-    description: `${SETTINGS_MANAGERS} ${SETTINGS_LIST} The console App's GitHub repositories are the GitHub screen's and are left out.`,
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "ListSettingsRepositoriesResponse",
-      description: "Every URL repository, by id.",
-      example: { items: [SETTINGS_REPOSITORY_EXAMPLE] },
-    },
-    errors: [401, 403, 503],
-  },
-  {
-    method: "post",
-    path: "/v1/installation/settings/repositories",
-    operationId: "createSettingsRepository",
-    tag: "Agents",
-    summary: "Add a public repository, or one with a token typed in",
-    description: `${SETTINGS_MANAGERS} ${SETTINGS_CREATE} \`auth.kind\` is \`none\` for a repository anyone may read, \`bearer\` or \`basic\` (with \`username\`) for a token; a GitHub App repository is picked on an agent's GitHub tab instead. A session may name it once a ceiling lists it in \`repository_ids\`. Writes an \`add_repository\` receipt.`,
-    auth: "session",
-    body: "CreateSettingsRepositoryRequest",
-    requestExample: {
-      id: "docs-site",
-      url: "https://git.example.com/acme/docs-site.git",
-      branch: "main",
-      auth: { kind: "bearer", value: "example-token" },
-    },
-    success: {
-      status: 201,
-      schema: "SettingsChangeResponse",
-      description: "The entry's id and the change's receipt.",
-      example: SETTINGS_CHANGE_EXAMPLE("docs-site"),
-    },
-    errors: [400, 401, 403, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "patch",
-    path: "/v1/installation/settings/repositories/{id}",
-    operationId: "setSettingsRepository",
-    tag: "Agents",
-    summary: "Change a URL repository's default branch",
-    description: `${SETTINGS_MANAGERS} A new version of the row with another default branch; its URL and credential never change. A removed one is 409 \`disabled\`; one whose token comes from the operator's deployment is 409 \`not_stored\`. Writes a \`set_repository_branch\` receipt.`,
-    auth: "session",
-    body: "SetSettingsRepositoryRequest",
-    requestExample: { branch: "release" },
-    success: {
-      status: 200,
-      schema: "SettingsChangeResponse",
-      description: "The entry's id and the change's receipt.",
-      example: SETTINGS_CHANGE_EXAMPLE("docs-site"),
-    },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation/settings/repositories/{id}/credential",
-    operationId: "setSettingsRepositoryCredential",
-    tag: "Agents",
-    summary: "Replace a URL repository's stored token",
-    description: `${SETTINGS_MANAGERS} ${SETTINGS_CREDENTIAL}`,
-    auth: "session",
-    body: "SetSettingsCredentialRequest",
-    requestExample: { value: "example-token" },
-    success: {
-      status: 200,
-      schema: "SettingsChangeResponse",
-      description: "The entry's id and the change's receipt.",
-      example: SETTINGS_CHANGE_EXAMPLE("docs-site"),
-    },
-    errors: [400, 401, 403, 404, 409, 503],
-    errorCodes: { 409: ["REVISION_CONFLICT"] },
-    idempotent: false,
-  },
-  {
-    method: "post",
-    path: "/v1/installation/settings/repositories/{id}/disable",
-    operationId: "disableSettingsRepository",
-    tag: "Agents",
-    summary: "Remove a URL repository for good",
-    description: `${SETTINGS_MANAGERS} ${SETTINGS_DISABLE} Writes a \`remove_repository\` receipt.`,
-    auth: "session",
-    success: {
-      status: 200,
-      schema: "SettingsChangeResponse",
-      description: "The entry's id and the change's receipt.",
-      example: SETTINGS_CHANGE_EXAMPLE("docs-site"),
     },
     errors: [401, 403, 404, 409, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"] },

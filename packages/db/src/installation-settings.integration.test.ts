@@ -65,8 +65,6 @@ const { privateKey: APP_PEM } = generateKeyPairSync("rsa", {
 });
 const VALUES: Record<string, string> = {
   PROVIDER_KEY: "file-provider-key",
-  GIT_PASSWORD: "file-git-password",
-  "repo/token": "file-git-bearer-token",
   "ghes/app-key": APP_PEM,
   MCP_TOKEN: "file-mcp-bearer-token",
 };
@@ -96,31 +94,11 @@ const FILE: SessionCatalogConfig = sessionCatalogConfigSchema.parse({
     },
   },
   repositories: {
-    open: {
-      url: "https://git.example.invalid/team/open.git",
-      branch: "main",
-      profiles: ["coding"],
-    },
-    nested: {
-      url: "https://git.example.invalid/group/sub/nested.git",
-      branch: "main",
-    },
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",
       profiles: ["coding"],
       auth: { kind: "github_app" },
-    },
-    basic: {
-      url: "https://git.example.invalid/team/basic.git",
-      branch: "trunk",
-      profiles: ["coding"],
-      auth: { kind: "basic", username: "bot", value_env: "GIT_PASSWORD" },
-    },
-    bearer: {
-      url: "https://git.example.invalid/team/bearer.git",
-      branch: "main",
-      auth: { kind: "bearer", secret_id: "repo/token" },
     },
     ghes: {
       url: "https://ghes.example.invalid/team/ghes.git",
@@ -227,7 +205,7 @@ function pins(catalog: Awaited<ReturnType<typeof catalogOver>>) {
   const releaseId = deriveReleaseId({
     agent_id: "agent-1",
     card_sha256: cardContentSha256(CARD),
-    repository_id: "basic",
+    repository_id: "app",
     ...content.content,
   });
   return {

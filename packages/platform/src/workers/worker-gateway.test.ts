@@ -621,17 +621,16 @@ describe("WorkerGateway", () => {
         },
       },
     };
-    const appAndPat: Record<string, CatalogRepository> = {
+    const appRepositories: Record<string, CatalogRepository> = {
       app: {
         url: "https://github.com/acme/app.git",
         branch: "main",
         auth: { kind: "github_app", registered: true },
       },
-      pat: { url: "https://github.com/acme/pat.git", branch: "main" },
     };
     const seeded = withSeededInstallation({
       profiles: { p: profile },
-      repositories: appAndPat,
+      repositories: appRepositories,
     });
     const ceiling = seeded.installation.get("p");
     if (!ceiling) throw new Error("no seeded ceiling");
@@ -669,7 +668,6 @@ describe("WorkerGateway", () => {
     const repositories = new Set(runnable[0]?.map((pair) => pair.repositoryId));
     expect(ceiling.repository_ids).toEqual([]);
     expect(repositories.has("app")).toBe(true);
-    expect(repositories.has("pat")).toBe(false);
   });
 
   test("bootstrapClaim answers the row's repository and the catalog's resolved profile", async () => {
@@ -730,11 +728,13 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1", "other"],
+            auth: { kind: "github_app", registered: true },
           },
           docs: {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
             profiles: ["other"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -854,6 +854,7 @@ describe("WorkerGateway", () => {
         url: "https://example.invalid/app.git",
         branch: "main",
         profiles: ["claude-coding-v1", "other"],
+        auth: { kind: "github_app", registered: true },
       }),
     });
     expect(claimed.profile_fingerprint).toBe(profileFingerprint(profile));
@@ -1001,6 +1002,8 @@ describe("WorkerGateway", () => {
     // The commit author: the console App's bot, only for a repository on
     // that App, and only once GitHub named the bot's id.
     const looked: { slug: string; apiBase: string }[] = [];
+    const ledgerRows: [string, unknown][] = [];
+    let ledgerDown = false;
     let botUserId: string | null = "41898282";
     let repositories: Parameters<
       typeof createWorkerGateway
@@ -1031,6 +1034,13 @@ describe("WorkerGateway", () => {
               authorPinned: true,
             }),
           },
+          ledger: {
+            record: async (sessionId, expectation) => {
+              if (ledgerDown) throw new Error("database down");
+              ledgerRows.push([sessionId, expectation]);
+            },
+            list: async () => [],
+          },
           consoleOrigin: null,
           appBotUserId: async (app) => {
             looked.push(app);
@@ -1056,9 +1066,29 @@ describe("WorkerGateway", () => {
     expect(looked).toEqual([
       { slug: "werft-dev", apiBase: "https://api.github.com" },
     ]);
+    // What the claim asked for is kept, for the push's check.
+    expect(ledgerRows).toEqual([
+      [
+        scope.session_id,
+        {
+          author: bot.git_author,
+          coAuthor: null,
+          agentSession: scope.session_id,
+        },
+      ],
+    ]);
 
     botUserId = null;
     expect((await claimOf()).git_author).toBeNull();
+    // A claim that names no bot expects the image's author.
+    expect(ledgerRows.at(-1)).toEqual([
+      scope.session_id,
+      {
+        author: { name: "Werft", email: "noreply@werft.invalid" },
+        coAuthor: null,
+        agentSession: scope.session_id,
+      },
+    ]);
     botUserId = "41898282";
     authorApp = null;
     expect((await claimOf()).git_author).toBeNull();
@@ -1074,6 +1104,12 @@ describe("WorkerGateway", () => {
     repositories = {};
     expect((await claimOf()).git_author).toBeNull();
     expect(looked).toHaveLength(2);
+    // A ledger that cannot write fails the claim, so the worker asks again
+    // instead of running a session no push could be judged for.
+    ledgerDown = true;
+    await expect(claimOf()).rejects.toThrow("database down");
+    ledgerDown = false;
+    expect((await claimOf()).git_author).toBeNull();
 
     // No author pin on the primary repository yet (decision D11): the claim
     // pins it the way a token issue would, then reads the App back through
@@ -1276,11 +1312,13 @@ describe("WorkerGateway", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["p"],
+            auth: { kind: "github_app", registered: true } as const,
           },
           docs: {
             url: "https://example.invalid/docs.git",
             branch: "trunk",
             profiles: ["p"],
+            auth: { kind: "github_app", registered: true } as const,
           },
         },
       }),
@@ -1497,6 +1535,7 @@ describe("WorkerGateway", () => {
               url: "https://example.invalid/app.git",
               branch: "main",
               profiles: ["required", "optional"],
+              auth: { kind: "github_app", registered: true } as const,
             },
           },
         }),
@@ -2190,6 +2229,73 @@ describe("WorkerGateway", () => {
     expect(protocolCalls).toHaveLength(1);
   });
 
+  describe("protectedCommits", () => {
+    const build = (
+      protocol: Parameters<typeof createWorkerGateway>[0]["checkpointProtocol"],
+      state: "ok" | "stale_epoch" = "ok",
+    ) =>
+      createWorkerGateway({
+        work: work({
+          async checkpointStateAtomic() {
+            return state === "ok"
+              ? {
+                  outcome: "ok",
+                  pointer: null,
+                  restorable: false,
+                  pendingReason: null,
+                }
+              : { outcome: "stale_epoch" };
+          },
+        }),
+        catalog: { profiles: {}, repositories: {} },
+        checkpoints: acceptAllCheckpoints,
+        ...(protocol === undefined ? {} : { checkpointProtocol: protocol }),
+        options: {
+          sessionCostLimitUsd: 1_000,
+          sessionTokenLimit: null,
+          leaseTtlMs: 30_000,
+        },
+      });
+
+    test("lists what the protocol protects, for the fenced session", async () => {
+      const asked: unknown[] = [];
+      const instance = build({
+        requestCheckpoint: unimplemented,
+        getRestorePlan: unimplemented,
+        protectedCommits: async (input) => {
+          asked.push(input);
+          return ["a".repeat(40)];
+        },
+      });
+      expect(await instance.protectedCommits(principal, scope)).toEqual({
+        commits: ["a".repeat(40)],
+      });
+      expect(asked).toEqual([{ sessionId: scope.session_id, pointer: null }]);
+    });
+
+    test("a stale attempt, a missing object store and a protocol that cannot list are refused, never answered with nothing protected", async () => {
+      await expect(
+        build(
+          {
+            requestCheckpoint: unimplemented,
+            getRestorePlan: unimplemented,
+            protectedCommits: async () => [],
+          },
+          "stale_epoch",
+        ).protectedCommits(principal, scope),
+      ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+      await expect(
+        build(undefined).protectedCommits(principal, scope),
+      ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+      await expect(
+        build({
+          requestCheckpoint: unimplemented,
+          getRestorePlan: unimplemented,
+        }).protectedCommits(principal, scope),
+      ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    });
+  });
+
   test("checkpoint protocol calls are fenced and refused outright without an object store", async () => {
     const fenced = createWorkerGateway({
       work: work({
@@ -2840,12 +2946,7 @@ describe("authorizeEgress", () => {
     url: "https://git.invalid/team/app.git",
     branch: "main",
     profiles: ["p"],
-    auth: {
-      kind: "basic",
-      username: "reader",
-      value: "repo-token",
-      ref: { secret_id: "repo" },
-    },
+    auth: { kind: "github_app", registered: true },
   };
   const granted = (binding: string, costUsd = 0): EgressAuthorization => ({
     outcome: "ok",
@@ -2876,6 +2977,15 @@ describe("authorizeEgress", () => {
         },
       }),
       catalog: withSeededInstallation(catalog),
+      github: {
+        grant: async () =>
+          ({
+            gitCredential: {
+              username: "x-access-token",
+              password: "installation-token",
+            },
+          }) as GitHubGrant,
+      },
       checkpoints: acceptAllCheckpoints,
       options: {
         sessionCostLimitUsd: 1_000,
@@ -2929,39 +3039,6 @@ describe("authorizeEgress", () => {
         })
       ).upstream.headers,
     ).toEqual([["x-api-key", "anthropic-key"]]);
-  });
-
-  test("a repository token is answered with the row's repository and its login", async () => {
-    const { instance } = authorizer(
-      granted(repositoryBinding("app", repository)),
-    );
-    const grant = await instance.authorizeEgress({
-      token: "wer_x",
-      purpose: "repository",
-    });
-    expect(grant.upstream).toEqual({
-      url: repository.url,
-      headers: [
-        [
-          "authorization",
-          `Basic ${Buffer.from("reader:repo-token").toString("base64")}`,
-        ],
-      ],
-    });
-    // A repository anyone may read gets nothing injected.
-    const { auth: _auth, ...open } = repository;
-    const public_ = authorizer(granted(repositoryBinding("app", open)), {
-      profiles: { p: profile },
-      repositories: { app: open },
-    });
-    expect(
-      (
-        await public_.instance.authorizeEgress({
-          token: "wer_x",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual([]);
   });
 
   test("an unknown token is 401 and an attempt that lost its session is 403", async () => {
@@ -3035,17 +3112,6 @@ describe("authorizeEgress", () => {
       { app: { ...repository, branch: "dev" } },
       // The pair is no longer allowed.
       { app: { ...repository, profiles: ["someone-else"] } },
-      // Another credential reference behind the same id.
-      {
-        app: {
-          ...repository,
-          auth: {
-            kind: "bearer" as const,
-            value: "repo-token",
-            ref: { value_env: "OTHER" },
-          },
-        },
-      },
       // Gone.
       {},
     ]) {
@@ -3087,15 +3153,6 @@ describe("authorizeEgress through a forge", () => {
       api_base: "https://api.github.com",
       value: "-----BEGIN RSA PRIVATE KEY-----fixture",
       ref: { value_env: "GITHUB_APP_KEY" },
-    },
-  };
-  const pat: CatalogRepository = {
-    ...app,
-    auth: {
-      kind: "basic",
-      username: "x-access-token",
-      value: "github_pat_fixture_value",
-      ref: { value_env: "GITHUB_PAT" },
     },
   };
 
@@ -3197,7 +3254,7 @@ describe("authorizeEgress through a forge", () => {
       const github = gate(async () => {
         throw new GitHubGateError(reason, "receipt-1");
       });
-      for (const repository of [app, pat]) {
+      for (const repository of [app]) {
         await expect(
           gateway(repository, github).authorizeEgress({
             token: "tok",
@@ -3247,23 +3304,6 @@ describe("authorizeEgress through a forge", () => {
     expect(github.asked).toHaveLength(1);
   });
 
-  test("with no gate, an agent's session has nothing to hold it to the workspace ceiling", async () => {
-    const offGitHub: CatalogRepository = {
-      ...pat,
-      url: "https://example.invalid/app.git",
-    };
-    await gateway(offGitHub).authorizeEgress({
-      token: "tok",
-      purpose: "repository",
-    });
-    await expect(
-      gateway(offGitHub, undefined, { source: "agent" }).authorizeEgress({
-        token: "tok",
-        purpose: "repository",
-      }),
-    ).rejects.toMatchObject({ status: 409 });
-  });
-
   test("another repository's route asks the gate for that repository and goes to its url", async () => {
     const docs: CatalogRepository = {
       ...app,
@@ -3292,43 +3332,6 @@ describe("authorizeEgress through a forge", () => {
         repository_id: "docs",
       }),
     ).rejects.toThrow();
-  });
-
-  test("a PAT repository sends the same header with or without a forge in front", async () => {
-    const expected: Array<[string, string]> = [
-      ["authorization", basic("x-access-token:github_pat_fixture_value")],
-    ];
-    expect(
-      (
-        await gateway(pat).authorizeEgress({
-          token: "t",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual(expected);
-    const static_ = gate(async () => ({
-      username: "x-access-token",
-      password: "github_pat_fixture_value",
-    }));
-    expect(
-      (
-        await gateway(pat, static_).authorizeEgress({
-          token: "t",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual(expected);
-    expect(
-      (
-        await gateway(
-          pat,
-          gate(async () => null),
-        ).authorizeEgress({
-          token: "t",
-          purpose: "repository",
-        })
-      ).upstream.headers,
-    ).toEqual(expected);
   });
 
   test("an App repository with no gate, a gate that fails, or no GitHub connection is refused with nothing of the failure", async () => {
@@ -3473,6 +3476,7 @@ describe("unmetered sessions", () => {
               url: "https://example.invalid/app.git",
               branch: "main",
               profiles: ["local"],
+              auth: { kind: "github_app", registered: true },
             },
           },
         }),

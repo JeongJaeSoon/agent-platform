@@ -9,6 +9,7 @@ import type {
   BootstrapClaimResponse,
   CheckpointRequest,
   CheckpointRequestResponse,
+  ClaimGit,
   ClaimGitAuthor,
   FinalizeRequest,
   FinalizeResponse,
@@ -24,6 +25,8 @@ import type {
   PendingControlRequest,
   PendingControlResponse,
   PostSessionAnswerRequest,
+  ProtectedCommitsRequest,
+  ProtectedCommitsResponse,
   RegisterPendingRequest,
   RegisterPendingResponse,
   ReleaseRequest,
@@ -46,6 +49,7 @@ import {
   GITHUB_MCP_SERVER,
   githubPolicySourceOf,
   githubRefusalStatus,
+  IMAGE_GIT_AUTHOR,
   MAX_RESTORE_PROFILES,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
@@ -70,6 +74,7 @@ import type {
   CheckpointOutputObject,
   CheckpointVerifier,
 } from "../ports/checkpoint-verifier.ts";
+import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import { repoRefOf } from "../ports/forge.ts";
 import {
   type GitHubGate,
@@ -204,6 +209,15 @@ export type WorkerPrincipal = Exclude<ResolvedCredential, null>;
  * and restore plan with CHECKPOINT_UNAVAILABLE instead of guessing.
  */
 export type CheckpointProtocol = {
+  /**
+   * The workspace commits of the session's recent confirmed checkpoints.
+   * Optional so a protocol that cannot answer says so: the route then
+   * answers CHECKPOINT_UNAVAILABLE, never an empty (nothing protected) list.
+   */
+  protectedCommits?(input: {
+    sessionId: string;
+    pointer: CheckpointPointer | null;
+  }): Promise<string[]>;
   requestCheckpoint(input: {
     attemptId: string;
     preparation: CheckpointRequest["preparation"];
@@ -574,6 +588,9 @@ export function createWorkerGateway(deps: {
   // Absent, a claim carries no `git` and the worker adds no commit trailer.
   attribution?: {
     store: SessionAttributionStore;
+    // Absent, a claim's commit values are not kept and a push is not checked
+    // against them.
+    ledger?: CommitAttributionLedger;
     consoleOrigin: string | null;
     // The numeric id of an App's bot user; null when GitHub does not say.
     // Absent, a claim names no commit author and the image's default stays.
@@ -667,6 +684,31 @@ export function createWorkerGateway(deps: {
     if (app === null) return null;
     const botUserId = await lookUp(app).catch(() => null);
     return botUserId === null ? null : appBotAuthor(app.slug, botUserId);
+  }
+
+  // What this claim asks the session's commits to carry, kept so a push is
+  // judged by what the server issued. A claim without `git` or `git_author`
+  // (an API from before them) asks for nothing checkable. A failed write fails
+  // the claim, after the claim itself has committed. A transient storage error
+  // answers 503 and the worker claims again; any other error, such as the
+  // table missing before migration 0232, answers a non-retryable
+  // INTERNAL_ERROR, the worker leaves, and the session returns to the queue
+  // through the startup-failure backoff. Swallowing the error would leave a
+  // session with no bundle, and a session with none is not checked at push.
+  async function recordIssuedAttribution(
+    sessionId: string,
+    git: ClaimGit | undefined,
+    gitAuthor: ClaimGitAuthor | null | undefined,
+  ): Promise<void> {
+    const ledger = deps.attribution?.ledger;
+    if (ledger === undefined || git === undefined || gitAuthor === undefined) {
+      return;
+    }
+    await ledger.record(sessionId, {
+      author: gitAuthor ?? IMAGE_GIT_AUTHOR,
+      coAuthor: git.co_author ?? null,
+      agentSession: git.session_url ?? sessionId,
+    });
   }
 
   // A primary repository with no author pin yet gets the one a token issue
@@ -1630,6 +1672,7 @@ export function createWorkerGateway(deps: {
             binding.sessionId,
             binding.repository?.id ?? null,
           );
+          await recordIssuedAttribution(binding.sessionId, git, gitAuthor);
           const additional = await additionalWorkspaceRepositories(
             binding.sessionId,
             repositoryToken,
@@ -1925,12 +1968,7 @@ export function createWorkerGateway(deps: {
         moved("session's repository");
       }
       if (deps.github === undefined) {
-        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
-        // Only the gate holds these sessions to the workspace's ceiling.
-        if (usesWorkspaceCeiling(catalog, result.profileId, source)) {
-          moved("session's repository");
-        }
-        return grant(repositoryUpstreamOf(pair.repository));
+        forgeUnavailable();
       }
       let issued: GitHubGrant | null;
       try {
@@ -1946,8 +1984,7 @@ export function createWorkerGateway(deps: {
         forgeUnavailable();
       }
       if (issued === null) {
-        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
-        return grant(repositoryUpstreamOf(pair.repository));
+        forgeUnavailable();
       }
       return grant(repositoryUpstreamOf(pair.repository, issued.gitCredential));
     },
@@ -2503,6 +2540,34 @@ export function createWorkerGateway(deps: {
         revision: decision.request.revision,
         manifest_ref: decision.request.manifestRef,
       };
+    },
+
+    // What the worker's attribution repair must not remake (decision 5, the
+    // repair tool). Fenced like a checkpoint request: a worker that no longer
+    // owns the session learns that, not the commits.
+    async protectedCommits(
+      principal: WorkerPrincipal,
+      request: ProtectedCommitsRequest,
+    ): Promise<ProtectedCommitsResponse> {
+      const fence = requireScope(principal, request);
+      const service = requireProtocol();
+      const protect = service.protectedCommits?.bind(service);
+      if (protect === undefined) {
+        throw new WorkerGatewayError(
+          409,
+          "CHECKPOINT_UNAVAILABLE",
+          "This control plane cannot list the commits a checkpoint protects",
+        );
+      }
+      const state = await work.checkpointStateAtomic({ fence, now: now() });
+      if (state.outcome !== "ok") rejected(state);
+      const commits = await checkpointInfrastructure(() =>
+        protect({
+          sessionId: fence.sessionId,
+          pointer: state.pointer,
+        }),
+      );
+      return { commits };
     },
 
     // The committed checkpoint as a download list, or the reason there is

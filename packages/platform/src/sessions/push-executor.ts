@@ -2,12 +2,14 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ENGINE_COAUTHOR_EMAILS,
   isSessionPushBranch,
   PUSH_BRANCH_PREFIX,
   type PushReasonCode,
   type PushRefusal,
 } from "@werft-ai/contracts";
 import type { PushBundlesResult } from "../checkpoints/checkpoint-service.ts";
+import type { CommitAttributionLedger } from "../ports/commit-attributions.ts";
 import type { GitPusher } from "../ports/git-push.ts";
 import {
   type GitHubGate,
@@ -65,6 +67,11 @@ export function createPushExecutor(deps: {
   gate: GitHubGate;
   bundles: PushBundleSource;
   pusher: GitPusher;
+  /**
+   * What each claim of a session issued; absent, a push is not checked for
+   * attribution (a host that never recorded any).
+   */
+  attributions?: CommitAttributionLedger;
   logger: PushExecutorLogger;
   leaseMs?: number;
   maxAttempts?: number;
@@ -158,7 +165,22 @@ export function createPushExecutor(deps: {
       }
       const work = join(directory, "git");
       await mkdir(work);
+      // Read here, after approval, from what the server issued: also for a
+      // push the policy approved with no person looking.
+      const expectations =
+        deps.attributions === undefined
+          ? []
+          : await deps.attributions.list(job.sessionId);
       const pushed = await deps.pusher.push({
+        ...(expectations.length === 0
+          ? {}
+          : {
+              attribution: {
+                expectations,
+                stripEmails: [...ENGINE_COAUTHOR_EMAILS],
+                baseRef: `refs/heads/${repository.branch}`,
+              },
+            }),
         directory: work,
         bundles: source.files,
         commit: job.gitCommit,
@@ -173,7 +195,10 @@ export function createPushExecutor(deps: {
           refusal: pushed.refusal,
           detail: pushed.detail,
         });
-        return refuse(pushed.refusal, remote, pushed.reasonCode);
+        const refusal = refuse(pushed.refusal, remote, pushed.reasonCode);
+        return pushed.mismatches === undefined || refusal.state !== "failed"
+          ? refusal
+          : { ...refusal, mismatches: pushed.mismatches };
       }
       return {
         state: "pushed",

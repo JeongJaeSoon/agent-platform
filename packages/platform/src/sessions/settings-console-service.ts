@@ -2,17 +2,14 @@ import type {
   AuthorizationAction,
   CreateSettingsConnectionRequest,
   CreateSettingsMcpServerRequest,
-  CreateSettingsRepositoryRequest,
   ListSettingsConnectionsResponse,
   ListSettingsMcpServersResponse,
-  ListSettingsRepositoriesResponse,
   SettingsChangeResponse,
   SettingsConnection,
   SettingsCredentialView,
   SettingsEntryOrigin,
   SettingsEntryState,
   SettingsMcpServer,
-  SettingsRepository,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "../musterrolle/policy.ts";
 import type {
@@ -26,25 +23,23 @@ import {
   billingFitsEndpoint,
   type CatalogMcpServerConfig,
   type CatalogProfileConfig,
-  type CatalogRepositoryConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
 } from "./catalog.ts";
 import { requirePermitted, SessionServiceError } from "./session-service.ts";
 import {
+  type SettingsKind as DocumentSettingsKind,
   parseSettingsDocument,
-  repositoryAuthKindOf,
   SettingsDocumentError,
   type SettingsEntries,
   type SettingsImportAdd,
-  type SettingsKind,
 } from "./settings-document.ts";
 
 type Provider = CatalogProfileConfig["provider"];
+type SettingsKind = Exclude<DocumentSettingsKind, "repository">;
 
 const ACTION: Record<SettingsKind, AuthorizationAction> = {
   connection: "installation.settings.manage",
   mcp: "installation.settings.manage",
-  repository: "workspace.manage",
 };
 
 const OUTRANKED = () =>
@@ -78,8 +73,7 @@ function credentialOf(
 /**
  * The installation settings from the console (settings-replace-file-catalog.md
  * §2-§4): the owner makes connections and MCP servers with a value they
- * type, replaces that value or disables the row; owners and admins add a
- * PAT or public repository by URL. Writes go through the settings
+ * type, replaces that value or disables the row. Writes go through the settings
  * document store's own transaction and locks; no destination and no
  * operator reference is ever written here.
  */
@@ -172,7 +166,7 @@ export function createSettingsConsoleService(deps: {
   }
 
   function parsed(
-    section: keyof SettingsEntries,
+    section: "connections" | "mcp_servers",
     id: string,
     entry: Record<string, unknown>,
   ): SettingsImportAdd {
@@ -195,17 +189,10 @@ export function createSettingsConsoleService(deps: {
         entry: entries.connections[id] as Provider,
       };
     }
-    if (section === "mcp_servers") {
-      return {
-        kind: "mcp",
-        id,
-        entry: entries.mcp_servers[id] as CatalogMcpServerConfig,
-      };
-    }
     return {
-      kind: "repository",
+      kind: "mcp",
       id,
-      entry: entries.repositories[id] as CatalogRepositoryConfig,
+      entry: entries.mcp_servers[id] as CatalogMcpServerConfig,
     };
   }
 
@@ -315,39 +302,6 @@ export function createSettingsConsoleService(deps: {
       return { items };
     },
 
-    async listRepositories(
-      caller: Caller,
-    ): Promise<ListSettingsRepositoriesResponse> {
-      await writer(caller, "repository");
-      const items = await rowItems<SettingsRepository>(
-        "repository",
-        (id, entry, meta) => {
-          const repository = entry as CatalogRepositoryConfig;
-          const authKind = repositoryAuthKindOf(repository);
-          // The console App's repositories are the GitHub screen's.
-          if (authKind === "github_app") return null;
-          const auth = repository.auth as
-            | { username?: string | undefined }
-            | undefined;
-          return {
-            id,
-            origin: meta.origin,
-            state: meta.state,
-            url: repository.url,
-            branch: repository.branch,
-            auth_kind: authKind,
-            ...(auth?.username === undefined
-              ? {}
-              : { username: auth.username }),
-            credential: credentialOf(repository.auth, meta.last4),
-            created_at: meta.created_at,
-            disabled_at: meta.disabled_at,
-          };
-        },
-      );
-      return { items };
-    },
-
     createConnection(caller: Caller, request: CreateSettingsConnectionRequest) {
       return create(
         caller,
@@ -398,31 +352,6 @@ export function createSettingsConsoleService(deps: {
       );
     },
 
-    createRepository(caller: Caller, request: CreateSettingsRepositoryRequest) {
-      const { auth } = request;
-      return create(
-        caller,
-        "repository",
-        () =>
-          parsed("repositories", request.id, {
-            url: request.url,
-            branch: request.branch,
-            ...(auth.kind === "none"
-              ? {}
-              : {
-                  auth: {
-                    kind: auth.kind,
-                    ...(auth.kind === "basic"
-                      ? { username: auth.username }
-                      : {}),
-                    stored: true,
-                  },
-                }),
-          }),
-        auth.kind === "none" ? null : auth.value,
-      );
-    },
-
     setCredential(
       caller: Caller,
       kind: SettingsKind,
@@ -459,12 +388,6 @@ export function createSettingsConsoleService(deps: {
       }
       return onRow(caller, "mcp", id, (actor) =>
         store.setMcpWorkspaces(id, workspaces, actor),
-      );
-    },
-
-    setRepositoryBranch(caller: Caller, id: string, branch: string) {
-      return onRow(caller, "repository", id, (actor) =>
-        store.setRepositoryBranch(id, branch, actor),
       );
     },
   };

@@ -21,6 +21,7 @@ export {
   transcriptSizeProblem,
   transcriptWarnBytes,
 } from "./checkpoint-manifest.ts";
+export * from "./commit-attribution.ts";
 export type * from "./descriptor.ts";
 export type * from "./event-codec.ts";
 export type * from "./events.ts";

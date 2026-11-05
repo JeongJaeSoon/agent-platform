@@ -70,6 +70,7 @@ const catalog: SessionCatalog = withSeededInstallation({
       url: "https://example.invalid/app.git",
       branch: "main",
       profiles: ["coding-v1", "review-v1"],
+      auth: { kind: "github_app", registered: true },
     },
   },
 });
@@ -249,16 +250,19 @@ describe("a session pinned to an agent release", () => {
           url: "https://github.com/acme/app.git",
           branch: "main",
           profiles: ["coding-v1"],
+          auth: { kind: "github_app", registered: true } as const,
         },
         docs: {
           url: "https://github.com/acme/docs",
           branch: "main",
           profiles: ["coding-v1"],
+          auth: { kind: "github_app", registered: true } as const,
         },
         nested: {
           url: "https://gitlab.invalid/group/sub/repo.git",
           branch: "main",
           profiles: ["coding-v1"],
+          auth: { kind: "github_app", registered: true } as const,
         },
       },
     });
@@ -373,16 +377,19 @@ describe("a session pinned to an agent release", () => {
           url: "https://example.invalid/docs.git",
           branch: "main",
           profiles: ["coding-v1", "either-v1"],
+          auth: { kind: "github_app", registered: true },
         },
         tools: {
           url: "https://example.invalid/tools.git",
           branch: "main",
           profiles: ["coding-v1", "either-v1"],
+          auth: { kind: "github_app", registered: true },
         },
         elsewhere: {
           url: "https://example.invalid/elsewhere.git",
           branch: "main",
           profiles: ["review-v1"],
+          auth: { kind: "github_app", registered: true },
         },
       },
     }) satisfies SessionCatalog;
@@ -1216,7 +1223,13 @@ describe("a session recorded on the example git host", () => {
     const { service, caller } = setup({
       catalog: {
         ...catalog,
-        repositories: { app: { ...example, profiles: ["coding-v1"] } },
+        repositories: {
+          app: {
+            ...example,
+            profiles: ["coding-v1"],
+            auth: { kind: "github_app", registered: true },
+          },
+        },
       },
       session: { ...sessionOn("coding-v1"), repo_url: RECORDED },
     });

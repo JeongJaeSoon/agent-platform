@@ -499,7 +499,7 @@ describe.skipIf(env === null)("D2 gate", () => {
       title: "turns, receipts, queue and checkpoint pointer agree",
       input: "DB after turn 2",
       expected:
-        "turns completed with revisions 0 and 1, pointer 1, receipts succeeded, queue empty",
+        "turns completed with revisions 0 and 1, pointer 1, create/mint/append receipts succeeded, queue empty",
       actual: {
         turns: turns.map((t) => `${t.id}:${t.status}:${t.terminal_reason}`),
         api_turn_revisions: [
@@ -521,7 +521,12 @@ describe.skipIf(env === null)("D2 gate", () => {
           `0@${turns[0]?.id},1@${turns[1]?.id}` &&
         session.checkpoint_revision === 1 &&
         session.checkpoint_pending_reason === null &&
-        receipts.length === 2 &&
+        receipts.length === 3 &&
+        ["create_session", "mint_github_token", "append_message"].every(
+          (operation) =>
+            receipts.filter((receipt) => receipt.startsWith(`${operation}:`))
+              .length === 1,
+        ) &&
         receipts.every((r) => r.endsWith(":succeeded")) &&
         depth === 0,
     });

@@ -61,6 +61,7 @@ const catalogOf = (profile: CatalogProfile): SessionCatalog =>
         url: "https://github.com/acme/other-app",
         branch: "main",
         profiles: ["either"],
+        auth: { kind: "github_app", registered: true },
       },
     },
   });
@@ -664,17 +665,6 @@ describe("a release's GitHub settings", () => {
         profiles: ["coding", "either"],
         auth: app,
       },
-      "pat-app": {
-        url: "https://github.com/acme/pat-app",
-        branch: "main",
-        profiles: ["coding"],
-        auth: {
-          kind: "basic" as const,
-          username: "x-access-token",
-          value: "pat",
-          ref: { value_env: "PAT" },
-        },
-      },
       "review-only": {
         url: "https://github.com/acme/review-only",
         branch: "main",
@@ -778,18 +768,6 @@ describe("a release's GitHub settings", () => {
         },
       });
     }
-  });
-
-  test("a repository without a GitHub App is app_required", async () => {
-    expect(
-      await refusal({ github: { ...github, repositories: ["pat-app"] } }),
-    ).toEqual({
-      code: "BAD_REQUEST",
-      details: {
-        field: "github.repositories.0",
-        reason_code: "app_required",
-      },
-    });
   });
 
   test("repositories that leave out the release's own are release_repository_outside", async () => {

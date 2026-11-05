@@ -45,7 +45,11 @@ import {
  */
 
 const OWNER = testCaller("owner-a");
-const REPOSITORY = { url: "https://example.invalid/app.git", branch: "main" };
+const REPOSITORY = {
+  url: "https://example.invalid/app.git",
+  branch: "main",
+  auth: { kind: "github_app", registered: true },
+} as const;
 
 function profile(
   model: string,

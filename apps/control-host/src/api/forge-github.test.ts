@@ -290,56 +290,37 @@ describe("connectionsOf", () => {
           ref: { value_env: "K" },
         },
       },
-      pat: {
-        ...base,
-        url: "https://github.com/acme/pat.git",
-        auth: {
-          kind: "basic",
-          username: "x-access-token",
-          value: "github_pat_fixture_value",
-          ref: { value_env: "P" },
-        },
-      },
-      selfHosted: {
-        ...base,
-        url: "http://git.internal:3000/agent/sample.git",
-        auth: {
-          kind: "basic",
-          username: "agent",
-          value: "self-hosted-token-fixture",
-          ref: { value_env: "G" },
-        },
-      },
-      public: { ...base, url: "https://github.com/acme/open.git" },
     },
   };
 
-  test("an App or a github.com PAT has an author connection; a self-hosted host, public repositories and the reviewer role have none", async () => {
+  test("an App has an author connection; the reviewer role and a missing repository have none", () => {
     const connections = connectionsOf(catalog);
     expect(connections("app", "author")).toMatchObject({
       kind: "fixed",
       connection: { kind: "app", appId: 101, githubCom: true },
     });
-    const pat = connections("pat", "author");
-    expect(pat).toMatchObject({
-      kind: "fixed",
-      connection: { kind: "pat", appId: null, githubCom: true },
-    });
-    if (pat?.kind !== "fixed") throw new Error("a PAT is a fixed connection");
-    expect(await pat.connection.credential(repo, READ)).toEqual({
-      credential: {
-        username: "x-access-token",
-        password: "github_pat_fixture_value",
-      },
-      fresh: false,
-    });
     expect(fixedOf(connections("app", "author"))).toBe(
       fixedOf(connections("app", "author")),
     );
     expect(connections("app", "reviewer")).toBeNull();
-    expect(connections("selfHosted", "author")).toBeNull();
-    expect(connections("public", "author")).toBeNull();
     expect(connections("missing", "author")).toBeNull();
+  });
+
+  test("refreshes fixed App connections when installation settings change", () => {
+    const changing: SessionCatalog = { profiles: {}, repositories: {} };
+    const connections = connectionsOf(changing);
+    expect(connections("app", "author")).toBeNull();
+
+    changing.repositories = catalog.repositories;
+    const first = fixedOf(connections("app", "author"));
+    expect(first).not.toBeNull();
+    expect(fixedOf(connections("app", "author"))).toBe(first);
+
+    changing.repositories = {};
+    expect(connections("app", "author")).toBeNull();
+
+    changing.repositories = catalog.repositories;
+    expect(fixedOf(connections("app", "author"))).not.toBe(first);
   });
 });
 
@@ -528,7 +509,6 @@ describe("the App registered in the console", () => {
             url: "https://github.com/acme/app.git",
             auth: { kind: "github_app", registered: true },
           },
-          open: { branch: "main", url: "https://github.com/acme/open.git" },
         },
       },
       { registered: (role) => registered.connections(role) },
@@ -548,8 +528,6 @@ describe("the App registered in the console", () => {
     reviewerOn = true;
     await registered.refresh();
     expect(firstCandidateOf(connections("app", "reviewer"))?.appId).toBe(202);
-    expect(connections("open", "author")).toBeNull();
-    expect(connections("open", "reviewer")).toBeNull();
   });
 
   test("a repository the console adds after startup uses the registered App", async () => {
