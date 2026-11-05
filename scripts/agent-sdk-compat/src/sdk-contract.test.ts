@@ -583,6 +583,7 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     context = await createProbeContext();
     const command = "touch session-rule.txt";
     const askedByRun: string[][] = [];
+    let resume: string | undefined;
     for (const run of [0, 1]) {
       server = startFakeAnthropicServer((_request, index) =>
         index < 2
@@ -594,25 +595,35 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
           : textReply("restart complete"),
       );
       const asked: string[] = [];
-      await runSdkQuery(context, server.url, "Run the command.", {
-        canUseTool: async (_name, input, options) => {
-          asked.push(options.toolUseID);
-          return {
-            behavior: "allow",
-            updatedInput: input,
-            updatedPermissions: [
-              {
-                type: "addRules",
-                behavior: "allow",
-                destination: "session",
-                rules: [{ toolName: "Bash", ruleContent: command }],
-              },
-            ],
-          };
+      const messages = await runSdkQuery(
+        context,
+        server.url,
+        "Run the command.",
+        {
+          // The second engine resumes the first one's conversation, so only
+          // the process, not the transcript, differs between the runs.
+          ...(resume === undefined ? {} : { resume }),
+          canUseTool: async (_name, input, options) => {
+            asked.push(options.toolUseID);
+            return {
+              behavior: "allow",
+              updatedInput: input,
+              updatedPermissions: [
+                {
+                  type: "addRules",
+                  behavior: "allow",
+                  destination: "session",
+                  rules: [{ toolName: "Bash", ruleContent: command }],
+                },
+              ],
+            };
+          },
+          permissionMode: "default",
+          tools: ["Bash"],
         },
-        permissionMode: "default",
-        tools: ["Bash"],
-      });
+      );
+      resume = messages.find((message) => "session_id" in message)?.session_id;
+      expect(resume).toBeDefined();
       askedByRun.push(asked);
       server.stop();
     }

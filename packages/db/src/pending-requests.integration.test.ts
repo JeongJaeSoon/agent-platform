@@ -8,6 +8,7 @@ import type {
 import {
   createAuthorizationPolicy,
   createPendingRequestService,
+  createPushRequestService,
   createWorkerGateway,
   payloadHash,
   type SessionCatalog,
@@ -782,26 +783,47 @@ integration("pending requests and answers on PostgreSQL", () => {
         .update(sessions)
         .set({ checkpointRevision: 2, repositoryId: "sample-app" })
         .where(eq(sessions.id, sessionId));
+      // The push is requested through the platform's own service on the real
+      // store, as the request_push tool does.
       const pushes = createPostgresPushRequests(db);
-      const created = await pushes.create({
-        ownerId: owner.ownerId,
-        sessionId,
-        actor: {
-          principal: { kind: "api_key", id: "key-writer" },
-          actor_user_id: null,
-          agent_id: null,
+      const service = createPushRequestService({
+        authorization: createAuthorizationPolicy(),
+        store: pushes,
+        catalog: {
+          profiles: {},
+          repositories: {
+            "sample-app": {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["claude-coding-v1"],
+            },
+          },
         },
-        idempotencyKey: crypto.randomUUID(),
-        payloadHash: "h-push",
-        repositoryId: "sample-app",
-        repositoryBinding: "sha256:binding",
-        checkpointRevision: 2,
-        gitCommit: "b".repeat(40),
-        policyApproval: null,
-        policyFields: {},
+        source: {
+          readPushSource: async () => ({
+            status: "ready",
+            revision: 2,
+            gitCommit: "b".repeat(40),
+          }),
+        },
       });
-      if (created.outcome !== "written") throw new Error(created.outcome);
-      expect(created.request).toMatchObject({
+      const created = await service.create(
+        {
+          caller: owner,
+          principal: {
+            kind: "api_key",
+            id: owner.ownerId,
+            owner_id: owner.ownerId,
+            workspace_id: null,
+            scopes: ["sessions:write"],
+          },
+          ownerId: owner.ownerId,
+          verified: true,
+        },
+        sessionId,
+        { idempotencyKey: crypto.randomUUID() },
+      );
+      expect(created).toMatchObject({
         state: "requested",
         resolved_by: null,
       });
