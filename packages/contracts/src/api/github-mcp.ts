@@ -47,8 +47,9 @@ const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
  * served by the control host's authorizer listener, which keeps Bun's default
  * 10 second idle timeout; a call that has sent nothing by then gets a cut
  * connection instead of an answer. The wait is counted from the start of the
- * call and every read inside it is cut at that deadline, so the cap leaves
- * two seconds for the proxy and the answer.
+ * call; the waiting itself and the GitHub calls inside it are cut at that
+ * deadline. The database reads around it keep their own pool timeouts, so the
+ * cap leaves two seconds for them, the proxy and the answer.
  */
 export const GITHUB_MCP_WAIT_SECONDS_MAX = 8;
 
