@@ -704,6 +704,8 @@ describe("markup the scan and a renderer could read differently", () => {
       "- ~~~\n  example\n  ~~~\n## Summary\n",
       "1. ```\n   example\n   ```\n",
       "> ```\n> example\n> ```\n",
+      "- item\n  ```\n[x](https://github.com/acme/app/issues\\/13)\n```\n## Summary\n",
+      "   ~~~\nx\n   ~~~\n",
     ]) {
       expect(prepareTemplateText(text)).toEqual({
         ok: false,

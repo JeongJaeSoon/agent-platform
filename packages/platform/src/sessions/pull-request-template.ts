@@ -310,8 +310,11 @@ type Scanned = {
   rejected: boolean;
 };
 
+// A fence is accepted only at the start of a line. After indentation or a
+// list or quote marker it may belong to a container, which ends where a
+// renderer decides, not where this scan does.
 const NESTED_FENCE =
-  /^[ \t]*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+(?:`{3,}|~{3,})/;
+  /^(?:[ \t]+|[ \t]*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+)(?:`{3,}|~{3,})/;
 
 function scan(text: string): Scanned {
   const rows: Scanned["rows"] = [];
