@@ -8,9 +8,21 @@ import type { PullRequestTemplateRecord } from "@werft-ai/contracts";
 import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
 import { closeOpenBlocks } from "./git-attribution.ts";
 import {
+  breakReferences,
   neutralizeReferences,
   stripEngineSignatures,
 } from "./pull-request-text.ts";
+
+// What a template may not link on its own: `#12`, `GH-12`, and the address of
+// an issue or pull request. (`&#12;` is an entity, not a reference.)
+const LOCAL_REFERENCE = /(^|[^\w/&#-])(#|GH-)(?=\d)/gi;
+const ISSUE_ADDRESS = /(https?:\/\/)(?=[^\s<>()[\]]*\/(?:issues|pull)\/\d)/gi;
+
+function breakLinks(text: string): string {
+  return text
+    .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
+    .replace(ISSUE_ADDRESS, `$1${ZWSP}`);
+}
 
 export const SECTION_NAMES = [
   "summary",
@@ -409,6 +421,8 @@ function scan(text: string): Scanned {
       .filter((part) => !part.comment)
       .map((part) => part.text.replace(/(`+)[^`]*?\1/g, " "))
       .join(" ");
+    // A tag split over lines hides what follows it from every line-wise scan.
+    if (endsInsideTag(seen)) unbalanced = true;
     for (const [, closeTag, name] of seen.matchAll(ELEMENT)) {
       const tag = (name ?? "").toLowerCase();
       if (closeTag === "") open.push(tag);
@@ -418,6 +432,25 @@ function scan(text: string): Scanned {
     }
   }
   return { rows, unbalanced: unbalanced || inComment };
+}
+
+/** Whether an HTML tag opened in `text` is still open at its end (quotes honoured). */
+function endsInsideTag(text: string): boolean {
+  let inTag = false;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i] ?? "";
+    if (!inTag) {
+      if (char === "<" && /[A-Za-z/]/.test(text[i + 1] ?? "")) inTag = true;
+    } else if (quote !== null) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === ">") {
+      inTag = false;
+    }
+  }
+  return inTag;
 }
 
 function escaped(line: string, index: number): boolean {
@@ -451,7 +484,7 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
       row.parts.map((part) => (part.comment ? " " : part.text)).join(""),
     )
     .join("\n");
-  const broken = neutralizeReferences(visible);
+  const broken = breakLinks(neutralizeReferences(visible));
   const added: number[] = new Array(visible.length + 1).fill(0);
   let j = 0;
   for (let i = 0; i <= visible.length; i += 1) {
@@ -471,7 +504,12 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
     let line = "";
     for (const part of row.parts) {
       if (part.comment) {
-        line += part.text.replace(PLATFORM_COMMENT, `$1$2${ZWSP}$3`);
+        // Hidden text is broken too: a renderer that reads the markup another
+        // way than the scan did would otherwise show it live.
+        line += breakLinks(breakReferences(part.text)).replace(
+          PLATFORM_COMMENT,
+          `$1$2${ZWSP}$3`,
+        );
         offset += 1;
         continue;
       }
@@ -657,10 +695,12 @@ export function fillTemplate(
     // Past the comments and blank lines that follow the heading.
     while (at < rows.length) {
       const next = rows[at];
-      if (next === undefined || !(next.startsInComment || next.skippable))
-        break;
+      if (next === undefined || !next.skippable) break;
       at += 1;
     }
+    // A row that ends a comment and goes on with markup is no place to put
+    // text before: it would land in the comment, or in what that markup opens.
+    if (rows[at]?.startsInComment) return;
     put(at, name);
   });
 

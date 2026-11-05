@@ -306,7 +306,7 @@ export function createGitHubConnection(
     return {
       maxBodyLength: GITHUB_MAX_BODY_LENGTH,
       async getRepository() {
-        const { data } = await call("repository lookup", () =>
+        const { data } = await quiet("repository lookup", () =>
           client.request("GET /repos/{owner}/{repo}", { ...target, headers }),
         );
         return {

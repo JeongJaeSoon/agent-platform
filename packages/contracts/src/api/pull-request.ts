@@ -156,7 +156,11 @@ export const PULL_REQUEST_BODY_SOURCE_KINDS = [
   "agent",
   "platform",
 ] as const;
-/** Why a repository's template was passed over for the platform's default. */
+/**
+ * Why a repository's template was passed over for the platform's default.
+ * `unbalanced_comment` also covers markup the platform cannot put text around
+ * safely, such as an HTML tag split over lines.
+ */
 export const PULL_REQUEST_TEMPLATE_SKIP_VALUES = [
   "too_large",
   "not_file",

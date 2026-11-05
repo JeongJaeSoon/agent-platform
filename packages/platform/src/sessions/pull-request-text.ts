@@ -18,8 +18,8 @@ const closingKeyword =
 const crossReference = /\b([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#(\d)/g;
 const mention = /(^|[^\w])@([A-Za-z0-9])/g;
 
-/** Breaks mentions, cross-repository references, closing keywords and HTML comments. */
-export function neutralizeReferences(text: string): string {
+/** Breaks mentions, cross-repository references and closing keywords; only inserts zero-width spaces. */
+export function breakReferences(text: string): string {
   return text
     .replace(
       closingKeyword,
@@ -27,8 +27,12 @@ export function neutralizeReferences(text: string): string {
         `${word[0]}${ZWSP}${word.slice(1)}${gap}`,
     )
     .replace(crossReference, `$1#${ZWSP}$2`)
-    .replace(mention, `$1@${ZWSP}$2`)
-    .replaceAll("<!--", `<!${ZWSP}--`);
+    .replace(mention, `$1@${ZWSP}$2`);
+}
+
+/** Breaks mentions, cross-repository references, closing keywords and HTML comments. */
+export function neutralizeReferences(text: string): string {
+  return breakReferences(text).replaceAll("<!--", `<!${ZWSP}--`);
 }
 
 // Lines an engine appends to a pull request body on its own (Claude Code's

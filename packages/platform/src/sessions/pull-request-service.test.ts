@@ -1715,7 +1715,7 @@ describe("the repository's pull request template", () => {
     await service.open(actor, SESSION, PUSH, { readBody: async () => FIELDS });
     const body = created[0]?.body ?? "";
     expect(body).toContain(`@${ZWSP}octocat`);
-    expect(body).toContain(`F${ZWSP}ixes #1`);
+    expect(body).toContain(`F${ZWSP}ixes #${ZWSP}1`);
     expect(body).not.toContain("\nCo-authored-by: Mallory");
     const lines = body.split("\n");
     expect(lines.filter((l) => l === PULL_REQUEST_TAIL_MARKER)).toHaveLength(1);

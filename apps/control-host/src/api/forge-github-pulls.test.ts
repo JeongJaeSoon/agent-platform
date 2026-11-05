@@ -405,6 +405,37 @@ describe("GitHub pull requests", () => {
     }
   });
 
+  test("a failed repository lookup logs its status, not what GitHub answered", async () => {
+    const warnings: Array<Record<string, unknown>> = [];
+    const stub = Bun.serve({
+      port: 0,
+      fetch: () =>
+        Response.json({ message: "private-response-content" }, { status: 500 }),
+    });
+    try {
+      const connection = createGitHubConnection({
+        apiBase: `http://127.0.0.1:${stub.port}`,
+        credentials: { kind: "token", username: "x", password: "[REDACTED]" },
+        logger: {
+          warn: (message: string, fields?: Record<string, unknown>) =>
+            warnings.push({ message, ...fields }),
+        },
+        retryAfterBaseMs: 1,
+        paced: false,
+      });
+      const { credential } = await connection.credential(repo, PULLS);
+      const failed = await connection
+        .api(repo, credential)
+        .getRepository()
+        .catch((e: unknown) => e);
+      expect(failed).toBeInstanceOf(GitHubCallError);
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(JSON.stringify(warnings)).not.toContain("private-response");
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
   test("a new comment the forge answered 5xx is not posted again", async () => {
     const seen: string[] = [];
     const stub = Bun.serve({
