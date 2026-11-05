@@ -691,6 +691,101 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(await readFile(outputPath, "utf8")).toBe("x");
   }, 60_000);
 
+  // A platform tool (`trusted`) gets a PreToolUse allow from the adapter and
+  // nothing else: the claim is that the allow takes the call out of the
+  // whole permission stage. The fake Messages API cannot show the auto
+  // classifier's own request (the control run asks canUseTool instead of
+  // calling a model), so the evidence is what the stage would have done:
+  // no canUseTool call and no model request beyond the two the turn needs.
+  // The in-process server stands in for the adapter's relay, which is an
+  // SDK MCP server too.
+  describe("a PreToolUse allow on an MCP tool", () => {
+    const PUSH = "mcp__github__request_push";
+    const allowHook = async () => ({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "allow" as const,
+      },
+    });
+    const denyHook = async () => ({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason: "outside the allowlist",
+      },
+    });
+    async function pushRun(
+      permissionMode: "auto" | "default",
+      hooks: (typeof allowHook | typeof denyHook)[],
+    ) {
+      context = await createProbeContext();
+      server = startFakeAnthropicServer((_request, index) =>
+        index === 0
+          ? toolReply(PUSH, { value: "p" }, "toolu_sdkcompat_trusted")
+          : textReply("push complete"),
+      );
+      const ran: string[] = [];
+      const asked: string[] = [];
+      await runSdkQuery(context, server.url, "Push it.", {
+        canUseTool: async (name, input) => {
+          asked.push(name);
+          return { behavior: "allow", updatedInput: input };
+        },
+        hooks:
+          hooks.length === 0
+            ? {}
+            : { PreToolUse: hooks.map((hook) => ({ hooks: [hook] })) },
+        mcpServers: {
+          github: createSdkMcpServer({
+            name: "github",
+            version: "1.0.0",
+            tools: [
+              tool(
+                "request_push",
+                "Push the checkpoint",
+                { value: z.string() },
+                async ({ value }) => {
+                  ran.push(value);
+                  return { content: [{ type: "text", text: "pushed" }] };
+                },
+              ),
+            ],
+          }),
+        },
+        permissionMode,
+      });
+      return { asked, ran, requests: server.requests.length };
+    }
+
+    test.each(["auto", "default"] as const)(
+      "skips the permission stage in %s mode, and a control run without it reaches the stage",
+      async (mode) => {
+        const control = await pushRun(mode, []);
+        // Without the allow the engine's permission stage is in play.
+        expect(control).toEqual({ asked: [PUSH], ran: ["p"], requests: 2 });
+        await context?.dispose();
+        server?.stop();
+
+        const allowed = await pushRun(mode, [allowHook]);
+        expect(allowed).toEqual({ asked: [], ran: ["p"], requests: 2 });
+      },
+      60_000,
+    );
+
+    test.each([
+      ["deny after allow", [allowHook, denyHook]],
+      ["deny before allow", [denyHook, allowHook]],
+    ] as const)(
+      "loses to a PreToolUse deny: %s",
+      async (_name, hooks) => {
+        const result = await pushRun("auto", [...hooks]);
+        expect(result.ran).toEqual([]);
+        expect(result.asked).toEqual([]);
+      },
+      60_000,
+    );
+  });
+
   // The engine proposes a rule for the call it asks about, and for a command
   // with a redirect or a second command the rule does not match that call.
   // The adapter's offerableRules relies on this; it has no API to ask.

@@ -23,3 +23,32 @@ export const PLATFORM_AUTO_MODE = {
     "**Werft session**: this workspace is a Werft session. The session's repository, and any repository attached with `mcp__github__attach_repository`, is fetched read-only through the platform. `gh` is installed but has no GitHub login, and the GitHub API is not on the session's default egress allowlist: `git push`, `gh` and direct GitHub API calls do not reach GitHub from here unless an operator opened it. With that default, writes to GitHub go only through the built-in `github` MCP server, which pushes only to this session's own `agent/<session-id>` branches and applies the release's push approval on the server. The platform's push flow is the built-in `github` MCP server: `request_push` pushes, `open_pull_request`, `update_pull_request`, `comment_pull_request`, `close_pull_request` and `reopen_pull_request` act on pull requests, `list_repositories` and `attach_repository` read repositories.",
   ],
 } as const;
+
+/**
+ * The rules for a run whose push, pull request and repository-read tools
+ * skip the classifier (`trusted`): the platform decides each of those on the
+ * server, so no rule describes them. What is left is the engine's own work
+ * (committing) and the tools the classifier still judges (reviews and
+ * workflows).
+ */
+export const TRUSTED_PLATFORM_AUTO_MODE = {
+  allow: [
+    "$defaults",
+    "Werft Git Work: Committing changes in this session's workspace. Not covered: committing secrets or credentials; pushing, which the platform does and `git push` does not reach GitHub from here.",
+    "Werft Reviews and Workflows: Not covered: submitting a review, including on a pull request this session opened; dispatching or re-running a workflow.",
+  ],
+  soft_deny: PLATFORM_AUTO_MODE.soft_deny,
+  environment: [
+    "$defaults",
+    "**Werft session**: this workspace is a Werft session. `gh` is installed but has no GitHub login, and the GitHub API is not on the session's default egress allowlist: `git push`, `gh` and direct GitHub API calls do not reach GitHub from here unless an operator opened it. Writes to GitHub go only through the built-in `github` MCP server, and the platform decides each of them on the server.",
+  ],
+} as const;
+
+/**
+ * The full rules unless the platform vouched for its tools: a control host
+ * from before `trusted` sends none, and then the classifier still judges
+ * the push, pull request and repository-read tools by the first set.
+ */
+export function platformAutoMode(trusted: boolean) {
+  return trusted ? TRUSTED_PLATFORM_AUTO_MODE : PLATFORM_AUTO_MODE;
+}

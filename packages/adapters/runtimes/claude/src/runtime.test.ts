@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { closeSync, fstatSync, openSync } from "node:fs";
 import { PERMISSION_MODE_VALUES } from "@werft-ai/contracts";
-import { PLATFORM_AUTO_MODE } from "./auto-mode.ts";
+import { PLATFORM_AUTO_MODE, TRUSTED_PLATFORM_AUTO_MODE } from "./auto-mode.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import { MEMORY_READ_GUIDANCE } from "./memory-read.ts";
 import { MirrorProgress } from "./mirror-progress.ts";
@@ -555,6 +555,122 @@ describe("Claude SDK adapter options", () => {
         permissionDecisionReason:
           "The platform could not record that this tool is starting, so it was not run. This is not a user decision; you may try the call again.",
       },
+    });
+  });
+
+  describe("a trusted platform tool", () => {
+    const PUSH = "mcp__github__request_push";
+    const REVIEW = "mcp__github__submit_review";
+    const trusted: ClaudeRuntimeConfig = {
+      ...config,
+      tools: ["Read", PUSH, REVIEW],
+      trustedTools: [PUSH],
+    };
+    const allowAnswer = {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "allow" as const,
+      },
+    };
+    const { trustedTools: _none, ...untrusted } = trusted;
+    const hookOf = (
+      cfg: ClaudeRuntimeConfig,
+      ledger = new TurnLedger("s1"),
+    ) => {
+      const pre = buildSdkOptions(
+        cfg,
+        { onPermission: async () => ({ behavior: "allow" }) },
+        ledger,
+      ).hooks?.PreToolUse?.[0]?.hooks[0];
+      if (pre === undefined) throw new Error("PreToolUse hook is required");
+      return (tool: string, toolUseId: string) =>
+        pre(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: tool,
+            tool_input: {},
+            tool_use_id: toolUseId,
+          } as never,
+          toolUseId,
+          { signal: new AbortController().signal },
+        );
+    };
+
+    test("is allowed past the engine's permission stage, and only it", async () => {
+      const call = hookOf(trusted);
+      expect(await call(PUSH, "toolu_1")).toEqual(allowAnswer);
+      // Another tool of the same server, a review, still goes to the engine.
+      expect(await call(REVIEW, "toolu_2")).toEqual({});
+      expect(await call("Read", "toolu_3")).toEqual({});
+    });
+
+    test("is allowed only after the allowlist, the admission guard and the ledger", async () => {
+      // Outside the allowlist: the deny wins whatever `trusted` says.
+      const outside = hookOf({ ...trusted, tools: ["Read"] });
+      expect(await outside(PUSH, "toolu_1")).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+
+      const ledger = new TurnLedger("s1");
+      const call = hookOf(trusted, ledger);
+      const order: string[] = [];
+      ledger.holdAdmission(async (id) => {
+        order.push(`guard:${id}`);
+      });
+      expect(await call(PUSH, "toolu_2")).toEqual(allowAnswer);
+      order.push("answered");
+      expect(order).toEqual(["guard:toolu_2", "answered"]);
+      // The ledger recorded the start: the checkpoint waits for the tool.
+      expect(ledger.prepareCheckpoint()).toMatchObject({
+        reason: "tool_in_flight",
+      });
+
+      // A guard that fails refuses the call; no allow comes out of it.
+      ledger.holdAdmission(async () => {
+        throw new Error("gateway down");
+      });
+      expect(await call(PUSH, "toolu_3")).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+
+      // A checkpoint lease refuses a new writer, trusted or not.
+      const leased = new TurnLedger("s2");
+      const leasedCall = hookOf(trusted, leased);
+      const grant = leased.leaseCheckpoint();
+      expect(await leasedCall(PUSH, "toolu_4")).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny" },
+      });
+      grant.lease?.release();
+    });
+
+    test("is not allowed in plan mode, where the engine keeps asking", async () => {
+      const call = hookOf({ ...trusted, permissionMode: "plan" });
+      expect(await call(PUSH, "toolu_1")).toEqual({});
+    });
+
+    test("without trustedTools the hook answers nothing, as before", async () => {
+      const call = hookOf(untrusted);
+      expect(await call(PUSH, "toolu_1")).toEqual({});
+    });
+
+    test("auto hands the classifier the smaller rules only when the run has trusted tools", () => {
+      const hooks = {
+        onPermission: async () => ({ behavior: "allow" as const }),
+      };
+      const small = buildSdkOptions(
+        { ...trusted, permissionMode: "auto" },
+        hooks,
+      ).settings as { autoMode: typeof TRUSTED_PLATFORM_AUTO_MODE };
+      expect(small.autoMode).toBe(TRUSTED_PLATFORM_AUTO_MODE);
+      const rules = JSON.stringify(small.autoMode);
+      expect(rules).toContain("committing secrets or credentials");
+      expect(rules).not.toContain("Repository Reading");
+      expect(rules).not.toContain("`request_push` pushes");
+      const full = buildSdkOptions(
+        { ...untrusted, permissionMode: "auto" },
+        hooks,
+      ).settings as { autoMode: typeof PLATFORM_AUTO_MODE };
+      expect(full.autoMode).toBe(PLATFORM_AUTO_MODE);
     });
   });
 
