@@ -40,6 +40,8 @@ function harness(
     refuse?: GitHubGateError | ForgeCredentialError;
     fail?: GitHubCallError;
     run?: { id: number; html_url: string } | null;
+    /** Fails the pull request read only; `fail` fails the writes. */
+    failRead?: GitHubCallError;
     /** The head the forge reports; the reviewed commit by default. */
     head?: string;
   } = {},
@@ -65,7 +67,7 @@ function harness(
     },
     getPullRequest: async (number) => {
       calls.push(`pull ${number}`);
-      fail();
+      if (options.failRead) throw options.failRead;
       return {
         pullRequest: {
           number,
@@ -537,7 +539,7 @@ describe("reviewing a pull request", () => {
 
   test("a failing pull request read is BACKEND_UNAVAILABLE and nothing is submitted", async () => {
     const { service, calls } = harness({
-      fail: new GitHubCallError("pull request read", 502, "req-3"),
+      failRead: new GitHubCallError("pull request read", 502, "req-3"),
     });
     expect(
       (
