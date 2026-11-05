@@ -595,12 +595,19 @@ describe("settings CLI", () => {
       repository_ids: null,
     } as InstallationProfileRecord;
     const coding = { id: "coding", repository_ids: null };
+    // Names no repository on purpose: the seed would write the ones it leaves out.
+    const quiet = {
+      id: "quiet",
+      repository_ids: null,
+      repository_scope: null,
+    } as InstallationProfileRecord;
     for (const [rows, report] of [
       [[], { seed: ["coding"], fill: [], unfilled: [] }],
       [
         [older, coding as InstallationProfileRecord],
         { seed: [], fill: ["older", "coding"], unfilled: ["older"] },
       ],
+      [[older, quiet], { seed: [], fill: ["older"], unfilled: ["older"] }],
     ] as const) {
       const { store: profiles, seeded } = fakeProfiles([...rows]);
       const { output, out } = captured();

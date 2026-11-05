@@ -112,6 +112,8 @@ describe("database schema", () => {
       "password_resets",
       "pending_requests",
       "permission_grants",
+      "profile_rollout_items",
+      "profile_rollouts",
       "provider_connections",
       "provider_usage",
       "provider_usage_totals",

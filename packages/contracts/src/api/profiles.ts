@@ -147,7 +147,9 @@ export const profileSummarySchema = z
     // `none`: the profile declared `billing: none`, so its sessions run at
     // no recorded cost and with no dollar limit.
     billing: z.enum(["metered", "none"]),
-    repository_mode: repositoryModeSchema,
+    // Optional so a reader ahead of its server reads a profile that names
+    // no repository.
+    repository_mode: repositoryModeSchema.optional(),
     // Optional so a reader ahead of its server reads a profile without it.
     repository_ids: z.array(z.string().min(1)).optional().meta({
       description:
@@ -342,7 +344,10 @@ export const installationProfileOptionsResponseSchema = z
         })
         .strict(),
     ),
-    repositories: z.array(z.object({ id: z.string().min(1) }).strict()),
+    // Optional so a reader ahead of its server reads options without it.
+    repositories: z
+      .array(z.object({ id: z.string().min(1) }).strict())
+      .optional(),
     // Optional so a reader ahead of its server reads options without it.
     tool_catalogs: z
       .array(

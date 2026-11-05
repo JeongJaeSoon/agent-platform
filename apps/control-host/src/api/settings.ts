@@ -171,7 +171,9 @@ async function seedProfiles(
   if (dryRun) {
     const rows = await store.listAll();
     if (rows.length === 0) installedRuntimes.assertProfiles(profiles);
-    const missing = rows.filter((row) => row.repository_ids === null);
+    const missing = rows.filter(
+      (row) => row.repository_ids === null && row.repository_scope !== null,
+    );
     const seeded = rows.length === 0 ? Object.keys(profiles).sort() : [];
     return {
       seed: seeded,

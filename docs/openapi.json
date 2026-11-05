@@ -17135,6 +17135,7 @@
                 "usage.installation_read",
                 "usage.agent_read",
                 "profile.installation.manage",
+                "profile.define",
                 "installation.settings.manage",
                 "achievement_rule.manage",
                 "achievement.review",
@@ -19541,8 +19542,7 @@
                 "permission_mode",
                 "runtime_kind",
                 "runtime_version",
-                "billing",
-                "repository_mode"
+                "billing"
               ],
               "additionalProperties": false
             }
@@ -19956,8 +19956,7 @@
               "permission_mode",
               "runtime_kind",
               "runtime_version",
-              "billing",
-              "repository_mode"
+              "billing"
             ],
             "additionalProperties": false
           },
@@ -20952,7 +20951,6 @@
         "required": [
           "connections",
           "runtimes",
-          "repositories",
           "unattended_allowed"
         ],
         "additionalProperties": false
@@ -37868,6 +37866,7 @@
                     "usage.installation_read",
                     "usage.agent_read",
                     "profile.installation.manage",
+                    "profile.define",
                     "installation.settings.manage"
                   ]
                 },
