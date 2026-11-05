@@ -709,6 +709,8 @@ describe("markup the scan and a renderer could read differently", () => {
       "```\n<?x\n```\n## Summary",
       "<details>\n```\n<select>\n```\n</details>\n\n## Summary",
       "<details>\n`<select>`\n</details>\n\n## Summary",
+      "<div>\n</div>\n`<select>`\n\n## Summary",
+      "<select>\n\n## Summary",
       "## Summary\nUse \\<Type here.",
       "## Summary\nA \\<?x is text.",
     ]) {

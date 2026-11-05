@@ -477,11 +477,11 @@ function scan(text: string): Scanned {
     if (mentionsElement(code)) unbalanced = true;
     const tags = elementsIn(seen, line);
     if (tags === null) unbalanced = true;
-    // Inside an open element a parser ignores or reroutes the end tags of the
-    // ones it does not know, so only tags the scan knows are taken there.
+    // A parser ignores or reroutes the end tags of elements it treats in
+    // their own way, and an HTML block runs on to the next blank line, so a
+    // tag the scan does not know is not taken anywhere in a template.
     if (
-      (open.length > 0 || (tags ?? []).some(([closing]) => !closing)) &&
-      [...shown.matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
+      [...shown.replace(AUTOLINK, " ").matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
         ([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase()),
       )
     ) {
@@ -501,9 +501,11 @@ function scan(text: string): Scanned {
         (part) =>
           mentionsElement(part.text) ||
           hasLooseTag(part.text) ||
-          [...part.text.matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
-            ([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase()),
-          ) ||
+          [
+            ...part.text
+              .replace(AUTOLINK, " ")
+              .matchAll(/<\/?([A-Za-z][\w-]*)/g),
+          ].some(([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase())) ||
           new RegExp(OPEN_ENDED).test(part.text),
       ),
   );
