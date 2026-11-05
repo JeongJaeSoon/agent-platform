@@ -3,7 +3,7 @@ title: "Kubernetes execution backend"
 description: How the scheduler runs workers as Kubernetes Pods, and the settings it reads
 ---
 
-This page describes how the scheduler behaves, and what it reads, when it runs workers as Kubernetes Pods instead of Docker containers. The steps to install with the Helm chart are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md). The Docker backend is described in [Execution base and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md).
+This page describes how the scheduler behaves, and what it reads, when it runs workers as Kubernetes Pods instead of Docker containers. The steps to install with the Helm chart are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment). The Docker backend is described in [Execution base and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md).
 
 `packages/adapters/execution/kubernetes` creates one worker Pod per launch. Each Pod gets one nonce Secret that it owns, and the session's workspace PVC is mounted.
 
@@ -32,7 +32,7 @@ The exit reason and the log tail (last 8 KiB) of a failed worker go to the `Exec
 
 ## Values the chart sets
 
-When you install with the Helm chart (`deploy/helm/werft`; the steps are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md)), you do not write the env above yourself. The chart builds it from the values.
+When you install with the Helm chart (`deploy/helm/werft`; the steps are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)), you do not write the env above yourself. The chart builds it from the values.
 
 | env | values | Note |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ When you install with the Helm chart (`deploy/helm/werft`; the steps are in [Kub
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec` | Defaults 2, 60, 3, 90, 10, 60. With `slack.enabled: false` the slack Deployment is not rendered |
 | `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS` (slack) | `api.extraEnv` | slack reads the same catalog as the api, so it follows the api's value. A value in `slack.extraEnv` wins |
 
-You can add env to any Deployment with `extraEnv`. The values that come from Secrets (`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, the AWS key, catalog credentials) are in the table of the [preparation section of Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#준비).
+You can add env to any Deployment with `extraEnv`. The values that come from Secrets (`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, the AWS key, catalog credentials) are in the table of the [preparation section of Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#prerequisites).
 
 ## Probes
 
