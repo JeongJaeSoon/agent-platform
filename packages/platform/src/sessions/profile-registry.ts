@@ -157,10 +157,10 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
     }
     const { kind: _old, ...oldFields } = provider.auth;
     const { kind: _new, ...newFields } = current.auth;
-    const oldRef = JSON.stringify(credentialRefOf(oldFields));
+    const oldRef = canonicalJson(credentialRefOf(oldFields));
     const newRef = credentialRefOf(newFields);
     return (ref: CredentialRef) =>
-      base(JSON.stringify(ref) === oldRef ? newRef : ref);
+      base(canonicalJson(ref) === oldRef ? newRef : ref);
   };
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
