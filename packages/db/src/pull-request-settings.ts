@@ -70,6 +70,8 @@ function agentReceiptView(settings: AgentPullRequestSettings | null) {
       };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function createPostgresPullRequestSettingsStore(
   db: Database,
 ): PullRequestSettingsStore {
@@ -191,6 +193,11 @@ export function createPostgresPullRequestSettingsStore(
     },
 
     async get(workspaceId) {
+      // An owner scope that is not a workspace id has no settings; the uuid
+      // column would reject it rather than match nothing.
+      if (!UUID.test(workspaceId)) {
+        return { settings: DEFAULT_PULL_REQUEST_SETTINGS, revision: 0 };
+      }
       const [row] = await db
         .select({
           pullRequest: githubWorkspaceSettings.pullRequest,
