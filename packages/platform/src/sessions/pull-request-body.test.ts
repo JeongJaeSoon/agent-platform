@@ -116,17 +116,18 @@ describe("the default template", () => {
 
   test("a lone CR is a line break: a fence after it in a change item or a field cannot swallow the tail", () => {
     const item = render({ changes: ["example\r```"] }).body;
-    expect(item).toContain(`- ${ZWSP}example \`\`\``);
+    expect(item).toContain(`- ${ZWSP}example \`${ZWSP}\`${ZWSP}\``);
     expect(Bun.markdown.html(item)).toContain("<hr />");
     const field = render({ summary: "example\r```\rmore" }).body;
-    expect(field.split("\n").filter((line) => line === "```").length).toBe(2);
+    expect(field.split("\n").filter((line) => line === "```").length).toBe(0);
+    expect(Bun.markdown.html(field)).not.toContain("<pre>");
     expect(field.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
 
   test("a code fence in a change item stays on its line and leaves the tail outside any block", () => {
     const { body } = render({ changes: ["```text\nexample"] });
-    // The zero-width space keeps the run from opening a fence that hides the item.
-    expect(body).toContain(`- ${ZWSP}\`\`\`text example`);
+    // An opening with no closing line is text: its run is broken.
+    expect(body).toContain(`- ${ZWSP}\`${ZWSP}\`${ZWSP}\`text example`);
     const html = Bun.markdown.html(body);
     expect(html).toContain("example");
     expect(html).not.toContain("<pre>");
@@ -226,6 +227,34 @@ describe("the default template", () => {
       if (!summary.includes("~~~")) expect(html).not.toContain("<pre>");
       expect(html.slice(html.indexOf("<h2>변경"))).not.toContain("<pre>");
     }
+  });
+
+  test("a nested empty task, or a fence inside a table, cannot swallow the rest", () => {
+    for (const summary of [
+      ">- [x]",
+      ">- [x]\n~~~",
+      "!\n|-\n~~~\n-",
+      "- > - [ ]",
+    ]) {
+      const { body } = render({ summary, changes: ["c"], testing: "SECOND" });
+      const html = Bun.markdown.html(body);
+      expect(html).toContain("<h2>변경 사항</h2>");
+      expect(html).toContain("<h2>테스트</h2>");
+      expect(html).toContain("SECOND");
+      expect(html.match(/<hr/g)?.length).toBe(1);
+      expect(html).not.toContain("<pre>");
+    }
+  });
+
+  test("an opening fence with no closing line is text; no fence is added", () => {
+    const { body } = render({ summary: "```text\nexample" });
+    expect(body).not.toMatch(/^```/m);
+    expect(Bun.markdown.html(body)).toContain("example");
+  });
+
+  test("a fence after text gets a blank line before it", () => {
+    const { body } = render({ testing: "Run:\n```sh\nbun test\n```" });
+    expect(body).toContain("Run:\n\n```sh\nbun test\n```");
   });
 
   test("an ordinary fenced block keeps its fence and content", () => {

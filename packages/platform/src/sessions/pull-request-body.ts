@@ -174,30 +174,53 @@ function cleanAll(
 const FENCE_RUN = /`{3,}|~{3,}/g;
 const breakRun = (run: string) => [...run].join(ZWSP);
 
+// A task item with no text, in a list, a quote or both, takes the next line
+// into itself in the renderer.
+const EMPTY_TASK =
+  /^((?:[ \t>]|[-*+]\s|\d+[.)]\s)*(?:[-*+]|\d+[.)])\s+\[[ xX]\])\s*$/;
+
 /**
- * A field's fences made the one shape the fence tracker judges the way
- * Markdown does: a fence starts at the beginning of a line (its indent
- * dropped). A run of three or more backticks or tildes anywhere else is broken
- * with zero-width spaces, so a fence inside a list item, a quote or an indented
- * block cannot leave the tracker and the renderer disagreeing about what is
- * open.
+ * A field's code fences, made safe whatever Markdown makes of the text around
+ * them. A fence is kept only as a pair, on a line of its own after a blank line
+ * (one is added), at the left edge: an opening with no closing line is text, so
+ * no closing fence is ever added that a renderer could read as the opening of a
+ * new block. The closing is the first line a renderer would take as one. Every
+ * other run of three or more backticks or tildes is broken with zero-width
+ * spaces, so a fence in a list item, a quote, a table or an indented block does
+ * not exist.
  */
 function fenceSafe(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => {
-      const start = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
-      const safe =
-        start === null
-          ? line.replace(FENCE_RUN, breakRun)
-          : `${start[1]}${(start[2] ?? "").replace(FENCE_RUN, breakRun)}`;
-      return safe.replace(EMPTY_TASK, `$1 ${ZWSP}`);
-    })
-    .join("\n");
+  const lines = text.split("\n");
+  const out: string[] = [];
+  const plain = (line: string) =>
+    line.replace(FENCE_RUN, breakRun).replace(EMPTY_TASK, `$1 ${ZWSP}`);
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at] ?? "";
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const marks = open?.[1] ?? "";
+    const info = open?.[2] ?? "";
+    let close = -1;
+    // A backtick fence's info string has no backtick: that line is inline code.
+    if (open !== null && !(marks[0] === "`" && info.includes("`"))) {
+      const closing = new RegExp(
+        `^ {0,3}[${marks[0]}]{${marks.length},}[ \\t]*$`,
+      );
+      close = lines.findIndex(
+        (candidate, i) => i > at && closing.test(candidate),
+      );
+    }
+    if (close === -1) {
+      out.push(plain(line));
+      continue;
+    }
+    if (out.length > 0 && out.at(-1) !== "") out.push("");
+    out.push(`${marks}${info.replace(FENCE_RUN, breakRun)}`);
+    for (let i = at + 1; i < close; i += 1) out.push(lines[i] ?? "");
+    out.push((lines[close] ?? "").trim());
+    at = close;
+  }
+  return out.join("\n");
 }
-
-// A task item with no text takes the next line into itself in the renderer.
-const EMPTY_TASK = /^(\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\])\s*$/;
 
 /**
  * `value` cut by at least `overflow` characters, closing included, or empty
