@@ -1,20 +1,15 @@
-// A repository's pull request template, read for the pull request the
-// platform opens. The template is input from the repository: anyone who may
-// write to its default branch wrote it. It is read at one pinned commit of that
-// branch, never shown to the agent, and made inert before any of it reaches
-// the pull request: only the platform's own fields are ever put into it.
+// The template is input from the repository: anyone who may write to its
+// default branch wrote it.
 
 import type { PullRequestTemplateRecord } from "@werft-ai/contracts";
 import type { GitHubApi, GitTreeEntry } from "../ports/github-gate.ts";
 import { closeOpenBlocks } from "./git-attribution.ts";
 import { breakReferences, stripEngineSignatures } from "./pull-request-text.ts";
 
-// What a template may not link on its own: `#12`, `GH-12`, a commit, and the
-// address of an issue, pull request or commit. (`&#12;` is an entity.) An
-// address is broken in its path, whatever its scheme or host is written as:
-// a host is normalised by a URL parser, a path is not.
+// `&#12;` is an entity, not a reference. An address is broken in its path,
+// whatever its scheme or host is written as: a URL parser normalises a host,
+// not a path.
 const LOCAL_REFERENCE = /(^|[^\w&])(#|GH-)(?=\d)/gi;
-// Whatever follows the segment, an entity or a percent escape included.
 const NUMBERED_PATH = /(\/(?:issues|pull)\/)(?=[^\s])/gi;
 const COMMIT_PATH = /(\/commit\/)(?=[^\s])/gi;
 const COMMIT_REFERENCE = /(^|[^\w/.-])([\w.-]+\/[\w.-]+@)(?=[0-9a-f]{7})/gi;
@@ -45,9 +40,6 @@ export type SectionBlocks = Partial<Record<SectionName, string>>;
 export const TEMPLATE_MAX_BYTES = 16 * 1024;
 const ZWSP = "​";
 
-// ---------------------------------------------------------------------------
-// Detecting
-
 type TemplateSkip = NonNullable<PullRequestTemplateRecord["skipped"]>;
 
 export type TemplateRead =
@@ -74,7 +66,6 @@ export type TemplateForge = Pick<
   "getRepository" | "getBranchHead" | "readTree" | "readBlob"
 >;
 
-/** Stops the walk with a reason; the pull request opens on the default template. */
 class Skip extends Error {
   constructor(
     readonly reason: TemplateSkip,
@@ -91,7 +82,6 @@ const LOCATIONS: readonly (string | null)[] = [".github", null, "docs"];
 const FILE_MODES: ReadonlySet<string> = new Set(["100644", "100755"]);
 const MAX_PATH_RECORD = 200;
 
-/** A path as it is recorded: names come from the repository, so no control or hidden character. */
 function recordedPath(parts: readonly string[]): string {
   return stripHidden(parts.join("/"))
     .replace(/[\p{Cc}\p{Cf}]/gu, "?")
@@ -124,8 +114,7 @@ export async function readRepositoryTemplate(
       }
       return entries;
     };
-    // GitHub matches names without regard to case. More than one entry for
-    // a name has no right answer, so none is chosen.
+    // GitHub matches names without regard to case.
     const named = (
       entries: readonly GitTreeEntry[],
       wanted: (name: string) => boolean,
@@ -191,7 +180,6 @@ export async function readRepositoryTemplate(
       const inside = await tree(directory.sha);
       const files = named(inside, (name) => name.endsWith(".md"));
       if (files.length === 0) continue;
-      // Which of several is the repository's choice is a setting's to say.
       if (files.length > 1) {
         throw new Skip("multiple", recordedPath([...here.at, directory.name]));
       }
@@ -235,13 +223,7 @@ export function templateRecord(read: TemplateRead): PullRequestTemplateRecord {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Making it inert
-
-// Characters that show nothing or reorder what is shown: controls, soft
-// hyphen, zero-width space and marks, bidirectional controls, invisible
-// operators, the byte order mark, line and paragraph separators, language
-// tags. The joiners (U+200C, U+200D) stay: scripts and emoji need them.
+// The joiners (U+200C, U+200D) stay: scripts and emoji need them.
 const HIDDEN = new RegExp(
   [
     "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F",
@@ -276,20 +258,10 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const SLOT_LINE = /^<!--\s*werft:slot\s+([a-z]+)\s*-->$/;
 const ATX_HEADING = /^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 const BOLD_HEADING = /^ {0,3}(?:\*\*|__)([^*_].*?)(?:\*\*|__)[ \t]*:?[ \t]*$/;
-// What the template may hold is what the platform lays fields out around:
-// headings, paragraphs, lists, checkboxes, quotes, fenced code, links, and
-// comments that are rows of their own. Markup a renderer reads in its own
-// way (an HTML tag or declaration, a table, a reference definition) is not
-// judged: the template is passed over for the platform's default.
-//
-// `<` followed by one of these starts a tag, a closing tag, a declaration, a
-// processing instruction or a comment.
 const MARKUP = /<[A-Za-z/!?]/;
 // A link in angle brackets; one holding a quote could be a tag's attribute.
 const AUTOLINK =
   /<(?:[A-Za-z][A-Za-z0-9+.-]*:[^\s<>"'`]*|[^\s<>@"'`]+@[^\s<>"'`]+)>/g;
-// The row under a table's header, and a definition (`[label]: address`, a
-// footnote too) that may take the next row as its address.
 const TABLE_DELIMITER =
   /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 const DEFINITION = /^ {0,3}\[[^\]\n]*\]:/;
@@ -323,22 +295,14 @@ type Scanned = {
     code: boolean;
     indent: number;
   }>;
-  /** Something the scan will not judge, or a comment left open at the end. */
-  unbalanced: boolean;
+  rejected: boolean;
 };
 
-/**
- * The template cut into what GitHub shows and what it hides. The only hidden
- * text is a comment that is rows of its own; the only other thing that may hold
- * a `<` is a fenced or plain row with no tag, declaration or comment in it.
- * Whatever else the template holds that a renderer might read in its own way
- * makes `unbalanced` true.
- */
 function scan(text: string): Scanned {
   const rows: Scanned["rows"] = [];
   let fence: string | null = null;
   let inComment = false;
-  let unbalanced = false;
+  let rejected = false;
   for (const line of text.split("\n")) {
     const row = {
       parts: [] as Part[],
@@ -352,7 +316,7 @@ function scan(text: string): Scanned {
       if (fence !== null) {
         row.code = true;
         row.parts.push({ text: line, comment: false });
-        if (hasMarkup(line)) unbalanced = true;
+        if (hasMarkup(line)) rejected = true;
         const run = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1] ?? "";
         if (run !== "" && run[0] === fence[0] && run.length >= fence.length) {
           fence = null;
@@ -366,46 +330,42 @@ function scan(text: string): Scanned {
         fence = marks[1];
         row.code = true;
         row.parts.push({ text: line, comment: false });
-        if (hasMarkup(line)) unbalanced = true;
+        if (hasMarkup(line)) rejected = true;
         continue;
       }
     }
-    // A definition may take the next row as its address, and a table's cells
-    // are cut at `|` whatever else is open: both re-read what lies around them.
     if (
       !inComment &&
       (DEFINITION.test(line) ||
         (line.includes("|") && TABLE_DELIMITER.test(line)))
     ) {
-      unbalanced = true;
+      rejected = true;
     }
     if (inComment || line.startsWith("<!--")) {
       // `<!-->` and `<!--->` end at once for some parsers and not for others.
       if (!inComment && (line.startsWith(">", 4) || line.startsWith("->", 4))) {
-        unbalanced = true;
+        rejected = true;
       }
       const close = line.indexOf("-->", inComment ? 0 : 4);
       const end = close === -1 ? line.length : close + 3;
       const chunk = line.slice(0, end);
       // Some parsers end a comment at `--!>`; the renderer here does not.
-      if (chunk.includes("--!>")) unbalanced = true;
-      // Text after a comment's end shares its row with markup the scan hid.
-      if (close !== -1 && line.slice(end).trim() !== "") unbalanced = true;
+      if (chunk.includes("--!>")) rejected = true;
+      if (close !== -1 && line.slice(end).trim() !== "") rejected = true;
       row.parts.push({ text: chunk, comment: true });
       inComment = close === -1;
       continue;
     }
-    // Everything else is text, and text holds no markup: a `<!--` that does
-    // not open its row is markup too.
-    if (hasMarkup(line)) unbalanced = true;
+    if (hasMarkup(line)) rejected = true;
     if (line !== "") row.parts.push({ text: line, comment: false });
   }
-  return { rows, unbalanced: unbalanced || inComment };
+  return { rows, rejected: rejected || inComment };
 }
 
 /**
- * The template made inert, as rows. Null when it cannot be: a comment left
- * open would hide whatever is put after it, the platform's tail included. The
+ * The template made inert, as rows. Null when it holds anything beyond
+ * headings, plain text, lists, checkboxes, fences and comments of their own
+ * rows, or a comment left open, which would hide the platform's tail. The
  * text is cleaned first and the cleaned text is what is judged and used, so
  * what is checked is what is sent.
  */
@@ -414,12 +374,10 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
     stripHidden(raw.replace(/\r\n?/g, "\n")),
   );
   const scanned = scan(cleaned);
-  if (scanned.unbalanced) return null;
+  if (scanned.rejected) return null;
 
-  // Mentions, closing keywords and references are broken outside comments,
-  // code included. The text is judged as the reader gets it, a comment
-  // gone and a space where it was, so `Fixes <!-- x -->#1` is caught as well.
-  // Breaking only adds zero-width spaces, so they are put back at the same
+  // Judged as the reader gets it, a comment gone and a space where it was, so
+  // `Fixes <!-- x -->#1` is caught as well. Breaking only adds zero-width spaces, so they are put back at the same
   // places in the original.
   const visible = scanned.rows
     .map((row) =>
@@ -460,7 +418,7 @@ export function prepareTemplate(raw: string): PreparedTemplate | null {
         offset += char.length;
       }
     }
-    offset += 1; // the newline
+    offset += 1;
     line = line.replace(
       TRAILER_LINE,
       (_, lead: string, word: string) =>
@@ -496,11 +454,6 @@ function isSection(name: string): name is SectionName {
   return (SECTION_NAMES as readonly string[]).includes(name);
 }
 
-// ---------------------------------------------------------------------------
-// Filling
-
-// The phrases a heading is matched on, one set per field, in the order that
-// breaks a tie.
 const PHRASES: Record<SectionName, readonly string[]> = {
   summary: [
     "개요",
@@ -621,7 +574,6 @@ export function fillTemplate(
   const claimed = new Set<SectionName>();
   rows.forEach((row, index) => {
     if (bySlot) {
-      // The first slot of a field is the one; a later one stays as it is.
       if (row.slot === undefined || claimed.has(row.slot)) return;
       claimed.add(row.slot);
       if (filled.includes(row.slot)) put(index + 1, row.slot);
@@ -633,7 +585,6 @@ export function fillTemplate(
     claimed.add(name);
     if (!filled.includes(name)) return;
     let at = index + 1;
-    // Past the comments and blank lines that follow the heading.
     while (at < rows.length) {
       const next = rows[at];
       if (next === undefined || !next.skippable) break;
@@ -673,7 +624,6 @@ export function fillTemplate(
   emit(rows.length);
   const text = out.join("\n").trimEnd();
   if (unplaced.length === 0) return text;
-  // What the template leaves open is closed, or the sections would sit in it.
   const closed = closeOpenBlocks(text);
   const tail = unplaced.map(section).join("\n\n");
   return closed === "" ? tail : `${closed}\n\n${tail}`;
