@@ -53,7 +53,10 @@ integration("postgres pull request drain", () => {
   });
 
   /** A pushed request whose pull request stage is due. */
-  async function due(intent: unknown = { title: "Add the thing" }) {
+  async function due(
+    intent: unknown = { title: "Add the thing" },
+    putStage = true,
+  ) {
     const sessionId = crypto.randomUUID();
     await db.insert(sessions).values({
       id: sessionId,
@@ -99,10 +102,12 @@ integration("postgres pull request drain", () => {
     });
     // L5 slice (b) makes `finish` do this when the intent carries a pull
     // request; here the stage is put in place by hand.
-    await db
-      .update(pushRequests)
-      .set({ prState: "due", pullRequestIntent: intent })
-      .where(eq(pushRequests.id, id));
+    if (putStage) {
+      await db
+        .update(pushRequests)
+        .set({ prState: "due", pullRequestIntent: intent })
+        .where(eq(pushRequests.id, id));
+    }
     return { id, sessionId };
   }
 
@@ -258,6 +263,17 @@ integration("postgres pull request drain", () => {
       prError: "lease_expired",
       prClaimToken: null,
       prLeaseExpiresAt: null,
+    });
+  });
+
+  test("a pushed request with no pull request stage is never claimed and keeps its state", async () => {
+    const { id } = await due(null, false);
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    expect(await row(id)).toMatchObject({
+      state: "pushed",
+      prState: null,
+      prAttempts: 0,
+      prClaimToken: null,
     });
   });
 
