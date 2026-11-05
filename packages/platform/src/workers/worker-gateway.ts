@@ -1669,8 +1669,9 @@ export function createWorkerGateway(deps: {
                   record,
                   attribution.consoleOrigin,
                   binding.sessionId,
-                  (await attribution.sessionLink?.(binding.ownerScope)) ??
-                    "url",
+                  (await attribution
+                    .sessionLink?.(binding.ownerScope)
+                    .catch(() => "url" as const)) ?? "url",
                 );
           const gitAuthor = await gitAuthorOf(
             attribution,

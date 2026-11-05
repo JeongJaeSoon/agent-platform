@@ -1023,6 +1023,34 @@ describe("WorkerGateway", () => {
     const bare = await idOnly.bootstrapClaim({ kind: "bootstrap" }, request);
     expect(bare.git).toEqual({ co_author: null, session_url: null });
     expect(linksAsked).toEqual([binding.ownerScope]);
+
+    // A settings read that fails (an owner scope that is not a workspace id
+    // makes the uuid column reject it) must not keep the session from starting:
+    // the claim falls back to the address.
+    const unreadable = createWorkerGateway({
+      work: work({
+        claimAtomic: async () => ({ outcome: "claimed", binding }),
+      }),
+      catalog: { profiles: { "claude-coding-v1": profile }, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      attribution: {
+        store: { attribution: async () => null },
+        consoleOrigin: "https://console.example.com",
+        sessionLink: async () => {
+          throw new Error("invalid input syntax for type uuid");
+        },
+      },
+      options: {
+        sessionCostLimitUsd: 1_000,
+        sessionTokenLimit: null,
+        leaseTtlMs: 30_000,
+      },
+    });
+    const fallback = await unreadable.bootstrapClaim(
+      { kind: "bootstrap" },
+      request,
+    );
+    expect(fallback.git).toEqual({ co_author: null, session_url: sessionUrl });
     // No bot lookup wired: the claim leaves the image's author alone.
     expect("git_author" in linked).toBe(false);
 
