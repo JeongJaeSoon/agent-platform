@@ -32,7 +32,7 @@ worker Pod 1つのメモリ(`worker.memoryMb`)はtranscript上限に合わせた
 
 chartが作らないもの: PostgreSQL 16、S3互換のobject store、Secretの値、worker Pod(schedulerがセッションごとに作ります)。kindでは`deploy/kind/deps.yaml`のPostgreSQLとLocalStackが代わりになります。
 
-chartはGitサーバーも作りません。設定ドキュメントのリポジトリには、Podがegress proxy経由で届くアドレスを書きます。kindの確認環境では、`deploy/kind/up.sh`が試験用の読み取り専用Gitサーバーも立ち上げます(`deploy/kind/deps-session.yaml`)。
+chartはGitサーバーも作りません。設定ドキュメントのリポジトリには、Podがegress proxy経由で届くアドレスを書きます。kindの確認環境では、`KIND_MODEL`が`fake`または`real`のとき、`deploy/kind/up.sh`が試験用の読み取り専用Gitサーバーも立ち上げます(`deploy/kind/deps-session.yaml`)。
 
 ## 準備
 

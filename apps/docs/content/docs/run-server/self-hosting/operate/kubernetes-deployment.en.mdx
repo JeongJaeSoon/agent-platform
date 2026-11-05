@@ -32,7 +32,7 @@ A marked command says where it was checked. A command with no mark has no such c
 
 What the chart does not create: PostgreSQL 16, an S3-compatible object store, Secret values, and worker Pods (the scheduler creates one per session). On kind, the PostgreSQL and LocalStack in `deploy/kind/deps.yaml` stand in.
 
-The chart does not create a Git server either. The repository in the settings document is an address the Pod can reach through the egress proxy. In the kind check environment, `deploy/kind/up.sh` also starts a read-only Git server for testing (`deploy/kind/deps-session.yaml`).
+The chart does not create a Git server either. The repository in the settings document is an address the Pod can reach through the egress proxy. In the kind check environment, when `KIND_MODEL` is `fake` or `real`, `deploy/kind/up.sh` also starts a read-only Git server for testing (`deploy/kind/deps-session.yaml`).
 
 ## Prerequisites
 

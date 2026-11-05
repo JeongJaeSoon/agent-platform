@@ -32,7 +32,7 @@ worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰
 
 chart가 만들지 않는 것: PostgreSQL 16, S3 호환 object store, Secret 값, worker Pod(scheduler가 세션마다 만든다). kind에서는 `deploy/kind/deps.yaml`의 PostgreSQL·LocalStack이 대신한다.
 
-chart는 Git 서버도 만들지 않는다. 설정 문서의 저장소에는 Pod가 egress proxy로 닿을 수 있는 주소를 적는다. kind 확인 환경에서는 `deploy/kind/up.sh`가 시험용 읽기 전용 Git 서버를 함께 띄운다(`deploy/kind/deps-session.yaml`).
+chart는 Git 서버도 만들지 않는다. 설정 문서의 저장소에는 Pod가 egress proxy로 닿을 수 있는 주소를 적는다. kind 확인 환경에서는 `KIND_MODEL`이 `fake` 또는 `real`일 때 `deploy/kind/up.sh`가 시험용 읽기 전용 Git 서버를 함께 띄운다(`deploy/kind/deps-session.yaml`).
 
 ## 준비
 
