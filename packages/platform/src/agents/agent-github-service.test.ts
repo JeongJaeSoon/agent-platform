@@ -172,6 +172,15 @@ function serviceWith(input: {
           kind: "app",
           githubCom: true,
           appId: 1,
+          installedOn: async (repos) => {
+            if (answer instanceof Error) throw answer;
+            return new Map(
+              repos.map((repo) => [
+                `${repo.owner}/${repo.name}`.toLowerCase(),
+                answer,
+              ]),
+            );
+          },
           quotaKey: () => {
             throw new Error("not used");
           },

@@ -35,7 +35,10 @@ import {
 } from "../ports/github-gate.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import type { InstallationProfileEntry, SessionCatalog } from "./catalog.ts";
-import { createGitHubConnectionResolver } from "./github-connection-resolver.ts";
+import {
+  createGitHubConnectionResolver,
+  type GitHubConnectionResolver,
+} from "./github-connection-resolver.ts";
 import { createGitHubGate } from "./github-gate.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -122,6 +125,13 @@ function fakeConnection(
     kind: "app",
     githubCom: options.githubCom ?? true,
     appId: options.appId ?? 7,
+    installedOn: async (repos) =>
+      new Map(
+        repos.map((repo) => [
+          `${repo.owner}/${repo.name}`.toLowerCase(),
+          options.installed === undefined ? true : options.installed,
+        ]),
+      ),
     quotaKey: async () => `${label}:quota`,
     installed: async () =>
       options.installed === undefined ? true : options.installed,
@@ -1619,6 +1629,67 @@ describe("connection resolver", () => {
         repo,
       ),
     ).toBeNull();
+  });
+
+  test("installedMany gives installed's answer per repository and asks each connection once", async () => {
+    const yes = registered(CONNECTION_A, 101).entry;
+    const no = registered(CONNECTION_B, 102, false).entry;
+    const unknown = registered(CONNECTION_B, 102, null).entry;
+    const asks: number[] = [];
+    const counted = (entry: RegisteredGitHubConnection) => ({
+      ...entry,
+      connection: {
+        ...entry.connection,
+        installedOn: async (repos: readonly RepoRef[]) => {
+          asks.push(repos.length);
+          return entry.connection.installedOn(repos);
+        },
+      },
+    });
+    const resolverOf = (
+      candidates: RegisteredGitHubConnection[],
+      initial: GitHubRepositoryPin[] = [],
+    ) =>
+      createGitHubConnectionResolver({
+        connections: (repositoryId) =>
+          repositoryId === "none" ? null : { kind: "registered", candidates },
+        pins: memoryPins(initial).pins,
+      });
+    const items = [
+      { repositoryId: "app", repo },
+      { repositoryId: "second", repo: { owner: "acme", name: "second" } },
+      { repositoryId: "none", repo: { owner: "acme", name: "none" } },
+    ];
+    const many = await resolverOf([counted(yes), counted(no)]).installedMany(
+      "author",
+      items,
+    );
+    expect([...many]).toEqual([
+      ["app", true],
+      ["second", true],
+      ["none", null],
+    ]);
+    // Two connections, three repositories, one ask each.
+    expect(asks).toEqual([2, 2]);
+    const first = items.slice(0, 1);
+    const answerOf = async (resolver: GitHubConnectionResolver) => [
+      ...(await resolver.installedMany("author", first)),
+    ];
+    expect(await answerOf(resolverOf([no]))).toEqual([["app", false]]);
+    expect(await answerOf(resolverOf([yes, unknown]))).toEqual([["app", null]]);
+    const pinned = (connectionId: string | null): GitHubRepositoryPin => ({
+      repositoryId: "app",
+      role: "author",
+      connectionId,
+      appId: 102,
+      pinnedBy: "admin",
+    });
+    expect(
+      await answerOf(resolverOf([yes, no], [pinned(CONNECTION_B)])),
+    ).toEqual([["app", false]]);
+    expect(await answerOf(resolverOf([yes], [pinned(null)]))).toEqual([
+      ["app", false],
+    ]);
   });
 
   test("resolve without pin leaves no pin; another request's pin decides over this one", async () => {

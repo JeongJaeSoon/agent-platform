@@ -31,6 +31,7 @@ import {
   type GitHubWorkflowRun,
   type RegisteredGitHubConnection,
   type RepoRef,
+  repoKeyOf,
   type SessionCatalog,
 } from "@werft-ai/platform";
 
@@ -548,6 +549,7 @@ export function createGitHubConnection(
     credential,
     quotaKey,
     installed: installedCheck(client, credentials),
+    installedOn: installedOnCheck(client, credentials),
     api,
   };
 }
@@ -567,6 +569,91 @@ function installedCheck(
     // A catalog App names its installation; another one of the App's own
     // does not let that installation's tokens reach the repository.
     return found !== null && (fixed === undefined || found.id === fixed);
+  };
+}
+
+/**
+ * Which of `repos` the App reaches, from its installations: one list of
+ * them, then for an installation of an account some repo belongs to, either
+ * its "all" selection or its repository pages. A page limit that cuts a
+ * selection short leaves the repositories it did not show as unknown, not
+ * as missing.
+ */
+function installedOnCheck(
+  client: Client,
+  credentials: GitHubCredentials,
+): GitHubConnection["installedOn"] {
+  const fixed = credentials.installationId;
+  const auth = createAppAuth({
+    appId: credentials.appId,
+    privateKey: credentials.privateKey,
+    request: client.request,
+  });
+  return async (repos) => {
+    const answers = new Map<string, boolean | null>();
+    if (repos.length === 0) return answers;
+    const owners = new Set(repos.map((repo) => repo.owner.toLowerCase()));
+    const reached = new Set<string>();
+    const covered = new Set<string>();
+    let truncated = false;
+    for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
+      const { data } = await client.request("GET /app/installations", {
+        per_page: INSTALLATIONS_PER_PAGE,
+        page,
+        headers: await appHeaders(auth),
+      });
+      for (const installation of data) {
+        const view = installationOf(installation);
+        if (fixed !== undefined && view.id !== fixed) continue;
+        const account = view.account.toLowerCase();
+        if (!owners.has(account)) continue;
+        if (view.repositorySelection === "all") {
+          covered.add(account);
+          continue;
+        }
+        const { token } = await auth({
+          type: "installation",
+          installationId: view.id,
+        });
+        for (
+          let repoPage = 1;
+          repoPage <= MAX_INSTALLATION_REPOSITORY_PAGES;
+          repoPage += 1
+        ) {
+          const { data: listed } = await client.request(
+            "GET /installation/repositories",
+            {
+              per_page: INSTALLATION_REPOSITORIES_PER_PAGE,
+              page: repoPage,
+              headers: { authorization: `token ${token}` },
+            },
+          );
+          for (const repository of listed.repositories) {
+            reached.add(
+              `${repository.owner.login}/${repository.name}`.toLowerCase(),
+            );
+          }
+          if (listed.repositories.length < INSTALLATION_REPOSITORIES_PER_PAGE) {
+            break;
+          }
+          if (repoPage === MAX_INSTALLATION_REPOSITORY_PAGES) truncated = true;
+        }
+      }
+      if (data.length < INSTALLATIONS_PER_PAGE) break;
+      if (page === MAX_INSTALLATION_PAGES) truncated = true;
+    }
+    for (const repo of repos) {
+      const key = repoKeyOf(repo);
+      answers.set(
+        key,
+        covered.has(repo.owner.toLowerCase()) || reached.has(key)
+          ? true
+          : truncated
+            ? null
+            : false,
+      );
+    }
+    return answers;
   };
 }
 
@@ -733,6 +820,8 @@ async function installationFor(
   }
 }
 
+const MAX_INSTALLATION_REPOSITORY_PAGES = 10;
+const INSTALLATION_REPOSITORIES_PER_PAGE = 100;
 const MAX_INSTALLATION_PAGES = 10;
 const INSTALLATIONS_PER_PAGE = 100;
 
