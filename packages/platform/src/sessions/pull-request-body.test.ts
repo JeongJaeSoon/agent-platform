@@ -8,6 +8,7 @@ import {
   type PullRequestFields,
   renderPullRequestBody,
 } from "./pull-request-body.ts";
+import { prepareTemplate } from "./pull-request-template.ts";
 
 const ZWSP = "​";
 const TAIL = [
@@ -426,5 +427,34 @@ describe("the length limit is judged on the final body", () => {
       expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
       expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(body)).toBe(false);
     }
+  });
+});
+
+describe("a repository template goes through the same redaction as the fields", () => {
+  test("a credential line and a private key block in it are not posted", () => {
+    const template = prepareTemplate(
+      [
+        "## Summary",
+        "token ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "-----BEGIN PRIVATE KEY-----",
+        "fixture-only",
+        "-----END PRIVATE KEY-----",
+        "## Testing",
+      ].join("\n"),
+    );
+    expect(template).not.toBeNull();
+    const { body, templateUsed } = renderPullRequestBody({
+      fields: { summary: "FIELD" },
+      locale: "ko",
+      tail: TAIL,
+      maxLength: 65_536,
+      redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+      repository,
+      template,
+    });
+    expect(templateUsed).toBe(true);
+    expect(body).toContain("FIELD");
+    expect(body).not.toMatch(/ghp_|PRIVATE KEY|fixture-only/);
+    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
 });
