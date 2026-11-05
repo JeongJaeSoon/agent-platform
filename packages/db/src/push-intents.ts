@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PushIntent, PushIntentRefusal } from "@werft-ai/contracts";
 import type { PushIntentStore } from "@werft-ai/platform";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { pushIntents, sessions, turns } from "./schema.ts";
 
@@ -18,6 +18,47 @@ export function publicPushIntent(row: Row): PushIntent {
     push_request_id: row.pushRequestId,
     created_at: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * Called from the finalize transaction of a turn, after its session row was
+ * updated (so the session lock is held; creation takes the same lock first).
+ * A turn that completed with a new checkpoint pins that revision on every
+ * deferred intent of the turn; any other end cancels them, because the turn
+ * left no state to push. Returns how many intents it settled.
+ */
+export async function settleTurnPushIntents(
+  tx: Database,
+  input: {
+    turnRowId: number;
+    completedRevision: number | null;
+  },
+): Promise<number> {
+  const pin = input.completedRevision;
+  const rows = await tx
+    .update(pushIntents)
+    .set(
+      pin === null
+        ? {
+            status: "cancelled",
+            refusalCode: "turn_ended_without_checkpoint",
+            settledAt: sql`now()`,
+            updatedAt: sql`now()`,
+          }
+        : {
+            status: "pinned",
+            pinnedRevision: pin,
+            updatedAt: sql`now()`,
+          },
+    )
+    .where(
+      and(
+        eq(pushIntents.turnId, input.turnRowId),
+        eq(pushIntents.status, "deferred"),
+      ),
+    )
+    .returning({ id: pushIntents.id });
+  return rows.length;
 }
 
 export function createPostgresPushIntents(db: Database): PushIntentStore {
