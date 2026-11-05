@@ -49,11 +49,29 @@ describe("demo fixture scan", () => {
   test("a catalog id made only of name@x.y.z pins is clean in the answer that carries it", () => {
     expect(
       catalog({
-        id: "tool_set_a@0.3.270+tool-set@2.1.270",
-        big: "tool@1.256.3",
-        huge: "tool@1.2.999999",
+        tool_catalogs: [
+          { id: "tool_set_a@0.3.270+tool-set@2.1.270" },
+          { id: "tool@1.256.3" },
+          { id: "tool@1.2.999999" },
+        ],
       }),
     ).toEqual([]);
+  });
+
+  test("in that answer only the catalog ids are exempt, other pin-shaped fields are not", () => {
+    for (const value of [
+      "user@127.0.1",
+      "build-agent@1.2.3",
+      "user@127.0.1+tool@0.3.270",
+    ])
+      expect(
+        catalog({
+          tool_catalogs: [{ id: "tool_set_a@0.3.270" }],
+          connections: [{ id: value }],
+          nested: { tool_catalogs: [{ id: value }] },
+        }),
+        value,
+      ).toContain("email outside example.test");
   });
 
   test("a pin-shaped string is caught in any other answer and with anything around it", () => {
