@@ -106,6 +106,8 @@ function serviceWith(input: {
   noRelease?: boolean;
   /** `<repository>:<role>` → GitHub's answer; absent: no connection. */
   installed?: Record<string, boolean | null | Error>;
+  /** Counts the asks the tab makes of a connection, by kind. */
+  asks?: { batch: number; single: number };
 }) {
   const release = input.noRelease
     ? null
@@ -173,6 +175,7 @@ function serviceWith(input: {
           githubCom: true,
           appId: 1,
           installedOn: async (repos) => {
+            if (input.asks) input.asks.batch += 1;
             if (answer instanceof Error) throw answer;
             return new Map(
               repos.map((repo) => [
@@ -191,6 +194,7 @@ function serviceWith(input: {
             throw new Error("not used");
           },
           installed: async () => {
+            if (input.asks) input.asks.single += 1;
             if (answer instanceof Error) throw answer;
             return answer;
           },
@@ -305,6 +309,21 @@ describe("the agent GitHub tab's options", () => {
       "ghe-app": { author: null, reviewer: null },
       "sample-app": { author: true, reviewer: false },
     });
+  });
+
+  test("installed: the tab asks in batches and never repeats a failed batch one repository at a time", async () => {
+    const asks = { batch: 0, single: 0 };
+    await serviceWith({
+      asks,
+      installed: {
+        "sample-app:author": true,
+        "sample-app:reviewer": new Error("GitHub failed (502)"),
+        "elsewhere-app:author": false,
+        "elsewhere-app:reviewer": new Error("GitHub failed (502)"),
+      },
+    }).get(caller, AGENT);
+    expect(asks.single).toBe(0);
+    expect(asks.batch).toBe(4);
   });
 
   test("features: the ceiling, the reviewer App and the App's permissions, in that order", async () => {

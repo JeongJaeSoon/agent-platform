@@ -574,10 +574,9 @@ function installedCheck(
 
 /**
  * Which of `repos` the App reaches, from its installations: one list of
- * them, then for an installation of an account some repo belongs to, either
- * its "all" selection or its repository pages. A page limit that cuts a
- * selection short leaves the repositories it did not show as unknown, not
- * as missing.
+ * them, then the repository pages of each installation of an account some
+ * repo belongs to. A page limit that cuts a list short leaves the
+ * repositories it did not show as unknown, not as missing.
  */
 function installedOnCheck(
   client: Client,
@@ -594,7 +593,6 @@ function installedOnCheck(
     if (repos.length === 0) return answers;
     const owners = new Set(repos.map((repo) => repo.owner.toLowerCase()));
     const reached = new Set<string>();
-    const covered = new Set<string>();
     let truncated = false;
     for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
       const { data } = await client.request("GET /app/installations", {
@@ -607,10 +605,9 @@ function installedOnCheck(
         if (fixed !== undefined && view.id !== fixed) continue;
         const account = view.account.toLowerCase();
         if (!owners.has(account)) continue;
-        if (view.repositorySelection === "all") {
-          covered.add(account);
-          continue;
-        }
+        // An "all" installation is listed as well: a repository deleted or
+        // moved out of the account is not on it, as the per-repository
+        // lookup also says.
         const { token } = await auth({
           type: "installation",
           installationId: view.id,
@@ -644,14 +641,7 @@ function installedOnCheck(
     }
     for (const repo of repos) {
       const key = repoKeyOf(repo);
-      answers.set(
-        key,
-        covered.has(repo.owner.toLowerCase()) || reached.has(key)
-          ? true
-          : truncated
-            ? null
-            : false,
-      );
+      answers.set(key, reached.has(key) ? true : truncated ? null : false);
     }
     return answers;
   };
