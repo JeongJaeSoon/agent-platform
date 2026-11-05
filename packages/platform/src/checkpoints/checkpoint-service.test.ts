@@ -544,7 +544,7 @@ describe("protectedCommits", () => {
     ).toEqual([]);
   });
 
-  test("a working-tree snapshot entry is no finding and the commit stays protected", async () => {
+  test("a working-tree snapshot checkpoint is not protected either: it sits on an unjudged tip, so it must not hide the commits below", async () => {
     const body = manifest({
       revision: 0,
       attribution: {
@@ -564,7 +564,7 @@ describe("protectedCommits", () => {
         sessionId,
         pointer: checkpoints.pointer(),
       }),
-    ).toEqual([workspaceBundle.commit]);
+    ).toEqual([]);
   });
 
   test("an earlier checkpoint whose manifest is gone makes the list unavailable, not shorter", async () => {

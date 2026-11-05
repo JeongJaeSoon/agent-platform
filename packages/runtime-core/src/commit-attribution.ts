@@ -25,12 +25,12 @@ export type CommitFacts = {
   authorEmail: string;
   committerName: string;
   committerEmail: string;
-  message: string;
   /**
-   * The trailer block git itself recognizes in `message`, one unfolded
-   * `Key: value` line each (`git interpret-trailers --parse`). Only these lines
-   * count as attribution: GitHub and git read a `Co-authored-by` or
-   * `Agent-Session` line from anywhere else in the body as plain text.
+   * The trailer block git itself recognizes in the message, one unfolded
+   * `Key: value` line each (`git interpret-trailers --parse --no-divider`).
+   * Only these lines are attribution: GitHub and git read a `Co-authored-by`
+   * or `Agent-Session` line from anywhere else in the body as plain text. The
+   * message itself is not read, which also keeps a long range's log small.
    */
   trailers: string;
 };
@@ -85,14 +85,14 @@ export const MAX_REPORTED_MISMATCHES = 20;
  * own parser (`%(trailers)`), so this judgment cannot drift from git's.
  */
 export const COMMIT_FACTS_FORMAT =
-  "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1f%(trailers:only,unfold)%x1e";
+  "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%(trailers:only,unfold)%x1e";
 
 export function parseCommitFacts(stdout: string): CommitFacts[] | null {
   const facts: CommitFacts[] = [];
   for (const record of stdout.split("\x1e")) {
     if (record.trim() === "") continue;
     const fields = record.replace(/^\n/, "").split("\x1f");
-    if (fields.length !== 7) return null;
+    if (fields.length !== 6) return null;
     const [sha, authorName, authorEmail, committerName, committerEmail] =
       fields as [string, string, string, string, string, string];
     if (!/^[0-9a-f]{40}$/.test(sha)) return null;
@@ -102,8 +102,7 @@ export function parseCommitFacts(stdout: string): CommitFacts[] | null {
       authorEmail,
       committerName,
       committerEmail,
-      message: fields[5] as string,
-      trailers: fields[6] as string,
+      trailers: fields[5] as string,
     });
   }
   return facts;
@@ -141,10 +140,10 @@ export function attributionProblems(
         const match = COAUTHOR_LINE.exec(line);
         return match === null ? [] : [match[1] as string];
       });
-  // An engine line is refused wherever it sits (the hook strips it from the
-  // whole message); a required line counts only inside git's trailer block.
+  // Everything is judged on git's unfolded trailer block: a folded engine
+  // line is one line there, and a line outside it is plain text to GitHub.
   if (
-    coAuthors(commit.message).some((value) => {
+    coAuthors(commit.trailers).some((value) => {
       const email = emailOf(value);
       return email !== null && strip.has(email);
     })
@@ -161,7 +160,11 @@ export function attributionProblems(
   }
   if (expectation.agentSession !== null) {
     const wanted = `Agent-Session: ${expectation.agentSession}`;
-    if (trailerLines.filter((line) => line === wanted).length !== 1)
+    // One session value, so a second, different line cannot ride along.
+    const sessions = trailerLines.filter((line) =>
+      /^agent-session:/i.test(line),
+    );
+    if (sessions.length !== 1 || sessions[0] !== wanted)
       problems.push("agent_session");
   }
   return problems;
@@ -198,7 +201,8 @@ export function attributionMismatches(
 /** One git invocation inside the repository being judged. */
 export type RangeGit = (
   args: readonly string[],
-) => Promise<{ exitCode: number; stdout: string }>;
+  /** `truncated`: stdout was cut at a cap, so later commits may be missing. */
+) => Promise<{ exitCode: number; stdout: string; truncated?: boolean }>;
 
 export type RangeAttribution =
   | { status: "ok"; mismatches: AttributionMismatch[]; checked: number }
@@ -228,7 +232,9 @@ export async function rangeAttribution(
     input.tip,
     ...(input.not.length === 0 ? [] : ["--not", ...input.not]),
   ]);
-  if (log.exitCode !== 0) return { status: "unreadable" };
+  if (log.exitCode !== 0 || log.truncated === true) {
+    return { status: "unreadable" };
+  }
   const facts = parseCommitFacts(log.stdout);
   if (facts === null) return { status: "unreadable" };
   const all = attributionMismatches(

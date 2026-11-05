@@ -30,15 +30,22 @@ const sha = "a".repeat(40);
 
 /** What git itself reads as the message's trailers. */
 function gitTrailers(message: string): string {
-  const out = spawnSync("git", ["interpret-trailers", "--parse"], {
-    input: message,
-    encoding: "utf8",
-  });
+  const out = spawnSync(
+    "git",
+    ["interpret-trailers", "--parse", "--no-divider"],
+    {
+      input: message,
+      encoding: "utf8",
+    },
+  );
   if (out.status !== 0) throw new Error(out.stderr);
   return out.stdout;
 }
 
-function commit(overrides: Partial<CommitFacts> = {}): CommitFacts {
+/** Facts plus the message they were derived from, which tests build on. */
+function commit(
+  overrides: Partial<CommitFacts> & { message?: string } = {},
+): CommitFacts & { message: string } {
   const message =
     overrides.message ??
     [
@@ -176,6 +183,8 @@ describe("attributionProblems", () => {
         "subject\n\nbody\n\nAgent-Session: s\nnot a trailer\n",
         "subject\n\nbody\n\nSigned-off-by: A <a@x.test>\nAgent-Session: s\nplain\n",
         "subject\n\nAgent-Session: long\n  continued\nCo-authored-by: A <a@x.test>\n",
+        "subject\n\nexplanation\n\n---\nmore text\n",
+        "subject\n\nbody\n\nCo-authored-by: A <a@x.test>\nAgent-Session: s\n\n---\nafter the line\n",
       ];
       for (const message of messages) {
         git(
@@ -192,13 +201,28 @@ describe("attributionProblems", () => {
         );
         const out = git("log", "-1", `--format=${COMMIT_FACTS_FORMAT}`).stdout;
         const parsed = parseCommitFacts(out);
-        expect(parsed?.[0]?.trailers).toBe(
-          gitTrailers(parsed?.[0]?.message ?? ""),
-        );
+        expect(parsed?.[0]?.trailers).toBe(gitTrailers(message));
       }
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
+  });
+
+  test("an engine co-author folded over two lines is still found", () => {
+    const message = `${commit().message}Co-authored-by: Claude\n <noreply@anthropic.com>\n`;
+    expect(gitTrailers(message)).toContain(
+      "Co-authored-by: Claude <noreply@anthropic.com>",
+    );
+    expect(attributionProblems(commit({ message }), expected, strip)).toEqual([
+      "engine_co_author",
+    ]);
+  });
+
+  test("a second, different Agent-Session line is refused", () => {
+    const message = `${commit().message}Agent-Session: other\n`;
+    expect(attributionProblems(commit({ message }), expected, strip)).toEqual([
+      "agent_session",
+    ]);
   });
 
   test("a claim without a co-author or a session asks for neither", () => {
@@ -239,7 +263,7 @@ describe("attributionMismatches", () => {
 
 describe("parseCommitFacts", () => {
   test("reads git log records", () => {
-    const record = `${sha}\x1fa\x1fa@x\x1fc\x1fc@x\x1fsubject\n\nbody\n\x1fK: v\n\x1e\n`;
+    const record = `${sha}\x1fa\x1fa@x\x1fc\x1fc@x\x1fK: v\n\x1e\n`;
     expect(parseCommitFacts(record)).toEqual([
       {
         sha,
@@ -247,7 +271,6 @@ describe("parseCommitFacts", () => {
         authorEmail: "a@x",
         committerName: "c",
         committerEmail: "c@x",
-        message: "subject\n\nbody\n",
         trailers: "K: v\n",
       },
     ]);
@@ -260,7 +283,7 @@ describe("parseCommitFacts", () => {
 
 describe("rangeAttribution", () => {
   const record = (c: CommitFacts) =>
-    `${[c.sha, c.authorName, c.authorEmail, c.committerName, c.committerEmail, c.message, c.trailers].join("\x1f")}\x1e`;
+    `${[c.sha, c.authorName, c.authorEmail, c.committerName, c.committerEmail, c.trailers].join("\x1f")}\x1e`;
   const run = (commits: CommitFacts[], exitCode = 0) =>
     rangeAttribution(
       async () => ({ exitCode, stdout: commits.map(record).join("\n") }),
@@ -283,6 +306,23 @@ describe("rangeAttribution", () => {
       checked: 2,
       mismatches: [{ commit: ancestor, problems: ["author"] }],
     });
+  });
+
+  test("a log the runner cut short is unreadable: the missing commits might be wrong", async () => {
+    const result = await rangeAttribution(
+      async () => ({
+        exitCode: 0,
+        stdout: `${record(commit())}\n`,
+        truncated: true,
+      }),
+      {
+        tip: "b".repeat(40),
+        not: [],
+        expectations: [expected],
+        stripEmails: strip,
+      },
+    );
+    expect(result).toEqual({ status: "unreadable" });
   });
 
   test("a git that fails is unreadable, never clean", async () => {
@@ -315,7 +355,6 @@ describe("working-tree snapshot marker", () => {
       authorEmail: "x@x",
       committerName: "x",
       committerEmail: "x@x",
-      message: "m\n",
       trailers: "",
     };
     for (const found of attributionMismatches([facts], [expected], strip)) {

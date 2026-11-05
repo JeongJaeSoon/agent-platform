@@ -154,6 +154,23 @@ describe("the commit-msg hook", () => {
     expect(lastMessage()).toBe(`${message}\nAgent-Session: ${SESSION_URL}`);
   });
 
+  test("a message with a --- line gets its trailers where git log reads them", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    git([
+      "commit",
+      "-q",
+      "--allow-empty",
+      "--cleanup=verbatim",
+      "-m",
+      "Fix the thing\n\nExplanation\n\n---\nAdditional body text",
+    ]);
+    const log = git(["log", "-1", "--format=%(trailers:only,unfold)"]).out;
+    expect(log).toContain(
+      `Co-authored-by: ${CO_AUTHOR.name} <${CO_AUTHOR.email}>`,
+    );
+    expect(log).toContain(`Agent-Session: ${SESSION_URL}`);
+  });
+
   test("with co_author null only Agent-Session is added", async () => {
     await writeGitTrailers(
       home,

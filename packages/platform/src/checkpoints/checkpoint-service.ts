@@ -1519,15 +1519,14 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
             `checkpoint revision ${pointer.revision} does not verify (${verdict.reason}); the protected commits would be incomplete`,
           );
         }
-        // A checkpoint that recorded a real mismatch was refused by
-        // request_push, so no push ever pinned its commit: it stays open to
-        // repair and to judgment. Protecting it would hide the wrong commit
-        // (and its unprotected ancestors) from the next turn's check. A
-        // working-tree snapshot entry carries no problems and is no finding.
-        const unsettled = verdict.manifest.attribution?.mismatches.some(
-          (mismatch) => mismatch.problems.length > 0,
-        );
-        if (unsettled === true) continue;
+        // A checkpoint that recorded any attribution entry, a mismatch or the
+        // working-tree snapshot marker, was refused by request_push, so no
+        // push ever pinned its commit: it stays open to repair and to
+        // judgment. Protecting it would hide the wrong commits below it from
+        // the next turn's check (a snapshot commit sits on the unjudged tip).
+        if ((verdict.manifest.attribution?.mismatches.length ?? 0) > 0) {
+          continue;
+        }
         commits.push(verdict.manifest.workspace.gitCommit);
         if (pointer === input.pointer) current = commits[0];
       }
