@@ -51,12 +51,12 @@ env:
   # BuildKit that setup-buildx-action runs, and the Dockerfile frontend.
   # ci-image-mirror.yml copies them; tests/ci-images.test.ts holds them to
   # that list and the Dockerfiles.
-  BUN_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
-  BUILDKIT_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+  BUN_IMAGE: ghcr.io/jeongjaesoon/werft-ci/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+  BUILDKIT_IMAGE: ghcr.io/jeongjaesoon/werft-ci/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
   # The frontend the Dockerfiles' `# syntax=` line names, by the digest of
   # that tag; BUILDKIT_SYNTAX overrides the line, which BuildKit would
   # otherwise resolve on Docker Hub.
-  DOCKERFILE_FRONTEND_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+  DOCKERFILE_FRONTEND_IMAGE: ghcr.io/jeongjaesoon/werft-ci/dockerfile@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
   # The tools of ci.yml's k8s-smoke, by the same pins; tests/images.test.ts
   # holds the two together.
   HELM_VERSION: v4.3.0
@@ -566,8 +566,8 @@ jobs:
         env:
           CLUSTER_NAME: chart-check
           STATE_DIR: ${{ runner.temp }}/kind
-          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
-          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/agent-platform-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          KIND_NODE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/kind-node@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          REGISTRY_IMAGE: ghcr.io/jeongjaesoon/werft-ci/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
         run: |
           CHART_PACKAGE="$(ls "$PWD"/chart-out/werft-*.tgz)" KIND_IMAGE_MIRROR="${BUN_IMAGE%/*}" deploy/kind/up.sh
       - if: failure()
