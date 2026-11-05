@@ -117,7 +117,10 @@ function appWith(
     async putSettings(input) {
       if (input.agentId !== AGENT) return { outcome: "not_found" };
       // The real store runs the service's check under its lock, on the held row.
-      input.check(null);
+      input.check(null, {
+        repository_ids: [],
+        github_app_repositories: "installed",
+      });
       if (input.expectedRevision === STALE_REVISION) {
         return { outcome: "conflict", revision: 1 };
       }

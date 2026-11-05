@@ -44,7 +44,9 @@ export interface AgentGitHubStore {
    * locked first (as a session start does), then the settings row, whose
    * revision must be `expectedRevision` (null: no row yet). `updated_by` is
    * always `userId`, so a first save also marks the row a person's.
-   * `check` runs on the locked current row and may refuse the write.
+   * `check` runs on the locked current row and the workspace's repository
+   * ceiling as stored in the same transaction (a workspace that had none
+   * gets the default one written first), and may refuse the write.
    */
   putSettings(input: {
     workspaceId: string;
@@ -55,7 +57,10 @@ export interface AgentGitHubStore {
     userId: string;
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];
-    check: (current: AgentGitHubSettingsRow | null) => void;
+    check: (
+      current: AgentGitHubSettingsRow | null,
+      ceiling: RepositoryCeiling,
+    ) => void;
   }): Promise<PutAgentGitHubSettingsResult>;
   /**
    * The latest GitHub receipts for the agent, newest first: those naming it,

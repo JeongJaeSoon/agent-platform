@@ -721,6 +721,11 @@ function GitHubSettings({
             description={t("agentGitHub.repositoriesHint")}
           >
             <div className={SECTION_BODY}>
+              {data.options.repository_ceiling_unset ? (
+                <Text as="span" variant="sub">
+                  {t("agentGitHub.ceilingUnset")}
+                </Text>
+              ) : null}
               {data.options.repositories.length === 0 ? (
                 <Text as="span" variant="sub">
                   {t("agentGitHub.repositoriesNone")}

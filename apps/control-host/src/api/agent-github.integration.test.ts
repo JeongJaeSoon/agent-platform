@@ -237,6 +237,13 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
   let adminId = "";
   let teamId = "";
   const cookies = { owner: "", admin: "", other: "" };
+  const ceilingOfWorkspace = async () =>
+    (
+      await pool.query<{ repository_ceiling: unknown; revision: number }>(
+        "SELECT repository_ceiling, revision FROM github_workspace_settings WHERE workspace_id = $1",
+        [workspaceId],
+      )
+    ).rows[0];
   let agentId = "";
   let versionId = "";
   let firstRelease = "";
@@ -397,13 +404,11 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     expect(
       githubSettingsResponseSchema.parse(await ceiling.json()).ceiling.actions,
     ).toBe(true);
-    // What a workspace holds once R2 or its first use wrote it (design 3.2).
-    await pool.query(
-      `UPDATE github_workspace_settings
-         SET repository_ceiling = '{"repository_ids":[],"github_app_repositories":"installed"}'::jsonb
-       WHERE workspace_id = $1`,
-      [workspaceId],
-    );
+    // Bootstrap wrote the default ceiling when it created the workspace.
+    expect((await ceilingOfWorkspace())?.repository_ceiling).toEqual({
+      repository_ids: [],
+      github_app_repositories: "installed",
+    });
 
     const created = await send("POST", "/v1/agents", asCookie(cookies.admin), {
       slug: "triage",
@@ -574,6 +579,25 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     );
     expect(await row()).toBeUndefined();
 
+    // A workspace made before ceilings were written has none. Reading shows
+    // the default without writing it; the first save writes it.
+    await pool.query(
+      "UPDATE github_workspace_settings SET repository_ceiling = NULL WHERE workspace_id = $1",
+      [workspaceId],
+    );
+    const unsetRead = agentGitHubResponseSchema.parse(
+      await (
+        await send(
+          "GET",
+          `/v1/agents/${agentId}/github`,
+          asCookie(cookies.admin),
+        )
+      ).json(),
+    );
+    expect(unsetRead.options.repository_ceiling_unset).toBe(true);
+    expect(unsetRead.options.repositories[0]?.available).toBe(true);
+    expect((await ceilingOfWorkspace())?.repository_ceiling).toBeNull();
+
     const first = await put(cookies.admin, {
       expected_revision: null,
       settings,
@@ -587,6 +611,11 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     expect(saved.receipt_id).not.toBeNull();
     // The person who saved is on the row, which is what narrows old sessions.
     expect(await row()).toEqual({ revision: 1, updated_by: adminId });
+    const written = await ceilingOfWorkspace();
+    expect(written?.repository_ceiling).toEqual({
+      repository_ids: [],
+      github_app_repositories: "installed",
+    });
 
     const read = agentGitHubResponseSchema.parse(
       await (
@@ -612,6 +641,8 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     expect(
       putAgentGitHubSettingsResponseSchema.parse(await same.json()),
     ).toEqual({ settings_revision: 1, receipt_id: null });
+    // A later save leaves the ceiling as the first one wrote it.
+    expect(await ceilingOfWorkspace()).toEqual(written);
 
     // Two saves from the same read: one wins, the other is told to read again.
     const next = { ...settings, push_approval: true };
