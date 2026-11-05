@@ -3,7 +3,7 @@ title: "セルフホスティング"
 description: 複数人で使う Werft サーバーの設置方法を選ぶ
 ---
 
-Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックは実行していません。Kubernetes のアップグレードは kind でセッションがない状態で一度、手順1〜4を実行し、`proceed` の判定だけを確認しました。単一サーバーのページは、LocalStack の設置で手順1〜6と `key create` まで実行して確認しました。
+Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックはそのままは実行していません。Secret のトークンで最初の owner を作り、API key を発行して認証するところまでは kind で確認しました。Kubernetes のアップグレードは kind でセッションがない状態で手順1〜4を実行して `proceed` を確認し、承認できない `refused` の2つの場合と NetworkPolicy の隔離も確認しました。単一サーバーのページは、LocalStack の設置で手順1〜6と `key create` まで実行して確認しました。
 
 ## 設置方法を選ぶ
 

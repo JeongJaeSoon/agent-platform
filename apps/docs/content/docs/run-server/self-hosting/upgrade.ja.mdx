@@ -12,7 +12,7 @@ description: 設置済みの Werft を新しい公開バージョンに上げ、
 ## Kubernetes
 
 <Callout type="warn">
-この Kubernetes のアップグレード手順は、kind クラスター1つで1回実行して確認しました。以前の main バージョン(`0.1.0-main-940b1956d21c`)をインストールしてから `0.1.0-main-3c8a1f15488e` に上げ、手順1〜4(`worker-previous.json` の作成、`helm upgrade`、upgrade-check Job の `proceed`、rollout と `/readyz` 200)がこの順序で通りました。確認できていないことがあります。セッションがない状態で実行したため `verdict` は `proceed` だけを見ており、`refused` で止まる場合と承認の手順は実行していません。NetworkPolicy を適用する CNI での動作とロールバックも確認していません。新しい control-host と直前の worker イメージの組み合わせは CI で検査していないため、実サーバーの前に試用環境で実行してください。内容が違う場合は [Kubernetes の設置 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#公開chartのアップグレード) に従ってください。
+この Kubernetes のアップグレード手順は、kind クラスター1つで1回実行して確認しました。以前の main バージョン(`0.1.0-main-940b1956d21c`)をインストールしてから `0.1.0-main-3c8a1f15488e` に上げ、手順1〜4(`worker-previous.json` の作成、`helm upgrade`、upgrade-check Job の `proceed`、rollout と `/readyz` 200)がこの順序で通りました。そのあと別の kind クラスターで3つを追加で確認しました。`workerPrevious` なしで上げると upgrade-check Job が `refused` で止まり、同じイメージで `upgrade.approvedSessions` を埋めても `refused` で止まります。デプロイ済みの worker イメージが固定されていない(`unpinned`)か存在しない(`absent`)状態も `proceed` で通ります(この2つの状態は古い chart ではなく、scheduler の環境変数を消すか Deployment を削除して作りました)。また kind の既定の CNI で、worker ラベルの Pod が api と postgres に接続するとタイムアウトし、試した DNS 名は解決できず、egress-proxy には届くことを確認しました。それ以外の宛先が遮断されるかは確認していません。確認できていないこともあります。セッションがない状態で実行したため、影響を受けるセッションがあって `refused` で止まる場合と承認の手順は実行しておらず、ロールバックも確認していません。新しい control-host と直前の worker イメージの組み合わせは CI で検査していないため、実サーバーの前に試用環境で実行してください。内容が違う場合は [Kubernetes の設置 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#公開chartのアップグレード) に従ってください。
 </Callout>
 
 この手順は `jq` も使います。公開 chart は新しい worker イメージを持ちますが、直前の worker イメージは持ちません。直前のイメージは設置ごとに違うからです。worker イメージが変わるアップグレードは、`images.workerPrevious` が今デプロイされているイメージでなければ `refused` で止まり、承認でも越えられません。そのため、今のイメージをファイルに保存して一緒に渡します。`--reuse-values` は使いません。古い chart の値が新しい chart のイメージを上書きします。
@@ -103,6 +103,8 @@ kill "$PF"
 アップグレードの直前に[バックアップ](/run-server/self-hosting/single-server#バックアップと復元)を一度取ります。元に戻すには、以前の release ファイルで `upgrade` をもう一度呼びます。worker イメージがまた変わるので、同じ規則が適用されます。
 
 アップグレードが新しい release の起動前に止まると(例: scheduler の quota 検査の失敗)、設置は止まったままになり、状態ディレクトリに `pending.json` が残ります。この状態で許可されるのは、`status`、`reset`、そして `pending.json` と内容が同じ release ファイルを使う `upgrade` だけです。以前の release へ戻す `upgrade` を含め、他のコマンドは拒否されます。原因を直した後、同じ対象の release ファイルでもう一度 `upgrade` を呼ぶと解消します。
+
+アップグレードではなく `compose down` やホストの再起動で設置が止まっただけなら、`upgrade` や `deploy` ではなく `scripts/test-ops.sh start` で同じ volume のまま起動し直します([片付ける](/run-server/self-hosting/single-server#片付ける))。`pending.json` があるあいだ `start` は拒否します。
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

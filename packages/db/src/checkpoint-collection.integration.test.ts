@@ -95,6 +95,60 @@ integration("checkpoint collection store on PostgreSQL", () => {
     expect(await store.readCollectionFences(crypto.randomUUID())).toBeNull();
   });
 
+  test("listPinnedCommits names the commits push requests pinned, newest first, rejected ones left out", async () => {
+    const sessionId = await session({
+      checkpointRevision: 2,
+      repositoryId: "sample-app",
+    });
+    const push = createPostgresPushRequests(db);
+    const actor = {
+      principal: { kind: "api_key" as const, id: "key-gc" },
+      actor_user_id: null,
+      agent_id: null,
+    };
+    const pin = (key: string, revision: number, commit: string) =>
+      push.create({
+        ownerId: "owner-gc",
+        sessionId,
+        actor,
+        idempotencyKey: key,
+        payloadHash: "h",
+        repositoryId: "sample-app",
+        repositoryBinding: "sha256:binding",
+        checkpointRevision: revision,
+        gitCommit: commit,
+        policyApproval: null,
+        policyFields: {},
+      });
+    const reject = async (id: string, commit: string, key: string) =>
+      push.decide({
+        ownerId: "owner-gc",
+        sessionId,
+        pushRequestId: id,
+        actor,
+        decision: "reject",
+        gitCommit: commit,
+        reason: null,
+        idempotencyKey: key,
+        payloadHash: "h",
+      });
+    const one = await pin("p-1", 2, "1".repeat(40));
+    const two = "2".repeat(40);
+    if (one.outcome !== "written") throw new Error("not written");
+    await reject(one.request.id, "1".repeat(40), "p-1r");
+    await db
+      .update(sessions)
+      .set({ checkpointRevision: 3 })
+      .where(eq(sessions.id, sessionId));
+    const second = await pin("p-2", 3, two);
+    expect(second.outcome).toBe("written");
+    const store = createPostgresCheckpointStore(db);
+
+    expect(await store.listPinnedCommits(sessionId, 10)).toEqual([two]);
+    expect(await store.listPinnedCommits(sessionId, 0)).toEqual([]);
+    expect(await store.listPinnedCommits(crypto.randomUUID(), 10)).toEqual([]);
+  });
+
   test("readPushPinnedRevisions names the revisions open push requests pinned", async () => {
     const sessionId = await session({
       checkpointRevision: 2,

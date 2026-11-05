@@ -7,7 +7,7 @@
 # `jq -e` line into an assertion.
 #
 # Meant for a fresh machine (the CI `quickstart` job): it starts the stack
-# the page starts, `agent-platform` on 127.0.0.1:3000 and friends, and the
+# the page starts, `werft` on 127.0.0.1:3000 and friends, and the
 # page's last block (`scripts/local.sh down`) deletes it with its data —
 # including a stack a reader already had running there. QUICKSTART_OUT (default: a fresh
 # temp dir) receives the generated script and the compose logs.
