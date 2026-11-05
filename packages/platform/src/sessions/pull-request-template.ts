@@ -481,7 +481,7 @@ function scan(text: string): Scanned {
     // ones it does not know, so only tags the scan knows are taken there.
     if (
       (open.length > 0 || (tags ?? []).some(([closing]) => !closing)) &&
-      [...seen.matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
+      [...shown.matchAll(/<\/?([A-Za-z][\w-]*)/g)].some(
         ([, name]) => !KNOWN_INSIDE.has((name ?? "").toLowerCase()),
       )
     ) {
