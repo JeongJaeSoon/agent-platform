@@ -25,13 +25,17 @@ const ASCII_ENTITY =
   /&(?=#(?:x[0-9a-f]+|\d+);|(?:sol|bsol|num|colon|commat|period);)/gi;
 
 function breakLinks(text: string): string {
-  return text
-    .replace(ASCII_ENTITY, `&${ZWSP}`)
-    .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
-    .replace(NUMBERED_PATH, `$1${ZWSP}`)
-    .replace(COMMIT_PATH, `$1${ZWSP}`)
-    .replace(COMMIT_REFERENCE, `$1$2${ZWSP}`)
-    .replace(COMMIT_HASH, `$1${ZWSP}`);
+  return (
+    text
+      .replace(ASCII_ENTITY, `&${ZWSP}`)
+      // Markdown reads `\/` as `/`.
+      .replace(/\\\//g, "/")
+      .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
+      .replace(NUMBERED_PATH, `$1${ZWSP}`)
+      .replace(COMMIT_PATH, `$1${ZWSP}`)
+      .replace(COMMIT_REFERENCE, `$1$2${ZWSP}`)
+      .replace(COMMIT_HASH, `$1${ZWSP}`)
+  );
 }
 
 export const SECTION_NAMES = [
@@ -310,6 +314,9 @@ type Scanned = {
   rejected: boolean;
 };
 
+const NESTED_FENCE =
+  /^[ \t]*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+(?:`{3,}|~{3,})/;
+
 function scan(text: string): Scanned {
   const rows: Scanned["rows"] = [];
   let fence: string | null = null;
@@ -323,6 +330,15 @@ function scan(text: string): Scanned {
       indent: indentOf(line),
     };
     rows.push(row);
+    // A fence inside a list item or a quote is not tracked here. Markdown reads
+    // `\/` as `/`, which would hide a path from the reference breaking.
+    if (
+      !inComment &&
+      fence === null &&
+      (NESTED_FENCE.test(line) || line.includes("\\/"))
+    ) {
+      rejected = true;
+    }
     if (!inComment) {
       const marks = FENCE_OPEN.exec(line);
       if (fence !== null) {

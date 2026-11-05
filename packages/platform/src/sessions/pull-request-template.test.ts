@@ -687,6 +687,25 @@ describe("markup the scan and a renderer could read differently", () => {
     expect(out).toContain("35;");
   });
 
+  test("a backslash-escaped slash makes the template unsupported, as it can hide a path", () => {
+    expect(
+      prepareTemplateText("[a](https://github.com/acme/app/issues\\/13)\n"),
+    ).toEqual({ ok: false, reason: "unsupported" });
+  });
+
+  test("a fence inside a list item or a quote makes the template unsupported", () => {
+    for (const text of [
+      "- ~~~\n  example\n  ~~~\n## Summary\n",
+      "1. ```\n   example\n   ```\n",
+      "> ```\n> example\n> ```\n",
+    ]) {
+      expect(prepareTemplateText(text)).toEqual({
+        ok: false,
+        reason: "unsupported",
+      });
+    }
+  });
+
   test("a character reference cannot spell the path of a live reference", () => {
     const out = inert(
       "[a](https://github.com/acme/app/iss&#117;es/13) [b](https://github.com/acme/app/issues&sol;13) &#x23;12",
