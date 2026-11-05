@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { openPullRequestRequestSchema } from "@werft-ai/contracts";
 import type {
+  ActionNotice,
   PullRequestDrainOutcome,
   PullRequestDrainStore,
   PullRequestJob,
   PullRequestSettled,
 } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
+import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { pushRequests, sessions } from "./schema.ts";
@@ -114,7 +116,7 @@ export function createPostgresPullRequestDrain(
           .limit(1)
           .for("update");
         if (!row) return { result: "fenced" };
-        return await write(tx, job, outcome);
+        return await write(tx, job, outcome, row.flow);
       });
     },
   };
@@ -124,11 +126,31 @@ async function write(
   tx: Database,
   job: PullRequestJob,
   outcome: PullRequestDrainOutcome,
+  flow: string,
 ): Promise<PullRequestSettled> {
   const fence = and(
     eq(pushRequests.id, job.id),
     eq(pushRequests.prClaimToken, job.claimToken),
   );
+  // The notice goes in this transaction, after the state it reports; a
+  // request made before the action flows (`legacy`) tells the thread nothing.
+  const tell = async (
+    result: ActionNotice["result"],
+    more: Partial<ActionNotice> = {},
+  ) => {
+    if (flow !== "actions") return;
+    await enqueueActionNotice(tx, {
+      sessionId: job.sessionId,
+      pushRequestId: job.id,
+      notice: {
+        result,
+        repository: job.repositoryId,
+        branch: job.targetBranch,
+        commit: job.gitCommit,
+        ...more,
+      },
+    });
+  };
   if (outcome.kind === "retry") {
     await tx
       .update(pushRequests)
@@ -152,6 +174,22 @@ async function write(
         ...cleared,
       })
       .where(fence);
+    const found = outcome.details?.numbers;
+    const number =
+      Array.isArray(found) && typeof found[0] === "number"
+        ? found[0]
+        : undefined;
+    await tell(
+      outcome.stage === "closed_unrecorded"
+        ? "pr_closed"
+        : outcome.stage === "uncertain"
+          ? "pr_uncertain"
+          : "pr_failed",
+      {
+        reason: outcome.error,
+        ...(number === undefined ? {} : { number }),
+      },
+    );
     return { result: "settled" };
   }
   const opened = outcome.pullRequest;
@@ -170,6 +208,7 @@ async function write(
         ...cleared,
       })
       .where(fence);
+    await tell("pr_uncertain", { reason: "duplicate_pull_request" });
     return {
       result: "duplicate",
       recorded: { number: recorded.number, url: recorded.url },
@@ -201,5 +240,6 @@ async function write(
       ...cleared,
     })
     .where(fence);
+  await tell("opened", { number: opened.number, url: opened.url });
   return { result: "settled" };
 }

@@ -27,6 +27,7 @@ import {
   type ToolSummaryContext,
 } from "@werft-ai/platform";
 import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { enqueueActionNotice } from "./action-notices.ts";
 import {
   findIdempotent,
   type IdempotencyScope,
@@ -908,8 +909,29 @@ export function createPostgresPushRequests(
             leaseExpiresAt: null,
             pushError: error,
             pushReceiptId: receiptId,
+            // A pull request intent turns the finished push into a due
+            // stage in this same write: the row is locked, so an intent
+            // reserved meanwhile is either seen here or sees `pushed`.
+            ...(row.pullRequestIntent === null || row.prState !== null
+              ? {}
+              : pushed
+                ? { prState: "due", prNextAttemptAt: null }
+                : { prState: "cancelled", prError: outcome.refusal }),
           })
           .where(eq(pushRequests.id, row.id));
+        if (row.flow === "actions") {
+          await enqueueActionNotice(tx, {
+            sessionId: row.sessionId,
+            pushRequestId: row.id,
+            notice: {
+              result: pushed ? "pushed" : "push_failed",
+              repository: row.repositoryId,
+              branch: row.targetBranch,
+              commit: row.gitCommit,
+              ...(pushed ? {} : { reason: outcome.refusal }),
+            },
+          });
+        }
         return true;
       });
     },

@@ -37,6 +37,7 @@ export * from "./musterrolle/slack-link-app-service.ts";
 export * from "./musterrolle/slack-manifest.ts";
 export * from "./musterrolle/slack-notice-log.ts";
 export * from "./musterrolle/slack-interactions.ts";
+export * from "./musterrolle/action-notice.ts";
 export * from "./musterrolle/slack-outbox.ts";
 export * from "./musterrolle/slack-prompts.ts";
 export * from "./musterrolle/slack-secret-service.ts";
