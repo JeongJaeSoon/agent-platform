@@ -242,7 +242,7 @@ scripts/test-ops.sh start
 ## 運用する
 
 <Callout type="warn">
-この節は `scripts/test-ops.sh` とコードを読んで書きました。検証マシン(LocalStack の設置、セッションなし)で、`backup`、`restore-drill`、`reseed` を下のコマンドのまま実行し、すべて exit 0 で、`/readyz` が 200 を返すことを確認しました。ただしそのスタックは object が0個、checkpoint の行が0行だったため、object のアップロード経路と checkpoint の照合は使われていません。`backup --stop`、再起動、`reseed` を続けて行う手順、S3 オブジェクトストアの設置、TLS の reverse proxy は実行していません。それらの引数と動作は、スクリプトの引数処理とコードで確認しただけです。
+この節は `scripts/test-ops.sh` とコードを読んで書きました。検証マシン(LocalStack の設置)で、`backup`、`restore-drill`、`reseed` をそれぞれ実行しました。`backup` は exit 0 で、最後の `/readyz` の本文は ready でした。`restore-drill` は `--bucket` なしで呼び、`PASSED` と exit 0 でした。`reseed` は exit 0 で、`/readyz` は HTTP 200 を返しました。ただしそのスタックは object が0個、checkpoint の行が0行だったため、object のアップロード経路と checkpoint の照合は使われていません。`backup --stop`、再起動、`reseed` を続けて行う手順、S3 オブジェクトストアの設置、TLS の reverse proxy は実行していません。それらの引数と動作は、スクリプトの引数処理とコードで確認しただけです。
 </Callout>
 
 ### アクセス経路
@@ -269,14 +269,14 @@ API を内部 DNS 名で公開するには、前に reverse proxy を置きま�
 scripts/test-ops.sh backup
 ```
 
-`backup` は api、scheduler、reconciler、worker のコンテナを止め、DB と checkpoint object を `$TEST_OPS_STATE_DIR/backups/backup-<時刻>` にまとめ、止めたサービスをもう一度起動します。検証マシンでは DB のバックアップが作られて object 0個で終わり、exit 0 で、最後に `/readyz` が 200 でした。進行中のターンは切れ、reconciler が後で回収します。失敗したバックアップは `.failed`、強制終了で完了しなかったものは `.partial` として残り、どちらも成功分には数えません。サービスを再起動できないと、バックアップが成功してもコマンドは失敗で終わるので、`status` で確認します。
+`backup` は api、scheduler、reconciler、worker のコンテナを止め、DB と checkpoint object を `$TEST_OPS_STATE_DIR/backups/backup-<時刻>` にまとめ、止めたサービスをもう一度起動します。検証マシンでは DB のバックアップが作られて object 0個で終わり、exit 0 で、最後の `/readyz` の本文は ready でした。進行中のターンは切れ、reconciler が後で回収します。失敗したバックアップは `.failed`、強制終了で完了しなかったものは `.partial` として残り、どちらも成功分には数えません。サービスを再起動できないと、バックアップが成功してもコマンドは失敗で終わるので、`status` で確認します。
 
 - 頻度: 利用の少ない時間に1日1回、そしてすべてのアップグレードの直前に取ります。
 - 保管: ホストには直近14日、暗号化したホスト外の保管先には直近90日の成功分を置きます。バックアップには DB 全体と API key の hash が入っています。ディレクトリは `0700` にし、転送と保管を暗号化し、アクセスを最小にします。
 - 通知: コマンドが 0 以外で終わったとき、サービスを再起動できなかったとき、26時間新しい成功分がないときを失敗として扱います。
 - 復元訓練: 月に1回、そしてアップグレード後の最初のバックアップごとに行います。
 
-復元訓練は、バックアップを新しい project とそのオブジェクトストアに復元し、すべての checkpoint pointer を version 単位で照合します。LocalStack の設置では bucket なしで呼びます。S3 の設置では、訓練のたびに新しく作った空の bucket を `--bucket` で渡します。復元先が元の bucket であるか、空でない場合は拒否します。検証マシン(LocalStack、セッションなし)で `--bucket` なしで呼び、`restore-drill: PASSED` と exit 0 を確認し、訓練 project のコンテナ、volume、network は残りませんでした。そのスタックには checkpoint の行がなく、`nothing was compared` という警告が出ました。つまり checkpoint pointer を version 単位で照合する動作は確認していません。下の例は S3 の設置用なので `--bucket` を付けており、LocalStack では付けません。
+復元訓練は、バックアップを新しい project とそのオブジェクトストアに復元し、すべての checkpoint pointer を version 単位で照合します。LocalStack の設置では bucket なしで呼びます。S3 の設置では、訓練のたびに新しく作った空の bucket を `--bucket` で渡します。復元先が元の bucket であるか、空でない場合は拒否します。検証マシン(LocalStack)で `--bucket` なしで呼び、`restore-drill: PASSED` と exit 0 を確認し、訓練 project のコンテナ、volume、network は残りませんでした。そのスタックには checkpoint の行がなく、`nothing was compared` という警告が出ました。つまり checkpoint pointer を version 単位で照合する動作は確認していません。下の例は S3 の設置用なので `--bucket` を付けており、LocalStack では付けません。
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
@@ -298,7 +298,7 @@ sudo reboot
 scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
 ```
 
-`reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。`reseed` は名前と違い、再起動していないスタックでも bucket が空なら通り、空でない bucket は拒否します。object があるときの動作は確認していません。
+`reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。`reseed` は再起動していないスタックでも bucket が空なら通り、空でない bucket は拒否します。object があるときの動作は確認していません。
 
 再起動の後、スタックは自動では戻りません。検証マシン(OrbStack、Docker は起動時に自動開始)で再起動した後にコンテナを見ると、egress-proxy、reconciler、scheduler(`restart: unless-stopped`)だけが起動しており、postgres、api、localstack(restart ポリシーなし)は `Exited` でした。再起動の後は `scripts/test-ops.sh start` を自分で呼びます。このマシンでは `start` が exit 0 で終わり、`/readyz` が 200 を返し、再起動前の owner でログインでき、セッションの記録も残っていました。S3 の設置は再起動しても object が残るので、`start` だけで済みます。LocalStack の設置は `start` の後に bucket が空なので、未回収の checkpoint があるときは上の `reseed` が必要です。その場合は確認していません。
 
