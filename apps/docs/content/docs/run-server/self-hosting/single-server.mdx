@@ -96,6 +96,8 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 
 예시 파일에는 `EXECUTION_INSTALLATION_ID`(`test-ops`), `PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`), `EXECUTION_WORKSPACE_QUOTA`(`on`)가 이미 채워져 있다. 기본 LocalStack 설치라면 그대로 둔다. 비어 있으면 compose가 렌더를 거부한다.
 
+값을 터미널에 출력하거나 명령 인자로 넘기지 않는다. 무작위 값은 `openssl rand -hex 32`로 만들어 편집기에 붙인다.
+
 모델 키(`ANTHROPIC_API_KEY`)는 이 파일에 넣지 않는다. 서버를 띄운 뒤 [8단계](#8-모델-키-넣기)에서 웹 콘솔의 모델 연결 화면으로 넣는다. 키가 없어도 서버는 시작되고, 키를 넣기 전에는 모델을 부르는 세션이 시작되지 않는다. 키를 환경 변수로 넣으려면 [대안](#대안-모델-키를-환경-변수로-넣기)을 본다.
 
 설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 GitHub 저장소를 적는다. 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
