@@ -42,6 +42,31 @@ export type AttributionMismatch = {
   problems: AttributionProblem[];
 };
 
+/**
+ * The entry a worker writes for a checkpoint whose workspace commit is its
+ * own working-tree snapshot (the agent left tracked files uncommitted). It has
+ * no `problems` because nothing was judged: the snapshot carries the platform's
+ * checkpoint identity by design. The shape is one the manifest and refusal
+ * schemas already accept, so a control host that predates it reads the entry
+ * as an ordinary mismatch. Judging never produces an empty list, so the shape
+ * cannot be confused with a real finding.
+ */
+export function workingTreeSnapshotMismatch(
+  commit: string,
+): AttributionMismatch {
+  return { commit, problems: [] };
+}
+
+/** Whether `mismatches` says `commit` is a working-tree snapshot. */
+export function namesWorkingTreeSnapshot(
+  mismatches: readonly AttributionMismatch[],
+  commit: string,
+): boolean {
+  return mismatches.some(
+    (mismatch) => mismatch.commit === commit && mismatch.problems.length === 0,
+  );
+}
+
 /** At most this many commits are listed in a refusal's details. */
 export const MAX_REPORTED_MISMATCHES = 20;
 

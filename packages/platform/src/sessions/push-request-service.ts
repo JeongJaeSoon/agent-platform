@@ -9,6 +9,7 @@ import {
   pushBranchFor,
   type ReceiptActor,
 } from "@werft-ai/contracts";
+import { namesWorkingTreeSnapshot } from "@werft-ai/runtime-core";
 import type { PushSourceResult } from "../checkpoints/checkpoint-service.ts";
 import {
   type AuthorizationPolicy,
@@ -212,6 +213,14 @@ export function createPushRequestService(deps: {
       }
       // The worker's own look at the commits it holds; a checkpoint from a
       // worker that makes none passes here and meets the push's check.
+      if (
+        pinned.mismatches !== undefined &&
+        namesWorkingTreeSnapshot(pinned.mismatches, pinned.gitCommit)
+      ) {
+        // Before the real check: committing is the next step, and the turn's
+        // repair then handles whatever the commits need.
+        return refuse("uncommitted_changes", repository);
+      }
       if (pinned.mismatches !== undefined && pinned.mismatches.length > 0) {
         return refuse("attribution_mismatch", {
           ...repository,
