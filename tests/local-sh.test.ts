@@ -83,6 +83,7 @@ case "$*" in
   "ps -aq --filter label="*) echo "$STUB_WORKERS" ;;
   "network ls -q --filter label="*) echo "$STUB_NETWORKS" ;;
   "volume ls -q --filter label="*) echo "$STUB_VOLUMES" ;;
+  "volume ls -q --filter name="*) echo "$STUB_PG_VOLUME"; exit "\${STUB_VOLUME_LS_EXIT:-0}" ;;
   "context inspect --format "*) echo "$STUB_CONTEXT" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api bun run apps/control-host/src/api/demo-data.ts") exit "\${STUB_DATA_EXIT:-0}" ;;
   *" exec -T -e DEMO_ACCOUNTS=local api "*) exit "\${STUB_SEED_EXIT:-0}" ;;
@@ -113,6 +114,7 @@ echo '{"status":"ready"}'
         COMPOSE_FILE: "",
         ANTHROPIC_API_KEY: "",
         AGENT_PLATFORM_DOTENV: join(dir, "no.env"),
+        AGENT_PLATFORM_STATE_DIR: join(dir, "state"),
         STUB_API: "",
         STUB_OURS: "",
         STUB_PROXY: "",
@@ -123,6 +125,7 @@ echo '{"status":"ready"}'
         STUB_WORKERS: "",
         STUB_NETWORKS: "",
         STUB_VOLUMES: "",
+        STUB_PG_VOLUME: "",
         LOCAL_DEMO_ACCOUNTS: "",
         ...env,
       },
@@ -545,6 +548,88 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
       AGENT_PLATFORM_DOTENV: dotenv,
     });
     expect(await stat(given).catch(() => null)).toBeNull();
+  });
+
+  describe("a project whose database volume exists but whose key file does not", () => {
+    const keyEnv = () => {
+      const state = join(dir, "lost-key-state");
+      return {
+        state,
+        env: {
+          AGENT_PLATFORM_STATE_DIR: state,
+          COMPOSE_PROJECT_NAME: "ap-lost",
+          PLATFORM_SECRET_KEY: "",
+          STUB_API: "127.0.0.1:43123",
+        },
+      };
+    };
+
+    test.each(["up", "dev", "reset"])(
+      "%s makes no key and starts nothing",
+      async (command) => {
+        await writeFile(config, rendered("local"));
+        const { state, env } = keyEnv();
+        const result = await run([command, "--fake-model"], {
+          ...env,
+          STUB_PG_VOLUME: "ap-lost_postgres-data",
+        });
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "the volume ap-lost_postgres-data exists",
+        );
+        expect(result.stderr).toContain("nothing was started");
+        expect(await stat(state).catch(() => null)).toBeNull();
+        // reset must stop before its down deletes the volume.
+        const docker = await calls("docker-calls");
+        expect(docker).toEqual([
+          "volume ls -q --filter name=^ap-lost_postgres-data$",
+        ]);
+      },
+    );
+
+    test("an existing key file or a given key goes on, and the default project is werft", async () => {
+      await writeFile(config, rendered("local"));
+      const { state, env } = keyEnv();
+      await mkdir(state, { recursive: true });
+      await writeFile(join(state, "ap-lost.secret-key"), `${"3".repeat(64)}\n`);
+      const withFile = await run(["up", "--fake-model"], {
+        ...env,
+        STUB_PG_VOLUME: "ap-lost_postgres-data",
+      });
+      expect(withFile.exitCode).toBe(0);
+
+      const given = await run(["up", "--fake-model"], {
+        ...env,
+        COMPOSE_PROJECT_NAME: "ap-other",
+        PLATFORM_SECRET_KEY: "4".repeat(64),
+        STUB_PG_VOLUME: "ap-other_postgres-data",
+      });
+      expect(given.exitCode).toBe(0);
+
+      const fresh = await run(["up", "--fake-model"], {
+        ...env,
+        COMPOSE_PROJECT_NAME: "",
+      });
+      expect(fresh.exitCode).toBe(0);
+      expect(await readFile(join(state, "werft.secret-key"), "utf8")).toMatch(
+        /^[0-9a-f]{64}\n$/,
+      );
+      expect(await calls("docker-calls")).toContain(
+        "volume ls -q --filter name=^werft_postgres-data$",
+      );
+    });
+
+    test("a volume listing that fails makes no key", async () => {
+      await writeFile(config, rendered("local"));
+      const { state, env } = keyEnv();
+      const result = await run(["up", "--fake-model"], {
+        ...env,
+        STUB_VOLUME_LS_EXIT: "1",
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("cannot check for the volume");
+      expect(await stat(state).catch(() => null)).toBeNull();
+    });
   });
 
   test("up refuses a rendered port another listener holds, not one its stack does", async () => {

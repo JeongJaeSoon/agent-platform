@@ -23,7 +23,7 @@
 # and agent-platform.dev/preview-up-at (when `up` last started).
 #
 #   PREVIEW_HOME       checkouts and up.sh state, outside any git worktree
-#                      (default ~/.cache/agent-platform/preview)
+#                      (default ~/.cache/werft/preview)
 #   PREVIEW_DOMAIN     the hosts' parent domain (default preview.94soon.dev)
 #   PREVIEW_MEMORY_MI  what one preview needs from the node's unrequested
 #                      memory before `up` installs it (default 2560: the
@@ -35,7 +35,7 @@
 #                      (default 24)
 set -euo pipefail
 
-PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/preview}"
+PREVIEW_HOME="${PREVIEW_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/preview}"
 PREVIEW_DOMAIN="${PREVIEW_DOMAIN:-preview.94soon.dev}"
 PREVIEW_MEMORY_MI="${PREVIEW_MEMORY_MI:-2560}"
 PREVIEW_TTL_HOURS="${PREVIEW_TTL_HOURS:-24}"
