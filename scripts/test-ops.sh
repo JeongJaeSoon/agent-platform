@@ -702,8 +702,6 @@ reset() {
   render
   check_identity
   installation="$(rendered scheduler EXECUTION_INSTALLATION_ID)"
-  # The workspace volumes' label prefix is what the scheduler renders; an
-  # install that sets another one is found by that value, and by no other.
   volume_namespace="$(rendered scheduler EXECUTION_VOLUME_LABEL_NAMESPACE)"
   log "reset: deleting project $PROJECT (installation $installation) and ALL its data"
   ops_compose down -v --remove-orphans

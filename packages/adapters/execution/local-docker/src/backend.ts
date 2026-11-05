@@ -304,7 +304,6 @@ export function workspaceVolumePrefixFor(
   return `${config.volumeNamePrefix}${config.installationId}-${sessionId}-`;
 }
 
-/** What names and labels a workspace volume: all of it the install's choice. */
 export type VolumeNaming = Pick<
   LocalDockerBackendConfig,
   "installationId" | "volumeLabelNamespace" | "volumeNamePrefix"

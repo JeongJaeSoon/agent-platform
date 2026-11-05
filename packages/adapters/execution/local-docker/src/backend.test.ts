@@ -862,7 +862,6 @@ function configFor(host: string): LocalDockerBackendConfig {
   };
 }
 
-/** What names a workspace volume, at the defaults a fresh install runs with. */
 function naming(installationId: string) {
   return {
     installationId,
@@ -3897,8 +3896,6 @@ describe("LocalDockerBackend workspace GC", () => {
 });
 
 describe("LocalDockerBackend volume naming settings", () => {
-  // Names an install may carry from before the defaults changed; the code
-  // knows no such name, only what the two settings hold.
   const OTHER = {
     volumeLabelNamespace: "other-ns",
     volumeNamePrefix: "other-ws-",

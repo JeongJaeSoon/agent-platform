@@ -668,14 +668,12 @@ describe("workspaces", () => {
     await backendFor("other-ws-").ensureExecution(intent);
     expect(await names()).toEqual([other]);
 
-    // Another prefix does not see the claim, so the session gets a new one.
     await backendFor("werft-ws-").ensureExecution({
       ...intent,
       executionId: "exec-2",
     });
     expect(await names()).toEqual([other, own].sort());
 
-    // The same prefix finds its claim again instead of making another.
     await backendFor("other-ws-").ensureExecution({
       ...intent,
       executionId: "exec-3",

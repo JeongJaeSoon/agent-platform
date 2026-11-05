@@ -235,8 +235,6 @@ echo "turn 1: ${turn}"
 [ -n "${pod_listing:-}" ] || fail "no Pod labelled ${workers} ran the session"
 echo "worker Pod the scheduler launched:"
 echo "$pod_listing"
-# The claim the backend looks up by a derived name is the one the Pod mounts,
-# and it carries the labels the NetworkPolicy and the log-read check select on.
 [ "${mounted:-}" = "werft-ws-${installation}-${sid}" ] ||
   fail "the Pod mounts claim '${mounted:-}', not werft-ws-${installation}-${sid}"
 k get pvc "$mounted" -o json |

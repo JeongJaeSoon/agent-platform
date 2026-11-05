@@ -825,8 +825,6 @@ const corruptFallback: Campaign = {
     );
     const running = await worker(ctx, first.sessionId);
     await docker(["stop", "-t", "120", running.name]);
-    // The scheduler's own setting: volumes made under another prefix are
-    // only found by naming that prefix.
     const volumeLabelNamespace =
       process.env.EXECUTION_VOLUME_LABEL_NAMESPACE || "werft";
     const volumes = (
