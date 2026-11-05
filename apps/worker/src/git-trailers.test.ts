@@ -612,6 +612,48 @@ describe("werft-trailers.sh sourced on its own", () => {
     expect(text).toContain(`Agent-Session: ${SESSION_URL}`);
   });
 
+  test("werft_fix_message keeps a last paragraph git does not read as trailers", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    const body =
+      "Subject\n\nThis is an example, not metadata.\nAgent-Session: user-written-example\n  keep this explanation\n";
+    writeFileSync(file, body);
+    expect(fix(file).exitCode).toBe(0);
+    expect(readFileSync(file, "utf8").startsWith(body)).toBe(true);
+  });
+
+  test("werft_fix_message settles a wrong session line before a trailing blank line in one run", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    writeFileSync(file, "Subject\n\nAgent-Session: other\n\n");
+    expect(fix(file).exitCode).toBe(0);
+    const once = readFileSync(file, "utf8");
+    // What git reads as trailers after the first run, as the push check does.
+    const parse = (text: string) =>
+      Bun.spawnSync(["git", "interpret-trailers", "--parse", "--no-divider"], {
+        stdin: new TextEncoder().encode(text),
+      })
+        .stdout.toString()
+        .split("\n")
+        .filter((line) => /^agent-session:/i.test(line));
+    expect(parse(once)).toEqual([`Agent-Session: ${SESSION_URL}`]);
+    expect(fix(file).exitCode).toBe(0);
+    expect(parse(readFileSync(file, "utf8"))).toEqual([
+      `Agent-Session: ${SESSION_URL}`,
+    ]);
+  });
+
+  test("werft_fix_message strips an engine line folded in a CRLF message", async () => {
+    await writeGitTrailers(home, claim(LINKED));
+    const file = join(root, "message");
+    writeFileSync(
+      file,
+      "Subject\r\n\r\nCo-authored-by: Claude <noreply@anthropic.com>\r\n \r\nSigned-off-by: A <a@x.test>\r\n",
+    );
+    expect(fix(file).exitCode).toBe(0);
+    expect(readFileSync(file, "utf8")).not.toContain("anthropic");
+  });
+
   test("werft_fix_message strips the engine line and adds the trailers once", async () => {
     await writeGitTrailers(home, claim(LINKED));
     const file = join(root, "message");
