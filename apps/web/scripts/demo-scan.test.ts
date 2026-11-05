@@ -4,6 +4,7 @@ import {
   checkIgnores,
   describeFinding,
   FIXTURES_PATH,
+  type Finding,
   scanFixtures,
   withFixtureIgnores,
 } from "./demo-scan.ts";
@@ -39,6 +40,50 @@ describe("demo fixture scan", () => {
       "private address",
       "home path",
     ]);
+  });
+
+  test("the former product name is caught in any spelling and position, and reported by position only", () => {
+    const old = [
+      "agent-platform",
+      "agent_platform",
+      "agentplatform",
+      "agent platform",
+      "Agent Platform",
+    ];
+    const cased = old.flatMap((name) => [name, name.toUpperCase()]);
+    for (const name of cased) {
+      expect(scan({ secret_id: `${name}/default` }), name).toEqual([
+        "former product name",
+      ]);
+      expect(scan({ [`${name}_key`]: 1 }), name).toEqual([
+        "former product name",
+      ]);
+      expect(scan({ v: `x%2F${encodeURIComponent(name)}` }), name).toEqual([
+        "former product name",
+      ]);
+    }
+    const [finding] = scanFixtures({
+      responses: { "/v1/x": { json: { secret_id: "agent-platform/default" } } },
+    });
+    expect(describeFinding(finding as Finding)).toBe(
+      "former product name: 14 chars (answer 0)",
+    );
+    for (const value of [
+      "agent.platform",
+      "agent  platform",
+      "agent%20%20platform",
+      "Agent - Platform",
+      "agent\nplatform",
+      "?q=agent+platform",
+      "agent platform",
+      encodeURIComponent("agent platform"),
+      "agent%C2%A0platform",
+      "agent%E2%80%83platform%zz",
+    ])
+      expect(scan({ value }), value).toEqual(["former product name"]);
+    expect(scan({ title: "Werft", note: "a platform for agents" })).toEqual([]);
+    // Decoded, this reads "platform agent": no stage holds the name.
+    expect(scan({ value: "\\u0070latform agent" })).toEqual([]);
   });
 
   const catalog = (json: unknown) =>
