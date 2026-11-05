@@ -126,10 +126,11 @@ export interface PullRequestStore {
   /**
    * Holds `content` for a pull request that cannot be opened yet, in one
    * transaction that takes the session row, then the intent, then the push
-   * request. `create`, `finish` and the drain's claim and settle take
-   * the session first too; only `claimNextApproved` locks a request row alone,
-   * and it never asks for the session after it, so a new writer must not take
-   * a session lock while holding a request row. The first content stays: a second
+   * request. `create`, `finish` and the drain's settle take the session
+   * first too. `claimNextApproved` and the drain's claim lock a request row
+   * alone; the claim takes the session after it only to fail an invalid
+   * intent, and then with SKIP LOCKED, never waiting. A new writer must not
+   * wait for a session lock while holding a request row. The first content stays: a second
    * call answers `scheduled` and changes nothing, and no call moves a
    * finished stage back. An already `pushed` request with no stage becomes
    * `due` here. A later request to the same repository and target refuses
