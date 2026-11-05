@@ -8,6 +8,7 @@ const OPERATE = [
   "capacity",
   "configuration",
   "database",
+  "kubernetes-deployment",
   "kubernetes-backend",
   "metrics",
   "sdk-sample",

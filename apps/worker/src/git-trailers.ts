@@ -1,6 +1,10 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ClaimGit, ClaimGitAuthor } from "@werft-ai/contracts";
+import {
+  type ClaimGit,
+  type ClaimGitAuthor,
+  IMAGE_GIT_AUTHOR,
+} from "@werft-ai/contracts";
 import {
   type GitEnvironment,
   type GitEnvironmentKey,
@@ -23,10 +27,7 @@ export const GIT_STRIP_PATH = ".werft/git-strip";
 // (apps/worker/Dockerfile); absent outside the image.
 export const IMAGE_GIT_HOOKS = "/usr/local/share/werft/git-hooks";
 // The image's default author and committer (apps/worker/Dockerfile).
-export const IMAGE_GIT_AUTHOR = {
-  name: "Werft",
-  email: "noreply@werft.invalid",
-} as const;
+export { IMAGE_GIT_AUTHOR };
 
 const UNSAFE = /[\r\n\0]/;
 const BOT_NAME = /^[a-z0-9][a-z0-9-]*\[bot\]$/;

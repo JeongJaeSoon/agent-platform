@@ -8,7 +8,7 @@ test-ops 설치에서는 이 스크립트들을 직접 부르지 않는다. `scr
 
 ## Kubernetes 설치
 
-[Kubernetes 설치](kubernetes-deployment.md)에서는 이 문서의 세 스크립트를 쓰지 않는다. 스크립트는 compose project의 PostgreSQL·로컬 S3 컨테이너를 전제로 한다. 대신 AWS 기능이 같은 일을 한다.
+[Kubernetes 설치](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/)에서는 이 문서의 세 스크립트를 쓰지 않는다. 스크립트는 compose project의 PostgreSQL·로컬 S3 컨테이너를 전제로 한다. 대신 AWS 기능이 같은 일을 한다.
 
 - **DB**: RDS 자동 백업(point-in-time 복원)과 수동 스냅샷.
 - **checkpoint object**: S3 versioning과 Object Lock. 커밋된 checkpoint는 version으로 고정되고 legal hold가 걸려 있어(`locked`, 아래 "checkpoint 객체의 version" 절), 같은 key를 덮어쓰거나 지워도 그 version은 남는다. 복원은 bucket을 복사하지 않고 같은 bucket의 version을 그대로 가리킨다.

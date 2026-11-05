@@ -1,5 +1,5 @@
 {
-  "id": "3cad0334-90d7-40f3-9ba3-d5c12e3a30cb",
+  "id": "6667e092-82eb-4bdd-a989-44ddb61a1cb2",
   "prevId": "2c29ada5-d2e8-4e73-967f-672a920bfcdd",
   "version": "7",
   "dialect": "postgresql",
@@ -1265,7 +1265,7 @@
       "checkConstraints": {
         "agent_github_settings_repositories_check": {
           "name": "agent_github_settings_repositories_check",
-          "value": "jsonb_typeof(\"agent_github_settings\".\"repositories\") = 'array'"
+          "value": "jsonb_typeof(\"agent_github_settings\".\"repositories\") = 'array' AND jsonb_array_length(\"agent_github_settings\".\"repositories\") <= 32"
         },
         "agent_github_settings_start_check": {
           "name": "agent_github_settings_start_check",
@@ -8327,6 +8327,88 @@
       },
       "isRLSEnabled": false
     },
+    "public.session_commit_attributions": {
+      "name": "session_commit_attributions",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_name": {
+          "name": "author_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_email": {
+          "name": "author_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "co_author_name": {
+          "name": "co_author_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "co_author_email": {
+          "name": "co_author_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_session": {
+          "name": "agent_session",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_commit_attributions_session_id_sessions_id_fk": {
+          "name": "session_commit_attributions_session_id_sessions_id_fk",
+          "tableFrom": "session_commit_attributions",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "session_commit_attributions_pk": {
+          "name": "session_commit_attributions_pk",
+          "columns": ["session_id", "digest"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "session_commit_attributions_co_author_check": {
+          "name": "session_commit_attributions_co_author_check",
+          "value": "(\"session_commit_attributions\".\"co_author_name\" IS NULL) = (\"session_commit_attributions\".\"co_author_email\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.session_event_archives": {
       "name": "session_event_archives",
       "schema": "",
@@ -9889,12 +9971,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'release'"
-        },
-        "github_policy_start": {
-          "name": "github_policy_start",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {

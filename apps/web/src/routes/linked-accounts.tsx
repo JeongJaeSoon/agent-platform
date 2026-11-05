@@ -223,7 +223,7 @@ export function LinkedAccountsScreen() {
   return (
     <Page title={t("linked.title")} description={t("linked.intro")}>
       <OutcomeLine outcome={outcome} live />
-      <RowList ref={listRef} variant="joined">
+      <RowList ref={listRef} variant="joined" framed={false}>
         <GitHubService
           accounts={accounts.isSuccess ? githubLive : undefined}
           unlinking={unlink.isPending ? unlink.variables?.id : undefined}

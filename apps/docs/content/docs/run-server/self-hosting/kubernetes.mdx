@@ -97,13 +97,13 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
 kill "$PF"
 ```
 
-`{"status":"ready",…}`와 `200`이 나오면 설치가 된 것이다. `/docs`도 200이다. 사용자에게는 Ingress로 내보낸다. `ingress.enabled: true`와 controller별 설정은 [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#aws-값-넣기)에 있다.
+`{"status":"ready",…}`와 `200`이 나오면 설치가 된 것이다. `/docs`도 200이다. 사용자에게는 Ingress로 내보낸다. `ingress.enabled: true`와 controller별 설정은 [Kubernetes 설치 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#aws-값-넣기)에 있다.
 
 ## 6. 첫 owner와 API key
 
 웹 콘솔 `/bootstrap`에서 첫 owner와 workspace를 만든다. api Pod가 기동할 때 토큰을 만들어 로그에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다. 첫 owner가 생길 때까지 로그를 읽는 사람은 누구나 bootstrap할 수 있으므로 로그를 읽는 사람은 운영자로 제한한다.
 
-API key는 api Pod 안에서 발급한다. 아래 `kubectl exec` 형식은 checkout이 필요 없다. `bun run keys:k8s`로 줄여 쓰는 방법은 [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#api-key-실행-권한-설정-문서)에 있다.
+API key는 api Pod 안에서 발급한다. 아래 `kubectl exec` 형식은 checkout이 필요 없다. `bun run keys:k8s`로 줄여 쓰는 방법은 [Kubernetes 설치 (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-key-실행-권한-설정-문서)에 있다.
 
 ```bash
 kubectl -n werft exec deploy/werft-api -c api -- \
@@ -159,7 +159,7 @@ helm -n werft uninstall werft
 
 ## 다음 단계
 
-- [Kubernetes 설치 (Helm chart) 전체](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md): AWS 값, 웹 콘솔 Ingress, 업그레이드 전 검사
+- [Kubernetes 설치 (Helm chart) 전체](/run-server/self-hosting/operate/kubernetes-deployment): AWS 값, 웹 콘솔 Ingress, 업그레이드 전 검사
 - [Kubernetes 실행 backend](/run-server/self-hosting/operate/kubernetes-backend)
 - [용량 관리](/run-server/self-hosting/operate/capacity)
 - [설정 레퍼런스](/run-server/self-hosting/operate/configuration)

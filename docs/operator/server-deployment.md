@@ -6,7 +6,7 @@
 
 ## 배포 결정
 
-- 대상은 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
+- 대상은 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/)에 있다.
 - provider key는 운영자 key 하나를 공유한다. 사용자별 API key의 owner가 세션 owner이며, 사용자마다 별도 owner와 API key를 발급한다.
 - object store는 전용 AWS S3 bucket이다. 같은 호스트의 LocalStack은 재부팅 때 object를 잃으므로 실서버의 지속성 근거로 쓰지 않는다.
 - 기본 접근은 loopback bind와 SSH tunnel이다. reverse proxy는 TLS와 VPN 또는 IP allowlist가 모두 준비된 때만 선택한다.

@@ -475,6 +475,45 @@
   }
   out.lines = lines;
 
+  const structuralFrames = [
+    ...root.querySelectorAll(
+      "section,form,fieldset,ul,ol,table,[role=table],[data-slot=card],[data-slot=alert],div",
+    ),
+  ].filter((el) => {
+    if (
+      hidden(el) ||
+      el.closest(
+        "button,a,[role=combobox],[role=radio],[role=checkbox],[role=switch],[data-slot=input-group],[data-slot=combobox]",
+      )
+    )
+      return false;
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    return (
+      box.width >= 120 &&
+      box.height >= 24 &&
+      ["Top", "Right", "Bottom", "Left"].every(
+        (side) =>
+          parseFloat(style[`border${side}Width`]) > 0 &&
+          !transparent(style[`border${side}Color`]),
+      )
+    );
+  });
+  out.structuralFrames = structuralFrames.map((el) => {
+    const ancestor = structuralFrames.find(
+      (parent) => parent !== el && parent.contains(el),
+    );
+    return {
+      el: name(el),
+      ...rect(el),
+      framedAncestor: ancestor ? name(ancestor) : null,
+    };
+  });
+  out.structuralFrameCount = structuralFrames.length;
+  out.nestedStructuralFrameCount = out.structuralFrames.filter(
+    (frame) => frame.framedAncestor !== null,
+  ).length;
+
   // (d) card insides: padding, what the eye sees as the inset, the right button.
   // A list card (no padding of its own, rows stacked) is read row by row.
   const inside = (el) => {

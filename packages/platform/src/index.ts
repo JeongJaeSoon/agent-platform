@@ -77,6 +77,7 @@ export * from "./ports/push-requests.ts";
 export * from "./ports/repository-attachments.ts";
 export * from "./ports/scheduler-store.ts";
 export * from "./ports/secret-store.ts";
+export * from "./ports/commit-attributions.ts";
 export * from "./ports/session-attribution.ts";
 export * from "./ports/session-control.ts";
 export * from "./ports/session-link-store.ts";

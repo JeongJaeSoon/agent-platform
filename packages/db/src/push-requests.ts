@@ -828,6 +828,9 @@ export function createPostgresPushRequests(
             approved_by: (row.decidedBy as PushDecider | null) ?? null,
             reason_code:
               outcome.state === "failed" ? (outcome.reasonCode ?? null) : null,
+            ...(outcome.state === "failed" && outcome.mismatches !== undefined
+              ? { mismatches: outcome.mismatches }
+              : {}),
             policy_source: githubPolicySourceOf(session?.githubPolicySource),
             agent_settings_revision: row.approvalSettingsRevision,
           } satisfies PushReceiptResult,
