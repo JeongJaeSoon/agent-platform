@@ -41,8 +41,10 @@ const RULES: readonly (readonly [string, RegExp])[] = [
   ["machine name", /\b(?:jaesoon|94soon|soons?-mac[\w-]*|wjdwotns\w*)\b/gi],
   ["home path", /\/(?:Users|home)\/[\w.-]+/g],
   // The product's former name: stack defaults such as secret names still carry
-  // it into a recording. A stopgap until the full rename.
-  ["former product name", /agent[-_.\s]*platform/gi],
+  // it into a recording. A stopgap until the full rename. Any run of
+  // non-alphanumerics may separate the words: `+` and UTF-8 spaces decode to
+  // different characters in different stages, so a list of separators loses.
+  ["former product name", /agent[^a-z0-9]*platform/gi],
 ];
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
