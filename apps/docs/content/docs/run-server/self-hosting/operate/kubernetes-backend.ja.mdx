@@ -21,7 +21,7 @@ kubernetesモードでだけ読む設定は次のとおりです。
 | 変数 | 意味 |
 | --- | --- |
 | `EXECUTION_K8S_NAMESPACE` | worker Pod・Secret・PVCを置くnamespace。既定はschedulerと同じnamespaceです。クラスターの外で動かすときは必ず指定します。 |
-| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | worker PodのServiceAccount。tokenは常にはマウントしません。 |
+| `EXECUTION_K8S_WORKER_SERVICE_ACCOUNT` | worker PodのServiceAccount。tokenはマウントしません。 |
 | `EXECUTION_K8S_STORAGE_CLASS` | workspace PVCのStorageClass。空ならクラスターの既定を使います。 |
 | `EXECUTION_K8S_IMAGE_PULL_SECRETS` | 任意。カンマ区切りのSecret名。 |
 | `EXECUTION_K8S_WORKER_NODE_SELECTOR` | 任意。JSON object。 |
