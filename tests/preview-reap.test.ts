@@ -47,9 +47,13 @@ case "$*" in
   "get namespaces -o json") cat "${dir}/namespaces.json" ;;
   "get namespace "*" -o json")
     # STUB_CURRENT_UP_AT is an \`up\` that ran after reap read the list.
+    # STUB_CURRENT_WERFT_UP_AT is the same \`up\`, recorded under the new key.
     if [ -n "\${STUB_CURRENT_UP_AT+set}" ]; then
       jq --arg ns "$3" --arg at "$STUB_CURRENT_UP_AT" '.items[] | select(.metadata.name == $ns)
         | .metadata.annotations["agent-platform.dev/preview-up-at"] = $at' "${dir}/namespaces.json"
+    elif [ -n "\${STUB_CURRENT_WERFT_UP_AT+set}" ]; then
+      jq --arg ns "$3" --arg at "$STUB_CURRENT_WERFT_UP_AT" '.items[] | select(.metadata.name == $ns)
+        | .metadata.annotations["werft.dev/preview-up-at"] = $at' "${dir}/namespaces.json"
     else
       jq --arg ns "$3" '.items[] | select(.metadata.name == $ns)' "${dir}/namespaces.json"
     fi ;;
@@ -407,6 +411,16 @@ exit 1
     expect(result.stderr).toContain("pr-13: up again at ");
     expect(result.stdout).toContain("pr-13: kept, see above");
     expect(result.stdout).toContain("reap deleted: none\n");
+  });
+
+  test("keeps a preview brought up again under the new up-at key", async () => {
+    const result = await reap(
+      [{ name: "pr-30", upAt: hoursAgo(30), labels: NEW_LABEL }],
+      { STUB_CURRENT_WERFT_UP_AT: hoursAgo(0) },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual([]);
+    expect(result.stderr).toContain("pr-30: up again at ");
   });
 
   test("keeps a preview another up or down holds", async () => {
