@@ -359,8 +359,8 @@ integration("postgres pull request drain", () => {
     );
   });
 
-  test("a session someone else holds does not stall a younger request in another session", async () => {
-    const older = await due();
+  test("a failed intent whose session someone else holds is left alone, and does not stall a younger request", async () => {
+    const older = await due({ title: 42 });
     const younger = await due();
     const holder = await pool.connect();
     try {
@@ -376,11 +376,18 @@ integration("postgres pull request drain", () => {
       ]);
       expect(claimed).not.toBe("stalled");
       expect(claimed).toMatchObject({ id: younger.id });
+      // Untouched: the session was busy, so it is failed on a later claim.
       expect((await row(older.id))?.prState).toBe("due");
     } finally {
       await holder.query("ROLLBACK");
       holder.release();
     }
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    expect((await row(older.id))?.prError).toBe("intent_invalid");
+    await db
+      .update(pushRequests)
+      .set({ prState: "cancelled", prClaimToken: null })
+      .where(eq(pushRequests.id, younger.id));
   });
 
   test("a legacy request with an invalid intent is failed without a notice", async () => {
