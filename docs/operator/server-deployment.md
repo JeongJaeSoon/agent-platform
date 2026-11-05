@@ -61,6 +61,8 @@ server {
 }
 ```
 
+같은 서버에서 시험 요청을 보내려면 `allow 127.0.0.1;`을 더한다. 사설 CA를 쓰면 클라이언트가 그 CA를 믿어야 한다. `curl`은 `--cacert`로 CA 인증서를 넘기고 `-k`는 쓰지 않으며, 믿지 않는 브라우저는 `NET::ERR_CERT_AUTHORITY_INVALID`로 막힌다. 단일 서버에서 이 구성을 확인한 범위는 공개 문서 "단일 서버"의 "접근 경로"에 있다.
+
 SSE는 연결을 오래 유지하므로 buffering을 끄고 read timeout을 짧게 두지 않는다. 어떤 경로를 택해도 PostgreSQL과 Docker socket은 proxy 또는 방화벽에 노출하지 않는다.
 
 ## 3. 전용 S3를 준비한다

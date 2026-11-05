@@ -14,6 +14,8 @@ GitHub との間でやることは三つある。セッション開始時にリ�
 - **リポジトリを管理**: エージェントが選んだリポジトリをインストールごとに見て、デフォルトブランチとそのリポジトリを担当する App を変える。リポジトリはエージェントの GitHub タブで選ぶとでき、別に登録はしない。
 - **エージェントが使える機能**: ワークスペース全体の上限である。スイッチを変えるとすぐに保存される。有効にした機能に App の権限が足りないと、その App の行に必要な権限と **GitHub で権限を追加** が出る。権限を追加すると GitHub がインストール先のアカウントごとに owner へ承認を依頼し、再インストールは要らない。
 
+コンソールで新しい App を作るには、API に `CONSOLE_ORIGIN`(ブラウザがコンソールを開く origin。例: `https://werft.internal.example`)が必要です。GitHub が App を作った後、このアドレスにブラウザを戻すためです。ないと **GitHub App を作成** の **GitHub で作成** ボタンが無効になり、`CONSOLE_ORIGIN が設定されていない` という案内が出ます。運用者に値の設定を頼むか、**既存の App を接続** を使います。単一サーバーでは env ファイルに入れて `upgrade` で再適用します([単一サーバー](/run-server/self-hosting/single-server))。GitHub が passkey の確認(sudo mode)を求めたときは、その画面で App が作られず、空の App フォームに移ることがあります。確認を済ませてコンソールに戻り、**GitHub で作成** をもう一度押します。
+
 | 方式 | 必要な権限 |
 | --- | --- |
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
