@@ -80,12 +80,12 @@ bun install --frozen-lockfile
 비밀 값은 저장소 밖의 env 파일에만 둔다. 파일은 운영자만 읽을 수 있어야 한다. group이나 other에 권한이 있으면 스크립트가 거부한다.
 
 ```bash
-sudo mkdir -p /etc/agent-platform
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
-sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-`/etc/agent-platform/test-ops.env`를 편집기로 열어 다음을 채운다. `sed -i`처럼 임시 파일을 만드는 도구는 `/etc/agent-platform`에서 `Permission denied`로 실패하니 제자리에 쓰는 편집기를 쓴다.
+`/etc/werft/test-ops.env`를 편집기로 열어 다음을 채운다. `sed -i`처럼 임시 파일을 만드는 도구는 `/etc/werft`에서 `Permission denied`로 실패하니 제자리에 쓰는 편집기를 쓴다.
 
 | 변수 | 값 |
 | --- | --- |
@@ -95,16 +95,16 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 | `ANTHROPIC_API_KEY` | 세션이 쓸 Anthropic key. API 컨테이너에만 간다 |
 | `BOOTSTRAP_TOKEN` | 주석을 풀고 32~256자 무작위 값을 넣는다. 첫 owner를 만드는 토큰이다. 넣지 않으면 API가 만들어 컨테이너 로그에 출력한다 |
 
-예시 파일에는 `EXECUTION_INSTALLATION_ID`(`test-ops`), `PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`), `EXECUTION_WORKSPACE_QUOTA`(`on`)가 이미 채워져 있다. 기본 LocalStack 설치라면 그대로 둔다. 비어 있으면 compose가 렌더를 거부한다.
+예시 파일에는 `EXECUTION_INSTALLATION_ID`(`test-ops`), `PLATFORM_SETTINGS_DOCUMENT`(`/etc/werft/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`), `EXECUTION_WORKSPACE_QUOTA`(`on`)가 이미 채워져 있다. 기본 LocalStack 설치라면 그대로 둔다. 비어 있으면 compose가 렌더를 거부한다.
 
 값을 터미널에 출력하거나 명령 인자로 넘기지 않는다. 무작위 값은 `openssl rand -hex 32`로 만들어 편집기에 붙인다.
 
-설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
+설정 문서는 `/etc/werft/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
 
 migrate 컨테이너가 읽어야 하므로 파일은 `0644`로 둔다. 빈 파일을 먼저 만들고 편집기로 아래 내용을 채운다.
 
 ```bash
-sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```
 
 ```json
@@ -147,7 +147,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 내용을 채웠으면 파일의 digest를 구한다.
 
 ```bash
-bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 ```
 
 ## 4. release 파일 만들기
@@ -155,7 +155,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.jso
 `release.json`은 설치할 commit, 세 이미지의 digest, 설정 문서의 digest를 적는다. 태그만 적은 이미지는 거부된다. 1단계의 `TAG`가 남아 있는 셸에서 실행한다.
 
 ```bash
-SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
 digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
 jq -n \
   --arg commit "$(git rev-parse HEAD)" \
@@ -181,7 +181,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy`는 migrate를 돌리고 api, scheduler, reconciler를 띄운 뒤 healthcheck를 기다린다. LocalStack은 호스트나 Docker가 재시작되면 checkpoint를 잃고, 재시작 뒤 API가 기동을 거부할 수 있다(복구는 [재부팅](#재부팅)의 `reseed` 또는 `reset`). 시험용으로만 쓴다.
 
-첫 `deploy`가 실패하면 `reset`으로 지울 수 없다. 원인을 고친 뒤 이 project(`agent-platform-test-ops`)의 컨테이너, volume, network를 직접 지우고 다시 `deploy`한다.
+첫 `deploy`가 실패하면 `reset`으로 지울 수 없다. 원인을 고친 뒤 이 project(`werft-test-ops`)의 컨테이너, volume, network를 직접 지우고 다시 `deploy`한다.
 
 ## 6. 확인하기
 
@@ -239,7 +239,7 @@ scripts/test-ops.sh start
 
 env 파일의 값을 바꾼 설치에는 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. `CONSOLE_ORIGIN`을 넣고 이 명령으로 적용하자 api 컨테이너가 다시 만들어지고 `/readyz`가 ready였다. `start`가 바뀐 env 값을 읽는지는 확인하지 못했다.
 
-남는 것은 DB volume이다. LocalStack은 volume 없이 메모리에 저장하므로, 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. DB에 미수거 checkpoint가 남아 있는데 bucket이 비어 있으면 API가 시작을 거부하고, 그때는 [재부팅](#재부팅)의 `reseed`나 `reset`이다. 데이터를 지키려면 S3로 설치한다. 이 명령들은 LocalStack 설치에서 세션이 실패한 채 끝난 뒤(미수거 checkpoint 없음)의 상태로만 확인했다. `stop`을 거치지 않고 손으로 `compose down`한 설치를 `start`로 올린 것, 그리고 재부팅 뒤 `start`로 올린 것은 실행해 확인했다. 두 경우 모두 `/readyz`가 200이었고 owner 로그인이 됐다. 미수거 checkpoint가 있는 LocalStack 설치를 `start`한 경우는 확인하지 못했다.
+남는 것은 DB volume이다. LocalStack은 volume 없이 메모리에 저장하므로, 컨테이너를 내리면 `-v`가 없어도 checkpoint object가 사라진다. DB에 미수거 checkpoint가 남아 있는데 bucket이 비어 있으면 API가 시작을 거부하고, 그때는 [재부팅](#재부팅)의 `reseed`나 `reset`이다. 데이터를 지키려면 S3로 설치한다. 이 명령들은 LocalStack 설치에서 세션이 실패한 채 끝난 뒤(미수거 checkpoint 없음)의 상태로만 확인했다. `stop`으로 내린 설치를 `start`로 올린 것도 실행해 확인했다. `stop` 뒤 컨테이너와 network가 0개, volume은 그대로였고, `start`는 exit 0, `/readyz`는 200이었다. `stop`을 거치지 않고 손으로 `compose down`한 설치를 `start`로 올린 것, 그리고 재부팅 뒤 `start`로 올린 것은 실행해 확인했다. 두 경우 모두 `/readyz`가 200이었고 owner 로그인이 됐다. 미수거 checkpoint가 있는 LocalStack 설치를 `start`한 경우는 확인하지 못했다.
 
 ## 운영하기
 
@@ -291,7 +291,7 @@ scripts/test-ops.sh backup
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
-scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
 출력은 상태 디렉터리의 `restore-drills/`에 남고 판정은 `history.log`에 한 줄 남는다. 끝나면 훈련 project는 지워진다(조사하려면 `--keep`을 붙이고, 포트가 겹치면 `--port-base`로 바꾼다. 기본은 25432부터다). 훈련 bucket의 object에는 legal hold가 걸려 있으므로, bucket을 지우려면 version마다 hold를 풀고 version을 지운 뒤 bucket을 지운다.
@@ -306,12 +306,12 @@ LocalStack 설치는 재부팅하면 object를 잃는다. 미리 아는 재부�
 # Back up, leave the writers stopped, restart the host, then restore the objects
 scripts/test-ops.sh backup --stop
 sudo reboot
-scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
 `reseed`는 백업의 manifest, project, bucket, checksum을 확인하고, 비어 있는 LocalStack에 object를 올린 뒤 모든 미수거 checkpoint를 다시 고정하고 설치를 다시 띄운다. 마지막 백업 뒤에 새 checkpoint가 생겼으면 거부하고, 그때는 `reset`밖에 없다. 예상하지 못한 재시작이 있었을 때 API가 기동을 거부하는 것도 같은 상태이며 같은 방법으로 푼다. `reseed`는 재시작하지 않은 스택에서도 bucket이 비어 있으면 통과했고, 비어 있지 않은 bucket은 거부한다. object가 있을 때의 동작은 확인하지 못했다.
 
-재부팅하면 스택이 스스로 올라오지 않는다. 검증 머신(OrbStack, Docker가 부팅 때 자동 시작)에서 재부팅한 뒤 컨테이너를 보면 egress-proxy, reconciler, scheduler(`restart: unless-stopped`)만 올라왔고 postgres, api, localstack(restart 정책 없음)은 `Exited`였다. 재부팅 뒤에는 `scripts/test-ops.sh start`를 직접 부른다. 이 머신에서 `start`는 exit 0으로 끝났고 `/readyz`가 200이었으며 재부팅 전 owner로 로그인됐고 세션 기록이 남아 있었다. S3 설치는 재시작에도 object가 남으므로 `start`만으로 된다. LocalStack 설치는 `start` 뒤에 bucket이 비어 있으므로, 미수거 checkpoint가 있으면 위의 `reseed`가 필요하다. 그 경우는 확인하지 못했다.
+재부팅하면 스택은 스스로 올라온다. postgres, api, localstack을 포함해 상주하는 서비스가 모두 `restart: unless-stopped`이기 때문이다. 검증 머신(OrbStack, Docker가 부팅 때 자동 시작)에서 `start` 없이 재부팅한 뒤 약 20초 안에 `/readyz`가 200이 됐고, 컨테이너 6개가 모두 healthy였으며 재부팅 전 owner로 로그인됐다. 안 올라오면 `scripts/test-ops.sh start`를 부른다. `stop`이나 `compose down`으로 내려 둔 스택은 재부팅해도 올라오지 않는다. 컨테이너가 이미 지워졌기 때문이다. 이 정책은 정책이 들어간 release로 `upgrade`한 설치에 적용되고, 그 전에 배포한 설치는 컨테이너를 다시 만들 때까지 옛 동작(postgres, api, localstack은 재부팅 뒤 `Exited`, `start`로 올림)이다. LocalStack 설치에서 그 첫 `upgrade`는 restart 정책이 바뀐 LocalStack 컨테이너를 다시 만들어 메모리의 object를 비운다. `status`의 `sessions with uncollected checkpoints`가 0이 아니면 그 `upgrade`를 미룬다. 비운 뒤 API가 기동에 실패하면 `upgrade`가 남긴 `pending.json` 때문에 `reseed`가 거부되고, 남는 길은 `reset`(세션·checkpoint 삭제)뿐이다. `backup --stop`으로 미리 백업을 남겨 두어도 이 길은 열리지 않는다. 이 경우는 확인하지 못했다. S3 설치는 재시작에도 object가 남는다. LocalStack 설치는 재부팅하면 bucket이 비므로, 미수거 checkpoint가 있으면 API가 기동을 거부하고 재시작을 되풀이한다. 그때는 위의 `reseed`나 `reset`이다. 이 경우는 확인하지 못했다.
 
 재부팅 전에는 진행 중인 턴이 없는지, `status`가 정상인지, 최근 백업이 호스트 밖으로 복제됐는지 확인한다. 재부팅 뒤에는 NTP, XFS `prjquota`, Docker 자동 시작(이것만으로는 postgres, api, localstack이 올라오지 않으므로 위의 `start`가 필요하다), 디스크와 inode 여유를 다시 보고, `status`와 `/readyz`가 정상인지, 재부팅 전 세션을 다시 이어 가면 새 worker가 이전 workspace를 이어 가는지 확인한다. API는 선택한 경로에서만 닿고 PostgreSQL과 Docker socket은 밖에서 닫혀 있어야 한다.
 

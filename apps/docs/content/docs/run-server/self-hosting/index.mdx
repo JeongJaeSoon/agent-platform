@@ -3,34 +3,45 @@ title: "셀프 호스팅"
 description: 여러 사람이 쓰는 Werft 서버를 설치하는 방법을 고른다
 ---
 
-Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다. Kubernetes 설치는 게시 chart로 kind에서 확인했으나 DB Secret 단계는 문서 블록 그대로가 아니었고, 고친 kind Secret 블록은 그대로 실행하지 않았다. Secret의 토큰으로 첫 owner를 만들고 API key를 발급해 인증하는 것까지는 kind에서 확인했다. Kubernetes 업그레이드는 kind에서 세션이 없는 상태로 1~4단계를 실행해 `proceed`를 확인했고, 승인할 수 없는 `refused` 두 경우와 NetworkPolicy 격리도 확인했다. 단일 서버 페이지는 LocalStack 설치로 1~6단계와 `key create`까지 실행해 확인했다.
+Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 단일 서버와 Kubernetes 둘이다. 아래 표에서 하나를 고르면, 그 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다.
 
 ## 설치 방식 고르기
 
-| 방식 | 실행 기반 | 페이지 |
-| --- | --- | --- |
-| 단일 서버 | Linux 서버 한 대, Docker Compose. 세션마다 worker 컨테이너 | [단일 서버 설치](/run-server/self-hosting/single-server) |
-| Kubernetes | 게시된 Helm chart. 세션마다 worker Pod | [Kubernetes 설치](/run-server/self-hosting/kubernetes) |
+| 방식 | 실행 기반 | 전제 | 페이지 |
+| --- | --- | --- | --- |
+| 단일 서버 | Linux 서버 한 대, Docker Compose. 세션마다 worker 컨테이너. HA는 범위 밖 | Docker 28 이상, Compose 2.24.6 이상, Docker 데이터 루트가 `prjquota`로 mount된 XFS, 저장소 checkout | [단일 서버 설치](/run-server/self-hosting/single-server) |
+| Kubernetes | 게시된 Helm chart. 세션마다 worker Pod | NetworkPolicy를 강제하는 CNI, `helm` 3, PostgreSQL 16, S3 호환 object store(기본 보호 모드는 versioning, Object Lock, SSE-S3가 켜진 bucket을 요구한다). 저장소 checkout은 필요 없다 | [Kubernetes 설치](/run-server/self-hosting/kubernetes) |
 
-이미 설치했다면 [업그레이드](/run-server/self-hosting/upgrade)를 읽는다.
+고르는 기준은 단순하다. 서버 한 대에 올리고 `scripts/test-ops.sh`로 운영하려면 단일 서버, 이미 클러스터와 PostgreSQL, object store가 있고 chart로 올리려면 Kubernetes다. 두 방식 모두 `ghcr.io`에서 게시 패키지를 로그인 없이 받을 수 있어야 한다. 이미 설치했다면 [업그레이드](/run-server/self-hosting/upgrade)를 읽는다.
 
-어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. Git 서버는 없으므로 세션이 쓸 GitHub 저장소는 설정 문서나 콘솔로 더한다. 단일 서버 설치에서 HA는 범위 밖이다.
+어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. Git 서버는 없으므로 세션이 쓸 GitHub 저장소는 설정 문서나 콘솔로 더한다.
 
 ## 게시된 패키지
 
-설치에는 직접 빌드한 것이 아니라 `main`에 머지될 때마다 게시되는 패키지를 쓴다.
+설치에는 직접 빌드한 것이 아니라 게시된 패키지를 쓴다. `main`에 머지되면 [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml)가 승인 없이 이미지와 chart를 게시한다. `v*` 태그는 `release` 환경의 승인을 거친다.
 
-| 패키지 | 주소 | 비고 |
-| --- | --- | --- |
-| 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | 태그는 `main-<12>`. `linux/amd64`와 `linux/arm64`를 담은 index. 설치에는 digest로 고정한다 |
-| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | 버전은 `0.1.0-main-<12>`. 이미지 digest와 worker runtime을 담는다 |
-| SDK | npm `@werft-ai/sdk` | [SDK 설치](/getting-started/install) |
+| 패키지 | 주소 | `main` 머지 | `v*` 태그 |
+| --- | --- | --- | --- |
+| 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-egress-proxy` | 태그 `main-<12>` | 태그 `v<버전>` |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | 버전 `0.1.0-main-<12>` | 버전 `<버전>`(`v` 없음) |
+| SDK | npm `@werft-ai/sdk` | [SDK 설치](/getting-started/install) | [SDK 설치](/getting-started/install) |
 
-패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자다.
+이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이고, 설치에는 digest로 고정한다. chart는 세 이미지의 digest와 worker runtime을 담는다. 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자이고, `main` 버전끼리는 순서에 뜻이 없으므로 Images workflow에서 초록색으로 끝난 run의 commit을 골라 정확히 적는다.
 
 <Callout type="warn">
-첫 `v` 태그가 아직 없다. `main-<12>`는 릴리스가 아니고 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. 첫 `v` 태그가 생기면 이미지 태그는 `v<버전>`, chart 버전은 `v` 없는 `<버전>`이 된다. 설치 페이지의 명령은 그대로 같고, 단일 서버는 같은 태그를 checkout한다. 게시된 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](/run-server/self-hosting/single-server#이미지를-직접-빌드할-때)한다.
+첫 `v` 태그가 아직 없다. `main-<12>`는 릴리스가 아니고 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. 첫 `v` 태그가 생기면 설치 페이지의 명령은 태그 값만 바뀌고, 단일 서버는 같은 태그를 checkout한다. `v` 태그 경로(승인, GitHub Release, `release-manifest.json`)는 아직 한 번도 실행되지 않았다. 게시된 이미지를 받을 수 없으면 저장소를 checkout해 [세 이미지를 직접 빌드](/run-server/self-hosting/single-server#이미지를-직접-빌드할-때)한다.
 </Callout>
+
+## 실측 상태
+
+아래는 게시된 `main-<12>` 패키지로 직접 실행해 본 결과다. 실행하지 않은 것은 확인했다고 적지 않는다. 세부 절차와 조건은 각 설치 페이지와 이 표 아래 주석을 본다.
+
+| 방식 | VERIFIED | NOT VERIFIED |
+| --- | --- | --- |
+| 단일 서버 | LocalStack 설치로 1~6단계와 `key create`, `/readyz` 200. `/bootstrap` 화면으로 첫 owner를 만든 뒤 로그인 API 200. `reset --yes` 뒤 다시 `deploy`. 볼륨을 남기고 `stop`·`start`. `backup`, `restore-drill`, `reseed` 각각 exit 0. `orb restart` 뒤 `start`로 같은 데이터 그대로 `/readyz` 200 | `backup --stop` → 재부팅 → `reseed`를 이어서 한 것. 미수거 checkpoint가 있는 재부팅. S3 설치의 `upgrade`와 재부팅. 단일 서버 업그레이드 |
+| Kubernetes | kind에서 게시 chart 설치와 `/readyz` 200. Secret의 `BOOTSTRAP_TOKEN`으로 첫 owner 생성(틀린 토큰 401, 같은 토큰 다시 409), `key create`, key 있을 때 `GET /v1/sessions` 200과 없을 때 401(API replica 2개). 업그레이드 1~4단계 `proceed`, 승인할 수 없는 `refused` 두 경우, kind 기본 CNI의 NetworkPolicy 격리 | 세션과 worker Pod 실행. 영향받는 세션이 있는 `refused`. kind 기본 CNI 밖의 CNI. worker pin이 없는 실제 옛 chart에서의 업그레이드(pin 없음·chart 없음 분기는 상태를 합성해 확인) |
+
+LocalStack 설치의 백업 확인은 object 0개, checkpoint 0행인 스택에서 한 것이다. `restore-drill`의 checkpoint 대조는 이 조건에서 비교할 대상이 없었다. Kubernetes의 DB Secret 블록은 `read -rs`가 터미널을 요구해 표준 입력으로 값을 넘겨 실행했다.
 
 ## 릴리스 manifest 읽기
 
