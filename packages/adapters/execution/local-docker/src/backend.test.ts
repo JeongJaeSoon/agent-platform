@@ -3997,4 +3997,44 @@ describe("LocalDockerBackend volume naming settings", () => {
       }).sort(),
     );
   });
+
+  describe("an install made before the rename", () => {
+    // Literal on purpose: these are the keys and the prefix those volumes carry.
+    const PREVIOUS = {
+      volumeLabelNamespace: "agent-platform",
+      volumeNamePrefix: "ap-ws-",
+    };
+    const previousKeys = {
+      installation: "agent-platform.installation",
+      managed: "agent-platform.managed",
+      migratedFrom: "agent-platform.migration-source",
+      migrationSourceCreatedAt: "agent-platform.migration-source-created-at",
+      quotaProbe: "agent-platform.quota-probe",
+      sessionId: "agent-platform.session-id",
+      workspaceQuota: "agent-platform.workspace-quota",
+    };
+    const previousName = `ap-ws-test-a-${sessionId}-0f1e2d3c`;
+
+    test("the setting derives all seven previous volume label keys exactly", () => {
+      expect(volumeLabelsOf(PREVIOUS)).toEqual(previousKeys);
+    });
+
+    test("set to those values, its volume is listed and mounted; unset, it is not", async () => {
+      addWorkspace(previousName, previousKeys);
+      expect((await backend.listWorkspaces()).map((w) => w.id)).toEqual([]);
+      const previous = new LocalDockerBackend({
+        ...configFor(docker.host),
+        ...PREVIOUS,
+      });
+      expect((await previous.listWorkspaces()).map((w) => w.id)).toEqual([
+        previousName,
+      ]);
+      await previous.ensureExecution(intentFor());
+      const [container] = [...docker.containers.values()];
+      expect(mountedWorkspaceOf(container?.body as ContainerCreateBody)).toBe(
+        previousName,
+      );
+      expect(docker.volumes.size).toBe(1);
+    });
+  });
 });
