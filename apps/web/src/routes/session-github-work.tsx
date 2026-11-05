@@ -49,7 +49,7 @@ function rowsOf(data: ListPushRequestsResponse): Row[] {
         request,
       }),
     ),
-    ...data.intents
+    ...(data.intents ?? [])
       .filter((intent) => intent.status !== "requested")
       .map(
         (intent): Row => ({ kind: "intent", at: intent.created_at, intent }),
@@ -70,7 +70,7 @@ function RequestRow({ request }: { readonly request: PushRequest }) {
           <Badge variant={REQUEST_BADGE[request.state]}>
             {t(`session.github.state.${request.state}`)}
           </Badge>
-          {request.pr_state === null ? null : (
+          {!request.pr_state ? null : (
             <Badge variant="gray">
               {t(`session.github.prState.${request.pr_state}`)}
             </Badge>

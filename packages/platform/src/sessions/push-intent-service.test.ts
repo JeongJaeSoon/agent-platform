@@ -97,6 +97,7 @@ function harness(
         ? null
         : {
             origin: "intent",
+            state: "requested",
             checkpoint_revision: 3,
             git_commit: COMMIT,
             ...options.request,
@@ -302,6 +303,15 @@ describe("approving an intent request", () => {
     const { push, decided } = harness();
     await approve(push);
     expect(decided).toMatchObject([{ decision: "approve" }]);
+  });
+
+  test("a decided request, replayed after its revision was collected, skips the pinned check", async () => {
+    const { push, decided } = harness({
+      request: { state: "approved" },
+      pinned: { status: "none" },
+    });
+    await approve(push);
+    expect(decided).toHaveLength(1);
   });
 
   test("a direct request keeps the pointer rule and skips the pinned check", async () => {

@@ -827,7 +827,9 @@ export function sessionGithubWorkQuery(
             OPEN_PUSH_STATES.has(request.state) ||
             (request.pr_state !== null && OPEN_PR_STAGES.has(request.pr_state)),
         ) ||
-          data.intents.some((intent) => WAITING_INTENTS.has(intent.status)));
+          (data.intents ?? []).some((intent) =>
+            WAITING_INTENTS.has(intent.status),
+          ));
       return active ? GITHUB_WORK_ACTIVE_MS : GITHUB_WORK_IDLE_MS;
     },
   });
