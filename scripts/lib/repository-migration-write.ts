@@ -171,6 +171,12 @@ type AgentRowPlan = {
   actions_allow: AgentGitHub["actions_allow"];
   start_repository_id: string | null;
   source: "pin" | "pinless";
+  /** What decided the list a session of this release could reach before. */
+  judged_by: "pin" | "profile" | "workspace_ceiling";
+  /** That list, URL repositories included. */
+  allowed_before: string[];
+  /** The row's list: `allowed_before` without the URL repositories. */
+  allowed_after: string[];
   /** Legacy URL ids left out of the row. */
   url_not_moved: string[];
   release_repository_outside_list: boolean;
@@ -200,17 +206,20 @@ export function planAgentRows(
       continue;
     }
     let source: AgentRowPlan["source"];
+    let judgedBy: AgentRowPlan["judged_by"];
     let full: string[];
     let rest: Pick<AgentGitHub, "push_approval" | "features" | "actions_allow">;
     if (release.pin === null || release.pin === undefined) {
       // A release from before GitHub settings: whatever its session was
       // judged against, a person approves each push, nothing optional.
       source = "pinless";
-      const judged =
+      const byProfile =
         release.profile_id !== null &&
-        context.profileScope(release.profile_id) === "profile"
-          ? context.profileSet(release.profile_id)
-          : context.ceilingBefore(release.workspace_id);
+        context.profileScope(release.profile_id) === "profile";
+      judgedBy = byProfile ? "profile" : "workspace_ceiling";
+      const judged = byProfile
+        ? context.profileSet(release.profile_id as string)
+        : context.ceilingBefore(release.workspace_id);
       full = [...judged].filter((id) => context.kindOf.has(id));
       rest = {
         push_approval: GITHUB_POLICY_CLOSED.push_approval,
@@ -224,6 +233,7 @@ export function planAgentRows(
         continue;
       }
       source = "pin";
+      judgedBy = "pin";
       full = pin.data.repositories;
       rest = pin.data;
     }
@@ -242,6 +252,9 @@ export function planAgentRows(
       actions_allow: rest.actions_allow,
       start_repository_id: start,
       source,
+      judged_by: judgedBy,
+      allowed_before: [...new Set(full)].sort(),
+      allowed_after: repositories,
       url_not_moved: [...new Set(url)].sort(),
       release_repository_outside_list:
         release.repository_id !== null && start === null,
@@ -263,6 +276,19 @@ export function unsetCeilings(snapshot: Snapshot): string[] {
 }
 
 export type Plan = {
+  /**
+   * Agents whose active release has no GitHub pin: their row keeps what the
+   * release's sessions could reach before, per agent in `agent_rows`
+   * (`allowed_before` / `allowed_after`). Neither wider nor narrower, but the
+   * URL repositories, which are listed in `url_not_moved`.
+   */
+  pinless: {
+    agents: number;
+    judged_by_profile: number;
+    judged_by_workspace_ceiling: number;
+    /** Rows whose list is the old list less its URL repositories. */
+    same_as_before: number;
+  };
   /** Workspaces whose ceiling is NULL, missing or unreadable before the write. */
   ceiling_unset: string[];
   report: Report;
@@ -279,7 +305,21 @@ export function buildPlan(
 ): Plan {
   const report = buildReport(snapshot, null, now);
   const { rows, skipped } = planAgentRows(snapshot, releases);
+  const pinless = rows.filter((row) => row.source === "pinless");
+  const withoutUrl = (row: AgentRowPlan) =>
+    row.allowed_before.filter((id) => !row.url_not_moved.includes(id));
   return {
+    pinless: {
+      agents: pinless.length,
+      judged_by_profile: pinless.filter((r) => r.judged_by === "profile")
+        .length,
+      judged_by_workspace_ceiling: pinless.filter(
+        (r) => r.judged_by === "workspace_ceiling",
+      ).length,
+      same_as_before: pinless.filter((row) =>
+        same(withoutUrl(row), row.allowed_after),
+      ).length,
+    },
     ceiling_unset: unsetCeilings(snapshot),
     report,
     agent_rows: rows,

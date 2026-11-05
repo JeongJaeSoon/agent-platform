@@ -343,7 +343,30 @@ integration("the repository migration write", () => {
     expect(a3.push_approval).toBe(true);
     expect(a3.features).toEqual(GITHUB_CEILING_NONE);
     // workspace-judged profile: the workspace ceiling it had, minus the URL
-    expect((await f.rowOf("a4")).repositories).toEqual(["held-x"]);
+    const a4 = await f.rowOf("a4");
+    expect(a4.repositories).toEqual(["held-x"]);
+    expect(a4.push_approval).toBe(true);
+    expect(a4.features).toEqual(GITHUB_CEILING_NONE);
+    // the dry-run says which agents these are and that nothing else moved
+    expect(plan.pinless).toEqual({
+      agents: 2,
+      judged_by_profile: 1,
+      judged_by_workspace_ceiling: 1,
+      same_as_before: 2,
+    });
+    const pinless = (key: string) =>
+      plan.agent_rows.find((r) => r.agent_id === f.agents[key]?.agentId);
+    expect(pinless("a3")).toMatchObject({
+      judged_by: "profile",
+      allowed_before: ["orphan-x", "pat-url", "private-a"],
+      allowed_after: ["orphan-x", "private-a"],
+      url_not_moved: ["pat-url"],
+    });
+    expect(pinless("a4")).toMatchObject({
+      judged_by: "workspace_ceiling",
+      allowed_before: ["held-x", "pat-url"],
+      allowed_after: ["held-x"],
+    });
     // the person's row and the unreadable pin: untouched, no row
     expect((await f.rowOf("a2")).updated_by).toBe(f.ids.user);
     expect((await f.rowOf("a2")).repositories).toEqual(["held-x"]);

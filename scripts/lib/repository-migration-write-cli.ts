@@ -53,7 +53,7 @@ try {
     const plan = await planMigration(pool);
     console.log(JSON.stringify(plan, null, 2));
     console.error(
-      `plan: ${plan.agent_rows.length} agent row(s), ${plan.agent_rows_skipped.length} skipped, ${plan.workspace_ceilings.length} workspace(s), ${plan.ceiling_unset.length} without a ceiling`,
+      `plan: ${plan.agent_rows.length} agent row(s), ${plan.agent_rows_skipped.length} skipped, ${plan.workspace_ceilings.length} workspace(s), ${plan.ceiling_unset.length} without a ceiling, ${plan.pinless.agents} pinless agent(s) (${plan.pinless.same_as_before} same as before)`,
     );
   } else if (command === "apply") {
     const result = await applyMigration(pool, path as string);
