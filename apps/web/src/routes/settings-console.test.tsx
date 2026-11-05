@@ -2,14 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type {
   SettingsConnection,
   SettingsMcpServer,
-  SettingsRepository,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
-import { json, me, memberMe } from "../test-support/fake-api.ts";
+import { json, me } from "../test-support/fake-api.ts";
 import { imported } from "../test-support/profiles.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
-const { renderAt, screen, waitFor, within } = await appHarness();
+const { renderAt, screen, within } = await appHarness();
 
 const CHANGE = (id: string) => ({
   id,
@@ -51,25 +50,8 @@ const mcp = (
   ...rest,
 });
 
-const repository = (
-  id: string,
-  rest: Partial<SettingsRepository> = {},
-): SettingsRepository => ({
-  id,
-  origin: "console",
-  state: "active",
-  url: "https://git.example.com/acme/docs.git",
-  branch: "main",
-  auth_kind: "none",
-  credential: { source: "none" },
-  created_at: AT,
-  disabled_at: null,
-  ...rest,
-});
-
 const CONNECTIONS = "/v1/installation/settings/connections";
 const MCP = "/v1/installation/settings/mcp-servers";
-const REPOS = "/v1/installation/settings/repositories";
 
 const rowOf = (table: HTMLElement, id: string) => {
   const row = within(table)
@@ -525,123 +507,5 @@ describe("MCP 서버", () => {
     );
     await screen.findByText("이 화면을 볼 권한이 없습니다");
     expect(api.calls.some((call) => call.path === MCP)).toBe(false);
-  });
-});
-
-describe("URL 저장소", () => {
-  const routes = (signedIn = me()) => ({
-    "GET /v1/auth/me": () => json(200, signedIn),
-    [`GET ${REPOS}`]: () =>
-      json(200, {
-        items: [
-          repository("docs-site"),
-          repository("private", {
-            auth_kind: "basic",
-            username: "bot",
-            credential: { source: "stored", last4: "1234" },
-          }),
-          repository("ops-repo", {
-            origin: "import",
-            auth_kind: "bearer",
-            credential: { source: "external", value_env: "OPS_REPO_TOKEN" },
-          }),
-        ],
-      }),
-  });
-
-  test("a public one and a token one are added by URL", async () => {
-    const { api } = renderAt("/settings/workspace/repositories", {
-      ...routes(me(undefined, "admin")),
-      [`POST ${REPOS}`]: () => json(201, CHANGE("x")),
-    });
-    const user = await setupUser();
-    const add = await screen.findByRole("button", { name: "저장소 추가" });
-    await user.click(add);
-    let dialog = await screen.findByRole("dialog");
-    // Public: no token asked.
-    expect(dialog.querySelector('[name="value"]')).toBeNull();
-    await user.type(within(dialog).getByLabelText("id"), "public-docs");
-    await user.type(
-      within(dialog).getByLabelText("URL"),
-      "https://github.com/acme/docs.git",
-    );
-    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
-    await screen.findByText("x를 만들었습니다.");
-
-    await user.click(add);
-    dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText("id"), "gitlab-app");
-    await user.type(
-      within(dialog).getByLabelText("URL"),
-      "https://gitlab.example.com/acme/app.git",
-    );
-    await user.selectOptions(within(dialog).getByLabelText("인증"), "basic");
-    await user.type(within(dialog).getByLabelText("사용자 이름"), "bot");
-    await user.type(named(dialog, "value"), "example-pat");
-    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
-    await waitFor(() => expect(writes(api.calls).length).toBe(2));
-    expect(writes(api.calls).map((call) => call.body)).toEqual([
-      {
-        id: "public-docs",
-        url: "https://github.com/acme/docs.git",
-        branch: "main",
-        auth: { kind: "none" },
-      },
-      {
-        id: "gitlab-app",
-        url: "https://gitlab.example.com/acme/app.git",
-        branch: "main",
-        auth: { kind: "basic", username: "bot", value: "example-pat" },
-      },
-    ]);
-  });
-
-  test("the branch changes in place; a public one has no value to replace", async () => {
-    const { api } = renderAt("/settings/workspace/repositories", {
-      ...routes(),
-      [`PATCH ${REPOS}/docs-site`]: () => json(200, CHANGE("docs-site")),
-    });
-    const user = await setupUser();
-    const table = await screen.findByRole("table", { name: "URL 저장소" });
-    expect(
-      within(rowOf(table, "docs-site"))
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["docs-site 브랜치 바꾸기", "docs-site 사용 중지"]);
-    expect(rowOf(table, "private").textContent).toContain("••••1234");
-    // An operator's token: view and disable only, the branch included.
-    expect(
-      within(rowOf(table, "ops-repo"))
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["ops-repo 사용 중지"]);
-    await user.click(
-      within(table).getByRole("button", { name: "docs-site 브랜치 바꾸기" }),
-    );
-    const dialog = await screen.findByRole("dialog");
-    const field = within(dialog).getByLabelText("기본 브랜치");
-    await user.clear(field);
-    await user.type(field, "release");
-    await user.click(within(dialog).getByRole("button", { name: "저장" }));
-    await screen.findByText("docs-site를 바꿨습니다.");
-    expect(writes(api.calls).map((call) => [call.path, call.body])).toEqual([
-      [`${REPOS}/docs-site`, { branch: "release" }],
-    ]);
-  });
-
-  test("a narrow table keeps every row's actions", async () => {
-    renderAt("/settings/workspace/repositories", routes());
-    expectNarrowActions(
-      await screen.findByRole("table", { name: "URL 저장소" }),
-    );
-  });
-
-  test("a member gets the refusal screen and no read", async () => {
-    const { api } = renderAt(
-      "/settings/workspace/repositories",
-      routes(memberMe()),
-    );
-    await screen.findByText("이 화면을 볼 권한이 없습니다");
-    expect(api.calls.some((call) => call.path === REPOS)).toBe(false);
   });
 });

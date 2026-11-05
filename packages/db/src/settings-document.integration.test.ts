@@ -53,7 +53,11 @@ const DOCUMENT = {
     },
   },
   repositories: {
-    open: { url: "http://fake-git:3000/agent/sample-app.git", branch: "main" },
+    open: {
+      url: "https://github.com/agent/sample-app.git",
+      branch: "main",
+      auth: { kind: "github_app" },
+    },
     app: {
       url: "https://github.com/acme/app.git",
       branch: "main",
@@ -69,11 +73,6 @@ const DOCUMENT = {
         installation_id: 70,
         value_env: "GHEC_APP_KEY",
       },
-    },
-    token: {
-      url: "https://git.example.invalid/group/sub/token.git",
-      branch: "main",
-      auth: { kind: "basic", username: "bot", stored: true },
     },
   },
   mcp_servers: {
@@ -169,7 +168,7 @@ integration("settings document import and export", () => {
       outcome: "applied",
       unchanged: [],
       conflicts: [],
-      needs_value: ["connection:console", "repository:token"],
+      needs_value: ["connection:console"],
     });
     if (first.outcome === "actor_inactive") throw new Error("unreachable");
     expect(first.add.map((add) => `${add.kind}:${add.id}`).sort()).toEqual([
@@ -179,7 +178,6 @@ integration("settings document import and export", () => {
       "repository:app",
       "repository:ghec",
       "repository:open",
-      "repository:token",
     ]);
 
     const exported = await store().exportEntries();
@@ -198,7 +196,7 @@ integration("settings document import and export", () => {
       receipt_ids: [],
     });
     if (again.outcome === "actor_inactive") throw new Error("unreachable");
-    expect(again.unchanged).toHaveLength(7);
+    expect(again.unchanged).toHaveLength(6);
     expect({
       generation: await generation(),
       rows: await rowCounts(),
@@ -230,9 +228,9 @@ integration("settings document import and export", () => {
     );
     expect(rows).toEqual({
       open: {
-        authKind: "none",
+        authKind: "github_app",
         credentialSource: null,
-        source: "import",
+        source: "seed",
         owner: "agent",
         name: "sample-app",
         auth: null,
@@ -256,24 +254,37 @@ integration("settings document import and export", () => {
         auth: DOCUMENT.repositories.ghec.auth,
         profiles: null,
       },
-      token: {
-        authKind: "basic",
-        credentialSource: "stored",
-        source: "import",
-        owner: "sub",
-        name: "token",
-        auth: { kind: "basic", username: "bot", stored: "repository:token" },
-        profiles: null,
-      },
     });
     const read = await createPostgresInstallationSettingsStore(db, null).read();
     expect(read.invalid).toEqual([]);
     expect(read.connections.map(({ id }) => id)).toEqual(["console", "main"]);
-    expect(read.repositories.map(({ id }) => id)).toEqual([
-      "ghec",
-      "open",
-      "token",
-    ]);
+    expect(read.repositories.map(({ id }) => id)).toEqual(["ghec"]);
+  });
+
+  test("a legacy URL repository row reads as invalid and stays as it was", async () => {
+    await clear();
+    await db.insert(catalogRepositories).values({
+      id: "legacy",
+      owner: "acme",
+      name: "legacy",
+      url: "https://git.example.invalid/acme/legacy.git",
+      branch: "main",
+      authKind: "bearer",
+      auth: { kind: "bearer", value_env: "REPO_TOKEN" },
+      credentialSource: "external",
+      source: "import",
+    });
+    const row = () =>
+      db
+        .select()
+        .from(catalogRepositories)
+        .where(eq(catalogRepositories.id, "legacy"));
+    const before = await row();
+    const read = await createPostgresInstallationSettingsStore(db, null).read();
+    expect(read.invalid).toEqual(["repository:legacy"]);
+    expect(read.repositories).toEqual([]);
+    expect(before).toHaveLength(1);
+    expect(await row()).toEqual(before);
   });
 
   test("an old directory leaves a GitHub App repository the console moved; a document still conflicts", async () => {
@@ -348,7 +359,7 @@ integration("settings document import and export", () => {
 
     const applied = await store().importEntries(entries(), operator);
     if (applied.outcome !== "applied") throw new Error(applied.outcome);
-    expect(applied.receipt_ids).toHaveLength(7);
+    expect(applied.receipt_ids).toHaveLength(6);
     const written = await db
       .select()
       .from(receipts)
@@ -357,7 +368,6 @@ integration("settings document import and export", () => {
       "import_connection",
       "import_connection",
       "import_mcp_server",
-      "import_repository",
       "import_repository",
       "import_repository",
       "import_repository",

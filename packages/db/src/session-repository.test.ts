@@ -49,6 +49,7 @@ const CATALOG: SessionCatalog = withSeededInstallation({
       url: "https://github.com/acme/app.git",
       branch: "release/1.2",
       profiles: ["sonnet", "general"],
+      auth: { kind: "github_app", registered: true },
     },
   },
 });
@@ -128,6 +129,7 @@ describe("session repository (94S-822, 94S-820)", () => {
           url: "https://github.com/other/renamed.git",
           branch: "main",
           profiles: ["sonnet"],
+          auth: { kind: "github_app", registered: true },
         },
       },
     };
@@ -200,6 +202,7 @@ describe("session repository (94S-822, 94S-820)", () => {
         app: {
           branch: "release/1.2",
           profiles: ["sonnet", "general"],
+          auth: { kind: "github_app", registered: true },
           url: `https://agent:${CATALOG_MARK}@github.com/acme/app.git?token=${CATALOG_MARK}`,
         },
       },

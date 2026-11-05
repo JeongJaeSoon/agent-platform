@@ -2,6 +2,34 @@ import { afterAll, expect, test } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { startFakeGitHub } from "./fake-github.ts";
 
+test("the local clone log exposes only request metadata", async () => {
+  const inspected = await startFakeGitHub({
+    appId: 7,
+    publicKey: app.publicKey.export({ type: "spki", format: "pem" }).toString(),
+  });
+  try {
+    const path = "/acme/metrics.git/info/refs?service=git-upload-pack";
+    const response = await fetch(`${inspected.origin}${path}`);
+    const listed = await fetch(`${inspected.origin}/requests`);
+    expect(listed.status).toBe(200);
+    const requests = (await listed.json()) as Array<{
+      method: string;
+      path: string;
+      status: number;
+    }>;
+    expect(requests).toContainEqual({
+      method: "GET",
+      path,
+      status: response.status,
+    });
+    for (const request of requests) {
+      expect(Object.keys(request).sort()).toEqual(["method", "path", "status"]);
+    }
+  } finally {
+    await inspected.stop();
+  }
+});
+
 const app = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const stranger = generateKeyPairSync("rsa", { modulusLength: 2048 });
 let clock = Date.now();

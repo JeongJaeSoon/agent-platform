@@ -926,6 +926,15 @@ export async function startFakeGitHub(
       const url = new URL(request.url);
       const path = url.pathname.replace(/^\/api\/v3(?=\/)/, "");
       if (path === "/healthz") return new Response("ok");
+      if (path === "/requests" && request.method === "GET") {
+        return Response.json(
+          gitRequests.map(({ method, path, status }) => ({
+            method,
+            path,
+            status,
+          })),
+        );
+      }
       const app = appCall(request, path);
       if (app !== undefined) return app;
       if (path === "/installation/repositories" && request.method === "GET") {

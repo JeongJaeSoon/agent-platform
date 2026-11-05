@@ -52,6 +52,7 @@ const catalog: SessionCatalog = withSeededInstallation({
       url: "https://git.invalid/agent/app.git",
       branch: "main",
       profiles: ["coding"],
+      auth: { kind: "github_app", registered: true } as const,
     },
   },
   mcp_servers: {

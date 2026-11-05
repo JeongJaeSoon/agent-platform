@@ -39,6 +39,12 @@ const REPOSITORIES = `repositories:
     url: http://fake-git:3000/agent/sample-app.git
     branch: main
     profiles: [coding]
+    auth:
+      kind: github_app
+      app_id: 1
+      installation_id: 1
+      api_base: http://fake-git:3000
+      value_env: GITHUB_APP_KEY
 `;
 const CONNECTIONS = `connections:
   main:

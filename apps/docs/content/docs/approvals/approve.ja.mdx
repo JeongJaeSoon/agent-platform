@@ -67,8 +67,8 @@ if (done.push_receipt_id) {
 ```
 
 ```text
-failed
-push failed no_push_credential
+pushed
+push succeeded null
 ```
 
 `waitForPushRequest` は、リクエストが `pushed`・`failed`・`rejected` になるまで待つ。
@@ -89,12 +89,12 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 
 ```text
 {
-  "state": "failed"
+  "state": "pushed"
 }
 {
   "operation": "push",
-  "status": "failed",
-  "refusal": "no_push_credential"
+  "status": "succeeded",
+  "refusal": null
 }
 ```
 
@@ -103,7 +103,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 </Tab>
 </Tabs>
 
-開発用サーバーの `sample-app` リポジトリには push の認証情報がないため、`no_push_credential` で終わる。運用者がリポジトリに GitHub App または PAT を設定すると([GitHub](/integrations/github))`pushed` になり、receipt の `result` に `remote_ref`(`refs/heads/agent/<session-id>`)と `previous_commit` が残る。
+ローカルスタックの `sample-app` はスタック内の Git サーバーに GitHub App として登録されているため、`pushed` になる。receipt の `result` に `remote_ref`(`refs/heads/agent/<session-id>`)と `previous_commit` が残る。書き込める GitHub App の認証情報がないリポジトリは `no_push_credential` で終わる。
 
 プラットフォームは、その commit 1 つだけをそのブランチに送る。force push はしない。デフォルトブランチには送らない。
 

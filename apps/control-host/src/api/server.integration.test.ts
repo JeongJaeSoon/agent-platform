@@ -163,9 +163,11 @@ const CONNECTIONS = `connections:
 `;
 const REPOSITORIES = `repositories:
   app:
-    url: https://git.example.invalid/team/app.git
+    url: https://github.com/team/app.git
     branch: main
     profiles: [coding]
+    auth:
+      kind: github_app
 `;
 
 async function issueKey(
@@ -718,9 +720,10 @@ integration("API server on PostgreSQL", () => {
           },
           repositories: {
             [repositoryId]: {
-              url: "https://git.example.invalid/team/app.git",
+              url: "https://github.com/team/app.git",
               branch: "main",
               profiles: ["coding"],
+              auth: { kind: "github_app", registered: true } as const,
             },
           },
         }),
@@ -741,7 +744,7 @@ integration("API server on PostgreSQL", () => {
         profileId: "coding",
         repository: {
           id: repositoryId,
-          url: "https://git.example.invalid/team/app.git",
+          url: "https://github.com/team/app.git",
           branch: "main",
         },
         message: "first turn",

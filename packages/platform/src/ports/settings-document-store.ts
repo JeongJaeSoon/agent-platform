@@ -45,6 +45,20 @@ export interface SettingsDocumentStore {
   ): Promise<SettingsImportResult>;
 
   /**
+   * The sessions not yet `failed` or `stopped` that name one of `ids`: as
+   * the primary repository, in the attached list, or through the policy
+   * list an unset attached list falls back to. Only ids no live catalog row
+   * holds count: the ones an import leaves out.
+   */
+  sessionsOnRepositories(ids: readonly string[]): Promise<
+    Array<{
+      session_id: string;
+      repository_id: string;
+      via: "primary" | "attached" | "policy";
+    }>
+  >;
+
+  /**
    * Every row of one kind, disabled and removed ones too; for repositories
    * only those that are not the console App's.
    */
@@ -74,12 +88,6 @@ export interface SettingsDocumentStore {
   setMcpWorkspaces(
     id: string,
     workspaces: readonly string[],
-    actor: TeamActor,
-  ): Promise<SettingsConsoleResult>;
-  /** A new version of the row with another default branch. */
-  setRepositoryBranch(
-    id: string,
-    branch: string,
     actor: TeamActor,
   ): Promise<SettingsConsoleResult>;
 }

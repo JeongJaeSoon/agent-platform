@@ -54,11 +54,9 @@ services:
   # The API's Secrets Manager, apart from `localstack` on purpose
   # workers reach that one through the egress proxy, and nothing on the
   # allowlist may answer for the provider keys the catalog references. Only
-  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER). Off by default:
-  # only the fake-model settings read a secret_id, so
-  # infra/compose.fake-model.yml turns it on.
+  # the API talks to it (AWS_ENDPOINT_URL_SECRETS_MANAGER). The local GitHub
+  # App also stores its generated signing key here, including real-model runs.
   secrets:
-    profiles: [fake-model]
     image: localstack/localstack:3@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     environment:
       SERVICES: secretsmanager
@@ -130,7 +128,15 @@ services:
       dockerfile: apps/control-host/Dockerfile
       # The published image has no testkit; `local` adds it (and the demo tools).
       target: local
-    command: ["bun", "run", "packages/testkit/src/fake-git-main.ts", "sample-app", "gate-app"]
+    command: ["bun", "run", "packages/testkit/src/local-github-main.ts", "sample-app", "gate-app"]
+    environment:
+      AWS_ENDPOINT_URL_SECRETS_MANAGER: http://secrets:4566
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      secrets:
+        condition: service_healthy
     ports:
       # HTTP clone for this host. Workers clone through the proxy's
       # repository route (fake-git:3000).

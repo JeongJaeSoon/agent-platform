@@ -11,6 +11,13 @@
     "gate-app": {
       "url": "http://fake-git:3000/agent/gate-app.git",
       "branch": "main",
+      "auth": {
+        "kind": "github_app",
+        "app_id": 1,
+        "installation_id": 1,
+        "api_base": "http://fake-git:3000",
+        "secret_id": "agent-platform/local/fake-github-app"
+      },
       "profiles": ["d2-gate"]
     }
   },

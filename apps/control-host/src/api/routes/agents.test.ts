@@ -209,6 +209,7 @@ function app(
         url: "https://github.com/acme/sample-app",
         branch: "main",
         profiles: ["coding"],
+        auth: { kind: "github_app", registered: true } as const,
       },
     },
   });

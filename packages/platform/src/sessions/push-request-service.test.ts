@@ -33,6 +33,7 @@ const CATALOG = {
       url: "https://git.example/acme/sample-app.git",
       branch: "main",
       profiles: ["default"],
+      auth: { kind: "github_app", registered: true },
     },
   },
 } satisfies SessionCatalog;
@@ -422,8 +423,16 @@ describe("a push to another repository", () => {
     profiles: { default: {} as SessionCatalog["profiles"][string] },
     repositories: {
       ...CATALOG.repositories,
-      docs: { url: "https://git.example/acme/docs.git", branch: "main" },
-      tools: { url: "https://git.example/acme/tools.git", branch: "main" },
+      docs: {
+        url: "https://git.example/acme/docs.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
+      tools: {
+        url: "https://git.example/acme/tools.git",
+        branch: "main",
+        auth: { kind: "github_app", registered: true },
+      },
     },
     installation: new Map<string, InstallationProfileEntry>([
       [

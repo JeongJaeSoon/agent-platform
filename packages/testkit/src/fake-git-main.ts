@@ -1,10 +1,11 @@
 import { startFakeGit } from "./fake-git.ts";
 
-// The example catalog's git host for a local stack:
+// An unauthenticated host for isolated HTTP transport tests.
+// Local catalogs use local-github-main.ts instead.
 // `bun fake-git-main.ts sample-app gate-app` serves
 // http://<host>:3000/agent/sample-app.git and .../gate-app.git, read-only.
-// FAKE_GIT_PORT and FAKE_GIT_OWNER keep the URLs existing session records
-// carry; FAKE_GIT_REQUEST_LIMIT caps GET /requests.
+// FAKE_GIT_PORT and FAKE_GIT_OWNER set the test URL;
+// FAKE_GIT_REQUEST_LIMIT caps GET /requests.
 const env = process.env;
 const git = await startFakeGit({
   repositories: process.argv.slice(2),
