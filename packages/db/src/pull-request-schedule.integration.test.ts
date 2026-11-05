@@ -292,6 +292,42 @@ integration("scheduling a pull request on PostgreSQL", () => {
     }
   });
 
+  test("finish takes the session lock before the request row, so a session holder never waits on a locked request", async () => {
+    const sessionId = await newSession();
+    const a = await request(sessionId, "actions");
+    await approve(sessionId, a.id);
+    const job = await pushes.claimNextApproved(60_000);
+    if (job?.id !== a.id) throw new Error("claimed another request");
+    const holder = await pool.connect();
+    const probe = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        sessionId,
+      ]);
+      const finishing = pushes.finish(job, {
+        state: "pushed",
+        remoteUrl: "https://github.com/acme/app.git",
+        remoteRef: `refs/heads/${job.targetBranch}`,
+        previousCommit: null,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // finish is waiting for the session; it must not hold the request yet.
+      await probe.query("BEGIN");
+      await probe.query(
+        "SELECT id FROM push_requests WHERE id = $1 FOR UPDATE NOWAIT",
+        [a.id],
+      );
+      await probe.query("ROLLBACK");
+      await holder.query("COMMIT");
+      expect(await finishing).toBe(true);
+    } finally {
+      holder.release();
+      probe.release();
+    }
+    expect((await row(a.id)).state).toBe("pushed");
+  });
+
   test("scheduling first makes the next request wait: request_open for a pending stage", async () => {
     const sessionId = await newSession();
     const a = await request(sessionId, "actions");
