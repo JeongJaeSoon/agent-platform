@@ -26,7 +26,8 @@ const exhausted = sql`${pushRequests.prState} = 'opening' AND ${pushRequests.prA
 const notExhausted = sql`NOT (${exhausted})`;
 
 /**
- * Ends stages whose last attempt died with its lease: failed, and the thread
+ * Ends stages whose last attempt died with its lease: uncertain (the forge
+ * may have taken the create, and nothing here asks it), and the thread
  * is told. Each row takes the session lock before the request lock, the order
  * `settle` takes, because the notice insert needs the session row too.
  */
@@ -53,7 +54,7 @@ async function endExhausted(db: Database): Promise<void> {
       await tx
         .update(pushRequests)
         .set({
-          prState: "failed",
+          prState: "uncertain",
           prError: "lease_expired",
           prNextAttemptAt: null,
           ...cleared,
@@ -64,7 +65,7 @@ async function endExhausted(db: Database): Promise<void> {
         sessionId,
         pushRequestId: id,
         notice: {
-          result: "pr_failed",
+          result: "pr_uncertain",
           repository: row.repositoryId,
           branch: row.targetBranch,
           commit: row.gitCommit,

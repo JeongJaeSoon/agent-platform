@@ -245,7 +245,7 @@ integration("postgres pull request drain", () => {
     expect(rows.map((entry) => entry.number)).toEqual([5]);
   });
 
-  test("a stage whose last attempt died with its lease ends failed instead of being claimed again", async () => {
+  test("a stage whose last attempt died with its lease ends uncertain instead of being claimed again", async () => {
     const { id } = await due();
     await db
       .update(pushRequests)
@@ -259,7 +259,7 @@ integration("postgres pull request drain", () => {
       .where(eq(pushRequests.id, id));
     expect(await drain.claimNextDue(60_000)).toBeNull();
     expect(await row(id)).toMatchObject({
-      prState: "failed",
+      prState: "uncertain",
       prError: "lease_expired",
       prClaimToken: null,
       prLeaseExpiresAt: null,
