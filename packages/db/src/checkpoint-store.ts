@@ -251,7 +251,8 @@ export function createPostgresCheckpointStore(
         )
         .union(
           db
-            .select({ revision: pushIntents.pinnedRevision })
+            // The where clause leaves no null; the column type cannot say so.
+            .select({ revision: sql<number>`${pushIntents.pinnedRevision}` })
             .from(pushIntents)
             .where(
               and(
@@ -261,9 +262,7 @@ export function createPostgresCheckpointStore(
               ),
             ),
         );
-      return rows.flatMap((row) =>
-        row.revision === null ? [] : [row.revision],
-      );
+      return rows.map((row) => row.revision);
     },
 
     async markCollected(
