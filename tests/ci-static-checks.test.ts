@@ -110,7 +110,12 @@ test("required check only accepts verified product or documentation results", ()
 
 test("required integration never treats an unplanned skip as success", () => {
   const job = workflow.jobs.integration;
-  expect(job?.needs).toEqual(["changes", "integration-domain"]);
+  expect(job?.needs).toEqual([
+    "changes",
+    "integration-domain",
+    "e2e",
+    "quickstart",
+  ]);
   expect(job?.if).toMatch(/^always\(\)/);
   expect(job?.steps[0]?.env?.RESULT).toBe(
     `\${{ needs.integration-domain.result }}`,
@@ -120,12 +125,17 @@ test("required integration never treats an unplanned skip as success", () => {
     TESTS: "true",
     DOCS_ONLY: "false",
     RESULT: "success",
+    EVENT: "pull_request",
+    ONLY: "all",
+    E2E: "success",
+    QUICKSTART: "success",
   };
   expect(verdict("integration", product)).toBe(0);
   for (const result of ["failure", "cancelled", "skipped", ""]) {
     expect(verdict("integration", { ...product, RESULT: result })).not.toBe(0);
   }
   const docs = {
+    ...product,
     PLAN: "success",
     TESTS: "false",
     DOCS_ONLY: "true",
@@ -139,7 +149,55 @@ test("required integration never treats an unplanned skip as success", () => {
   expect(verdict("integration", { ...docs, RESULT: "failure" })).not.toBe(0);
 });
 
-test("e2e and quickstart always validate the plan and retain their required names", () => {
+test("integration refuses cancelled heavy jobs even after every domain passed", () => {
+  const passed = {
+    PLAN: "success",
+    TESTS: "true",
+    DOCS_ONLY: "false",
+    RESULT: "success",
+    EVENT: "pull_request",
+    ONLY: "all",
+    E2E: "success",
+    QUICKSTART: "success",
+  };
+  for (const key of ["E2E", "QUICKSTART"]) {
+    for (const result of ["failure", "cancelled", "skipped", ""]) {
+      expect(verdict("integration", { ...passed, [key]: result })).not.toBe(0);
+    }
+  }
+  const manual = {
+    ...passed,
+    EVENT: "workflow_dispatch",
+    ONLY: "integration",
+    E2E: "skipped",
+    QUICKSTART: "skipped",
+  };
+  expect(verdict("integration", manual)).toBe(0);
+  for (const key of ["E2E", "QUICKSTART"]) {
+    for (const result of ["failure", "cancelled", "success", ""]) {
+      expect(verdict("integration", { ...manual, [key]: result })).not.toBe(0);
+    }
+  }
+  expect(verdict("integration", { ...manual, EVENT: "pull_request" })).not.toBe(
+    0,
+  );
+  expect(verdict("integration", { ...manual, ONLY: "all" })).not.toBe(0);
+  expect(verdict("integration", { ...manual, RESULT: "failure" })).not.toBe(0);
+  expect(verdict("integration", { ...passed, EVENT: "push" })).toBe(0);
+  expect(
+    verdict("integration", { ...passed, EVENT: "workflow_dispatch" }),
+  ).toBe(0);
+  for (const key of ["EVENT", "ONLY"]) {
+    expect(verdict("integration", { ...passed, [key]: "" })).not.toBe(0);
+  }
+  const env = workflow.jobs.integration?.steps[0]?.env;
+  expect(env?.E2E).toBe(`\${{ needs.e2e.result }}`);
+  expect(env?.QUICKSTART).toBe(`\${{ needs.quickstart.result }}`);
+  expect(env?.EVENT).toBe(`\${{ github.event_name }}`);
+  expect(env?.ONLY).toBe(`\${{ github.event.inputs.only || 'all' }}`);
+});
+
+test("e2e and quickstart validate the plan but stop when the workflow is cancelled", () => {
   for (const [name, flag, variable] of [
     ["e2e", "product", "PRODUCT"],
     ["quickstart", "quickstart", "QUICKSTART"],
@@ -147,7 +205,7 @@ test("e2e and quickstart always validate the plan and retain their required name
     if (!name || !flag || !variable) throw new Error("missing guard case");
     const job = workflow.jobs[name];
     expect(job?.needs).toBe("changes");
-    expect(job?.if).toMatch(/^always\(\)/);
+    expect(job?.if).toMatch(/^!cancelled\(\)/);
     expect(
       verdict(name, {
         PLAN: "success",

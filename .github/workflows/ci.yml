@@ -523,9 +523,9 @@ jobs:
       - if: always()
         run: .github/scripts/ci-services.sh stop
 
-  # A skipped required job counts as passing, so always emit an explicit verdict.
+  # Heavy jobs stay cancellable; this required gate rejects missing or cancelled results.
   integration:
-    needs: [changes, integration-domain]
+    needs: [changes, integration-domain, e2e, quickstart]
     if: >-
       always()
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
@@ -536,11 +536,20 @@ jobs:
         if: '!cancelled()'
         env:
           RESULT: ${{ needs.integration-domain.result }}
+          E2E: ${{ needs.e2e.result }}
+          QUICKSTART: ${{ needs.quickstart.result }}
+          EVENT: ${{ github.event_name }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
           PLAN: ${{ needs.changes.result }}
           TESTS: ${{ needs.changes.outputs.tests }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
           [ "$PLAN" = success ] || exit 1
+          case "$EVENT:$ONLY:$E2E:$QUICKSTART" in
+            pull_request:all:success:success | push:all:success:success | workflow_dispatch:all:success:success) ;;
+            workflow_dispatch:integration:skipped:skipped) ;;
+            *) echo "::error::required scenario or guide jobs did not pass"; exit 1 ;;
+          esac
           case "$TESTS:$DOCS_ONLY:$RESULT" in
             true:false:success) echo "integration: all domains passed" ;;
             false:true:skipped) echo "integration: documentation-only PR; no product test inputs changed" ;;
@@ -859,7 +868,7 @@ jobs:
   e2e:
     needs: changes
     if: >-
-      always()
+      !cancelled()
       && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     # Image builds take most of it; the scenario itself is a few minutes.
@@ -934,7 +943,7 @@ jobs:
   quickstart:
     needs: changes
     if: >-
-      always()
+      !cancelled()
       && contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30

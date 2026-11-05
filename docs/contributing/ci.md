@@ -10,7 +10,7 @@ integration 스위트는 숫자 샤드가 아니라 도메인별 job 7개(`integ
 
 정적 검사 `check (static)`과 unit 네 부분(`check (unit: packages)`, `check (unit: db)`, `check (unit: worker, web)`, `check (unit: other apps, tests)`)은 별도 job이다. `static`은 typecheck → lint → `THIRD_PARTY_NOTICES.md` 대조를 각각 별도 step으로 실행한다. 설치가 성공하면 typecheck가 실패해도 lint·라이선스는 취소 전까지 실행돼 한 번에 결과를 보고한다. unit은 `.github/scripts/unit-part.ts`가 `packages/db/`를 `packages-db`로, 나머지 `packages/`를 `packages`로, `apps/worker/`·`apps/web/`를 `worker-web`으로, 나머지 전부를 `rest`로 나눈다. 빈 부분은 전체 suite로 읽히므로 출력 전에 실패한다. 로컬 `bun run check`는 그대로 typecheck·lint·전체 테스트를 직렬로 돈다.
 
-브랜치 보호의 필수 체크는 `check`·`integration`·`e2e`·`quickstart`와 Images의 `supply-chain`이다. `check`와 `integration`은 `always()`로 실행해 계획 성공과 실제 선행 결과를 판정한다. 제품 계획에서 실패·취소·timeout·skip은 성공이 아니며, 문서 계획의 명시적 생략은 문서 검사 성공 등 정해진 조합만 허용한다. `e2e`·`quickstart`도 job을 skip시키지 않고 계획을 먼저 검사한 뒤 무거운 step을 실행하거나 생략 이유를 남겨 success를 낸다. 경로 감지 실패나 출력 누락은 required 실패다. matrix의 `fail-fast: false`는 그대로다. main·제품 PR에서 정적/unit 5개와 integration 7개 외에도 제품·사이트 job들이 runner를 요청하므로 계정 동시성 한도에 닿으면 큐를 기다린다. 실제 job 수·점유·큐 산식은 [측정 기록](ci-optimization-2026-11.md)에 있다.
+브랜치 보호의 필수 체크는 `check`·`integration`·`e2e`·`quickstart`와 Images의 `supply-chain`이다. `check`와 `integration`은 `always()`로 실행해 계획 성공과 실제 선행 결과를 판정한다. 제품 계획에서 실패·취소·timeout·skip은 성공이 아니며, 문서 계획의 명시적 생략은 문서 검사 성공 등 정해진 조합만 허용한다. `e2e`·`quickstart`는 계획을 먼저 검사한 뒤 무거운 step을 실행하거나 생략 이유를 남겨 success를 낸다. 두 job은 `!cancelled()`로 대체된 run에서 취소 가능하게 유지하고, required `integration`이 두 결과까지 기다려 취소·예상 밖 skip을 실패로 판정한다. 수동 `only=integration`에서만 두 job의 의도한 skip을 허용한다. 경로 감지 실패나 출력 누락은 required 실패다. matrix의 `fail-fast: false`는 그대로다. main·제품 PR에서 정적/unit 5개와 integration 7개 외에도 제품·사이트 job들이 runner를 요청하므로 계정 동시성 한도에 닿으면 큐를 기다린다. 실제 job 수·점유·큐 산식은 [측정 기록](ci-optimization-2026-11.md)에 있다.
 
 `agent-sdk-compat`는 **pull request에서는 돌지 않는다.** 결과가 어차피 run을 막지 않으므로(아래 참고) PR 커밋마다 돌려도 `main` push가 주는 신호 이상을 얻지 못한다. `main` push와 수동 실행에서만 돈다. `scripts/agent-sdk-compat`을 건드리거나 SDK·LiteLLM 버전을 올리는 PR은 `-f only=agent-sdk-compat`로 직접 확인한다.
 
@@ -64,7 +64,7 @@ bun 버전 고정과 `~/.bun/install/cache` 캐시는 `.github/actions/bun-setup
 | `integration (docker)` | `postgres:16` (+ runner의 Docker daemon) | `QUEUE_DATABASE_URL`, `DOCKER_BACKEND_TEST=1` | `bun test <docker 파일>` | 집계로 |
 | `integration (egress)` | 없음 (runner의 Docker daemon, suite가 LocalStack을 컨테이너로 직접 띄움) | `DOCKER_BACKEND_TEST=1` | `bun test <egress 파일>` | 집계로 |
 | `integration (worker)` | 없음 | 없음 | `bun test <worker 파일>` | 집계로 |
-| `integration` | 없음 | 없음 | 계획 성공과 일곱 도메인 성공 또는 문서 전용의 명시적 생략 확인 | ✅ |
+| `integration` | 없음 | 없음 | 계획·도메인·E2E·quickstart 결과의 허용 조합 확인 | ✅ |
 | `workspace-quota` | 없음 — xfs+prjquota loop 파일을 data root로 쓰는 dind daemon을 job이 직접 띄운다 | `DOCKER_BACKEND_TEST=1`, `DOCKER_HOST` | `bun test packages/adapters/execution/local-docker/src/workspace.integration.test.ts` | ❌ (아래 참고) |
 | `e2e` | 없음 — compose `apps` profile 전체를 job이 직접 띄운다(runner의 Docker daemon, 28 이상) | `E2E_API_URL`·`E2E_API_KEY`(run.sh가 설정) | 제품 계획이면 `tests/e2e/run.sh`, 문서 전용이면 계획 검사와 생략 이유 기록 — 이미지 빌드 → 스택 → key → `bun test ./tests/e2e/remote-mcp.e2e.ts ./tests/e2e/operator-profiles.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts` | ✅ |
 | `quickstart` | 없음 — `docs/quickstart.md`와 `apps/docs/content/docs/reference/api-guide.mdx`가 차례로 띄우는 기본 project·포트 그대로 | 없음 | 제품·가이드 변경이면 `tests/e2e/quickstart.sh [문서]`, 그 외 문서 전용이면 계획 검사와 생략 이유 기록 — 두 문서의 `bash` 블록을 각각 한 셸(`bash -euo pipefail`)에서 실행. runner에 Bun을 설치하지 않는다 | ✅ |
