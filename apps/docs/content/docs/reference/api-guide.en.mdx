@@ -18,7 +18,7 @@ OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
 
 **Goal.** Get a Bearer API key and confirm in one call the minimum scopes the later use cases need. Reading, session input, approval, control and recovery are split into `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control` and `sessions:recover`.
 
-**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md)), issue a key, and check with `GET /v1` that the key is valid. In production, put the key your platform administrator issued into `KEY` and skip the two `scripts/local.sh` lines.
+**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. In production, put the key your platform administrator issued into `KEY` and skip the two `scripts/local.sh` lines.
 
 ```bash
 scripts/local.sh up --fake-model
@@ -505,4 +505,4 @@ scripts/local.sh down
 
 **Expected response.** `local.sh: deleted` is printed, and the local sessions, checkpoints and keys are deleted.
 
-**Common errors.** Do not delete another project or installation with manual Docker commands. If another stack is using the default ports, do not start this example; first follow the [port check in the quickstart](https://github.com/JeongJaeSoon/werft/blob/main/docs/quickstart.md#0-준비물).
+**Common errors.** Do not delete another project or installation with manual Docker commands. If another stack is using the default ports, do not start this example; first follow the [port check in Run a development server](/run-server/dev-server#prerequisites).

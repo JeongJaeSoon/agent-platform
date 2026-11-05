@@ -1,14 +1,160 @@
 ---
-title: "TypeScript SDK"
-description: This page moved to Getting started and the feature docs
+title: "SDK behavior in detail"
+description: "The contracts @werft-ai/sdk keeps for retries, errors, the event stream, turn waiting, close and push approval"
 ---
 
-The whole documentation now assumes `@werft-ai/sdk`, so there is no separate SDK guide. What this page covered has moved here:
+This page describes how `@werft-ai/sdk` wraps the rules of the HTTP API. How to use it is in [Install the SDK](/getting-started/install) and [Client settings and errors](/getting-started/client); this page covers only the finer contracts underneath. The rules of the HTTP API itself (scopes, `Idempotency-Key`, error codes, the event stream) are defined by the [API use-case guide](/reference/api-guide). Everything below is what the code in `packages/sdk` confirms.
 
-| Content | New location |
+## Client and types
+
+- `apiKey` is sent only as `Authorization: Bearer <key>`. It appears in no error message, in `inspect` or in JSON.
+- Types are taken from the types generated from OpenAPI, with names added. The enums in response types are open unions, so a new value from the server (a new state, a new error code) does not break the types or the code. Request types are closed.
+- `sessions.list` and `turns.list` give the first page when you `await` them and every item when you `for await` them. `page.nextPage()` is `null` on the last page.
+- The caller passes `expected_revision` for pause, resume, terminate and close. The SDK does not read and fill it in, and it does not resend automatically on `REVISION_CONFLICT`.
+- `limits.get` (`GET /v1/limits`) can be read only by the signed-in workspace owner. Calling it with an API key returns 403.
+
+## Retries and Idempotency-Key
+
+- It retries on: `retryable: true` in the response body, a 502 or 504 that is not an API error body (a proxy response), and a connection failure or attempt timeout where no response was read.
+  - After a connection failure, a timeout, or a 502 or 504 that is not an API error body, it resends only GET requests and commands that have an `Idempotency-Key`. `openPullRequest` and `commentPullRequest` have no key and the server may already have run them, so they are not resent.
+- It does not retry on: any 409 and 500. Any other API error is resent only when `retryable` in the response body is `true`; a 4xx with `retryable: true` is retried too (429 included).
+- Wait time: if `Retry-After` is present, that value is used. If it exceeds `maxRetryDelayMs` (60 seconds by default), the call fails at once without waiting and puts the value in the error's `retryAfterMs`. Without it, the wait is random within `min(0.5s·2^n, 8s, maxRetryDelayMs)`.
+- `waitForTurn`, `waitForReceipt` and `waitForPushRequest` pass a retryable read failure on to the next check. If that error has `Retry-After`, the next check comes after that time, and an incoming event does not bring it forward.
+- A command that needs a key settles on one key per call (the `idempotencyKey` you passed, or else a new value) and sends the same key on every retry of that call. When the same request is sent again with the same key, the server runs the command once.
+- The default key of `sessions.requests.answer` is `answer:<request_id>`. A request has only one answer.
+- To keep retrying after a process restart, save the error's `idempotencyKey` and pass it back as `{ idempotencyKey }`.
+
+## Errors
+
+There is one error class per way of failing. Server errors are told apart by `code`.
+
+| Class | When | Main fields |
+| --- | --- | --- |
+| `APIError` | The server answered with an error | `status`, `code` (the server's `error.code` as is), `retryable`, `requestId`, `details`, `retryAfterMs` |
+| `ConnectionError` | No response was read. It is unknown whether the command ran | `code: "NETWORK_ERROR"` |
+| `TimeoutError` | An attempt exceeded `timeoutMs` | `code: "TIMEOUT"` |
+| `AbortedError` | The caller's `signal` aborted | `name: "AbortError"`, `cause` is the signal's reason |
+| `TurnBlockedError` | Only in `waitForTurn`. The session is `paused`, `stopped`, `recovery_required` or `closed`, so the turn cannot end on its own | `details.admission_state` |
+
+All extend `WerftError` and carry `attempts`. The errors of a command that has a key, abort included, carry `idempotencyKey`. The `TypeError` that header validation throws before the key is settled has none.
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.pause(id, { expected_revision: revision });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT")) {
+    // Someone else changed the session. Read it again and decide.
+  }
+  throw error;
+}
+```
+
+## Event stream
+
+```ts
+const stream = werft.sessions.events.stream(sessionId, { lastEventId, signal });
+for await (const event of stream) {
+  console.log(event.kind, event.turn_id, event.payload);
+}
+// Save stream.lastEventId and another process can receive from right after it.
+```
+
+- When the connection drops, it reconnects with `Last-Event-ID` and receives from right after that event.
+- It does not close by itself when a turn or the session ends. End it with `signal` or `stream.close()`.
+- 400, 401, 403, 404 and 410 stop the repetition and throw an `APIError`.
+- When more than 10,000 events are unread, it hands over all the events it already holds and then throws a `WerftError` with `code: "STREAM_OVERFLOW"`. The events it handed over are continuous, so reopening with `stream.lastEventId` misses none.
+- Opening without `lastEventId` receives the whole session again from the start. Each owner can open only a limited number of streams (429 beyond that).
+
+## Waiting for a turn and answering permission requests
+
+`waitForTurn` checks over REST every 2 seconds until the turn ends. In the same loop it passes the session's pending requests to your handlers.
+
+```ts
+import { type PendingRequestHandlers, waitForTurn } from "@werft-ai/sdk";
+
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === "git status") return { action: "allow" };
+    return { action: "deny", reason: "This script only allows: git status" };
+  },
+};
+
+const turn = await waitForTurn(werft, sessionId, turnId, {
+  signal: AbortSignal.timeout(30 * 60_000),
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(outcome.request_id, outcome.outcome),
+  events: { onEvent: (event) => console.log(event.kind) }, // optional: wake up as soon as an event arrives
+});
+console.log(turn.status); // "failed" is a value, not an error
+```
+
+- The turn counts as ended when `status` of `GET …/turns/{turn_id}` is terminal (`completed`, `failed`, `interrupted`, `cancelled`, `outcome_unknown`) or `ended_at` is set. The `result` event is not the completion check.
+- The handler is a security boundary. Allow only an exactly matching input and deny the rest. A denial needs a `reason` by type.
+- If the handler returns `undefined`, or there is no handler for that kind, the request stays open for a person in the console or Slack.
+- The outcome of an answer (`AnswerOutcome`): `accepted` (stored; the receipt may fail later), `left_open`, `too_late` (`REQUEST_EXPIRED`, `REQUEST_STALE`), `conflict` (another answer was stored first).
+- To answer, the key needs `sessions:approve`. Without it the wait fails with 403.
+- The only deadline is `signal`. If you wait with a question left open, you wait until a person answers.
+- Turning on `events` uses one more stream. If the stream fails, polling continues.
+
+To handle requests once, use `answerPending(werft, sessionId, approvals)`.
+
+## Closing a session (close)
+
+This ends a session whose work is done. Unlike terminate, nothing is killed. The running turn ends, the checkpoint is committed, and then the session becomes `closed`. The scope is `sessions:control`.
+
+```ts
+import { closeBlocked, closeResult, waitForReceipt } from "@werft-ai/sdk";
+
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "script finished",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id, {
+  signal: AbortSignal.timeout(10 * 60_000),
+});
+console.log(receipt.status, closeResult(receipt));
+// { resulting_admission_state: "closed", checkpoint_revision: 3, cancelled_turn_count: 0 }
+```
+
+- While closing, the session is `closing` (`isClosing(session)`). A message and most controls sent then get 409 `SESSION_CLOSING`. Terminate is accepted while closing and overtakes the close; the close receipt fails with `CONTROL_SUPERSEDED`.
+- If the drain takes more than 60 seconds, the session `attention` becomes `CLOSE_BLOCKED` (`closeBlocked(session)` gives that reason). With an open question or approval request, close waits until you answer it or interrupt the turn. So give `waitForReceipt` a deadline through `signal`.
+- Input that was waiting is cancelled when the close commits (`cancelled_turn_count`). A message or control after the close gets 409 `SESSION_CLOSED`.
+- An agent that closes its own session inside its own turn does not wait for the receipt, because the drain waits for that turn to end.
+
+## Push approval
+
+```ts
+import { waitForPushRequest } from "@werft-ai/sdk";
+
+const push = await werft.sessions.pushRequests.create(sessionId);
+// After reviewing push.git_commit, with the approval key:
+await approver.sessions.pushRequests.approve(sessionId, push.id, {
+  git_commit: push.git_commit,
+});
+const done = await waitForPushRequest(werft, sessionId, push.id, { signal });
+if (done.state === "pushed")
+  await approver.sessions.pushRequests.openPullRequest(sessionId, push.id);
+```
+
+The SDK does not handle `CHECKPOINT_MOVED` specially. Even when you receive it, it does not read again and approve again, so approve only the commit you reviewed.
+
+## Versions
+
+- The SDK version (`SDK_VERSION`) is the package's own semver. See the published versions with `npm view @werft-ai/sdk dist-tags`.
+- `API_SPEC_VERSION` is the `info.version` of the spec the types were generated from. It is not compared with the server version at runtime.
+- The SSE envelope reads only `schema_version` 1 (`SUPPORTED_SSE_SCHEMA_VERSIONS`).
+
+## Where the rest is
+
+| Content | Location |
 | --- | --- |
 | Installing, creating a client with a server address and an API key | [Install the SDK](/getting-started/install) |
 | The first script: create a session, answer a permission request, close | [Create your first session](/getting-started/quickstart), [Permission requests and closing](/getting-started/first-session) |
-| Client options, errors, retries, a separate approval key, wrapped APIs, examples in the repository | [Client settings and errors](/getting-started/client) |
-| Event stream | [Receiving a stream](/messages/streaming) |
+| Client options, a separate approval key, wrapped APIs, examples in the repository | [Client settings and errors](/getting-started/client) |
+| Receiving the event stream | [Receiving a stream](/messages/streaming) |
 | Methods for sessions, messages and approvals | [Sessions](/sessions/start), [Messages](/messages/send), [Approvals and push](/approvals/request) |
+| Samples by use case | [SDK samples](/reference/examples) |

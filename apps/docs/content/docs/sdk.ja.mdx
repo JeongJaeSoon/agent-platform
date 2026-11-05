@@ -1,14 +1,160 @@
 ---
-title: "TypeScript SDK"
-description: このページの内容ははじめにと機能のドキュメントに移動した
+title: "SDK の動作の詳細"
+description: "@werft-ai/sdk がリトライ、エラー、イベントストリーム、turn の待機、close、push 承認で守る契約"
 ---
 
-ドキュメント全体が `@werft-ai/sdk` を前提にしたため、SDK の案内を別に置かない。このページにあった内容は次に移動した。
+`@werft-ai/sdk` が HTTP API のルールをどのようにラップするかを説明します。使い方は [SDK のインストール](/getting-started/install) と [クライアントの設定とエラー](/getting-started/client) にあり、このページはその下にある細かい契約だけを扱います。HTTP API 自体のルール(scope、`Idempotency-Key`、エラーコード、イベントストリーム)の正本は [API ユースケースガイド](/reference/api-guide) です。以下は `packages/sdk` のコードで確認できることだけを書いています。
 
-| 内容 | 新しい場所 |
+## クライアントと型
+
+- `apiKey` は `Authorization: Bearer <key>` としてのみ送ります。エラーメッセージ、`inspect`、JSON のどこにも出ません。
+- 型は OpenAPI から生成した型に名前を付けて取り込んでいます。レスポンス型の enum は開いた union なので、サーバーが新しい値(新しい状態、新しいエラーコード)を返しても型とコードは壊れません。リクエスト型は閉じています。
+- `sessions.list` と `turns.list` は、`await` すると最初のページ、`for await` するとすべての項目を返します。`page.nextPage()` は最後のページで `null` です。
+- pause・resume・terminate・close の `expected_revision` は呼び出し側が渡します。SDK が代わりに読んで埋めることはなく、`REVISION_CONFLICT` でも自動では再送しません。
+- `limits.get`(`GET /v1/limits`)は、ログインした workspace owner だけが読めます。API キーで呼ぶと 403 です。
+
+## リトライと Idempotency-Key
+
+- リトライする場合: レスポンス本文の `retryable: true`、API エラー本文ではない 502・504(プロキシの応答)、レスポンスを読めなかった接続失敗と試行のタイムアウト。
+  - 接続失敗・タイムアウトと、API エラー本文ではない 502・504 は、GET と `Idempotency-Key` があるコマンドだけを再送します。key のない `openPullRequest`・`commentPullRequest` は、サーバーがすでに実行した可能性があるため再送しません。
+- リトライしない場合: すべての 409 と 500。それ以外の API エラーは、レスポンス本文の `retryable` が `true` のときだけ再送します。4xx でも本文が `retryable: true` ならリトライします(429 を含む)。
+- 待ち時間: `Retry-After` があればその値を使います。`maxRetryDelayMs`(既定 60 秒)を超えるときは待たずにすぐ失敗し、エラーの `retryAfterMs` にその値を載せます。なければ `min(0.5 秒·2^n, 8 秒, maxRetryDelayMs)` の範囲でランダムに待ちます。
+- `waitForTurn`・`waitForReceipt`・`waitForPushRequest` は、リトライできる読み取りの失敗を次の確認に回します。そのエラーに `Retry-After` があれば、次の確認はその時間が過ぎてからで、イベントが来ても早めません。
+- key が必要なコマンドは、呼び出しごとに key を 1 つ決め(渡した `idempotencyKey` があればそれ、なければ新しく作った値)、その呼び出しのすべてのリトライに同じ key を送ります。同じ key で同じリクエストを再送すると、サーバーはコマンドを 1 回だけ実行します。
+- `sessions.requests.answer` の既定の key は `answer:<request_id>` です。リクエスト 1 つに答えは 1 つだけです。
+- プロセスを再起動した後も続けてリトライするには、エラーの `idempotencyKey` を保存しておき、`{ idempotencyKey }` として渡します。
+
+## エラー
+
+エラークラスは失敗の仕方ごとに 1 つです。サーバーのエラーは `code` で見分けます。
+
+| クラス | いつ | 主なフィールド |
+| --- | --- | --- |
+| `APIError` | サーバーがエラーで答えた | `status`、`code`(サーバーの `error.code` そのまま)、`retryable`、`requestId`、`details`、`retryAfterMs` |
+| `ConnectionError` | レスポンスを読めなかった。コマンドが実行されたかは不明 | `code: "NETWORK_ERROR"` |
+| `TimeoutError` | 試行が `timeoutMs` を超えた | `code: "TIMEOUT"` |
+| `AbortedError` | 呼び出し側の `signal` が abort した | `name: "AbortError"`、`cause` は signal の reason |
+| `TurnBlockedError` | `waitForTurn` のみ。セッションが `paused`・`stopped`・`recovery_required`・`closed` のため、turn が自然には終わらない | `details.admission_state` |
+
+すべて `WerftError` を継承し、`attempts` を持ちます。key のあるコマンドのエラーは、abort も含めて `idempotencyKey` を持ちます。ただし、key が決まる前にヘッダー検証が投げる `TypeError` には含まれません。
+
+```ts
+import { isApiError } from "@werft-ai/sdk";
+
+try {
+  await werft.sessions.pause(id, { expected_revision: revision });
+} catch (error) {
+  if (isApiError(error, "REVISION_CONFLICT")) {
+    // 他の人がセッションを変えた。読み直して判断する。
+  }
+  throw error;
+}
+```
+
+## イベントストリーム
+
+```ts
+const stream = werft.sessions.events.stream(sessionId, { lastEventId, signal });
+for await (const event of stream) {
+  console.log(event.kind, event.turn_id, event.payload);
+}
+// stream.lastEventId を保存しておくと、別のプロセスでその直後から受け取れる。
+```
+
+- 切れると `Last-Event-ID` で再接続し、そのイベントの直後から受け取ります。
+- turn やセッションが終わっても、自分では閉じません。`signal` か `stream.close()` で終わらせます。
+- 400・401・403・404・410 は繰り返しを止めて `APIError` を投げます。
+- 未読のイベントが 10,000 個を超えると、受け取っておいたイベントをすべて渡した後で、`code: "STREAM_OVERFLOW"` の `WerftError` を投げます。渡したイベントは途切れずに続くので、`stream.lastEventId` で開き直せば抜けるイベントはありません。
+- `lastEventId` なしで開くと、セッション全体を最初から受け取り直します。owner ごとに開けるストリームの数には上限があります(超えると 429)。
+
+## turn の待機と権限リクエストへの応答
+
+`waitForTurn` は、turn が終わるまで REST で 2 秒ごとに確認します。同じループで、セッションの待機中のリクエストを handler に渡します。
+
+```ts
+import { type PendingRequestHandlers, waitForTurn } from "@werft-ai/sdk";
+
+const approvals: PendingRequestHandlers = {
+  permission(request) {
+    const command = (request.input as { command?: unknown } | null)?.command;
+    if (request.tool === "Bash" && command === "git status") return { action: "allow" };
+    return { action: "deny", reason: "This script only allows: git status" };
+  },
+};
+
+const turn = await waitForTurn(werft, sessionId, turnId, {
+  signal: AbortSignal.timeout(30 * 60_000),
+  onRequest: approvals,
+  onAnswer: (outcome) => console.log(outcome.request_id, outcome.outcome),
+  events: { onEvent: (event) => console.log(event.kind) }, // 任意: イベントが来たらすぐ起きる
+});
+console.log(turn.status); // "failed" もエラーではなく値
+```
+
+- 終わったという判断は、`GET …/turns/{turn_id}` の `status` が terminal(`completed`・`failed`・`interrupted`・`cancelled`・`outcome_unknown`)か、`ended_at` があるときです。`result` イベントは完了の判定ではありません。
+- handler はセキュリティの境界です。完全に一致する入力だけを許可し、残りは拒否します。拒否には型上 `reason` が必要です。
+- handler が `undefined` を返すか、その kind の handler がなければ、リクエストを開いたままにして、コンソールや Slack の人に任せます。
+- 答えの結果(`AnswerOutcome`): `accepted`(保存された。receipt が後で failed になることがある)、`left_open`、`too_late`(`REQUEST_EXPIRED`・`REQUEST_STALE`)、`conflict`(別の答えが先に保存された)。
+- 答えるには、キーに `sessions:approve` が必要です。なければ 403 で待機が失敗します。
+- 期限は `signal` だけです。質問を開いたまま待つと、人が答えるまで待ちます。
+- `events` を有効にすると、ストリームをもう 1 つ使います。ストリームが失敗しても polling で続けます。
+
+1 回だけ処理するには、`answerPending(werft, sessionId, approvals)` を使います。
+
+## セッションを閉じる (close)
+
+作業を終えたセッションを終わらせます。terminate と違い、何も強制終了しません。動いていた turn が終わり、checkpoint がコミットされた後に、セッションが `closed` になります。scope は `sessions:control` です。
+
+```ts
+import { closeBlocked, closeResult, waitForReceipt } from "@werft-ai/sdk";
+
+const { revision } = await werft.sessions.get(sessionId);
+const accepted = await werft.sessions.close(sessionId, {
+  expected_revision: revision,
+  reason: "script finished",
+});
+const receipt = await waitForReceipt(werft, accepted.receipt_id, {
+  signal: AbortSignal.timeout(10 * 60_000),
+});
+console.log(receipt.status, closeResult(receipt));
+// { resulting_admission_state: "closed", checkpoint_revision: 3, cancelled_turn_count: 0 }
+```
+
+- 閉じている間、セッションは `closing` です(`isClosing(session)`)。このときに送ったメッセージとほとんどの制御は 409 `SESSION_CLOSING` になります。terminate は closing 中でも受け付けられて close に先行し、close の receipt は `CONTROL_SUPERSEDED` で失敗します。
+- drain が 60 秒を超えると、セッションの `attention` が `CLOSE_BLOCKED` になります(`closeBlocked(session)` がその reason を返します)。開いた質問や承認リクエストがあれば、答えるか turn を interrupt するまで close は待ちます。そのため `waitForReceipt` には `signal` で期限を与えます。
+- 待機中だった入力は、close がコミットされるときに取り消されます(`cancelled_turn_count`)。閉じた後のメッセージや制御は 409 `SESSION_CLOSED` です。
+- 自分の turn の中で自分のセッションを閉じるエージェントは、receipt を待ちません。drain がその turn の終了を待つからです。
+
+## push 承認
+
+```ts
+import { waitForPushRequest } from "@werft-ai/sdk";
+
+const push = await werft.sessions.pushRequests.create(sessionId);
+// push.git_commit を確認した後、承認用のキーで:
+await approver.sessions.pushRequests.approve(sessionId, push.id, {
+  git_commit: push.git_commit,
+});
+const done = await waitForPushRequest(werft, sessionId, push.id, { signal });
+if (done.state === "pushed")
+  await approver.sessions.pushRequests.openPullRequest(sessionId, push.id);
+```
+
+SDK は `CHECKPOINT_MOVED` を特別には扱いません。受け取っても読み直して承認し直すことはしないので、確認した commit だけを承認します。
+
+## バージョン
+
+- SDK のバージョン(`SDK_VERSION`)はパッケージ自身の semver です。公開されているバージョンは `npm view @werft-ai/sdk dist-tags` で見ます。
+- `API_SPEC_VERSION` は、型を生成した仕様の `info.version` です。実行時にサーバーのバージョンと照合はしません。
+- SSE の envelope は `schema_version` 1 だけを読みます(`SUPPORTED_SSE_SCHEMA_VERSIONS`)。
+
+## ほかの場所にあるもの
+
+| 内容 | 場所 |
 | --- | --- |
 | インストール、サーバーのアドレスと API キーでクライアントを作る | [SDK のインストール](/getting-started/install) |
 | 最初のスクリプト: セッションを作る、権限リクエストに答える、閉じる | [最初のセッションを作る](/getting-started/quickstart)、[権限リクエストとクローズ](/getting-started/first-session) |
-| クライアントのオプション、エラー、リトライ、承認用のキー、ラップする API、リポジトリのサンプル | [クライアントの設定とエラー](/getting-started/client) |
-| イベントストリーム | [ストリーミングの受信](/messages/streaming) |
+| クライアントのオプション、承認用のキー、ラップする API、リポジトリのサンプル | [クライアントの設定とエラー](/getting-started/client) |
+| イベントストリームの受信 | [ストリーミングの受信](/messages/streaming) |
 | セッション・メッセージ・承認のメソッド | [セッション](/sessions/start)、[メッセージ](/messages/send)、[承認と push](/approvals/request) |
+| ユースケース別のサンプル | [SDK サンプル](/reference/examples) |
