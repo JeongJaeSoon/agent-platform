@@ -17,7 +17,7 @@ This page describes how `@werft-ai/sdk` wraps the rules of the HTTP API. How to 
 
 - It retries on: `retryable: true` in the response body, a 502 or 504 that is not an API error body (a proxy response), and a connection failure or attempt timeout where no response was read.
   - After a connection failure, a timeout, or a 502 or 504 without a body, it resends only GET requests and commands that have an `Idempotency-Key`. `openPullRequest` and `commentPullRequest` have no key and the server may already have run them, so they are not resent.
-- It does not retry on: any 409, 500, and other 4xx.
+- It does not retry on: any 409 and 500. Any other error is resent only when `retryable` in the response body is `true`; a 4xx with `retryable: true` is retried too (429 included).
 - Wait time: if `Retry-After` is present, that value is used. If it exceeds `maxRetryDelayMs` (60 seconds by default), the call fails at once without waiting and puts the value in the error's `retryAfterMs`. Without it, the wait is random within `min(0.5s·2^n, 8s, maxRetryDelayMs)`.
 - `waitForTurn`, `waitForReceipt` and `waitForPushRequest` pass a retryable read failure on to the next check. If that error has `Retry-After`, the next check comes after that time, and an incoming event does not bring it forward.
 - A command that needs a key makes one key per call and sends the same key on every retry of that call. When the same key is sent again, the server runs the command once.
@@ -36,7 +36,7 @@ There is one error class per way of failing. Server errors are told apart by `co
 | `AbortedError` | The caller's `signal` aborted | `name: "AbortError"`, `cause` is the signal's reason |
 | `TurnBlockedError` | Only in `waitForTurn`. The session is `paused`, `stopped`, `recovery_required` or `closed`, so the turn cannot end on its own | `details.admission_state` |
 
-All extend `WerftError` and carry `attempts`. The errors of a command that has a key, abort included, carry `idempotencyKey`.
+All extend `WerftError` and carry `attempts`. The errors of a command that has a key, once an attempt has started and abort included, carry `idempotencyKey`. The `TypeError` that header validation throws before any attempt has none.
 
 ```ts
 import { isApiError } from "@werft-ai/sdk";
@@ -120,7 +120,7 @@ console.log(receipt.status, closeResult(receipt));
 // { resulting_admission_state: "closed", checkpoint_revision: 3, cancelled_turn_count: 0 }
 ```
 
-- While closing, the session is `closing` (`isClosing(session)`). A message or control sent then gets 409 `SESSION_CLOSING`.
+- While closing, the session is `closing` (`isClosing(session)`). A message and most controls sent then get 409 `SESSION_CLOSING`. Terminate is accepted while closing and overtakes the close; the close receipt fails with `CONTROL_SUPERSEDED`.
 - If the drain takes more than 60 seconds, the session `attention` becomes `CLOSE_BLOCKED` (`closeBlocked(session)` gives that reason). With an open question or approval request, close waits until you answer it or interrupt the turn. So give `waitForReceipt` a deadline through `signal`.
 - Input that was waiting is cancelled when the close commits (`cancelled_turn_count`). A message or control after the close gets 409 `SESSION_CLOSED`.
 - An agent that closes its own session inside its own turn does not wait for the receipt, because the drain waits for that turn to end.
@@ -144,7 +144,7 @@ The SDK does not handle `CHECKPOINT_MOVED` specially. Even when you receive it, 
 
 ## Versions
 
-- The SDK version (`SDK_VERSION`) is the package's own semver. It is 0.x while the API is alpha; a change that breaks the public surface is a minor, an additive change is a patch.
+- The SDK version (`SDK_VERSION`) is the package's own semver. See the published versions with `npm view @werft-ai/sdk dist-tags`.
 - `API_SPEC_VERSION` is the `info.version` of the spec the types were generated from. It is not compared with the server version at runtime.
 - The SSE envelope reads only `schema_version` 1 (`SUPPORTED_SSE_SCHEMA_VERSIONS`).
 

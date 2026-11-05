@@ -17,7 +17,7 @@ description: "@werft-ai/sdk がリトライ、エラー、イベントストリ�
 
 - リトライする場合: レスポンス本文の `retryable: true`、API エラー本文ではない 502・504(プロキシの応答)、レスポンスを読めなかった接続失敗と試行のタイムアウト。
   - 接続失敗・タイムアウトと、本文のない 502・504 は、GET と `Idempotency-Key` があるコマンドだけを再送します。key のない `openPullRequest`・`commentPullRequest` は、サーバーがすでに実行した可能性があるため再送しません。
-- リトライしない場合: すべての 409、500、その他の 4xx。
+- リトライしない場合: すべての 409 と 500。それ以外のエラーは、レスポンス本文の `retryable` が `true` のときだけ再送します。4xx でも本文が `retryable: true` ならリトライします(429 を含む)。
 - 待ち時間: `Retry-After` があればその値を使います。`maxRetryDelayMs`(既定 60 秒)を超えるときは待たずにすぐ失敗し、エラーの `retryAfterMs` にその値を載せます。なければ `min(0.5 秒·2^n, 8 秒, maxRetryDelayMs)` の範囲でランダムに待ちます。
 - `waitForTurn`・`waitForReceipt`・`waitForPushRequest` は、リトライできる読み取りの失敗を次の確認に回します。そのエラーに `Retry-After` があれば、次の確認はその時間が過ぎてからで、イベントが来ても早めません。
 - key が必要なコマンドは、呼び出しごとに key を 1 つ作り、その呼び出しのすべてのリトライに同じ key を送ります。同じ key で再送すると、サーバーはコマンドを 1 回だけ実行します。
@@ -36,7 +36,7 @@ description: "@werft-ai/sdk がリトライ、エラー、イベントストリ�
 | `AbortedError` | 呼び出し側の `signal` が abort した | `name: "AbortError"`、`cause` は signal の reason |
 | `TurnBlockedError` | `waitForTurn` のみ。セッションが `paused`・`stopped`・`recovery_required`・`closed` のため、turn が自然には終わらない | `details.admission_state` |
 
-すべて `WerftError` を継承し、`attempts` を持ちます。key のあるコマンドのエラーは、abort も含めてすべて `idempotencyKey` を持ちます。
+すべて `WerftError` を継承し、`attempts` を持ちます。key のあるコマンドが試行を始めた後のエラーは、abort も含めて `idempotencyKey` を持ちます。試行の前にヘッダー検証が投げる `TypeError` には含まれません。
 
 ```ts
 import { isApiError } from "@werft-ai/sdk";
@@ -120,7 +120,7 @@ console.log(receipt.status, closeResult(receipt));
 // { resulting_admission_state: "closed", checkpoint_revision: 3, cancelled_turn_count: 0 }
 ```
 
-- 閉じている間、セッションは `closing` です(`isClosing(session)`)。このときに送ったメッセージや制御は 409 `SESSION_CLOSING` になります。
+- 閉じている間、セッションは `closing` です(`isClosing(session)`)。このときに送ったメッセージとほとんどの制御は 409 `SESSION_CLOSING` になります。terminate は closing 中でも受け付けられて close に先行し、close の receipt は `CONTROL_SUPERSEDED` で失敗します。
 - drain が 60 秒を超えると、セッションの `attention` が `CLOSE_BLOCKED` になります(`closeBlocked(session)` がその reason を返します)。開いた質問や承認リクエストがあれば、答えるか turn を interrupt するまで close は待ちます。そのため `waitForReceipt` には `signal` で期限を与えます。
 - 待機中だった入力は、close がコミットされるときに取り消されます(`cancelled_turn_count`)。閉じた後のメッセージや制御は 409 `SESSION_CLOSED` です。
 - 自分の turn の中で自分のセッションを閉じるエージェントは、receipt を待ちません。drain がその turn の終了を待つからです。
@@ -144,7 +144,7 @@ SDK は `CHECKPOINT_MOVED` を特別には扱いません。受け取っても�
 
 ## バージョン
 
-- SDK のバージョン(`SDK_VERSION`)はパッケージ自身の semver です。API が alpha の間は 0.x で、公開面を壊す変更は minor、追加する変更は patch です。
+- SDK のバージョン(`SDK_VERSION`)はパッケージ自身の semver です。公開されているバージョンは `npm view @werft-ai/sdk dist-tags` で見ます。
 - `API_SPEC_VERSION` は、型を生成した仕様の `info.version` です。実行時にサーバーのバージョンと照合はしません。
 - SSE の envelope は `schema_version` 1 だけを読みます(`SUPPORTED_SSE_SCHEMA_VERSIONS`)。
 
