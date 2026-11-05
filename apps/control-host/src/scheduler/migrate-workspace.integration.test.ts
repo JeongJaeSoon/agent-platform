@@ -6,6 +6,7 @@ import {
   DockerClient,
   LABELS,
   legacyWorkspaceVolumeName,
+  volumeLabelsOf,
 } from "@werft-ai/execution-local-docker";
 import {
   removeWorkerNetworks,
@@ -45,7 +46,13 @@ integration("a legacy session relaunched after migrate-workspace", () => {
   const client = new DockerClient(dockerHost);
   const runLabel = `mig-${crypto.randomUUID().slice(0, 8)}`;
   const sessionId = crypto.randomUUID();
-  const legacy = legacyWorkspaceVolumeName(sessionId, runLabel);
+  const naming = {
+    installationId: runLabel,
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
+  };
+  const volumeKeys = volumeLabelsOf(naming);
+  const legacy = legacyWorkspaceVolumeName(sessionId, naming);
   let proxy: string | undefined;
 
   const environment = () => ({
@@ -181,10 +188,10 @@ integration("a legacy session relaunched after migrate-workspace", () => {
     ).toBe(0);
     expect(await client.inspectVolume(legacy)).toBeNull();
     const [copy] = await client.listVolumes([
-      `${LABELS.managed}=true`,
-      `${LABELS.sessionId}=${sessionId}`,
+      `${volumeKeys.managed}=true`,
+      `${volumeKeys.sessionId}=${sessionId}`,
     ]);
-    expect(copy?.Labels?.[LABELS.migratedFrom]).toBe(legacy);
+    expect(copy?.Labels?.[volumeKeys.migratedFrom]).toBe(legacy);
 
     // The refused launch is in its retry backoff; spend it on the
     // DB clock rather than waiting it out.

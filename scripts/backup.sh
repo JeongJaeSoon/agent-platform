@@ -86,10 +86,10 @@ if [ -n "$SCHEDULER" ]; then
     || die "cannot read the installation id of the scheduler of project '$PROJECT'"
 fi
 if [ -n "$INSTALLATION" ]; then
-  LABEL="agent-platform.installation=${INSTALLATION}"
+  LABEL="werft.installation=${INSTALLATION}"
   WORKERS_OF="installation ${INSTALLATION}"
 else
-  LABEL="agent-platform.installation"
+  LABEL="werft.installation"
   WORKERS_OF="any installation (project '$PROJECT' names none)"
 fi
 WORKERS="$(docker ps -q --filter "label=${LABEL}")" \

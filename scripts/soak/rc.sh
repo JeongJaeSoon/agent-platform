@@ -94,7 +94,7 @@ if [ "$stage" = all ]; then
   # into the run.
   scripts/soak/stack.sh down || die "stack down failed"
   # down swallows removal errors: check nothing of the project or installation survived.
-  for label in com.docker.compose.project=soak135 agent-platform.installation=soak135; do
+  for label in com.docker.compose.project=soak135 werft.installation=soak135 "${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=soak135"; do
     for list in "container ls -a" "volume ls"; do
       # shellcheck disable=SC2086
       left="$(docker $list -q --filter "label=${label}")" || die "docker ${list} failed"

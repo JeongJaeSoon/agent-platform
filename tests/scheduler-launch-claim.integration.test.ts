@@ -11,6 +11,7 @@ import {
 import {
   DockerClient,
   LABELS,
+  volumeLabelsOf,
   workspaceVolumePrefixFor,
 } from "@werft-ai/execution-local-docker";
 import { removeWorkerNetworks } from "@werft-ai/execution-local-docker/testing";
@@ -151,6 +152,12 @@ integration(
     });
     const suffix = crypto.randomUUID().slice(0, 8);
     const installationId = `lc-${suffix}`;
+    const naming = {
+      installationId,
+      volumeLabelNamespace: "werft",
+      volumeNamePrefix: "werft-ws-",
+    };
+    const volumeKeys = volumeLabelsOf(naming);
     const outerNetwork = `ap-lc-outer-${suffix}`;
     const proxyName = `ap-lc-proxy-${suffix}`;
     const proxyUrl = `http://${proxyName}:3128`;
@@ -304,7 +311,7 @@ integration(
 
       // The backend mounts this volume at /workspace, so seeding it is how the
       // worker gets its script without the backend ever taking a bind mount.
-      const volume = `${workspaceVolumePrefixFor(sessionId, installationId)}seed`;
+      const volume = `${workspaceVolumePrefixFor(sessionId, naming)}seed`;
       volumes.push(volume);
       await seedWorkspace(volume);
     }, 600_000);
@@ -461,10 +468,10 @@ integration(
       await client.createVolume({
         Driver: "local",
         Labels: {
-          [LABELS.installation]: installationId,
-          [LABELS.managed]: "true",
-          [LABELS.sessionId]: sessionId,
-          [LABELS.workspaceQuota]: "off",
+          [volumeKeys.installation]: installationId,
+          [volumeKeys.managed]: "true",
+          [volumeKeys.sessionId]: sessionId,
+          [volumeKeys.workspaceQuota]: "off",
         },
         Name: volume,
       });

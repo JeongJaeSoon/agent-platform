@@ -353,7 +353,7 @@ export function enforcedConfig(
     statement_timeout: timeouts.statementMs,
     query_timeout: timeouts.queryMs,
     idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_MS,
-    application_name: parsed.application_name ?? `agent-platform:${name}`,
+    application_name: parsed.application_name ?? `werft:${name}`,
   };
 }
 
