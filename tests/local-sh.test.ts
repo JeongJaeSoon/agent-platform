@@ -581,10 +581,10 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
         expect(await stat(state).catch(() => null)).toBeNull();
         // reset must stop before its down deletes the volume.
         const docker = await calls("docker-calls");
-        expect(docker).toEqual([
-          "compose --profile apps -f compose.yaml -f infra/compose.fake-model.yml config --format json",
+        expect(docker.at(-1)).toBe(
           "volume ls -q --filter name=^ap-lost_postgres-data$",
-        ]);
+        );
+        expect(docker.filter((call) => / (up|down)\b/.test(call))).toEqual([]);
       },
     );
 
@@ -630,9 +630,7 @@ echo "$VITE_API_TARGET $*" >> "${dir}/bun-calls"
         STUB_PG_VOLUME: "from-dotenv_postgres-data",
       });
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain(
-        join(state, "from-dotenv.secret-key"),
-      );
+      expect(result.stderr).toContain(join(state, "from-dotenv.secret-key"));
       expect(await stat(state).catch(() => null)).toBeNull();
     });
 

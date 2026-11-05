@@ -149,7 +149,6 @@ mode() {
     --fake-model) overlay=infra/compose.fake-model.yml ;;
     *) usage ;;
   esac
-  secret_key
 }
 
 # The stack as compose resolves it here.
@@ -224,6 +223,7 @@ readyz() {
 
 up() {
   preflight
+  secret_key
   if ! compose up -d --build; then
     echo "local.sh: the stack did not start; last API log lines:" >&2
     compose logs --no-color --tail 20 api >&2 || true
@@ -376,7 +376,7 @@ case "${1:-}" in
   down) shift; down "$@" ;;
   # Checked before down too, so a reset that cannot start deletes nothing.
   # Not `down && up`: errexit would not hold inside down.
-  reset) shift; mode "$@"; preflight; down; up ;;
+  reset) shift; mode "$@"; preflight; secret_key; down; up ;;
   status) status ;;
   key) shift; key "$@" ;;
   forget-lost-checkpoints) forget_lost_checkpoints ;;
