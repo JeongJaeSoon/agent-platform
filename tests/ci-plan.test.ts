@@ -83,6 +83,22 @@ function plan(
   };
 }
 
+function mergePullRequest(f: ReturnType<typeof fixture>, base = f.base) {
+  git(f.repo, "branch", "pull-request");
+  git(f.repo, "switch", "--detach", base);
+  git(
+    f.repo,
+    "-c",
+    "user.name=CI tests",
+    "-c",
+    "user.email=ci-tests@example.invalid",
+    "merge",
+    "--no-ff",
+    "--no-edit",
+    "pull-request",
+  );
+}
+
 const full = {
   tests: "true",
   product: "true",
@@ -129,6 +145,9 @@ test("mixed, unknown, workflow and dependency changes always use the full plan",
     "bun.lock",
     "apps/docs/next.config.ts",
     "new-directory/file.md",
+    "packages/x/README.md",
+    "docs/page.MD",
+    "apps/docs/content/docs/meta.json",
   ]) {
     const result = plan(
       fixture(undefined, ["docs/operator/settings.md", path]),
@@ -150,6 +169,25 @@ test("a later prose commit cannot hide code already in the PR", () => {
   const f = fixture(undefined, ["packages/a.ts"]);
   put(f.repo, "docs/operator/settings.md", "prose\n");
   commit(f.repo);
+  mergePullRequest(f);
+  expect(plan(f).output).toEqual(full);
+});
+
+test("a merge checkout keeps multi-commit prose PRs eligible", () => {
+  const f = fixture(undefined, ["docs/first.md"]);
+  put(f.repo, "docs/second.md", "prose\n");
+  commit(f.repo);
+  mergePullRequest(f);
+  expect(plan(f).output.docs_only).toBe("true");
+});
+
+test("an event base that differs from the checkout parent uses full validation", () => {
+  const f = fixture(["README.md", "packages/a.ts"], ["packages/a.ts"]);
+  const actualBase = git(f.repo, "rev-parse", "HEAD");
+  put(f.repo, "packages/a.ts", "before\n");
+  put(f.repo, "docs/prose.md", "prose\n");
+  commit(f.repo);
+  mergePullRequest(f, actualBase);
   expect(plan(f).output).toEqual(full);
 });
 

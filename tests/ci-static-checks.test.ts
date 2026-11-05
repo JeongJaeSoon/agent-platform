@@ -29,7 +29,7 @@ function verdict(job: string, env: Record<string, string>, stepId?: string) {
     ?.run;
   if (!command) throw new Error(`no verdict command in ${job}`);
   return Bun.spawnSync(["bash", "-c", command], {
-    env: { ...Bun.env, CANCELLED: "false", ...env },
+    env: { ...Bun.env, ...env },
   }).exitCode;
 }
 
@@ -185,8 +185,9 @@ test("e2e and quickstart always validate the plan and retain their required name
         DOCS_ONLY: "true",
       }),
     ).not.toBe(0);
-    for (const step of job?.steps.slice(1).filter((s) => s.id !== "verdict") ??
-      []) {
+    for (const step of job?.steps
+      .slice(1)
+      .filter((s) => s.id !== "verdict" && s.id !== "cancelled") ?? []) {
       expect(step.if).toContain(`needs.changes.outputs.${flag} == 'true'`);
     }
   }
@@ -224,20 +225,25 @@ test("all product and site consumers use the same explicit plan", () => {
   }
 });
 
-test("cancelled workflows cannot report required success from an earlier successful plan", () => {
-  const env = {
-    PLAN: "success",
-    STATIC: "success",
-    DOCS: "skipped",
-    TESTS: "true",
-    DOCS_ONLY: "false",
-    RESULT: "success",
-    PRODUCT: "true",
-    QUICKSTART: "true",
-    CANCELLED: "true",
-  };
-  for (const job of ["check", "integration", "e2e", "quickstart"]) {
-    expect(verdict(job, env)).not.toBe(0);
+test("cancelled workflows fail without unsupported status functions in env", () => {
+  for (const name of ["check", "integration", "e2e", "quickstart"]) {
+    const job = workflow.jobs[name];
+    expect(job?.steps.at(-1)?.id).toBe("cancelled");
+    const cancelled = job?.steps.find((s) => s.id === "cancelled");
+    expect(cancelled?.if).toBe("cancelled()");
+    expect(verdict(name, {}, "cancelled")).not.toBe(0);
+    expect(job?.steps.find((s) => s.id === "verdict")?.if).toContain(
+      "!cancelled()",
+    );
+  }
+  for (const job of Object.values(workflow.jobs)) {
+    for (const step of job.steps) {
+      for (const value of Object.values(step.env ?? {})) {
+        expect(String(value)).not.toMatch(
+          /\b(always|cancelled|success|failure)\s*\(/,
+        );
+      }
+    }
   }
 });
 
@@ -264,7 +270,7 @@ test("required heavy jobs verify actual outcomes after planned steps", () => {
       "verdict",
     ),
   ).toBe(0);
-  expect(verdict("e2e", { ...e2e, CANCELLED: "true" }, "verdict")).not.toBe(0);
+  expect(verdict("e2e", {}, "cancelled")).not.toBe(0);
 
   const quickstart = {
     PLAN: "success",
@@ -294,26 +300,11 @@ test("required heavy jobs verify actual outcomes after planned steps", () => {
       "verdict",
     ),
   ).toBe(0);
-  expect(
-    verdict(
-      "quickstart",
-      {
-        ...quickstart,
-        CANCELLED: "true",
-      },
-      "verdict",
-    ),
-  ).not.toBe(0);
+  expect(verdict("quickstart", {}, "cancelled")).not.toBe(0);
 
-  for (const name of ["check", "integration", "e2e", "quickstart"]) {
-    expect(workflow.jobs[name]?.steps[0]?.env?.CANCELLED).toBe(
-      `\${{ cancelled() }}`,
-    );
-  }
   for (const name of ["e2e", "quickstart"]) {
     const final = workflow.jobs[name]?.steps.find((s) => s.id === "verdict");
-    expect(final?.if).toBe("always()");
-    expect(final?.env?.CANCELLED).toBe(`\${{ cancelled() }}`);
+    expect(final?.if).toBe("always() && !cancelled()");
   }
   expect(
     workflow.jobs.e2e?.steps.find((s) => s.id === "verdict")?.env?.SCENARIO,

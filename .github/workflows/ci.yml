@@ -46,6 +46,8 @@ jobs:
       docs_only: ${{ steps.plan.outputs.docs_only }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
       - id: plan
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -145,21 +147,27 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - env:
+      - id: verdict
+        if: '!cancelled()'
+        env:
           RESULT: ${{ needs.check-part.result }}
           PLAN: ${{ needs.changes.result }}
-          CANCELLED: ${{ cancelled() }}
           STATIC: ${{ needs.static.result }}
           DOCS: ${{ needs.docs-checks.result }}
           TESTS: ${{ needs.changes.outputs.tests }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          [ "$CANCELLED" = false ] && [ "$PLAN" = success ] && [ "$STATIC" = success ] || exit 1
+          [ "$PLAN" = success ] && [ "$STATIC" = success ] || exit 1
           case "$TESTS:$DOCS_ONLY:$RESULT:$DOCS" in
             true:false:success:skipped) echo "check: all unit parts passed" ;;
             false:true:skipped:success) echo "check: documentation policy tests passed; product tests are not needed" ;;
             *) echo "::error::invalid or failed check plan/results"; exit 1 ;;
           esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # The same suite with the opt-in variables on, so the tests gated on
   # PostgreSQL, LocalStack or the Docker daemon run instead of skipping.
@@ -515,6 +523,7 @@ jobs:
       - if: always()
         run: .github/scripts/ci-services.sh stop
 
+  # A skipped required job counts as passing, so always emit an explicit verdict.
   integration:
     needs: [changes, integration-domain]
     if: >-
@@ -523,19 +532,25 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - env:
+      - id: verdict
+        if: '!cancelled()'
+        env:
           RESULT: ${{ needs.integration-domain.result }}
           PLAN: ${{ needs.changes.result }}
-          CANCELLED: ${{ cancelled() }}
           TESTS: ${{ needs.changes.outputs.tests }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          [ "$CANCELLED" = false ] && [ "$PLAN" = success ] || exit 1
+          [ "$PLAN" = success ] || exit 1
           case "$TESTS:$DOCS_ONLY:$RESULT" in
             true:false:success) echo "integration: all domains passed" ;;
             false:true:skipped) echo "integration: documentation-only PR; no product test inputs changed" ;;
             *) echo "::error::invalid or failed integration plan/results"; exit 1 ;;
           esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # apps/storybook: the static build, then every story rendered in Chrome,
   # failing on any axe violation (`a11y.test: "error"` in its preview). A
@@ -851,13 +866,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Validate product test plan
+        if: '!cancelled()'
         env:
           PLAN: ${{ needs.changes.result }}
-          CANCELLED: ${{ cancelled() }}
           PRODUCT: ${{ needs.changes.outputs.product }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          [ "$CANCELLED" = false ] && [ "$PLAN" = success ] || exit 1
+          [ "$PLAN" = success ] || exit 1
           case "$PRODUCT:$DOCS_ONLY" in
             true:false) echo "e2e: product inputs changed; running the complete scenario" ;;
             false:true) echo "e2e: documentation-only PR; product inputs unchanged" ;;
@@ -891,20 +906,24 @@ jobs:
           retention-days: 14
       - id: verdict
         name: Required scenario verdict
-        if: always()
+        if: always() && !cancelled()
         env:
           PLAN: ${{ needs.changes.result }}
-          CANCELLED: ${{ cancelled() }}
           PRODUCT: ${{ needs.changes.outputs.product }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
           SCENARIO: ${{ steps.scenario.outcome }}
         run: |
-          [ "$CANCELLED" = false ] && [ "$PLAN" = success ] || exit 1
+          [ "$PLAN" = success ] || exit 1
           case "$PRODUCT:$DOCS_ONLY:$SCENARIO" in
             true:false:success) echo "e2e: scenario passed" ;;
             false:true:skipped) echo "e2e: intentionally omitted for documentation-only inputs" ;;
             *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
           esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # docs/quickstart.md and the site's reference/api-guide.mdx run as written on this fresh clone
   # every `bash` block, in order, on the default project and ports —
@@ -921,13 +940,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Validate executable guide plan
+        if: '!cancelled()'
         env:
           PLAN: ${{ needs.changes.result }}
-          CANCELLED: ${{ cancelled() }}
           QUICKSTART: ${{ needs.changes.outputs.quickstart }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
         run: |
-          [ "$CANCELLED" = false ] && [ "$PLAN" = success ] || exit 1
+          [ "$PLAN" = success ] || exit 1
           case "$QUICKSTART:$DOCS_ONLY" in
             true:true | true:false) echo "quickstart: product or guide inputs changed; running both guides" ;;
             false:true) echo "quickstart: documentation-only PR; executable guides unchanged" ;;
@@ -963,21 +982,25 @@ jobs:
           retention-days: 14
       - id: verdict
         name: Required guide verdict
-        if: always()
+        if: always() && !cancelled()
         env:
           PLAN: ${{ needs.changes.result }}
-          CANCELLED: ${{ cancelled() }}
           QUICKSTART: ${{ needs.changes.outputs.quickstart }}
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
           GUIDE: ${{ steps.guide.outcome }}
           API_GUIDE: ${{ steps.api-guide.outcome }}
         run: |
-          [ "$CANCELLED" = false ] && [ "$PLAN" = success ] || exit 1
+          [ "$PLAN" = success ] || exit 1
           case "$QUICKSTART:$DOCS_ONLY:$GUIDE:$API_GUIDE" in
             true:false:success:success | true:true:success:success) echo "quickstart: both guides passed" ;;
             false:true:skipped:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
             *) echo "::error::required executable guide did not pass"; exit 1 ;;
           esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
 
   # The Helm chart (deploy/helm/werft) with the CI digests and with
   # the AWS example: helm lint, the render check (hardening, probes,

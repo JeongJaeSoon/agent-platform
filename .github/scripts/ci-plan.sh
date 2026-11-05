@@ -15,31 +15,36 @@ if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
     exit 1
   fi
   git fetch --no-tags --depth=1 origin "$base"
-  paths="${RUNNER_TEMP:?}/ci-paths"
-  git diff --name-only --no-renames -z "$base" HEAD >"$paths"
-  docs_only=true
-  site=false
-  quickstart=false
-  while IFS= read -r -d '' path; do
-    count=$((count + 1))
-    case "$path" in
-      README.md | CHANGELOG.md | docs/*.md | apps/docs/content/*.mdx) ;;
-      *) docs_only=false ;;
-    esac
-    case "$path" in
-      apps/docs/content/*) site=true ;;
-    esac
-    case "$path" in
-      docs/quickstart.md | apps/docs/content/docs/reference/api-guide.mdx) quickstart=true ;;
-    esac
-  done <"$paths"
-  if [ "$docs_only" = true ] && [ "$count" -gt 0 ]; then
-    tests=false
-    product=false
+  checkout_base=$(git rev-parse --verify 'HEAD^1' 2>/dev/null || true)
+  if [ "$base" = "$checkout_base" ]; then
+    paths="${RUNNER_TEMP:?}/ci-paths"
+    git diff --name-only --no-renames -z "$base" HEAD >"$paths"
+    docs_only=true
+    site=false
+    quickstart=false
+    while IFS= read -r -d '' path; do
+      count=$((count + 1))
+      case "$path" in
+        README.md | CHANGELOG.md | docs/*.md | apps/docs/content/*.mdx) ;;
+        *) docs_only=false ;;
+      esac
+      case "$path" in
+        apps/docs/content/*) site=true ;;
+      esac
+      case "$path" in
+        docs/quickstart.md | apps/docs/content/docs/reference/api-guide.mdx) quickstart=true ;;
+      esac
+    done <"$paths"
+    if [ "$docs_only" = true ] && [ "$count" -gt 0 ]; then
+      tests=false
+      product=false
+    else
+      docs_only=false
+      site=true
+      quickstart=true
+    fi
   else
-    docs_only=false
-    site=true
-    quickstart=true
+    echo "PR base differs from the checkout parent; keeping full validation"
   fi
 fi
 

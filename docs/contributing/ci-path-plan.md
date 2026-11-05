@@ -41,7 +41,7 @@ branch protection의 이름 `check`, `integration`, `e2e`, `quickstart`, `supply
 - `e2e`, `quickstart`: `always()`로 시작해 계획 결과·출력 조합을 먼저 검사한다. 생략한 이유를 로그에 남기고, 계획이 실행을 요구하면 기존 무거운 step을 실행한다. 마지막 판정은 실제 시나리오·두 가이드 step의 outcome을 확인하며, workflow가 취소됐거나 예정된 step이 skip되면 실패한다.
 - 계획 실패·출력 누락·예상하지 못한 skip·실패·취소는 위 required 판정에서 실패한다. 누락된 계획을 문서 전용으로 해석하지 않는다.
 
-계획 스크립트는 PR base SHA를 40자리 hex로 제한하고 해당 commit을 가져온 뒤 checkout된 merge 결과와 비교한다. `--no-renames`로 rename의 이전·이후 경로를 모두 검사하고 NUL 구분으로 공백·따옴표·개행을 경로 데이터로 처리한다. git fetch나 diff 실패는 출력 계획을 쓰기 전에 실패한다. 경로는 셸 코드로 실행하지 않으며 로그에는 경로 값 대신 수와 계획만 남긴다.
+계획 스크립트는 PR base SHA를 40자리 hex로 제한하고 해당 commit을 가져온 뒤 checkout된 merge 결과와 비교한다. 이벤트의 base와 checkout의 첫 부모가 다르거나 부모를 확인할 수 없으면 전체 검증을 유지한다. `--no-renames`로 rename의 이전·이후 경로를 모두 검사하고 NUL 구분으로 공백·따옴표·개행을 경로 데이터로 처리한다. git fetch나 diff 실패는 출력 계획을 쓰기 전에 실패한다. 경로는 셸 코드로 실행하지 않으며 로그에는 경로 값 대신 수와 계획만 남긴다.
 
 ## 검증과 비용
 
