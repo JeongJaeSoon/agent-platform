@@ -111,11 +111,16 @@ export const LIST_REPOSITORIES_LIMIT_MAX = 500;
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
-  request_push: createPushRequestRequestSchema.safeExtend({
-    // Accepted only where the PR tool is trusted; elsewhere
-    // `pull_request_needs_tool_call` (nothing is created).
-    pull_request: openPullRequestRequestSchema.optional(),
-  }),
+  // The REST body plus `source_ref`, which only the tool takes. Until the
+  // multi-branch stage it is answered `source_ref_unsupported`.
+  request_push: createPushRequestRequestSchema
+    .safeExtend({
+      source_ref: z.string().min(1).max(255).optional(),
+      // Accepted only where the PR tool is trusted; elsewhere
+      // `pull_request_needs_tool_call` (nothing is created).
+      pull_request: openPullRequestRequestSchema.optional(),
+    })
+    .strict(),
   open_pull_request: openPullRequestRequestSchema
     .safeExtend({
       push_request_id: pushRequestIdSchema.optional(),
@@ -434,7 +439,7 @@ export const GITHUB_MCP_FIXED_TOOLS = listedGitHubMcpTools(
  */
 export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
-    "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet.",
+    "Request a push to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Inside a running turn the push is of the state this turn ends with, and the answer is `deferred` with `push_intent_id`; the platform makes the push request when the turn ends. Otherwise the last checkpoint is pushed and the push request is returned, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet. `source_ref` is not supported yet.",
   get_push_request:
     "Read where one push stands: the intent (`intent_status`, `intent_refusal`), the push request (`push_state`) and its pull request stage (`pull_request_stage`, `pull_request_error`, `pull_request`). Give `push_request_id` or `push_intent_id`, never both; both ids answer the same push once the intent became a push request.",
   open_pull_request:
@@ -466,6 +471,18 @@ const requestPushResultSchema = z.union([
     .object({
       status: z.literal("deferred"),
       continuation: z.literal("after_turn"),
+    })
+    .strict(),
+  // Inside a running turn with AGENT_ACTION_FLOWS on: "push what this turn
+  // ends with". The platform makes the push request after the turn ends.
+  z
+    .object({
+      status: z.literal("deferred"),
+      push_intent_id: z.uuid(),
+      waits_for: z.literal("turn_end"),
+      repository_id: z.string(),
+      target_branch: z.string(),
+      pull_request: z.enum(["scheduled", "none"]),
     })
     .strict(),
 ]);
@@ -549,6 +566,8 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
     "github_settings_unsupported",
     "github_refused",
     "backend_unavailable",
+    "source_ref_unsupported",
+    "no_running_turn",
   ],
   open_pull_request: PULL_REQUEST_REFUSALS,
   get_push_request: [

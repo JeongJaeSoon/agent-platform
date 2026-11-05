@@ -430,6 +430,26 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       await card();
       return "already";
     }
+    // An `actions` request is finished by the platform (the push, the pull
+    // request when one was asked for, and the notice), and the stored flow
+    // decides, not today's install setting. Its follow-up turn would tell the
+    // model to open a pull request even for a push that asked for none. The
+    // flow is read before the decision: a read that fails leaves the request
+    // open for another press instead of guessing `legacy`.
+    let flow: Awaited<ReturnType<typeof deps.followUps.flowOf>>;
+    try {
+      flow = await deps.followUps.flowOf({
+        sessionId: value.s,
+        pushRequestId: request.id,
+      });
+    } catch (error) {
+      deps.logger.warn("Slack push flow not read", {
+        agent_id: pressed.agentId,
+        code: error instanceof Error ? error.message : String(error),
+      });
+      await notice(pressed, "failed");
+      return "failed";
+    }
     try {
       await deps.pushes.decide(actor, value.s, value.r, {
         idempotencyKey: `slack:${value.r}:${pressed.userId}`,
@@ -455,20 +475,6 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       );
       return "failed";
     }
-    // An `actions` request is finished by the platform (the push, the pull
-    // request when one was asked for, and the notice), and the stored flow
-    // decides, not today's install setting. Its follow-up turn would tell the
-    // model to open a pull request even for a push that asked for none. When
-    // the flow cannot be read the request is treated as `legacy`, as before.
-    const flow = await deps.followUps
-      .flowOf({ sessionId: value.s, pushRequestId: request.id })
-      .catch((error: unknown) => {
-        deps.logger.warn("Slack push flow not read", {
-          agent_id: pressed.agentId,
-          code: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      });
     if (flow === "actions") {
       await card();
       return decision === "approve" ? "approved" : "rejected";

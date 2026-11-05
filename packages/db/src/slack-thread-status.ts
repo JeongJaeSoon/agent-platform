@@ -1,4 +1,4 @@
-import type { AdmissionState } from "@werft-ai/contracts";
+import type { AdmissionState, PushRequestOrigin } from "@werft-ai/contracts";
 import type {
   SlackThreadStatusClaim,
   SlackThreadStatusFacts,
@@ -77,11 +77,12 @@ export function createPostgresSlackThreadStatusStore(
         queuedTurn: turnIs(sql`'queued'`),
         answerableRequest: exists(actionableOfSession(db)),
         requestedPushes: sql<
-          { checkpoint_revision: number; git_commit: string }[]
+          { checkpoint_revision: number; git_commit: string; origin: string }[]
         >`coalesce((
           SELECT json_agg(json_build_object(
             'checkpoint_revision', p.checkpoint_revision,
-            'git_commit', p.git_commit) ORDER BY p.created_at)
+            'git_commit', p.git_commit,
+            'origin', p.origin) ORDER BY p.created_at)
           FROM push_requests p
           WHERE p.session_id = ${SESSION_ID} AND p.state = 'requested'
         ), '[]'::json)`,
@@ -107,6 +108,7 @@ export function createPostgresSlackThreadStatusStore(
           requestedPushes: row.requestedPushes.map((push) => ({
             checkpointRevision: push.checkpoint_revision,
             gitCommit: push.git_commit,
+            origin: push.origin as PushRequestOrigin,
           })),
         } satisfies SlackThreadStatusFacts,
       ]),

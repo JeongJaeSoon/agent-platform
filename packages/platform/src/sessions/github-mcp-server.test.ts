@@ -101,6 +101,11 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     runningTurn: number | null;
     marks: Array<{ sessionId: string; turnId: number }>;
     marked: boolean;
+    /** AGENT_ACTION_FLOWS as the server reads it per call. */
+    actionFlows: boolean;
+    /** What a `request_push` made as an intent asked the service for. */
+    intents: Array<{ sessionId: string; turnId: number; branch?: string }>;
+    intentStatus: "deferred" | "github_disabled" | "turn_not_running";
     /** The status each read of a workflow run answers. */
     runStatus: string;
     /** How long reading the session's state takes. */
@@ -117,6 +122,9 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     runningTurn: 7,
     marks: [],
     marked: true,
+    actionFlows: false,
+    intents: [],
+    intentStatus: "deferred",
   };
   // What the forge says the head is, and the reviews it was sent.
   const forge = {
@@ -241,6 +249,31 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
             pull_request: null,
           };
         },
+        requestIntent: async (_actor, sessionId, input) => {
+          control.intents.push({
+            sessionId,
+            turnId: input.turnId,
+            ...(input.body.branch === undefined
+              ? {}
+              : { branch: input.body.branch }),
+          });
+          if (control.intentStatus !== "deferred") {
+            return { status: control.intentStatus };
+          }
+          return {
+            status: "deferred" as const,
+            intent: {
+              id: "99999999-9999-4999-8999-999999999999",
+              session_id: sessionId,
+              repository_id: "sample-app",
+              target_branch: `agent/${sessionId}`,
+              status: "deferred" as const,
+              refusal_code: null,
+              push_request_id: null,
+              created_at: "2026-11-05T00:00:00.000Z",
+            },
+          };
+        },
       },
       pullRequests: {
         // `open_pull_request` goes through the schedule; the fake answers it
@@ -320,6 +353,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       },
     },
     services,
+    actionFlows: () => control.actionFlows,
   });
   const call = (name: string, args: unknown) =>
     handle(
@@ -828,6 +862,99 @@ describe("tools/call", () => {
     });
   });
 
+  describe("request_push as a push intent", () => {
+    test("inside a running turn with the flow on, it records an intent and answers deferred", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      const answer = payload(await h.call("request_push", { branch: "docs" }));
+      expect(answer).toEqual({
+        body: {
+          ok: true,
+          result: {
+            status: "deferred",
+            push_intent_id: "99999999-9999-4999-8999-999999999999",
+            waits_for: "turn_end",
+            repository_id: "sample-app",
+            target_branch: `agent/${SESSION}`,
+            pull_request: "none",
+          },
+        },
+      });
+      expect(h.control.intents).toEqual([
+        { sessionId: SESSION, turnId: 7, branch: "docs" },
+      ]);
+      // No push request was made now, and no continuation was marked.
+      expect(h.pushes).toEqual([]);
+      expect(h.control.marks).toEqual([]);
+    });
+
+    test("with the flow off it takes the legacy path and writes no intent", async () => {
+      const h = harness();
+      await h.call("request_push", {});
+      expect(h.control.intents).toEqual([]);
+      expect(h.pushes.map((push) => push.sessionId)).toEqual([SESSION]);
+    });
+
+    test("outside a running turn with the flow on, it is no_running_turn", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      h.control.runningTurn = null;
+      expect(payload(await h.call("request_push", {}))).toEqual({
+        body: {
+          ok: false,
+          refusal: {
+            code: "no_running_turn",
+            by: "platform",
+            retryable: false,
+          },
+        },
+      });
+      expect(h.control.intents).toEqual([]);
+    });
+
+    test("a turn that ended while the call was in flight is no_running_turn", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      h.control.intentStatus = "turn_not_running";
+      expect(payload(await h.call("request_push", {}))).toMatchObject({
+        body: { ok: false, refusal: { code: "no_running_turn" } },
+      });
+    });
+
+    test("source_ref is source_ref_unsupported whatever the flow says, and creates nothing", async () => {
+      for (const actionFlows of [true, false]) {
+        const h = harness();
+        h.control.actionFlows = actionFlows;
+        expect(
+          payload(await h.call("request_push", { source_ref: "feature" })),
+        ).toEqual({
+          body: {
+            ok: false,
+            refusal: {
+              code: "source_ref_unsupported",
+              by: "platform",
+              retryable: false,
+            },
+          },
+        });
+        expect(h.control.intents).toEqual([]);
+        expect(h.pushes).toEqual([]);
+      }
+    });
+
+    test("a release with GitHub switched off is github_disabled by policy", async () => {
+      const h = harness();
+      h.control.actionFlows = true;
+      h.control.intentStatus = "github_disabled";
+      expect(payload(await h.call("request_push", {}))).toEqual({
+        body: {
+          ok: false,
+          refusal: { code: "github_disabled", by: "policy", retryable: false },
+        },
+      });
+    });
+  });
+
   test("writes the receipt the session API writes", async () => {
     const h = harness({ github: github({ actions: true }) });
     await h.call("dispatch_workflow", {
@@ -974,6 +1101,9 @@ describe("tools/call", () => {
             throw new Error("not used");
           },
           snapshot: async () => {
+            throw new Error("not used");
+          },
+          requestIntent: async () => {
             throw new Error("not used");
           },
         },

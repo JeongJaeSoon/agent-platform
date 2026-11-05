@@ -1,4 +1,4 @@
-import type { PushRequestState } from "@werft-ai/contracts";
+import type { PushRequestOrigin, PushRequestState } from "@werft-ai/contracts";
 import type { PushSource } from "./push-request-service.ts";
 
 export type PushApprovabilitySession = {
@@ -10,9 +10,14 @@ export type PushApprovabilityRequest = {
   state: PushRequestState;
   checkpointRevision: number;
   gitCommit: string;
+  /** Absent means a direct request. */
+  origin?: PushRequestOrigin;
 };
 
-export type PushUnapprovableReason = "not_requested" | "checkpoint_moved";
+export type PushUnapprovableReason =
+  | "not_requested"
+  | "checkpoint_moved"
+  | "pinned_source_invalid";
 
 export type PushApprovabilityVerdict =
   | { approvable: true }
@@ -23,6 +28,10 @@ export type PushApprovabilityVerdict =
  * (push-requests.ts decide, push-request-service.ts decide), judged the same
  * way and never stricter: the canonical rule for every surface that shows
  * a push as awaiting approval.
+ *
+ * An intent request is pinned to the revision its turn ended on, so the
+ * pointer moving is no reason: it stays approvable while that revision still
+ * verifies and carries the request's commit (`pinned_source_invalid` else).
  *
  * Without a `source` (the slack role holds no checkpoint store) a moved
  * revision counts as approvable: the commit is unknown there, and showing
@@ -36,6 +45,15 @@ export async function pushApprovability(
 ): Promise<PushApprovabilityVerdict> {
   if (request.state !== "requested") {
     return { approvable: false, reason: "not_requested" };
+  }
+  if (request.origin === "intent") {
+    if (source === undefined) return { approvable: true };
+    const pinned = await source
+      .readPushSourceAt(session.id, request.checkpointRevision)
+      .catch(() => null);
+    return pinned?.status === "ready" && pinned.gitCommit === request.gitCommit
+      ? { approvable: true }
+      : { approvable: false, reason: "pinned_source_invalid" };
   }
   if (session.checkpointRevision === request.checkpointRevision) {
     return { approvable: true };

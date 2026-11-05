@@ -8,9 +8,12 @@ import {
   githubPolicySourceOf,
   OPEN_PULL_REQUEST_STAGES,
   OPEN_PUSH_REQUEST_STATES,
+  type PullRequestStage,
   type PushDecider,
   type PushReceiptResult,
   type PushRequest,
+  type PushRequestFlow,
+  type PushRequestOrigin,
   type PushRequestSnapshot,
   type PushRequestState,
   pushBranchFor,
@@ -162,6 +165,9 @@ function publicPushRequest(row: Row): PushRequest {
     resolution_receipt_id: row.decisionReceiptId,
     finished_at: row.finishedAt?.toISOString() ?? null,
     push_receipt_id: row.pushReceiptId,
+    origin: row.origin as PushRequestOrigin,
+    flow: row.flow as PushRequestFlow,
+    pr_state: (row.prState as PullRequestStage | null) ?? null,
   };
 }
 
@@ -567,6 +573,11 @@ export function createPostgresPushRequests(
             targetBranch,
             requestedBy: input.actor,
             requestReceiptId: receiptId,
+            // Taken after the session lock, not at transaction start: the
+            // pull request schedule orders requests by this value under the
+            // same lock, and a transaction that waited for the lock must not
+            // look older than the one it waited for.
+            createdAt: sql`clock_timestamp()`,
             // An intent request is always `actions`, whatever the setting
             // is when the runner makes it.
             origin: input.origin ?? "direct",

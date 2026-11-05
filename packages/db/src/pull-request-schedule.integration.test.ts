@@ -267,6 +267,31 @@ integration("scheduling a pull request on PostgreSQL", () => {
     );
   });
 
+  test("a request that waited for the session lock is stamped after the lock, so it orders after the holder", async () => {
+    const sessionId = await newSession();
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT id FROM sessions WHERE id = $1 FOR UPDATE", [
+        sessionId,
+      ]);
+      // The create transaction starts now and blocks on the session row.
+      const waiting = request(sessionId, "actions");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const { rows } = await holder.query(
+        "SELECT clock_timestamp() AS released",
+      );
+      await holder.query("COMMIT");
+      const created = await waiting;
+      const stored = await row(created.id);
+      expect(stored.createdAt.getTime()).toBeGreaterThanOrEqual(
+        new Date(rows[0].released).getTime(),
+      );
+    } finally {
+      holder.release();
+    }
+  });
+
   test("scheduling first makes the next request wait: request_open for a pending stage", async () => {
     const sessionId = await newSession();
     const a = await request(sessionId, "actions");
@@ -429,9 +454,9 @@ integration("scheduling a pull request on PostgreSQL", () => {
     const sessionId = await newSession();
     const legacy = await request(sessionId, "legacy");
     const follow = createPostgresPushFollowUpStore(db);
-    expect(
-      await follow.flowOf({ sessionId, pushRequestId: legacy.id }),
-    ).toBe("legacy");
+    expect(await follow.flowOf({ sessionId, pushRequestId: legacy.id })).toBe(
+      "legacy",
+    );
     const other = await newSession();
     const actions = await request(other, "actions");
     expect(

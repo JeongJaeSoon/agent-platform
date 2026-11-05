@@ -158,7 +158,11 @@ describe("a person's reason survives the tool answer", () => {
         authorization,
         store,
         catalog: CATALOG,
-        source: { readPushSource: async () => ({ status: "none" }) },
+        intents: {} as never,
+        source: {
+          readPushSource: async () => ({ status: "none" }),
+          readPushSourceAt: async () => ({ status: "none" }),
+        },
       });
     const pushes = pushesWith(
       createAuthorizationPolicy({
@@ -185,8 +189,8 @@ describe("a person's reason survives the tool answer", () => {
       pullRequests: {
         // `open_pull_request` goes through the schedule; this fake refuses it
         // the way the open path does.
-        schedule() {
-          return this.open();
+        schedule(actor, sessionId, ref, input) {
+          return this.open(actor, sessionId, ref.pushRequestId as string, input);
         },
         open: async () => {
           throw new SessionServiceError("PUSH_NOT_PUSHED", "x", undefined, {

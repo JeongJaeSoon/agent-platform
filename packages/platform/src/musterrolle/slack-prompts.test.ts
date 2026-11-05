@@ -1105,6 +1105,35 @@ describe("slackRejectOnlyCard", () => {
   });
 });
 
+describe("slackRejectOnlyCard for an intent push", () => {
+  test("names the pinned checkpoint, not a newer commit, in every language", () => {
+    for (const locale of USER_LOCALE_VALUES) {
+      const base = card({
+        kind: "push",
+        repositoryId: "repo-1",
+        repositoryName: null,
+        targetBranch: "agent/x",
+        gitCommit: "abcdef1".padEnd(40, "0"),
+        state: "requested",
+        decidedByUserId: null,
+        createdAt: "2026-11-03T00:00:00Z",
+      }) as Parameters<typeof slackRejectOnlyCard>[0];
+      const intent = {
+        ...base,
+        locale,
+        pushRevisions: { session: 9, request: 3, origin: "intent" as const },
+      };
+      const copy = SLACK_PROMPT_MESSAGES[locale];
+      const rendered = slackRejectOnlyCard(intent, {
+        sessionId: SESSION,
+        requestId: "push-1",
+      });
+      expect(rendered.text.split("\n")[0]).toBe(copy.pushPinnedSourceInvalid);
+      expect(copy.pushPinnedSourceInvalid).not.toBe(copy.pushStale);
+    }
+  });
+});
+
 describe("slackDoneCard", () => {
   test("a turn's notice from before the cards ends as one handled line", () => {
     expect(slackDoneCard("en", LINK)).toEqual({
