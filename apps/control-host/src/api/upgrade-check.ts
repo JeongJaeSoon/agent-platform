@@ -20,6 +20,7 @@ export type UpgradeCheckEnvironment = Readonly<
     UPGRADE_APPROVED_SESSIONS?: string | undefined;
     UPGRADE_DEPLOYED_STATE?: string | undefined;
     UPGRADE_DEPLOYED_WORKER_IMAGE?: string | undefined;
+    UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS?: string | undefined;
     WORKER_IMAGE?: string | undefined;
     WORKER_IMAGE_PREVIOUS?: string | undefined;
   };
@@ -38,7 +39,8 @@ export const UPGRADE_CHECK_EXIT = {
  *
  * Read: `DATABASE_URL`; the target's `WORKER_IMAGE`, `WORKER_IMAGE_RUNTIME`,
  * `WORKER_IMAGE_PREVIOUS`, `WORKER_IMAGE_PREVIOUS_RUNTIME`; the
- * `UPGRADE_DEPLOYED_WORKER_IMAGE` the cluster runs now;
+ * `UPGRADE_DEPLOYED_WORKER_IMAGE` the cluster runs now and its
+ * `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` (empty when it has none);
  * `UPGRADE_APPROVED_SESSIONS`, a JSON array of session ids; and
  * `UPGRADE_DEPLOYED_STATE`, what the chart read about the deployed release
  * when it has no worker image or runtime to compare:
@@ -156,6 +158,16 @@ function readSettings(environment: UpgradeCheckEnvironment) {
       "UPGRADE_DEPLOYED_WORKER_IMAGE is empty: the deployed worker image could not be read (a dry run or `helm template` reads no cluster)",
     );
   }
+  // Empty means the deployed release has no previous image; unset means the
+  // caller never said, which must not read as "none".
+  if (
+    deployedWorker !== null &&
+    environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS === undefined
+  ) {
+    throw new Error(
+      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not set (empty when the deployed release has no previous image)",
+    );
+  }
   const runtimes = workerImageRuntimesFromEnv(environment);
   const targetPreviousWorker = environment.WORKER_IMAGE_PREVIOUS || null;
   // Nothing compares runtimes when nothing is replaced, but dropping one a
@@ -181,6 +193,8 @@ function readSettings(environment: UpgradeCheckEnvironment) {
     databaseUrl,
     targetWorker,
     deployedWorker,
+    deployedPreviousWorker:
+      environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS || null,
     targetPreviousWorker,
     runtimes,
     approved: approvedSessions(environment.UPGRADE_APPROVED_SESSIONS ?? "[]"),

@@ -17,6 +17,7 @@ const previous = { ...current, cliVersion: "2.1.270", sdkVersion: "0.3.270" };
 const environment: UpgradeCheckEnvironment = {
   DATABASE_URL: "postgres://upgrade-check.invalid/db",
   UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n",
+  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: "",
   WORKER_IMAGE: "worker@sha256:n1",
   WORKER_IMAGE_RUNTIME: JSON.stringify(current),
   WORKER_IMAGE_PREVIOUS: "worker@sha256:n",
@@ -102,6 +103,72 @@ describe("runUpgradeCheck", () => {
     });
     expect(code).toBe(2);
     expect(output.reason).toContain("is not the deployed one");
+  });
+
+  describe("the worker image stays and the deployed previous image goes", () => {
+    const dropped = {
+      UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n1",
+      UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: "worker@sha256:n",
+      WORKER_IMAGE_PREVIOUS: undefined,
+      WORKER_IMAGE_PREVIOUS_RUNTIME: undefined,
+    };
+    const sealedOnPrevious: UpgradeSession = {
+      sessionId: "s-previous",
+      pointer: { kind: "recorded", runtime: previous },
+    };
+
+    test("refuses a session sealed on the dropped image until it is approved", async () => {
+      const refused = await run(dropped, async () => [sealedOnPrevious]);
+      expect(refused.code).toBe(2);
+      expect(refused.output.affected).toEqual([
+        { sessionId: "s-previous", reason: "no_image" },
+      ]);
+
+      const approved = await run(
+        { ...dropped, UPGRADE_APPROVED_SESSIONS: '["s-previous"]' },
+        async () => [sealedOnPrevious],
+      );
+      expect(approved.code).toBe(0);
+    });
+
+    test("proceeds when no session needs it, and when the previous image is kept", async () => {
+      expect((await run(dropped)).code).toBe(0);
+      const kept = await run(
+        {
+          ...dropped,
+          WORKER_IMAGE_PREVIOUS: "worker@sha256:n",
+          WORKER_IMAGE_PREVIOUS_RUNTIME: JSON.stringify(previous),
+        },
+        async () => [sealedOnPrevious],
+      );
+      expect(kept.code).toBe(0);
+    });
+
+    test("is check_failed, never proceed, when the deployed previous image is not said", async () => {
+      let read = false;
+      const { code, output } = await run(
+        { ...dropped, UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: undefined },
+        async () => {
+          read = true;
+          return [sealedOnPrevious];
+        },
+      );
+      expect(code).toBe(1);
+      expect(output.verdict).toBe("check_failed");
+      expect(output.reason).toContain(
+        "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not set",
+      );
+      expect(read).toBe(false);
+    });
+
+    test("is check_failed when the target also drops its runtime", async () => {
+      const { code, output } = await run({
+        ...dropped,
+        WORKER_IMAGE_RUNTIME: undefined,
+      });
+      expect(code).toBe(1);
+      expect(output.reason).toContain("WORKER_IMAGE_RUNTIME is not set");
+    });
   });
 
   test("an unreadable database stops the upgrade with exit 1 and no override", async () => {
