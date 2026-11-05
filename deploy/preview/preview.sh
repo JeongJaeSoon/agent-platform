@@ -108,12 +108,17 @@ chmod 700 "$PREVIEW_HOME"
 # context stops here; kubectl never falls back to another cluster.
 # Each context has its own file, so runs on different clusters never swap the
 # cluster under one another; the write is atomic for runs on the same one.
-if ! [[ "$PREVIEW_KUBE_CONTEXT" =~ ^[A-Za-z0-9][A-Za-z0-9._@:-]*$ ]]; then
+# The name is a lowercase hex digest: the context name itself could hold a
+# ':' (KUBECONFIG splits on it), differ only in case (macOS folds case), or
+# end in ".<pid>" and so collide with another run's temporary file.
+if ! [[ "$PREVIEW_KUBE_CONTEXT" =~ ^[A-Za-z0-9][A-Za-z0-9._@-]*$ ]]; then
   echo "PREVIEW_KUBE_CONTEXT must be a plain context name, not '${PREVIEW_KUBE_CONTEXT}'" >&2
   exit 1
 fi
 KUBECONFIG_FILE="${PREVIEW_HOME}/kubeconfig"
-[ "$PREVIEW_KUBE_CONTEXT" = orbstack ] || KUBECONFIG_FILE="${KUBECONFIG_FILE}-${PREVIEW_KUBE_CONTEXT}"
+if [ "$PREVIEW_KUBE_CONTEXT" != orbstack ]; then
+  KUBECONFIG_FILE="${KUBECONFIG_FILE}-$(printf '%s' "$PREVIEW_KUBE_CONTEXT" | shasum -a 256 | cut -c1-16)"
+fi
 export KUBECONFIG="$KUBECONFIG_FILE"
 if ! env -u KUBECONFIG kubectl config view --raw --minify --context "$PREVIEW_KUBE_CONTEXT" >"${KUBECONFIG_FILE}.$$" 2>/dev/null; then
   rm -f -- "${KUBECONFIG_FILE:?}.$$"

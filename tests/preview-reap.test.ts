@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -459,20 +460,24 @@ exit 1
     expect(await deleted()).toEqual([]);
   });
 
+  // Names that differ only in case, or that end like another run's temporary
+  // file (kubeconfig-<x>.<pid>), must not share or shadow a file; macOS folds
+  // case, so the files are told apart by a lowercase digest.
   test("each context gets its own kubeconfig file and leaves no temporary one", async () => {
+    const contexts = ["kind-dev", "KIND-DEV", "kind-dev.1234"];
     await reap([]);
-    await reap([], {
-      PREVIEW_KUBE_CONTEXT: "kind-scratch",
-      STUB_CONTEXTS: "kind-scratch",
-    });
-    expect((await readdir(join(dir, "home"))).sort()).toEqual([
-      "kubeconfig",
-      "kubeconfig-kind-scratch",
-    ]);
+    for (const name of contexts) {
+      await reap([], { PREVIEW_KUBE_CONTEXT: name, STUB_CONTEXTS: name });
+    }
+    const digest = (name: string) =>
+      `kubeconfig-${createHash("sha256").update(name).digest("hex").slice(0, 16)}`;
+    const files = (await readdir(join(dir, "home"))).sort();
+    expect(files).toEqual(["kubeconfig", ...contexts.map(digest)].sort());
+    expect(new Set(files.map((file) => file.toLowerCase())).size).toBe(4);
   });
 
   test("refuses a context name that is not plain", async () => {
-    for (const name of ["a/b", "-x", "a b", "../x"]) {
+    for (const name of ["a/b", "-x", "a b", "../x", "x:y"]) {
       const result = await reap([], { PREVIEW_KUBE_CONTEXT: name });
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("must be a plain context name");
