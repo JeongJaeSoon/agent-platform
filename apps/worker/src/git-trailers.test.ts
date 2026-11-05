@@ -561,39 +561,26 @@ describe("werft-trailers.sh sourced on its own", () => {
     expect(run.stdout.toString().trim()).toBe("werft_fix_message");
   });
 
-  test("werft_fix_message strips an engine line folded over two lines", async () => {
+  test("werft_fix_message takes no text of the author with an engine line: a line after a whitespace-only line stays", async () => {
     await writeGitTrailers(home, claim(LINKED));
     const file = join(root, "message");
-    writeFileSync(
-      file,
-      "Subject\n\nCo-authored-by: Claude\n <noreply@anthropic.com>\n",
-    );
+    const body =
+      "Subject\n\nCo-authored-by: Claude\n \n    Keep this explanation <noreply@anthropic.com>\n\nMore body.\n";
+    writeFileSync(file, body);
     expect(fix(file).exitCode).toBe(0);
     const text = readFileSync(file, "utf8");
-    expect(text).not.toContain("anthropic");
-    expect(text).toContain(`Agent-Session: ${SESSION_URL}`);
+    expect(text).toContain("    Keep this explanation <noreply@anthropic.com>");
+    expect(text).toContain("More body.");
   });
 
-  test("werft_fix_message strips an engine line folded around a whitespace-only line", async () => {
+  test("werft_fix_message leaves a folded engine line as written, for the push check to refuse", async () => {
     await writeGitTrailers(home, claim(LINKED));
     const file = join(root, "message");
-    writeFileSync(
-      file,
-      "Subject\n\nCo-authored-by: Claude\n \n <noreply@anthropic.com>\n",
-    );
+    const body =
+      "Subject\n\nCo-authored-by: Claude\n <noreply@anthropic.com>\n";
+    writeFileSync(file, body);
     expect(fix(file).exitCode).toBe(0);
-    expect(readFileSync(file, "utf8")).not.toContain("anthropic");
-  });
-
-  test("werft_fix_message strips an engine line folded in a CRLF message", async () => {
-    await writeGitTrailers(home, claim(LINKED));
-    const file = join(root, "message");
-    writeFileSync(
-      file,
-      "Subject\r\n\r\nCo-authored-by: Claude <noreply@anthropic.com>\r\n \r\nSigned-off-by: A <a@x.test>\r\n",
-    );
-    expect(fix(file).exitCode).toBe(0);
-    expect(readFileSync(file, "utf8")).not.toContain("anthropic");
+    expect(readFileSync(file, "utf8").startsWith(body)).toBe(true);
   });
 
   test("werft_fix_message strips the engine line and adds the trailers once", async () => {

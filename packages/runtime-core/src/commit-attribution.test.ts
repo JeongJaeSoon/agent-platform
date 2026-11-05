@@ -208,6 +208,26 @@ describe("attributionProblems", () => {
     }
   });
 
+  test("an engine line with an indented explanation under it is refused though it sits in the body", () => {
+    const message = [
+      "Subject",
+      "",
+      "Co-authored-by: Claude <noreply@anthropic.com>",
+      "  explanation",
+      "",
+      "More body.",
+      "",
+      `Co-authored-by: ${human.name} <${human.email}>`,
+      `Agent-Session: ${expected.agentSession}`,
+      "",
+    ].join("\n");
+    // git reads only the last two lines as trailers.
+    expect(gitTrailers(message)).not.toContain("anthropic");
+    expect(attributionProblems(commit({ message }), expected, strip)).toEqual([
+      "engine_co_author",
+    ]);
+  });
+
   test("an engine co-author folded over two lines is still found", () => {
     const message = `${commit().message}Co-authored-by: Claude\n <noreply@anthropic.com>\n`;
     expect(gitTrailers(message)).toContain(

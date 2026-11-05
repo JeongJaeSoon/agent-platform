@@ -145,14 +145,17 @@ export function attributionProblems(
       });
   // A required line counts only in git's unfolded trailer block (a line
   // outside it is plain text to GitHub). An engine line is refused anywhere:
-  // in the block, and in the message with folded lines joined, so a repository
-  // trailer.* setting that renames what git parses cannot hide it.
-  const unfolded = commit.message.replace(/\r?\n[ \t]+/g, " ");
+  // as a line of the message, wherever it sits, and in the block with folded
+  // lines joined. A repository trailer.* setting that renames what git parses
+  // cannot hide the first; the hook strips whole lines only, so a folded
+  // engine line is refused here and left to the agent to fix.
   if (
-    [...coAuthors(commit.trailers), ...coAuthors(unfolded)].some((value) => {
-      const email = emailOf(value);
-      return email !== null && strip.has(email);
-    })
+    [...coAuthors(commit.trailers), ...coAuthors(commit.message)].some(
+      (value) => {
+        const email = emailOf(value);
+        return email !== null && strip.has(email);
+      },
+    )
   ) {
     problems.push("engine_co_author");
   }

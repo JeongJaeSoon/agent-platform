@@ -7,8 +7,9 @@
 # co-author lines go (the claim's git_strip, one email per line).
 
 # Removes every Co-authored-by line (key in any case) whose email git-strip
-# lists, a line folded over several lines included. Other lines, other
-# co-authors included, are kept as written.
+# lists. Whole lines only: a line folded over several lines is not removed
+# (the push check refuses it instead), so no text of the author is ever taken
+# with it. Other lines, other co-authors included, are kept as written.
 werft_strip_engine_coauthors() {
   _werft_file=$1
   _werft_strip=${HOME:-/nonexistent}/.werft/git-strip
@@ -22,42 +23,20 @@ werft_strip_engine_coauthors() {
         if (email != "" && email !~ /[ \t\r<>]/) engine[email] = 1
       }
     }
-    # One record is a line with the lines folded under it: git joins a line
-    # that starts with a space or tab to the one before, a whitespace-only
-    # one included (runtime-core commit-attribution.ts unfolds the same way).
-    # A blank record is never extended.
-    function flush(   line, email) {
-      if (!have) return
-      have = 0
-      line = unfolded
+    {
+      line = tolower($0)
       sub(/\r$/, "", line)
       if (line ~ /^co-authored-by:/ && match(line, /<[^<>]*>[ \t]*$/)) {
         email = substr(line, RSTART + 1, RLENGTH - 1)
         sub(/>[ \t]*$/, "", email)
-        if (email in engine) return
+        if (email in engine) next
       }
       # Blank lines are held until a line follows, so a removed last line
       # leaves no blank tail for a verbatim commit-tree -F.
-      if (record ~ /^[ \t\r]*$/) { held = held record "\n"; return }
-      printf "%s%s\n", held, record
+      if ($0 ~ /^[ \t\r]*$/) { held = held $0 "\n"; next }
+      printf "%s%s\n", held, $0
       held = ""
     }
-    {
-      if (have && record !~ /^[ \t\r]*$/ && $0 ~ /^[ \t]/) {
-        text = $0
-        sub(/^[ \t]+/, "", text)
-        sub(/\r$/, "", text)
-        sub(/\r$/, "", unfolded)
-        record = record "\n" $0
-        unfolded = unfolded " " tolower(text)
-        next
-      }
-      flush()
-      have = 1
-      record = $0
-      unfolded = tolower($0)
-    }
-    END { flush() }
   ' "$_werft_file" >"$_werft_file.werft-strip" || {
     rm -f "$_werft_file.werft-strip"
     return 1
