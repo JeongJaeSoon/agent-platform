@@ -64,6 +64,9 @@ import { requirePermitted, SessionServiceError } from "./session-service.ts";
 const isForgeFailure = (error: unknown): boolean =>
   error instanceof ForgeCredentialError || error instanceof GitHubCallError;
 
+/** Pull requests read per branch lookup; a full page ends the stage `uncertain`. */
+const BRANCH_LOOKUP_LIMIT = 10;
+
 const EMPTY_RESULT: PullRequestReceiptResult = {
   push_request_id: null,
   verdict: "refuse",
@@ -538,10 +541,19 @@ export function createPullRequestService(deps: {
 
       let listed: Awaited<ReturnType<typeof forge.findPullRequestsForBranch>>;
       try {
-        listed = await forge.findPullRequestsForBranch(head, { limit: 10 });
+        listed = await forge.findPullRequestsForBranch(head, {
+          limit: BRANCH_LOOKUP_LIMIT,
+        });
       } catch (error) {
         if (!isForgeFailure(error)) throw error;
         return unclear("lookup_failed");
+      }
+      // A full page may hide a marked pull request on the next one, and the
+      // platform does not guess.
+      if (listed.length >= BRANCH_LOOKUP_LIMIT) {
+        return stop("uncertain", "lookup_failed", {
+          limit: BRANCH_LOOKUP_LIMIT,
+        });
       }
       // The marker and the branch name can be written by anyone, so a
       // candidate must also be in this repository, on this head and base.

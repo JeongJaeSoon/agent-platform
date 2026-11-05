@@ -2302,22 +2302,11 @@ export const pushRequests = pgTable(
     // drain's path writes these; a row saved by the public open is unverified.
     prVerifiedNumber: integer("pr_verified_number"),
     prVerifiedHeadSha: text("pr_verified_head_sha"),
-    // When the drain looks once more for a second pull request carrying
-    // this request's marker; null once done or when none is owed.
-    dupCheckAt: timestamp("dup_check_at", { withTimezone: true }),
-    dupCheckClaimToken: uuid("dup_check_claim_token"),
-    dupCheckLeaseExpiresAt: timestamp("dup_check_lease_expires_at", {
-      withTimezone: true,
-    }),
-    dupCheckAttempts: integer("dup_check_attempts").notNull().default(0),
   },
   (table) => [
     index("push_requests_pr_drain_idx")
       .on(table.prState, table.prNextAttemptAt)
       .where(sql`${table.prState} IN ('due','opening')`),
-    index("push_requests_dup_check_idx")
-      .on(table.dupCheckAt)
-      .where(sql`${table.dupCheckAt} IS NOT NULL`),
     check(
       "push_requests_origin_check",
       sql`${table.origin} IN (${sql.raw(sqlList(PUSH_REQUEST_ORIGIN_VALUES))})`,

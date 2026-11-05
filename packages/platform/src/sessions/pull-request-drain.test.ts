@@ -281,6 +281,23 @@ describe("opening a pull request for a pushed request", () => {
     });
   });
 
+  test("a full page of branch pull requests is left uncertain instead of read as complete", async () => {
+    const { service, calls } = harness({
+      existing: Array.from({ length: 10 }, (_, index) =>
+        listed({ number: 100 + index, state: "closed", base: "other" }),
+      ),
+    });
+    expect(
+      await service.openForPushRequest(job(), { deadline: deadline() }),
+    ).toMatchObject({
+      kind: "stop",
+      stage: "uncertain",
+      error: "lookup_failed",
+      details: { limit: 10 },
+    });
+    expect(calls.filter((call) => call.startsWith("create"))).toEqual([]);
+  });
+
   test("a failed lookup is asked again, and left uncertain at the last attempt", async () => {
     const { service, calls } = harness({ lookupFails: true });
     expect(

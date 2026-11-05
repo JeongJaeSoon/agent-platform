@@ -143,7 +143,6 @@ integration("postgres pull request drain", () => {
       prClaimToken: null,
       prError: null,
     });
-    expect((await row(id))?.dupCheckAt).not.toBeNull();
     expect(await store.findPullRequest(OWNER, id)).toMatchObject({ number: 7 });
   });
 
@@ -239,6 +238,27 @@ integration("postgres pull request drain", () => {
       .from(pullRequests)
       .where(eq(pullRequests.pushRequestId, id));
     expect(rows.map((entry) => entry.number)).toEqual([5]);
+  });
+
+  test("a stage whose last attempt died with its lease ends failed instead of being claimed again", async () => {
+    const { id } = await due();
+    await db
+      .update(pushRequests)
+      .set({
+        flow: "actions",
+        prState: "opening",
+        prAttempts: 3,
+        prClaimToken: crypto.randomUUID(),
+        prLeaseExpiresAt: new Date(Date.now() - 1_000),
+      })
+      .where(eq(pushRequests.id, id));
+    expect(await drain.claimNextDue(60_000)).toBeNull();
+    expect(await row(id)).toMatchObject({
+      prState: "failed",
+      prError: "lease_expired",
+      prClaimToken: null,
+      prLeaseExpiresAt: null,
+    });
   });
 
   test("an intent that no longer parses is failed instead of claimed", async () => {

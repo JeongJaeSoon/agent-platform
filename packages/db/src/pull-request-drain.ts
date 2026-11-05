@@ -1,20 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { openPullRequestRequestSchema } from "@werft-ai/contracts";
-import type {
-  ActionNotice,
-  PullRequestDrainOutcome,
-  PullRequestDrainStore,
-  PullRequestJob,
-  PullRequestSettled,
+import {
+  type ActionNotice,
+  PULL_REQUEST_MAX_ATTEMPTS,
+  type PullRequestDrainOutcome,
+  type PullRequestDrainStore,
+  type PullRequestJob,
+  type PullRequestSettled,
 } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
 import { enqueueActionNotice } from "./action-notices.ts";
 import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { pushRequests, sessions } from "./schema.ts";
-
-/** When the drain looks once more for a second pull request after `opened`. */
-const DUP_CHECK_DELAY_SECONDS = 120;
 
 const due = sql`(${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now()))`;
 
@@ -61,6 +59,37 @@ export function createPostgresPullRequestDrain(
                 ...cleared,
               })
               .where(eq(pushRequests.id, candidate.id));
+            continue;
+          }
+          // A claim that used the last attempt and died left its lease to
+          // lapse; claiming again would run the stage forever, so it ends
+          // here, failed, and the thread is told.
+          if (
+            candidate.prState === "opening" &&
+            candidate.prAttempts >= PULL_REQUEST_MAX_ATTEMPTS
+          ) {
+            await tx
+              .update(pushRequests)
+              .set({
+                prState: "failed",
+                prError: "lease_expired",
+                prNextAttemptAt: null,
+                ...cleared,
+              })
+              .where(eq(pushRequests.id, candidate.id));
+            if (candidate.flow === "actions") {
+              await enqueueActionNotice(tx, {
+                sessionId: candidate.sessionId,
+                pushRequestId: candidate.id,
+                notice: {
+                  result: "pr_failed",
+                  repository: candidate.repositoryId,
+                  branch: candidate.targetBranch,
+                  commit: candidate.gitCommit,
+                  reason: "lease_expired",
+                },
+              });
+            }
             continue;
           }
           const claimToken = randomUUID();
@@ -236,7 +265,6 @@ async function write(
       prNextAttemptAt: null,
       prVerifiedNumber: opened.number,
       prVerifiedHeadSha: opened.headSha,
-      dupCheckAt: sql`now() + make_interval(secs => ${DUP_CHECK_DELAY_SECONDS})`,
       ...cleared,
     })
     .where(fence);
