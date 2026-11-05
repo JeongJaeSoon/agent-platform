@@ -132,6 +132,49 @@ describe("platformPromptText (revision 1)", () => {
   });
 });
 
+describe("platformPromptText (revision 2, action flows on)", () => {
+  const flows: PlatformPrompt = { ...withRepository, prompt_revision: 2 };
+
+  test("words the push as this turn's commit and says no follow-up turn starts", () => {
+    const text = platformPromptText(flows);
+    expect(text).toContain("It pushes the commit this turn ends with");
+    expect(text).toContain("no follow-up turn starts");
+    expect(text).not.toContain("previous turn");
+    expect(text).not.toContain("and call it in a later turn");
+    expect(text).not.toContain("in the follow-up turn the platform starts");
+  });
+
+  test("differs from revision 1 only in the two push sentences", () => {
+    const pushSentences = [
+      /Push with mcp__github__request_push\. [^.]*\.[^.]*\. /,
+      /(Call it before|It answers deferred)[^.]*\. /,
+    ];
+    const rest = (text: string) =>
+      pushSentences.reduce((acc, pattern) => acc.replace(pattern, ""), text);
+    expect(rest(platformPromptText(flows))).toBe(
+      rest(platformPromptText(withRepository)),
+    );
+  });
+
+  test("keeps every rule that does not depend on the flow", () => {
+    const text = platformPromptText(flows);
+    for (const rule of [
+      "git push does not reach GitHub, and gh has no login",
+      "Push only to branches named agent/<session-id>",
+      "a person approves each push, whatever the permission mode",
+      "open the pull request with mcp__github__open_pull_request",
+    ]) {
+      expect(text).toContain(rule);
+    }
+  });
+
+  test("is another fingerprint than revision 1", () => {
+    expect(platformPromptText(flows)).not.toBe(
+      platformPromptText(withRepository),
+    );
+  });
+});
+
 describe("runtimeProfile with a platform prompt", () => {
   const repository = {
     id: "werft-sandbox",
@@ -227,7 +270,7 @@ describe("runtimeProfile with a platform prompt", () => {
 
   test("the claim schema refuses a prompt of an unknown revision or a name that is not owner/repo", () => {
     for (const prompt of [
-      { ...withRepository, prompt_revision: 2 },
+      { ...withRepository, prompt_revision: 3 },
       { ...withRepository, repository: "/workspace" },
       { ...withRepository, repository: "group/sub/repo" },
       { ...withRepository, github: { repositories: ["acme/web"] } },

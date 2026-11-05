@@ -257,7 +257,9 @@ export const PLATFORM_PROMPT_SURFACE_VALUES = [
 // literal next to this one.
 export const platformPromptSchema = z
   .object({
-    prompt_revision: z.literal(1),
+    // 2 differs from 1 only in how the worker words `request_push`: this
+    // turn's commit is pushed (AGENT_ACTION_FLOWS on at session creation).
+    prompt_revision: z.union([z.literal(1), z.literal(2)]),
     agent_identity: z
       .object({
         name: z.string().min(1).max(120),

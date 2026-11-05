@@ -526,6 +526,7 @@ const sessions = createSessionService({
   catalog,
   releases: { ...agents, ...newSessionGitHubReaders(db) },
   promptRevision: platformPromptRevisionFromEnv(process.env),
+  actionFlows: () => settings.actionFlows,
   credentials: credentialBindings,
   limits,
 });
