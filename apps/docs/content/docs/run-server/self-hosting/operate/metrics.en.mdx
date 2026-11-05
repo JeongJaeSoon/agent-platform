@@ -18,7 +18,7 @@ networkPolicy:
     ingressFrom: []        # empty: reachable on 9464 from anywhere; narrow it to the collector namespace
 ```
 
-When on, the chart creates a `<release>-metrics` Deployment (1 replica, `Recreate`), a ClusterIP Service of the same name (9464), and a NetworkPolicy that opens only 9464. When off (the default), it creates nothing, so the render of a default install does not change. The full list of values is the `metrics` block of `deploy/helm/agent-platform/values.yaml`.
+When on, the chart creates a `<release>-metrics` Deployment (1 replica, `Recreate`), a ClusterIP Service of the same name (9464), and a NetworkPolicy that opens only 9464. When off (the default), it creates nothing, so the render of a default install does not change. The full list of values is the `metrics` block of `deploy/helm/werft/values.yaml`.
 
 Settings the `metrics` role reads:
 
