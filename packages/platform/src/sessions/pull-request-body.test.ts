@@ -111,7 +111,14 @@ describe("the default template", () => {
     expect(body).toContain(`C${ZWSP}loses #3 for @${ZWSP}octocat`);
     expect(body).toContain("[REDACTED]");
     expect(body).toContain(`<!${ZWSP}-- hide -->`);
-    expect(body).toContain(`- multi\n  line @${ZWSP}team`);
+    expect(body).toContain(`- multi line @${ZWSP}team`);
+  });
+
+  test("a code fence in a change item stays on its line and leaves the tail outside any block", () => {
+    const { body } = render({ changes: ["```text\nexample"] });
+    expect(body).toContain("- ```text example");
+    expect(body).not.toMatch(/^ *```$/m);
+    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
 
   test("an open code fence in one field does not swallow the next section or the references", () => {
@@ -222,6 +229,21 @@ describe("the length limit is judged on the final body", () => {
     expect(tight.length).toBeLessThanOrEqual(TAIL.length + 400);
     expect(tight).toContain(PULL_REQUEST_TAIL_END_MARKER);
     expect(tight).not.toContain("c2c2");
+  });
+
+  test("a field that opens with a very long fence run still ends the shrinking, tail intact", () => {
+    const { body } = render(
+      {
+        summary: "s".repeat(8000),
+        rationale: "r".repeat(8000),
+        testing: "t".repeat(8000),
+        changes: Array.from({ length: 28 }, () => "c".repeat(1000)),
+        notes: `${"`".repeat(7998)}\nx`,
+      },
+      { maxLength: 65_536 },
+    );
+    expect(body.length).toBeLessThanOrEqual(65_536);
+    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
 
   test("a field that opens a code fence cannot swallow the tail when cut", () => {

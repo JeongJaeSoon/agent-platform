@@ -117,8 +117,7 @@ function assemble(fields: Cleaned, locale: UserLocale): string {
   text("summary", fields.summary);
   if (fields.changes.length > 0) {
     sections.push(
-      // Later lines of an item stay inside its bullet.
-      `## ${headings.changes}\n${fields.changes.map((change) => `- ${change.replaceAll("\n", "\n  ")}`).join("\n")}`,
+      `## ${headings.changes}\n${fields.changes.map((change) => `- ${change}`).join("\n")}`,
     );
   }
   text("rationale", fields.rationale);
@@ -132,10 +131,10 @@ function assemble(fields: Cleaned, locale: UserLocale): string {
   return sections.join("\n\n");
 }
 
-// Slack for the closing text a cut may add, so each cut makes progress.
+// Slack for the closing text a cut may add.
 const CLOSING_ROOM = 16;
 
-/** Each text cleaned in order (a private key block carries over), each one closed. */
+/** Each text cleaned in order (a private key block carries over). */
 function cleanAll(
   values: readonly string[],
   redact: (line: string) => string,
@@ -146,7 +145,19 @@ function cleanAll(
     ),
     Number.MAX_SAFE_INTEGER,
     redact,
-  ).map((text) => closeOpenBlocks(text.trim()));
+  ).map((text) => text.trim());
+}
+
+/**
+ * `value` cut by at least `overflow` characters, closing included, or empty
+ * when that cannot be done: a fence that closes with a run as long as its
+ * opening would otherwise make a cut longer than what it cut.
+ */
+function shrunk(value: string, overflow: number, marker: string): string {
+  const room = value.length - overflow - CLOSING_ROOM;
+  if (room <= marker.length) return "";
+  const next = closeOpenBlocks(cut(value, room, marker));
+  return next.length <= value.length - overflow ? next : "";
 }
 
 /**
@@ -188,12 +199,19 @@ export function renderPullRequestBody(input: {
     ],
     redact,
   );
+  // A text that leaves a fence or element open is closed, so what follows it
+  // is not swallowed. An item of `changes` is one line: a fence in a bullet
+  // would be read as the start of a block the tail then falls into.
+  const block = (at: number) => closeOpenBlocks(texts[at] ?? "");
   const cleaned: Cleaned = {
-    summary: texts[0] ?? "",
-    changes: texts.slice(1, 1 + changeCount).filter((change) => change !== ""),
-    rationale: texts[1 + changeCount] ?? "",
-    testing: texts[2 + changeCount] ?? "",
-    notes: texts[3 + changeCount] ?? "",
+    summary: block(0),
+    changes: texts
+      .slice(1, 1 + changeCount)
+      .map((change) => change.replace(/\s*\n\s*/g, " "))
+      .filter((change) => change !== ""),
+    rationale: block(1 + changeCount),
+    testing: block(2 + changeCount),
+    notes: block(3 + changeCount),
     related,
   };
   const marker = OMITTED[locale];
@@ -210,20 +228,17 @@ export function renderPullRequestBody(input: {
     const overflow = body.length - maxLength;
     if (field === "changes") {
       const last = cleaned.changes.at(-1) ?? "";
-      const room = last.length - overflow - CLOSING_ROOM;
-      if (room > marker.length) {
-        // A cut may leave a fence or element open; close it again.
-        cleaned.changes[cleaned.changes.length - 1] = closeOpenBlocks(
-          cut(last, room, marker),
+      if (last.length - overflow > marker.length) {
+        cleaned.changes[cleaned.changes.length - 1] = cut(
+          last,
+          last.length - overflow,
+          marker,
         );
       } else {
         cleaned.changes.pop();
       }
     } else {
-      const value = cleaned[field];
-      const room = value.length - overflow - CLOSING_ROOM;
-      cleaned[field] =
-        room > marker.length ? closeOpenBlocks(cut(value, room, marker)) : "";
+      cleaned[field] = shrunk(cleaned[field], overflow, marker);
     }
     body = render();
   }
