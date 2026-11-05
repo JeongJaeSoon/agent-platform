@@ -61,9 +61,9 @@ const ON_MAIN: Record<string, Record<string, string>> = {
   },
   "fake-model": {
     "claude-coding-local":
-      "sha256:ce5cd0ec2659ff5df68d461bac93fec5cf45a362aeac483de0df4d1fe44b4261",
+      "sha256:72712d90972545ff5b7e0124e9647fab5d30e750b1422b626c217b116b160dd0",
     general:
-      "sha256:573de23784b416dec3ac0d9922f0c833ef5f308752716f9f8503b9d6430d194f",
+      "sha256:6d29ef4da170790c0a7abefac65abf2d33079fab14162b461a811378b170d6a6",
   },
   "local-model": {
     "local-ollama":
@@ -73,9 +73,9 @@ const ON_MAIN: Record<string, Record<string, string>> = {
   },
   "fake-model-unattended": {
     "claude-coding-auto":
-      "sha256:fa3ea8136562b7b2984deffcba6d5e6ea42df9dd366d364978f6e223d858633a",
+      "sha256:a1e65a5716ac13d4ef2bad746f8aa8f611c0e8994d4195a14ce57f897bb28170",
     "claude-coding-bypass":
-      "sha256:6bfe7b0617ea29eeaaaa383444248f6d92f32fe9200ba22f1a643c00e6dbbf47",
+      "sha256:0c0a448dfd97b6236eea2fb5af8c8b781eb716e0549559649ff81cee5cbf6d8c",
   },
 };
 
@@ -129,7 +129,7 @@ integration("a settings document seeding an empty PostgreSQL", () => {
           { repositories: entries.repositories, profiles },
           (ref) =>
             "secret_id" in ref &&
-            ref.secret_id === "agent-platform/local/fake-github-app"
+            ref.secret_id === "werft/local/fake-github-app"
               ? appKey
               : PLACEHOLDER,
         );

@@ -20,7 +20,11 @@ import { join } from "node:path";
 
 const script = join(import.meta.dir, "..", "scripts/local.sh");
 
-const rendered = (id: string | undefined, ports: string[] = []) =>
+const rendered = (
+  id: string | undefined,
+  ports: string[] = [],
+  volumeNamespace?: string,
+) =>
   JSON.stringify({
     services: {
       api: {
@@ -31,7 +35,12 @@ const rendered = (id: string | undefined, ports: string[] = []) =>
         })),
       },
       scheduler: {
-        environment: id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id },
+        environment: {
+          ...(id === undefined ? {} : { EXECUTION_INSTALLATION_ID: id }),
+          ...(volumeNamespace === undefined
+            ? {}
+            : { EXECUTION_VOLUME_LABEL_NAMESPACE: volumeNamespace }),
+        },
       },
     },
   });
@@ -141,9 +150,9 @@ echo '{"status":"ready"}'
 
   const deletions = (id: string) => [
     `${noMode} down -v --remove-orphans`,
-    `ps -aq --filter label=agent-platform.installation=${id}`,
-    `network ls -q --filter label=agent-platform.installation=${id}`,
-    `volume ls -q --filter label=agent-platform.installation=${id}`,
+    `ps -aq --filter label=werft.installation=${id}`,
+    `network ls -q --filter label=werft.installation=${id}`,
+    `volume ls -q --filter label=werft.installation=${id}`,
   ];
 
   test("parses as bash", () => {
@@ -159,7 +168,8 @@ echo '{"status":"ready"}'
     expect(result.exitCode).toBe(0);
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
-      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
+      `${noMode} config --format json`,
       ...deletions("ap434local"),
     ]);
   });
@@ -173,10 +183,24 @@ echo '{"status":"ready"}'
       expect(await calls("docker-calls")).toEqual([
         `${noMode} ps -aq egress-proxy`,
         `${noMode} config --format json`,
+        `${noMode} config --format json`,
         ...deletions(id),
       ]);
     },
   );
+
+  test("down finds the workspace volumes by the scheduler's rendered volume label prefix, not the shell's, and the workers by the fixed one", async () => {
+    await writeFile(config, rendered("local", [], "other-ns"));
+    const result = await run(["down"]);
+    expect(result.exitCode).toBe(0);
+    expect(await calls("docker-calls")).toEqual([
+      `${noMode} ps -aq egress-proxy`,
+      `${noMode} config --format json`,
+      `${noMode} config --format json`,
+      ...deletions("local").slice(0, 3),
+      "volume ls -q --filter label=other-ns.installation=local",
+    ]);
+  });
 
   test("down --keep-volumes deletes the workers and their networks, and no volume", async () => {
     await writeFile(config, rendered("local"));
@@ -194,11 +218,11 @@ echo '{"status":"ready"}'
     expect(kept.stderr).not.toContain("checkpoint objects lost");
     expect(await calls("docker-calls")).toEqual([
       `${noMode} ps -aq egress-proxy`,
-      'inspect --format {{index .Config.Labels "agent-platform.egress-proxy"}} proxy-id',
+      'inspect --format {{index .Config.Labels "werft.egress-proxy"}} proxy-id',
       `${noMode} down --remove-orphans`,
-      "ps -aq --filter label=agent-platform.installation=ap434local",
+      "ps -aq --filter label=werft.installation=ap434local",
       "rm -f worker-1 worker-2",
-      "network ls -q --filter label=agent-platform.installation=ap434local",
+      "network ls -q --filter label=werft.installation=ap434local",
       "network rm net-1 net-2",
     ]);
 
@@ -700,7 +724,7 @@ case "$*" in
   "ps -aq --filter label="*) echo "worker-1" ;;
   "network ls -q --filter label="*) echo "net-1" ;;
   "volume ls -q --filter label="*) echo "ws-1" ;;
-  "network ls --filter label=agent-platform.installation="*)
+  "network ls --filter label=werft.installation="*)
     echo "$STUB_LEFT_NETWORK"
     exit "\${STUB_LEFT_EXIT:-0}" ;;
 esac

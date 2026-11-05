@@ -6,7 +6,7 @@
       "endpoint": "http://fake-messages:4010",
       "auth": {
         "kind": "api_key",
-        "secret_id": "agent-platform/local/fake-messages"
+        "secret_id": "werft/local/fake-messages"
       }
     }
   },
@@ -19,7 +19,7 @@
         "app_id": 1,
         "installation_id": 1,
         "api_base": "http://fake-git:3000",
-        "secret_id": "agent-platform/local/fake-github-app"
+        "secret_id": "werft/local/fake-github-app"
       },
       "profiles": [
         "claude-coding-local",
@@ -50,7 +50,7 @@
         "endpoint": "http://fake-messages:4010",
         "auth": {
           "kind": "api_key",
-          "secret_id": "agent-platform/local/fake-messages"
+          "secret_id": "werft/local/fake-messages"
         }
       },
       "project_settings": { "claude_md": true }
@@ -75,7 +75,7 @@
         "endpoint": "http://fake-messages:4010",
         "auth": {
           "kind": "api_key",
-          "secret_id": "agent-platform/local/fake-messages"
+          "secret_id": "werft/local/fake-messages"
         }
       },
       "project_settings": { "claude_md": true }
@@ -100,7 +100,7 @@
         "endpoint": "http://fake-messages:4010",
         "auth": {
           "kind": "api_key",
-          "secret_id": "agent-platform/local/fake-messages"
+          "secret_id": "werft/local/fake-messages"
         }
       },
       "project_settings": { "claude_md": true }
@@ -116,7 +116,7 @@
         "endpoint": "http://fake-messages:4010",
         "auth": {
           "kind": "api_key",
-          "secret_id": "agent-platform/local/fake-messages"
+          "secret_id": "werft/local/fake-messages"
         }
       },
       "repository": "none"

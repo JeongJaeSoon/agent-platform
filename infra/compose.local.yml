@@ -70,7 +70,7 @@ services:
       - ./localstack/secrets-init/10-seed-secrets.sh:/etc/localstack/init/ready.d/10-seed-secrets.sh:ro
     healthcheck:
       # The last secret the init script seeds.
-      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id agent-platform/local/fake-mcp >/dev/null"]
+      test: ["CMD-SHELL", "awslocal secretsmanager describe-secret --secret-id werft/local/fake-mcp >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12
