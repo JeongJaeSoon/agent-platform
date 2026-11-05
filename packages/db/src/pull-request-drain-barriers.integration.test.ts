@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { ReceiptActor } from "@werft-ai/contracts";
-import type {
-  OpenedPullRequest,
-  PullRequestDrainStore,
-  PushRequestStore,
+import {
+  createPullRequestDrain,
+  type OpenedPullRequest,
+  type PullRequestDrainStore,
+  type PushRequestStore,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -253,6 +254,36 @@ integration("pull request drain, writers overlapped by a barrier", () => {
       await drain.settle(second, { kind: "opened", ...opened(sessionId, 7) }),
     ).toEqual({ result: "settled" });
     expect(await row(id)).toMatchObject({ prState: "opened" });
+  });
+
+  test("a drain started fresh, with no settings at all, finishes the stage a dead process left opening", async () => {
+    const { id, sessionId } = await due();
+    const dead = await drain.claimNextDue(60_000);
+    if (dead?.id !== id) throw new Error("claimed another request");
+    await db
+      .update(pushRequests)
+      .set({ prLeaseExpiresAt: sql`now() - interval '1 second'` })
+      .where(eq(pushRequests.id, id));
+
+    // What a restarted control-host builds: the store and an opener, and
+    // nothing that reads AGENT_ACTION_FLOWS.
+    const restarted = createPullRequestDrain({
+      store: createPostgresPullRequestDrain(db),
+      opener: {
+        openForPushRequest: async () => ({
+          kind: "opened",
+          ...opened(sessionId, 11),
+        }),
+      },
+      logger: { info() {}, warn() {} },
+    });
+    expect(await restarted.runOnce()).toBe(true);
+    expect(await row(id)).toMatchObject({
+      prState: "opened",
+      prVerifiedNumber: 11,
+      prAttempts: 2,
+    });
+    expect(await restarted.runOnce()).toBe(false);
   });
 
   test("two replicas claiming at once split the due rows: one row, one claim", async () => {
