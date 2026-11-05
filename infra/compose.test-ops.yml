@@ -30,10 +30,12 @@ services:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}
     environment:
       EGRESS_AUTHORIZER_TOKEN: ${EGRESS_AUTHORIZER_TOKEN:?EGRESS_AUTHORIZER_TOKEN must be set for test-ops}
-      # The operator's shared provider key, for the internal alpha only; the
-      # settings' connections name it with `value_env: ANTHROPIC_API_KEY`.
-      # TODO(94S-376): Decide the provider-key ownership model before release.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be the operator's provider key}
+      # Optional. The model key is normally entered on the console's model
+      # connections screen and sealed in the database. Set it only for a
+      # connection that names it with `value_env: ANTHROPIC_API_KEY`; unset,
+      # that connection stays out of the catalog and a session on its profile
+      # is refused with the screen path.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       PLATFORM_SECRET_KEY: ${PLATFORM_SECRET_KEY:?PLATFORM_SECRET_KEY must be set for test-ops}
   scheduler:
     image: ${API_IMAGE:?API_IMAGE must name the released control-host image}

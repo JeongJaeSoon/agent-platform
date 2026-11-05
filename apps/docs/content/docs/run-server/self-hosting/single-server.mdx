@@ -16,7 +16,7 @@ Linux 서버 한 대에 Docker Compose로 Werft를 설치한다. 이미지는 �
 ## 배포 결정
 
 - 대상은 서버 한 대와 `local-docker` 실행 기반이다. 이 설치에서 고가용성은 다루지 않는다. 여러 노드가 필요하면 [Kubernetes 설치](/run-server/self-hosting/kubernetes)를 쓴다.
-- provider key는 운영자 key 하나를 모든 세션이 같이 쓴다. 사용자마다 owner와 API key를 따로 발급하고 서로 공유하지 않는다.
+- 모델 키는 운영자 key 하나를 모든 세션이 같이 쓴다. 설치한 뒤 웹 콘솔의 모델 연결 화면에서 넣고, 서버는 DB에 봉인해 저장한다. 사용자마다 owner와 API key를 따로 발급하고 서로 공유하지 않는다.
 - 실서버의 object store는 전용 AWS S3 bucket이다. 같은 호스트의 LocalStack은 호스트나 Docker가 재시작되면 checkpoint를 잃으므로 시험용으로만 쓴다.
 - 접근은 loopback bind와 SSH tunnel이 기본이다. reverse proxy는 TLS와 VPN 또는 IP allowlist를 모두 갖췄을 때만 쓴다.
 
@@ -92,14 +92,13 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 | `POSTGRES_PASSWORD` | 무작위 값. 영문, 숫자, `.` `_` `~` `-`만 쓴다 |
 | `EGRESS_AUTHORIZER_TOKEN` | 32자 이상 무작위 값 |
 | `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 잃으면 저장한 자격 증명을 읽지 못한다 |
-| `ANTHROPIC_API_KEY` | 세션이 쓸 Anthropic key. API 컨테이너에만 간다 |
 | `BOOTSTRAP_TOKEN` | 주석을 풀고 32~256자 무작위 값을 넣는다. 첫 owner를 만드는 토큰이다. 넣지 않으면 API가 만들어 컨테이너 로그에 출력한다 |
 
 예시 파일에는 `EXECUTION_INSTALLATION_ID`(`test-ops`), `PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`), `EXECUTION_WORKSPACE_QUOTA`(`on`)가 이미 채워져 있다. 기본 LocalStack 설치라면 그대로 둔다. 비어 있으면 compose가 렌더를 거부한다.
 
-값을 터미널에 출력하거나 명령 인자로 넘기지 않는다. 무작위 값은 `openssl rand -hex 32`로 만들어 편집기에 붙인다.
+모델 키(`ANTHROPIC_API_KEY`)는 이 파일에 넣지 않는다. 서버를 띄운 뒤 [8단계](#8-모델-키-넣기)에서 웹 콘솔의 모델 연결 화면으로 넣는다. 키가 없어도 서버는 시작되고, 키를 넣기 전에는 모델을 부르는 세션이 시작되지 않는다. 키를 환경 변수로 넣으려면 [대안](#대안-모델-키를-환경-변수로-넣기)을 본다.
 
-설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 모델 연결, GitHub 저장소, profile을 적는다. 값이 아니라 환경 변수 이름만 적으므로 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
+설정 문서는 `/etc/agent-platform/settings.json`에 둔다. 세션이 쓸 GitHub 저장소를 적는다. 비밀이 없다. 저장소 URL만 실제 값으로 바꾼다. 예시는 공개 저장소 기준이다. 저장소 항목에는 `"auth": { "kind": "github_app" }`가 있어야 한다. 없으면 가져올 때 그 저장소가 빠져 `preflight`가 설치를 막는다. 이 값을 넣으면 통과하는 것을 확인했다. 비공개 저장소의 인증은 [API 서버 문서](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)를 따른다.
 
 migrate 컨테이너가 읽어야 하므로 파일은 `0644`로 둔다. 빈 파일을 먼저 만들고 편집기로 아래 내용을 채운다.
 
@@ -110,37 +109,15 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 ```json
 {
   "version": 1,
-  "connections": {
-    "anthropic": {
-      "kind": "anthropic",
-      "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-    }
-  },
+  "connections": {},
   "repositories": {
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
-      "auth": { "kind": "github_app" },
-      "profiles": ["claude-coding"]
+      "auth": { "kind": "github_app" }
     }
   },
-  "mcp_servers": {},
-  "profiles": {
-    "claude-coding": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      "permission_mode": "default",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
-    }
-  }
+  "mcp_servers": {}
 }
 ```
 
@@ -215,6 +192,48 @@ KEY="$(scripts/test-ops.sh key create <owner_id> \
 `<owner_id>`는 이 key의 세션을 묶는 이름이다. 사용자마다 다른 값을 정한다. 웹 콘솔 계정과는 별개이며, workspace id는 쓰지 않는다.
 
 SDK와 HTTP API는 이 서버 주소와 key로 붙는다([SDK 설치](/getting-started/install)).
+
+## 8. 모델 키 넣기
+
+세션이 모델을 부르려면 모델 키와, 그 키를 쓰는 프로필이 있어야 한다. 둘 다 웹 콘솔에서 만든다. owner로 로그인한 상태에서 다음 순서로 한다.
+
+1. **설정 > 워크스페이스 설정 > 모델 연결**에서 **연결 추가**를 누른다. 종류는 `anthropic`, 주소는 기본값(`https://api.anthropic.com`)을 두고, Anthropic key를 붙여 넣어 저장한다. 키는 DB에 봉인돼 저장되고, 화면에는 끝 네 글자만 보인다.
+2. **프로필 > 설치 프로필 만들기**에서 방금 만든 연결을 고르고 모델과 저장소를 정해 저장한다. 에이전트를 만들 때 이 프로필을 고른다.
+
+키를 넣기 전에 이 프로필로 세션을 시작하면 `모델 연결에 쓸 수 있는 키가 없다`는 취지의 오류가 나고, 오류가 1번 화면 경로를 알려 준다. 키를 바꿀 때도 같은 화면의 **값 바꾸기**를 쓴다. 이 화면으로 키를 넣는 일은 가짜 모델 서버로 확인했고, 실제 Anthropic 호출은 확인하지 못했다.
+
+### 대안: 모델 키를 환경 변수로 넣기
+
+키를 DB가 아니라 서버의 env 파일에 두고 싶다면 `/etc/agent-platform/test-ops.env`의 `ANTHROPIC_API_KEY`를 채우고, 3단계의 설정 문서에 연결과 프로필을 환경 변수 이름으로 적는다. 문서에는 값이 아니라 이름만 적으므로 비밀이 없다. `connections`와 `profiles`를 아래처럼 채우고 저장소 항목에 `"profiles": ["claude-coding"]`을 더한 뒤 4단계의 digest를 다시 구한다.
+
+```json
+{
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+이렇게 만든 연결은 나중에 화면으로 옮길 수 있다. **모델 연결**의 해당 행에서 **화면에서 키 넣기**를 눌러 키를 다시 붙여 넣으면 같은 연결과 그 위의 프로필이 그대로 저장된 키를 쓴다. 서버가 env 값을 읽어 옮기지는 않는다. 키를 사람이 다시 넣는다. 옮긴 뒤에도 설정 문서에 같은 연결이 남아 있어도 가져오기는 DB의 행을 그대로 둔다.
 
 ## 내리기
 

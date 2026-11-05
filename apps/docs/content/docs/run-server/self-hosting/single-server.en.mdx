@@ -16,7 +16,7 @@ There is no `v` tag yet. For now, use the `main-<12>` tag published on every mer
 ## Decisions
 
 - The target is one server with the `local-docker` execution base. High availability is out of scope for this install. If you need several nodes, use the [Kubernetes install](/run-server/self-hosting/kubernetes).
-- One operator-owned provider key is shared by every session. Issue each user their own owner and API key, and do not share them.
+- One operator-owned model key is shared by every session. You enter it in the web console's model connections screen after the install, and the server stores it sealed in the database. Issue each user their own owner and API key, and do not share them.
 - On a real server the object store is a dedicated AWS S3 bucket. The LocalStack on the same host loses its checkpoints when the host or Docker restarts, so use it only to try things out.
 - Access is a loopback bind and an SSH tunnel by default. Use a reverse proxy only when you have both TLS and a VPN or an IP allowlist.
 
@@ -92,14 +92,15 @@ Open `/etc/agent-platform/test-ops.env` in an editor and fill in the following. 
 | `POSTGRES_PASSWORD` | A random value. Use only letters, digits, `.` `_` `~` `-` |
 | `EGRESS_AUTHORIZER_TOKEN` | A random value of 32 or more characters |
 | `PLATFORM_SECRET_KEY` | 64 hex characters from `openssl rand -hex 32`. If you lose it, stored credentials cannot be read |
-| `ANTHROPIC_API_KEY` | The Anthropic key sessions use. It goes only to the API container |
 | `BOOTSTRAP_TOKEN` | Uncomment it and set 32 to 256 random characters. It creates the first owner. If you leave it out, the API generates one and prints it to the container log |
 
 The example file already fills `EXECUTION_INSTALLATION_ID` (`test-ops`), `PLATFORM_SETTINGS_DOCUMENT` (`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST` (`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`localstack:4566`) and `EXECUTION_WORKSPACE_QUOTA` (`on`). For the default LocalStack install, leave them. If one is empty, compose refuses to render.
 
 Do not print values to the terminal or pass them as command arguments. Generate random values with `openssl rand -hex 32` and paste them into the editor.
 
-Put the settings document at `/etc/agent-platform/settings.json`. It names the model connection, the GitHub repository and the profile that sessions use. It holds environment variable names, not values, so it has no secrets. Change only the repository URL. The example assumes a public repository. The repository entry needs `"auth": { "kind": "github_app" }`. Without it the import would leave that repository out, so `preflight` stops the install. With this value added it passed. For a private one, follow the [API server page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) (in Korean).
+Do not put the model key (`ANTHROPIC_API_KEY`) in this file. After the server is up, you enter it in the web console's model connections screen in [step 8](#8-enter-the-model-key). The server starts without a key, and until you enter one, no session that calls the model can start. To pass the key as an environment variable instead, see the [alternative](#alternative-put-the-model-key-in-an-environment-variable).
+
+Put the settings document at `/etc/agent-platform/settings.json`. It names the GitHub repository that sessions use. It holds no secrets. Change only the repository URL. The example assumes a public repository. The repository entry needs `"auth": { "kind": "github_app" }`. Without it the import would leave that repository out, so `preflight` stops the install. With this value added it passed. For a private one, follow the [API server page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) (in Korean).
 
 The file must be `0644` because the migrate container reads it. Create an empty file first, then fill it in an editor with the content below.
 
@@ -110,37 +111,15 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 ```json
 {
   "version": 1,
-  "connections": {
-    "anthropic": {
-      "kind": "anthropic",
-      "endpoint": "https://api.anthropic.com",
-      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-    }
-  },
+  "connections": {},
   "repositories": {
     "sample-app": {
       "url": "https://github.com/<owner>/<repo>.git",
       "branch": "main",
-      "auth": { "kind": "github_app" },
-      "profiles": ["claude-coding"]
+      "auth": { "kind": "github_app" }
     }
   },
-  "mcp_servers": {},
-  "profiles": {
-    "claude-coding": {
-      "runtime_kind": "claude_agent_sdk",
-      "runtime_version": "0.3.270",
-      "model": "claude-sonnet-5",
-      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-      "permission_mode": "default",
-      "provider": {
-        "kind": "anthropic",
-        "endpoint": "https://api.anthropic.com",
-        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
-      },
-      "project_settings": { "claude_md": true }
-    }
-  }
+  "mcp_servers": {}
 }
 ```
 
@@ -215,6 +194,48 @@ KEY="$(scripts/test-ops.sh key create <owner_id> \
 `<owner_id>` is a name that groups the sessions of this key. Choose a different value for each user. It is separate from web console accounts, and you do not use the workspace id.
 
 The SDK and the HTTP API connect with this server address and key ([SDK install](/getting-started/install)).
+
+## 8. Enter the model key
+
+For a session to call the model, you need a model key and a profile that uses it. You create both in the web console. While signed in as the owner:
+
+1. Under **Settings > Workspace settings > Model connections**, choose **Add connection**. Keep the kind `anthropic` and the default address (`https://api.anthropic.com`), paste the Anthropic key and save. The key is stored sealed in the database, and the screen shows only its last four characters.
+2. Under **Profiles > Create installation profile**, pick the connection you just made, choose the model and the repository, and save. Pick this profile when you create an agent.
+
+If you start a session on this profile before entering a key, the request is refused with an error that says the profile's model connection has no usable key and names the screen path from step 1. To change the key later, use **Replace value** on the same screen. Entering the key on this screen was checked against a fake model server; a real Anthropic call was not checked.
+
+### Alternative: put the model key in an environment variable
+
+If you would rather keep the key in the server's env file than in the database, fill in `ANTHROPIC_API_KEY` in `/etc/agent-platform/test-ops.env`, and in the settings document from step 3 name the connection and the profile by environment variable. The document holds the name, not the value, so it has no secrets. Fill in `connections` and `profiles` as below, add `"profiles": ["claude-coding"]` to the repository entry, and compute the digest from step 4 again.
+
+```json
+{
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+A connection made this way can be moved to the screen later. On its row under **Model connections**, choose **Enter key on screen** and paste the key again; the same connection, and the profiles over it, keep working on the stored key. The server does not read the env value and copy it over: a person enters the key again. If the settings document still names the same connection afterwards, the import leaves the database's row as it is.
 
 ## Take it down
 

@@ -2223,6 +2223,9 @@ describe("compose layers", () => {
   const S3_ONLY = ["S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
   // And what only LocalStack's does: on s3 no upstream is private.
   const LOCALSTACK_ONLY = ["EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST"];
+  // The model key is entered on the console's model connections screen;
+  // the env value only serves a connection that names it with `value_env`.
+  const OPTIONAL = ["ANTHROPIC_API_KEY"];
   const holdsKey = (service: string, variable: string) =>
     service === "api" ||
     (service === "maintenance" && variable.startsWith("AWS_"));
@@ -2512,7 +2515,10 @@ describe("compose layers", () => {
       for (const [name, service] of Object.entries(servicesOf(layer))) {
         const values = Object.entries(
           (service.environment ?? {}) as Record<string, string>,
-        ).filter(([variable]) => variable !== "SETTINGS_DOCUMENT");
+        ).filter(
+          ([variable]) =>
+            variable !== "SETTINGS_DOCUMENT" && !OPTIONAL.includes(variable),
+        );
         if (typeof service.image === "string") values.push(["", service.image]);
         for (const [variable, value] of values)
           expect({ name, value }).toEqual({
@@ -2521,6 +2527,17 @@ describe("compose layers", () => {
               new RegExp(`^\\$\\{${variable || "[A-Z_]+"}:\\?[^}]+\\}$`),
             ),
           });
+        for (const variable of OPTIONAL)
+          if (service.environment?.[variable] !== undefined)
+            expect({
+              name,
+              variable,
+              value: service.environment[variable],
+            }).toEqual({
+              name,
+              variable,
+              value: `\${${variable}:-}`,
+            });
         expect({ name, volumes: service.volumes }).toEqual({
           name,
           volumes:
@@ -2704,13 +2721,15 @@ describe("compose layers", () => {
       "s3",
       S3_LAYERS,
       Object.keys(TEST_OPS_REQUIRED).filter(
-        (name) => !LOCALSTACK_ONLY.includes(name),
+        (name) => !LOCALSTACK_ONLY.includes(name) && !OPTIONAL.includes(name),
       ),
     ],
     [
       "localstack",
       LOCALSTACK_LAYERS,
-      Object.keys(TEST_OPS_REQUIRED).filter((name) => !S3_ONLY.includes(name)),
+      Object.keys(TEST_OPS_REQUIRED).filter(
+        (name) => !S3_ONLY.includes(name) && !OPTIONAL.includes(name),
+      ),
     ],
   ] as const)(
     "the test-ops layers on %s refuse to render without their required values",
@@ -2726,6 +2745,20 @@ describe("compose layers", () => {
         });
         expect(stderr).toContain(`${variable} must`);
       }
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test.each([
+    ["s3", S3_LAYERS],
+    ["localstack", LOCALSTACK_LAYERS],
+  ] as const)(
+    "the test-ops layers on %s render and start without a model key",
+    (_store, layers) => {
+      const { ANTHROPIC_API_KEY: _key, ...withoutKey } = TEST_OPS_REQUIRED;
+      const { exitCode, stderr, model } = render(layers, withoutKey);
+      expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+      expect(model?.services?.api?.environment?.ANTHROPIC_API_KEY).toBe("");
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

@@ -309,6 +309,20 @@ describe("two replicas over one database", () => {
     expect(stateOf(two, "b")).toBe("usable");
   });
 
+  test("a start on a ceiling whose connection has no key says where to add one", async () => {
+    const a = definition();
+    const b = definition({ provider: OTHER_PROVIDER });
+    const rows = { installation: [row("a", a), row("b", b)], workspace: [] };
+    const one = replica({ a }, rows);
+    await one.workspace_profiles.refresh();
+    const refusal = workspaceProfileRefusal(one, WORKSPACE, "b");
+    expect(refusal?.state).toBe("connection_missing");
+    expect(refusal?.message).toContain(
+      "Settings > Workspace settings > Model connections",
+    );
+    expect(workspaceProfileRefusal(one, WORKSPACE, "a")).toBeNull();
+  });
+
   test("once read, the imported rows run what the YAML-only image ran", async () => {
     const own = { coding: definition() };
     const catalog = replica(own, {
