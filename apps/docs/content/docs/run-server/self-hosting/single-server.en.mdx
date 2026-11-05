@@ -6,7 +6,7 @@ description: The steps to install Werft on one Linux server from the published i
 Install Werft on one Linux server with Docker Compose. You do not build the images. You pull the published ones, pinned by digest. This page lists the steps up to the point where `/readyz` returns 200. To run on Kubernetes, read [Kubernetes install](/run-server/self-hosting/kubernetes) instead.
 
 <Callout type="warn">
-These steps were run with the published images on an Ubuntu (arm64) machine in OrbStack, from step 1 through step 6 and `key create` in step 7. Creating the first owner on the `/bootstrap` screen in step 7 and a real model call were not checked. `reset` was run once on an installation with no sessions, after its containers were taken down without `-v`; it exited 0 and removed the postgres volume. If anything differs, the repository's `scripts/test-ops.sh` and `infra/` files are the reference.
+These steps were run with the published images on an Ubuntu (arm64) machine in OrbStack, from step 1 through step 6 and `key create` in step 7. Creating the first owner on the `/bootstrap` screen in step 7 was not checked. A real model call was checked: a `claude-coding` session using a GitHub App created in the console finished turn 1 as `completed`. `reset` was run once on an installation with no sessions, after its containers were taken down without `-v`; it exited 0 and removed the postgres volume. If anything differs, the repository's `scripts/test-ops.sh` and `infra/` files are the reference.
 </Callout>
 
 <Callout type="warn">
@@ -80,12 +80,12 @@ bun install --frozen-lockfile
 Secrets live only in an env file outside the repository. Only the operator may read it; the script refuses a file that group or others can access.
 
 ```bash
-sudo mkdir -p /etc/agent-platform
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
-sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-Open `/etc/agent-platform/test-ops.env` in an editor and fill in the following. Use an editor that writes in place: tools such as `sed -i` create a temporary file and fail with `Permission denied` in `/etc/agent-platform`.
+Open `/etc/werft/test-ops.env` in an editor and fill in the following. Use an editor that writes in place: tools such as `sed -i` create a temporary file and fail with `Permission denied` in `/etc/werft`.
 
 | Variable | Value |
 | --- | --- |
@@ -95,16 +95,16 @@ Open `/etc/agent-platform/test-ops.env` in an editor and fill in the following. 
 | `ANTHROPIC_API_KEY` | The Anthropic key sessions use. It goes only to the API container |
 | `BOOTSTRAP_TOKEN` | Uncomment it and set 32 to 256 random characters. It creates the first owner. If you leave it out, the API generates one and prints it to the container log |
 
-The example file already fills `EXECUTION_INSTALLATION_ID` (`test-ops`), `PLATFORM_SETTINGS_DOCUMENT` (`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST` (`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`localstack:4566`) and `EXECUTION_WORKSPACE_QUOTA` (`on`). For the default LocalStack install, leave them. If one is empty, compose refuses to render.
+The example file already fills `EXECUTION_INSTALLATION_ID` (`test-ops`), `PLATFORM_SETTINGS_DOCUMENT` (`/etc/werft/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST` (`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`localstack:4566`) and `EXECUTION_WORKSPACE_QUOTA` (`on`). For the default LocalStack install, leave them. If one is empty, compose refuses to render.
 
 Do not print values to the terminal or pass them as command arguments. Generate random values with `openssl rand -hex 32` and paste them into the editor.
 
-Put the settings document at `/etc/agent-platform/settings.json`. It names the model connection, the GitHub repository and the profile that sessions use. It holds environment variable names, not values, so it has no secrets. Change only the repository URL. The example assumes a public repository. The repository entry needs `"auth": { "kind": "github_app" }`. Without it the import would leave that repository out, so `preflight` stops the install. With this value added it passed. For a private one, follow the [API server page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) (in Korean).
+Put the settings document at `/etc/werft/settings.json`. It names the model connection, the GitHub repository and the profile that sessions use. It holds environment variable names, not values, so it has no secrets. Change only the repository URL. The example assumes a public repository. The repository entry needs `"auth": { "kind": "github_app" }`. Without it the import would leave that repository out, so `preflight` stops the install. With this value added it passed. For a private one, follow the [API server page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) (in Korean).
 
 The file must be `0644` because the migrate container reads it. Create an empty file first, then fill it in an editor with the content below.
 
 ```bash
-sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```
 
 ```json
@@ -147,7 +147,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 Once the content is in, compute the file's digest.
 
 ```bash
-bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 ```
 
 ## 4. Write the release file
@@ -155,7 +155,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.jso
 `release.json` names the commit to install, the digest of the three images and the digest of the settings document. An image given only by tag is refused. Run this in the shell where `TAG` from step 1 is still set.
 
 ```bash
-SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
 digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
 jq -n \
   --arg commit "$(git rev-parse HEAD)" \
@@ -181,7 +181,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy` runs migrate, starts the API, scheduler and reconciler, and waits for their health checks. LocalStack loses checkpoints when the host or Docker restarts, and after a restart the API can refuse to start (recover with `reseed` or `reset` as [Reboot](#reboot) describes). Use it only to try things out.
 
-If the first `deploy` fails, `reset` cannot remove it. Fix the cause, delete the containers, volumes and network of this project (`agent-platform-test-ops`) by hand, and run `deploy` again.
+If the first `deploy` fails, `reset` cannot remove it. Fix the cause, delete the containers, volumes and network of this project (`werft-test-ops`) by hand, and run `deploy` again.
 
 ## 6. Check
 
@@ -199,7 +199,7 @@ To reach it from another machine, open an SSH tunnel.
 ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 ```
 
-To expose it on an internal DNS name, put a reverse proxy with TLS and a VPN or an IP allowlist in front. Turn buffering off for the event stream (SSE) and keep the read timeout long. Never expose PostgreSQL or the Docker socket. This reverse proxy was not set up and checked.
+To expose it on an internal DNS name, put a reverse proxy with TLS and a VPN or an IP allowlist in front. Turn buffering off for the event stream (SSE) and keep the read timeout long. Never expose PostgreSQL or the Docker socket. See [Access path](#access-path) for the setup and what was checked.
 
 ## 7. First owner and API key
 
@@ -237,12 +237,14 @@ scripts/test-ops.sh start
 
 `start` accepts a checkout that is not the release's source commit as long as `infra/` is the same as at that commit, because only the compose files are read from the checkout.
 
-What stays is the database volume. LocalStack keeps S3 in memory with no volume, so taking its container down loses the checkpoint objects even without `-v`. If the database still holds uncollected checkpoints while the bucket is empty, the API refuses to start; then use `reseed` or `reset` from [Reboot](#reboot). To keep the data, install with S3. These commands were checked on a LocalStack installation whose only session had failed (no uncollected checkpoint). Bringing back, with `start`, an installation that a hand-run `compose down` had taken down, and bringing one back after a reboot, were both run: `/readyz` returned 200 and the owner could log in. `start` on a LocalStack installation with uncollected checkpoints was not checked.
+For an installation whose env file values changed, apply them by re-applying the same release with `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`. After adding `CONSOLE_ORIGIN` and applying it this way, the api container was recreated and `/readyz` was ready. Whether `start` reads changed env values was not checked.
+
+What stays is the database volume. LocalStack keeps S3 in memory with no volume, so taking its container down loses the checkpoint objects even without `-v`. If the database still holds uncollected checkpoints while the bucket is empty, the API refuses to start; then use `reseed` or `reset` from [Reboot](#reboot). To keep the data, install with S3. These commands were checked on a LocalStack installation whose only session had failed (no uncollected checkpoint). Bringing back, with `start`, an installation taken down with `stop` was run too: after `stop` there were 0 containers and 0 networks and the volume was still there, and `start` exited 0 with `/readyz` returning 200. Bringing back, with `start`, an installation that a hand-run `compose down` had taken down, and bringing one back after a reboot, were both run: `/readyz` returned 200 and the owner could log in. `start` on a LocalStack installation with uncollected checkpoints was not checked.
 
 ## Operations
 
 <Callout type="warn">
-This section was written by reading `scripts/test-ops.sh` and the code. On the verification machine (a LocalStack install), `backup`, `restore-drill` and `reseed` were each run. `backup` exited 0 and the `/readyz` body at the end said ready; `restore-drill` was called without `--bucket` and reported `PASSED` with exit 0; `reseed` exited 0 and `/readyz` returned HTTP 200. That stack had 0 objects and 0 checkpoint rows, though, so the object upload path and the checkpoint comparison were not used. The procedure that chains `backup --stop`, a reboot and `reseed`, an S3 object-store install and a TLS reverse proxy were not run. For those, the arguments and behavior were checked against the script's argument handling and the code only.
+This section was written by reading `scripts/test-ops.sh` and the code. On the verification machine (a LocalStack install), `backup`, `restore-drill` and `reseed` were each run. `backup` exited 0 and the `/readyz` body at the end said ready; `restore-drill` was called without `--bucket` and reported `PASSED` with exit 0; `reseed` exited 0 and `/readyz` returned HTTP 200. That stack had 0 objects and 0 checkpoint rows, though, so the object upload path and the checkpoint comparison were not used. The procedure that chains `backup --stop`, a reboot and `reseed`, and an S3 object-store install were not run. The TLS reverse proxy was run and checked as far as [Access path](#access-path) says. For the unrun parts, the arguments and behavior were checked against the script's argument handling and the code only.
 </Callout>
 
 ### Access path
@@ -250,6 +252,15 @@ This section was written by reading `scripts/test-ops.sh` and the code. On the v
 The API (3000 by default) and PostgreSQL (5432 by default) listen only on the host's loopback. Users come in through an SSH tunnel, and only the operator uses PostgreSQL, from inside the server. The firewall allows only SSH and the TLS endpoint you chose.
 
 To publish the API under an internal DNS name, put a reverse proxy in front. The upstream stays `127.0.0.1:3000`. Narrow who can reach the address with a VPN range or an IP allowlist, and terminate TLS there. The proxy passes the `Host` the browser sent on to the upstream unchanged. On a state-changing browser request the API refuses it when the host in `Origin` differs from `Host`, so rewriting `Host` to the upstream's makes the web console's changes fail. The event stream (SSE) keeps connections open for a long time, so turn off `proxy_buffering` and request buffering and set the read and send timeouts long, such as one hour. Whichever path you choose, never open PostgreSQL or the Docker socket outside the proxy or the firewall. The scheduler uses the Docker socket only to manage workers, and the host TCP socket stays off.
+
+This setup was checked on the verification machine (Ubuntu 24.04, Nginx 1.24) with a private CA certificate. One line was added to the Nginx example in section 2 of the operator document `server-deployment.md`: `allow 127.0.0.1;` before `deny all;`, so that test requests sent from the same machine are not caught by `deny all`.
+
+- Over `https`, `/readyz`, `/docs` and `/docs/scalar.js` all returned 200. From an address outside the allowlist the proxy returned 403. Port 5432 listened on loopback only, and 2375 was not open.
+- `GET /v1/sessions/<id>` with an API key returned 200. Reading the `https` event stream with `curl -sSN --max-time 5` received 7,968 bytes and ended with `curl: (28)`.
+- A password login returned 200 and stored the `__Host-` cookie. A state-changing request returned 403 when `Origin` differed, and the logout with a matching `Origin` returned 204.
+- `TEST_OPS_API_URL` was not changed. The proxy came up and every check above passed with the default. Setting it so that the `/readyz` check in `status` and `deploy` goes through the proxy address was not checked.
+
+With a private CA, make the client trust that CA. `curl` takes the CA certificate with `--cacert`; do not use `-k`. A browser that does not trust it stops with `NET::ERR_CERT_AUTHORITY_INVALID`. For that reason the browser `https` login was not checked, and the login above was checked with `curl`. How to use a public certificate or make users' PCs trust the CA differs by organization, so this page does not prescribe it. Access from a real internal DNS name and VPN range was not checked either.
 
 ### Dedicated S3 bucket
 
@@ -280,7 +291,7 @@ A restore drill restores a backup into a new project and its object store and co
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
-scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
 The output goes to `restore-drills/` in the state directory, and the verdict is one line in `history.log`. The drill project is removed when it ends (add `--keep` to inspect it, and change the ports with `--port-base` if they collide; the default starts at 25432). Objects in a drill bucket carry a legal hold, so to delete the bucket, release the hold on each version, delete the versions, then delete the bucket.
@@ -295,12 +306,12 @@ A LocalStack install loses its objects on reboot. Leave a backup before a reboot
 # Back up, leave the writers stopped, restart the host, then restore the objects
 scripts/test-ops.sh backup --stop
 sudo reboot
-scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
 `reseed` checks the backup's manifest, project, bucket and checksum, uploads the objects into the empty LocalStack, pins every uncollected checkpoint again and brings the installation back up. If a new checkpoint appeared after the last backup it refuses, and then only `reset` is left. An API that refuses to start after an unexpected restart is in the same state and is fixed the same way. `reseed` also passed on a stack that had not been restarted when the bucket was empty, and it refuses a bucket that is not empty. What it does when objects exist was not checked.
 
-After a reboot the stack does not come back by itself. On the verification machine (OrbStack, Docker starting at boot) only egress-proxy, reconciler and scheduler (`restart: unless-stopped`) were up afterwards; postgres, api and localstack (no restart policy) were `Exited`. After a reboot, run `scripts/test-ops.sh start` yourself. On that machine `start` exited 0, `/readyz` returned 200, the owner from before the reboot could log in and the session record was still there. An S3 install keeps its objects across a restart, so `start` alone is enough. A LocalStack install has an empty bucket after `start`, so uncollected checkpoints need the `reseed` above; that case was not checked.
+After a reboot the stack comes back by itself, because every long-running service, postgres, api and localstack included, is `restart: unless-stopped`. On the verification machine (OrbStack, Docker starting at boot), about 20 seconds after a reboot without `start`, `/readyz` returned 200, all six containers were healthy and the owner from before the reboot could log in. If it does not come back, run `scripts/test-ops.sh start`. A stack you took down with `stop` or `compose down` stays down across a reboot, because its containers are already gone. The policy applies to an install that was upgraded to a release carrying it; an install deployed earlier behaves as before (postgres, api and localstack are `Exited` after a reboot, and `start` brings them up) until its containers are recreated. On a LocalStack install, that first `upgrade` recreates the LocalStack container, whose restart policy changed, and empties the objects held in memory. If `sessions with uncollected checkpoints` in `status` is not 0, hold that `upgrade` back. If the API then fails to start on the emptied store, `reseed` is refused because of the `pending.json` the `upgrade` left, and only `reset` (which deletes sessions and checkpoints) remains. A backup taken with `backup --stop` beforehand does not open that way out. That case was not checked. An S3 install keeps its objects across a restart. A LocalStack install loses its bucket in a reboot, so with uncollected checkpoints the API refuses to start and keeps restarting; then use `reseed` or `reset` above. That case was not checked.
 
 Before the reboot, check that no turn is in progress, that `status` is healthy and that the latest backup has been copied off the host. After it, check NTP, XFS `prjquota`, Docker's automatic start (which alone does not bring postgres, api and localstack up, so the `start` above is needed), and disk and inode headroom again. Then check that `status` and `/readyz` are healthy, and that resuming a session from before the reboot lets a new worker continue the old workspace. The API must be reachable only through the path you chose, and PostgreSQL and the Docker socket must be closed from outside.
 

@@ -11,7 +11,7 @@ description: Datadog Agentが収集するシグナル、初期monitorのしき�
 
 Agentは、選択式の[`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/compose.datadog.yml)でだけ作られます。このファイルを指定しない既定のstackには、Agent、mount、label、必須の環境変数が1つも追加されません。Agentのimageは`gcr.io/datadoghq/agent:7.83.3`に固定します。
 
-`DD_API_KEY`とDatadog用のPostgreSQL passwordは、リポジトリやshell historyに入れません。サーバーで運用者が`/etc/agent-platform/datadog.env`を作り、mode 600を確認します。別の絶対パスを使う必要があるときだけ`DATADOG_ENV_FILE`で変えます。値は例のプレースホルダーなので、実際の値をドキュメント・チケット・ログにコピーしません。
+`DD_API_KEY`とDatadog用のPostgreSQL passwordは、リポジトリやshell historyに入れません。サーバーで運用者が`/etc/werft/datadog.env`を作り、mode 600を確認します。別の絶対パスを使う必要があるときだけ`DATADOG_ENV_FILE`で変えます。値は例のプレースホルダーなので、実際の値をドキュメント・チケット・ログにコピーしません。
 
 ```dotenv
 DD_API_KEY=<operator-supplied>
@@ -22,9 +22,9 @@ DD_POSTGRES_PASSWORD=<read-only-role-password>
 ```
 
 ```bash
-sudo chown root:root /etc/agent-platform/datadog.env
-sudo chmod 600 /etc/agent-platform/datadog.env
-stat -c '%a %U:%G' /etc/agent-platform/datadog.env
+sudo chown root:root /etc/werft/datadog.env
+sudo chmod 600 /etc/werft/datadog.env
+stat -c '%a %U:%G' /etc/werft/datadog.env
 ```
 
 Agent serviceは、この絶対パスを`env_file`としてだけ読みます。compose YAMLには`DD_API_KEY`の名前も値のinterpolationもないので、ambientの`DD_API_KEY`で迂回できません。`DD_ENV`と`DD_VERSION`は、同じファイルをcomposeの`--env-file`として読み、product containerのunified tagsに使います。
@@ -43,7 +43,7 @@ GRANT SELECT ON TABLE queue_messages, sessions, turns, attempts, provider_usage 
 
 ```bash
 docker compose \
-  --env-file /etc/agent-platform/datadog.env \
+  --env-file /etc/werft/datadog.env \
   -f infra/compose.yml \
   -f infra/compose.datadog.yml \
   --profile apps up -d
@@ -96,6 +96,6 @@ Agentは、Docker socketとcontainer log directoryをread-onlyでmountし、host
 サーバーデプロイで次を確認します。
 
 1. 既定のstackをoverlayなしでrender・起動したとき、service一覧と設定が以前と同じである。
-2. overlayを加えた`docker compose config`が`DD_ENV`・`DD_VERSION`の欠落を拒否し、AgentのDocker socket mountが`ro`で、`/etc/agent-platform/datadog.env`だけを読む。
+2. overlayを加えた`docker compose config`が`DD_ENV`・`DD_VERSION`の欠落を拒否し、AgentのDocker socket mountが`ro`で、`/etc/werft/datadog.env`だけを読む。
 3. Agent statusで、Docker log、`http_check:werft-readyz`、PostgreSQL custom queryがすべて成功する。
 4. `/readyz`を一時的に失敗させて、service checkが変わり、復旧することをサーバーで確認する。実際の長期stack実行とmonitor notificationの配信は、ローカルの検証証拠で代替しません。

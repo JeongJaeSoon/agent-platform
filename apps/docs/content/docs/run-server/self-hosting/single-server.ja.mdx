@@ -6,7 +6,7 @@ description: 公開イメージで Linux サーバー1台に Werft を設置す�
 Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページは、`/readyz` が 200 を返すところまでの手順を書いています。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
 
 <Callout type="warn">
-この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成と実際のモデル呼び出しは確認していません。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
+この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成は確認していません。実際のモデル呼び出しは確認しました。コンソールで作成した GitHub App を使う `claude-coding` プロファイルのセッションで、turn 1 が `completed` で終わりました。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
 </Callout>
 
 <Callout type="warn">
@@ -80,12 +80,12 @@ bun install --frozen-lockfile
 秘密の値はリポジトリの外にある env ファイルにだけ置きます。ファイルは運用者だけが読めるようにします。group や other に権限があると、スクリプトは拒否します。
 
 ```bash
-sudo mkdir -p /etc/agent-platform
-sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
-sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+sudo mkdir -p /etc/werft
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/werft/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/werft/test-ops
 ```
 
-`/etc/agent-platform/test-ops.env` をエディタで開き、次を埋めます。`sed -i` のように一時ファイルを作るツールは、`/etc/agent-platform` で `Permission denied` になります。その場で書き込むエディタを使ってください。
+`/etc/werft/test-ops.env` をエディタで開き、次を埋めます。`sed -i` のように一時ファイルを作るツールは、`/etc/werft` で `Permission denied` になります。その場で書き込むエディタを使ってください。
 
 | 変数 | 値 |
 | --- | --- |
@@ -95,16 +95,16 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 | `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API コンテナにだけ渡る |
 | `BOOTSTRAP_TOKEN` | コメントを外して32〜256文字のランダムな値を入れる。最初の owner を作るトークン。入れないと API が生成してコンテナのログに出力する |
 
-例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/agent-platform/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
+例のファイルには、`EXECUTION_INSTALLATION_ID`(`test-ops`)、`PLATFORM_SETTINGS_DOCUMENT`(`/etc/werft/settings.json`)、`EGRESS_CREDENTIAL_ALLOWLIST`(`api.anthropic.com:443,github.com:443`)、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`(`localstack:4566`)、`EXECUTION_WORKSPACE_QUOTA`(`on`)があらかじめ入っています。既定の LocalStack 設置ならそのままにします。空だと compose が描画を拒否します。
 
 値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
 
-設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
+設定ドキュメントは `/etc/werft/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
 
 migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
 
 ```bash
-sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+sudo install -m 644 -o "$USER" /dev/null /etc/werft/settings.json
 ```
 
 ```json
@@ -147,7 +147,7 @@ sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
 内容を書き込んだら、ファイルの digest を求めます。
 
 ```bash
-bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json
 ```
 
 ## 4. release ファイルを作る
@@ -155,7 +155,7 @@ bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.jso
 `release.json` には、設置する commit、3つのイメージの digest、設定ドキュメントの digest を書きます。タグだけのイメージは拒否されます。手順1の `TAG` が残っているシェルで実行します。
 
 ```bash
-SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/werft/settings.json)"
 digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
 jq -n \
   --arg commit "$(git rev-parse HEAD)" \
@@ -181,7 +181,7 @@ scripts/test-ops.sh deploy release.json
 
 `deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。LocalStack はホストや Docker が再起動すると checkpoint を失い、再起動後に API が起動を拒否することがあります(復旧は[再起動](#再起動)の `reseed` または `reset`)。試用だけに使います。
 
-最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`agent-platform-test-ops`)のコンテナ、volume、network を手で削除し、もう一度 `deploy` します。
+最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`werft-test-ops`)のコンテナ、volume、network を手で削除し、もう一度 `deploy` します。
 
 ## 6. 確認する
 
@@ -199,7 +199,7 @@ curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
 ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 ```
 
-社内 DNS 名で公開するには、TLS と VPN または IP allowlist を備えた reverse proxy を前に置きます。イベントストリーム(SSE)のため buffering を切り、read timeout を長くします。PostgreSQL と Docker socket は外に公開しません。この reverse proxy は設定して確認していません。
+社内 DNS 名で公開するには、TLS と VPN または IP allowlist を備えた reverse proxy を前に置きます。イベントストリーム(SSE)のため buffering を切り、read timeout を長くします。PostgreSQL と Docker socket は外に公開しません。設定と確認した範囲は[アクセス経路](#アクセス経路)にあります。
 
 ## 7. 最初の owner と API key
 
@@ -237,12 +237,14 @@ scripts/test-ops.sh start
 
 `start` は、checkout が release の source commit でなくても、`infra/` がその commit のものと同じなら起動します。checkout から読むのは compose ファイルだけだからです。
 
-残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。DB に未回収の checkpoint が残っているのに bucket が空だと API は起動を拒否します。その場合は[再起動](#再起動)の `reseed` か `reset` です。データを守るなら S3 で設置します。これらのコマンドは、唯一のセッションが失敗で終わった(未回収の checkpoint がない)LocalStack の設置で確認しました。手で実行した `compose down` で止まった設置を `start` で戻すこと、再起動の後に `start` で戻すことは、どちらも実行し、`/readyz` が 200 を返し owner でログインできました。未回収の checkpoint がある LocalStack の設置での `start` は確認していません。
+env ファイルの値を変えた設置には、`scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json` で同じ release を再適用します。`CONSOLE_ORIGIN` を足してこのコマンドで適用すると、api コンテナが作り直され、`/readyz` は ready でした。`start` が変えた env の値を読むかどうかは確認していません。
+
+残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。DB に未回収の checkpoint が残っているのに bucket が空だと API は起動を拒否します。その場合は[再起動](#再起動)の `reseed` か `reset` です。データを守るなら S3 で設置します。これらのコマンドは、唯一のセッションが失敗で終わった(未回収の checkpoint がない)LocalStack の設置で確認しました。`stop` で止めた設置を `start` で戻すことも実行して確認しました。`stop` の後、コンテナと network は 0 個で volume は残り、`start` は exit 0、`/readyz` は 200 でした。手で実行した `compose down` で止まった設置を `start` で戻すこと、再起動の後に `start` で戻すことは、どちらも実行し、`/readyz` が 200 を返し owner でログインできました。未回収の checkpoint がある LocalStack の設置での `start` は確認していません。
 
 ## 運用する
 
 <Callout type="warn">
-この節は `scripts/test-ops.sh` とコードを読んで書きました。検証マシン(LocalStack の設置)で、`backup`、`restore-drill`、`reseed` をそれぞれ実行しました。`backup` は exit 0 で、最後の `/readyz` の本文は ready でした。`restore-drill` は `--bucket` なしで呼び、`PASSED` と exit 0 でした。`reseed` は exit 0 で、`/readyz` は HTTP 200 を返しました。ただしそのスタックは object が0個、checkpoint の行が0行だったため、object のアップロード経路と checkpoint の照合は使われていません。`backup --stop`、再起動、`reseed` を続けて行う手順、S3 オブジェクトストアの設置、TLS の reverse proxy は実行していません。それらの引数と動作は、スクリプトの引数処理とコードで確認しただけです。
+この節は `scripts/test-ops.sh` とコードを読んで書きました。検証マシン(LocalStack の設置)で、`backup`、`restore-drill`、`reseed` をそれぞれ実行しました。`backup` は exit 0 で、最後の `/readyz` の本文は ready でした。`restore-drill` は `--bucket` なしで呼び、`PASSED` と exit 0 でした。`reseed` は exit 0 で、`/readyz` は HTTP 200 を返しました。ただしそのスタックは object が0個、checkpoint の行が0行だったため、object のアップロード経路と checkpoint の照合は使われていません。`backup --stop`、再起動、`reseed` を続けて行う手順、S3 オブジェクトストアの設置は実行していません。TLS の reverse proxy は[アクセス経路](#アクセス経路)に書いた範囲まで実行して確認しました。実行していない部分の引数と動作は、スクリプトの引数処理とコードで確認しただけです。
 </Callout>
 
 ### アクセス経路
@@ -250,6 +252,15 @@ scripts/test-ops.sh start
 API(既定 3000)と PostgreSQL(既定 5432)はホストの loopback だけで待ち受けます。利用者は SSH tunnel で入り、PostgreSQL は運用者がサーバーの中でだけ使います。ファイアウォールは SSH と選んだ TLS endpoint だけを許可します。
 
 API を内部 DNS 名で公開するには、前に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。接続元は VPN の範囲か IP allowlist で絞り、TLS はそこで終わらせます。proxy はブラウザが送った `Host` をそのまま upstream に渡します。API は状態を変えるブラウザのリクエストで `Origin` の host と `Host` が違うと拒否するので、`Host` を upstream のものに書き換えると、Web コンソールの変更リクエストが失敗します。イベントストリーム(SSE)は接続を長く保つので、`proxy_buffering` とリクエストの buffering を切り、read と send の timeout を1時間のように長くします。どの経路を選んでも、PostgreSQL と Docker socket は proxy やファイアウォールの外に開きません。Docker socket は scheduler が worker を管理するときだけ使い、ホストの TCP socket は有効にしません。
+
+この構成は、検証マシン(Ubuntu 24.04、Nginx 1.24)で、プライベート CA の証明書を使って確認しました。運用ドキュメント `server-deployment.md` の2節にある Nginx の例に、`deny all;` の前へ `allow 127.0.0.1;` を1行足しています。同じマシンから送る試験リクエストが `deny all` に掛からないようにするためです。
+
+- `https` で `/readyz`、`/docs`、`/docs/scalar.js` はすべて 200 でした。allowlist の外のアドレスからは 403 でした。5432 は loopback だけで待ち受け、2375 は開いていませんでした。
+- API key を付けた `GET /v1/sessions/<id>` は 200 でした。`https` のイベントストリームを `curl -sSN --max-time 5` で受けると 7,968 bytes が届き、`curl: (28)` で終わりました。
+- パスワードログインは 200 で、`__Host-` cookie が保存されました。状態を変えるリクエストは `Origin` が違うと 403、同じ `Origin` のログアウトは 204 でした。
+- `TEST_OPS_API_URL` は変えていません。既定値のまま proxy を立てて上の確認はすべて通りました。`status` と `deploy` の `/readyz` 確認を proxy のアドレス経由にする値を入れた場合は確認していません。
+
+プライベート CA を使うときは、クライアントにその CA を信頼させます。`curl` は `--cacert` で CA 証明書を渡し、`-k` は使いません。信頼させていないブラウザは `NET::ERR_CERT_AUTHORITY_INVALID` で止まります。そのためブラウザでの `https` ログインは確認できず、上のログインは `curl` で確認しました。公開証明書を使う方法や、利用者の PC に CA を信頼させる方法は組織ごとに違うので、このページでは決めません。実際の社内 DNS 名と VPN の範囲からの接続も確認していません。
 
 ### 専用の S3 bucket
 
@@ -280,7 +291,7 @@ scripts/test-ops.sh backup
 
 ```bash
 # Restore a backup into a throwaway project and a new, empty bucket, then verify it
-scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+scripts/test-ops.sh restore-drill /var/lib/werft/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
 出力は状態ディレクトリの `restore-drills/` に残り、判定は `history.log` に1行残ります。訓練の project は終わると削除されます(調べるには `--keep` を付け、ポートが重なる場合は `--port-base` で変えます。既定は 25432 からです)。訓練用 bucket の object には legal hold が掛かっているので、bucket を削除するには version ごとに hold を解除し、version を削除してから bucket を削除します。
@@ -295,12 +306,12 @@ LocalStack の設置は再起動すると object を失います。あらかじ�
 # Back up, leave the writers stopped, restart the host, then restore the objects
 scripts/test-ops.sh backup --stop
 sudo reboot
-scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
+scripts/test-ops.sh reseed /var/lib/werft/test-ops/backups/backup-<timestamp>
 ```
 
 `reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。`reseed` は再起動していないスタックでも bucket が空なら通り、空でない bucket は拒否します。object があるときの動作は確認していません。
 
-再起動の後、スタックは自動では戻りません。検証マシン(OrbStack、Docker は起動時に自動開始)で再起動した後にコンテナを見ると、egress-proxy、reconciler、scheduler(`restart: unless-stopped`)だけが起動しており、postgres、api、localstack(restart ポリシーなし)は `Exited` でした。再起動の後は `scripts/test-ops.sh start` を自分で呼びます。このマシンでは `start` が exit 0 で終わり、`/readyz` が 200 を返し、再起動前の owner でログインでき、セッションの記録も残っていました。S3 の設置は再起動しても object が残るので、`start` だけで済みます。LocalStack の設置は `start` の後に bucket が空なので、未回収の checkpoint があるときは上の `reseed` が必要です。その場合は確認していません。
+再起動すると、スタックは自動で戻ります。postgres、api、localstack を含む常駐サービスのすべてが `restart: unless-stopped` だからです。検証マシン(OrbStack、Docker は起動時に自動開始)で `start` なしに再起動したところ、約 20 秒後に `/readyz` が 200 を返し、コンテナ 6 個すべてが healthy で、再起動前の owner でログインできました。戻らないときは `scripts/test-ops.sh start` を呼びます。`stop` や `compose down` で止めたスタックは、コンテナがすでに消えているため、再起動しても戻りません。このポリシーは、これを含む release に `upgrade` した設置に適用されます。それ以前にデプロイした設置は、コンテナを作り直すまで従来どおりです(再起動後、postgres、api、localstack は `Exited` で、`start` で起動します)。LocalStack の設置では、その最初の `upgrade` が restart ポリシーの変わった LocalStack コンテナを作り直し、メモリ上の object が空になります。`status` の `sessions with uncollected checkpoints` が 0 でなければ、その `upgrade` は見送ります。空になった後で API が起動に失敗すると、`upgrade` が残した `pending.json` のために `reseed` は拒否され、残る道は `reset`(セッションと checkpoint を削除)だけです。事前に `backup --stop` でバックアップを残しても、この道は開きません。この場合は確認していません。S3 の設置は再起動しても object が残ります。LocalStack の設置は再起動で bucket が空になるため、未回収の checkpoint があると API は起動を拒否して再起動を繰り返します。その場合は上の `reseed` か `reset` を使います。この場合は確認していません。
 
 再起動の前に、進行中のターンがないこと、`status` が正常であること、最新のバックアップがホストの外に複製されていることを確認します。再起動の後は、NTP、XFS `prjquota`、Docker の自動起動(これだけでは postgres、api、localstack は起動しないので、上の `start` が必要です)、ディスクと inode の余裕をもう一度確認します。続けて、`status` と `/readyz` が正常であること、再起動前のセッションを再開すると新しい worker が以前の workspace を引き継ぐことを確認します。API は選んだ経路からだけ届き、PostgreSQL と Docker socket は外から閉じている必要があります。
 
