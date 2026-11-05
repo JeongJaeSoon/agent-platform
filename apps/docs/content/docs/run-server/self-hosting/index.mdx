@@ -3,7 +3,7 @@ title: "셀프 호스팅"
 description: 여러 사람이 쓰는 Werft 서버를 설치하는 방법을 고른다
 ---
 
-Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다. Kubernetes 페이지는 게시 chart로 kind에서 실행해 확인했다. 단일 서버 페이지는 처음부터 끝까지 실행해 확인하지 않았다.
+Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시험해 볼 서버라면 [개발용 서버 실행](/run-server/dev-server)으로 충분하다. 설치 방식은 둘이고, 고른 쪽의 페이지가 `/readyz`가 200을 돌려줄 때까지의 설치 순서를 안내한다. Kubernetes 설치는 게시 chart로 kind에서 확인했으나 DB Secret 단계는 문서 블록 그대로가 아니었고, 고친 kind Secret 블록과 Kubernetes 업그레이드 절차는 실행하지 않았다. 단일 서버 페이지는 처음부터 끝까지 실행해 확인하지 않았다.
 
 ## 설치 방식 고르기
 
@@ -11,6 +11,8 @@ Werft 서버를 직접 설치해 팀이 함께 쓰는 방법이다. 혼자 시�
 | --- | --- | --- |
 | 단일 서버 | Linux 서버 한 대, Docker Compose. 세션마다 worker 컨테이너 | [단일 서버 설치](/run-server/self-hosting/single-server) |
 | Kubernetes | 게시된 Helm chart. 세션마다 worker Pod | [Kubernetes 설치](/run-server/self-hosting/kubernetes) |
+
+이미 설치했다면 [업그레이드](/run-server/self-hosting/upgrade)를 읽는다.
 
 어느 방식이든 서버는 API(웹 콘솔 포함), scheduler, reconciler, egress proxy, PostgreSQL, S3 호환 object store로 이뤄진다. Git 서버는 없으므로 세션이 쓸 GitHub 저장소는 설정 문서나 콘솔로 더한다. 단일 서버 설치에서 HA는 범위 밖이다.
 

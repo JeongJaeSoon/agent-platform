@@ -1,0 +1,110 @@
+---
+title: "Upgrade"
+description: Move an installed Werft to a new published version and see which sessions block before you do
+---
+
+Move an installed Werft to a new published version. For a first install, read [Kubernetes install](/run-server/self-hosting/kubernetes) or [Single-server install](/run-server/self-hosting/single-server).
+
+<Callout type="warn">
+There is no `v` tag yet. For now, upgrade to the chart `0.1.0-main-<12>` and the image tag `main-<12>` published on every merge to `main`. They are not a release. Once the first `v` tag exists, set `VERSION` to the tag without the `v` (`1.2.3` for `v1.2.3`); the commands stay the same. Before you upgrade, read the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) in the repository for what operators must do by hand.
+</Callout>
+
+## Kubernetes
+
+<Callout type="warn">
+UNVERIFIED. These Kubernetes upgrade steps are copied from the operator document and have not been run in this order on a cluster. CI does not test the new control-host with the previous worker image, so try them on a test install before a real server. If they differ, follow [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기).
+</Callout>
+
+These steps use `jq` too. The published chart carries the new worker image but not the previous one, because the previous image differs per installation. An upgrade that changes the worker image stops with `refused` unless `images.workerPrevious` is the image deployed now, and an approval cannot get past that. So save the current image to a file and pass it along. Do not use `--reuse-values`: the old chart's values override the new chart's images.
+
+### 1. Pick the new version
+
+In the [Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml), pick the commit of a `main` run that finished green and write the exact version. Versions from `main` have no order, so do not pick the latest with `--devel`.
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+```
+
+### 2. Upgrade
+
+Compare the worker image deployed now with the worker image of the new version. If they differ, write the current image to a candidate file and pass it along. `values-<installation>.yaml` is the file you used at the first install.
+
+```bash
+DEPLOYED="$(helm -n werft history werft -o json | jq '[.[] | select(.status == "deployed")] | last.revision')"
+CURRENT="$(helm -n werft get values werft --all --revision "$DEPLOYED" -o json | jq -r '.images.worker.digest')"
+TARGET="$(helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  | awk '/^  worker:/ {found = 1} found && /digest:/ {print $2; exit}')"
+echo "deployed ${CURRENT}"
+echo "target   ${TARGET}"
+PREVIOUS=worker-previous.json
+if [ -n "$TARGET" ] && [ "$CURRENT" != "$TARGET" ]; then
+  PREVIOUS=worker-previous.next.json
+  helm -n werft get values werft --all --revision "$DEPLOYED" -o json \
+    | jq '{images: {workerPrevious: .images.worker}}' > "$PREVIOUS"
+fi
+set -- -f values-<installation>.yaml
+if [ -f "$PREVIOUS" ]; then set -- "$@" -f "$PREVIOUS"; fi
+if helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft "$@" --timeout 10m; then
+  if [ "$PREVIOUS" != worker-previous.json ]; then mv "$PREVIOUS" worker-previous.json; fi
+fi
+```
+
+- Keep `worker-previous.json` next to the installation and pass it on the next upgrade too. If you leave it out, the support window shrinks without a warning, and a session left on the old image combination may stop with `recovery_required` when it resumes.
+- Without `--revision`, a failed upgrade makes the command return the image it tried to deploy. Name the revision that is deployed now.
+- Do not pass the whole `helm get values --all` output as a values file. The old digests would override the new chart's values. Take `.images.worker` only.
+- An upgrade after a first install, where the worker image has not changed, has no file to pass. That is fine.
+
+### 3. Read the pre-upgrade check
+
+Before migrate, `helm upgrade` runs the `upgrade-check` Job with the api image of the new version. The Job picks the sessions that cannot resume on the new images and reports a one-line `verdict`.
+
+```bash
+kubectl -n werft logs job/werft-upgrade-check
+```
+
+| `verdict` | Meaning |
+| --- | --- |
+| `proceed` | The upgrade continues |
+| `refused` | Stops. The picked sessions differ from the approved list, or `images.workerPrevious` is not the image deployed now. The second case cannot be approved |
+| `check_failed` | Stops. The database or the image combination could not be read |
+
+If it is acceptable that the picked sessions do not resume, pass the `affected` list as `--set-json 'upgrade.approvedSessions=["<sessionId>", ...]'` and run the same upgrade again. The approved list stays in the release values, so reset it to `[]` on each upgrade and read the list again. The verdict table and its exceptions are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
+
+### 4. Check
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl -fs -o /dev/null http://127.0.0.1:13000/healthz; do sleep 1; done
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+kill "$PF"
+```
+
+`{"status":"ready",…}` and `200` mean `/readyz` returned ready. Check separately that sessions resume.
+
+### Roll back
+
+`helm rollback` runs no hooks, so the pre-upgrade check does not run either. For a rollback that reverts the worker image, the check you run by hand beforehand is usually `refused`; roll forward first. The check command for a rollback and its limits are in the `helm rollback` item of [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#업그레이드-전-검사).
+
+## Single server (Docker Compose)
+
+<Callout type="warn">
+UNVERIFIED. The single-server install and upgrade have not been run end to end with the published images. What follows is the order from the operations runbook; it does not promise that it runs. If it differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드).
+</Callout>
+
+Rebuild `release.json` from the digests of the new tag, check out the new source commit, then call `upgrade`. If the worker image changed, it checks the current checkpoints against the new image and refuses with exit code 3 if any session is incompatible. Follow the runbook for the approval steps.
+
+```bash
+git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
+scripts/test-ops.sh upgrade release-new.json
+```
+
+## Renamed names and what operators do
+
+The metric names and the CSS names changed, and there are no aliases for the old names. An installation that already runs applies the Datadog definitions again and changes the queries of its Prometheus rules, and renames any CSS names it overrode, as the section "운영자가 할 일" (what operators must do) in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) says.
