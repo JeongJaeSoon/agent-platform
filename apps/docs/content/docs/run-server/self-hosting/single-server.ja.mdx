@@ -253,12 +253,12 @@ API(既定 3000)と PostgreSQL(既定 5432)はホストの loopback だけで待
 
 API を内部 DNS 名で公開するには、前に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。接続元は VPN の範囲か IP allowlist で絞り、TLS はそこで終わらせます。proxy はブラウザが送った `Host` をそのまま upstream に渡します。API は状態を変えるブラウザのリクエストで `Origin` の host と `Host` が違うと拒否するので、`Host` を upstream のものに書き換えると、Web コンソールの変更リクエストが失敗します。イベントストリーム(SSE)は接続を長く保つので、`proxy_buffering` とリクエストの buffering を切り、read と send の timeout を1時間のように長くします。どの経路を選んでも、PostgreSQL と Docker socket は proxy やファイアウォールの外に開きません。Docker socket は scheduler が worker を管理するときだけ使い、ホストの TCP socket は有効にしません。
 
-この構成は、検証マシン(Ubuntu 24.04、Nginx 1.24)で、プライベート CA の証明書を使って確認しました。上の設定例の `allow` に `allow 127.0.0.1;` を1行足しています。同じマシンから送る試験リクエストが `deny all` に掛からないようにするためです。
+この構成は、検証マシン(Ubuntu 24.04、Nginx 1.24)で、プライベート CA の証明書を使って確認しました。運用ドキュメント `server-deployment.md` の2節にある Nginx の例に、`deny all;` の前へ `allow 127.0.0.1;` を1行足しています。同じマシンから送る試験リクエストが `deny all` に掛からないようにするためです。
 
 - `https` で `/readyz`、`/docs`、`/docs/scalar.js` はすべて 200 でした。allowlist の外のアドレスからは 403 でした。5432 は loopback だけで待ち受け、2375 は開いていませんでした。
 - API key を付けた `GET /v1/sessions/<id>` は 200 でした。`https` のイベントストリームを `curl -sSN --max-time 5` で受けると 7,968 bytes が届き、`curl: (28)` で終わりました。
 - パスワードログインは 200 で、`__Host-` cookie が保存されました。状態を変えるリクエストは `Origin` が違うと 403、同じ `Origin` のログアウトは 204 でした。
-- `TEST_OPS_API_URL` は変えていません。この値がなくても proxy を立てて上の確認はすべて通りました。`status` と `deploy` の `/readyz` 確認を proxy のアドレス経由にする場合は確認していません。
+- `TEST_OPS_API_URL` は変えていません。既定値のまま proxy を立てて上の確認はすべて通りました。`status` と `deploy` の `/readyz` 確認を proxy のアドレス経由にする値を入れた場合は確認していません。
 
 プライベート CA を使うときは、クライアントにその CA を信頼させます。`curl` は `--cacert` で CA 証明書を渡し、`-k` は使いません。信頼させていないブラウザは `NET::ERR_CERT_AUTHORITY_INVALID` で止まります。そのためブラウザでの `https` ログインは確認できず、上のログインは `curl` で確認しました。公開証明書を使う方法や、利用者の PC に CA を信頼させる方法は組織ごとに違うので、このページでは決めません。実際の社内 DNS 名と VPN の範囲からの接続も確認していません。
 
