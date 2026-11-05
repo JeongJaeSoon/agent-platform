@@ -29,7 +29,7 @@ Preconditions: 새 `up.sh` 직후(bootstrap 전). `<run id>`는 `up.sh`가 출�
 서빙은 curl로 본다.
 
 ```sh
-. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
+. .claude/skills/verify-werft/scripts/lib.sh <run id>
 for p in / /login /bootstrap /sessions/deep/link; do curl -sS -o /dev/null -D - "$VERIFY_API$p" | grep -iE '^HTTP|cache-control|content-security'; done
 curl -sS -w '\n%{http_code}\n' "$VERIFY_API/v1/nope"            # 401 JSON
 curl -sS -o /dev/null -w '%{http_code}\n' "$VERIFY_API/assets/missing.js"   # 404
@@ -38,7 +38,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' "$VERIFY_API/assets/missing.js"   # 40
 화면은 이 run의 headless Chrome으로 몬다: `scripts/browser.mjs`. run 디렉터리 안의 전용 user-data-dir(`browser/profile`)로 띄우고 PID를 `browser/pid`에 적으며, `stop`은 그 PID만(명령줄에 이 profile이 있을 때만) 끝내고 profile을 지운다. 사람의 Chrome 프로필이나 다른 Chrome 프로세스는 건드리지 않는다. 쓰기 전에 `orch hold browser --note "<what>"`, 끝나면 `stop` 뒤 `orch release browser`.
 
 ```sh
-B=.claude/skills/verify-agent-platform/scripts/browser.mjs
+B=.claude/skills/verify-werft/scripts/browser.mjs
 node $B <run id> start                   # started headless Chrome pid N
 node $B <run id> open /                  # /login?redirect=%2F | Werft
 node $B <run id> login owner             # web-user.mjs가 만든 users/owner로 /login 폼을 채운다 → "login owner -> /"
@@ -72,8 +72,8 @@ Orca 브라우저(`orca tab`·`orca snapshot`)도 쓸 수 있다. 다른 스택�
 - 실제 GitHub App 키를 쓰지 않고 채워진 연결 행의 레이아웃만 볼 때는 `browser.mjs <run> mockshot <path> <responses.json> <name> [full]`을 쓴다. JSON은 정확한 `/v1/…` 경로를 키로, 가짜 GET 응답 본문을 값으로 둔다. 이 명령은 해당 verify origin에서만 돌고, 모의 캡처 중 쓰기 요청은 차단한다. `<name>.response-mock.json`에 `response_mock: true`와 실제 바꾼 경로를 기록하므로 PR에서도 응답 모의 캡처임을 명시한다. 실제 App 연결·발급·권한 검증을 대신하지 않는다. 비밀값이나 실제 App 키는 fixture에 넣지 않는다.
 
 - headless Chrome의 `--window-size=360,…`은 최소 창 폭(약 500px) 때문에 360px로 그려지지 않는다. `browser.mjs`는 창 크기 대신 device metrics를 바꿔서 390px도 그대로 그린다.
-- `__Host-ap_session`은 `Secure`지만 Chromium은 `http://127.0.0.1`을 안전한 origin으로 보아 cookie를 저장한다. 브라우저 profile이 run마다 따로라 다른 스택의 cookie와 섞이지 않는다.
-- `session-ended`를 몰려면 페이지에서 `fetch('/v1/auth/logout',{method:'POST',headers:{'x-requested-with':'agent-platform-web'}})`로 세션을 끝내고, 30초(`me`의 staleTime) 뒤 `window.dispatchEvent(new Event('visibilitychange'))`로 포커스 복귀를 흉내 낸다. `document`에 보내면 React Query가 듣지 않는다.
+- `__Host-werft_session`은 `Secure`지만 Chromium은 `http://127.0.0.1`을 안전한 origin으로 보아 cookie를 저장한다. 브라우저 profile이 run마다 따로라 다른 스택의 cookie와 섞이지 않는다.
+- `session-ended`를 몰려면 페이지에서 `fetch('/v1/auth/logout',{method:'POST',headers:{'x-requested-with':'werft-web'}})`로 세션을 끝내고, 30초(`me`의 staleTime) 뒤 `window.dispatchEvent(new Event('visibilitychange'))`로 포커스 복귀를 흉내 낸다. `document`에 보내면 React Query가 듣지 않는다.
 - bootstrap 완료 여부를 읽는 공개 GET이 없다. `/bootstrap`은 소유자가 있어도 같은 폼("첫 소유자 만들기")으로 열리고, 제출해야 409로 안다.
 - `slowshot` 직후의 다음 명령은 페이지가 아직 불러오는 중일 수 있다. `open`으로 다시 연 뒤 이어 간다.
 - 화면 글자는 브라우저 언어를 따른다. `browser.mjs`의 Chrome은 OS 언어로 뜨므로(이 머신은 `navigator.languages` = `ko-KR,ko,…`) 이 map의 한국어 글자가 그대로 맞는다. 다른 언어로 첫 방문을 보려면 `start` 전에 `$VERIFY_RUN/browser/profile/Default/Preferences`를 `{"intl":{"accept_languages":"ja,en-US,en"}}`로 쓴다(Write 도구).

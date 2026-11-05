@@ -6,7 +6,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 - `app-register` `PUT /v1/workspaces/{id}/github-app`(owner·admin, cookie만, master key 필요) → `github_app`(`app_id`, `slug`, `permissions`, `warnings`)과 `set_github_app` receipt. `GET`은 `check.state: "ok"`와 sandbox 저장소의 `installation_id`.
 - `ceiling` `GET`·`PUT /v1/workspaces/{id}/github-settings`: `ceiling`(workflows·actions·checks·issues·review), `revision`(처음 0, 쓸 때마다 +1, 다르면 `409 REVISION_CONFLICT`), `apps.author.permissions`. `set_github_ceiling` receipt.
-- `agent-github` 릴리스 본문의 `github`(`repositories`, `push_approval`, `features`, `actions_allow`) → `GET /v1/agents/{id}/github`의 `github`·`options`·`unsavable`.
+- `agent-github` 설정(`repositories`, `push_approval`, `features`, `actions_allow`)은 `PUT /v1/agents/{id}/github/settings` `{expected_revision, settings, start_repository_id}`로 저장한다(웹 세션만, API key는 `403 web_session_required`, 어긋난 revision은 `409 REVISION_CONFLICT`). 읽기는 `GET /v1/agents/{id}/github`의 `github`·`settings_revision`·`start_repository_id`·`legacy_defaults`·`options`. 설정 행이 생긴 에이전트에 `github`가 든 릴리스 요청은 `409 github_settings_exist`다. 아래 3단계의 릴리스 본문 `github`는 행이 없는 에이전트의 첫 설정에만 쓴다.
 - `clone` 세션 생성(`agent_release_id`) → worker가 egress proxy로 clone. 게이트가 `mint_github_token`(`purpose: clone`)을 남긴다.
 - `push` `POST …/push-requests` `{}` → `requested` → `POST …/approve` `{git_commit}` → `approved` → `pushing` → `pushed`. `git_commit`은 요청이 고정한 값이어야 한다.
 - `pull-request` `POST …/push-requests/{id}/pull-request` → 201 `created: true`, 다시 부르면 200 `created: false`. GitHub 작성자는 `app/werft-sandbox-agent`.
@@ -33,14 +33,14 @@ Preconditions:
 ```sh
 # 1. 띄우기 (같은 Bash 호출)
 export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"; echo "master key chars: ${#PLATFORM_SECRET_KEY}"   # 64
-orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh .claude/skills/verify-agent-platform/github-sandbox/overlay.yml
+orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh .claude/skills/verify-werft/github-sandbox/overlay.yml
 ```
 
-`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. .claude/skills/verify-agent-platform/scripts/lib.sh <run id>`로 시작하고, 블록 사이의 id는 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적어 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
+`run id`를 기록하고 `doctor.sh <run id>`가 exit 0인지 본다. 아래 블록은 모두 `. .claude/skills/verify-werft/scripts/lib.sh <run id>`로 시작하고, 블록 사이의 id는 `$VERIFY_RUN/ids.sh`(이 run 디렉터리)에 적어 다음 블록에서 `. "$VERIFY_RUN/ids.sh"`로 읽는다.
 
 ```sh
 # 2. owner와 App 등록
-U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+U=.claude/skills/verify-werft/scripts/web-user.mjs
 node $U <run id> bootstrap owner; node $U <run id> login owner; ap_as owner
 WS=$(ap_web GET /v1/auth/me | head -1 | jq -r .workspace.id); printf 'WS=%s\n' "$WS" >> "$VERIFY_RUN/ids.sh"
 node $U <run id> github-app owner "$WS" "$SANDBOX_APP_ID" | tee "$EVIDENCE/gh-app-put.txt"
@@ -79,9 +79,9 @@ ap_web GET "/v1/workspaces/$WS/achievement-judge" | head -1 | jq -c '.achievemen
 
 ```sh
 # 4. 세션: clone → commit(Bash 권한 허용)
-. "$VERIFY_RUN/ids.sh"; U=.claude/skills/verify-agent-platform/scripts/web-user.mjs
+. "$VERIFY_RUN/ids.sh"; U=.claude/skills/verify-werft/scripts/web-user.mjs
 node $U <run id> key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
-SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-agent-platform sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
+SPEC='GATE-SPEC {"id":"gh1","steps":[{"tool":"Bash","input":{"command":"mkdir -p notes && date -u +%FT%TZ > notes/verify-skill.txt && git add notes/verify-skill.txt && git commit -qm \"docs: verify-werft sandbox note\" && git log --oneline -1","description":"commit a note"}}],"final":"committed"}'
 SID=$(ap_post /v1/sessions "$(jq -nc --arg r "$REL" --arg m "$SPEC" '{agent_release_id:$r, message:$m}')" | head -1 | jq -r .session_id)
 printf 'SID=%s\n' "$SID" >> "$VERIFY_RUN/ids.sh"
 for i in $(seq 1 90); do [ "$(ap_get "/v1/sessions/$SID" | head -1 | jq -r .status)" = needs_input ] && break; sleep 2; done
@@ -99,7 +99,7 @@ ap_get "/v1/sessions/$SID/turns/1" | tee "$EVIDENCE/gh-turn.txt"
 P=$(ap_post "/v1/sessions/$SID/push-requests" '{}' | head -1); PRID=$(echo "$P" | jq -r .id); COMMIT=$(echo "$P" | jq -r .git_commit)
 ap_web POST "/v1/sessions/$SID/push-requests/$PRID/approve" "$(jq -nc --arg c "$COMMIT" '{git_commit:$c}')"
 for i in $(seq 1 30); do s=$(ap_get "/v1/sessions/$SID/push-requests/$PRID" | head -1 | jq -r .state); case $s in pushed|failed) break ;; esac; sleep 2; done; echo "$s"
-ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-agent-platform: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
+ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{"title":"verify-werft: GitHub sandbox flow"}' | tee "$EVIDENCE/gh-pr.txt"
 ap_post "/v1/sessions/$SID/push-requests/$PRID/pull-request" '{}'      # 같은 PR, created: false
 printf 'PRID=%s\n' "$PRID" >> "$VERIFY_RUN/ids.sh"
 ```
@@ -141,7 +141,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select operation, s
 ```sh
 # 7. 정리: 자기 PR 닫기, 스택 내리기(volume 유지), 잠금 놓기
 gh pr close <n> -R JeongJaeSoon/werft-sandbox --delete-branch
-orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/down.sh <run id> --keep-volumes
+orch heavy <program> -- .claude/skills/verify-werft/scripts/down.sh <run id> --keep-volumes
 orch release verify-stack
 ```
 

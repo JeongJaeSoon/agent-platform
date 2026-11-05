@@ -574,6 +574,48 @@ describe("a push to another repository", () => {
     expect(created).toEqual([]);
   });
 
+  test("a checkpoint whose commit is the working-tree snapshot is refused as uncommitted changes", async () => {
+    const snapshot = "c".repeat(40);
+    const { to, created, refusals } = pushing(
+      null,
+      "sample-app",
+      undefined,
+      null,
+      {
+        status: "ready",
+        revision: 4,
+        gitCommit: snapshot,
+        mismatches: [{ commit: snapshot, problems: [] }],
+      },
+    );
+    const error = (await to()) as SessionServiceError;
+    expect(error).toBeInstanceOf(SessionServiceError);
+    expect(error.details).toEqual({
+      refusal: "uncommitted_changes",
+      receipt_id: "receipt-1",
+    });
+    expect(refusals.at(-1)).toMatchObject({
+      operation: "request_push",
+      refusal: "uncommitted_changes",
+      result: { verdict: "refuse", refusal: "uncommitted_changes" },
+    });
+    expect(created).toEqual([]);
+  });
+
+  test("an empty mismatch for a commit other than the pinned one is not the snapshot signal", async () => {
+    const { to, created } = pushing(null, "sample-app", undefined, null, {
+      status: "ready",
+      revision: 4,
+      gitCommit: "a".repeat(40),
+      mismatches: [{ commit: "c".repeat(40), problems: [] }],
+    });
+    const error = (await to()) as SessionServiceError;
+    expect((error.details as { refusal: string }).refusal).toBe(
+      "attribution_mismatch",
+    );
+    expect(created).toEqual([]);
+  });
+
   test("a checkpoint from a worker that checked nothing passes here (the push checks it)", async () => {
     const { to, created } = pushing(null);
     expect(await to()).toBeNull();

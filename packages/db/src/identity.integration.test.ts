@@ -90,7 +90,7 @@ const ADDED_COLUMNS: Record<string, string[]> = {
     "agent_release_id",
     // 0231; arrives as 'release'
     "github_policy_source",
-    // 0233
+    // 0234
     "github_policy_start",
     // 0104
     "checkpoint_pending_reason",

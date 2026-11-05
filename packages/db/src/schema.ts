@@ -3082,6 +3082,22 @@ export const agents = pgTable(
      * clear it. Its leads administer the agent.
      */
     managingTeamId: uuid("managing_team_id"),
+    // Nothing writes the five columns below yet; they hold their defaults.
+    /** `follow` takes a profile's newer versions by rollout; `pinned` stays. */
+    profileTracking: text("profile_tracking").notNull().default("follow"),
+    /** Counts the intents to change behavior; a stale result is told apart by it. */
+    behaviorRevision: integer("behavior_revision").notNull().default(0),
+    /** `profile` runs the profile's default model; `fixed` the card's own. */
+    modelSource: text("model_source").notNull().default("fixed"),
+    /**
+     * A saved change not yet active: the card version, the target profile
+     * and the model source, filled and cleared together. `draft_failure`
+     * says why it did not apply.
+     */
+    draftVersionId: uuid("draft_version_id"),
+    draftProfileId: text("draft_profile_id"),
+    draftModelSource: text("draft_model_source"),
+    draftFailure: text("draft_failure"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -3092,6 +3108,27 @@ export const agents = pgTable(
   },
   (table) => [
     uniqueIndex("agents_workspace_slug_idx").on(table.workspaceId, table.slug),
+    foreignKey({
+      name: "agents_draft_version_fk",
+      columns: [table.id, table.draftVersionId],
+      foreignColumns: [agentVersions.agentId, agentVersions.id],
+    }),
+    check(
+      "agents_profile_tracking_check",
+      sql`${table.profileTracking} IN ('follow', 'pinned')`,
+    ),
+    check(
+      "agents_model_source_check",
+      sql`${table.modelSource} IN ('fixed', 'profile')`,
+    ),
+    check(
+      "agents_behavior_revision_check",
+      sql`${table.behaviorRevision} >= 0`,
+    ),
+    check(
+      "agents_draft_check",
+      sql`(${table.draftVersionId} IS NULL) = (${table.draftProfileId} IS NULL) AND (${table.draftVersionId} IS NULL) = (${table.draftModelSource} IS NULL) AND (${table.draftModelSource} IS NULL OR ${table.draftModelSource} IN ('fixed', 'profile')) AND (${table.draftFailure} IS NULL OR ${table.draftVersionId} IS NOT NULL)`,
+    ),
     foreignKey({
       name: "agents_managing_team_fk",
       columns: [table.workspaceId, table.managingTeamId],
@@ -4374,12 +4411,21 @@ export const installationProfiles = pgTable(
     fingerprint: text().notNull(),
     repositoryIds: jsonb("repository_ids").$type<string[]>(),
     // Beside repository_ids and, like it, outside the fingerprint.
-    githubAppRepositories: text("github_app_repositories")
-      .notNull()
-      .default("listed"),
+    // Null on a row that says nothing about repositories (the workspace's
+    // ceiling judges them); the default stays for images from before.
+    githubAppRepositories: text("github_app_repositories").default("listed"),
     // Stored, so every image reads a row alike: `profile` judges repositories
     // by the columns above, `workspace` by the workspace's repository ceiling.
-    repositoryScope: text("repository_scope").notNull().default("profile"),
+    // Null: the row names no repository at all.
+    repositoryScope: text("repository_scope").default("profile"),
+    /** The version this one narrows; a block on it stops this one too. */
+    derivedFrom: text("derived_from"),
+    /** Set on a version a workspace's admin made; null is installation-wide. */
+    workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    /** What the author named it; `name` is then the server's lineage key. */
+    displayName: text("display_name"),
+    /** The workspace profile id this version was copied from. */
+    migratedFrom: text("migrated_from"),
     // The built-in tools blocked, as named in the tool catalog
     // `tool_catalog_id`. Outside `definition` and the fingerprint: an
     // image from before reads the definition strictly, and the digests
@@ -4432,7 +4478,7 @@ export const installationProfiles = pgTable(
     ),
     check(
       "installation_profiles_repository_ids_check",
-      sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog'`,
+      sql`${table.repositoryIds} IS NOT NULL OR ${table.origin} = 'catalog' OR ${table.repositoryScope} IS NULL`,
     ),
     check(
       "installation_profiles_github_app_repositories_check",
@@ -4441,6 +4487,107 @@ export const installationProfiles = pgTable(
     check(
       "installation_profiles_deny_check",
       sql`${table.deny} IS NULL OR (jsonb_typeof(${table.deny}) = 'array' AND ${table.toolCatalogId} IS NOT NULL)`,
+    ),
+    foreignKey({
+      name: "installation_profiles_derived_from_fk",
+      columns: [table.derivedFrom],
+      foreignColumns: [table.id],
+    }),
+    uniqueIndex("installation_profiles_migrated_from_key")
+      .on(table.migratedFrom)
+      .where(sql`${table.migratedFrom} IS NOT NULL`),
+    // One lineage of a workspace's profiles: a name and its versions.
+    uniqueIndex("installation_profiles_workspace_lineage_key")
+      .on(table.workspaceId, table.displayName, table.version)
+      .where(sql`${table.workspaceId} IS NOT NULL`),
+  ],
+);
+
+export const PROFILE_ROLLOUT_KIND_VALUES = [
+  "profile_update",
+  "tool_unlock",
+] as const;
+export const PROFILE_ROLLOUT_ITEM_STATUS_VALUES = [
+  "pending",
+  "applied",
+  "superseded",
+  "failed",
+] as const;
+
+// A profile version's change to the agents that follow it, written with the
+// version (an outbox). Nothing writes either table yet.
+export const profileRollouts = pgTable(
+  "profile_rollouts",
+  {
+    id: uuid().primaryKey(),
+    kind: text().notNull(),
+    targetProfileId: text("target_profile_id")
+      .notNull()
+      .references(() => installationProfiles.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("profile_rollouts_target_kind_key").on(
+      table.targetProfileId,
+      table.kind,
+    ),
+    check(
+      "profile_rollouts_kind_check",
+      sql`${table.kind} IN (${sql.raw(sqlList(PROFILE_ROLLOUT_KIND_VALUES))})`,
+    ),
+  ],
+);
+
+// One agent's turn in a rollout; `generation` is the agent's
+// activation_revision when the item was put in.
+export const profileRolloutItems = pgTable(
+  "profile_rollout_items",
+  {
+    rolloutId: uuid("rollout_id")
+      .notNull()
+      .references(() => profileRollouts.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    generation: integer().notNull(),
+    status: text().notNull().default("pending"),
+    reasonCode: text("reason_code"),
+    attempts: integer().notNull().default(0),
+    /** A lease: another replica takes the item once it passes. */
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    /** Who holds the lease; a result is written only by its holder. */
+    lockedBy: text("locked_by"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "profile_rollout_items_pkey",
+      columns: [table.rolloutId, table.agentId, table.generation],
+    }),
+    index("profile_rollout_items_pending_idx")
+      .on(table.lockedUntil)
+      .where(sql`${table.status} = 'pending'`),
+    index("profile_rollout_items_agent_idx").on(table.agentId),
+    check(
+      "profile_rollout_items_generation_check",
+      sql`${table.generation} >= -1`,
+    ),
+    check("profile_rollout_items_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "profile_rollout_items_status_check",
+      sql`${table.status} IN (${sql.raw(sqlList(PROFILE_ROLLOUT_ITEM_STATUS_VALUES))})`,
+    ),
+    check(
+      "profile_rollout_items_failed_check",
+      sql`${table.status} <> 'failed' OR ${table.reasonCode} IS NOT NULL`,
     ),
   ],
 );

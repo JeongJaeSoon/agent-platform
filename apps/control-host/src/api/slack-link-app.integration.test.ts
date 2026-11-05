@@ -249,7 +249,7 @@ integration("the workspace's link app, made on the first Slack link", () => {
       { [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
     );
     expect(response.status).toBe(200);
-    return cookieOf(response, "__Host-ap_session");
+    return cookieOf(response, "__Host-werft_session");
   }
 
   const start = (session: string, headers: HeadersInit = asCookie(session)) =>

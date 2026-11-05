@@ -71,6 +71,10 @@ export class ForgeCredentialError extends Error {
   }
 }
 
+/** GitHub names are case-insensitive, so a map over repositories keys on this. */
+export const repoKeyOf = (repo: RepoRef): string =>
+  `${repo.owner}/${repo.name}`.toLowerCase();
+
 /**
  * `https://github.com/<owner>/<name>(.git)` → `{ owner, name }`; the same path
  * on a GHES host. Null for any other path shape.

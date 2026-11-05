@@ -62,17 +62,17 @@ Preconditions:
 
   ```sh
   export PLATFORM_SECRET_KEY="$(openssl rand -hex 32)"; echo "master key chars: ${#PLATFORM_SECRET_KEY}"   # 64
-  orch heavy <program> -- .claude/skills/verify-agent-platform/scripts/up.sh infra/compose.mock-slack.yml
+  orch heavy <program> -- .claude/skills/verify-werft/scripts/up.sh infra/compose.mock-slack.yml
   ```
 
-  mock(`mock-slack:4020`)은 compose 네트워크 안에서만 닿는다. config token 발급(`/fake/config-tokens`)과 동의(`/fake/oauth/authorize`, 계정 연결은 IdP의 authorize)는 api 컨테이너에서 부른다. config token 값은 변수에만 담고 출력하지 않는다. owner cookie는 web-login.md로, member는 `web-user.mjs invite owner member member` → `accept member`로 만든다. `ap_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다: `ap_web`이 남긴 `$VERIFY_RUN/headers`에서 꺼내 `AP_COOKIE_EXTRA`에 담으면 `ap_web`이 세션 cookie 뒤에 붙인다. authorize URL·code·state도 명령줄 인자가 아니라 stdin과 `ap_web` 본문으로만 나른다.
+  mock(`mock-slack:4020`)은 compose 네트워크 안에서만 닿는다. config token 발급(`/fake/config-tokens`)과 동의(`/fake/oauth/authorize`, 계정 연결은 IdP의 authorize)는 api 컨테이너에서 부른다. config token 값은 변수에만 담고 출력하지 않는다. owner cookie는 web-login.md로, member는 `web-user.mjs invite owner member member` → `accept member`로 만든다. `werft_slack_link` cookie도 `Secure`라 curl이 저장하지 않으니 직접 나른다: `ap_web`이 남긴 `$VERIFY_RUN/headers`에서 꺼내 `AP_COOKIE_EXTRA`에 담으면 `ap_web`이 세션 cookie 뒤에 붙인다. authorize URL·code·state도 명령줄 인자가 아니라 stdin과 `ap_web` 본문으로만 나른다.
 
   ```sh
-  . .claude/skills/verify-agent-platform/scripts/lib.sh <run id>
+  . .claude/skills/verify-werft/scripts/lib.sh <run id>
   ap_compose logs api 2>&1 | grep -c 'Secret store is off'      # 0
   # owner bootstrap + login: web-login.md. WS는 login 응답의 workspace_id. member 초대·수락. 이후 ap_as owner
   # 1. config token (owner)
-  node .claude/skills/verify-agent-platform/scripts/web-user.mjs <run id> slack-config owner "$WS"
+  node .claude/skills/verify-werft/scripts/web-user.mjs <run id> slack-config owner "$WS"
   # 2. 에이전트 앱 (owner). CARD는 d의 2. release를 활성화해야 앱을 만든다
   ap_web POST /v1/teams '{"name":"research"}'                  # MTID = team.id
   ap_web POST /v1/agents "{\"slug\":\"research\",\"name\":\"research\",\"managing_team_id\":\"$MTID\",\"card\":$CARD}"      # AID, VID = versions[0].id
@@ -80,12 +80,12 @@ Preconditions:
   ap_web POST "/v1/agents/$AID/activate" "{\"release_id\":\"$REL\",\"expected_revision\":-1}"
   ap_web POST "/v1/agents/$AID/slack/app" '{}'                  # APP = slack_app.app_id
   # 3. 설치 (owner): start → mock 동의 → complete
-  node .claude/skills/verify-agent-platform/scripts/web-user.mjs <run id> slack-install owner "$AID"
+  node .claude/skills/verify-werft/scripts/web-user.mjs <run id> slack-install owner "$AID"
   ap_web GET "/v1/agents/$AID/identities"
   # 4. 연결 (member): 시작이 link 앱을 만든다
   ap_as member
   START=$(ap_web POST /v1/linked-accounts/slack/start | head -1)
-  AP_COOKIE_EXTRA=$(sed -n 's/^[Ss]et-[Cc]ookie: \(ap_slack_link=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" | tr -d '\r')
+  AP_COOKIE_EXTRA=$(sed -n 's/^[Ss]et-[Cc]ookie: \(werft_slack_link=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" | tr -d '\r')
   # authorize_url의 호스트(mock-slack)는 compose 네트워크 안에서만 닿는다: api 컨테이너에서 동의하고, 돌아온 주소를 callback 본문으로 바꾼다.
   # 주소에는 state가 들어 있으니 bun 인자가 아니라 stdin으로 넘긴다
   if BODY=$(printf '%s' "$START" | jq -r '.["authorize_url"]' | ap_compose exec -T api bun -e 'let status; try { const r = await fetch((await Bun.stdin.text()).trim(), { redirect: "manual" }); status = r.status;

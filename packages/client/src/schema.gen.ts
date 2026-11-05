@@ -145,7 +145,7 @@ export interface paths {
         put?: never;
         /**
          * Email/password login; sets the session cookie
-         * @description Checks an email and password and starts a browser session: the response sets the `__Host-ap_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.
+         * @description Checks an email and password and starts a browser session: the response sets the `__Host-werft_session` cookie (HttpOnly, Secure, SameSite=Lax) for 14 days, and the expiry slides forward while the session is used. A user keeps at most 10 live sessions; a new login drops the oldest. This is for the web app; scripts and servers use an API key.
          *
          *     **Auth:** public; no credential. **Idempotency-Key:** ignored.
          */
@@ -7502,7 +7502,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "credential.bind" | "binding.manage" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "usage.installation_read" | "usage.agent_read" | "profile.installation.manage" | "profile.define" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send")[];
         };
         UpdateAuthMeRequest: {
             /** @enum {string} */
@@ -7890,7 +7890,7 @@ export interface components {
                 /** @enum {string} */
                 billing: "metered" | "none";
                 /** @enum {string} */
-                repository_mode: "required" | "optional" | "none";
+                repository_mode?: "required" | "optional" | "none";
                 /** @description The catalog repositories that allow this profile, which a session or an agent release of it may name as `repository_id`. */
                 repository_ids?: string[];
                 permission_wait?: {
@@ -7958,7 +7958,7 @@ export interface components {
                 /** @enum {string} */
                 billing: "metered" | "none";
                 /** @enum {string} */
-                repository_mode: "required" | "optional" | "none";
+                repository_mode?: "required" | "optional" | "none";
                 /** @description The catalog repositories that allow this profile, which a session or an agent release of it may name as `repository_id`. */
                 repository_ids?: string[];
                 permission_wait?: {
@@ -8183,7 +8183,7 @@ export interface components {
                 runtime_kind: "claude_agent_sdk" | "codex_app_server" | "pi_coding_agent";
                 permission_modes: ("default" | "acceptEdits" | "dontAsk" | "plan" | "bypassPermissions" | "auto")[];
             }[];
-            repositories: {
+            repositories?: {
                 id: string;
             }[];
             /** @description The built-in tools this installation supports, per runtime version: what a profile's deny may name. A version not listed takes only `tools`. */
@@ -15103,6 +15103,7 @@ export interface operations {
                      *         "usage.installation_read",
                      *         "usage.agent_read",
                      *         "profile.installation.manage",
+                     *         "profile.define",
                      *         "installation.settings.manage"
                      *       ]
                      *     }

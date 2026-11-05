@@ -999,15 +999,22 @@
     {
       "idx": 233,
       "version": "7",
-      "when": 1793875612543,
-      "tag": "0233_session_github_policy_start",
+      "when": 1793875595434,
+      "tag": "0233_profile_one_kind_base",
       "breakpoints": true
     },
     {
       "idx": 234,
       "version": "7",
-      "when": 1793883561804,
-      "tag": "0234_agent_github_push_attached",
+      "when": 1793881927439,
+      "tag": "0234_session_github_policy_start",
+      "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1793884485577,
+      "tag": "0235_agent_github_push_attached",
       "breakpoints": true
     }
   ]
