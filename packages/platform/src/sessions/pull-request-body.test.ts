@@ -56,8 +56,8 @@ describe("the default template", () => {
         "Adds the login form.",
         "",
         "## 변경 사항",
-        "- Form component",
-        "- Route",
+        `- ${ZWSP}Form component`,
+        `- ${ZWSP}Route`,
         "",
         "## 배경",
         "Users could not sign in.",
@@ -111,13 +111,13 @@ describe("the default template", () => {
     expect(body).toContain(`C${ZWSP}loses #3 for @${ZWSP}octocat`);
     expect(body).toContain("[REDACTED]");
     expect(body).toContain(`<!${ZWSP}-- hide -->`);
-    expect(body).toContain(`- multi line @${ZWSP}team`);
+    expect(body).toContain(`- ${ZWSP}multi line @${ZWSP}team`);
   });
 
   test("a lone CR is a line break: a fence after it in a change item or a field cannot swallow the tail", () => {
     const item = render({ changes: ["example\r```"] }).body;
-    expect(item).toContain(`- example \`${ZWSP}\`${ZWSP}\``);
-    expect(item).not.toMatch(/```/);
+    expect(item).toContain(`- ${ZWSP}example \`\`\``);
+    expect(Bun.markdown.html(item)).toContain("<hr />");
     const field = render({ summary: "example\r```\rmore" }).body;
     expect(field.split("\n").filter((line) => line === "```").length).toBe(2);
     expect(field.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
@@ -125,16 +125,15 @@ describe("the default template", () => {
 
   test("a code fence in a change item stays on its line and leaves the tail outside any block", () => {
     const { body } = render({ changes: ["```text\nexample"] });
-    // The run is broken, so Markdown sees text, not a fence that hides the item.
-    expect(body).toContain(`- \`${ZWSP}\`${ZWSP}\`text example`);
-    expect(body).not.toMatch(/```/);
+    // The zero-width space keeps the run from opening a fence that hides the item.
+    expect(body).toContain(`- ${ZWSP}\`\`\`text example`);
     const html = Bun.markdown.html(body);
     expect(html).toContain("example");
     expect(html).not.toContain("<pre>");
     expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
   });
 
-  test("a change item that looks like an HTML start or a thematic break stays text", () => {
+  test("a change item that looks like a block start stays one list item of text", () => {
     const items = [
       "<?example",
       "<![CDATA[example",
@@ -142,17 +141,32 @@ describe("the default template", () => {
       "***",
       "___",
       "- - -",
+      "[x]",
+      "[ ]",
+      "[ref]: https://example.com",
+      "1.",
+      "+",
+      "-",
+      "*",
+      "#",
+      ">",
+      "===",
+      "| a |",
+      "    indented",
     ];
-    const { body } = render({ changes: [...items, "SECOND"] });
-    const html = Bun.markdown.html(body);
-    // The one rule is the tail's own.
-    expect(html.match(/<hr/g)?.length).toBe(1);
-    expect(html).not.toContain("<?");
-    expect(html).not.toContain("<![CDATA[");
-    expect(html.match(/<li>/g)?.length).toBe(items.length + 1);
-    expect(html).toContain("SECOND");
-    expect(html).toContain("example");
-    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+    for (const item of items) {
+      const { body } = render({ changes: [item, "SECOND"] });
+      const html = Bun.markdown.html(body);
+      // The one rule is the tail's own; no nested list, heading or quote.
+      expect(html.match(/<hr/g)?.length).toBe(1);
+      expect(html.match(/<li>/g)?.length).toBe(2);
+      expect(html).not.toMatch(/<(ol|blockquote|h1|pre|table|input)/);
+      expect(html).toContain("SECOND");
+      expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+    }
+    // A lone item leaves the tail's rule outside the list item too.
+    const lone = Bun.markdown.html(render({ changes: ["[x]"] }).body);
+    expect(lone).toContain("<hr />");
   });
 
   test("an open code fence in one field does not swallow the next section or the references", () => {

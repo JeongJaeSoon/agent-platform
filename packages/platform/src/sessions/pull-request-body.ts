@@ -134,21 +134,14 @@ function assemble(fields: Cleaned, locale: UserLocale): string {
 const ZWSP = "​";
 
 /**
- * A change item as one bullet line. A run of three or more backticks or
- * tildes is broken with zero-width spaces: after `- ` it would open a fenced
- * block that takes the rest of the line as its info string and hides the text.
+ * A change item as one bullet line. A zero-width space in front keeps the text
+ * from starting a block inside the bullet (fence, rule, heading, quote, list,
+ * checkbox, link definition, HTML), each of which would hide the text or take
+ * in the next item or the tail. It is not whitespace to Markdown.
  */
 function oneLine(item: string): string {
-  return (
-    item
-      .replace(/\s*\n\s*/g, " ")
-      .replace(/`{3,}|~{3,}/g, (run) => [...run].join(ZWSP))
-      // `<` would start an HTML block, comment or CDATA section that hides the
-      // item's text.
-      .replace(/</g, "&lt;")
-      // `- ---` is a thematic break, not an item with text.
-      .replace(/^([-*_])(?:\s*\1){2,}\s*$/, "\\$&")
-  );
+  const line = item.replace(/\s*\n\s*/g, " ");
+  return line === "" ? "" : `${ZWSP}${line}`;
 }
 
 // Slack for the closing text a cut may add.
