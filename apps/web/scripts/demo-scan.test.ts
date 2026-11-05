@@ -41,17 +41,28 @@ describe("demo fixture scan", () => {
     ]);
   });
 
-  test("a catalog id made only of name@x.y.z pins is not an address", () => {
+  const catalog = (json: unknown) =>
+    scanFixtures({
+      responses: { "/v1/installation-profiles/options": { status: 200, json } },
+    }).map((finding) => finding.rule);
+
+  test("a catalog id made only of name@x.y.z pins is clean in the answer that carries it", () => {
     expect(
-      scan({
+      catalog({
         id: "tool_set_a@0.3.270+tool-set@2.1.270",
-        one: "profile_x@1.2.3",
+        big: "tool@1.256.3",
+        huge: "tool@1.2.999999",
       }),
     ).toEqual([]);
   });
 
-  test("a pin-shaped address with anything else around it is still caught", () => {
+  test("a pin-shaped string is caught in any other answer and with anything around it", () => {
     for (const value of [
+      "tool_set_a@0.3.270+tool-set@2.1.270",
+      "build-agent@1.2.3",
+      "user@8.8.8",
+      "user@0.0.1",
+      "tool@1.256.3",
       "someone@gmail.com",
       "x@8.8.8.8",
       "user@1.2",
@@ -69,6 +80,13 @@ describe("demo fixture scan", () => {
       "profile_x@1.2.3 user@gmail.com",
     ])
       expect(scan({ value }), value).toContain("email outside example.test");
+    for (const value of [
+      "someone@gmail.com",
+      "profile_x@1.2.3 user@gmail.com",
+      "x@8.8.8.8",
+      "http://user@127.1/",
+    ])
+      expect(catalog({ value }), value).toContain("email outside example.test");
   });
 
   test("the fixture key itself is scanned", () => {

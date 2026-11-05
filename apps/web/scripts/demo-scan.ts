@@ -44,32 +44,12 @@ const RULES: readonly (readonly [string, RegExp])[] = [
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const ALLOWED_EMAIL = /@example\.test$/i;
-// A tool catalog id is `<name>@<x.y.z>` joined by `+`, not a mailbox. Only a
-// string that is nothing else qualifies: a pin inside a URL or after other
-// text could name a host, and a truncated match could hide a longer domain.
+// A tool catalog id is `<name>@<x.y.z>` joined by `+`, not a mailbox. The
+// shape alone cannot tell it from `user@<ipv4>` (0.3.270 reads as an address),
+// so it is exempt only as a whole string in the one answer that carries
+// catalog ids.
 const VERSION_PINS = /^[\w-]+@\d+\.\d+\.\d+(?:\+[\w-]+@\d+\.\d+\.\d+)*$/;
-
-/**
- * `user@127.0.1` is a pin by shape but a URL parser reads its version as the
- * loopback address 127.0.0.1, so a pin whose version resolves to a private
- * range is not exempt.
- */
-function isVersionPins(text: string): boolean {
-  if (!VERSION_PINS.test(text)) return false;
-  return text.split("+").every((pin) => {
-    const [a = 0, b = 0] = new URL(`http://${pin.split("@")[1]}/`).hostname
-      .split(".")
-      .map(Number);
-    return !(
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127)
-    );
-  });
-}
+const CATALOG_ID_ANSWER = "/v1/installation-profiles/options";
 
 /**
  * Addresses of the recording stack that a visitor's copy should not carry:
@@ -105,7 +85,9 @@ export function scanFixtures(fixtures: {
       const text = stages.join("\n");
       for (const [rule, pattern] of RULES)
         for (const [match] of text.matchAll(pattern)) found(rule, match);
-      const pinsOnly = stages.every(isVersionPins);
+      const pinsOnly =
+        key === CATALOG_ID_ANSWER &&
+        stages.every((stage) => VERSION_PINS.test(stage));
       if (!pinsOnly)
         for (const [match] of text.matchAll(EMAIL))
           if (!ALLOWED_EMAIL.test(match))
