@@ -377,6 +377,25 @@ describe("replacing the pull request tail", () => {
     );
   });
 
+  test("the public markers carry the Werft name", () => {
+    expect(PULL_REQUEST_TAIL_MARKER).toBe("<!-- werft:pr-tail -->");
+    expect(PULL_REQUEST_TAIL_END_MARKER).toBe("<!-- /werft:pr-tail -->");
+    expect(tail).not.toContain("agent-platform");
+  });
+
+  test("a tail under the pre-rename marker is text: kept, and a new tail added", () => {
+    // No customer body carries it before the first tag, so there is no
+    // legacy reader; nothing a person wrote is lost.
+    const prior = OLD.replaceAll("<!-- werft:", "<!-- agent-platform:").replace(
+      "<!-- /werft:",
+      "<!-- /agent-platform:",
+    );
+    expect(prior).toContain("agent-platform:pr-tail");
+    const once = withPullRequestTail(`Intro\n\n${prior}`, tail);
+    expect(once).toBe(`Intro\n\n${prior}\n\n${tail}`);
+    expect(withPullRequestTail(once, tail)).toBe(once);
+  });
+
   test("the text after the tail is kept as written", () => {
     const code = "    const example = 1;\n      indented more";
     expect(withPullRequestTail(`${OLD}\n\n${code}`, tail)).toBe(

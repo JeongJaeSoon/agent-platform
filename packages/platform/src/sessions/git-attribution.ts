@@ -111,8 +111,8 @@ export type SessionAttributionService = ReturnType<
 >;
 
 /** Where the platform's part of a pull request body starts and ends. */
-export const PULL_REQUEST_TAIL_MARKER = "<!-- agent-platform:pr-tail -->";
-export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /agent-platform:pr-tail -->";
+export const PULL_REQUEST_TAIL_MARKER = "<!-- werft:pr-tail -->";
+export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /werft:pr-tail -->";
 
 /**
  * The pull request body's tail (decision 5): how to find the session again.

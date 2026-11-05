@@ -1417,7 +1417,7 @@ export interface paths {
         put?: never;
         /**
          * Post or update a comment on the pull request
-         * @description Posts a comment on the pull request opened from this push request, or edits the one posted before with the same `marker` (default `status`), so a progress note is updated in place instead of piling up. The comment carries a hidden line `<!-- agent-platform:<session-id>:<marker> -->` that finds it again. `body` is cleaned the same way as a pull request body.
+         * @description Posts a comment on the pull request opened from this push request, or edits the one posted before with the same `marker` (default `status`), so a progress note is updated in place instead of piling up. The comment carries a hidden line `<!-- werft:<session-id>:<marker> -->` that finds it again. `body` is cleaned the same way as a pull request body.
          *
          *     Every attempt, refused ones included, leaves a `comment_pull_request` receipt with the actor, the pull request, the comment id and `created`. The same credentials as opening the pull request are needed.
          *

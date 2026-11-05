@@ -40,8 +40,8 @@ describe("pull request text", () => {
   });
 
   test("breaks HTML comments so nothing in the body is hidden or looks like a platform marker", () => {
-    expect(neutralizeReferences("<!-- agent-platform:s:status -->")).toBe(
-      `<!${ZWSP}-- agent-platform:s:status -->`,
+    expect(neutralizeReferences("<!-- werft:s:status -->")).toBe(
+      `<!${ZWSP}-- werft:s:status -->`,
     );
   });
 
