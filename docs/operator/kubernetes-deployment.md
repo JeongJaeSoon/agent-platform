@@ -278,7 +278,7 @@ fi
 
 `--revision`을 빼면 실패한 upgrade가 있을 때 그 revision의 값, 즉 올리려던 이미지가 나온다. worker digest가 다르면 지금 이미지를 후보 파일에 쓰고, upgrade가 성공한 뒤에만 `worker-previous.json`을 그 파일로 바꾼다. 실패한 upgrade는 보존 파일을 건드리지 않는다. digest가 같으면 있던 파일을 그대로 넘긴다. 처음 설치한 뒤 worker가 그대로인 upgrade에는 아직 넘길 파일이 없고, 그래도 된다.
 
-- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade는 세션을 비교하지 않고 `proceed`이므로, 이 파일을 빠뜨리면 경고 없이 지원 창이 줄고 옛 조합으로 남은 세션은 재개 때 `recovery_required`로 멈출 수 있다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
+- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade에서 이 파일을 빠뜨리면 배포된 직전 이미지가 빠진다. 업그레이드 전 검사는 그때 세션을 비교해, 직전 이미지로 봉인한 세션이 있으면 `refused`로 멈춘다(승인할 수 있다). 그런 세션이 없으면 통과하고 지원 창만 줄어든다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
 - `--reuse-values`를 쓰지 않는다. 옛 chart의 값을 기본값으로 쓰므로 새 chart 버전인데 이미지는 그대로 남는다.
 - `helm get values --all` 전체를 values 파일로 넘기지 않는다. 옛 digest가 새 chart의 값을 덮는다. `.images.worker`만 꺼낸다.
 - `v*` 태그에서 게시한 chart도 같은 절차를 따른다.
@@ -319,8 +319,8 @@ kubectl -n werft logs job/werft-upgrade-check
 
 | `verdict` | exit | upgrade | 뜻 |
 |---|---|---|---|
-| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나, worker 이미지가 그대로이거나, 배포된 적이 없으면 승인 목록이 비어 있어야 한다 |
-| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). 또는 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
+| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나, worker 이미지와 직전 이미지가 그대로이거나, 배포된 적이 없으면 승인 목록이 비어 있어야 한다 |
+| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). worker 이미지가 그대로여도 배포된 직전 이미지가 대상에서 빠지거나 바뀌면 세션을 비교하므로, 그 이미지로 봉인한 세션이 목록에 오른다. 또는 worker 이미지가 바뀌는데 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
 | `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합이 읽히지 않거나 아래 표대로 필요한데 없거나, 배포된 worker 이미지를 알 수 없다. scheduler Deployment가 없는데 DB에 세션이나 일부 schema가 있어도 여기다. 넘기는 설정은 없다 |
 
 `images.worker.runtime`은 첫 설치에는 없어도 된다. upgrade에서 필요한지는 배포된 상태와 대상 값에 달렸다.
@@ -344,7 +344,7 @@ helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", 
 
 승인 목록은 release values에 남는다. 다음 upgrade마다 `--set-json 'upgrade.approvedSessions=[]'`로 비우고, 그 upgrade의 목록을 다시 읽고 승인한다. 남은 목록은 그 upgrade의 `affected`와 다르면 `refused`로 멈추지만, 같고 지원 창 조건도 맞으면 그대로 통과한다.
 
-Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. 위 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 두 값이 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
+Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로, 배포된 직전 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`(없으면 빈 값)로 받는다. 배포된 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`와 `WORKER_IMAGE_PREVIOUS`를 `lookup`으로 읽어 넘긴다. 위 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 두 값이 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
 
 **`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
 

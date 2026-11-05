@@ -50,21 +50,32 @@ export function assessNothingReplaced(
 }
 
 /**
- * Whether a release may replace the deployed worker image. It goes ahead
- * when the worker image stays, or when it moves within the support window
+ * Whether a release may replace the deployed worker image, or drop the
+ * previous one. It goes ahead when both stay, or when the worker image moves
+ * within the support window
  * (the target's previous image is the deployed one) and every session it
  * leaves with no image to resume on was approved, exactly: one more or one
  * fewer means the list the operator read is not the one that would break.
  */
 export function assessUpgrade(input: {
   readonly deployedWorker: string;
+  /** The previous image the cluster runs now; null when it has none. */
+  readonly deployedPreviousWorker?: string | null;
   readonly targetWorker: string;
   readonly targetPreviousWorker: string | null;
   readonly runtimes: WorkerImageRuntimes;
   readonly sessions: readonly UpgradeSession[];
   readonly approved: readonly string[];
 }): UpgradeAssessment {
-  if (input.targetWorker === input.deployedWorker) {
+  const sameWorker = input.targetWorker === input.deployedWorker;
+  // The current image stays, but a previous image the cluster resumes
+  // sessions on is dropped or replaced: what was sealed on it may now have
+  // no image, so the sessions are compared like those of a replaced image.
+  const previousLost =
+    sameWorker &&
+    (input.deployedPreviousWorker ?? null) !== null &&
+    input.deployedPreviousWorker !== input.targetPreviousWorker;
+  if (sameWorker && !previousLost) {
     return assessNothingReplaced(
       input.approved,
       "the worker image does not change",
@@ -78,8 +89,9 @@ export function assessUpgrade(input: {
     })
     .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
   // Workers on the deployed image keep sealing checkpoints after this check
-  // runs, so no list approved now covers them: no approval passes this.
-  if (input.targetPreviousWorker !== input.deployedWorker) {
+  // runs, so no list approved now covers them: no approval passes this. A
+  // kept current image seals nothing the target cannot restore.
+  if (!sameWorker && input.targetPreviousWorker !== input.deployedWorker) {
     return {
       verdict: "refused",
       affected,
@@ -95,7 +107,7 @@ export function assessUpgrade(input: {
       verdict: "refused",
       affected,
       approved,
-      reason: `${ids.length} session(s) could resume on neither target image; approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
+      reason: `${ids.length} session(s) could resume on neither target image${previousLost ? ` (the worker image stays, but the deployed previous image ${input.deployedPreviousWorker} is not the target's ${input.targetPreviousWorker ?? "none"})` : ""}; approve exactly this list in upgrade.approvedSessions${ids.length === 0 ? " (empty)" : ""} — not approved: ${missing.join(" ") || "none"}; no longer affected: ${extra.join(" ") || "none"}`,
     };
   }
   return { verdict: "proceed", affected, approved };

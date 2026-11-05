@@ -20,6 +20,7 @@ export type UpgradeCheckEnvironment = Readonly<
     UPGRADE_APPROVED_SESSIONS?: string | undefined;
     UPGRADE_DEPLOYED_STATE?: string | undefined;
     UPGRADE_DEPLOYED_WORKER_IMAGE?: string | undefined;
+    UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS?: string | undefined;
     WORKER_IMAGE?: string | undefined;
     WORKER_IMAGE_PREVIOUS?: string | undefined;
   };
@@ -38,7 +39,8 @@ export const UPGRADE_CHECK_EXIT = {
  *
  * Read: `DATABASE_URL`; the target's `WORKER_IMAGE`, `WORKER_IMAGE_RUNTIME`,
  * `WORKER_IMAGE_PREVIOUS`, `WORKER_IMAGE_PREVIOUS_RUNTIME`; the
- * `UPGRADE_DEPLOYED_WORKER_IMAGE` the cluster runs now;
+ * `UPGRADE_DEPLOYED_WORKER_IMAGE` the cluster runs now and its
+ * `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS` (empty when it has none);
  * `UPGRADE_APPROVED_SESSIONS`, a JSON array of session ids; and
  * `UPGRADE_DEPLOYED_STATE`, what the chart read about the deployed release
  * when it has no worker image or runtime to compare:
@@ -181,6 +183,8 @@ function readSettings(environment: UpgradeCheckEnvironment) {
     databaseUrl,
     targetWorker,
     deployedWorker,
+    deployedPreviousWorker:
+      environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS || null,
     targetPreviousWorker,
     runtimes,
     approved: approvedSessions(environment.UPGRADE_APPROVED_SESSIONS ?? "[]"),
