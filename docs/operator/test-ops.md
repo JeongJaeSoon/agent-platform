@@ -162,6 +162,8 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops   # TEST_OPS_
 
 `preflight`는 범위 밖 포트, 두 서비스가 같은 포트를 쓰는 값, 형식이 틀린 URL, 게시한 API 포트와 다른 포트를 쓰는 IP 주소·`localhost` URL을 거부한다. 오류 문구에 포트와 URL 값은 넣지 않는다. 이미 배포한 설치의 포트를 바꾸려면 env 파일을 고치고 `scripts/test-ops.sh upgrade /var/lib/agent-platform/test-ops/current.json`으로 같은 release를 다시 적용한다. 이 문서의 3000과 5432는 기본값이다. 값을 바꾸면 터널과 `curl` 명령의 포트도 함께 바꾼다.
 
+콘솔에서 GitHub App을 새로 만들려면 env 파일에 `CONSOLE_ORIGIN=<브라우저가 콘솔을 여는 origin>`도 넣는다([api-server.md](api-server.md)의 env 표). 없으면 콘솔의 "GitHub에서 만들기" 버튼이 꺼진다. 예시 파일에는 이 줄이 없다. 단일 서버에서 SSH tunnel로 열면 `http://127.0.0.1:<터널 포트>`다. 바꾼 뒤에는 위와 같이 `upgrade`로 적용했고(api 컨테이너가 다시 만들어지고 `/readyz`가 ready), `start`가 새 값을 읽는지는 확인하지 못했다.
+
 `TEST_OPS_LOCALSTACK_PORT`는 `upgrade`로 바꾸지 못한다. compose가 LocalStack 컨테이너를 다시 만들어 object가 모두 사라지므로(위 "LocalStack의 한계") `preflight`가 실행 중인 포트와 다른 값을 거부한다. "계획 재시작"처럼 `scripts/test-ops.sh backup --stop`으로 백업하고, env 파일을 고치고, 그 백업으로 `reseed`를 부른다. `reseed`가 렌더를 검사한 뒤 LocalStack을 새 포트로 띄우고 object를 되살린다.
 
 스크립트 자체의 설정은 셸 변수 넷이다. 기본값을 쓰면 아무것도 설정하지 않아도 된다.
@@ -326,6 +328,8 @@ scripts/test-ops.sh key revoke <key_id>
 ```
 
 scope는 [quickstart](../quickstart.md#1-clone과-기동)와 같다. `sessions:approve`가 없으면 권한 요청에 답하지 못해(403) `permission_mode: default` 세션이 첫 파일 변경에서 멈추고, `sessions:control`이 없으면 interrupt·pause·resume·terminate를, `sessions:recover`가 없으면 복구 결정을 못 한다.
+
+`key_id`는 `create`가 stderr에 한 번만 낸다(`key_id <id>`). key 목록을 보는 명령은 없으므로, 시험용 key는 만들 때 stderr를 받아 두어야 나중에 `revoke`할 수 있다.
 
 평문 key는 사용자에게 직접 전하고 저장하지 않는다. 퇴사나 분실 때는 `revoke`한다. 세션 실행 권한 회수(`grants.ts`)는 API 컨테이너 안에서 부른다. 인자는 각 파일의 usage를 따른다.
 
