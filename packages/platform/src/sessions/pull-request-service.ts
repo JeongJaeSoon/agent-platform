@@ -20,10 +20,10 @@ import {
 import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import {
+  type GitHubApi,
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
-  type GitHubApi,
   type GitHubGrant,
   GitHubUnavailableError,
 } from "../ports/github-gate.ts";
@@ -559,22 +559,30 @@ export function createPullRequestService(deps: {
       // push. A head that is an ancestor of the pushed commit is that lag, so
       // the stage waits out its backoff; any other commit, a failed compare
       // and the last attempt all end the stage.
+      const lagsBehind = async (
+        forge: GitHubApi,
+        headSha: string,
+      ): Promise<boolean> => {
+        try {
+          return await forge.isAncestor(headSha, job.gitCommit);
+        } catch (error) {
+          if (!isForgeFailure(error)) throw error;
+          return false;
+        }
+      };
       const headMoved = async (
         forge: GitHubApi,
         seen: { number: number; url: string; headSha: string },
       ): Promise<PullRequestDrainOutcome> => {
-        if (job.attempt < PULL_REQUEST_MAX_ATTEMPTS) {
-          try {
-            if (await forge.isAncestor(seen.headSha, job.gitCommit)) {
-              return {
-                kind: "retry",
-                error: "head_moved",
-                delayMs: pullRequestBackoffMs(job.attempt),
-              };
-            }
-          } catch (error) {
-            if (!isForgeFailure(error)) throw error;
-          }
+        if (
+          job.attempt < PULL_REQUEST_MAX_ATTEMPTS &&
+          (await lagsBehind(forge, seen.headSha))
+        ) {
+          return {
+            kind: "retry",
+            error: "head_moved",
+            delayMs: pullRequestBackoffMs(job.attempt),
+          };
         }
         return stop("failed", "head_moved", {
           number: seen.number,
@@ -690,11 +698,19 @@ export function createPullRequestService(deps: {
           },
         };
       }
-      const marked = candidates.filter(
-        (found) =>
-          pushRequestMarkerOf(found.body) === job.id &&
-          found.headSha === job.gitCommit,
-      );
+      // A pull request created while GitHub still showed the old head is
+      // this request's too, so a person closing it must not make the next
+      // claim create another.
+      const marked: typeof candidates = [];
+      for (const found of candidates) {
+        if (pushRequestMarkerOf(found.body) !== job.id) continue;
+        if (
+          found.headSha === job.gitCommit ||
+          (await lagsBehind(forge, found.headSha))
+        ) {
+          marked.push(found);
+        }
+      }
       if (marked.length > 0) {
         return stop("closed_unrecorded", "closed_unrecorded", {
           numbers: marked.map((found) => found.number),

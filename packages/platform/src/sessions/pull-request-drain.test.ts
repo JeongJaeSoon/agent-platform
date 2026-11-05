@@ -338,6 +338,48 @@ describe("opening a pull request for a pushed request", () => {
     expect(created).toHaveLength(1);
   });
 
+  test("a pull request created at a lagging head and closed before the next claim is not created again", async () => {
+    const old = "c".repeat(40);
+    const closed = listed({
+      state: "closed",
+      closedAt: "2026-11-05T00:00:00Z",
+      body: `${pushRequestMarker(PUSH)}\n`,
+      headSha: old,
+    });
+    for (const attempt of [2, 3]) {
+      const { service, created } = harness({
+        existing: [closed],
+        ancestors: [old],
+      });
+      expect(
+        await service.openForPushRequest(job({ attempt }), {
+          deadline: deadline(),
+        }),
+      ).toMatchObject({
+        kind: "stop",
+        stage: "closed_unrecorded",
+        details: { numbers: [7] },
+      });
+      expect(created).toHaveLength(0);
+    }
+  });
+
+  test("an open pull request still at the lagging head is waited for again, never created again", async () => {
+    const old = "c".repeat(40);
+    const { service, created } = harness({
+      existing: [
+        listed({ headSha: old, body: `${pushRequestMarker(PUSH)}\n` }),
+      ],
+      ancestors: [old],
+    });
+    expect(
+      await service.openForPushRequest(job({ attempt: 2 }), {
+        deadline: deadline(),
+      }),
+    ).toMatchObject({ kind: "retry", error: "head_moved" });
+    expect(created).toHaveLength(0);
+  });
+
   test("a closed pull request with this request's marker but another commit does not end the stage", async () => {
     const { service, created } = harness({
       existing: [
