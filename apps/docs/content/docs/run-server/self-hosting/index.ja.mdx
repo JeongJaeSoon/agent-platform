@@ -52,17 +52,22 @@ SDK と HTTP API は、サーバーのアドレスと API key で接続します
 
 ## 設置後の運用
 
-設置・運用ドキュメントの本文は、リポジトリの [`docs/operator/`](https://github.com/JeongJaeSoon/werft/tree/main/docs/operator) にあります。以下のリンクと、設置ページからリンクしている運用ドキュメントは韓国語で書かれています。
+次の7つのドキュメントは、このサイトの中にあります。
 
-- [設定リファレンス](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [設定リファレンス](/run-server/self-hosting/operate/configuration)
+- [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](/run-server/self-hosting/operate/capacity)
+- [データベース接続と遅いクエリ](/run-server/self-hosting/operate/database)
+- [Kubernetesインストール(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)
+- [Kubernetes 実行 backend](/run-server/self-hosting/operate/kubernetes-backend)
+- [プラットフォームのメトリクス(Kubernetes)](/run-server/self-hosting/operate/metrics)
+- [セッションデータが流れる経路](/run-server/self-hosting/operate/session-data-flow)
+- [SDK サンプルの実行設定](/run-server/self-hosting/operate/sdk-sample)
+
+そのほかの運用ドキュメントは、リポジトリの `docs/operator/` にあり、韓国語だけで書かれています。
+
 - [API サーバー: カタログ、認証情報、checkpoint ストア、認証と権限](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
-- [データベース接続と遅いクエリ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/database.md)
 - [イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
 - [実行基盤と worker の分離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
-- [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
 - [プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
 - [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
-- [セッションデータの流れ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/observability.md)
-- [プラットフォームのメトリクス(Kubernetes)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/metrics.md)
 - [Datadog の監視基準](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)
-- [SDK サンプルの実行設定](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/sdk-sample.md)

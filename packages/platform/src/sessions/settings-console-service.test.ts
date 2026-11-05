@@ -108,12 +108,12 @@ function service(
     importEntries: async () => {
       throw new Error("not used");
     },
+    sessionsOnRepositories: async () => [],
     listRows: async (kind) => options.rows?.[kind] ?? [],
     create: record("create"),
     setValue: record("setValue"),
     disable: record("disable"),
     setMcpWorkspaces: record("setMcpWorkspaces"),
-    setRepositoryBranch: record("setRepositoryBranch"),
   };
   const settings = createSettingsConsoleService({
     authorization: createAuthorizationPolicy({
@@ -140,7 +140,7 @@ const NEW_CONNECTION = {
 };
 
 describe("settings console service", () => {
-  test("connections and MCP servers are the signed-in owner's; repositories owners' and admins'", async () => {
+  test("connections and MCP servers are the signed-in owner's", async () => {
     const { settings, writes } = service();
     for (const who of [caller("admin"), caller("member"), apiKey]) {
       expect((await refusal(settings.listConnections(who))).code).toBe(
@@ -160,20 +160,7 @@ describe("settings console service", () => {
           .code,
       ).toBe("FORBIDDEN");
     }
-    for (const who of [caller("member"), apiKey]) {
-      expect((await refusal(settings.listRepositories(who))).code).toBe(
-        "FORBIDDEN",
-      );
-      expect(
-        (await refusal(settings.disable(who, "repository", "public"))).code,
-      ).toBe("FORBIDDEN");
-    }
     expect(writes).toEqual([]);
-    await settings.listRepositories(caller("admin"));
-    await settings.disable(caller("admin"), "repository", "docs-site");
-    expect(writes).toEqual([
-      ["disable", { kind: "repository", id: "docs-site" }],
-    ]);
   });
 
   test("a connection is made stored under its own id, with the typed value, then the settings are read again", async () => {
@@ -305,43 +292,7 @@ describe("settings console service", () => {
         )
       ).code,
     ).toBe("BACKEND_UNAVAILABLE");
-    // A public repository holds no value, so it needs no secret store.
-    await closed.settings.createRepository(caller("owner"), {
-      id: "docs-site",
-      url: "https://git.example.invalid/acme/docs-site.git",
-      branch: "main",
-      auth: { kind: "none" },
-    });
-    expect(closed.writes).toHaveLength(1);
-  });
-
-  test("a PAT repository is stored with its username; the URL and branch go as typed", async () => {
-    const { settings, writes } = service();
-    await settings.createRepository(caller("admin"), {
-      id: "docs-site",
-      url: "https://git.example.invalid/acme/docs-site.git",
-      branch: "main",
-      auth: { kind: "basic", username: "bot", value: "example-token" },
-    });
-    expect(writes).toEqual([
-      [
-        "create",
-        {
-          kind: "repository",
-          id: "docs-site",
-          entry: {
-            url: "https://git.example.invalid/acme/docs-site.git",
-            branch: "main",
-            auth: {
-              kind: "basic",
-              username: "bot",
-              stored: "repository:docs-site",
-            },
-          },
-        },
-        "example-token",
-      ],
-    ]);
+    expect(closed.writes).toEqual([]);
   });
 
   test("the store's refusals map to their codes and reason", async () => {

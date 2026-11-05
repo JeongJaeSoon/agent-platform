@@ -19,7 +19,7 @@ spec:
       containers:
         - name: postgres
           image: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
-          # What docs/operator/database.md asks of an installation's own
+          # What apps/docs/content/docs/run-server/self-hosting/operate/database.mdx asks of an installation's own
           # database for slow statements and lock waits.
           args:
             - -c

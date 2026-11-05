@@ -8,6 +8,7 @@ import {
   createWorkerGateway,
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_NONCE_TTL_MS,
+  type GitHubGrant,
   hashWorkerToken,
   type NeutralizeEvent,
   profileFingerprint,
@@ -120,6 +121,15 @@ integration("worker gateway on PostgreSQL", () => {
     db = drizzle(pool, { schema });
     gateway = createWorkerGateway({
       work: createPostgresWorkerUnitOfWork(db),
+      github: {
+        grant: async () =>
+          ({
+            gitCredential: {
+              username: "x-access-token",
+              password: "fixture-app-issued",
+            },
+          }) as GitHubGrant,
+      },
       catalog: withSeededInstallation({
         profiles: {
           "claude-coding-v1": {
@@ -144,6 +154,7 @@ integration("worker gateway on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -226,6 +237,7 @@ integration("worker gateway on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -338,6 +350,7 @@ integration("worker gateway on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -561,7 +574,15 @@ integration("worker gateway on PostgreSQL", () => {
     ).toEqual({
       session_id: session.session_id,
       attempt_id: retry.attempt_id,
-      upstream: { url: "https://example.invalid/app.git", headers: [] },
+      upstream: {
+        url: "https://example.invalid/app.git",
+        headers: [
+          [
+            "authorization",
+            `Basic ${Buffer.from("x-access-token:fixture-app-issued").toString("base64")}`,
+          ],
+        ],
+      },
     });
     // Using a token is using the binding: the claim can no longer be
     // replayed out from under the worker that is already cloning with it.
@@ -672,7 +693,7 @@ integration("worker gateway on PostgreSQL", () => {
     });
   });
 
-  test("release GitHub settings are read for the gate and do not close a repository off GitHub", async () => {
+  test("release GitHub settings remain readable by the gate across release changes", async () => {
     const session = await queuedSession(partitionFor("github-pins"));
     const claimed = await claim(await launch(session.session_id));
     const token = claimed.workspace.repository?.access?.token ?? "";
@@ -732,9 +753,7 @@ integration("worker gateway on PostgreSQL", () => {
       null,
     );
     expect((await repository()).attempt_id).toBe(claimed.attempt_id);
-    // A shape a later server writes reads as one this server cannot apply;
-    // the gate refuses it for a GitHub repository. This one is not on
-    // GitHub, so it keeps the catalog's credential.
+    // The stub isolates persistence here; gate tests cover policy refusal.
     await pinTo(await release({ github: { from: "a later server" } }));
     expect((await gate.context(session.session_id))?.policy.settings).toBe(
       "invalid",
@@ -1758,6 +1777,7 @@ integration("worker gateway on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -1882,6 +1902,7 @@ integration("worker gateway on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),
@@ -2059,6 +2080,7 @@ integration("worker gateway on PostgreSQL", () => {
               url: "https://example.invalid/app.git",
               branch: "main",
               profiles: ["claude-coding-v1"],
+              auth: { kind: "github_app", registered: true },
             },
           },
         }),
@@ -3160,6 +3182,7 @@ integration("worker gateway on PostgreSQL", () => {
       url: "https://example.invalid/app.git",
       branch: "main",
       profiles: ["claude-coding-v1"],
+      auth: { kind: "github_app", registered: true } as const,
     };
     const gatewayFor = (
       repositories: Record<string, typeof registered>,

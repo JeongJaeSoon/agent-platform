@@ -2,11 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const reference = join(
-  import.meta.dir,
-  "..",
-  "apps/docs/content/docs/reference",
-);
+const docsRoot = join(import.meta.dir, "..", "apps/docs/content/docs");
+
+const OPERATE = [
+  "capacity",
+  "configuration",
+  "database",
+  "kubernetes-deployment",
+  "kubernetes-backend",
+  "metrics",
+  "sdk-sample",
+  "session-data-flow",
+].map((name) => `run-server/self-hosting/operate/${name}`);
 
 // CI runs only the Korean api-guide, so a translation whose commands drift
 // from it would document a flow nobody runs. Translating prose is free; the
@@ -33,15 +40,23 @@ function fencedBlocks(text: string): string[] {
 
 function pageBlocks(name: string, locale?: string): string[] {
   const file = locale ? `${name}.${locale}.mdx` : `${name}.mdx`;
-  return fencedBlocks(readFileSync(join(reference, file), "utf8"));
+  return fencedBlocks(readFileSync(join(docsRoot, file), "utf8"));
 }
 
 describe("translated pages keep the Korean code blocks", () => {
-  for (const page of ["api-guide", "examples"]) {
+  for (const page of [
+    "reference/api-guide",
+    "reference/examples",
+    ...OPERATE,
+  ]) {
     const source = pageBlocks(page);
 
-    test(`${page}: the Korean page has code blocks`, () => {
-      expect(source.length).toBeGreaterThan(0);
+    // These pages have no code; the per-language comparison still catches a
+    // block added to only one of them.
+    const noCode = /\/(kubernetes-backend|sdk-sample)$/.test(page);
+    test(`${page}: the Korean page has ${noCode ? "no" : "some"} code blocks`, () => {
+      if (noCode) expect(source).toEqual([]);
+      else expect(source.length).toBeGreaterThan(0);
     });
 
     for (const locale of ["en", "ja"]) {

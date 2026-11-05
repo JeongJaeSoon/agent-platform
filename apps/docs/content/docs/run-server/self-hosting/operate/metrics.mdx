@@ -1,4 +1,7 @@
-# 플랫폼 지표 (Kubernetes)
+---
+title: "플랫폼 지표 (Kubernetes)"
+description: Helm 설치에서 플랫폼이 내는 Prometheus 지표와 수집기가 읽는 법
+---
 
 Helm 설치에서 `metrics.enabled: true`로 켜면 플랫폼이 설치 전체의 세션 상태, turn 수와 소요 시간, 도구 호출, provider 토큰과 추정 비용, 대기열을 지표로 낸다. 운영자의 수집기(Prometheus, Datadog Agent, OpenTelemetry Collector)가 Prometheus text 형식(0.0.4)으로 읽는다. 대시보드와 알림 규칙은 운영자가 만든다. Pod의 CPU·메모리·재시작·로그는 클러스터의 수집기가 모으므로 여기에 없다.
 
@@ -7,15 +10,15 @@ Helm 설치에서 `metrics.enabled: true`로 켜면 플랫폼이 설치 전체�
 ```yaml
 metrics:
   enabled: true
-  podAnnotations:          # 수집기가 Pod를 찾는 방법. 설치처가 고른다
+  podAnnotations:          # how the collector finds the Pod; the install chooses
     prometheus.io/scrape: "true"
     prometheus.io/port: "9464"
 networkPolicy:
   metrics:
-    ingressFrom: []        # 비우면 어디서든 9464에 닿는다. 수집기 namespace로 좁힐 수 있다
+    ingressFrom: []        # empty: reachable on 9464 from anywhere; narrow it to the collector namespace
 ```
 
-켜면 chart가 `<release>-metrics` Deployment(replica 1, `Recreate`), 같은 이름의 ClusterIP Service(9464), 9464만 여는 NetworkPolicy를 만든다. 끄면(기본값) 아무것도 만들지 않으므로 기본 설치의 렌더 결과는 그대로다. 값의 전체 목록은 `deploy/helm/agent-platform/values.yaml`의 `metrics` 블록이다.
+켜면 chart가 `<release>-metrics` Deployment(replica 1, `Recreate`), 같은 이름의 ClusterIP Service(9464), 9464만 여는 NetworkPolicy를 만든다. 끄면(기본값) 아무것도 만들지 않으므로 기본 설치의 렌더 결과는 그대로다. 값의 전체 목록은 `deploy/helm/werft/values.yaml`의 `metrics` 블록이다.
 
 `metrics` 역할이 읽는 설정:
 
@@ -23,7 +26,7 @@ networkPolicy:
 |---|---|---|
 | `METRICS_PORT` | `9464` | `/metrics`와 `/healthz`를 받는 포트. chart는 `metrics.port`로 넣는다 |
 | `DATABASE_URL` | 없음(필수) | 읽기 전용으로 여는 DB 주소. chart는 다른 역할과 같은 Secret key를 넣는다 |
-| `config.limits`의 상한 | [configuration.md](configuration.md) | launch 대기열을 scheduler와 같은 비용·토큰 상한으로 센다. chart는 scheduler와 같은 값을 넣는다 |
+| `config.limits`의 상한 | [설정 레퍼런스](/run-server/self-hosting/operate/configuration) | launch 대기열을 scheduler와 같은 비용·토큰 상한으로 센다. chart는 scheduler와 같은 값을 넣는다 |
 | `LOG_LEVEL` | `info` | 읽기 실패를 남기는 로그 수준 |
 
 확인:
@@ -41,7 +44,7 @@ curl -s localhost:9464/metrics
 | Datadog Agent(Helm) | Autodiscovery `openmetrics` 체크. `metrics.podAnnotations`에 `ad.datadoghq.com/metrics.checks`를 넣는다. Datadog에 어떤 이름(점 표기 등)으로 저장할지는 수집기 쪽 설정이다 |
 | OpenTelemetry Collector | `prometheus` receiver로 같은 엔드포인트를 scrape해 OTLP로 보낸다 |
 
-플랫폼이 OTLP로 지표를 밀어내지는 않는다. pull 엔드포인트 하나를 두면 수집기 종류와 상관없이 같은 정의를 읽고, 앱에 수집기 주소나 SDK 설정이 필요 없다. 세션 트레이스 내보내기(OTLP·Langfuse)는 별도 설정이 맡는다.
+플랫폼이 OTLP로 지표를 밀어내지는 않는다. pull 엔드포인트 하나를 두면 수집기 종류와 상관없이 같은 정의를 읽고, 앱에 수집기 주소나 SDK 설정이 필요 없다. 세션 트레이스는 아직 내보내지 않는다. [관측 (OTel)](/observability)을 본다.
 
 ## 값을 만드는 방식
 
@@ -51,7 +54,7 @@ curl -s localhost:9464/metrics
 - **동시 scrape는 한 번 읽는다.** 읽는 동안 들어온 요청은 같은 결과를 받는다. 읽기가 실패하면 503을 돌려주고 이전 값을 내지 않는다(수집기에서는 scrape 실패, Prometheus의 `up` = 0).
 - **`/healthz`** 는 프로세스가 응답하는지만 본다. probe는 DB를 읽지 않는다.
 
-큰 표(`tool_calls`, `provider_usage`, `turns`)를 scrape마다 전체 집계한다. scrape 간격을 짧게 잡을수록 DB 부하가 는다. 수집 시간이 scrape 간격의 절반을 넘으면 집계 표를 따로 두는 쪽을 검토한다.
+scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수록 DB 부하가 는다. 수집 시간이 scrape 간격의 절반을 넘으면 scrape 간격을 늘리는 쪽을 검토한다.
 
 ## 지표
 
@@ -79,7 +82,7 @@ curl -s localhost:9464/metrics
 
 위에서부터 처음 맞는 줄이 `state`다. 모든 세션이 정확히 한 줄에 들어가므로 `state`별 합은 전체 세션 수와 같다.
 
-| `state` | 조건 | 티켓의 네 상태 |
+| `state` | 조건 | 사용자에게 보이는 상태 |
 |---|---|---|
 | `ended` | `admission`이 `stopping`·`stopped`·`closing`·`closed`, 또는 저장된 status가 `stopped` | 종료 |
 | `paused` | `admission`이 `pausing`·`paused` | 일시정지 |
@@ -99,7 +102,7 @@ curl -s localhost:9464/metrics
 ### 비용과 토큰
 
 - 비용은 `provider_usage.cost_usd`의 합이다. 이 값은 호출을 기록할 때 플랫폼 가격표(`packages/platform/src/limits/model-prices.ts`의 `priceProviderUsage`, `MODEL_PRICES`)가 계산했다. 지표는 단가를 다시 계산하지 않고, 단가 설정도 따로 두지 않는다.
-- `priced_by`는 그 호출의 가격 근거다. `table`(가격표에 있는 모델), `fallback`(가격표에 없는 모델이라 가장 비싼 단가로 계산), `unmetered`(profile이 `billing: none`이라 비용 0). 사내 모델처럼 비용이 0인 호출은 `priced_by="unmetered"`의 토큰 수로 사용량을 본다.
+- `priced_by`는 그 호출의 가격 근거다. `table`(가격표에 있는 모델), `fallback`(가격표에 없는 모델이라 가장 비싼 단가로 계산), `unmetered`(profile이 `billing: none`이라 비용 0). 자체 호스팅 모델처럼 비용이 0인 호출은 `priced_by="unmetered"`의 토큰 수로 사용량을 본다.
 - **기간 기준은 호출을 기록한 시각(`provider_usage.recorded_at`)이다.** 기간 비용은 `increase(werft_provider_cost_usd_total[1h])`처럼 counter 증가량으로 본다.
 - `GET /v1/usage/summary`와 다른 점이 셋 있다. 기간 안에 만들고 기간 안에 과금한 세션만 있으면 둘은 같다(`packages/db/src/metrics-reader.test.ts`).
   - summary는 기간 안에 **만든** 세션(`sessions.created_at`)을 골라 그 세션의 비용 전체를 더한다. 기간 전에 만든 세션이 기간 안에 쓴 비용은 지표에만 있다.
@@ -121,7 +124,7 @@ curl -s localhost:9464/metrics
 
 ## compose 지표와의 대응
 
-compose의 Datadog overlay는 PostgreSQL custom query로 비슷한 값을 낸다([monitoring-datadog.md](monitoring-datadog.md), `infra/datadog/conf.d/postgres.d/conf.yaml`). Kubernetes 설치에서는 이 지표를 읽으면 된다.
+compose의 Datadog overlay는 PostgreSQL custom query로 비슷한 값을 낸다([Datadog 감시 기준](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md), `infra/datadog/conf.d/postgres.d/conf.yaml`). Kubernetes 설치에서는 이 지표를 읽으면 된다.
 
 | compose(DB query) | 이 지표 |
 |---|---|

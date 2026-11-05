@@ -25,7 +25,7 @@ owner가 워크스페이스에 GitHub App을 등록하고 에이전트 상한을
 
 Preconditions:
 
-- 대상은 sandbox 저장소(`JeongJaeSoon/werft-sandbox`)와 작성용 App `werft-sandbox-agent`다. App ID는 환경 변수 `SANDBOX_APP_ID`로 준다(운영자가 따로 보관한다). App 키는 운영자가 둔 파일이고, 이 절차는 그 경로만 쓴다. 내용을 읽거나 출력하지 않는다. `ls ~/.config/werft`로 파일 이름만 확인한다.
+- 대상은 sandbox 저장소(`JeongJaeSoon/werft-sandbox`)와 작성용 App `werft-sandbox-agent`다. App ID는 환경 변수 `SANDBOX_APP_ID`로 준다(운영자가 따로 보관한다). App 키는 운영자가 둔 파일이고, 이 절차는 그 경로만 쓴다. 내용을 읽거나 출력하지 않는다. 키 파일과 그 디렉터리는 나열하지도 열지도 않는다. 키가 있는지는 2단계 App 등록 PUT 응답(`200`과 `github_app.app_id`)과 이어지는 `GET`의 `check.state`로 판단한다. 키가 없거나 읽히지 않으면 PUT이 실패하거나 `check.state`가 `ok`가 아니므로, 그 응답 본문의 `error`와 `check`만 보고 운영자에게 알린다. helper가 PUT 전에 멈춰 응답 본문이 없으면 helper의 오류 출력만 보고 알린다.
 - master key는 이 run만 쓰는 버리는 값이다(값은 출력하지 않고 길이만). 사람의 Keychain 항목은 읽지 않는다.
 - Orca 프로그램이면 `orch hold verify-stack --note "<card>"`를 먼저 잡고 끝나면 놓는다. 스택은 프로그램 전체에서 하나다.
 - 열린 sandbox PR은 다른 카드의 증거일 수 있다. 자기가 연 PR만 닫는다.

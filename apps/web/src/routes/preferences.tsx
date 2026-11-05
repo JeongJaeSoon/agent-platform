@@ -2,10 +2,10 @@ import {
   Field,
   FieldContent,
   FieldLabel,
-  Heading,
   Page,
   RadioGroup,
   RadioGroupItem,
+  SettingsSection,
   Text,
 } from "@werft-ai/ui";
 import { type ReactNode, useId } from "react";
@@ -19,7 +19,6 @@ import {
   useI18n,
 } from "../i18n/i18n.tsx";
 
-const CARD = "flex flex-col gap-3 rounded-card border bg-card p-4";
 const THEME_ORDER: readonly Theme[] = ["light", "dark", "system"];
 
 /**
@@ -31,7 +30,7 @@ export function PreferencesScreen() {
   const theme = useTheme();
   return (
     <Page title={t("nav.preferences")} description={t("preferences.lead")}>
-      <div className="flex flex-col gap-[var(--werft-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-section)]">
         <ChoiceCard
           title={t("common.language")}
           hint={t("preferences.languageHint")}
@@ -78,36 +77,33 @@ function ChoiceCard({
     readonly note: string;
   }[];
 }) {
-  const titleId = useId();
   const hintId = useId();
   return (
-    <section aria-labelledby={titleId} className={`${CARD} @container`}>
-      <Heading id={titleId}>{title}</Heading>
-      <Text id={hintId} variant="sub">
-        {hint}
-      </Text>
-      <RadioGroup
-        aria-labelledby={titleId}
-        aria-describedby={hintId}
-        value={value}
-        onValueChange={onChange}
-        className="gap-2 @[560px]:grid-cols-3"
-      >
-        {options.map((option) => (
-          <FieldLabel key={option.value}>
-            <Field orientation="horizontal" className="items-start">
-              <RadioGroupItem value={option.value} />
-              <FieldContent className="gap-1">
-                <span>{option.label}</span>
-                <Text as="span" variant="meta">
-                  {option.note}
-                </Text>
-              </FieldContent>
-            </Field>
-          </FieldLabel>
-        ))}
-      </RadioGroup>
-    </section>
+    <SettingsSection title={title} description={hint} descriptionId={hintId}>
+      <div className="@container">
+        <RadioGroup
+          aria-label={title}
+          aria-describedby={hintId}
+          value={value}
+          onValueChange={onChange}
+          className="gap-2 @[560px]:grid-cols-3"
+        >
+          {options.map((option) => (
+            <FieldLabel key={option.value}>
+              <Field orientation="horizontal" className="items-start">
+                <RadioGroupItem value={option.value} />
+                <FieldContent className="gap-1">
+                  <span>{option.label}</span>
+                  <Text as="span" variant="meta">
+                    {option.note}
+                  </Text>
+                </FieldContent>
+              </Field>
+            </FieldLabel>
+          ))}
+        </RadioGroup>
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -115,7 +111,6 @@ function AccountCard() {
   const { t } = useI18n();
   const me = useMe();
   const role = useRole();
-  const titleId = useId();
   const rows: readonly [MessageKey, string | undefined][] = [
     ["preferences.name", me?.user?.display_name],
     ["preferences.email", me?.user?.email],
@@ -123,8 +118,7 @@ function AccountCard() {
     ["preferences.workspace", me?.workspace?.name],
   ];
   return (
-    <section aria-labelledby={titleId} className={CARD}>
-      <Heading id={titleId}>{t("preferences.account")}</Heading>
+    <SettingsSection title={t("preferences.account")}>
       <dl className="m-0 grid grid-cols-[minmax(0,8.75rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-body">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
@@ -135,6 +129,6 @@ function AccountCard() {
           </div>
         ))}
       </dl>
-    </section>
+    </SettingsSection>
   );
 }

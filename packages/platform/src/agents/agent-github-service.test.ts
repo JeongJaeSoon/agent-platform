@@ -63,17 +63,6 @@ const catalog = withSeededInstallation({
       profiles: [PROFILE, OPTIONAL],
       auth: app(),
     },
-    "pat-app": {
-      url: "https://github.com/acme/pat-app",
-      branch: "main",
-      profiles: [PROFILE],
-      auth: {
-        kind: "basic",
-        username: "x-access-token",
-        value: "pat",
-        ref: { value_env: "PAT" },
-      },
-    },
     "elsewhere-app": {
       url: "https://github.com/acme/elsewhere",
       branch: "main",
@@ -85,11 +74,6 @@ const catalog = withSeededInstallation({
       branch: "main",
       profiles: [PROFILE],
       auth: enterprise,
-    },
-    "selfhosted-app": {
-      url: "https://selfhosted.example.com/acme/app",
-      branch: "main",
-      profiles: [PROFILE],
     },
   },
 } as SessionCatalog);
@@ -213,7 +197,7 @@ const WITH_SETTINGS: AgentGitHub = {
 };
 
 describe("the agent GitHub tab's options", () => {
-  test("repositories: GitHub ones only, each with why it cannot be picked", async () => {
+  test("repositories: each with why it cannot be picked", async () => {
     const read = await serviceWith({}).get(caller, AGENT);
     const unknown = { author: null, reviewer: null };
     expect(read.options.repositories).toEqual([
@@ -229,13 +213,6 @@ describe("the agent GitHub tab's options", () => {
         url: "https://ghe.example.com/acme/app",
         available: true,
         reason: null,
-        installed: unknown,
-      },
-      {
-        id: "pat-app",
-        url: "https://github.com/acme/pat-app",
-        available: false,
-        reason: "app_required",
         installed: unknown,
       },
       {
@@ -255,7 +232,6 @@ describe("the agent GitHub tab's options", () => {
         "sample-app:reviewer": false,
         "elsewhere-app:author": false,
         "elsewhere-app:reviewer": new Error("GitHub failed (502)"),
-        "pat-app:author": null,
       },
     }).get(caller, AGENT);
     const installed = Object.fromEntries(
@@ -264,7 +240,6 @@ describe("the agent GitHub tab's options", () => {
     expect(installed).toEqual({
       "elsewhere-app": { author: false, reviewer: null },
       "ghe-app": { author: null, reviewer: null },
-      "pat-app": { author: null, reviewer: null },
       "sample-app": { author: true, reviewer: false },
     });
   });
@@ -371,7 +346,7 @@ describe("the agent GitHub tab's options", () => {
       revision: 1,
     };
     const CEILING: RepositoryCeiling = {
-      repository_ids: ["elsewhere-app", "pat-app"],
+      repository_ids: ["elsewhere-app"],
       github_app_repositories: "listed",
     };
     const reasons = async (input: Parameters<typeof serviceWith>[0]) => {
@@ -385,25 +360,23 @@ describe("the agent GitHub tab's options", () => {
       expect(await reasons({ repositoryCeiling: CEILING })).toEqual({
         "elsewhere-app": "repository_not_allowed",
         "ghe-app": null,
-        "pat-app": "app_required",
         "sample-app": null,
       });
     });
 
-    test("a row: the workspace's ceiling, and a PAT stays on the default work", async () => {
+    test("a row: the workspace's ceiling", async () => {
       expect(
         await reasons({ settings: ROW, repositoryCeiling: CEILING }),
       ).toEqual({
         "elsewhere-app": null,
         "ghe-app": "repository_not_allowed",
-        "pat-app": null,
         "sample-app": "repository_not_allowed",
       });
     });
 
     test("a row and no ceiling: nothing can be picked", async () => {
       expect(Object.values(await reasons({ settings: ROW }))).toEqual(
-        Array(4).fill("repository_not_allowed"),
+        Array(3).fill("repository_not_allowed"),
       );
     });
 
@@ -420,13 +393,12 @@ describe("the agent GitHub tab's options", () => {
       ).toEqual({
         "elsewhere-app": null,
         "ghe-app": "repository_not_allowed",
-        "pat-app": "app_required",
         "sample-app": "repository_not_allowed",
       });
     });
   });
 
-  test("why nothing can be saved: no release, no repository, a PAT repository", async () => {
+  test("why nothing can be saved: no release, no repository", async () => {
     expect(
       (await serviceWith({ noRelease: true }).get(caller, AGENT)).unsavable,
     ).toBe("no_active_release");
@@ -441,9 +413,6 @@ describe("the agent GitHub tab's options", () => {
         )
       ).unsavable,
     ).toBe("repository_none");
-    const pat = await serviceWith({ repository: "pat-app" }).get(caller, AGENT);
-    expect(pat.unsavable).toBe("app_required");
-    expect(pat.legacy_defaults).toBeNull();
   });
 
   test("a release without a repository on an optional profile is savable, from no repository picked", async () => {

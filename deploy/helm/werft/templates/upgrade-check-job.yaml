@@ -5,7 +5,7 @@
 # and fails the upgrade while a session would be left with no worker image to
 # resume on and is not in upgrade.approvedSessions. Not a pre-install hook:
 # nothing is deployed yet. `helm rollback` runs no hook; run the same command
-# by hand first (docs/operator/kubernetes-deployment.md).
+# by hand first (the Kubernetes install page of the docs site (operate/kubernetes-deployment)).
 {{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
 {{- $deployed := "" }}
 {{- $deployedPrevious := "" }}

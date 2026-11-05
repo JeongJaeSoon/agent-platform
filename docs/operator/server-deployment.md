@@ -1,12 +1,12 @@
 # 단일 서버 배포
 
-이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](execution.md), [API 서버](api-server.md), [이미지와 공급망](images-and-supply-chain.md), [설정 레퍼런스](configuration.md)), [quickstart](../quickstart.md), [실제 Claude로 확인하기](../real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
+이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](execution.md), [API 서버](api-server.md), [이미지와 공급망](images-and-supply-chain.md), [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)), [quickstart](../quickstart.md), [실제 Claude로 확인하기](../real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
 
 **현재 상태:** 공식 릴리스가 아직 없다. `v*` 릴리스는 없고, npm의 `@werft-ai/sdk`는 게시돼 있다. 앱 이미지는 `main` 머지마다 [`main-<12>` 태그로 게시](test-ops.md#게시된-이미지를-쓸-때)되므로 그 digest로 설치한다. 게시본을 쓸 수 없으면 저장소 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한다.
 
 ## 배포 결정
 
-- 대상은 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](kubernetes-deployment.md)에 있다.
+- 대상은 단일 서버, `local-docker` 실행 기반이다. 이 설치에서 HA는 범위 밖이다. Helm chart로 Kubernetes에 올리는 절차(설치 순서, AWS values, 업그레이드·롤백, health 확인)는 [kubernetes-deployment.md](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-deployment/)에 있다.
 - provider key는 운영자 key 하나를 공유한다. 사용자별 API key의 owner가 세션 owner이며, 사용자마다 별도 owner와 API key를 발급한다.
 - object store는 전용 AWS S3 bucket이다. 같은 호스트의 LocalStack은 재부팅 때 object를 잃으므로 실서버의 지속성 근거로 쓰지 않는다.
 - 기본 접근은 loopback bind와 SSH tunnel이다. reverse proxy는 TLS와 VPN 또는 IP allowlist가 모두 준비된 때만 선택한다.

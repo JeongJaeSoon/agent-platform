@@ -52,12 +52,22 @@ const ALLOWED: Record<string, string> = {
   "docs/contributing/i18n-glossary.md": "contributor document",
   "docs/contributing/local-model.md": "contributor document",
   "docs/contributing/decisions": "contributor document",
-  "docs/operator":
-    "operator reference documents stay in the repository; the install and upgrade steps have site pages",
+  "docs/contributing/decisions/github-packages-bot-token.md":
+    "design record behind a setting; the configuration page links it",
+  "docs/operator/api-server.md":
+    "no site page yet; the API server reference is being moved separately",
+  "docs/operator/backup-restore.md":
+    "held: still calls an internal test script and has unfinished sections",
+  "docs/operator/data-retention.md":
+    "held: pins line numbers to a commit and has an open decisions section",
+  "docs/operator/execution.md": "held: no site page yet",
+  "docs/operator/images-and-supply-chain.md": "held: no site page yet",
+  "docs/operator/monitoring-datadog.md": "held: no site page yet",
+  "docs/operator/server-deployment.md": "held: no site page yet",
+  "docs/operator/test-ops.md":
+    "internal operations procedure that is never published on the site",
 };
 const ALLOWED_PREFIXES: Record<string, string> = {
-  "docs/operator/":
-    "operator reference documents stay in the repository; the install and upgrade steps have site pages",
   "examples/sdk-": "sample code directories and their per-sample READMEs",
 };
 

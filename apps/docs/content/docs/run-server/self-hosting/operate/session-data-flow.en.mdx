@@ -1,0 +1,139 @@
+---
+title: "Where session data flows"
+description: Where session events are stored, where secrets are masked, who can read the content, and the Langfuse example collector
+---
+
+The session data the worker receives from the engine (model replies, tool calls and results, permission requests, state changes) goes to the `events` table in the database. This table is the source of truth that features rely on. This page says what the table holds, what breaks when the flow is cut, where secrets are masked, who can read the content, and how to start the Langfuse collector example. Each item names the file it rests on.
+
+Current monitoring (stdout JSON logs, `/readyz`, and DB queries collected by the Datadog Agent) is in [Datadog monitoring baseline](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md). The app has no OpenTelemetry (OTel) dependency and no trace exporter. The `trace_id` in the logs exists only as a field of `ObservabilityContext` in `packages/observability/src/index.ts`, and nothing fills it.
+
+## At a glance
+
+```text
+engine (Claude Agent SDK)
+  -> worker
+  -> API Worker Gateway          (events)
+  -> PostgreSQL events table     (source of truth)
+  -> SSE and Last-Event-ID reconnect, public API clients,
+     turn finalization, pending-request notification
+```
+
+## The `events` table
+
+| Item | Content |
+|---|---|
+| What it holds | `system`, `assistant`, `tool_use`, `tool_result`, `question`, `result`, `status` and `error` events |
+| Who uses it | SSE clients of the public API, turn finalization, pending-request notification |
+| Delivery | Events must be stored in order, with no gap, within one attempt, or the turn cannot end |
+| If cut | Features break. SSE stops and the turn cannot be finalized |
+| Content length | The worker does not truncate it |
+| Where it lands | The PostgreSQL you installed |
+
+The event kinds and the payload contract are `SESSION_EVENT_NAMES` and `sessionEventVariants` in `packages/contracts/src/api/event.ts`. The worker's Claude adapter turns engine messages into these events (`projectPublicEvents` in `packages/adapters/runtimes/claude/src/mapper.ts`). An assistant message becomes one event per block, and a tool result block becomes a `tool_result` event as received.
+
+The worker's `EventPublisher` (`apps/worker/src/event-publisher.ts`) adds a per-attempt `source_sequence` to each event and sends them in order to `/append-events` of the Worker Gateway. It does not remove an event from its queue until the gateway says it received it. The API writes the events to the `events` table (`events` in `packages/db/src/schema.ts`). The unique index `events_attempt_sequence_uniq` accepts the same sequence of the same attempt only once.
+
+These features rely on the table.
+
+- **SSE and reconnect.** `apps/control-host/src/api/routes/events.ts` reads the table from after `Last-Event-ID` and sends it as a stream. How to use it is in section 5 of the [API use-case guide](/reference/api-guide).
+- **Turn finalization.** A missing earlier sequence is refused as `sequence_gap`, and a finalize with fewer events stored is refused as `events_incomplete` (`packages/db/src/worker-unit-of-work.ts`, `packages/platform/src/workers/worker-gateway.ts`).
+- **Pending-request notification.** The `question` event of a question or permission request and the session's `needs_input` state commit in the same transaction. So a client never gets `needs_input` before it can see the question (`packages/db/src/pending-control.ts`). The answer stays in the `pending_requests` table. How the worker closed the request is kept in the same row. `settled_outcome` is `answered`, `expired` or `cancelled`. `settled_reason` is why the worker cancelled (`park`, `shutdown`, `interrupt`, `refused`). `settled_answer_result` is how the runtime took the answer (`applied`, `stale`, `unknown`). A request a person refused is `answered` with `decision` `deny` in `answer`, which tells it apart from a cancellation.
+- **State transitions.** Control steps such as recovery, resume, pause and interrupt commit together with the state through `recordStatus` and `recordEvent` (`packages/db/src/session-events.ts`).
+- **A client's judgment that the work is done.** A public API client reads `assistant`, `tool_use` and `tool_result` events and decides whether the work is finished ([API use-case guide](/reference/api-guide)).
+
+The source of truth for cost and usage is the `provider_usage` table, not the events. The egress proxy reads usage from the Messages response (`apps/egress-proxy/src/usage.ts`) and the API writes it to this table (`packages/db/src/worker-unit-of-work.ts`).
+
+## Content capture and secret masking
+
+### What it holds
+
+Events carry content: assistant text, tool input (`tool_use`), tool result bodies (`tool_result`), and the input of questions and permission requests (`projectPublicEvents` and `approvalView` in `packages/adapters/runtimes/claude/src/mapper.ts`).
+
+The telemetry of the engine (the Claude Code CLI) itself is not turned on. The environment variables passed to the engine are an allowlist (`packages/adapters/runtimes/claude/src/profile.ts`), and no OTel variable is passed.
+
+### Where secrets are masked
+
+There are three layers now.
+
+1. **Engine messages.** `sanitizeNativeMessage` of the Claude adapter (`packages/adapters/runtimes/claude/src/mapper.ts`) replaces, in every engine message, the values of sensitive keys, values shaped like secrets such as `Bearer …`, and named values such as `password=…` with `[REDACTED]`. The events are built from this result.
+2. **Secrets the claim handed over.** The worker's `SecretScrubber` (`apps/worker/src/secret-scrubber.ts`) finds the secret values themselves that this attempt received and replaces them with `<redacted>`. `scrubbingGateway` applies this to `appendEvents` and `registerPending`. It cannot catch a value the engine re-encoded, such as base64.
+3. **Process logs.** `sanitizeText` and `sanitizeFields` in `packages/observability/src/redaction.ts` mask the stdout logs of the API and the worker. The egress proxy uses a copy of the same file, `apps/egress-proxy/src/redaction.ts`. The list of rules is in the section "Provider keys and repository credentials do not go to the worker" of the [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) page. These rules are for logs and do not apply to events.
+
+The pattern rules of 1 and 3 mask different amounts. The log rule `sanitizeText` replaces the whole string with `[REDACTED]` as soon as it sees a secret-shaped value or a fragment such as `token=`. The mapper mostly replaces only the matched span, and when the end of the value is clear in the form `name=value` it masks just the value. But the mapper's `hideNamedValues` also masks the whole text when it sees a value that continues after a colon, like `password: …`, or a value whose end cannot be found. So the tool result of reading a YAML file that contains `password:` disappears from the events entirely. The pattern lists of the two files also differ.
+
+## Who can read the content
+
+Session events are read only when a principal with the `sessions:read` scope can see that session (`apps/control-host/src/api/routes/events.ts`, `packages/platform/src/musterrolle/policy.ts`). First, the session must be in the same scope as the principal. For a person that is their own workspace; for an API key it is the owner of that key (`ownerScopeOf` in `packages/contracts/src/musterrolle/authorization.ts`). Within that, when the share scope of the session is `workspace` (the default of a session that was never changed), every member of the workspace can read it; when it is `people` or `team`, only the creator and the named people and team members can. A personal key is judged as the person who created it. An agent key is not a member, so it is judged as the key itself (limited to that agent's sessions), and on a session it made itself (a session with no creator) it takes the creator's place (`viewerOf` in `packages/platform/src/musterrolle/policy.ts` and `sessionVisibleTo` in `packages/db/src/session-shares.ts`). A session that cannot be seen answers 404. How to change the share scope, and the audit view of owners and admins, are in the section "Session share scope and audit view" of the [API server](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) page. The scope is checked at the HTTP boundary by `apps/control-host/src/api/scope-policy.ts`.
+
+## Retention
+
+The content of `events` is never deleted. The rows of a session that has been idle for a long time move to the object store, and the API reads the same response from that object (see the 410 `CURSOR_EXPIRED` description in the [API use-case guide](/reference/api-guide)). There is no retention policy yet. Where all the data the platform keeps beyond events lives, how long it stays, when it is deleted, and the steps to follow one session through it are in [Data the platform keeps](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md).
+
+## Starting the Langfuse example collector
+
+There are two collector examples in `infra/observability/`. How to start Grafana LGTM and find a trace is in [Observability (OTel)](/observability); this page covers the Langfuse example. Both examples are compose projects that start apart from the Werft stack, and each puts an OpenTelemetry Collector in front to accept standard OTLP/HTTP. They are for checking OTLP reception on one computer and are not a recommended production setup. Which collector to use and how to run it is up to the operator.
+
+**What you can see.** Werft does not emit OTel traces. Running a Werft session creates no trace in the collector. What this section lets you check is that the example collector receives an OTLP trace and shows it on screen, and the trace it receives is a fake span made by `send-test-span.sh`.
+
+| Example | Directory | OTLP/HTTP endpoint | Screen | Signals |
+|---|---|---|---|---|
+| Langfuse | `infra/observability/langfuse/` | `http://127.0.0.1:25318` | `http://localhost:25000` | Traces |
+| Grafana LGTM | `infra/observability/lgtm/` | `http://127.0.0.1:26318` | `http://localhost:26000` | Traces, logs, metrics |
+
+All ports open on loopback only and do not collide with the default stack (3000, 3001, 5432). The data flow is `sender → collector (collector.yaml) → Langfuse or grafana/otel-lgtm`. Only the collector holds the collector's credentials. The secret defaults in the Langfuse compose (values starting with `local-…` and the example key pair) are placeholders for local checks. To use it outside this computer, pass new values for all of these variables: `LANGFUSE_POSTGRES_PASSWORD`, `LANGFUSE_CLICKHOUSE_PASSWORD`, `LANGFUSE_REDIS_PASSWORD`, `LANGFUSE_MINIO_PASSWORD`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY` (64 characters from `openssl rand -hex 32`), `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_INIT_USER_EMAIL`, `LANGFUSE_INIT_USER_PASSWORD`. The passwords and the account are fixed when the volume is first created, so if it is already running, remove it with `down -v` and start again. Change the collector's key pair separately, as in the section below.
+
+### Starting and stopping
+
+Run from the repository root. Langfuse takes 1 to 2 minutes the first time because of its database migrations.
+
+```sh
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml up -d --wait
+docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml up -d --wait
+```
+
+To stop, run the commands below. `-v` also removes the stored traces.
+
+```sh
+docker compose -p werft-obs-lgtm -f infra/observability/lgtm/compose.yml down -v
+docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml down -v
+```
+
+### Sending a test span
+
+`infra/observability/send-test-span.sh` sends one fake trace. It has `werft.llm_request` and `werft.tool` under `werft.turn`, with the user input on the turn span and the reply text on the model response span as `gen_ai.*` attributes. With `--with-log` it also sends one log line tied to the same trace. The collector of the Langfuse example does not accept logs, so do not add it for Langfuse.
+
+```sh
+infra/observability/send-test-span.sh http://127.0.0.1:26318 --with-log
+infra/observability/send-test-span.sh http://127.0.0.1:25318
+```
+
+Use the `trace_id` and `session_id` in the output to find it on the screens below.
+
+### Creating a Langfuse project key
+
+On its first start, the Langfuse example creates the organization `Werft local`, the project `werft-local`, an example key pair and a login account from the `LANGFUSE_INIT_*` settings. The default login is the email `admin@example.com` with the password `local-password`. The collector sends to Langfuse with the same example key pair.
+
+To use other keys:
+
+1. Log in at `http://localhost:25000` and create a key pair at Settings → API Keys → Create new API keys.
+2. Pass the two values as environment variables and recreate only the collector. Do not write the values to a file.
+
+```sh
+LANGFUSE_PUBLIC_KEY='<public key>' LANGFUSE_SECRET_KEY='<secret key>' \
+  docker compose -p werft-obs-langfuse -f infra/observability/langfuse/compose.yml up -d --no-deps otel-collector
+```
+
+### Finding it on screen
+
+**Langfuse.** Log in at `http://localhost:25000` with the example account and find the trace by trace id under Tracing. To open it directly, go to `http://localhost:25000/project/werft-local/traces/<trace_id>`. To view by session, find the `session_id` under Sessions. The mapping we confirmed on Langfuse 4.66.0 with the example test span is:
+
+| Span attribute | Langfuse screen |
+|---|---|
+| `gen_ai.input.messages` | Input |
+| `gen_ai.output.messages` | Output |
+| `session.id` | Sessions |
+| `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | An observation of the Generation type. The model name and token counts are attached |
+| `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name` | An observation of the Tool type. The name is the tool name |
+| Other attributes (`werft.*`, resource attributes) | Metadata |
+
+**Grafana.** `http://localhost:26000` opens without login. Find a trace under Explore → Tempo → TraceQL by trace id. To see all turns of one session, search `{ span.werft.session_id = "<session_id>" }`. Find logs under Explore → Loki with `{service_name="werft-api"}`.

@@ -84,6 +84,7 @@ integration("session terminate on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: ["claude-coding-v1"],
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),

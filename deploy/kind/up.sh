@@ -206,6 +206,11 @@ deps=(postgres localstack)
 values=(-f "$root/deploy/kind/values.yaml")
 
 if [ "$KIND_MODEL" != none ]; then
+  kubectl -n "$NAMESPACE" create configmap secrets-init \
+    --from-file=10-seed-secrets.sh="$root/infra/localstack/secrets-init/10-seed-secrets.sh" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  manifest "$root/deploy/kind/deps-secrets.yaml" | kubectl -n "$NAMESPACE" apply -f -
+  deps+=(secrets)
   manifest "$root/deploy/kind/deps-session.yaml" |
     sed "s#CONTROL_HOST_IMAGE#${image_repo}-control-host@${control_host_digest}#" |
     kubectl -n "$NAMESPACE" apply -f -
@@ -219,11 +224,8 @@ if [ "$KIND_MODEL" = fake ]; then
     --from-file="$testkit/fake-anthropic.ts" \
     --from-file="$testkit/scripted-messages.ts" \
     --dry-run=client -o yaml | kubectl apply -f -
-  kubectl -n "$NAMESPACE" create configmap secrets-init \
-    --from-file=10-seed-secrets.sh="$root/infra/localstack/secrets-init/10-seed-secrets.sh" \
-    --dry-run=client -o yaml | kubectl apply -f -
   manifest "$root/deploy/kind/deps-fake-model.yaml" | kubectl -n "$NAMESPACE" apply -f -
-  deps+=(fake-messages secrets)
+  deps+=(fake-messages)
 fi
 
 # The Secret the chart reads. The authorizer token is random per cluster,
@@ -267,8 +269,8 @@ for dep in "${deps[@]}"; do
 done
 
 # preview.sh runs this copy over older heads, whose chart has another name
-# and another default Secret.
-chart="$root/deploy/helm/agent-platform"
+# and another default Secret, and may keep the chart in another directory.
+chart="$(dirname "$(printf '%s\n' "$root"/deploy/helm/*/Chart.yaml | head -n 1)")"
 chart_name="$(sed -n 's/^name: //p' "$chart/Chart.yaml")"
 
 # Helm waits for the migrate hook, and the rollouts below for the rest.

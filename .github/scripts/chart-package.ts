@@ -232,7 +232,7 @@ if (import.meta.main) {
     );
     process.exit(1);
   }
-  const chartDir = join(import.meta.dir, "../../deploy/helm/agent-platform");
+  const chartDir = join(import.meta.dir, "../../deploy/helm/werft");
   const { version, appVersion } = chartVersion({
     ref,
     sha,

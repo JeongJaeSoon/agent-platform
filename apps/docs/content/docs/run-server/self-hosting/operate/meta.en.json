@@ -1,0 +1,13 @@
+{
+  "title": "Operations reference",
+  "pages": [
+    "configuration",
+    "capacity",
+    "database",
+    "kubernetes-deployment",
+    "kubernetes-backend",
+    "metrics",
+    "session-data-flow",
+    "sdk-sample"
+  ]
+}

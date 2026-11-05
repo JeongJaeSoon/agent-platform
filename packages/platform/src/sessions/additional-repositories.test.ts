@@ -28,6 +28,7 @@ const repo = (name: string, profiles = ["p"]) => ({
   url: `https://github.com/acme/${name}.git`,
   branch: "main",
   profiles,
+  auth: { kind: "github_app" },
 });
 const catalog = withSeededInstallation(
   resolveSessionCatalog(

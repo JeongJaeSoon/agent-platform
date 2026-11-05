@@ -1,16 +1,13 @@
 import {
   createSettingsConnectionRequestSchema,
   createSettingsMcpServerRequestSchema,
-  createSettingsRepositoryRequestSchema,
   exportSettingsResponseSchema,
   importSettingsQuerySchema,
   importSettingsResponseSchema,
   listSettingsConnectionsResponseSchema,
   listSettingsMcpServersResponseSchema,
-  listSettingsRepositoriesResponseSchema,
   setSettingsCredentialRequestSchema,
   setSettingsMcpServerRequestSchema,
-  setSettingsRepositoryRequestSchema,
   settingsChangeResponseSchema,
   settingsDocumentSchema,
   settingsIdParamsSchema,
@@ -18,7 +15,6 @@ import {
 import type {
   SettingsConsoleService,
   SettingsDocumentService,
-  SettingsKind,
 } from "@werft-ai/platform";
 import {
   type ApiRouter,
@@ -52,8 +48,7 @@ export function registerInstallationSettingsRoutes(
 const KINDS = [
   ["Connection", "connection"],
   ["McpServer", "mcp"],
-  ["Repository", "repository"],
-] as const satisfies ReadonlyArray<readonly [string, SettingsKind]>;
+] as const;
 
 export function registerSettingsConsoleRoutes(
   router: ApiRouter,
@@ -79,16 +74,6 @@ export function registerSettingsConsoleRoutes(
       listed,
     );
   });
-  apiRoute(router, "listSettingsRepositories", async (context) => {
-    const listed = await mapped(() =>
-      settings.listRepositories(context.get("caller")),
-    );
-    return jsonWithSchema(
-      context,
-      listSettingsRepositoriesResponseSchema,
-      listed,
-    );
-  });
 
   apiRoute(router, "createSettingsConnection", async (context) => {
     const body = await parseJsonBody(
@@ -107,16 +92,6 @@ export function registerSettingsConsoleRoutes(
     );
     const made = await mapped(() =>
       settings.createMcpServer(context.get("caller"), body),
-    );
-    return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
-  });
-  apiRoute(router, "createSettingsRepository", async (context) => {
-    const body = await parseJsonBody(
-      context,
-      createSettingsRepositoryRequestSchema,
-    );
-    const made = await mapped(() =>
-      settings.createRepository(context.get("caller"), body),
     );
     return jsonWithSchema(context, settingsChangeResponseSchema, made, 201);
   });
@@ -150,17 +125,6 @@ export function registerSettingsConsoleRoutes(
     );
     const changed = await mapped(() =>
       settings.setMcpWorkspaces(context.get("caller"), id, body.workspaces),
-    );
-    return jsonWithSchema(context, settingsChangeResponseSchema, changed);
-  });
-  apiRoute(router, "setSettingsRepository", async (context) => {
-    const { id } = requireParams(context, settingsIdParamsSchema);
-    const body = await parseJsonBody(
-      context,
-      setSettingsRepositoryRequestSchema,
-    );
-    const changed = await mapped(() =>
-      settings.setRepositoryBranch(context.get("caller"), id, body.branch),
     );
     return jsonWithSchema(context, settingsChangeResponseSchema, changed);
   });

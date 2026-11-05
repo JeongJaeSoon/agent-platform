@@ -202,7 +202,7 @@ export class GitHubGateError extends Error {
 }
 
 /**
- * The repository has a GitHub App or PAT behind it, but no credential could
+ * The repository has a GitHub App behind it, but no credential could
  * be issued (no App registered, GitHub failing). The adapter logged why.
  */
 export class GitHubUnavailableError extends Error {
@@ -288,9 +288,9 @@ export interface GitHubGateStore {
   recordReceipt(receipt: GitHubGateReceipt): Promise<string>;
 }
 
-/** A GitHub connection: one App (or PAT) and its own token cache. */
+/** A GitHub connection: one App and its own token cache. */
 export interface GitHubConnection {
-  readonly kind: "app" | "pat";
+  readonly kind: "app";
   /** False for a GHES `api_base`. */
   readonly githubCom: boolean;
   readonly appId: number | null;
@@ -331,7 +331,7 @@ export type RegisteredGitHubConnection = {
 
 /**
  * What can serve a catalog repository for a role: its own connection (a
- * catalog App, a PAT), or the console's connections of that role, of which
+ * catalog App), or the console's connections of that role, of which
  * the repository's pin picks one (decision github-agent.md 11).
  */
 export type GitHubConnectionSource =

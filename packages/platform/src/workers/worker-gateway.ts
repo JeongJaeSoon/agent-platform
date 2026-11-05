@@ -1925,12 +1925,7 @@ export function createWorkerGateway(deps: {
         moved("session's repository");
       }
       if (deps.github === undefined) {
-        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
-        // Only the gate holds these sessions to the workspace's ceiling.
-        if (usesWorkspaceCeiling(catalog, result.profileId, source)) {
-          moved("session's repository");
-        }
-        return grant(repositoryUpstreamOf(pair.repository));
+        forgeUnavailable();
       }
       let issued: GitHubGrant | null;
       try {
@@ -1946,8 +1941,7 @@ export function createWorkerGateway(deps: {
         forgeUnavailable();
       }
       if (issued === null) {
-        if (pair.repository.auth?.kind === "github_app") forgeUnavailable();
-        return grant(repositoryUpstreamOf(pair.repository));
+        forgeUnavailable();
       }
       return grant(repositoryUpstreamOf(pair.repository, issued.gitCredential));
     },

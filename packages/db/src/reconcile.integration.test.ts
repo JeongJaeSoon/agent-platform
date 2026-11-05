@@ -332,6 +332,7 @@ integration("expired lease reconciliation on PostgreSQL", () => {
             url: "https://example.invalid/app.git",
             branch: "main",
             profiles: RECOVERY_MODES.map(profileFor),
+            auth: { kind: "github_app", registered: true },
           },
         },
       }),

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   type InstallationProfileRecord,
   type InstallationProfileStore,
+  parseSeedDocument,
   parseSettingsDocument,
   type SettingsDocumentStore,
   type SettingsEntries,
@@ -30,9 +31,21 @@ const OLD_CATALOG = {
     url: http://fake-git:3000/agent/sample-app.git
     branch: main
     profiles: [coding]
+    auth:
+      kind: github_app
+      app_id: 1
+      installation_id: 1
+      api_base: http://fake-git:3000
+      value_env: GITHUB_APP_KEY
   bare:
     url: http://fake-git:3000/agent/bare.git
     branch: main
+    auth:
+      kind: github_app
+      app_id: 1
+      installation_id: 1
+      api_base: http://fake-git:3000
+      value_env: GITHUB_APP_KEY
 `,
   "mcp-servers.yaml": `mcp_servers:
   fake:
@@ -86,29 +99,40 @@ const PLAN = {
   refused_external: [],
 };
 
-function fakeStore(result: SettingsImportResult) {
+type Stranded = Awaited<
+  ReturnType<SettingsDocumentStore["sessionsOnRepositories"]>
+>;
+
+function fakeStore(
+  result: SettingsImportResult,
+  /** The sessions a given list of left-out ids would find. */
+  stranded: (ids: readonly string[]) => Stranded = () => [],
+) {
   const asked: Array<Parameters<SettingsDocumentStore["importEntries"]>> = [];
-  const store: Pick<SettingsDocumentStore, "exportEntries" | "importEntries"> =
-    {
-      exportEntries: async () => ({
-        entries: {
-          connections: {
-            main: {
-              kind: "anthropic",
-              endpoint: "https://api.anthropic.invalid",
-              auth: { kind: "api_key", stored: "connection:main" },
-            },
+  const store: Pick<
+    SettingsDocumentStore,
+    "exportEntries" | "importEntries" | "sessionsOnRepositories"
+  > = {
+    sessionsOnRepositories: async (ids) => stranded(ids),
+    exportEntries: async () => ({
+      entries: {
+        connections: {
+          main: {
+            kind: "anthropic",
+            endpoint: "https://api.anthropic.invalid",
+            auth: { kind: "api_key", stored: "connection:main" },
           },
-          repositories: {},
-          mcp_servers: {},
         },
-        last4: new Map([["connection:main", "wxyz"]]),
-      }),
-      importEntries: async (...args) => {
-        asked.push(args);
-        return result;
+        repositories: {},
+        mcp_servers: {},
       },
-    };
+      last4: new Map([["connection:main", "wxyz"]]),
+    }),
+    importEntries: async (...args) => {
+      asked.push(args);
+      return result;
+    },
+  };
   return { store, asked };
 }
 
@@ -266,6 +290,214 @@ describe("settings CLI", () => {
     expect(asked[0]?.[1]).toHaveProperty("databaseOwnsRepositories", true);
   });
 
+  test("a repository without a GitHub App is left out with a note, in a directory and in a document, and the rest imports", async () => {
+    const legacy = `  old-url:
+    url: https://git.example.invalid/team/old.git
+    branch: main
+  old-basic:
+    url: https://git.example.invalid/team/basic.git
+    branch: main
+    auth:
+      kind: basic
+      username: bot
+      value_env: OLD_TOKEN
+  old-bearer:
+    url: https://git.example.invalid/team/bearer.git
+    branch: main
+    auth:
+      kind: bearer
+      value_env: OLD_TOKEN
+`;
+    const dir = join(root, "with-legacy");
+    await mkdir(dir, { recursive: true });
+    for (const [name, text] of Object.entries(OLD_CATALOG)) {
+      await writeFile(
+        join(dir, name),
+        name === "repositories.yaml" ? `${text}${legacy}` : text,
+      );
+    }
+    const { document, notes } = await documentFromDir(dir);
+    expect(
+      Object.keys(parseSettingsDocument(document).repositories).sort(),
+    ).toEqual(["bare", "sample-app"]);
+    expect(notes.filter((note) => note.startsWith("repository "))).toHaveLength(
+      3,
+    );
+    expect(notes.join("\n")).toContain("repository old-basic is not imported");
+
+    const planned = { ...PLAN, outcome: "applied" as const, receipt_ids: [] };
+    const { store, asked } = fakeStore(planned);
+    const { store: profiles } = fakeProfiles();
+    const fromDir = captured();
+    expect(
+      await runSettingsCommand(
+        { command: "import", source: { dir, ifPresent: false }, dryRun: false },
+        { settings: store, profiles },
+        fromDir.output,
+      ),
+    ).toBe(true);
+    expect(
+      Object.keys((asked[0]?.[0] as SettingsEntries).repositories).sort(),
+    ).toEqual(["bare", "sample-app"]);
+    expect(fromDir.err.filter((line) => line.includes("old-url"))).toHaveLength(
+      1,
+    );
+
+    const file = join(root, "legacy-document.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        repositories: {
+          "old-url": {
+            url: "https://git.example.invalid/team/old.git",
+            branch: "main",
+          },
+          kept: {
+            url: "https://github.com/acme/kept",
+            branch: "main",
+            auth: { kind: "github_app" },
+          },
+        },
+      }),
+    );
+    const fromDocument = captured();
+    expect(
+      await runSettingsCommand(
+        { command: "import", source: { document: file }, dryRun: false },
+        { settings: store, profiles },
+        fromDocument.output,
+      ),
+    ).toBe(true);
+    expect(
+      Object.keys((asked[1]?.[0] as SettingsEntries).repositories),
+    ).toEqual(["kept"]);
+    expect(fromDocument.err.some((line) => line.includes("old-url"))).toBe(
+      true,
+    );
+  });
+
+  test("a session still on a repository the file alone knew stops the import before anything is written; others do not", async () => {
+    const dir = join(root, "stranded");
+    await mkdir(dir, { recursive: true });
+    for (const [name, text] of Object.entries(OLD_CATALOG)) {
+      await writeFile(
+        join(dir, name),
+        name === "repositories.yaml"
+          ? `${text}  old-url:\n    url: https://git.example.invalid/team/old.git\n    branch: main\n`
+          : text,
+      );
+    }
+    const planned = { ...PLAN, outcome: "applied" as const, receipt_ids: [] };
+    const { store: profiles } = fakeProfiles();
+    const command = {
+      command: "import" as const,
+      source: { dir, ifPresent: false },
+      dryRun: false,
+    };
+
+    const asked: string[][] = [];
+    const held = fakeStore(planned, (ids) => {
+      asked.push([...ids]);
+      return [{ session_id: "ses_1", repository_id: "old-url", via: "policy" }];
+    });
+    const refused = captured();
+    expect(
+      await runSettingsCommand(
+        command,
+        { settings: held.store, profiles },
+        refused.output,
+      ),
+    ).toBe(false);
+    expect(asked).toEqual([["old-url"]]);
+    expect(held.asked).toHaveLength(0);
+    expect(refused.err.join("\n")).toContain("ses_1 (old-url, policy)");
+
+    // The same files with no session on it: the import goes on, as before.
+    const free = fakeStore(planned);
+    expect(
+      await runSettingsCommand(
+        command,
+        { settings: free.store, profiles },
+        captured().output,
+      ),
+    ).toBe(true);
+    expect(free.asked).toHaveLength(1);
+
+    // A dry run is refused too, so the operator sees it before the window.
+    const dry = fakeStore(planned, () => [
+      { session_id: "ses_2", repository_id: "old-url", via: "primary" },
+    ]);
+    expect(
+      await runSettingsCommand(
+        { ...command, dryRun: true },
+        { settings: dry.store, profiles },
+        captured().output,
+      ),
+    ).toBe(false);
+  });
+
+  test("when every repository is an old one, the profiles still import and run on none", async () => {
+    const dir = join(root, "all-legacy");
+    await mkdir(dir, { recursive: true });
+    for (const [name, text] of Object.entries(OLD_CATALOG)) {
+      await writeFile(
+        join(dir, name),
+        name === "repositories.yaml"
+          ? "repositories:\n  old:\n    url: https://git.example.invalid/team/old.git\n    branch: main\n"
+          : text,
+      );
+    }
+    const { profiles, notes } = await documentFromDir(dir);
+    expect(Object.keys(profiles)).toEqual(["coding"]);
+    expect(notes.some((note) => note.startsWith("repository old "))).toBe(true);
+
+    const file = join(root, "all-legacy.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        repositories: {
+          old: { url: "https://git.example.invalid/a.git", branch: "main" },
+        },
+        profiles: { coding: profiles.coding },
+      }),
+    );
+    const { store } = fakeStore({
+      ...PLAN,
+      outcome: "applied",
+      receipt_ids: [],
+    });
+    const { store: profileStore } = fakeProfiles();
+    const seeded = captured();
+    expect(
+      await runSettingsCommand(
+        { command: "import", source: { document: file }, dryRun: false },
+        { settings: store, profiles: profileStore },
+        seeded.output,
+      ),
+    ).toBe(true);
+    // A table seeded on an empty database names its unplaced ceilings too.
+    expect(seeded.err.join("\n")).toContain(
+      "no repository names these ceilings, so they run on none: coding",
+    );
+    expect(JSON.parse(seeded.out.join("\n")).profiles.unfilled).toEqual([
+      "coding",
+    ]);
+  });
+
+  test("the verify GitHub sandbox document is one migrate accepts", async () => {
+    const path = join(
+      import.meta.dir,
+      "../../../../.claude/skills/verify-agent-platform/github-sandbox/settings.json",
+    );
+    const seed = parseSeedDocument(await Bun.file(path).json());
+    expect(Object.keys(seed.entries.repositories).sort()).toEqual([
+      "sample-app",
+      "sandbox",
+    ]);
+  });
+
   test("a runtime this image lacks stops a seed, not an upgrade whose table is filled", async () => {
     const dir = join(root, "other-runtime");
     await mkdir(dir, { recursive: true });
@@ -421,7 +653,11 @@ describe("settings CLI", () => {
         version: 1,
         connections: {},
         repositories: {
-          open: { url: "https://git.example.invalid/a/b.git", branch: "main" },
+          open: {
+            url: "https://github.com/a/b.git",
+            branch: "main",
+            auth: { kind: "github_app" },
+          },
         },
         mcp_servers: {},
       }),

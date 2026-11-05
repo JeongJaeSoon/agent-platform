@@ -69,16 +69,6 @@ const CATALOG = {
         ref: { value_env: "GHES_APP_KEY" },
       },
     },
-    selfhosted: {
-      url: "https://selfhosted.example.com/acme/app.git",
-      branch: "main",
-      auth: {
-        kind: "bearer",
-        value: "static",
-        ref: { value_env: "SELF_HOSTED" },
-      },
-    },
-    public: { url: "https://example.com/acme/app.git", branch: "main" },
   },
 } satisfies SessionCatalog;
 
@@ -123,7 +113,6 @@ function fakeApi(): GitHubApi {
 function fakeConnection(
   label: string,
   options: {
-    kind?: "app" | "pat";
     githubCom?: boolean;
     appId?: number;
     installed?: boolean | null;
@@ -133,16 +122,12 @@ function fakeConnection(
   const cache = new Map<string, GitCredential>();
   let refuse = false;
   const connection: GitHubConnection = {
-    kind: options.kind ?? "app",
+    kind: "app",
     githubCom: options.githubCom ?? true,
-    appId: options.kind === "pat" ? null : (options.appId ?? 7),
+    appId: options.appId ?? 7,
     quotaKey: async () => `${label}:quota`,
     installed: async () =>
-      options.kind === "pat"
-        ? null
-        : options.installed === undefined
-          ? true
-          : options.installed,
+      options.installed === undefined ? true : options.installed,
     credential: async (repo, permissions) => {
       issued.push({ repo, permissions });
       if (refuse) throw new GitHubPermissionError("422");
@@ -476,11 +461,6 @@ describe("refusals", () => {
       work: { purpose: "review" },
     },
     {
-      reason: "app_required",
-      setup: { author: fakeConnection("pat", { kind: "pat" }) },
-      work: { purpose: "clone" },
-    },
-    {
       reason: "workflow_not_allowed",
       setup: {
         github: settings({
@@ -722,14 +702,6 @@ describe("connections", () => {
     expect(onGhes.author?.issued).toEqual([]);
   });
 
-  test("a repository not on GitHub returns null and writes nothing", async () => {
-    for (const repositoryId of ["selfhosted", "public"]) {
-      const { grant, receipts } = harness({ repositoryId });
-      expect(await grant({ purpose: "clone" })).toBeNull();
-      expect(receipts).toEqual([]);
-    }
-  });
-
   test("a catalog entry re-pointed after the session pinned it grants nothing", async () => {
     for (const repository of [
       { url: "https://github.com/acme/other.git", branch: "main" },
@@ -914,7 +886,7 @@ describe("another repository than the session's", () => {
   test("lists the repositories a claim attaches", async () => {
     const listed = harness({
       catalog: MULTI,
-      github: settings({ repositories: ["app", "docs", "selfhosted"] }),
+      github: settings({ repositories: ["app", "docs", "removed"] }),
     });
     expect(await listed.gate.additionalRepositories?.(SESSION)).toEqual([
       "docs",
@@ -1083,10 +1055,10 @@ describe("another repository than the session's", () => {
 
 describe("a session under the agent's settings", () => {
   const IN_CEILING: RepositoryCeiling = {
-    repository_ids: ["app", "selfhosted", "public"],
+    repository_ids: ["app"],
     github_app_repositories: "listed",
   };
-  const onList = settings({ repositories: ["app", "selfhosted", "public"] });
+  const onList = settings({ repositories: ["app"] });
   const WORKSPACE_PROFILE = {
     ...CATALOG,
     profiles: { default: {} as SessionCatalog["profiles"][string] },
@@ -1129,7 +1101,7 @@ describe("a session under the agent's settings", () => {
   test.each([
     {
       name: "off the agent's list",
-      policy: agentPolicy(settings({ repositories: ["selfhosted"] })),
+      policy: agentPolicy(settings({ repositories: ["ghes"] })),
       ceiling: IN_CEILING,
       reason: "repository_not_allowed",
     },
@@ -1148,7 +1120,7 @@ describe("a session under the agent's settings", () => {
     {
       name: "off the workspace ceiling",
       policy: agentPolicy(onList),
-      ceiling: { ...IN_CEILING, repository_ids: ["public"] },
+      ceiling: { ...IN_CEILING, repository_ids: ["ghes"] },
       reason: "repository_not_allowed",
     },
     {
@@ -1168,70 +1140,6 @@ describe("a session under the agent's settings", () => {
     expect(asked).toEqual([]);
   });
 
-  test.each(["selfhosted", "public"])(
-    "%s, off GitHub, is judged before its catalog credential",
-    async (repositoryId) => {
-      const off = harness({
-        repositoryId,
-        policy: agentPolicy(settings({ repositories: ["app"] })),
-        repositoryCeiling: IN_CEILING,
-      });
-      expect((await refused(off.grant({ purpose: "clone" }))).reason).toBe(
-        "repository_not_allowed",
-      );
-      const ceiling = harness({
-        repositoryId,
-        policy: agentPolicy(onList),
-        repositoryCeiling: null,
-      });
-      expect((await refused(ceiling.grant({ purpose: "clone" }))).reason).toBe(
-        "repository_not_allowed",
-      );
-      const allowed = harness({
-        repositoryId,
-        policy: agentPolicy(onList),
-        repositoryCeiling: IN_CEILING,
-      });
-      expect(await allowed.grant({ purpose: "clone" })).toBeNull();
-      // Unchanged for a session on its release.
-      const release = harness({ repositoryId, github: settings() });
-      expect(await release.grant({ purpose: "clone" })).toBeNull();
-    },
-  );
-
-  test("a PAT stays on the default work; only a feature needs an App", async () => {
-    const pat = () =>
-      harness({
-        author: fakeConnection("pat", { kind: "pat" }),
-        policy: agentPolicy(
-          settings({ ...onList, features: features({ actions: true }) }),
-        ),
-        repositoryCeiling: IN_CEILING,
-        ceiling: ALL_ON,
-      });
-    expect(await pat().grant({ purpose: "clone" })).toMatchObject({
-      permissions: { contents: "read" },
-    });
-    expect(
-      (
-        await refused(
-          pat().grant({
-            purpose: "dispatch",
-            workflow: { file: "ci.yml", ref: "main" },
-          }),
-        )
-      ).reason,
-    ).toBe("app_required");
-    // Unchanged for a session on its release.
-    const release = harness({
-      author: fakeConnection("pat", { kind: "pat" }),
-      github: settings(),
-    });
-    expect((await refused(release.grant({ purpose: "clone" }))).reason).toBe(
-      "app_required",
-    );
-  });
-
   test("the agent's switch still holds", async () => {
     const { grant } = harness({
       policy: agentPolicy(onList),
@@ -1249,8 +1157,7 @@ describe("a session under the agent's settings", () => {
       repositoryCeiling: IN_CEILING,
     });
     expect(
-      (await refused(grant({ purpose: "clone", repositoryId: "public" })))
-        .reason,
+      (await refused(grant({ purpose: "clone", repositoryId: "ghes" }))).reason,
     ).toBe("github_settings_unsupported");
   });
 

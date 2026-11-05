@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
@@ -48,20 +47,14 @@ const RATE_LIMIT_MAX_WAIT_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_COMMENT_PAGES = 10;
 const COMMENTS_PER_PAGE = 100;
-const PAT_USER_RETRY_MS = 60 * 60_000;
-// By a hash of the API base and the PAT, never the PAT itself: process-wide,
-// so a connection rebuilt with the same PAT does not ask again.
-const patUsers = new Map<string, { id: number } | { failedAt: number }>();
 
-type GitHubCredentials =
-  | {
-      kind: "app";
-      appId: number;
-      /** Absent: the installation GitHub reports for each repository. */
-      installationId?: number;
-      privateKey: string;
-    }
-  | { kind: "token"; username: string; password: string };
+type GitHubCredentials = {
+  kind: "app";
+  appId: number;
+  /** Absent: the installation GitHub reports for each repository. */
+  installationId?: number;
+  privateKey: string;
+};
 
 type Logger = Pick<StructuredLogger, "warn">;
 
@@ -152,10 +145,10 @@ type ConnectionOptions = {
 };
 
 /**
- * One GitHub connection: an App (or a PAT) on github.com or a GHES host
+ * One GitHub connection: an App on github.com or a GHES host
  * (`apiBase` its `/api/v3`), with its own token cache. An App issues an
  * installation token per repository and permission set, scoped to that one
- * repository; a PAT is used as it is. Only the GitHub gate asks it for a
+ * repository. Only the GitHub gate asks it for a
  * credential; the REST calls take the one the gate issued.
  */
 export function createGitHubConnection(
@@ -210,7 +203,6 @@ export function createGitHubConnection(
     inFlight.set(key, issuing);
     const issued = await issuing;
     cached.set(key, issued);
-    // A PAT is not issued: nothing new to account for.
     return { credential: issued, fresh: credentials.kind === "app" };
   }
 
@@ -229,28 +221,13 @@ export function createGitHubConnection(
   }
 
   // Anyone can paste a marker into a comment, so only one this credential
-  // wrote is the platform's: the App's own, or the PAT owner's.
-  let tokenUser: Promise<number> | undefined;
-  async function writtenByUs(
-    comment: {
-      user?: { id: number | bigint } | null | undefined;
-      performed_via_github_app?: { id: number | bigint } | null | undefined;
-    },
-    headers: { authorization: string },
-  ): Promise<boolean> {
-    if (credentials.kind === "app") {
-      const app = comment.performed_via_github_app;
-      return app != null && Number(app.id) === credentials.appId;
-    }
-    tokenUser ??= client
-      .request("GET /user", { headers })
-      .then(({ data }) => Number(data.id))
-      .catch((error: unknown) => {
-        tokenUser = undefined;
-        throw error;
-      });
-    const user = comment.user;
-    return user != null && Number(user.id) === (await tokenUser);
+  // wrote is the platform's: the App's own.
+  async function writtenByUs(comment: {
+    user?: { id: number | bigint } | null | undefined;
+    performed_via_github_app?: { id: number | bigint } | null | undefined;
+  }): Promise<boolean> {
+    const app = comment.performed_via_github_app;
+    return app != null && Number(app.id) === credentials.appId;
   }
 
   function api(repo: RepoRef, issued: GitCredential): GitHubApi {
@@ -495,7 +472,7 @@ export function createGitHubConnection(
                 for (const comment of data) {
                   if (
                     comment.body?.includes(marker) &&
-                    (await writtenByUs(comment, headers))
+                    (await writtenByUs(comment))
                   ) {
                     marked = comment;
                     break;
@@ -621,45 +598,14 @@ export function createGitHubConnection(
     };
   }
 
-  // A PAT's rate limit is its user's, whichever PAT of theirs: ask GitHub
-  // whose it is once, and after a failure not again for an hour (§10).
   async function quotaKey(repo: RepoRef): Promise<string> {
-    if (credentials.kind === "app") {
-      return `app:${apiBase}:${await installationOf(repo)}`;
-    }
-    const held = createHash("sha256")
-      .update(`${apiBase}\n${credentials.password}`)
-      .digest("hex");
-    const known = patUsers.get(held);
-    if (known !== undefined && "id" in known) {
-      return `pat:${apiBase}:${known.id}`;
-    }
-    if (
-      known !== undefined &&
-      now().getTime() - known.failedAt < PAT_USER_RETRY_MS
-    ) {
-      throw new ForgeCredentialError("The PAT's user was not told lately");
-    }
-    try {
-      const { data } = await once.request("GET /user", {
-        headers: { authorization: `token ${credentials.password}` },
-      });
-      const id = Number(data.id);
-      if (!Number.isSafeInteger(id) || id <= 0) {
-        throw new Error("GET /user named no user id");
-      }
-      patUsers.set(held, { id });
-      return `pat:${apiBase}:${id}`;
-    } catch (error) {
-      patUsers.set(held, { failedAt: now().getTime() });
-      throw failure(logger, "PAT user lookup", error);
-    }
+    return `app:${apiBase}:${await installationOf(repo)}`;
   }
 
   return {
-    kind: credentials.kind === "app" ? "app" : "pat",
+    kind: "app",
     githubCom: apiBase === GITHUB_API_BASE,
-    appId: credentials.kind === "app" ? credentials.appId : null,
+    appId: credentials.appId,
     credential,
     quotaKey,
     installed: installedCheck(client, credentials),
@@ -671,7 +617,6 @@ function installedCheck(
   client: Client,
   credentials: GitHubCredentials,
 ): GitHubConnection["installed"] {
-  if (credentials.kind !== "app") return async () => null;
   const fixed = credentials.installationId;
   const auth = createAppAuth({
     appId: credentials.appId,
@@ -744,16 +689,9 @@ function issuer(
     repo: RepoRef,
     permissions: GitHubPermissions,
   ) => Promise<GitCredential>;
-  /** The App installation covering `repo`; null for a PAT. */
+  /** The App installation covering `repo`. */
   installationOf: (repo: RepoRef) => Promise<number | null>;
 } {
-  if (credentials.kind === "token") {
-    const { username, password } = credentials;
-    return {
-      issue: async () => ({ username, password }),
-      installationOf: async () => null,
-    };
-  }
   const auth = createAppAuth({
     appId: credentials.appId,
     privateKey: credentials.privateKey,
@@ -1319,8 +1257,7 @@ function githubReason(cause: unknown): {
 /**
  * The connection behind each catalog repository: a GitHub App repository's
  * own App (one connection each), the console's App for `{ kind: github_app }`,
- * and a PAT on github.com. Others (a non-GitHub host, GHES with a PAT, bearer, public)
- * have none and keep their static credential. Only `{ kind: github_app }`
+ * Only `{ kind: github_app }`
  * repositories have a reviewer: the console's reviewer App.
  */
 export function connectionsOf(
@@ -1335,10 +1272,17 @@ export function connectionsOf(
 ): GitHubConnections {
   const { registered, ...connectionOptions } = options;
   const connections = new Map<string, GitHubConnection>();
-  for (const [id, repository] of Object.entries(catalog.repositories)) {
-    const { auth } = repository;
-    if (auth?.kind === "github_app" && "registered" in auth) {
-    } else if (auth?.kind === "github_app") {
+  let previous: SessionCatalog["repositories"] | undefined;
+  function refresh(): void {
+    const repositories = catalog.repositories;
+    if (repositories === previous) return;
+    previous = repositories;
+    connections.clear();
+    for (const [id, repository] of Object.entries(repositories)) {
+      const { auth } = repository;
+      // Only App entries carry credentials; the migration report still feeds
+      // the gate a catalog with the legacy URL entries it reports on.
+      if (auth?.kind !== "github_app" || "registered" in auth) continue;
       connections.set(
         id,
         createGitHubConnection({
@@ -1352,28 +1296,11 @@ export function connectionsOf(
           },
         }),
       );
-    } else if (
-      auth?.kind === "basic" &&
-      new URL(repository.url).hostname === "github.com"
-    ) {
-      connections.set(
-        id,
-        createGitHubConnection({
-          ...connectionOptions,
-          apiBase: GITHUB_API_BASE,
-          credentials: {
-            kind: "token",
-            username: auth.username,
-            password: auth.value,
-          },
-        }),
-      );
     }
   }
-  // Looked up per call: the console adds and removes registered-App
-  // repositories while the API runs; credentialed entries come from the
-  // file, which does not change.
+  // Installation settings and console repositories refresh while the API runs.
   return (id, role) => {
+    refresh();
     const auth = Object.hasOwn(catalog.repositories, id)
       ? catalog.repositories[id]?.auth
       : undefined;

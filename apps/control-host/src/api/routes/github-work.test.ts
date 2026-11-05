@@ -141,26 +141,19 @@ function app(
   const catalog: SessionCatalog = {
     profiles: {},
     repositories: {
-      app:
-        options.repository === "elsewhere"
-          ? {
-              url: "https://git.example/acme/app.git",
-              branch: "main",
-              profiles: ["default"],
-            }
-          : {
-              url: `${github.origin}/acme/app.git`,
-              branch: "main",
-              profiles: ["default"],
-              auth: {
-                kind: "github_app",
-                app_id: 101,
-                installation_id: 202,
-                api_base: github.origin,
-                value: privateKey,
-                ref: { value_env: "GITHUB_APP_PRIVATE_KEY" },
-              },
-            },
+      app: {
+        url: `${github.origin}/acme/app.git`,
+        branch: "main",
+        profiles: ["default"],
+        auth: {
+          kind: "github_app",
+          app_id: 101,
+          installation_id: 202,
+          api_base: github.origin,
+          value: privateKey,
+          ref: { value_env: "GITHUB_APP_PRIVATE_KEY" },
+        },
+      },
     },
   };
   const warnings: string[] = [];
@@ -618,15 +611,27 @@ describe("GitHub work routes", () => {
     expect(target.receipts).toEqual([]);
   });
 
-  test("a repository not on GitHub is 422; a read-only key may not dispatch or rerun", async () => {
+  test("a missing App connection is unavailable; a read-only key may not dispatch or rerun", async () => {
     const elsewhere = app({ repository: "elsewhere" });
-    for (const response of [
-      await elsewhere.dispatch({ workflow: "deploy.yml", ref: "main" }),
-      await elsewhere.send("GET", "/workflow-runs/1"),
-      await elsewhere.send("POST", "/workflow-runs/1/rerun", {}),
-    ]) {
-      expect(response.status).toBe(422);
-      expect(errorOf(response.json).code).toBe("UNSUPPORTED_CAPABILITY");
+    for (const [response, status, code] of [
+      [
+        await elsewhere.dispatch({ workflow: "deploy.yml", ref: "main" }),
+        503,
+        "BACKEND_UNAVAILABLE",
+      ],
+      [
+        await elsewhere.send("GET", "/workflow-runs/1"),
+        503,
+        "BACKEND_UNAVAILABLE",
+      ],
+      [
+        await elsewhere.send("POST", "/workflow-runs/1/rerun", {}),
+        403,
+        "GITHUB_REFUSED",
+      ],
+    ] as const) {
+      expect(response.status).toBe(status);
+      expect(errorOf(response.json).code).toBe(code);
     }
     const target = app();
     for (const response of [
@@ -1147,7 +1152,7 @@ describe("reviewing a pull request", () => {
     expect(github.reviews("acme", "app", OPENED)).toHaveLength(before);
   });
 
-  test("bad bodies are 400, a bad number or an unseen session 404, an oversized body 413, a read-only key 403, a repository off GitHub 422", async () => {
+  test("bad bodies, missing sessions, oversized bodies, read-only keys and missing App connections are refused", async () => {
     const target = app();
     for (const body of [
       { event: "APPROVE" },
@@ -1183,7 +1188,10 @@ describe("reviewing a pull request", () => {
     expect(errorOf(reader.json).code).toBe("FORBIDDEN");
     expect(target.receipts).toEqual([]);
     const elsewhere = await review(app({ repository: "elsewhere" }), approve);
-    expect(elsewhere.status).toBe(422);
-    expect(errorOf(elsewhere.json).code).toBe("UNSUPPORTED_CAPABILITY");
+    expect(elsewhere.status).toBe(409);
+    expect(errorOf(elsewhere.json)).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "no_reviewer_app" },
+    });
   });
 });

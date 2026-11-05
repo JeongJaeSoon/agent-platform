@@ -53,6 +53,7 @@ const CATALOG = {
       url: "https://github.com/acme/app.git",
       branch: "develop",
       profiles: ["default"],
+      auth: { kind: "github_app", registered: true },
     },
   },
 } satisfies SessionCatalog;

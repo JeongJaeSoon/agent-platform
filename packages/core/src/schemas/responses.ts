@@ -82,7 +82,6 @@ import {
   listSessionsResponseSchema,
   listSettingsConnectionsResponseSchema,
   listSettingsMcpServersResponseSchema,
-  listSettingsRepositoriesResponseSchema,
   listSlackBindingsResponseSchema,
   listTakeoversResponseSchema,
   listTeamsResponseSchema,
@@ -397,15 +396,6 @@ export const responseSchemas = {
   "POST /v1/installation/settings/mcp-servers/{id}/credential":
     settingsChangeResponseSchema,
   "POST /v1/installation/settings/mcp-servers/{id}/disable":
-    settingsChangeResponseSchema,
-  "GET /v1/installation/settings/repositories":
-    listSettingsRepositoriesResponseSchema,
-  "POST /v1/installation/settings/repositories": settingsChangeResponseSchema,
-  "PATCH /v1/installation/settings/repositories/{id}":
-    settingsChangeResponseSchema,
-  "POST /v1/installation/settings/repositories/{id}/credential":
-    settingsChangeResponseSchema,
-  "POST /v1/installation/settings/repositories/{id}/disable":
     settingsChangeResponseSchema,
   "GET /v1/limits": limitsResponseSchema,
   "GET /v1/usage/summary": usageSummaryResponseSchema,

@@ -149,37 +149,19 @@ export function settingsView(
   const repositories: Record<string, CatalogRepository> = {};
   for (const { id, repository } of settings.repositories) {
     const { auth, ...rest } = repository;
-    if (auth === undefined) {
-      repositories[id] = rest;
-      continue;
-    }
     const ref = credentialRefOf(auth);
     const value = credential();
-    repositories[id] =
-      auth.kind === "github_app"
-        ? {
-            ...rest,
-            auth: {
-              kind: "github_app",
-              app_id: auth.app_id as number,
-              installation_id: auth.installation_id as number,
-              api_base: auth.api_base ?? GITHUB_API_BASE,
-              value,
-              ref,
-            },
-          }
-        : {
-            ...rest,
-            auth:
-              auth.kind === "basic"
-                ? {
-                    kind: "basic",
-                    username: auth.username as string,
-                    value,
-                    ref,
-                  }
-                : { kind: "bearer", value, ref },
-          };
+    repositories[id] = {
+      ...rest,
+      auth: {
+        kind: "github_app",
+        app_id: auth.app_id as number,
+        installation_id: auth.installation_id as number,
+        api_base: auth.api_base ?? GITHUB_API_BASE,
+        value,
+        ref,
+      },
+    };
   }
   return {
     generation: settings.generation,

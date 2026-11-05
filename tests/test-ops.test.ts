@@ -262,7 +262,9 @@ describe("scripts/test-ops.sh", () => {
   // The provider key rotation in docs/operator/test-ops.md: the deployed release again,
   // worker unchanged, so nothing is approved ( found it dying under
   // `set -u` and leaving pending.json behind).
-  test("upgrade to the same worker image needs no approval", async () => {
+  // Each `upgrade` run costs about a second under CI load, so the three cases
+  // live in separate tests: one test running all three sat at the 5 s bun limit.
+  async function deployedSameWorker() {
     const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
     await mkdir(join(dir, "state"));
     await writeFile(
@@ -301,7 +303,11 @@ exit 0
     };
     for (const [name, body] of Object.entries(stubs))
       await writeFile(join(dir, "bin", name), body, { mode: 0o755 });
+    return stubs.docker as string;
+  }
 
+  test("upgrade to the same worker image needs no approval", async () => {
+    await deployedSameWorker();
     const result = await run(["upgrade", join(dir, "release.json")], env);
     expect(result.stderr).not.toContain("unbound variable");
     expect(result.exitCode).toBe(0);
@@ -312,10 +318,13 @@ exit 0
         () => null,
       ),
     ).toBeNull();
+  });
 
+  test("upgrade refuses when the database lacks the settings document", async () => {
+    const docker = await deployedSameWorker();
     await writeFile(
       join(dir, "bin", "docker"),
-      (stubs.docker as string).replace('"add":[]', '"add":[{"id":"gone"}]'),
+      docker.replace('"add":[]', '"add":[{"id":"gone"}]'),
       { mode: 0o755 },
     );
     const missing = await run(["upgrade", join(dir, "release.json")], env);
@@ -324,6 +333,89 @@ exit 0
       "the database does not hold the settings document",
     );
   });
+
+  // A repository the import leaves out adds nothing, so `.add == []` holds;
+  // the deployment would run with no repository.
+  test("upgrade refuses when the import leaves a repository out", async () => {
+    const docker = await deployedSameWorker();
+    await writeFile(
+      join(dir, "bin", "docker"),
+      docker.replace(
+        `*" --dry-run") echo '{"add":[]}' ;;`,
+        `*" --dry-run") echo '{"add":[]}'; echo 'note: repository sample-app is not imported: it names no GitHub App' >&2 ;;`,
+      ),
+      { mode: 0o755 },
+    );
+    const skipped = await run(["upgrade", join(dir, "release.json")], env);
+    expect(skipped.exitCode).toBe(1);
+    expect(skipped.stderr).toContain("repository sample-app is not imported");
+    expect(skipped.stderr).toContain(
+      "the settings document names a repository the import leaves out",
+    );
+  });
+
+  // A settings document the render check refuses (a repository with no GitHub
+  // App) stops deploy and upgrade in preflight: no container starts, no
+  // pending.json, and the recorded release stays.
+  test.each(["deploy", "upgrade"])(
+    "%s refuses a settings document the render check rejects before starting anything",
+    async (verb) => {
+      const manifest = JSON.parse(await readFile(EXAMPLE_MANIFEST, "utf8"));
+      await mkdir(join(dir, "state"));
+      await writeFile(join(dir, "release.json"), JSON.stringify(manifest));
+      await writeFile(
+        join(dir, "state", "installation"),
+        "project=agent-platform-test-ops\ninstallation=t\nobject_store=localstack",
+      );
+      if (verb === "upgrade") {
+        await writeFile(
+          join(dir, "state", "current.json"),
+          JSON.stringify(manifest),
+        );
+        await writeFile(join(dir, "state", "identity"), "installation=t\n");
+      }
+      const render = JSON.stringify({
+        services: {
+          postgres: { environment: { POSTGRES_DB: "s", POSTGRES_USER: "p" } },
+          scheduler: { environment: { EXECUTION_INSTALLATION_ID: "t" } },
+        },
+      });
+      const stubs: Record<string, string> = {
+        docker: `#!/bin/sh
+echo "$*" >> "${calls}"
+case "$*" in
+  version*) echo 28.0.4 ;;
+  "compose version --short") echo 2.38.2 ;;
+  *" config --format json") echo '${render}' ;;
+esac
+exit 0
+`,
+        git: `#!/bin/sh\ncase "$*" in *rev-parse*) echo ${manifest.source_commit} ;; esac\nexit 0\n`,
+        curl: `#!/bin/sh\nexit 0\n`,
+        bun: `#!/bin/sh\ncase "$*" in *check-render*) echo 'repository sample names no GitHub App' >&2; exit 1 ;; esac\nexec "${process.execPath}" "$@"\n`,
+      };
+      for (const [name, body] of Object.entries(stubs))
+        await writeFile(join(dir, "bin", name), body, { mode: 0o755 });
+
+      const result = await run([verb, join(dir, "release.json")], env);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("repository sample names no GitHub App");
+      const called = await dockerCalls();
+      expect(called).not.toContain(" up ");
+      expect(called).not.toContain(" migrate");
+      expect(called).not.toContain(" stop");
+      expect(
+        await readFile(join(dir, "state", "pending.json"), "utf8").catch(
+          () => null,
+        ),
+      ).toBeNull();
+      expect(
+        await readFile(join(dir, "state", "current.json"), "utf8").catch(
+          () => null,
+        ),
+      ).toBe(verb === "upgrade" ? JSON.stringify(manifest) : null);
+    },
+  );
 
   test("a port compose refuses reaches the operator without its value", async () => {
     await writeFile(
@@ -938,6 +1030,43 @@ exit 0
         "EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST names secrets:4566, a local-only service",
       ])
         expect(found).toContain(expected);
+    },
+    COMPOSE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
+    "refuses a repository without a GitHub App before anything starts, and says what to do",
+    async () => {
+      const model = render("localstack");
+      for (const repositories of [
+        { sample: { url: "https://github.com/o/r" } },
+        { sample: { auth: { kind: "basic" } } },
+        { sample: { auth: { kind: "bearer" } } },
+      ]) {
+        await writeFile(document, JSON.stringify({ version: 1, repositories }));
+        const found = await checkRender(model, { store: "localstack" }).then(
+          () => "",
+          (error: Error) => error.message,
+        );
+        expect(found).toContain("repository sample");
+        expect(found).toContain('"auth": {"kind": "github_app"}');
+        expect(found).toContain("remove the entry or give it a new id");
+        expect(found).toContain('top-level "profiles"');
+        expect(found).toContain("copy the fixed manifest over it");
+      }
+      await writeFile(
+        document,
+        JSON.stringify({
+          version: 1,
+          repositories: {
+            sample: {
+              url: "https://github.com/o/r",
+              auth: { kind: "github_app" },
+            },
+          },
+        }),
+      );
+      await checkRender(model, { store: "localstack" });
     },
     COMPOSE_RENDER_TIMEOUT_MS,
   );

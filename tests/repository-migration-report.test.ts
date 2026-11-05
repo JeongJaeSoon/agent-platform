@@ -475,9 +475,9 @@ integration("the read-only repository migration report", () => {
     expect(status("primary-idle", "none-url", "primary")).toBe("confirmed");
     expect(status("dual", "pat-url", "primary")).toBe("confirmed");
     expect(status("dual", "pat-url", "policy")).toBe("not_reachable");
-    // valid pins: a GitHub-hosted basic repository has a connection, a plain
-    // URL repository has none
-    expect(status("valid-policy", "pat-url", "policy")).toBe("confirmed");
+    // valid pins: only a registered-App repository has a connection; a
+    // GitHub-hosted PAT repository has none any more
+    expect(status("valid-policy", "pat-url", "policy")).toBe("not_reachable");
     expect(status("valid-policy", "none-url", "policy")).toBe("not_reachable");
     // pins that do not fit the schema are counted as candidates, but the
     // gate reads them as closed

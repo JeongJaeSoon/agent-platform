@@ -430,7 +430,7 @@ export function CeilingForm({
 
   return (
     <form
-      className="flex flex-col gap-[var(--werft-space-block)] rounded-card border bg-card p-4"
+      className="flex flex-col gap-[var(--werft-space-block)]"
       noValidate
       onSubmit={submit}
     >
@@ -586,7 +586,7 @@ export function CeilingForm({
       </div>
 
       {tools === null ? (
-        <Alert variant="amber">
+        <Alert variant="amber" className="border-0">
           <AlertDescription>{noCatalog}</AlertDescription>
         </Alert>
       ) : (
@@ -629,7 +629,7 @@ export function CeilingForm({
         <FieldError>{errorOf("permission_mode")}</FieldError>
       </Field>
       {bypassChosen ? (
-        <Alert id={riskId} variant="amber">
+        <Alert id={riskId} variant="amber" className="border-0">
           <AlertDescription>{t("profiles.editor.bypassRisk")}</AlertDescription>
         </Alert>
       ) : null}
@@ -823,7 +823,7 @@ export function CeilingForm({
       ) : null}
 
       {refusal === null || refusal.field !== null ? null : (
-        <Alert variant="red" role="alert">
+        <Alert variant="red" role="alert" className="border-0">
           <AlertDescription>
             {refusal.text}
             {refusal.latestId ? (

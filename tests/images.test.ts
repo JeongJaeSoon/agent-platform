@@ -414,11 +414,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
       "IMAGE_PREFIX: ${{ github.repository_owner }}/werft\n",
     );
-    expect(
-      Bun.YAML.parse(read("deploy/helm/agent-platform/Chart.yaml")),
-    ).toMatchObject({ name: "werft" });
+    expect(Bun.YAML.parse(read("deploy/helm/werft/Chart.yaml"))).toMatchObject({
+      name: "werft",
+    });
     const { images } = Bun.YAML.parse(
-      read("deploy/helm/agent-platform/values.yaml"),
+      read("deploy/helm/werft/values.yaml"),
     ) as {
       images: Record<
         "controlHost" | "egressProxy" | "worker" | "workerPrevious",
@@ -588,10 +588,16 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.command?.slice(0, 3)).toEqual([
       "bun",
       "run",
-      "packages/testkit/src/fake-git-main.ts",
+      "packages/testkit/src/local-github-main.ts",
     ]);
-    // FAKE_GIT_PORT and FAKE_GIT_OWNER default to the URLs' 3000 and agent.
-    expect(gitHost?.environment).toBeUndefined();
+    expect(gitHost?.environment).toMatchObject({
+      AWS_ENDPOINT_URL_SECRETS_MANAGER: "http://secrets:4566",
+      AWS_ACCESS_KEY_ID: "test",
+      AWS_SECRET_ACCESS_KEY: "test",
+    });
+    expect(gitHost?.depends_on).toEqual({
+      secrets: { condition: "service_healthy" },
+    });
     const served = gitHost?.command?.slice(3) ?? [];
 
     const documents: Record<string, string> = {
@@ -657,7 +663,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.image).toBe("CONTROL_HOST_IMAGE");
     expect(gitHost?.imagePullPolicy).toBe(
       (
-        Bun.YAML.parse(read("deploy/helm/agent-platform/values.yaml")) as {
+        Bun.YAML.parse(read("deploy/helm/werft/values.yaml")) as {
           images: { pullPolicy: string };
         }
       ).images.pullPolicy,
@@ -666,7 +672,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.args).toEqual([
       "bun",
       "run",
-      "packages/testkit/src/fake-git-main.ts",
+      "packages/testkit/src/local-github-main.ts",
       "sample-app",
       "gate-app",
     ]);
@@ -1282,7 +1288,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
     });
 
-    const chartValues = read("deploy/helm/agent-platform/values.yaml");
+    const chartValues = read("deploy/helm/werft/values.yaml");
 
     test("bakes the digests and runtime and changes nothing else", () => {
       const images = publishedImages(records(), sha);
@@ -2848,7 +2854,7 @@ describe("compose layers", () => {
         "/settings/real-model.json",
       );
       expect(services["fake-messages"]).toBeUndefined();
-      expect(services.secrets).toBeUndefined();
+      expect(services.secrets).toBeDefined();
       expect(Object.keys(api?.depends_on ?? {})).not.toContain("secrets");
       for (const [name, service] of Object.entries(services)) {
         if (name !== "api")
@@ -2998,9 +3004,8 @@ describe("compose layers", () => {
 
   // where scripts/local.sh reads the ports to check and the worker
   // label to delete, also under the CI quickstart job's COMPOSE_FILE.
-  const PORTS = ["3000", "3001", "4566", "5432"];
-  // 4567 is the secrets service's, on only with the fake catalog.
-  const FAKE_PORTS = [...PORTS, "4567"].sort();
+  const PORTS = ["3000", "3001", "4566", "4567", "5432"];
+  const FAKE_PORTS = PORTS;
   test.each([
     [LOCAL_LAYERS, {}, "local", PORTS],
     [
@@ -3098,8 +3103,7 @@ describe("a connection kind's default endpoint", () => {
     "infra/compose.core.yml":
       /EGRESS_CREDENTIAL_ALLOWLIST:\s*\$\{[^:}]+:-([^}]+)\}/g,
     ".env.example": /^EGRESS_CREDENTIAL_ALLOWLIST=(.+)$/gm,
-    "deploy/helm/agent-platform/values.yaml":
-      /credentialAllowlist:\s*"([^"]+)"/g,
+    "deploy/helm/werft/values.yaml": /credentialAllowlist:\s*"([^"]+)"/g,
   };
 
   for (const [file, pattern] of Object.entries(DEFAULTS)) {

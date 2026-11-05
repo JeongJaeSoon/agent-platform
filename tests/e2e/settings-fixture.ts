@@ -1,9 +1,14 @@
+import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
 import {
   parseSeedDocument,
   resolveSessionCatalog,
   type SessionCatalog,
 } from "@werft-ai/platform";
+
+const appKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  .privateKey.export({ type: "pkcs8", format: "pem" })
+  .toString();
 
 export async function fixtureCatalog(
   name: string,
@@ -17,6 +22,12 @@ export async function fixtureCatalog(
   if (seed.profiles === null) throw new Error(`${name} seeds no profile`);
   return resolveSessionCatalog(
     { profiles: seed.profiles, repositories: seed.entries.repositories },
-    (ref) => ("value_env" in ref ? env[ref.value_env] : undefined),
+    (ref) =>
+      "value_env" in ref
+        ? env[ref.value_env]
+        : "secret_id" in ref &&
+            ref.secret_id === "agent-platform/local/fake-github-app"
+          ? appKey
+          : undefined,
   );
 }

@@ -97,13 +97,13 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
 kill "$PF"
 ```
 
-If you see `{"status":"ready",…}` and `200`, the install works. `/docs` returns 200 too. Expose it to users through an Ingress. `ingress.enabled: true` and the controller-specific settings are in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#aws-값-넣기).
+If you see `{"status":"ready",…}` and `200`, the install works. `/docs` returns 200 too. Expose it to users through an Ingress. `ingress.enabled: true` and the controller-specific settings are in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#adding-aws-values).
 
 ## 6. First owner and API key
 
 Create the first owner and workspace at the web console's `/bootstrap`. When the API Pod starts, it generates a token and prints it to its log as a single `BOOTSTRAP_TOKEN=…` line. Anyone who can read that log can bootstrap until the first owner exists, so limit who can read it to operators.
 
-Issue API keys inside the API Pod. The `kubectl exec` form below needs no checkout; the `bun run keys:k8s` shortcut is described in [Kubernetes install (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#api-key-실행-권한-설정-문서).
+Issue API keys inside the API Pod. The `kubectl exec` form below needs no checkout; the `bun run keys:k8s` shortcut is described in [Kubernetes install (Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-keys-run-permissions-and-the-settings-document).
 
 ```bash
 kubectl -n werft exec deploy/werft-api -c api -- \
@@ -161,7 +161,7 @@ helm -n werft uninstall werft
 
 These pages are written in Korean.
 
-- [Kubernetes install (Helm chart), full page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md): AWS values, web console Ingress, pre-upgrade check
-- [Kubernetes execution backend](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-backend.md)
-- [Capacity](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
-- [Configuration reference](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [Kubernetes install (Helm chart), full page](/run-server/self-hosting/operate/kubernetes-deployment): AWS values, web console Ingress, pre-upgrade check
+- [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend)
+- [Capacity](/run-server/self-hosting/operate/capacity)
+- [Configuration reference](/run-server/self-hosting/operate/configuration)

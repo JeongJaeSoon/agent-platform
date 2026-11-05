@@ -82,6 +82,7 @@ beforeEach(async () => {
           url: "https://git.invalid/agent/app.git",
           branch: "main",
           profiles: ["claude-coding-v1"],
+          auth: { kind: "github_app", registered: true } as const,
         },
       },
     }),

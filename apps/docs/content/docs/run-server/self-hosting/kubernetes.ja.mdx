@@ -97,13 +97,13 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
 kill "$PF"
 ```
 
-`{"status":"ready",…}` と `200` が出れば設置できています。`/docs` も 200 です。利用者には Ingress で公開します。`ingress.enabled: true` と controller ごとの設定は [Kubernetes の設置(Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#aws-값-넣기) にあります。
+`{"status":"ready",…}` と `200` が出れば設置できています。`/docs` も 200 です。利用者には Ingress で公開します。`ingress.enabled: true` と controller ごとの設定は [Kubernetes の設置(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#awsの値を入れる) にあります。
 
 ## 6. 最初の owner と API key
 
 Web コンソールの `/bootstrap` で最初の owner と workspace を作ります。API Pod は起動時にトークンを生成し、ログに `BOOTSTRAP_TOKEN=…` の1行で出力します。最初の owner ができるまでは、そのログを読める人なら誰でも bootstrap できるので、ログを読める人は運用者に限ります。
 
-API key は API Pod の中で発行します。次の `kubectl exec` 形式は checkout が要りません。`bun run keys:k8s` を使う近道は [Kubernetes の設置(Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#api-key-실행-권한-설정-문서) にあります。
+API key は API Pod の中で発行します。次の `kubectl exec` 形式は checkout が要りません。`bun run keys:k8s` を使う近道は [Kubernetes の設置(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment#api-key実行権限設定ドキュメント) にあります。
 
 ```bash
 kubectl -n werft exec deploy/werft-api -c api -- \
@@ -161,7 +161,7 @@ helm -n werft uninstall werft
 
 これらのページは韓国語で書かれています。
 
-- [Kubernetes の設置(Helm chart)全体](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md): AWS の値、Web コンソールの Ingress、アップグレード前の検査
-- [Kubernetes 実行バックエンド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-backend.md)
-- [容量管理](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/capacity.md)
-- [設定リファレンス](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/configuration.md)
+- [Kubernetes の設置(Helm chart)全体](/run-server/self-hosting/operate/kubernetes-deployment): AWS の値、Web コンソールの Ingress、アップグレード前の検査
+- [Kubernetes 実行バックエンド](/run-server/self-hosting/operate/kubernetes-backend)
+- [容量管理](/run-server/self-hosting/operate/capacity)
+- [設定リファレンス](/run-server/self-hosting/operate/configuration)

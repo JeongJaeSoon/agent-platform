@@ -74,7 +74,6 @@ import {
   sessionsSearch,
 } from "./routes/sessions.tsx";
 import { McpServersScreen } from "./routes/settings-mcp-servers.tsx";
-import { RepositoriesScreen } from "./routes/settings-repositories.tsx";
 import { TeamDetailScreen, TeamsScreen } from "./routes/teams.tsx";
 import {
   gitHubSetupSearch,
@@ -382,12 +381,6 @@ const mcpServers = createRoute({
   component: McpServersScreen,
 });
 
-const repositories = createRoute({
-  getParentRoute: () => authed,
-  path: "/settings/workspace/repositories",
-  component: RepositoriesScreen,
-});
-
 const oldUsage = createRoute({
   getParentRoute: () => authed,
   path: "/usage",
@@ -513,7 +506,6 @@ const routeTree = root.addChildren([
     workspaceGitHubNewApp,
     orgKeys,
     mcpServers,
-    repositories,
     oldUsage,
     profiles,
     newProfile,

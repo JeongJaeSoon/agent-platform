@@ -70,6 +70,7 @@ const catalog: SessionCatalog = {
       url: "https://github.com/acme/sample-app",
       branch: "main",
       profiles: ["alpha-real"],
+      auth: { kind: "github_app", registered: true } as const,
     },
   },
 };
