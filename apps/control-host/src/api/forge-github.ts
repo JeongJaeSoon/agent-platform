@@ -30,6 +30,7 @@ import {
   type GitHubPermissions,
   type GitHubRateLimit,
   type GitHubWorkflowRun,
+  type GitTreeEntry,
   type RegisteredGitHubConnection,
   type RepoRef,
   type SessionCatalog,
@@ -313,6 +314,66 @@ export function createGitHubConnection(
           defaultBranch: data.default_branch,
           private: data.private,
         };
+      },
+      async getBranchHead(branch) {
+        const { data } = await quiet("branch read", () =>
+          client.request("GET /repos/{owner}/{repo}/branches/{branch}", {
+            ...target,
+            branch,
+            headers,
+          }),
+        );
+        const treeSha = data.commit.commit.tree.sha;
+        if (
+          typeof data.commit.sha !== "string" ||
+          typeof treeSha !== "string"
+        ) {
+          throw new GitHubCallError("branch read", null, null);
+        }
+        return { commitSha: data.commit.sha, treeSha };
+      },
+      async readTree(treeSha) {
+        const { data } = await quiet("tree read", () =>
+          client.request("GET /repos/{owner}/{repo}/git/trees/{tree_sha}", {
+            ...target,
+            tree_sha: treeSha,
+            headers,
+          }),
+        );
+        const entries: GitTreeEntry[] = [];
+        for (const item of data.tree) {
+          if (
+            item.path === undefined ||
+            item.mode === undefined ||
+            item.sha === undefined ||
+            (item.type !== "blob" &&
+              item.type !== "tree" &&
+              item.type !== "commit")
+          ) {
+            continue;
+          }
+          entries.push({
+            name: item.path,
+            mode: item.mode,
+            type: item.type,
+            sha: item.sha,
+            size: typeof item.size === "number" ? item.size : null,
+          });
+        }
+        return { entries, truncated: data.truncated === true };
+      },
+      async readBlob(blobSha) {
+        const { data } = await quiet("blob read", () =>
+          client.request("GET /repos/{owner}/{repo}/git/blobs/{file_sha}", {
+            ...target,
+            file_sha: blobSha,
+            headers,
+          }),
+        );
+        if (data.encoding !== "base64") {
+          throw new GitHubCallError("blob read", null, null);
+        }
+        return Uint8Array.from(Buffer.from(data.content, "base64"));
       },
       findPullRequestForBranch,
       async createPullRequest(input) {

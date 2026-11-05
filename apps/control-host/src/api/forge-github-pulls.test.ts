@@ -290,6 +290,121 @@ describe("GitHub pull requests", () => {
     }
   });
 
+  test("reads a branch head, a tree and a blob by SHA, one level at a time, without a body in any failure", async () => {
+    const seen: string[] = [];
+    const stub = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const { pathname, search } = new URL(request.url);
+        seen.push(`${request.method} ${pathname}${search}`);
+        if (pathname.endsWith("/branches/main")) {
+          return Response.json({
+            name: "main",
+            commit: {
+              sha: "c".repeat(40),
+              commit: { tree: { sha: "t".repeat(40) } },
+            },
+          });
+        }
+        if (pathname.endsWith(`/git/trees/${"t".repeat(40)}`)) {
+          return Response.json({
+            sha: "t".repeat(40),
+            truncated: true,
+            tree: [
+              {
+                path: "a.md",
+                mode: "100644",
+                type: "blob",
+                sha: "b".repeat(40),
+                size: 12,
+              },
+              {
+                path: "link",
+                mode: "120000",
+                type: "blob",
+                sha: "d".repeat(40),
+                size: 3,
+              },
+              {
+                path: ".github",
+                mode: "040000",
+                type: "tree",
+                sha: "e".repeat(40),
+              },
+              {
+                path: "sub",
+                mode: "160000",
+                type: "commit",
+                sha: "f".repeat(40),
+              },
+            ],
+          });
+        }
+        if (pathname.endsWith(`/git/blobs/${"b".repeat(40)}`)) {
+          return Response.json({
+            encoding: "base64",
+            size: 5,
+            content: Buffer.from("héllo").toString("base64"),
+          });
+        }
+        return Response.json({ message: "secret echo" }, { status: 502 });
+      },
+    });
+    try {
+      const forge = await patForge(stub.port);
+      expect(await forge.getBranchHead("main")).toEqual({
+        commitSha: "c".repeat(40),
+        treeSha: "t".repeat(40),
+      });
+      const tree = await forge.readTree("t".repeat(40));
+      expect(tree.truncated).toBe(true);
+      expect(tree.entries).toEqual([
+        {
+          name: "a.md",
+          mode: "100644",
+          type: "blob",
+          sha: "b".repeat(40),
+          size: 12,
+        },
+        {
+          name: "link",
+          mode: "120000",
+          type: "blob",
+          sha: "d".repeat(40),
+          size: 3,
+        },
+        {
+          name: ".github",
+          mode: "040000",
+          type: "tree",
+          sha: "e".repeat(40),
+          size: null,
+        },
+        {
+          name: "sub",
+          mode: "160000",
+          type: "commit",
+          sha: "f".repeat(40),
+          size: null,
+        },
+      ]);
+      expect(
+        new TextDecoder().decode(await forge.readBlob("b".repeat(40))),
+      ).toBe("héllo");
+      // Never recursive, never through the Contents API.
+      expect(seen.every((line) => !line.includes("recursive"))).toBe(true);
+      expect(seen.every((line) => !line.includes("/contents/"))).toBe(true);
+      const failed = await forge
+        .readBlob("9".repeat(40))
+        .catch((e: unknown) => e);
+      expect(failed).toBeInstanceOf(GitHubCallError);
+      expect((failed as GitHubCallError).status).toBe(502);
+      expect((failed as GitHubCallError).message).not.toContain("secret");
+    } finally {
+      await stub.stop(true);
+    }
+  });
+
   test("a new comment the forge answered 5xx is not posted again", async () => {
     const seen: string[] = [];
     const stub = Bun.serve({
