@@ -14,7 +14,9 @@ import { findPullRequest, savePullRequestIn } from "./pull-requests.ts";
 import type { Database } from "./queries.ts";
 import { pushRequests, sessions } from "./schema.ts";
 
-const due = sql`(${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now()))`;
+// Parenthesized as a whole: it sits inside `and(...)`, where a bare top-level
+// OR binds looser than its neighbours and lets its other branch ignore them.
+const due = sql`((${pushRequests.prState} = 'due' AND (${pushRequests.prNextAttemptAt} IS NULL OR ${pushRequests.prNextAttemptAt} <= now())) OR (${pushRequests.prState} = 'opening' AND (${pushRequests.prLeaseExpiresAt} IS NULL OR ${pushRequests.prLeaseExpiresAt} < now())))`;
 
 const cleared = {
   prClaimToken: null,
@@ -88,16 +90,16 @@ export function createPostgresPullRequestDrain(
     async claimNextDue(leaseMs): Promise<PullRequestJob | null> {
       await endExhausted(db);
       return await db.transaction(async (tx) => {
-        // A row whose intent no longer parses leaves the candidates, so
-        // this ends.
-        // The session row is locked before the request row, the order every
-        // writer takes: a failure notice below inserts a row that references
-        // the session, and a schedule holding the session while it waits for
-        // this request would otherwise deadlock with it.
+        // A row whose intent no longer parses leaves the candidates, so this
+        // ends. Failing one writes a notice that references the session, so
+        // that path needs the session row too; it never waits for it (a
+        // schedule holds the session while it waits for the request, and a
+        // wait here would close the circle): a session someone else holds
+        // leaves the row alone for this claim, and the loop moves on.
         const passed: string[] = [];
         for (;;) {
-          const [peek] = await tx
-            .select({ id: pushRequests.id, sessionId: pushRequests.sessionId })
+          const [candidate] = await tx
+            .select()
             .from(pushRequests)
             .where(
               and(
@@ -110,38 +112,9 @@ export function createPostgresPullRequestDrain(
               ),
             )
             .orderBy(pushRequests.createdAt)
-            .limit(1);
-          if (!peek) return null;
-          // Neither lock waits: a session or request someone else holds is
-          // passed over, so one busy session never stalls the queue and two
-          // claims cannot wait on each other.
-          const [locked] = await tx
-            .select({ id: sessions.id })
-            .from(sessions)
-            .where(eq(sessions.id, peek.sessionId))
+            .limit(1)
             .for("update", { skipLocked: true });
-          if (!locked) {
-            passed.push(peek.id);
-            continue;
-          }
-          // Judged again under the locks; a row someone else holds or moved
-          // is passed over for this claim.
-          const [candidate] = await tx
-            .select()
-            .from(pushRequests)
-            .where(
-              and(
-                eq(pushRequests.id, peek.id),
-                eq(pushRequests.state, "pushed"),
-                due,
-                notExhausted,
-              ),
-            )
-            .for("update", { skipLocked: true });
-          if (!candidate) {
-            passed.push(peek.id);
-            continue;
-          }
+          if (!candidate) return null;
           const parsed =
             candidate.pullRequestIntent === null
               ? { success: true as const, data: null }
@@ -149,6 +122,15 @@ export function createPostgresPullRequestDrain(
                   candidate.pullRequestIntent,
                 );
           if (!parsed.success) {
+            const [session] = await tx
+              .select({ id: sessions.id })
+              .from(sessions)
+              .where(eq(sessions.id, candidate.sessionId))
+              .for("update", { skipLocked: true });
+            if (!session) {
+              passed.push(candidate.id);
+              continue;
+            }
             await tx
               .update(pushRequests)
               .set({
