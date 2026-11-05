@@ -1,0 +1,101 @@
+---
+title: "Datadogの監視基準"
+description: Datadog Agentが収集するシグナル、初期monitorのしきい値、DB点検query、定義を適用して検証する方法
+---
+
+このドキュメントは、サーバーデプロイで確認する最小の監視基準です。Kubernetes(Helm)インストールでプラットフォームが出すメトリクスは、[プラットフォームのメトリクス(Kubernetes)](/run-server/self-hosting/operate/metrics)にあります。アプリにDatadog SDKやOTelは入れません。Datadog Agentが、DockerのJSON stdoutログ、`/readyz`、読み取り専用のPostgreSQL query、ホストのメトリクスを収集します。定義は[`infra/datadog/definitions`](https://github.com/JeongJaeSoon/werft/tree/main/infra/datadog/definitions)だけでバージョン管理し、このリポジトリのツールやCIはDatadog APIを呼び出しません。
+
+すべてのしきい値は、**サーバーデプロイ後の最初の7日間で調整する初期値**です。`threshold_stage:first-week-tuning` tagが付いたmonitorを、最初の週のデータなしに長期の基準とみなしません。すでに埋めた空白は`なし`、その範囲外のためサーバーデプロイ後に優先度を決め直す項目は`デプロイ後に判断`と表記します。
+
+## 起動とシークレットの管理
+
+Agentは、選択式の[`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/compose.datadog.yml)でだけ作られます。このファイルを指定しない既定のstackには、Agent、mount、label、必須の環境変数が1つも追加されません。Agentのimageは`gcr.io/datadoghq/agent:7.83.3`に固定します。
+
+`DD_API_KEY`とDatadog用のPostgreSQL passwordは、リポジトリやshell historyに入れません。サーバーで運用者が`/etc/agent-platform/datadog.env`を作り、mode 600を確認します。別の絶対パスを使う必要があるときだけ`DATADOG_ENV_FILE`で変えます。値は例のプレースホルダーなので、実際の値をドキュメント・チケット・ログにコピーしません。
+
+```dotenv
+DD_API_KEY=<operator-supplied>
+DD_SITE=datadoghq.com
+DD_ENV=alpha
+DD_VERSION=<release-sha>
+DD_POSTGRES_PASSWORD=<read-only-role-password>
+```
+
+```bash
+sudo chown root:root /etc/agent-platform/datadog.env
+sudo chmod 600 /etc/agent-platform/datadog.env
+stat -c '%a %U:%G' /etc/agent-platform/datadog.env
+```
+
+Agent serviceは、この絶対パスを`env_file`としてだけ読みます。compose YAMLには`DD_API_KEY`の名前も値のinterpolationもないので、ambientの`DD_API_KEY`で迂回できません。`DD_ENV`と`DD_VERSION`は、同じファイルをcomposeの`--env-file`として読み、product containerのunified tagsに使います。
+
+PostgreSQL roleは、`queue_messages`、`sessions`、`turns`、`attempts`、`provider_usage`に`SELECT`だけを許可し、既定のtransactionをread-onlyに固定します。次のコマンドは、サーバーの運用者がadmin connectionで1回実行します。
+
+```sql
+CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
+ALTER ROLE datadog SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE sessions TO datadog;
+GRANT USAGE ON SCHEMA public TO datadog;
+GRANT SELECT ON TABLE queue_messages, sessions, turns, attempts, provider_usage TO datadog;
+```
+
+既存のデプロイコマンドのlayerはそのままにして、最後の`-f`でこのoverlayだけを加え、`--env-file`に上のファイルをもう1つ渡します。次は、ローカルstackのエントリーファイル`infra/compose.yml`の上に加えた例です。サーバーへのインストールでは、`infra/compose.yml`の代わりにそのインストールのlayerをそのまま書きます。
+
+```bash
+docker compose \
+  --env-file /etc/agent-platform/datadog.env \
+  -f infra/compose.yml \
+  -f infra/compose.datadog.yml \
+  --profile apps up -d
+```
+
+この形を、リポジトリのcomposeファイルで`docker compose config`まで確認しました。overlayを加えると、サービス一覧に`datadog-agent`が1つ増え、`api`、`scheduler`、`reconciler`、`egress-proxy`、`postgres`にDatadogのlabelが付きます。サービス一覧はレンダリングで確認しましたが、labelは`infra/compose.datadog.yml`の内容を読んだもので、レンダリング結果では確認していません。`DD_ENV`や`DD_VERSION`がないと、レンダリングが拒否されます。実際のサーバーで`up`まで実行し、AgentがDatadogに報告することは確認していません(NOT VERIFIED)。
+
+Agentは、Docker socketとcontainer log directoryをread-onlyでmountし、hostのPID・cgroup namespaceを読みます。`DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`で動的なworkerも収集します。compose serviceは`service`・`env`・`version` labelを受け取ります。動的なworkerの`service`はcontainerのshort-imageから導かれ、`env`はAgentのグローバルな`DD_ENV`から、`version`はグローバルな`DD_TAGS`から受け取ります。`session_id`・`turn_id`は調査用のログattributeとしてだけ残し、metric tagやfacetにはしません。
+
+## シグナルと初期monitor
+
+構造化loggerの元のrecordは、`timestamp`、`level`、機械が読む`event`、人が読む`message`、任意の`fields`、context(`session_id`など)です。log pipelineはJSONをparseし、以前のrecordに`event`がないときだけ`message`をfallbackとして使います。詳細な値は`fields.*`の下にあります。queryのmetric名は、[`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json)とPostgreSQL custom queryが作る名前です。
+
+| リスク | 現在のシグナル(ログevent・フィールド、DB query、readyz) | Datadog monitor(query・しきい値・ウィンドウ) | アラート時の対応runbook | 計測の空白 |
+| --- | --- | --- | --- | --- |
+| interrupt effectが5秒を超える | `control.result`の`fields.operation:interrupt`、`effect_ms`、`outcome`、`reason_code`、`control_id` → `werft.control.effect.duration_ms`。段階別の診断には、同じ`control_id`の`worker.turn.interrupt.stage`を使います | p95 `avg(last_5m):p95:werft.control.effect.duration_ms{operation:interrupt} > 5000`; unknownの結果 `> 0/5m` | [interrupt後に結果がわからないturn](/run-server/self-hosting/operate/execution#interruptのあと結果が分からないturn) | なし |
+| terminate・controlの受け付け遅延 | すべての`/v1`完了の`api.request.completed`(`route_template`、`method`、`status`、`duration_ms`、`request_id`)。terminate 202は`werft.terminate.acceptance.duration_ms`にし、同じ`request_id`のcontrol transactionの段階と相関させます | p95 `avg(last_5m):p95:werft.terminate.acceptance.duration_ms{*} > 200` | [API設定のterminate計測](/run-server/self-hosting/operate/configuration#api設定) | なし |
+| セッション作成のp95 | `api.request.completed`の`route_template:/v1/sessions`、`method:POST`、`duration_ms` → `werft.session.create.duration_ms` | デプロイ最初の週のp95をdashboardで観察してからしきい値を確定 | [API設定](/run-server/self-hosting/operate/configuration#api設定) | なし。しきい値の選択は計測の空白と区別します |
+| checkpointの失敗 | `worker.checkpoint.failed`(`fields.stage`、`fields.reason`、`fields.revision`) → `werft.checkpoint.failed` | `sum(last_5m):sum:werft.checkpoint.failed{*}.as_count() > 0` | [checkpointの復元が失敗し続けるセッション](/run-server/self-hosting/operate/execution#checkpointの復元が失敗し続けるセッション) | なし |
+| checkpoint pendingの理由・経過時間 | `sessions.checkpoint_pending_reason`; custom query `werft.checkpoint.pending_age_seconds` | `max(last_5m):max:werft.checkpoint.pending_age_seconds{*} > 300` | [checkpointの復元が失敗し続けるセッション](/run-server/self-hosting/operate/execution#checkpointの復元が失敗し続けるセッション) | `sessions.updated_at`はpending開始の保守的なproxyで、正確な開始時刻は**デプロイ後に判断** |
+| captureの遅延、PUT数・bytes・manifestサイズ | 成功・拒否・失敗のたびに、`worker.checkpoint.result`が1つ、`duration_ms`、`durations_ms`、`put_count`、`uploaded_bytes`、`manifest_bytes`、`reused_count`、`conflict_count`、`outcome`、`reason_code`を残します。`worker.checkpoint.published`のbundle・untrackedサイズと`worker.checkpoint.late`も維持します | capture p95 `> 20,000 ms/5m`; late count `> 0/5m`; bundle・untracked `> 214,748,364 bytes/15m`; manifest `> 6,710,886 bytes/15m` | [checkpointの復元が失敗し続けるセッション](/run-server/self-hosting/operate/execution#checkpointの復元が失敗し続けるセッション) | なし |
+| S3 5xx・stall | checkpoint結果の`outcome`、`reason_code`、段階別の`durations_ms`でcaptureの結果は区別しますが、S3の応答そのものは構造化しません | 信頼できるS3 status queryがないため、monitor定義なし | [object storeの選び方](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#object-store-고르기) | S3のoperation/status/durationは**デプロイ後に判断** |
+| worker launch/exitの繰り返し | `Launching execution failed; intent kept for retry`、`Execution resource exited right after launch`、`Launch attempt failed; retrying after a backoff` → `werft.launch.failed`; `Execution exited; resource reclaimed`、`Claimed execution resource vanished; binding released` → `werft.execution.exited` | launch: `sum(last_10m):sum:werft.launch.failed{*}.as_count() > 3`; exit: `sum(last_10m):sum:werft.execution.exited{*}.as_count() > 5` | [起動段階で落ち続けるセッション](/run-server/self-hosting/operate/execution#起動の段階で死に続けるセッション) | なし |
+| ストレージ障害後の収束 | `Execution launched`、上のlaunch/exit event、`Orphan session reconciliation completed`の`fields.requeued_count`・`fields.blocked_count` | 繰り返しlaunch/exitのmonitorで症状は検知 | [reconciler・scheduler](/run-server/self-hosting/operate/execution#reconcilerschedulerとworkerの隔離) | 障害の開始からすべてのsessionが収束するまでの時間と、収束していないsessionの数は**デプロイ後に判断** |
+| lease lost | `Expired lease reconciliation completed`(`fields.fenced_count`、`fields.ended_count`); custom query `werft.lease.stale_count` | `max(last_5m):max:werft.lease.stale_count{*} > 0` | [reconciler・scheduler](/run-server/self-hosting/operate/execution#reconcilerschedulerとworkerの隔離) | なし |
+| queue oldest age | unclaimedかつvisibleな`queue_messages.created_at`の最小値 → `werft.queue.oldest_age_seconds` | `max(last_5m):max:werft.queue.oldest_age_seconds{*} > 30` | [reconciler・scheduler](/run-server/self-hosting/operate/execution#reconcilerschedulerとworkerの隔離) | なし |
+| readyzの可用率 | Agent HTTP check `werft-readyz` → `http.can_connect` | 直近3回のうち失敗、5分のno-data | [API設定](/run-server/self-hosting/operate/configuration#api設定) | なし |
+| provider 429・5xx | proxyはupstreamへの接続失敗だけを記録し、providerのresponse statusは記録しません | 信頼できるstatus queryがないため、monitor定義なし | [provider・egressの設定](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#provider-키와-저장소-자격-증명은-worker에-가지-않는다) | providerのstatus・retryの結果は**デプロイ後に判断** |
+| providerのコスト・fallback pricing | `provider_usage`の1時間合計 → `werft.provider.cost_usd_1h`、`werft.provider.fallback_pricing_count_1h`、`werft.provider.unmetered_tokens_1h` | cost `> 20 USD/1h`; fallback count `> 0/1h` | [インストール上限](/run-server/self-hosting/operate/configuration#インストール上限) | なし。コストのしきい値はインストールの予算に合わせて最初の週に必ず調整します |
+| disk・inode・XFS quota | Agent hostの`system.disk.in_use`、`system.fs.inodes.in_use`; 現在は`xfs_quota`を手動で確認 | host disk・inode `> 0.8` for 10m | [worker workspaceの上限と回収](/run-server/self-hosting/operate/execution#workerのworkspaceの上限と回収) | workspaceごとのXFS project quota使用率のmetricは**デプロイ後に判断** |
+| legal hold・orphanの増加 | 現在checkpoint inventoryのmetricなし | monitor定義なし | [checkpoint objectのversionとhold](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#checkpoint-객체의-version-복원-뒤-재고정) | inventory metricを実装した後に監視を判断し直します |
+| backupの失敗 | `scripts/backup.sh`のexitと運用historyは、DockerのJSON stdoutに入りません | monitor定義なし | [バックアップ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#백업) | backup実行結果の構造化は**デプロイ後に判断** |
+
+## DB点検queryの契約
+
+[`infra/datadog/conf.d/postgres.d/conf.yaml`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/conf.d/postgres.d/conf.yaml)の`custom_queries`が正本です。どのqueryも`SELECT`1つで、tableを変更しません。
+
+- queue oldest age: まだclaimされておらず、すでにvisibleなmessageのうち最も古い`created_at`を、DBのclockと比較します。
+- checkpoint pending age: `checkpoint_pending_reason IS NOT NULL`のsessionの`updated_at`のうち最も古い値を使います。checkpointと無関係な同じsessionの更新がこの時刻を動かすことがあるので、正確なSLIではなく下限のproxyです。
+- `outcome_unknown`: 直近5分に作られた`turns.outcome_unknown = true`のrow数です。
+- stale lease: `exited`・`lost`でないattemptのうち、`lease_expires_at < clock_timestamp()`である数です。
+- providerのコスト: 直近1時間の`cost_usd`の合計と、`priced_by = 'fallback'`のrow数です。`werft.provider.unmetered_tokens_1h`は、同じ1時間の`priced_by = 'unmetered'`のrowのトークン合計(input・output・cache write・cache read)です。`billing: none` profileはコストが0のまま残るので、有料のupstreamを誤って宣言したときに表に出るのはこのトークン数だけです。monitorは定義しません。正常値がインストールのローカルモデルの使用量に依存するためです。
+
+どのqueryも`session_id`を返しません。[`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json)のgroup-byも、`service`・`env`とcardinalityの低い状態だけを使います。`session_id`は、incidentで元のログやDBを絞り込むときだけ使います。
+
+## 定義の適用と検証
+
+定義は自動では適用されません。運用者はJSONをレビューしてから、各ファイルの`endpoint`に`requests`の項目を1つずつ適用します。[`log-facets.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-facets.json)は、UIで作るfacetと、作らないhigh-cardinality attributeの一覧です。[`dashboard.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/dashboard.json)はdashboardのcreate bodyです。すでに適用したmonitor・dashboard・log pipelineは再度createせず、既存のものの名前とquery・filterを新しい定義に合わせて直します。再度createすると、同じ定義が2つになります。
+
+サーバーデプロイで次を確認します。
+
+1. 既定のstackをoverlayなしでrender・起動したとき、service一覧と設定が以前と同じである。
+2. overlayを加えた`docker compose config`が`DD_ENV`・`DD_VERSION`の欠落を拒否し、AgentのDocker socket mountが`ro`で、`/etc/agent-platform/datadog.env`だけを読む。
+3. Agent statusで、Docker log、`http_check:werft-readyz`、PostgreSQL custom queryがすべて成功する。
+4. `/readyz`を一時的に失敗させて、service checkが変わり、復旧することをサーバーで確認する。実際の長期stack実行とmonitor notificationの配信は、ローカルの検証証拠で代替しません。

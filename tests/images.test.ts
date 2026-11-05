@@ -349,7 +349,7 @@ describe("app Dockerfiles", () => {
     expect(REMOVED_AFTER_INSTALL["egress-proxy"]).toEqual([]);
   });
 
-  // docs/operator/images-and-supply-chain.md names this identity; image-smoke.sh commits with it.
+  // the site page operate/images-and-supply-chain names this identity; image-smoke.sh commits with it.
   test("the worker gives Claude's commits a default author", () => {
     expect(basePins.worker.source).toContain(
       "git config --system user.name Werft \\\n" +
@@ -605,8 +605,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       "tests/fixtures/settings/fake-model.json": "sample-app",
       "tests/fixtures/settings/fake-model-unattended.json": "sample-app",
       "tests/fixtures/settings/local-model.json": "sample-app",
-      ".claude/skills/verify-agent-platform/github-sandbox/settings.json":
-        "sample-app",
+      ".claude/skills/verify-werft/github-sandbox/settings.json": "sample-app",
       "scripts/d2-gate/settings.json": "gate-app",
     };
     for (const [path, repository] of Object.entries(documents)) {

@@ -1,6 +1,6 @@
 # 단일 서버 배포
 
-이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/), [API 서버](api-server.md), [이미지와 공급망](images-and-supply-chain.md), [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)), [quickstart](../quickstart.md), [실제 Claude로 확인하기](../real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
+이 문서는 빈 Linux 서버 한 대에 설치하고 첫 세션, 백업, 재부팅, 업그레이드와 롤백까지 확인하는 **상위 순서표**다. 실제 명령과 실패 복구는 [test-ops 운영 runbook](test-ops.md), [백업과 복원](backup-restore.md), 운영 참고([실행 기반](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/), [API 서버](api-server.md), [이미지와 공급망](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/), [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)), [quickstart](../quickstart.md), [실제 Claude로 확인하기](../real-claude.md)의 해당 절을 정본으로 삼는다. 이 문서와 정본이 다르면 정본을 따른다.
 
 **현재 상태:** 공식 릴리스가 아직 없다. `v*` 릴리스는 없고, npm의 `@werft-ai/sdk`는 게시돼 있다. 앱 이미지는 `main` 머지마다 [`main-<12>` 태그로 게시](test-ops.md#게시된-이미지를-쓸-때)되므로 그 digest로 설치한다. 게시본을 쓸 수 없으면 저장소 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)한다.
 
@@ -78,7 +78,7 @@ legal hold된 version을 lifecycle이나 수동 정리 대상으로 삼지 않�
 
 ## 4. release와 설정을 봉인한다
 
-1. 배포할 `source_commit`을 정하고, 그 commit의 [게시된 이미지 digest](test-ops.md#게시된-이미지를-쓸-때)를 읽는다. 게시본을 쓸 수 없으면 그 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)해 registry에 올린 뒤 digest를 확인한다. 태그를 달 필요는 없다. `v*` 태그로 이미지를 게시하는 일은 [저장소 관리자의 절차](images-and-supply-chain.md#저장소-관리자-v-태그로-게시)이고, 아직 게시된 릴리스는 없다.
+1. 배포할 `source_commit`을 정하고, 그 commit의 [게시된 이미지 digest](test-ops.md#게시된-이미지를-쓸-때)를 읽는다. 게시본을 쓸 수 없으면 그 checkout에서 [세 이미지를 직접 빌드](test-ops.md#이미지를-직접-빌드한다)해 registry에 올린 뒤 digest를 확인한다. 태그를 달 필요는 없다. `v*` 태그로 이미지를 게시하는 일은 [저장소 관리자의 절차](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/images-and-supply-chain/#저장소-관리자-v-태그로-게시)이고, 아직 게시된 릴리스는 없다.
 2. [release manifest](test-ops.md#release-manifest)에 `source_commit`, control-host·worker·egress-proxy digest, `settings_digest`를 기록한다. tag만 적지 않는다.
 3. `/etc/agent-platform` 아래에 [env 파일](test-ops.md#env-파일)과 [설정 문서](test-ops.md#카탈로그)를 만들고 요구된 mode를 적용한다. env 파일에 `BOOTSTRAP_TOKEN`(32~256자 무작위 값)을 넣는다. 넣지 않으면 API가 토큰을 만들어 컨테이너 로그에 출력하고, 첫 owner가 생길 때까지 로그를 읽는 누구나 bootstrap할 수 있다. env 파일은 `0600`, 상태 디렉터리는 `0700`, 비밀이 없는 설정 문서는 migrate 컨테이너가 읽을 수 있는 `0644`를 사용한다.
 4. provider key, S3 key, PostgreSQL password, egress token, bootstrap token, registry token을 shell history, PR, evidence 파일, 터미널 캡처와 로그에 넣지 않는다. secret 값은 저장소 밖 env 또는 각 도구의 credential store로만 전달한다.
@@ -158,7 +158,7 @@ owner 모델은 **API-key owner**다. 같은 provider key를 쓰더라도 사용
 
 - [ ] 시작, 1시간 뒤, 업무 종료 전에 `scripts/test-ops.sh status` 결과를 확인한다.
 - [ ] API·scheduler·reconciler 구조화 로그와 디스크·inode·quota를 확인한다.
-- [ ] [Datadog 모니터링 지침](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)의 readyz, Docker 로그, host/disk monitor를 적용한다. 그 문서가 아직 배포 release에 없다면 [test-ops 감시 지점](test-ops.md#감시-지점)을 임시 기준으로 사용하고 미적용 사실을 evidence에 적는다.
+- [ ] [Datadog 모니터링 지침](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/monitoring-datadog/)의 readyz, Docker 로그, host/disk monitor를 적용한다. 그 문서가 아직 배포 release에 없다면 [test-ops 감시 지점](test-ops.md#감시-지점)을 임시 기준으로 사용하고 미적용 사실을 evidence에 적는다.
 - [ ] backup 자동 실행과 실패 알림을 시험하되 운영 backup을 삭제하지 않는다.
 - [ ] 사용자별 API key 전달과 폐기 연락 경로를 확인한다.
 - [ ] provider usage와 실제 비용을 확인하고 세션 상한과 Anthropic 월 상한을 기록한다.

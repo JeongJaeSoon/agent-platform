@@ -55,6 +55,7 @@ import {
   type WorkerGatewayClient,
   WorkerGatewayRequestError,
   type WorkspaceArtifact,
+  workingTreeSnapshotMismatch,
   workspacePathsProblem,
   writeWorkspaceFile,
 } from "@werft-ai/runtime-core";
@@ -1141,14 +1142,21 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       await rm(spool, { force: true, recursive: true });
     }
     const { capture } = captured;
-    const mismatches = await workspaceMismatches({
-      root: this.#options.workspaceRoot,
-      tip: capture.gitCommit,
-      expectation: claimExpectation(bound.claim),
-      stripEmails: bound.claim.git_strip ?? [],
-      protectedCommits:
-        repaired.status === "skipped" ? null : repaired.protectedCommits,
-    });
+    // A snapshot of uncommitted tracked files is the platform's own commit:
+    // it is not judged, it is named so request_push can say what to do. The
+    // commits under it are judged once the agent commits and the turn's
+    // repair has run.
+    const mismatches =
+      capture.gitCommit === capture.headCommit
+        ? await workspaceMismatches({
+            root: this.#options.workspaceRoot,
+            tip: capture.gitCommit,
+            expectation: claimExpectation(bound.claim),
+            stripEmails: bound.claim.git_strip ?? [],
+            protectedCommits:
+              repaired.status === "skipped" ? null : repaired.protectedCommits,
+          })
+        : [workingTreeSnapshotMismatch(capture.gitCommit)];
     const bases = capture.bundle.incremental ? (previous?.links ?? []) : [];
     timer.reused(bases.length);
 

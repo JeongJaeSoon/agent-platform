@@ -33,7 +33,7 @@ esac
 }
 
 repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-agent-platform}
+root=${VERIFY_AP_ROOT:-$(t=${TMPDIR:-/tmp}; echo "${t%/}")/verify-werft}
 run_id=$(date +%Y%m%d-%H%M%S)-$$
 run="$root/$run_id"
 project="verify-ap-$(echo "$run_id" | tr -cd 'a-z0-9-')"
@@ -81,7 +81,7 @@ EOF
   printf 'export WORKER_IMAGE=%q\n' "werft-worker:$project"
   printf 'export EGRESS_PROXY_IMAGE=%q\n' "werft-egress-proxy:$project"
   printf 'VERIFY_BOOTSTRAP_TOKEN=%q\n' "$token"
-  printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/.claude/skills/verify-agent-platform/scripts/tree-id.sh" "$repo")"
+  printf 'VERIFY_BUILT_FROM=%q\n' "$("$repo/.claude/skills/verify-werft/scripts/tree-id.sh" "$repo")"
 } >"$run/state.env"
 echo "run: $run (project $project)" >&2
 echo "run id: $run_id  (record it; later: lib.sh $run_id, doctor.sh $run_id, down.sh $run_id)" >&2

@@ -9,9 +9,11 @@ const OPERATE = [
   "configuration",
   "database",
   "execution",
+  "images-and-supply-chain",
   "kubernetes-deployment",
   "kubernetes-backend",
   "metrics",
+  "monitoring-datadog",
   "sdk-sample",
   "session-data-flow",
 ].map((name) => `run-server/self-hosting/operate/${name}`);

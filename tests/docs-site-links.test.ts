@@ -60,8 +60,6 @@ const ALLOWED: Record<string, string> = {
     "held: still calls an internal test script and has unfinished sections",
   "docs/operator/data-retention.md":
     "held: pins line numbers to a commit and has an open decisions section",
-  "docs/operator/images-and-supply-chain.md": "held: no site page yet",
-  "docs/operator/monitoring-datadog.md": "held: no site page yet",
   "docs/operator/server-deployment.md": "held: no site page yet",
   "docs/operator/test-ops.md":
     "internal operations procedure that is never published on the site",

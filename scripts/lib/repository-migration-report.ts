@@ -114,7 +114,7 @@ export type Snapshot = {
   profiles: Array<{
     id: string;
     repository_ids: unknown;
-    repository_scope: string;
+    repository_scope: string | null;
     github_app_repositories: string;
   }>;
   workspaceProfiles: Array<{
@@ -261,10 +261,14 @@ export function buildReport(
     }
     return ids;
   };
-  const profileScope = (profileId: string | null) =>
-    profileId === null
-      ? "profile"
-      : (profileRow.get(baseId(profileId))?.repository_scope ?? "profile");
+  // A row with no scope names no repository: the workspace's ceiling
+  // judges it, as it does a `workspace` one.
+  const profileScope = (profileId: string | null) => {
+    if (profileId === null) return "profile";
+    const row = profileRow.get(baseId(profileId));
+    if (row === undefined) return "profile";
+    return row.repository_scope ?? "workspace";
+  };
 
   const ceilingOf = new Map<string, Ceiling>();
   for (const row of snapshot.ceilings) {

@@ -44,7 +44,7 @@ jq -c .workerRuntime "$TAG/release-manifest.json"                          # wor
 jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart の場所とバージョン
 ```
 
-digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기)を見る。
+digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](/run-server/self-hosting/operate/images-and-supply-chain#リリースmanifestを読む)を見る。
 
 ## サーバーに接続する
 
@@ -52,7 +52,7 @@ SDK と HTTP API は、サーバーのアドレスと API key で接続します
 
 ## 設置後の運用
 
-次の9件のドキュメントは、このサイトの中にあります。
+次の11件のドキュメントは、このサイトの中にあります。
 
 - [設定リファレンス](/run-server/self-hosting/operate/configuration)
 - [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](/run-server/self-hosting/operate/capacity)
@@ -62,12 +62,12 @@ SDK と HTTP API は、サーバーのアドレスと API key で接続します
 - [Kubernetes 実行 backend](/run-server/self-hosting/operate/kubernetes-backend)
 - [プラットフォームのメトリクス(Kubernetes)](/run-server/self-hosting/operate/metrics)
 - [セッションデータが流れる経路](/run-server/self-hosting/operate/session-data-flow)
+- [イメージとサプライチェーン](/run-server/self-hosting/operate/images-and-supply-chain)
+- [Datadog の監視基準](/run-server/self-hosting/operate/monitoring-datadog)
 - [SDK サンプルの実行設定](/run-server/self-hosting/operate/sdk-sample)
 
 そのほかの運用ドキュメントは、リポジトリの `docs/operator/` にあり、韓国語だけで書かれています。
 
 - [API サーバー: カタログ、認証情報、checkpoint ストア、認証と権限](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
-- [イメージとサプライチェーン](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
 - [プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
 - [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
-- [Datadog の監視基準](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)
