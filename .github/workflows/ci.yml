@@ -283,6 +283,7 @@ jobs:
               - tests/docs-site-links.
               - tests/e2e/local-model.
               - tests/e2e/real-model.
+              - tests/fetch-pinned.
               - tests/forbidden-terms.
               - tests/soak/
               - tests/ci-issue-scripts.
