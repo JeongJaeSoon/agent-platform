@@ -251,7 +251,7 @@ docker compose --project-name agent-platform-test-ops \
 
 API(既定 3000)と PostgreSQL(既定 5432)はホストの loopback だけで待ち受けます。利用者は SSH tunnel で入り、PostgreSQL は運用者がサーバーの中でだけ使います。ファイアウォールは SSH と選んだ TLS endpoint だけを許可します。
 
-API を内部 DNS 名で公開するには、前に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。接続元は VPN の範囲か IP allowlist で絞り、TLS はそこで終わらせます。イベントストリーム(SSE)は接続を長く保つので、`proxy_buffering` とリクエストの buffering を切り、read と send の timeout を1時間のように長くします。どの経路を選んでも、PostgreSQL と Docker socket は proxy やファイアウォールの外に開きません。Docker socket は scheduler が worker を管理するときだけ使い、ホストの TCP socket は有効にしません。
+API を内部 DNS 名で公開するには、前に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。接続元は VPN の範囲か IP allowlist で絞り、TLS はそこで終わらせます。proxy はブラウザが送った `Host` をそのまま upstream に渡します。API は状態を変えるブラウザのリクエストで `Origin` の host と `Host` が違うと拒否するので、`Host` を upstream のものに書き換えると、Web コンソールの変更リクエストが失敗します。イベントストリーム(SSE)は接続を長く保つので、`proxy_buffering` とリクエストの buffering を切り、read と send の timeout を1時間のように長くします。どの経路を選んでも、PostgreSQL と Docker socket は proxy やファイアウォールの外に開きません。Docker socket は scheduler が worker を管理するときだけ使い、ホストの TCP socket は有効にしません。
 
 ### 専用の S3 bucket
 
@@ -263,7 +263,7 @@ API を内部 DNS 名で公開するには、前に reverse proxy を置きま�
 - object version を失効させる lifecycle rule は置きません。組織のポリシーにある場合は、この bucket を除外します。
 - 復元訓練は同じ認証情報で訓練用 bucket に書き込みます。訓練用 bucket の名前を `<bucket>-drill-*` とし、その名前に同じ権限を与えます。訓練用 bucket は運用者が自分の権限で作ります。
 
-認証情報は API コンテナにだけ渡ります。worker は egress proxy を通り、そのリクエストは API がセッションの範囲で署名します。手順5の `TEST_OPS_OBJECT_STORE=s3 preflight` が、アップロード、legal hold、version の読み取り、hold の解除、scratch version の削除の往復を通ってから設置します。
+認証情報は API と maintenance のコンテナにだけ渡ります。worker は egress proxy を通り、そのリクエストは API がセッションの範囲で署名します。手順5の `TEST_OPS_OBJECT_STORE=s3 preflight` が、アップロード、legal hold、version の読み取り、hold の解除、scratch version の削除の往復を通ってから設置します。
 
 ### バックアップと復元
 
@@ -271,7 +271,7 @@ API を内部 DNS 名で公開するには、前に reverse proxy を置きま�
 scripts/test-ops.sh backup
 ```
 
-`backup` は api、scheduler、reconciler、worker のコンテナを止め、DB と checkpoint object を `$TEST_OPS_STATE_DIR/backups/backup-<時刻>` にまとめ、止めたサービスをもう一度起動します。進行中のターンは切れ、reconciler が後で回収します。失敗したバックアップは `.failed` として残り、成功分には数えません。サービスを再起動できないと、バックアップが成功してもコマンドは失敗で終わるので、`status` で確認します。
+`backup` は api、scheduler、reconciler、worker のコンテナを止め、DB と checkpoint object を `$TEST_OPS_STATE_DIR/backups/backup-<時刻>` にまとめ、止めたサービスをもう一度起動します。進行中のターンは切れ、reconciler が後で回収します。失敗したバックアップは `.failed`、強制終了で完了しなかったものは `.partial` として残り、どちらも成功分には数えません。サービスを再起動できないと、バックアップが成功してもコマンドは失敗で終わるので、`status` で確認します。
 
 - 頻度: 利用の少ない時間に1日1回、そしてすべてのアップグレードの直前に取ります。
 - 保管: ホストには直近14日、暗号化したホスト外の保管先には直近90日の成功分を置きます。バックアップには DB 全体と API key の hash が入っています。ディレクトリは `0700` にし、転送と保管を暗号化し、アクセスを最小にします。
@@ -285,7 +285,7 @@ scripts/test-ops.sh backup
 scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
-出力は状態ディレクトリの `restore-drills/` に残り、判定は `history.log` に1行残ります。訓練の project は終わると削除されます。訓練用 bucket の object には legal hold が掛かっているので、bucket を削除するには version ごとに hold を解除し、version を削除してから bucket を削除します。
+出力は状態ディレクトリの `restore-drills/` に残り、判定は `history.log` に1行残ります。訓練の project は終わると削除されます(調べるには `--keep` を付け、ポートが重なる場合は `--port-base` で変えます。既定は 25432 からです)。訓練用 bucket の object には legal hold が掛かっているので、bucket を削除するには version ごとに hold を解除し、version を削除してから bucket を削除します。
 
 復元訓練は PostgreSQL とオブジェクトストアまでを復元し、API は起動しません。復元したデータで実際のセッションが続くかはこの訓練では確認できないので、確認していないこととして記録します。
 
@@ -310,7 +310,7 @@ S3 の設置は再起動しても object が残ります。再起動の後は、
 
 - 開始時、1時間後、業務終了前に `scripts/test-ops.sh status` を見ます。コンテナ、配備した release、オブジェクトストア、`/readyz`、scheduler と reconciler の health、ディスク使用量が一度に出ます。
 - api、scheduler、reconciler のログと、Docker データルートのディスク、inode、quota を見ます。空きが 20% を下回る前に対応します。
-- checkpoint の整理は週1回、バックアップと重ならない時間に行います。先に `CHECKPOINT_GC_DRY_RUN=1` で確認します。
+- checkpoint の整理は週1回、バックアップと重ならない時間に行います。API コンテナで `bun run apps/control-host/src/api/checkpoint-gc.ts` を実行し、先に `docker exec -e CHECKPOINT_GC_DRY_RUN=1` を付けて確認します。
 - 自動バックアップと失敗時の通知を試します。運用のバックアップを削除して試すことはしません。
 - 利用者ごとの API key を渡す方法と、失効させる連絡経路を決めておきます。
 - Anthropic コンソールに月間の上限を設定し、セッションごとの上限(`SESSION_COST_LIMIT_USD`、既定 25)と実際の費用を合わせて見ます。

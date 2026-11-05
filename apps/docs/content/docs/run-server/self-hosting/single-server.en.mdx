@@ -251,7 +251,7 @@ This section was written by reading `scripts/test-ops.sh` and the code. On the v
 
 The API (3000 by default) and PostgreSQL (5432 by default) listen only on the host's loopback. Users come in through an SSH tunnel, and only the operator uses PostgreSQL, from inside the server. The firewall allows only SSH and the TLS endpoint you chose.
 
-To publish the API under an internal DNS name, put a reverse proxy in front. The upstream stays `127.0.0.1:3000`. Narrow who can reach the address with a VPN range or an IP allowlist, and terminate TLS there. The event stream (SSE) keeps connections open for a long time, so turn off `proxy_buffering` and request buffering and set the read and send timeouts long, such as one hour. Whichever path you choose, never open PostgreSQL or the Docker socket outside the proxy or the firewall. The scheduler uses the Docker socket only to manage workers, and the host TCP socket stays off.
+To publish the API under an internal DNS name, put a reverse proxy in front. The upstream stays `127.0.0.1:3000`. Narrow who can reach the address with a VPN range or an IP allowlist, and terminate TLS there. The proxy passes the `Host` the browser sent on to the upstream unchanged. On a state-changing browser request the API refuses it when the host in `Origin` differs from `Host`, so rewriting `Host` to the upstream's makes the web console's changes fail. The event stream (SSE) keeps connections open for a long time, so turn off `proxy_buffering` and request buffering and set the read and send timeouts long, such as one hour. Whichever path you choose, never open PostgreSQL or the Docker socket outside the proxy or the firewall. The scheduler uses the Docker socket only to manage workers, and the host TCP socket stays off.
 
 ### Dedicated S3 bucket
 
@@ -263,7 +263,7 @@ On a real server, use one bucket per installation. This work brings AWS permissi
 - Set no lifecycle rule that expires object versions. If an organization policy has one, exclude this bucket.
 - A restore drill writes to a drill bucket with the same credentials. Name drill buckets `<bucket>-drill-*` and give that name the same permissions. The operator creates drill buckets with their own permissions.
 
-The credentials go only to the API container. Workers go through the egress proxy, and the API signs that request for the session's scope. The `TEST_OPS_OBJECT_STORE=s3 preflight` in step 5 must pass its round trip of upload, legal hold, version read, hold release and scratch version delete before you install.
+The credentials go only to the API and maintenance containers. Workers go through the egress proxy, and the API signs that request for the session's scope. The `TEST_OPS_OBJECT_STORE=s3 preflight` in step 5 must pass its round trip of upload, legal hold, version read, hold release and scratch version delete before you install.
 
 ### Backup and restore
 
@@ -271,7 +271,7 @@ The credentials go only to the API container. Workers go through the egress prox
 scripts/test-ops.sh backup
 ```
 
-`backup` stops the api, scheduler, reconciler and worker containers, bundles the database and checkpoint objects into `$TEST_OPS_STATE_DIR/backups/backup-<timestamp>`, and starts the stopped services again. Turns in progress are cut off, and the reconciler reclaims them later. A failed backup stays as `.failed` and does not count as a successful copy. If the services cannot be restarted, the command fails even when the backup succeeded, so check with `status`.
+`backup` stops the api, scheduler, reconciler and worker containers, bundles the database and checkpoint objects into `$TEST_OPS_STATE_DIR/backups/backup-<timestamp>`, and starts the stopped services again. Turns in progress are cut off, and the reconciler reclaims them later. A failed backup stays as `.failed`, and one cut short by a forced stop stays as `.partial`; neither counts as a successful copy. If the services cannot be restarted, the command fails even when the backup succeeded, so check with `status`.
 
 - Schedule: once a day at a quiet hour, and right before every upgrade.
 - Retention: keep the last 14 days of successful copies on the host and the last 90 days in an encrypted off-host store. A backup holds the whole database and the API key hashes. Keep the directory at `0700`, encrypt transfer and storage, and keep access to a minimum.
@@ -285,7 +285,7 @@ A restore drill restores a backup into a new project and its object store and co
 scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
 ```
 
-The output goes to `restore-drills/` in the state directory, and the verdict is one line in `history.log`. The drill project is removed when it ends. Objects in a drill bucket carry a legal hold, so to delete the bucket, release the hold on each version, delete the versions, then delete the bucket.
+The output goes to `restore-drills/` in the state directory, and the verdict is one line in `history.log`. The drill project is removed when it ends (add `--keep` to inspect it, and change the ports with `--port-base` if they collide; the default starts at 25432). Objects in a drill bucket carry a legal hold, so to delete the bucket, release the hold on each version, delete the versions, then delete the bucket.
 
 A restore drill restores only PostgreSQL and the object store and does not start the API. It does not show that a real session continues on the restored data, so record that as not checked.
 
@@ -310,7 +310,7 @@ Before the reboot, check that no turn is in progress, that `status` is healthy a
 
 - Run `scripts/test-ops.sh status` at the start, an hour later and before the end of the day. It shows the containers, the deployed release, the object store, `/readyz`, scheduler and reconciler health, and disk usage in one go.
 - Read the api, scheduler and reconciler logs, and the disk, inode and quota of the Docker data root. Act before free space falls under 20%.
-- Run checkpoint cleanup once a week, away from a backup. Check it first with `CHECKPOINT_GC_DRY_RUN=1`.
+- Run checkpoint cleanup once a week, away from a backup. Run `bun run apps/control-host/src/api/checkpoint-gc.ts` in the API container, and check it first with `docker exec -e CHECKPOINT_GC_DRY_RUN=1`.
 - Test the automated backup and its failure alert. Do not test by deleting a production backup.
 - Settle how you hand over and revoke each user's API key.
 - Set a monthly limit in the Anthropic console, and watch the per-session cap (`SESSION_COST_LIMIT_USD`, 25 by default) together with the real cost.
