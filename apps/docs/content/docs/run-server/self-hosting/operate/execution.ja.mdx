@@ -251,7 +251,7 @@ Mには上限がありません。Mだけのquota余裕がなければreuseは�
 - Dockerの`SetQuota`はBHARD/BSOFTだけを書くので、この値を上書きしません。
 - イメージはschedulerの`WORKER_IMAGE`です。workerイメージに`xfsprogs`が入っています。launchごとに違うイメージを選ばせません。CAP_SYS_ADMINを受けるイメージは、カタログではなく運営者が決めます。
 
-適用の時点は3つです。
+適用の時点は4つです。
 
 - preflight probe(`verifyWorkspaceQuota`、ループが起動してから最初に通るまで、そして設定が変わるときだけ): 掛けられなければ、byte上限と同じ規則で起動を拒否し、opt-outは同じ`EXECUTION_WORKSPACE_QUOTA=off`の1つだけです。
 - 毎回のlaunchの`ensureWorkspaceVolume`: 新しいvolumeも既存のvolumeも対象です。project idはdaemonの再起動のあとに再利用されることがあるので、キャッシュせず、掛け直すことは冪等です。

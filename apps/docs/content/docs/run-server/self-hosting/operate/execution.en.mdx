@@ -251,7 +251,7 @@ This shrinking has a cost. The next incremental capture excludes only those chai
 - Docker's `SetQuota` writes only BHARD and BSOFT, so it does not overwrite this value.
 - The image is the scheduler's `WORKER_IMAGE`. The worker image contains `xfsprogs`. A different image is not left to be chosen per launch. The image that receives CAP_SYS_ADMIN is decided by the operator, not the catalog.
 
-It is applied at three points.
+It is applied at four points.
 
 - The preflight probe (`verifyWorkspaceQuota`, from when the loop is up until the first pass, and again only when the configuration changes): if it cannot be applied, startup is refused by the same rule as the byte limit, and the opt-out is the same single `EXECUTION_WORKSPACE_QUOTA=off`.
 - `ensureWorkspaceVolume` on every launch: both new and existing volumes. The project id can be reused after a daemon restart, so it is not cached, and applying it again is idempotent.
