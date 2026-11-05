@@ -277,8 +277,8 @@ describe("app Dockerfiles", () => {
           `echo "[0-9a-f]{64} {2}${file.replace(".", "\\.")}" \\| sha256sum -c -`,
         ),
       );
-    // Unpinned packages would reach the build: every input there is ADDed by
-    // checksum instead.
+    // Unpinned packages would reach the build: every input there is pinned by
+    // checksum, by ADD or, for the deb, by scripts/fetch-pinned.ts (retries).
     const start = source.indexOf(" AS git-lfs\n");
     const end = source.indexOf(" AS runtime\n");
     expect(start).toBeGreaterThan(-1);
@@ -286,8 +286,9 @@ describe("app Dockerfiles", () => {
     const stage = source.slice(start, end);
     expect(stage).not.toContain("apt-get");
     expect(stage).toMatch(
-      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\$/m,
+      /^RUN --mount=type=bind,source=scripts\/fetch-pinned\.ts,target=\/tmp\/fetch-pinned\.ts \\\n {2}bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/ca-certificates\.deb \\\n {2}&& dpkg-deb -x /m,
     );
+    expect(stage).not.toMatch(/ADD [^\n]*\n[^\n]*snapshot\.debian\.org/);
     expect(stage).toContain(
       "\nENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla\n",
     );

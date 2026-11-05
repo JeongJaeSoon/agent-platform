@@ -71,11 +71,16 @@ ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587
   /tmp/go-arm64.tar.gz
 # The base has no CA roots; Go needs them to reach the module proxy. Trixie's
 # package, pinned to its archive sha256 and unpacked only (no maintainer
-# scripts): Go reads every certificate under SSL_CERT_DIR.
-ADD --checksum=sha256:ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+# scripts): Go reads every certificate under SSL_CERT_DIR. Not an ADD: that
+# has no retry, and snapshot.debian.org has answered with a body of another
+# hash for this pin (94S-1396). Bun carries its own roots; fetch-pinned.ts
+# retries a wrong body like a failed request and writes only the pinned bytes.
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
   https://snapshot.debian.org/archive/debian/20250419T084132Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb \
-  /tmp/ca-certificates.deb
-RUN dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
+  ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+  /tmp/ca-certificates.deb \
+  && dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
 ENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla
 WORKDIR /tmp/git-lfs-src
 # GOTOOLCHAIN=local: the go directive x/net raises must not fetch another Go.
