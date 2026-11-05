@@ -480,6 +480,7 @@ async function drawCard(
       state: card.display.state,
       checkpointRevision: card.pushRevisions.request,
       gitCommit: card.display.gitCommit,
+      origin: card.pushRevisions.origin,
     },
     pushSource,
   );

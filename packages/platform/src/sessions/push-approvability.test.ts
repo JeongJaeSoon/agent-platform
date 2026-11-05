@@ -99,4 +99,45 @@ describe("pushApprovability", () => {
       reason: "not_requested",
     });
   });
+
+  describe("an intent request pinned to its turn's revision", () => {
+    const intent = { ...request(), origin: "intent" as const };
+
+    test("is approvable after the pointer moved, while the pinned revision verifies", async () => {
+      let readAt: number | undefined;
+      const verdict = await pushApprovability(session(9), intent, {
+        readPushSource: async () => ({ status: "none" }),
+        readPushSourceAt: async (_id, revision) => {
+          readAt = revision;
+          return { status: "ready", revision, gitCommit: COMMIT };
+        },
+      });
+      expect(verdict).toEqual({ approvable: true });
+      expect(readAt).toBe(3);
+    });
+
+    test("is pinned_source_invalid when that revision is gone or carries another commit", async () => {
+      for (const read of [
+        async (): Promise<PushSourceResult> => ({ status: "none" }),
+        async (): Promise<PushSourceResult> => ({
+          status: "ready",
+          revision: 3,
+          gitCommit: OTHER,
+        }),
+      ]) {
+        expect(
+          await pushApprovability(session(9), intent, source(read)),
+        ).toEqual({
+          approvable: false,
+          reason: "pinned_source_invalid",
+        });
+      }
+    });
+
+    test("without a source it stays approvable, as a moved direct request does", async () => {
+      expect(await pushApprovability(session(9), intent)).toEqual({
+        approvable: true,
+      });
+    });
+  });
 });

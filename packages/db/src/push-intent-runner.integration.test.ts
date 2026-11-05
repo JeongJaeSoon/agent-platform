@@ -185,6 +185,19 @@ integration("push intent runner on PostgreSQL", () => {
     });
   });
 
+  test("the session's list shows the request's flow and PR stage beside the intents", async () => {
+    pinned = { status: "ready", revision: 1, gitCommit: PINNED_COMMIT };
+    const intent = await pinnedIntent();
+    await runner().runOnce();
+    const listed = await requests().list(OWNER, intent.sessionId);
+    expect(listed).toMatchObject([
+      { origin: "intent", flow: "actions", pr_state: null },
+    ]);
+    expect(await intents().list(OWNER, intent.sessionId)).toMatchObject([
+      { id: intent.id, status: "requested", push_request_id: listed?.[0]?.id },
+    ]);
+  });
+
   test("running it again makes no second request", async () => {
     const intent = await pinnedIntent();
     const r = runner();

@@ -73,6 +73,8 @@ const pushRequest: PushRequest = {
   finished_at: null,
   push_receipt_id: null,
   origin: "direct",
+  flow: "legacy",
+  pr_state: null,
 };
 
 const run = {

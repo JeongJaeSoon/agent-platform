@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_USER_LOCALE,
+  type PushRequestOrigin,
   pendingQuestionSchema,
   rememberRuleSchema,
   type SessionEventPayload,
@@ -247,6 +248,7 @@ async function promptCardOf(
           string | null
         >`${pushRequests.decidedBy} -> 'principal' ->> 'kind'`,
         request: pushRequests.checkpointRevision,
+        origin: pushRequests.origin,
         session: sessions.checkpointRevision,
       })
       .from(pushRequests)
@@ -261,7 +263,11 @@ async function promptCardOf(
           : facts.principal === "installation"
             ? "slack"
             : "web";
-      pushRevisions = { session: facts.session, request: facts.request };
+      pushRevisions = {
+        session: facts.session,
+        request: facts.request,
+        origin: facts.origin as PushRequestOrigin,
+      };
     }
   } else if (prefix === "prompt") {
     display = await createPostgresPendingRequests(db).displayOf(
@@ -388,7 +394,7 @@ export function createPostgresSlackCardSettleStore(
         sql`
           SELECT o.id, o.seq, o.session_id, coalesce(o.settle_rendered, 'open') AS rendered,
             s.checkpoint_revision AS session_revision,
-            p.checkpoint_revision, p.git_commit
+            p.checkpoint_revision, p.git_commit, p.origin
           FROM slack_outbox o
           JOIN push_requests p
             ON p.id::text = ${promptRequestId(sql.raw("o"), "push:")}
@@ -412,6 +418,7 @@ export function createPostgresSlackCardSettleStore(
           row.session_revision === null ? null : Number(row.session_revision),
         checkpointRevision: Number(row.checkpoint_revision),
         gitCommit: row.git_commit as string,
+        origin: row.origin as PushRequestOrigin,
       }));
     },
 
