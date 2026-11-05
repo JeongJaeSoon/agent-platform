@@ -52,9 +52,12 @@ type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 /**
  * Which write a row is the result of: its `updated_at` to the microsecond and
  * `xmin`, the id of the transaction that wrote it. A timestamp can repeat
- * across runs, a transaction id cannot, so a run that rolled back never
- * matches a later run's rows. Any later update changes `xmin` too. A row old
- * enough to be frozen no longer matches and is reported, not touched.
+ * across runs and a 32-bit transaction id repeats after about four billion
+ * transactions, so the before-image also holds the 64-bit `txid`, and revert
+ * refuses a file more than 2^31 transactions old (or from the future). Inside
+ * that window two runs never share an `xmin`, so a run that rolled back never
+ * matches a later run's rows. Any later update changes `xmin` too. Freezing
+ * keeps the original `xmin`, so an old row still matches.
  */
 const stamp = (column: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || '#' || xmin::text`;
@@ -88,6 +91,8 @@ const settingsValues = z.object({
 export const beforeImageSchema = z.object({
   version: z.literal(1),
   migration_id: z.string(),
+  /** `txid_current()` of the writing transaction; bounds how long `xmin` identifies it. */
+  txid: z.string().regex(/^\d+$/),
   created_at: z.string(),
   /** Rows the run inserted. Before the run there was no row. */
   agent_rows: z.array(
@@ -245,7 +250,21 @@ export function planAgentRows(
   return { rows, skipped };
 }
 
+/**
+ * Workspaces whose ceiling allows nothing: no settings row, a NULL ceiling,
+ * or one this image cannot read. Design 5.1a's 'NULL workspaces: 0'.
+ */
+export function unsetCeilings(snapshot: Snapshot): string[] {
+  const { ceilingOf } = repositoryContext(snapshot);
+  return snapshot.workspaces
+    .filter((workspace) => ceilingOf.get(workspace.id)?.state !== "valid")
+    .map((workspace) => workspace.id)
+    .sort();
+}
+
 export type Plan = {
+  /** Workspaces whose ceiling is NULL, missing or unreadable before the write. */
+  ceiling_unset: string[];
   report: Report;
   agent_rows: AgentRowPlan[];
   agent_rows_skipped: Skipped[];
@@ -261,6 +280,7 @@ export function buildPlan(
   const report = buildReport(snapshot, null, now);
   const { rows, skipped } = planAgentRows(snapshot, releases);
   return {
+    ceiling_unset: unsetCeilings(snapshot),
     report,
     agent_rows: rows,
     agent_rows_skipped: skipped,
@@ -284,6 +304,13 @@ export function planMigration(pool: Pool, now: Date = new Date()) {
 
 // ---------------------------------------------------------------------- apply
 
+const txidOf = async (tx: Tx): Promise<string> =>
+  (
+    (await tx.execute(sql`SELECT txid_current()::text AS txid`)) as unknown as {
+      rows: Array<{ txid: string }>;
+    }
+  ).rows[0]?.txid ?? "";
+
 /** `Tx` as the report's reader expects a client. */
 const asClient = (tx: Tx): PoolClient =>
   ({
@@ -300,6 +327,8 @@ export type ApplyResult = {
   before_image: string | null;
   plan: Plan;
   agent_rows_written: string[];
+  /** Workspaces with no usable ceiling, counted in the same transaction. */
+  ceiling_unset: { before: number; after: number };
   workspaces: Array<{
     workspace_id: string;
     changed: boolean;
@@ -334,6 +363,7 @@ export async function applyMigration(
       await tx.execute(
         sql`SELECT id FROM agents WHERE active_release_id IS NOT NULL ORDER BY id FOR UPDATE`,
       );
+      const txid = await txidOf(tx);
       const client = asClient(tx);
       const plan = await readPlan(client, now);
       const beforeSets = allowedOf(await readSnapshot(client));
@@ -409,7 +439,14 @@ export async function applyMigration(
       }
 
       // What the database now allows must be what the report promised.
-      const afterSets = allowedOf(await readSnapshot(client));
+      const afterSnapshot = await readSnapshot(client);
+      const afterSets = allowedOf(afterSnapshot);
+      const unsetAfter = unsetCeilings(afterSnapshot);
+      if (unsetAfter.length > 0) {
+        throw new Error(
+          `${unsetAfter.length} workspace(s) still have no ceiling after the write`,
+        );
+      }
       for (const workspace of plan.report.workspaces) {
         const promised = workspace.ceiling_after_ids.map((entry) => entry.id);
         const got = afterSets.get(workspace.workspace_id) ?? [];
@@ -425,6 +462,7 @@ export async function applyMigration(
         await writeBeforeImage(beforeImagePath, {
           version: 1,
           migration_id: migrationId,
+          txid,
           created_at: runStamp,
           agent_rows: agentRows,
           workspace_ceilings: ceilings,
@@ -436,6 +474,10 @@ export async function applyMigration(
         before_image: changes > 0 ? beforeImagePath : null,
         plan,
         agent_rows_written: agentRows.map((row) => row.agent_id),
+        ceiling_unset: {
+          before: plan.ceiling_unset.length,
+          after: unsetAfter.length,
+        },
         workspaces: plan.report.workspaces.map((workspace) => ({
           workspace_id: workspace.workspace_id,
           changed: changed.get(workspace.workspace_id) ?? false,
@@ -472,6 +514,13 @@ export async function revertMigration(
   const db = drizzle(pool, { schema });
   return db.transaction(
     async (tx) => {
+      // `xmin` identifies the writing transaction only within half the id space.
+      const age = BigInt(await txidOf(tx)) - BigInt(image.txid);
+      if (age < 0n || age >= 2n ** 31n) {
+        throw new Error(
+          `before-image ${image.migration_id} is too old or from another database; not reverting`,
+        );
+      }
       const result: RevertResult = {
         migration_id: image.migration_id,
         agent_rows: [],
@@ -599,6 +648,7 @@ export function summarizeApply(result: ApplyResult): string[] {
     `migration ${result.migration_id}: ${result.changes} change(s)`,
     `agent rows written: ${result.agent_rows_written.length}, skipped: ${result.plan.agent_rows_skipped.length}`,
     `workspace ceilings written: ${widened} of ${result.workspaces.length}`,
+    `workspaces without a ceiling: ${result.ceiling_unset.before} before, ${result.ceiling_unset.after} after`,
     `unattributed values (reported, not written): ${result.plan.report.unattributed.length}`,
     `before-image: ${result.before_image ?? "none (nothing changed)"}`,
   ];

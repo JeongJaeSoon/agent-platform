@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
@@ -300,8 +306,12 @@ integration("the repository migration write", () => {
       "pin_unreadable",
     ]);
 
+    // B's ceiling is NULL and C has no settings row: both are counted
+    expect(plan.ceiling_unset).toEqual([f.ids.b, f.ids.c].sort());
+
     const path = f.file("apply");
     const result = await applyMigration(f.pool, path, T0);
+    expect(result.ceiling_unset).toEqual({ before: 2, after: 0 });
     expect(result.changes).toBeGreaterThan(0);
     expect(existsSync(path)).toBe(true);
     expect(existsSync(`${path}.partial`)).toBe(false);
@@ -398,6 +408,7 @@ integration("the repository migration write", () => {
     const second = f.file("two");
     const again = await applyMigration(f.pool, second, T1);
     expect(again.changes).toBe(0);
+    expect(again.ceiling_unset).toEqual({ before: 0, after: 0 });
     expect(again.before_image).toBeNull();
     expect(existsSync(second)).toBe(false);
     expect(await f.settingsDump()).toEqual(settings);
@@ -482,6 +493,53 @@ integration("the repository migration write", () => {
     ).toBe(true);
     expect(await f.settingsDump()).toEqual(settings);
     expect(await f.ceilingDump()).toEqual(ceilings);
+  }, 60_000);
+
+  test("an update that keeps every value still stops the revert", async () => {
+    const f = await fixture();
+    const path = f.file("same-values");
+    await applyMigration(f.pool, path, T0);
+    // same value, same revision, same timestamp: only the writing transaction differs
+    await f.pool.query(
+      "UPDATE agent_github_settings SET push_approval = push_approval, updated_at = updated_at WHERE agent_id = $1",
+      [f.agents.a1?.agentId],
+    );
+    await f.pool.query(
+      "UPDATE github_workspace_settings SET repository_ceiling = repository_ceiling, updated_at = updated_at WHERE workspace_id = $1",
+      [f.ids.b],
+    );
+    const reverted = await revertMigration(f.pool, path);
+    expect(
+      reverted.agent_rows.find((r) => r.agent_id === f.agents.a1?.agentId)
+        ?.outcome,
+    ).toBe("changed_since");
+    expect(
+      reverted.workspace_ceilings.find((c) => c.workspace_id === f.ids.b)
+        ?.outcome,
+    ).toBe("changed_since");
+    expect(await f.rowOf("a1")).toBeDefined();
+    expect((await f.rowOf("a3")) === undefined).toBe(true);
+  }, 60_000);
+
+  test("a before-image from another database or too long ago is refused", async () => {
+    const f = await fixture();
+    const path = f.file("old");
+    await applyMigration(f.pool, path, T0);
+    const image = JSON.parse(readFileSync(path, "utf8"));
+    // A transaction id ahead of this database's. (One 2^31 behind needs a
+    // database that old; the same bound refuses it.)
+    const tampered = f.file("tampered");
+    writeFileSync(tampered, JSON.stringify({ ...image, txid: "999999999999" }));
+    const before = await f.settingsDump();
+    await expect(revertMigration(f.pool, tampered)).rejects.toThrow(
+      /too old or from another database/,
+    );
+    expect(await f.settingsDump()).toEqual(before);
+    // the untouched file still reverts
+    const reverted = await revertMigration(f.pool, path);
+    expect(reverted.agent_rows.some((r) => r.outcome === "reverted")).toBe(
+      true,
+    );
   }, 60_000);
 
   test("a failed before-image write rolls everything back", async () => {
