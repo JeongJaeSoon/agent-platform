@@ -462,10 +462,12 @@ function scan(text: string): Scanned {
       .map((part) => part.text.replace(/(`+)[^`]*?\1/g, " "))
       .join(" ");
     // A tag split over lines hides what follows it from every line-wise scan.
-    if (hasLooseTag(seen)) unbalanced = true;
-    for (const match of seen.matchAll(OPEN_ENDED)) {
-      if (!escaped(seen, match.index)) unbalanced = true;
-    }
+    const shown = row.parts
+      .filter((part) => !part.comment)
+      .map((part) => part.text)
+      .join(" ");
+    if (hasLooseTag(shown)) unbalanced = true;
+    if (new RegExp(OPEN_ENDED).test(shown)) unbalanced = true;
     // Whether text in a code span or fence is code or markup depends on the
     // renderer's block rules; an element named there is not judged, it rejects.
     const code = row.parts
@@ -542,18 +544,12 @@ const AUTOLINK =
 
 /**
  * Whether `text` has a tag that is not in plain form (cut off, with a quote
- * or `>` where the scan and a renderer may read it differently). Code spans,
- * autolinks and plain tags are set aside first; an escaped `<` is text.
+ * or `>` where the scan and a renderer may read it differently). Autolinks and
+ * plain tags are set aside first. Neither a code span nor a backslash is
+ * trusted: inside an HTML block a renderer honours neither.
  */
 function hasLooseTag(text: string): boolean {
-  const rest = text
-    .replace(/(`+)[^`]*?\1/g, " ")
-    .replace(AUTOLINK, " ")
-    .replace(PLAIN_TAG, " ");
-  for (const match of rest.matchAll(/<[A-Za-z/]/g)) {
-    if (!escaped(rest, match.index)) return true;
-  }
-  return false;
+  return /<[A-Za-z/]/.test(text.replace(AUTOLINK, " ").replace(PLAIN_TAG, " "));
 }
 
 function escaped(line: string, index: number): boolean {

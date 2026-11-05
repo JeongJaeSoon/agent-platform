@@ -700,15 +700,18 @@ describe("markup the scan and a renderer could read differently", () => {
       "## Testing\n\n<noscript>\n",
       "## Testing\n\n<iframe>\n",
       "## Testing\n\n<template>\n",
+      // Inside an HTML block neither a backslash nor a code span hides a tag.
+      '<div>\n</div>\n\\<span title="<!--"> <details> -->">\n\n## Summary',
+      '<div>\n`<span title="`<!--"> <details> -->">\n\n## Summary',
+      "Use `<img` <!-- note -->\n\n## Summary",
+      "## Summary\nUse \\<Type here.",
+      "## Summary\nA \\<?x is text.",
     ]) {
       expect(prepareTemplate(text)).toBeNull();
     }
     for (const text of [
       "<details>\n<summary>More</summary>\n\n- [ ] a\n</details>\n\n## Summary",
       '<div align="center">\n\n![logo](x.png)\n</div>\n## Summary',
-      "## Summary\nUse \\<Type here and <br> too.",
-      "## Summary\nA \\<?x and \\<!x are text.",
-      "Use `<img` <!-- note -->\n\n## Summary",
       '<img src = "a.png">\n\n## Summary',
       '<img src="a.png"> <!-- note -->\na < b <!-- x -->\n<br/><!-- x -->\n<https://example.com> <me@example.com>',
       "<details>\n<summary>More</summary>\n<table>\n<tr><td>a</td></tr>\n</table>\n</details>\n## Summary",
