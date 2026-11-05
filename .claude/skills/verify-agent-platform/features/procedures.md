@@ -777,7 +777,7 @@ ap_compose logs slack | grep -E 'Slack event claimed|Slack inbox pass'
 
 기대: challenge 200 `challenge:"verify-challenge"`; bad/stale 401 `UNAUTHORIZED`; 서명은 맞지만 JSON이 틀리면 400 `BAD_REQUEST`. event/duplicate/bot 모두 200 `ok:true`. EvVerify1은 한 행뿐이다. slack loop가 처리하면 status processed, attempts 1, claim_clear·lease_clear true. EvVerifyBot은 dropped, drop_reason bot_message, attempts 0. SQL이 received를 보여도 완료로 보고하지 않는다. 다음 pass 뒤 재조회한다. 로그 “Slack event claimed”와 “Slack inbox pass”의 claimed/processed를 실제 출력으로 확인한다.
 
-claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. 이 짧은 no-op handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. 현재 no-op이므로 Slack 메시지에서 세션 생성·승인·답장까지 기대하지 않는다. 이 흐름의 검증은 Slack 메시지 처리 기능 구현 후에 진행한다.
+claim은 thread head를 DB advisory lock·SKIP LOCKED로 직렬화하고 lease가 살아 있는 thread 뒤 이벤트를 막는다. complete/fail은 claim_token과 DB now()로 fence하며 만료 claim은 재시도, 최대 5회 뒤 failed다. 이 짧은 no-op handler의 성공 경로만으로 lease 만료·경합·실패 복구를 검증했다고 보고하지 않는다. 전제는 handler를 지연/실패시키는 제어 가능한 실행 환경이다. 해당 경합 증거는 `packages/db/src/slack-inbound-claims.test.ts`의 실제 PostgreSQL 테스트로 따로 수집한다. slack role의 handler는 더 이상 no-op이 아니다. 채널 binding과 연결된 계정이 맞으면 멘션이 세션을 열고(P-SLACK-MENTION-ONLY), 세션이 기다리는 요청은 카드로 게시되며 그 카드의 버튼은 서명된 interaction으로 처리된다(P-SLACK-APPROVAL-CLICK). 이 절차는 서명·inbox·claim 상태만 본다.
 
 ## P-SLACK-REVOKED — 앱 제거 뒤 연결 해제와 재설치
 
@@ -828,6 +828,36 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref 
 기대: binding PUT 200, 옛 값 `mention`은 400(`expected one of "off"|"on"`). 이벤트는 모두 200 `ok:true`이고 `slack_inbound_events`는 processed. session_links는 `<SUP>:1792800002.000001`(멘션)과 `<SUP>:1792800004.000001`(꺼진 뒤 멘션 없는 글) 둘뿐이다. 1(켜짐인데 멘션 없음), 3·5(사용 꺼진 채널)는 세션을 열지 않는다. `slack-event`의 `mention`·`plain`은 `[channel seq]`를 받아 seq마다 새 event id와 thread를 만든다. `plain`은 `channel_type: channel`이라 비공개 채널(G…)에 보내면 채널 종류 불일치로 거절된다. 2026-10-28 run `20261028-193529-12255`에서 이 순서로 확인했다.
 
 스레드 답글은 `reply <channel> <seq> <parent seq>`로 보낸다(멘션 없는 `message`, `thread_ts`는 parent seq의 글). 위 2(멘션)의 스레드에 `reply "$SUP" 3 2`를 보내면 `mention_only`가 켜져 있어도 그 세션의 turn 2가 된다(대화 중인 스레드는 멘션 없이 잇는다). 세션이 없는 1의 스레드에 `reply "$SUP" 4 1`은 켜짐·꺼짐 모두 무시된다. turn 수는 `select l.thread_id, (select count(*) from turns t where t.session_id=l.session_id) from session_links l`로 읽는다. 2026-10-30 run `20261030-125330-13372`에서 켜짐·꺼짐 각각 확인했다.
+
+## P-SLACK-APPROVAL-CLICK — Slack 스레드 세션의 승인 카드를 눌러 처리
+
+전제: P-SLACK-SETUP과 owner의 Slack 계정(`U0MOCK`) 연결([musterrolle.md](musterrolle.md) c의 4를 owner로), 에이전트 활성화, `C0SUP`에 `home` binding(P-SLACK-MENTION-ONLY의 첫 PUT). worker 슬롯이 기본 3개이고 idle 세션도 슬롯을 쥔다. 세션이 `queued`에 머물면 이미 끝난 세션을 `POST /v1/sessions/{id}/terminate`(`expected_revision`)로 닫는다. 서명은 mock이 자기 앱 secret으로 만든다. helper는 secret도 컨테이너 환경도 읽지 않는다.
+
+```sh
+# Actor: owner. 세션 허용: 같은 규칙의 다음 호출은 카드 없이 지나간다.
+ap_as owner
+SPEC='GATE-SPEC {"id":"s2","steps":[{"tool":"Bash","input":{"command":"touch a.txt","description":"touch a"}},{"tool":"Bash","input":{"command":"touch a.txt","description":"touch a"}}],"final":"done"}'
+node "$U" "$RUN" slack-event "$AID" mention C0SUP 11 "" "run $SPEC"
+node "$U" "$RUN" slack-cards "$AID"                      # 카드 한 장: permission.allow·allow_session·deny
+node "$U" "$RUN" slack-click "$AID" allow-session
+node "$U" "$RUN" slack-cards "$AID"                      # 그 카드의 last_update가 "이 세션 동안 허용됨", 카드 수는 그대로
+ap_compose exec -T postgres psql -U postgres -d sessions -c "select answer->>'remember' remember, settled_answer_result, payload->'remember_offer' from pending_requests where tool='Bash' order by created_at"
+# 대조: 일반 허용은 다음 호출에 카드가 다시 온다.
+node "$U" "$RUN" slack-event "$AID" mention C0SUP 12 "" "run $SPEC"     # 명령만 touch b.txt로
+node "$U" "$RUN" slack-click "$AID" allow
+node "$U" "$RUN" slack-cards "$AID"                      # 같은 스레드에 두 번째 카드
+# push 승인: 세션 허용 뒤에도 push 카드는 따로 온다.
+node "$U" "$RUN" key owner personal sessions:read,sessions:write,sessions:approve; ap_as owner
+ap_post "/v1/sessions/$SID/push-requests" '{}'            # SID는 commit 대본(P-GITHUB-SANDBOX 4의 SPEC)이 끝난 Slack 세션
+node "$U" "$RUN" slack-cards "$AID"                      # push.approve·push.reject 카드
+node "$U" "$RUN" slack-click "$AID" push-approve
+node "$U" "$RUN" slack-cards "$AID"                      # last_update가 "push 승인됨"
+node "$U" "$RUN" slack-click-bad "$AID"                  # 401 UNAUTHORIZED
+```
+
+기대: `slack-event`는 200 `ok:true`, 카드는 스레드마다 새로 온다(몇 초 걸린다. 필요하면 `slack-cards`를 다시). `slack-click`은 `{"ok":true,"status":200,"body":{"ok":true}}`. `pending_requests`에는 `remember: session`, `settled_answer_result: applied`, `remember_offer: [{"tool_name":"Bash","rule_content":"touch a.txt"}]` 한 행뿐이고(두 번째 호출은 요청이 없다) 세션은 turn 1 `completed`로 idle이 된다. 일반 허용은 카드가 `허용됨`으로 바뀌고 두 번째 카드가 온다. push 카드를 누르면 카드가 `push 승인됨`으로 바뀌고 push 요청은 `approved`를 지나 처리된다. GitHub 자격이 없는 기본 mock run에서는 `failed`(`no_push_credential`)로 끝나는 것이 정상이다. 틀린 서명은 401 `UNAUTHORIZED`.
+
+주의: 명령에 `>` 같은 리다이렉션이 있으면(`echo alpha > hello.txt`) 엔진이 제안한 규칙(`echo alpha *`)이 그 명령 자체를 덮지 못해, 카드가 `이 세션 동안 허용됨`으로 바뀐 뒤에도 같은 호출에 카드가 다시 온다. 세션 허용을 증명하는 대본은 리다이렉션 없는 명령을 쓴다. 실제 SDK에 간 `updatedPermissions`는 worker 로그에 남지 않는다. 증거는 `pending_requests`의 `remember: session`·`applied`와 다음 호출에 요청이 없다는 사실이다. release에 `github` 설정(`push_approval`)을 넣으려면 GitHub App 등록이 필요해(`app_required`) 기본 mock run은 설정 없는 release, 곧 사람이 매 push를 승인하는 기본값으로 본다.
 
 ## P-GITHUB-SANDBOX — 실제 GitHub 별도 run
 
