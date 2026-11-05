@@ -243,7 +243,9 @@ describe("GridTable framed", () => {
     expect(label.textContent).toBe("관리");
     expect(label.classList.contains("text-center")).toBe(true);
     expect(
-      label.classList.contains("min-w-[var(--ap-row-action-button-min-width)]"),
+      label.classList.contains(
+        "min-w-[var(--werft-row-action-button-min-width)]",
+      ),
     ).toBe(true);
     const name = getByRole("columnheader", { name: "이름" });
     expect(name.hasAttribute("data-action")).toBe(false);

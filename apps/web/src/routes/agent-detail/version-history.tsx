@@ -34,7 +34,7 @@ export function VersionHistory({ detail }: { readonly detail: AgentDetail }) {
   return (
     // Folded: the card tab leads with the card, not its past.
     <details
-      className="group flex flex-col gap-[var(--ap-space-block)]"
+      className="group flex flex-col gap-[var(--werft-space-block)]"
       aria-labelledby={titleId}
     >
       <summary className="flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-control [&::-webkit-details-marker]:hidden">

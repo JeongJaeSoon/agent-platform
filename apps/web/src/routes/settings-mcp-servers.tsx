@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
 import type { SettingsMcpServer } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Button,
   Code,
@@ -61,7 +61,7 @@ export const slugList = (text: string): string[] =>
 
 export function McpServersScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const owns = useHasPermission("installation.settings.manage");
   const servers = useQuery(settingsMcpServersQuery(client, owns));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -94,7 +94,7 @@ export function McpServersScreen() {
         </Button>
       }
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {servers.isPending ? (
           <Skeleton width="60%" />
         ) : servers.isError ? (
@@ -182,7 +182,7 @@ function McpRow({
   return (
     <GridTableRow>
       <GridTableCell>
-        <div className="flex min-w-0 flex-col items-start gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col items-start gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <NarrowState state={item.state} />
           <Text
@@ -195,7 +195,7 @@ function McpRow({
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.url}</Code>
           <Text as="span" variant="meta" className="wrap-anywhere">
             {t("settings.mcp.tools")} <Code>{mcpToolNamespace(item.id)}</Code>
@@ -203,7 +203,7 @@ function McpRow({
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.credential_ref}</Code>
           <Text as="span" variant="meta" className="wrap-anywhere">
             {credentialText(t, item.credential)}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import type { AgentCard, AgentDetail, AgentVersion } from "@werft-ai/contracts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "@werft-ai/contracts/agent-card";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertActions,
@@ -69,7 +69,7 @@ export function CardEditor({
   readonly onClose: (cancelled: boolean) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const latest = latestVersion(detail);

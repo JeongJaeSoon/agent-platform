@@ -7,7 +7,7 @@ description: "SessionList와 SessionDetail로 세션 목록과 세션 화면을 
 
 ## 블록이 API를 부르는 방식
 
-블록은 `@werft-ai/client`의 클라이언트로 같은 origin의 `/v1`을 부르고, 웹 콘솔의 로그인 cookie로 인증한다. cookie 요청에 필요한 CSRF 헤더(`X-Requested-With: agent-platform-web`)는 클라이언트가 붙인다. 그래서 다음이 필요하다.
+블록은 `@werft-ai/client`의 클라이언트로 같은 origin의 `/v1`을 부르고, 웹 콘솔의 로그인 cookie로 인증한다. cookie 요청에 필요한 CSRF 헤더(`X-Requested-With: werft-web`)는 클라이언트가 붙인다. 그래서 다음이 필요하다.
 
 - 앱과 API가 같은 origin이어야 한다. 개발 중에는 Vite의 `server.proxy`가 `/v1`을 스택으로 넘긴다([설치](/ui/install)의 `vite.config.ts`).
 - 브라우저가 로그인돼 있어야 한다. cookie는 포트를 가리지 않으므로, 같은 브라우저로 `http://127.0.0.1:3000` 웹 콘솔에 로그인하면 `http://127.0.0.1:5173`의 앱 요청에도 그 cookie가 간다.
@@ -19,7 +19,7 @@ description: "SessionList와 SessionDetail로 세션 목록과 세션 화면을 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createApiClient } from "@werft-ai/client";
 import {
-  AgentPlatformProvider,
+  WerftProvider,
   QueryScopeProvider,
   queryScopeOf,
   type RenderLink,
@@ -56,7 +56,7 @@ function SignedIn({ children }: { children: ReactNode }) {
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="ko"
         renderLink={renderLink}
@@ -75,13 +75,13 @@ createRoot(document.getElementById("root") as HTMLElement).render(
             )}
           </SignedIn>
         </main>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   </StrictMode>,
 );
 ```
 
-- `AgentPlatformProvider`는 블록과 hook이 읽는 클라이언트, 언어(`ko`, `ja`, `en`), 링크 함수를 둔다. `QueryClientProvider` 안에 놓는다.
+- `WerftProvider`는 블록과 hook이 읽는 클라이언트, 언어(`ko`, `ja`, `en`), 링크 함수를 둔다. `QueryClientProvider` 안에 놓는다.
 - 블록은 로그인한 사람과 워크스페이스별로 캐시한다. `SignedIn`처럼 `useMe()`의 응답을 `queryScopeOf`로 바꿔 `QueryScopeProvider`에 넘기고, 블록은 그 안에 둔다. 밖에 두면 블록이 첫 렌더에서 오류를 낸다. 로그인 전이라 `useMe()`가 401로 실패하면 블록 대신 `renderError`로 다시 시도를 보인다. 다른 사람이 로그인해 범위가 바뀌면 그 안의 트리를 새로 그리고 이전 사람의 캐시를 지운다.
 - `renderLink`는 블록이 세션으로 가는 링크를 그릴 때 부른다. URL은 앱이 정한다. 라우터를 쓰는 앱이면 그 라우터의 `Link`를 돌려준다.
 - `loading`과 `renderError`는 블록마다 받는다. 문구도 앱의 것이다.

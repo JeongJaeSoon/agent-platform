@@ -27,9 +27,9 @@ import {
   formAlerts,
   type StepForm,
   submitStep,
-  useAgentPlatform,
   useStepForm,
   useStepper,
+  useWerft,
 } from "@werft-ai/react";
 import {
   Alert,
@@ -252,7 +252,7 @@ export function NewAgentFlow({
   readonly refuse: (error: unknown) => string;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const owner = flowOwner(client);
   const [newFlow] = useState(() => `${owner}${crypto.randomUUID()}`);
@@ -471,7 +471,7 @@ export function NewAgentFlow({
   };
 
   return (
-    <div className="flex flex-col gap-[var(--ap-space-block)]">
+    <div className="flex flex-col gap-[var(--werft-space-block)]">
       <FunnelResetNotice funnel={funnel} />
       <Stepper label={t("agents.flow.label")} {...stepper} steps={steps} />
       <funnel.Render
@@ -793,7 +793,7 @@ function ReleaseStep({
   readonly refuse: (error: unknown) => string;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const agent = useQuery(agentQuery(client, agentId));
   const profiles = useQuery(profilesQuery(client));
   const cardModel = agent.data?.versions.find((v) => v.id === versionId)?.card
@@ -857,7 +857,7 @@ function ReleaseForm({
   readonly refuse: (error: unknown) => string;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const runsCard = (profile: ProfileSummary) =>
     cardModel === undefined || profile.models.includes(cardModel);
@@ -977,7 +977,7 @@ function ActivateStep({
   readonly onNext: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const agent = useQuery(agentQuery(client, agentId));
   const activate = useMutation<ActivateAgentResponse, unknown, number>({

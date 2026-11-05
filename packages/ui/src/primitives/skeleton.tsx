@@ -43,7 +43,7 @@ export function Skeleton({
     // <output> carries role="status" natively, so a screen reader hears the
     // label politely without a redundant aria-live.
     <output
-      className={cn("ap-skeleton", className)}
+      className={cn("werft-skeleton", className)}
       data-shape={shape}
       data-inline={inline || undefined}
       data-animated={reducedMotion ? undefined : "true"}
@@ -53,9 +53,9 @@ export function Skeleton({
     >
       {bars.map((index) => (
         // Placeholder bars have no identity beyond their position.
-        <span key={index} className="ap-skeleton__bar" />
+        <span key={index} className="werft-skeleton__bar" />
       ))}
-      <span className="ap-visually-hidden">{label}</span>
+      <span className="werft-visually-hidden">{label}</span>
     </output>
   );
 }

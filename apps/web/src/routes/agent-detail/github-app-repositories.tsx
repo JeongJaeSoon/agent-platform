@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { type ApiError, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { FieldError, Heading, RowAction, Text } from "@werft-ai/ui";
 import { useEffect, useId, useState } from "react";
 import { LoadFailure } from "../../components/load-failure.tsx";
@@ -38,7 +38,7 @@ export function AppRepositoryPicker({
   readonly onPicked: (catalogId: string, name: string) => Promise<unknown>;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const titleId = useId();
   const [installation, setInstallation] = useState<number | undefined>();
   const [page, setPage] = useState(1);

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type ApiKeyView,
-  apiErrorResponseSchema,
   createApiKeyResponseSchema,
   listApiKeysResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -12,6 +11,7 @@ import {
   InvalidCursorError,
   SessionServiceError,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerApiKeyRoutes } from "./api-keys.ts";
 
@@ -51,10 +51,6 @@ function app(service: Partial<ApiKeyService>) {
     registerRoutes: (router) =>
       registerApiKeyRoutes(router, service as ApiKeyService),
   });
-}
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
 }
 
 function create(api: ReturnType<typeof app>, body: unknown) {

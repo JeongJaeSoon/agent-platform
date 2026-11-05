@@ -402,7 +402,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "Open, or return the already open, pull request from the branch and commit of a pushed push request (\`push_request_id\`).",
+    "description": "Open, or return the already open, pull request from the branch and commit of a pushed push request (\`push_request_id\`). Content fields: \`title\`; \`summary\` (what changed and why, a few sentences); \`changes\` (one change per item); \`rationale\` (the reason for the change); \`testing\` (how it was checked); \`notes\` (what a reviewer needs to know); \`related\` (issues: \`number\`, optional \`repository_id\`, \`closes\` to close it on merge). \`body\` is the legacy single text and cannot be combined with the fields above.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -411,9 +411,60 @@ exports[`tools/list every tool has a description of its fields and an outputSche
           "maxLength": 60000,
           "type": "string",
         },
+        "changes": {
+          "items": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 50,
+          "type": "array",
+        },
+        "notes": {
+          "maxLength": 8000,
+          "type": "string",
+        },
         "push_request_id": {
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "rationale": {
+          "maxLength": 8000,
+          "type": "string",
+        },
+        "related": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "closes": {
+                "type": "boolean",
+              },
+              "number": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "repository_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "number",
+            ],
+            "type": "object",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "summary": {
+          "maxLength": 8000,
+          "type": "string",
+        },
+        "testing": {
+          "maxLength": 8000,
           "type": "string",
         },
         "title": {
@@ -441,6 +492,42 @@ exports[`tools/list every tool has a description of its fields and an outputSche
             "result": {
               "additionalProperties": false,
               "properties": {
+                "body_source": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "repository",
+                            "workspace",
+                            "agent",
+                            "platform",
+                          ],
+                          "type": "string",
+                        },
+                        "path": {
+                          "type": "string",
+                        },
+                        "related_dropped": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer",
+                        },
+                        "skipped": {
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "kind",
+                      ],
+                      "type": "object",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
                 "created": {
                   "type": "boolean",
                 },
@@ -511,6 +598,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
               "required": [
                 "pull_request",
                 "created",
+                "body_source",
                 "receipt_id",
               ],
               "type": "object",
@@ -575,7 +663,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "Set the title, the body or both of the pull request that the push request's branch has open. The platform's closing lines stay, naming the push request's commit.",
+    "description": "Set the title or the content of the pull request that the push request's branch has open. Given any of \`summary\`, \`changes\`, \`rationale\`, \`testing\`, \`notes\` or \`related\`, the body is written again from those fields (a field left out is empty); \`body\` (legacy) replaces the body as text; \`title\` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -584,9 +672,60 @@ exports[`tools/list every tool has a description of its fields and an outputSche
           "maxLength": 60000,
           "type": "string",
         },
+        "changes": {
+          "items": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 50,
+          "type": "array",
+        },
+        "notes": {
+          "maxLength": 8000,
+          "type": "string",
+        },
         "push_request_id": {
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "rationale": {
+          "maxLength": 8000,
+          "type": "string",
+        },
+        "related": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "closes": {
+                "type": "boolean",
+              },
+              "number": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "repository_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "number",
+            ],
+            "type": "object",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "summary": {
+          "maxLength": 8000,
+          "type": "string",
+        },
+        "testing": {
+          "maxLength": 8000,
           "type": "string",
         },
         "title": {
@@ -614,6 +753,42 @@ exports[`tools/list every tool has a description of its fields and an outputSche
             "result": {
               "additionalProperties": false,
               "properties": {
+                "body_source": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "repository",
+                            "workspace",
+                            "agent",
+                            "platform",
+                          ],
+                          "type": "string",
+                        },
+                        "path": {
+                          "type": "string",
+                        },
+                        "related_dropped": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer",
+                        },
+                        "skipped": {
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "kind",
+                      ],
+                      "type": "object",
+                    },
+                    {
+                      "type": "null",
+                    },
+                  ],
+                },
                 "pull_request": {
                   "additionalProperties": false,
                   "properties": {
@@ -680,6 +855,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
               },
               "required": [
                 "pull_request",
+                "body_source",
                 "receipt_id",
               ],
               "type": "object",
@@ -1432,7 +1608,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "Read a workflow run of the session's repository.",
+    "description": "Read a workflow run of the session's repository. \`wait_seconds\` (0 to 7, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -1440,6 +1616,11 @@ exports[`tools/list every tool has a description of its fields and an outputSche
         "run_id": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "wait_seconds": {
+          "maximum": 7,
+          "minimum": 0,
           "type": "integer",
         },
       },
@@ -1467,6 +1648,9 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     "string",
                     "null",
                   ],
+                },
+                "final": {
+                  "type": "boolean",
                 },
                 "head_branch": {
                   "type": [
@@ -1500,6 +1684,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                 "status",
                 "conclusion",
                 "html_url",
+                "final",
               ],
               "type": "object",
             },
@@ -1933,7 +2118,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
     },
   },
   {
-    "description": "Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. Attaching an attached repository changes nothing.",
+    "description": "Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to 7, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -1942,6 +2127,11 @@ exports[`tools/list every tool has a description of its fields and an outputSche
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
+        },
+        "wait_seconds": {
+          "maximum": 7,
+          "minimum": 0,
+          "type": "integer",
         },
       },
       "required": [
@@ -1993,6 +2183,9 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                     },
                   ],
                 },
+                "final": {
+                  "type": "boolean",
+                },
                 "receipt_id": {
                   "type": [
                     "string",
@@ -2020,6 +2213,7 @@ exports[`tools/list every tool has a description of its fields and an outputSche
                 "failure",
                 "already_attached",
                 "receipt_id",
+                "final",
               ],
               "type": "object",
             },

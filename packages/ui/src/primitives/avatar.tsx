@@ -13,7 +13,7 @@ export const avatarVariants = cva(
         lg: "size-8 text-caption",
         // Beside a 20px line over a 16px one, spanning both; pinned to the
         // first line when the text wraps past two.
-        "two-line": "size-(--ap-size-tile-two-line) self-start text-control",
+        "two-line": "size-(--werft-size-tile-two-line) self-start text-control",
       },
       shape: {
         circle: "rounded-full",
@@ -21,10 +21,10 @@ export const avatarVariants = cva(
       },
       tone: {
         default: "bg-active text-muted-foreground",
-        1: "bg-(color:--ap-avatar-1-bg) text-(color:--ap-avatar-1-fg)",
-        2: "bg-(color:--ap-avatar-2-bg) text-(color:--ap-avatar-2-fg)",
-        3: "bg-(color:--ap-avatar-3-bg) text-(color:--ap-avatar-3-fg)",
-        4: "bg-(color:--ap-avatar-4-bg) text-(color:--ap-avatar-4-fg)",
+        1: "bg-(color:--werft-avatar-1-bg) text-(color:--werft-avatar-1-fg)",
+        2: "bg-(color:--werft-avatar-2-bg) text-(color:--werft-avatar-2-fg)",
+        3: "bg-(color:--werft-avatar-3-bg) text-(color:--werft-avatar-3-fg)",
+        4: "bg-(color:--werft-avatar-4-bg) text-(color:--werft-avatar-4-fg)",
       },
     },
     defaultVariants: { size: "default", shape: "circle", tone: "default" },

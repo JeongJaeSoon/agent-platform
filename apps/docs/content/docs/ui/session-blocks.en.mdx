@@ -7,7 +7,7 @@ A session block reads data from the API and renders one piece of a screen. The a
 
 ## How blocks call the API
 
-A block calls `/v1` on the same origin with the client from `@werft-ai/client`, and authenticates with the web console's login cookie. The client adds the CSRF header that cookie requests need (`X-Requested-With: agent-platform-web`). So the following are required.
+A block calls `/v1` on the same origin with the client from `@werft-ai/client`, and authenticates with the web console's login cookie. The client adds the CSRF header that cookie requests need (`X-Requested-With: werft-web`). So the following are required.
 
 - The app and the API must share an origin. During development, Vite's `server.proxy` forwards `/v1` to the stack (the `vite.config.ts` in [Install](/ui/install)).
 - The browser must be signed in. Cookies do not distinguish ports, so if you sign in to the web console at `http://127.0.0.1:3000` in the same browser, that cookie is also sent with the app's requests at `http://127.0.0.1:5173`.
@@ -19,7 +19,7 @@ A block calls `/v1` on the same origin with the client from `@werft-ai/client`, 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createApiClient } from "@werft-ai/client";
 import {
-  AgentPlatformProvider,
+  WerftProvider,
   QueryScopeProvider,
   queryScopeOf,
   type RenderLink,
@@ -56,7 +56,7 @@ function SignedIn({ children }: { children: ReactNode }) {
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={client}
         locale="ko"
         renderLink={renderLink}
@@ -75,13 +75,13 @@ createRoot(document.getElementById("root") as HTMLElement).render(
             )}
           </SignedIn>
         </main>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   </StrictMode>,
 );
 ```
 
-- `AgentPlatformProvider` holds the client that blocks and hooks read, the language (`ko`, `ja`, `en`), and the link function. Place it inside `QueryClientProvider`.
+- `WerftProvider` holds the client that blocks and hooks read, the language (`ko`, `ja`, `en`), and the link function. Place it inside `QueryClientProvider`.
 - Blocks cache per signed-in person and workspace. As `SignedIn` does, turn the `useMe()` answer into a scope with `queryScopeOf`, pass it to `QueryScopeProvider`, and put the blocks inside it. Outside it, a block throws on its first render. When `useMe()` fails, say with a 401 before sign-in, `renderError` shows a retry in place of the blocks. When someone else signs in and the scope changes, the tree inside is drawn afresh and the previous person's cache is dropped.
 - `renderLink` is called when a block renders a link to a session. The app decides the URL. In an app with a router, return that router's `Link`.
 - `loading` and `renderError` are passed to each block. The wording is also the app's own.

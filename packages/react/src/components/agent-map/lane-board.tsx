@@ -2,7 +2,7 @@ import { Badge, Button, RelativeTime, RowAction, Skeleton } from "@werft-ai/ui";
 import { Bot, ShieldQuestion } from "lucide-react";
 import { type JSX, useId, useRef } from "react";
 
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import { StatusLabel } from "../status/status-label.tsx";
 import { FRESH_CLASS, useArrival } from "./fresh.ts";
 import type { AgentMapMessages } from "./messages.ts";
@@ -39,7 +39,7 @@ export function MapSessionCard({
   messages: override,
 }: MapSessionCardProps): JSX.Element {
   const messages = useAgentMapMessages(override);
-  const { locale } = useAgentPlatform();
+  const { locale } = useWerft();
   const ref = useRef<HTMLButtonElement>(null);
   useArrival(ref, session.fresh);
   return (
@@ -109,9 +109,9 @@ export function MapSessionCard({
 
 // Shared with the strip's stand-in, which must come out the same height.
 const STRIP =
-  "flex flex-col gap-1 rounded-(--radius-card) border border-(color:--ap-tone-attention-border) bg-(color:--ap-tone-attention-bg) p-2";
+  "flex flex-col gap-1 rounded-(--radius-card) border border-(color:--werft-tone-attention-border) bg-(color:--werft-tone-attention-bg) p-2";
 const STRIP_TITLE =
-  "m-0 px-1 font-semibold text-(color:--ap-tone-attention-fg) text-control";
+  "m-0 px-1 font-semibold text-(color:--werft-tone-attention-fg) text-control";
 const STRIP_LIST = "m-0 flex list-none flex-col gap-1 p-0";
 const STRIP_ITEM =
   "flex items-center gap-2 rounded-(--radius-control) bg-card px-2 py-2";
@@ -155,7 +155,7 @@ export function ApprovalStripStandIn({
                 className={`text-caption ${LINE}`}
               />
             </span>
-            <span className="h-(--ap-control-height-sm) w-12 flex-none" />
+            <span className="h-(--werft-control-height-sm) w-12 flex-none" />
           </div>
         ))}
       </div>
@@ -228,7 +228,7 @@ function ApprovalStripItem({
     >
       <ShieldQuestion
         aria-hidden="true"
-        className="size-4 flex-none text-(color:--ap-tone-attention-fg)"
+        className="size-4 flex-none text-(color:--werft-tone-attention-fg)"
       />
       <span id={`${id}-what`} className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-control">{session.pending?.tool}</span>

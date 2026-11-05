@@ -9,6 +9,24 @@ export const PERMISSION_ANSWER_ACTIONS = ["allow", "deny"] as const;
 const permissionActionSchema = z.enum(PERMISSION_ANSWER_ACTIONS);
 
 /**
+ * One permission rule the engine proposed to remember for the session: the
+ * tool, and the part of its input the rule matches when it has one. A rule
+ * the engine would add is always an allow; anything else is dropped before
+ * it is offered.
+ */
+export const rememberRuleSchema = z
+  .object({
+    tool_name: z.string().min(1),
+    rule_content: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** `session`: the engine process keeps the rule until it ends. */
+export const rememberSchema = z.literal("session");
+
+const REMEMBER_NEEDS_ALLOW = "Only an allow can be remembered for the session";
+
+/**
  * A permission answer as stored and handed to the worker. The stored key
  * stays `decision`; the API takes `action` (`postSessionAnswerInputSchema`).
  */
@@ -19,19 +37,35 @@ export const permissionAnswerSchema = z
     decision: permissionActionSchema,
     /** Optional even on a denial; the worker tells the model it was denied. */
     reason: z.string().min(1).optional(),
+    /**
+     * Allow, and keep allowing the rules the request offered until the
+     * session's engine ends. Only with `allow`, and only for a request that
+     * offered rules; a worker that does not announce `approval_remember`
+     * is handed the answer without it.
+     */
+    remember: rememberSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (answer) => answer.remember === undefined || answer.decision === "allow",
+    { message: REMEMBER_NEEDS_ALLOW, path: ["remember"] },
+  );
 
 const permissionAnswerFields = {
   request_id: requestIdSchema,
   kind: z.literal("permission"),
   reason: z.string().min(1).optional(),
+  remember: rememberSchema.optional(),
 };
 
 /** A permission answer from the API. */
 export const permissionAnswerInputSchema = z
   .object({ ...permissionAnswerFields, action: permissionActionSchema })
-  .strict();
+  .strict()
+  .refine(
+    (answer) => answer.remember === undefined || answer.action === "allow",
+    { message: REMEMBER_NEEDS_ALLOW, path: ["remember"] },
+  );
 
 export const questionAnswerSchema = z
   .object({
@@ -161,6 +195,7 @@ export const postSessionAnswerResponseSchema =
   });
 
 export type PermissionAnswer = z.infer<typeof permissionAnswerSchema>;
+export type PendingRememberRule = z.infer<typeof rememberRuleSchema>;
 export type ApprovalRecord = z.infer<typeof approvalRecordSchema>;
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
 export type QuestionsAnswer = z.infer<typeof questionsAnswerSchema>;

@@ -45,7 +45,7 @@ const INSTALL_TOKEN = "integration-install-token-0123456789abc";
 const RECOVERY_TOKEN = "integration-recovery-token-0123456789ab";
 const PASSWORD = "an adequately long password";
 const NEW_PASSWORD = "a different adequately long password";
-const BROWSER = { "X-Requested-With": "agent-platform-web" };
+const BROWSER = { "X-Requested-With": "werft-web" };
 
 integration("account recovery on PostgreSQL", () => {
   const opened: Array<{ pool: Pool; database: TempDatabase }> = [];

@@ -119,7 +119,7 @@ export function FilterMenu({
                   setOpen(false);
                   if (option.value !== value) onValueChange(option.value);
                 }}
-                className="flex h-[var(--ap-control-height)] w-full items-center gap-2 rounded-control border-0 bg-transparent px-2 text-left text-control text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-[-2px]"
+                className="flex h-[var(--werft-control-height)] w-full items-center gap-2 rounded-control border-0 bg-transparent px-2 text-left text-control text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-[-2px]"
               >
                 <Check
                   aria-hidden="true"

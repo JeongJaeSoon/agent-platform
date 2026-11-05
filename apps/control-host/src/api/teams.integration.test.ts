@@ -147,7 +147,7 @@ integration("teams as agent admins over HTTP on PostgreSQL", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Requested-With": "agent-platform-web",
+        "X-Requested-With": "werft-web",
       },
       body: JSON.stringify({ email, password: PASSWORD }),
     });

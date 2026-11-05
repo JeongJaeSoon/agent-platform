@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type PendingQuestion,
+  SLACK_INTERACTION_ACTIONS,
   USER_LOCALE_VALUES,
   type UserLocale,
 } from "@werft-ai/contracts";
@@ -104,6 +105,171 @@ describe("Slack prompt cards", () => {
     }
   });
 
+  describe("allow for the session", () => {
+    const rule = { toolName: "Bash", ruleContent: "git status:*" };
+    const actionsOf = (blocks: unknown[]) =>
+      (
+        blocks.find(
+          (block) => (block as { type: string }).type === "actions",
+        ) as {
+          elements: {
+            action_id: string;
+            text: { text: string };
+            style?: string;
+            confirm?: {
+              title: { type: string; text: string };
+              text: { type: string; text: string };
+            };
+          }[];
+        }
+      ).elements;
+
+    test("no offered rule, no button", () => {
+      for (const locale of ["ko", "ja", "en"] as const) {
+        const { blocks } = slackPromptMessage(permission({ command: "ls" }), {
+          locale,
+          requesterSlackUserId: null,
+        });
+        expect(actionsOf(blocks).map((b) => b.action_id)).toEqual([
+          SLACK_INTERACTION_ACTIONS.permissionAllow,
+          SLACK_INTERACTION_ACTIONS.permissionDeny,
+        ]);
+      }
+    });
+
+    test("an offered rule adds a button between Allow and Deny, with a plain_text confirm naming the rule", () => {
+      const copies = {
+        ko: "이 세션이 끝날 때까지 다음을 묻지 않고 허용해요: Bash(git status:*)",
+        ja: "このセッションが終わるまで、次を確認せずに許可します: Bash(git status:*)",
+        en: "Until this session ends, this is allowed without asking: Bash(git status:*)",
+      } as const;
+      const labels = {
+        ko: "이 세션 동안 허용",
+        ja: "このセッション中は許可",
+        en: "Allow for session",
+      } as const;
+      for (const locale of ["ko", "ja", "en"] as const) {
+        const { blocks } = slackPromptMessage(
+          permission({ command: "git status" }, { rememberOffer: [rule] }),
+          { locale, requesterSlackUserId: null },
+        );
+        const elements = actionsOf(blocks);
+        expect(elements.map((b) => b.action_id)).toEqual([
+          SLACK_INTERACTION_ACTIONS.permissionAllow,
+          SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+          SLACK_INTERACTION_ACTIONS.permissionDeny,
+        ]);
+        const session = elements[1];
+        expect(session?.text.text).toBe(labels[locale]);
+        // Not primary, not danger: Allow stays the one safe default.
+        expect(session?.style).toBeUndefined();
+        expect(session?.confirm?.text).toMatchObject({
+          type: "plain_text",
+          text: copies[locale],
+        });
+        // The card itself names the rule, as plain text, not only the dialog.
+        const hints = (blocks as { type: string; elements?: unknown[] }[])
+          .filter((block) => block.type === "context")
+          .flatMap((block) => block.elements ?? []);
+        expect(hints).toContainEqual({
+          type: "plain_text",
+          text: `${labels[locale]}: ${copies[locale]}`,
+          emoji: false,
+        });
+      }
+    });
+
+    test("a hostile rule stays plain text in the dialog", () => {
+      const { blocks } = slackPromptMessage(
+        permission(
+          { command: "x" },
+          {
+            rememberOffer: [
+              { toolName: "Bash", ruleContent: "<!channel> <@U1> ok" },
+            ],
+          },
+        ),
+        { locale: "en", requesterSlackUserId: null },
+      );
+      const confirm = actionsOf(blocks)[1]?.confirm;
+      expect(confirm?.text.type).toBe("plain_text");
+      expect(confirm?.text.text).toContain("<!channel> <@U1> ok");
+      expect(confirm?.text.text.length).toBeLessThanOrEqual(300);
+    });
+
+    test("the rule line on the card is plain_text, so a hostile rule cannot mention or link", () => {
+      const hostile = [
+        "<@U123>",
+        "<!channel>",
+        "<https://x|y>",
+        "*bold* `code` :tada:",
+      ];
+      for (const content of hostile) {
+        const { blocks } = slackPromptMessage(
+          permission(
+            { command: "x" },
+            { rememberOffer: [{ toolName: "Bash", ruleContent: content }] },
+          ),
+          { locale: "en", requesterSlackUserId: null },
+        );
+        const lines = (
+          blocks as {
+            type: string;
+            elements?: { type: string; text: string }[];
+          }[]
+        )
+          .filter((block) => block.type === "context")
+          .flatMap((block) => block.elements ?? [])
+          .filter((element) => element.text.includes(`Bash(${content})`));
+        expect(lines).toHaveLength(1);
+        // plain_text is never parsed for mentions, links or formatting.
+        expect(lines[0]?.type).toBe("plain_text");
+        expect(lines[0]).toMatchObject({ emoji: false });
+        // No mrkdwn element carries the rule anywhere in the card.
+        const mrkdwnWithRule = JSON.stringify(blocks)
+          .split('"type":"mrkdwn"')
+          .slice(1)
+          .some((part) => part.slice(0, 400).includes(content));
+        expect(mrkdwnWithRule).toBe(false);
+      }
+    });
+
+    test("replacement patterns in a rule are shown as written", () => {
+      for (const content of ["printf $'hello'", "echo $$", "echo $`x"]) {
+        const { blocks } = slackPromptMessage(
+          permission(
+            { command: "x" },
+            { rememberOffer: [{ toolName: "Bash", ruleContent: content }] },
+          ),
+          { locale: "en", requesterSlackUserId: null },
+        );
+        expect(actionsOf(blocks)[1]?.confirm?.text.text).toContain(
+          `Bash(${content})`,
+        );
+      }
+    });
+
+    test("an offer too long to name in full gets no button", () => {
+      const { blocks } = slackPromptMessage(
+        permission(
+          { command: "x" },
+          {
+            rememberOffer: [
+              { toolName: "Bash", ruleContent: "y".repeat(500) },
+              { toolName: "Read" },
+            ],
+          },
+        ),
+        { locale: "en", requesterSlackUserId: null },
+      );
+      expect(actionsOf(blocks).map((b) => b.action_id)).toEqual([
+        SLACK_INTERACTION_ACTIONS.permissionAllow,
+        SLACK_INTERACTION_ACTIONS.permissionDeny,
+      ]);
+      expect(JSON.stringify(blocks)).not.toContain("Allow for session");
+    });
+  });
+
   test("a malformed requester id or link is left out, not interpolated", () => {
     const { blocks, text } = slackPromptMessage(permission(null), {
       locale: "en",
@@ -160,7 +326,7 @@ describe("Slack prompt cards", () => {
   test("a Write card shows the path, the content's first lines and the raw input with real line breaks", () => {
     // The owner's report: the card showed the input as JSON, `\n` and all.
     const content =
-      "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n";
+      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n\n## 구성\n";
     const { blocks } = slackPromptMessage(
       permission({ content, file_path: "README.md" }, { tool: "Write" }),
       { locale: "ko", requesterSlackUserId: null, linkUrl: LINK },
@@ -181,7 +347,7 @@ describe("Slack prompt cards", () => {
     ]);
     expect(JSON.stringify(blocks[1])).toContain("파일 쓰기: README.md");
     expect(preText(blocks[2])).toBe(
-      "# werft-sandbox\n\nagent-platform의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
+      "# werft-sandbox\n\nWerft의 GitHub 연동을 점검하기 위한 테스트 저장소입니다.\n…",
     );
     const raw = preText(
       (blocks[3] as { child_blocks: unknown[] }).child_blocks[0],
@@ -591,6 +757,27 @@ describe("slackSettledCard", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  test("an allow kept for the session says so, in each language", () => {
+    for (const [locale, text] of [
+      ["ko", "이 세션 동안 허용됨"],
+      ["ja", "セッション中は許可"],
+      ["en", "Allowed for session"],
+    ] as const) {
+      const settled = slackSettledCard(
+        card(askedTool({ remember: "session" }), { locale }),
+      );
+      expect(settledLine(settled)[0]).toContain(`*${text}*`);
+    }
+    // A deny never reads as remembered, whatever else is stored.
+    expect(
+      settledLine(
+        slackSettledCard(
+          card(askedTool({ decision: "deny", remember: "session" })),
+        ),
+      )[0],
+    ).toContain("*거부됨*");
   });
 
   test("an allowed tool: one context line, how it ended, who, the request, the link", () => {

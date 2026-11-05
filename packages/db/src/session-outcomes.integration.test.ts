@@ -59,6 +59,7 @@ function answer(number: number, state: PullState) {
     url: `https://github.com/acme/app/pull/${number}`,
     state: state === "open" ? "open" : "closed",
     head: "agent/x",
+    headSha: "a".repeat(40),
     base: "main",
     title: `${"t".repeat(200)}-${number}`,
     mergedAt: state === "merged" ? at : null,

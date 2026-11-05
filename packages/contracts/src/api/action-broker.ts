@@ -104,6 +104,8 @@ export const ACTION_REFUSAL_CODES = {
   // A person rejected the push; `details.reason` is their words.
   push_rejected: actionRefusalSpec("person"),
   github_refused: byGitHub,
+  // The pull request head is no longer the commit the review names.
+  stale_commit: byGitHub,
   non_fast_forward: byGitHub,
   forge_failed: actionRefusalSpec("github", true),
   backend_unavailable: actionRefusalSpec("github", true),

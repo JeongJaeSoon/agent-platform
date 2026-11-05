@@ -92,7 +92,7 @@ export const FlushForm: Story = {
     const locale: string = globals.locale;
     const copy = FORM_COPY[locale === "ja" || locale === "en" ? locale : "ko"];
     return (
-      <Card flush className="max-w-[var(--ap-w-narrow)]">
+      <Card flush className="max-w-[var(--werft-w-narrow)]">
         <CardContent className="flex flex-col gap-3 py-4">
           <CardTitle role="heading" aria-level={2}>
             {copy.title}
@@ -138,7 +138,7 @@ export const FlushFormMobile: Story = {
 /** A muted panel inside a page or another card: a change review, a summary. */
 export const Inset: Story = {
   render: () => (
-    <Card variant="inset" className="max-w-[var(--ap-w-narrow)]">
+    <Card variant="inset" className="max-w-[var(--werft-w-narrow)]">
       <CardTitle>바뀌는 값</CardTitle>
       <CardDescription>모델: claude-sonnet-5 → claude-haiku-5</CardDescription>
     </Card>

@@ -41,7 +41,7 @@ export function DetailLayout({
           opening a rail or switching to a tab without one does not move it;
           a narrow screen gives up the body's right edge instead. 3rem is
           PageFrame's own padding from 768px. */}
-      <PageFrame className="xl:[&>[data-slot=page-frame-body]]:mr-0 xl:[&>[data-slot=page-frame-body]]:w-auto xl:[&>[data-slot=page-frame-body]]:ml-[max(0px,calc((100cqw-3rem-var(--ap-w-page))/2))]">
+      <PageFrame className="xl:[&>[data-slot=page-frame-body]]:mr-0 xl:[&>[data-slot=page-frame-body]]:w-auto xl:[&>[data-slot=page-frame-body]]:ml-[max(0px,calc((100cqw-3rem-var(--werft-w-page))/2))]">
         {children}
       </PageFrame>
       {rail}
@@ -94,7 +94,7 @@ export function DetailRail({
         {...(scrollable
           ? { tabIndex: 0, role: "group", "aria-label": label }
           : undefined)}
-        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 gap-y-6 px-4 py-6 md:p-[var(--ap-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--ap-topbar-h))] xl:flex-col xl:items-stretch xl:gap-y-0 xl:divide-y xl:overflow-y-auto"
+        className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-x-8 gap-y-6 px-4 py-6 md:p-[var(--werft-space-6)] xl:sticky xl:top-0 xl:flex xl:max-h-[calc(100dvh-var(--werft-topbar-h))] xl:flex-col xl:items-stretch xl:gap-y-0 xl:divide-y xl:overflow-y-auto"
       >
         {children}
       </div>
@@ -148,7 +148,7 @@ export function DetailRailSection({
       description={description}
       actions={actions}
       className={cn(
-        "min-w-0 xl:py-[var(--ap-space-6)] xl:first:pt-0 xl:last:pb-0",
+        "min-w-0 xl:py-[var(--werft-space-6)] xl:first:pt-0 xl:last:pb-0",
         className,
       )}
     >

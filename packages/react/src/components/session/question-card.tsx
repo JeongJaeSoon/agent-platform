@@ -138,7 +138,7 @@ export function QuestionCard({
       className={cn(
         "flex min-w-0 flex-col gap-3 text-control",
         variant === "card" &&
-          "max-w-[var(--ap-w-narrow)] rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)] p-4",
+          "max-w-[var(--werft-w-narrow)] rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)] p-4",
         className,
       )}
       {...within}
@@ -291,7 +291,7 @@ function QuestionFields({
 // The label wraps its control, so the whole chip toggles it; `relative` keeps
 // Radix's hidden form input inside the chip.
 const CHIP =
-  "relative min-h-[var(--ap-control-height)] max-w-full cursor-pointer rounded-control border border-input bg-card px-3 py-1 text-control [overflow-wrap:anywhere] has-disabled:cursor-not-allowed has-disabled:opacity-50";
+  "relative min-h-[var(--werft-control-height)] max-w-full cursor-pointer rounded-control border border-input bg-card px-3 py-1 text-control [overflow-wrap:anywhere] has-disabled:cursor-not-allowed has-disabled:opacity-50";
 
 /** Free text beside options starts folded; folding keeps what was written. */
 function FreeText({

@@ -63,7 +63,7 @@ describe("API client", () => {
     await unwrap(client.POST("/v1/auth/logout"));
     expect(
       api.calls.map((call) => call.headers.get("x-requested-with")),
-    ).toEqual(["agent-platform-web", "agent-platform-web"]);
+    ).toEqual(["werft-web", "werft-web"]);
   });
 
   test("a failure becomes an ApiError with the server's code and words", async () => {

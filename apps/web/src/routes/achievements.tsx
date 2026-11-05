@@ -6,7 +6,7 @@ import type {
   ListAchievementTypesResponse,
   UsageAchievementsResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Badge,
@@ -76,7 +76,7 @@ const NUM = "w-px whitespace-nowrap text-right tabular-nums";
 
 export function AchievementsScreen() {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const format = OPERATIONS_MESSAGES[locale].format;
   const scope = useHasPermission("usage.installation_read")
     ? "installation"
@@ -211,7 +211,7 @@ export function AchievementsScreen() {
       ) : (
         <div
           aria-busy={figures.isFetching || undefined}
-          className="flex min-w-0 flex-col gap-[var(--ap-space-section)]"
+          className="flex min-w-0 flex-col gap-[var(--werft-space-section)]"
         >
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatCard
@@ -269,7 +269,7 @@ export function AchievementsScreen() {
           </div>
           {data ? (
             <>
-              <div className="grid grid-cols-1 gap-[var(--ap-space-section)] lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-[var(--werft-space-section)] lg:grid-cols-2">
                 <Section title={t("achievements.byRule")}>
                   {data.by_rule.length === 0 ? (
                     <EmptyState title={t("achievements.empty")} />

@@ -69,7 +69,7 @@ export function SettingRow({
         {badge}
       </span>
       {below ? (
-        <span className="col-span-2 row-start-2 flex min-w-0 flex-col gap-[var(--ap-row-line-gap)] leading-4 sm:col-span-1">
+        <span className="col-span-2 row-start-2 flex min-w-0 flex-col gap-[var(--werft-row-line-gap)] leading-4 sm:col-span-1">
           {description ? (
             labelled ? (
               <FieldDescription className={cn(DESCRIPTION, "nth-last-2:mt-0")}>
@@ -100,7 +100,7 @@ export function SettingRow({
     <RowListItem
       data-slot="setting-row"
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] content-center items-start gap-y-[var(--ap-row-line-gap)] sm:items-center",
+        "grid grid-cols-[minmax(0,1fr)_auto] content-center items-start gap-y-[var(--werft-row-line-gap)] sm:items-center",
         className,
       )}
       {...props}

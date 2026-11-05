@@ -4,7 +4,7 @@ import {
   type RouterHistory,
   RouterProvider,
 } from "@tanstack/react-router";
-import { AgentPlatformProvider, type RenderLink } from "@werft-ai/react";
+import { type RenderLink, WerftProvider } from "@werft-ai/react";
 import { cn } from "@werft-ai/ui";
 import { type ReactNode, useCallback, useState } from "react";
 import { I18nProvider, type Locale, useI18n } from "./i18n/i18n.tsx";
@@ -50,7 +50,7 @@ function Platform({
     [services],
   );
   return (
-    <AgentPlatformProvider
+    <WerftProvider
       client={services.client}
       locale={locale}
       renderLink={renderLink}
@@ -58,7 +58,7 @@ function Platform({
       {...(services.eventRetry ? { eventRetry: services.eventRetry } : {})}
     >
       {children}
-    </AgentPlatformProvider>
+    </WerftProvider>
   );
 }
 

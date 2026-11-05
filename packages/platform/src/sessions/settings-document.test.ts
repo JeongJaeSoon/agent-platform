@@ -151,7 +151,9 @@ describe("parseSettingsDocument", () => {
       parseSettingsDocument(
         document({ kind: "litellm", auth: { kind: "bearer", value_env: "K" } }),
       ),
-    ).toThrow(SettingsDocumentError);
+    ).toThrow(
+      "connections.c.endpoint: a litellm connection needs an endpoint, it has no default address",
+    );
     expect(() =>
       parseSettingsDocument(
         document({ kind: "anthropic", auth, billing: "none" }),

@@ -14,7 +14,7 @@ import { MOBILE } from "../screens/screen-kit.tsx";
 
 /**
  * The frame every console page sits in: 16px on every side, 24px from
- * 768px, and a column that grows to `--ap-w-page` and then centres. `Page`
+ * 768px, and a column that grows to `--werft-w-page` and then centres. `Page`
  * puts the header over sections 32px apart.
  */
 function Body() {

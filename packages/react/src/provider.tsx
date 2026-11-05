@@ -34,7 +34,7 @@ export type RenderLink = (
   },
 ) => ReactNode;
 
-export interface AgentPlatformProviderProps {
+export interface WerftProviderProps {
   /** Made by the host app; the modules never build one. */
   readonly client: ApiClient;
   readonly locale: Locale;
@@ -51,7 +51,7 @@ export interface AgentPlatformProviderProps {
   readonly children: ReactNode;
 }
 
-export interface AgentPlatform {
+export interface WerftContextValue {
   readonly client: ApiClient;
   readonly locale: Locale;
   /** The locale's default messages with the host's replacements applied. */
@@ -61,13 +61,13 @@ export interface AgentPlatform {
   readonly eventRetry?: RetryTiming;
 }
 
-const AgentPlatformContext = createContext<AgentPlatform | null>(null);
+const WerftContext = createContext<WerftContextValue | null>(null);
 
 /**
  * What every hook and block of this package reads. It sits inside the host's
  * QueryClientProvider, which owns the cache.
  */
-export function AgentPlatformProvider({
+export function WerftProvider({
   client,
   locale,
   messages,
@@ -75,8 +75,8 @@ export function AgentPlatformProvider({
   onUnauthorized,
   eventRetry,
   children,
-}: AgentPlatformProviderProps) {
-  const value = useMemo<AgentPlatform>(
+}: WerftProviderProps) {
+  const value = useMemo<WerftContextValue>(
     () => ({
       client,
       locale,
@@ -87,7 +87,7 @@ export function AgentPlatformProvider({
     }),
     [client, locale, messages, renderLink, onUnauthorized, eventRetry],
   );
-  return <AgentPlatformContext value={value}>{children}</AgentPlatformContext>;
+  return <WerftContext value={value}>{children}</WerftContext>;
 }
 
 /**
@@ -103,10 +103,10 @@ export function QueryScopeProvider({
   readonly scope: QueryScope;
   readonly children: ReactNode;
 }) {
-  const parent = useAgentPlatform();
+  const parent = useWerft();
   const queryClient = useQueryClient();
   const { actor, workspace } = scope;
-  const value = useMemo<AgentPlatform>(
+  const value = useMemo<WerftContextValue>(
     () => ({
       ...parent,
       client: withQueryScope(parent.client, { actor, workspace }),
@@ -122,14 +122,14 @@ export function QueryScopeProvider({
     previous.current = { actor, workspace };
   }, [queryClient, actor, workspace]);
   return (
-    <AgentPlatformContext value={value}>
+    <WerftContext value={value}>
       <Fragment key={`${actor}\n${workspace}`}>{children}</Fragment>
-    </AgentPlatformContext>
+    </WerftContext>
   );
 }
 
-export function useAgentPlatform(): AgentPlatform {
-  const value = useContext(AgentPlatformContext);
-  if (!value) throw new Error("useAgentPlatform outside AgentPlatformProvider");
+export function useWerft(): WerftContextValue {
+  const value = useContext(WerftContext);
+  if (!value) throw new Error("useWerft outside WerftProvider");
   return value;
 }

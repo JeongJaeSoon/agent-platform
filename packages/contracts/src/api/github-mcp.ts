@@ -43,12 +43,33 @@ export const GITHUB_MCP_SERVER = "github";
 const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
 /**
+ * The longest a waiting read may hold its answer. The built-in server is
+ * served by the control host's authorizer listener, which keeps Bun's default
+ * 10 second idle timeout. Bun checks it on a coarse timer, so the cut does
+ * not land at 10: in a probe with the same `Bun.serve` options on Bun 1.3.14,
+ * 32 of 32 silent calls were cut between 8.01 and 12.01 seconds after they
+ * started. The wait is counted from the start of the call; the waiting itself
+ * and the GitHub calls inside it are cut at that deadline. The database reads
+ * around it keep their own pool timeouts, so the cap leaves about a second
+ * below the earliest cut seen for them, the proxy and the answer; it is a
+ * margin, not a guarantee.
+ */
+export const GITHUB_MCP_WAIT_SECONDS_MAX = 7;
+
+const waitSecondsSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(GITHUB_MCP_WAIT_SECONDS_MAX)
+  .optional();
+
+/**
  * Each tool's arguments: the session API's body plus what that API takes
  * from the path. Never a session id: the attempt token names the session.
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
   request_push: createPushRequestRequestSchema,
-  open_pull_request: openPullRequestRequestSchema.extend({
+  open_pull_request: openPullRequestRequestSchema.safeExtend({
     push_request_id: pushRequestIdSchema,
   }),
   update_pull_request: updatePullRequestRequestSchema.safeExtend({
@@ -64,14 +85,19 @@ export const GITHUB_MCP_TOOL_ARGUMENTS = {
     .object({ push_request_id: pushRequestIdSchema })
     .strict(),
   dispatch_workflow: dispatchWorkflowRequestSchema,
-  get_workflow_run: z.object({ run_id: runIdSchema }).strict(),
+  get_workflow_run: z
+    .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
+    .strict(),
   rerun_workflow: rerunWorkflowRequestSchema.extend({ run_id: runIdSchema }),
   submit_review: submitPullRequestReviewRequestSchema.safeExtend({
     number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   }),
   list_repositories: z.object({}).strict(),
   attach_repository: z
-    .object({ repository_id: z.string().min(1).max(128) })
+    .object({
+      repository_id: z.string().min(1).max(128),
+      wait_seconds: waitSecondsSchema,
+    })
     .strict(),
 } as const;
 
@@ -178,6 +204,21 @@ export const repositoryAttachmentSchema = z.object({
   receipt_id: z.string().nullable(),
 });
 export type RepositoryAttachment = z.infer<typeof repositoryAttachmentSchema>;
+
+/**
+ * What the MCP tool answers: the attachment and whether it can still change.
+ * `final` is false only while `status` is `pending` at the end of the wait.
+ */
+export const waitedRepositoryAttachmentSchema =
+  repositoryAttachmentSchema.safeExtend({ final: z.boolean() });
+
+/**
+ * What `get_workflow_run` answers: the run and whether it can still change.
+ * `final` is true once GitHub reports it `completed`.
+ */
+export const waitedWorkflowRunSchema = githubWorkflowRunSchema.safeExtend({
+  final: z.boolean(),
+});
 export type RepositoryAttachFailure = z.infer<
   typeof repositoryAttachFailureSchema
 >;
@@ -231,9 +272,9 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
     "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet.",
   open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`).",
+    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`). Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
-    "Set the title, the body or both of the pull request that the push request's branch has open. The platform's closing lines stay, naming the push request's commit.",
+    "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
   comment_pull_request:
     "Add a comment to the pull request of a pushed push request. The same `marker` edits the same comment.",
   close_pull_request:
@@ -242,15 +283,14 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
     "Reopen the closed pull request of a pushed push request. `changed` is false when it was already open.",
   dispatch_workflow:
     "Dispatch an allow-listed workflow on a branch. `inputs` go to GitHub only.",
-  get_workflow_run: "Read a workflow run of the session's repository.",
+  get_workflow_run: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
   rerun_workflow:
     "Rerun a workflow run that the platform dispatched for the session's repository.",
   submit_review:
     "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
   list_repositories:
     "List the repositories the session can work on. `status` is `primary` (the session's own), `attached`, `pending` or `failed` (fetch in progress or failed), `available` (attach_repository would add it) or `allowed_in_newer_release` (only the agent's current release allows it).",
-  attach_repository:
-    "Attach a repository the release allows to the session as a git remote named `repository_id`, with its default branch fetched to `<repository_id>/<branch>`. `status` is `pending` while the fetch runs. Attaching an attached repository changes nothing.",
+  attach_repository: `Attach a repository the release allows to the session as a git remote named \`repository_id\`, with its default branch fetched to \`<repository_id>/<branch>\`. \`status\` is \`pending\` while the fetch runs. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the fetch ends or the seconds have passed; \`final\` is false when the fetch was still running at the end of the wait. Attaching an attached repository changes nothing.`,
 };
 
 const requestPushResultSchema = z.union([
@@ -274,11 +314,11 @@ export const GITHUB_MCP_TOOL_OUTPUTS = {
   close_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
   reopen_pull_request: actionResultSchema(setPullRequestStateResponseSchema),
   dispatch_workflow: actionResultSchema(dispatchWorkflowResponseSchema),
-  get_workflow_run: actionResultSchema(githubWorkflowRunSchema),
+  get_workflow_run: actionResultSchema(waitedWorkflowRunSchema),
   rerun_workflow: actionResultSchema(rerunWorkflowResponseSchema),
   submit_review: actionResultSchema(submitPullRequestReviewResponseSchema),
   list_repositories: actionResultSchema(listRepositoriesResponseSchema),
-  attach_repository: actionResultSchema(repositoryAttachmentSchema),
+  attach_repository: actionResultSchema(waitedRepositoryAttachmentSchema),
 } as const satisfies Record<GitHubMcpTool, z.ZodType>;
 
 const COMMON_REFUSALS = [
@@ -356,7 +396,7 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
   dispatch_workflow: GITHUB_WORK_REFUSALS,
   get_workflow_run: GITHUB_WORK_REFUSALS,
   rerun_workflow: GITHUB_WORK_REFUSALS,
-  submit_review: GITHUB_WORK_REFUSALS,
+  submit_review: [...GITHUB_WORK_REFUSALS, "stale_commit"],
   list_repositories: GITHUB_WORK_REFUSALS,
   attach_repository: [
     ...GITHUB_WORK_REFUSALS,

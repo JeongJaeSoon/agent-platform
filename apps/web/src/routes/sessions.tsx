@@ -19,7 +19,7 @@ import type {
   SessionStatus,
 } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   ApprovalInbox,
   type SessionActionProps,
@@ -147,7 +147,7 @@ export function SessionsScreen() {
           </Link>
         }
       >
-        <div className="flex flex-col gap-[var(--ap-space-block)]">
+        <div className="flex flex-col gap-[var(--werft-space-block)]">
           <ApprovalInbox
             layout="summary"
             rail={rail}
@@ -226,7 +226,7 @@ const statusLists = (client: ApiClient) =>
  * those refreshes so an answered or stopped session leaves its tab.
  */
 function useFollowListRefresh() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   useEffect(() => {
     const keys = queryKeysOf(client);
@@ -264,7 +264,7 @@ interface SessionsFilter {
  * screen until its own arrives instead of mounting an empty list.
  */
 function useListedSessions(filter: SessionsFilter) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const unfiltered = Object.keys(filter).length === 0;
   return useInfiniteQuery({
     // Unfiltered, it is the list the session hooks refresh by its exact key;
@@ -292,7 +292,7 @@ function useSessionCounts(
   relation: SessionRelationFilter | undefined,
   q: string | undefined,
 ) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   // Here, read whatever the tab: the counts follow every list refresh, and
   // so does the filtered list under the same key.
   useFollowListRefresh();

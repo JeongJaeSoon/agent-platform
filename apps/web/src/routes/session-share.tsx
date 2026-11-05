@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { isApiError, unwrap } from "@werft-ai/client";
 import type { SessionShareView } from "@werft-ai/contracts";
 import { queryKeysOf } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { Button, Section, Text } from "@werft-ai/ui";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -30,7 +30,7 @@ function scopeText(
  */
 export function SessionShareBlock({ id }: { readonly id: string }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const share = useQuery({
     queryKey: [...queryKeysOf(client).session(id), "share"],
     queryFn: () =>

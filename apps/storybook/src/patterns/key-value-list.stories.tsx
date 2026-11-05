@@ -172,11 +172,11 @@ export const HomeCard: Story = {
         <div className="flex items-start justify-between gap-2 px-4">
           <div className="flex min-w-0 items-center gap-3">
             <Avatar size="two-line" shape="square" tone={1} initials="BQ" />
-            <div className="flex min-w-0 flex-col gap-(--ap-row-line-gap)">
-              <span className="text-caption text-subtle-foreground leading-(--ap-leading-caption)">
+            <div className="flex min-w-0 flex-col gap-(--werft-row-line-gap)">
+              <span className="text-caption text-subtle-foreground leading-(--werft-leading-caption)">
                 {copy.eyebrow}
               </span>
-              <h3 className="m-0 truncate font-semibold text-body leading-(--ap-leading-body)">
+              <h3 className="m-0 truncate font-semibold text-body leading-(--werft-leading-body)">
                 {copy.title}
               </h3>
             </div>

@@ -278,7 +278,7 @@ export function SessionDetail({
           {pendingCount === 0 ? (
             <div className="flex items-start gap-2">
               <CircleCheck
-                className="mt-0.5 size-4 shrink-0 text-[var(--ap-tone-success-fg)]"
+                className="mt-0.5 size-4 shrink-0 text-[var(--werft-tone-success-fg)]"
                 strokeWidth={1.5}
                 aria-hidden="true"
               />
@@ -347,7 +347,7 @@ export function SessionDetail({
       // lets a screen too short for that fall back to the page scroll.
       className={
         tab === "timeline"
-          ? "[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--ap-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&_[data-slot=page-frame-body]]:min-h-0"
+          ? "[&>[data-slot=page-frame]]:h-[calc(100dvh-var(--werft-topbar-h))] [&>[data-slot=page-frame]]:min-h-min [&_[data-slot=page-frame-body]]:min-h-0"
           : undefined
       }
     >
@@ -745,7 +745,7 @@ function Usage({ usage }: { readonly usage: SessionUsageResponse }) {
 function BudgetExceeded({ usage }: { readonly usage: SessionUsageResponse }) {
   const { t } = useBlockText();
   return usage.budget_exceeded ? (
-    <output className="rounded-control border border-[var(--ap-tone-attention-border)] bg-card px-3 py-2 text-body">
+    <output className="rounded-control border border-[var(--werft-tone-attention-border)] bg-card px-3 py-2 text-body">
       {t("session.usage.budgetExceeded")}
     </output>
   ) : null;

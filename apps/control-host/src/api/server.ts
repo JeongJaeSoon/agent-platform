@@ -853,6 +853,7 @@ const githubWork = createGitHubWorkService({
   authorization,
   gate: github,
   store: githubGateStore,
+  redact: sanitizeText,
 });
 const githubOAuth = createPostgresGitHubOAuthStore(db, secretKey);
 const githubCallback = githubCallbackUrl(consoleOrigin);
@@ -949,6 +950,7 @@ const githubMcp = createGitHubMcpServer({
       authorization: bound,
       gate: github,
       store: githubGateStore,
+      redact: sanitizeText,
     }),
     attachments: repositoryAttachments,
   }),

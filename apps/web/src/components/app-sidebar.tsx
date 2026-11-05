@@ -1,14 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { waitingSessionsQuery } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
-import { cn, IconTile, Text, type TileHue } from "@werft-ai/ui";
+import { useWerft } from "@werft-ai/react";
+import {
+  cn,
+  IconTile,
+  Text,
+  Link as TextLink,
+  type TileHue,
+} from "@werft-ai/ui";
 import {
   Bell,
+  BookOpen,
   Bot,
   Check,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Gauge,
   Globe,
   House,
@@ -33,6 +41,7 @@ import {
   useState,
 } from "react";
 import { useCan, useHasPermission, useMe, useRole } from "../auth/guard.tsx";
+import { docsSiteUrl } from "../docs-site.ts";
 import {
   isMessageKey,
   LOCALE_NAMES,
@@ -278,7 +287,7 @@ export function navItemFor(
 }
 
 function useWaitingSessions() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const canRead = useCan("sessions:read");
   return useQuery({
     ...waitingSessionsQuery(client),
@@ -304,7 +313,7 @@ function WaitingBadge() {
         aria-hidden="true"
         className="ml-auto flex items-center gap-1.5 text-caption text-muted-foreground tabular-nums"
       >
-        <span className="size-1.5 rounded-full bg-(--ap-color-accent)" />
+        <span className="size-1.5 rounded-full bg-(--werft-color-accent)" />
         {more ? `${count}+` : count}
       </span>
       <span className="sr-only">
@@ -337,10 +346,10 @@ export function AppSidebar({
       // Only the nav scrolls, so the user block stays in view at any height;
       // below md the open menu is capped to the screen under the header.
       // z-10: the language submenu opens past the sidebar, over the page.
-      className="hidden max-h-[calc(100dvh-var(--ap-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
+      className="hidden max-h-[calc(100dvh-var(--werft-topbar-h))] flex-col gap-2 border-b bg-sidebar px-2 py-3 text-foreground data-[open=true]:flex md:sticky md:top-0 md:z-10 md:col-start-1 md:row-span-2 md:row-start-1 md:flex md:h-dvh md:max-h-none md:border-r md:border-b-0 md:pt-0"
     >
       {/* The top bar's height and lower line, so one rule runs across the shell. */}
-      <div className="-mx-2 hidden h-[var(--ap-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
+      <div className="-mx-2 hidden h-[var(--werft-topbar-h)] shrink-0 items-center gap-2 border-b px-4 md:flex">
         {me?.workspace ? (
           <>
             <span
@@ -422,7 +431,7 @@ function NavSection({
           <ChevronDown
             aria-hidden="true"
             className={cn(
-              "size-3.5 shrink-0 transition-transform duration-[var(--ap-motion-fast)] motion-reduce:transition-none",
+              "size-3.5 shrink-0 transition-transform duration-[var(--werft-motion-fast)] motion-reduce:transition-none",
               !open && "-rotate-90",
             )}
           />
@@ -551,7 +560,7 @@ function WaitingBell({ onNavigate }: { readonly onNavigate: () => void }) {
       {count > 0 ? (
         <span
           aria-hidden="true"
-          className="absolute top-1 right-1 size-2 rounded-full bg-(--ap-tone-attention-fg)"
+          className="absolute top-1 right-1 size-2 rounded-full bg-(--werft-tone-attention-fg)"
         />
       ) : null}
     </Link>
@@ -764,7 +773,7 @@ function UserMenu({
           // As wide as the sidebar, not the pill it opens from.
           className={cn(
             MENU_CARD,
-            "inset-x-0 bottom-full mb-1 md:right-auto md:w-[calc(var(--ap-layout-sidebar-width)-1rem)]",
+            "inset-x-0 bottom-full mb-1 md:right-auto md:w-[calc(var(--werft-layout-sidebar-width)-1rem)]",
           )}
           onKeyDown={onAccountKey}
         >
@@ -815,6 +824,29 @@ function UserMenu({
             <KeyRound aria-hidden="true" className={MENU_ICON} />
             {t("nav.apiKeys")}
           </Link>
+          {/* The public site, not the API reference the API keys page links. */}
+          <TextLink
+            href={docsSiteUrl(locale)}
+            target="_blank"
+            newTabLabel={t("shell.docsNewTab")}
+            role="menuitem"
+            data-menu="account"
+            tabIndex={-1}
+            className={cn(MENU_ITEM, "font-normal hover:no-underline")}
+            // The page stays; the menu goes away with the focused item, so
+            // focus returns to the pill it opened from.
+            onClick={() => {
+              setOpen(false);
+              triggerRef.current?.focus();
+            }}
+          >
+            <BookOpen aria-hidden="true" className={MENU_ICON} />
+            {t("shell.docs")}
+            <ExternalLink
+              aria-hidden="true"
+              className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+            />
+          </TextLink>
           <hr className={MENU_RULE} />
           <button
             type="button"

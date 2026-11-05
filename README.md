@@ -2,9 +2,21 @@
 
 이 저장소 코드의 중심은 Werft의 Kiel 모듈(세션 런타임)과 그 공개 `/v1` API다. 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다룬다. Werft의 모듈은 아래 모듈 구성 문단에, 어떤 코드가 어느 모듈인지는 [architecture.md](docs/contributing/architecture.md)에 있다.
 
-이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있다. npm 패키지 이름은 `@werft-ai/sdk`이고 [`npm install @werft-ai/sdk`](apps/docs/content/docs/getting-started/install.mdx)로 설치한다(배포 절차는 [packages/sdk/README.md](packages/sdk/README.md)). 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. [SDK 샘플](examples/README.md)은 세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push 승인을 유즈케이스별로 보여 준다. 이 저장소 `agent-platform`이 곧 Werft다. 저장소 이름은 기존의 `agent-platform`을 유지하고, 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바깥에 보이는 이름 가운데 바꾸면 기존 클라이언트나 설치가 깨지는 것, 곧 웹 콘솔의 `X-Requested-With` 값, Helm 차트·이미지 이름, Datadog 메트릭 이름에는 `agent-platform`이 남아 있다.
+이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있다. npm 패키지 이름은 `@werft-ai/sdk`이고 [`npm install @werft-ai/sdk`](apps/docs/content/docs/getting-started/install.mdx)로 설치한다(배포 절차는 [packages/sdk/README.md](packages/sdk/README.md)). 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)은 세션 목록, 이벤트 스트림, 재시도, 질문·권한 답변, 세션 제어, close, push 승인을 유즈케이스별로 보여 준다. 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바꾸면 이미 설치된 곳이 깨지는 이름, 곧 compose project, 런타임 라벨, 설치 경로에는 옛 이름이 남아 있다.
 
 모듈 구성: Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서만 쓰고, API나 SDK처럼 바깥에 보이는 곳에는 내놓지 않는다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. `/v1` API는 control host가 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. 모듈마다 코드가 어디 있는지는 [architecture.md](docs/contributing/architecture.md)에 있다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
+
+## 게시 패키지
+
+설치와 업그레이드는 직접 빌드하지 않고 게시된 패키지로 한다. 패키지는 로그인 없이 받는다.
+
+| 패키지 | 주소 | 버전 |
+| --- | --- | --- |
+| 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `ghcr.io/jeongjaesoon/werft-worker`, `ghcr.io/jeongjaesoon/werft-egress-proxy` | `main` 머지마다 `main-<12>`. `linux/amd64`와 `linux/arm64` index |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | `main` 머지마다 `0.1.0-main-<12>` |
+| SDK | npm [`@werft-ai/sdk`](https://www.npmjs.com/package/@werft-ai/sdk) | `latest` |
+
+`<12>`는 commit SHA의 앞 12자다. 첫 `v` 태그는 아직 없고, `main-<12>`는 릴리스가 아니다. 설치는 [셀프 호스팅](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/), 올리기는 [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/)를 읽는다. 바뀐 점과 운영자가 직접 해야 할 일은 [변경 기록](CHANGELOG.md)에 있다. 단일 서버(Docker Compose) 설치는 게시 이미지로 끝까지 실행해 확인하지 않았다. Kubernetes 업그레이드 절차도 클러스터에서 실행해 확인하지 않았다.
 
 ## credential 경계
 
@@ -14,9 +26,9 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 
 | 독자 | 먼저 읽을 문서 | 이어서 볼 문서와 파일 |
 | --- | --- | --- |
-| API 사용자 | [API 유즈케이스 가이드](docs/api-guide.md) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
-| SDK 사용자 | [TypeScript SDK](docs/sdk.md) | 서버·스크립트에서 API key로 세션을 다루는 `packages/sdk`(`@werft-ai/sdk`). 예제는 [examples](examples/README.md) |
-| 운영자 | [단일 서버 배포](docs/operator/server-deployment.md) | [운영자 문서 색인](docs/README.md#운영자), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
+| API 사용자 | [API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
+| SDK 사용자 | [SDK 설치](https://jeongjaesoon.github.io/werft/ko/getting-started/install/) | 서버·스크립트에서 API key로 세션을 다루는 `packages/sdk`(`@werft-ai/sdk`). 동작 상세는 [SDK 동작 상세](https://jeongjaesoon.github.io/werft/ko/sdk/), 예제는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/) |
+| 운영자 | [셀프 호스팅](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/) | [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/), [변경 기록](CHANGELOG.md), [운영자 문서 색인](docs/README.md#운영자), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/contributing/development.md), [구성요소와 경계](docs/contributing/architecture.md), [CI](docs/contributing/ci.md), [실제 Claude 확인](docs/real-claude.md) |
 
 독자별 전체 문서 색인은 [docs/README.md](docs/README.md)에 있다.
@@ -44,13 +56,13 @@ Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설
 
 - `apps/web/src/demo/`: 데모 빌드(`vite build --mode demo`). GET은 녹화 fixture로 답하고 쓰기는 막는다.
 - `apps/web/scripts/demo-record.ts`: 녹화기. 로그인 한 번 말고는 GET만 스택에 넘기고, 끝나면 로그아웃한다.
-- `apps/web/scripts/demo-scan.ts`: 공개 전 검사. 토큰·`example.test` 밖 이메일·내부 호스트·기계 이름을 찾는다.
+- `apps/web/scripts/demo-scan.ts`: 공개 전 검사. 토큰·`example.test` 밖 이메일·내부 호스트·기계 이름·옛 제품 이름을 찾는다.
 
 녹화 데이터(`fixtures.json`)는 데모 저장소에 있다. `apps/web/src/demo/fixtures.json`은 로그인 응답 하나만 든 자리표시이고, CI `demo` job은 이것으로 검사와 빌드만 확인한다. 데모 빌드는 `DEMO_FIXTURES=<파일>`이 있으면 그 파일을, 없으면 자리표시를 쓴다. 상대 경로는 `apps/web` 기준이라 절대 경로로 준다.
 
 ### 다시 녹화하기
 
-`example.test` 계정으로 채운 스택(오너 Mac의 4620 스택)을 상대로, 이 저장소 루트에서 돌린다. `<demo>`(데모 저장소 checkout)와 `<리포트.json>`은 절대 경로로 쓴다. 리포트는 데모 저장소 밖에 둔다.
+`example.test` 계정으로 채운 스택(로컬에서 띄운 스택)을 상대로, 이 저장소 루트에서 돌린다. `<demo>`(데모 저장소 checkout)와 `<리포트.json>`은 절대 경로로 쓴다. 리포트는 데모 저장소 밖에 둔다.
 
 ```bash
 bun run --cwd apps/web build                      # 녹화에 쓰는 일반 빌드
@@ -78,10 +90,10 @@ gitleaks의 `generic-api-key` 규칙은 사용량 breakdown 응답의 `"key": "<
 
 UI 라이브러리 `packages/ui`(`@werft-ai/ui`)는 npm에 공개하지 않는 내부 패키지이고 PolyForm Small Business 1.0.0을 따른다.
 
-PolyForm Small Business 1.0.0의 조건은 다음과 같다.
+PolyForm Small Business 1.0.0의 허용 범위는 `LICENSE`의 "Small Business" 절에 있고, 요약은 다음과 같다. 효력은 영문 원문에 따른다.
 
-- 직원과 독립 계약자를 합쳐 100명 미만이고 직전 과세연도 총매출이 100만 달러(2019년 기준, 물가 보정) 미만인 회사는 무료로 사용·수정·배포·셀프호스팅할 수 있다. 회사를 지배하거나 회사가 지배하는 조직, 회사와 같은 지배를 받는 조직도 합쳐서 센다.
-- 그 기준을 넘는 회사가 쓰려면 상용 라이선스가 필요하다.
-- 복사본을 넘길 때는 라이선스 전문(또는 그 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
+- 회사의 이익을 위한 사용은 그 회사가 직원과 독립 계약자를 합쳐 100명 미만이고 직전 과세연도 총매출이 100만 달러(2019년 기준, 미국 노동통계국 CPI로 물가 보정) 미만이면 허용된 목적이다. 회사에는 그 회사를 지배하거나, 그 회사가 지배하거나, 같은 지배를 받는 조직이 포함된다.
+- 이 기준에 해당하지 않는 사용은 허용된 목적인지 `LICENSE` 원문으로 확인하고, 해당하지 않으면 별도 라이선스를 문의한다.
+- 복사본을 다른 사람에게 넘길 때는 라이선스 전문(또는 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
 
 평가·상용 라이선스 문의: jaesoon@94soon.dev

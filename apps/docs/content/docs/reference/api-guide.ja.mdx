@@ -1,0 +1,508 @@
+---
+title: API ユースケースガイド
+description: ユースケースごとに、どの API をどの順で呼ぶか。書かれたとおりに動くコマンド付き
+---
+
+{/*
+api-guide.mdx の翻訳です。コードブロックは韓国語ページと同一に保ちます。
+tests/docs-i18n-code.test.ts が比較します。CI が実行するのは韓国語ページだけです。
+*/}
+
+「どのエンドポイントをどの順で呼べばよいか」をすばやく知りたい API 利用者向けの、動かせるガイドです。リクエストとレスポンスのスキーマの正本は `docs/openapi.json` で、デプロイしたサーバーの認証不要な `GET /docs` が、同じオリジンの `/docs/scalar.js` とあわせて読み取り専用のリファレンスを返します。このサイトの [HTTP API ページ](/reference/http-api/auth/getApiRoot)も同じ仕様から生成されています。このガイドはスキーマを写さず、operation 名でリンクします。CI は下の `bash` ブロックを、compose の偽の Messages API に対して書かれたとおりに実行するので、Anthropic アカウントは要らず、費用もかかりません。
+
+例ではローカルの既定アドレス `http://127.0.0.1:3000` を使います。デプロイしたサーバーでは `API` だけを変えます。
+
+## 1. API key で認証して scope を確認する
+
+OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
+
+**目標.** Bearer API key を用意し、後のユースケースに必要な最小限の scope を 1 回の呼び出しで確認します。読み取り、セッション入力、承認、制御、復旧は `sessions:read`、`sessions:write`、`sessions:approve`、`sessions:control`、`sessions:recover` に分かれています。
+
+**手順.** key の要らない fake モデル(`--fake-model`、[開発用サーバーの実行](/run-server/dev-server))でローカルスタックを起動し、key を発行して、`GET /v1` で key が有効なことを確認します。本番ではプラットフォーム管理者が発行した key を `KEY` に入れ、`scripts/local.sh` の 2 行は省きます。
+
+```bash
+scripts/local.sh up --fake-model
+KEY=$(scripts/local.sh key api-guide \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+API=http://127.0.0.1:3000
+AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+
+DOCS_STATUS=$(curl -sS -o /tmp/werft-api-docs.html -w '%{http_code}' "$API/docs")
+SCALAR_STATUS=$(curl -sS -o /tmp/werft-scalar.js -w '%{http_code}' "$API/docs/scalar.js")
+printf 'GET /docs %s, GET /docs/scalar.js %s\n' "$DOCS_STATUS" "$SCALAR_STATUS"
+test "$DOCS_STATUS" = 200
+test "$SCALAR_STATUS" = 200
+grep -q 'src="/docs/scalar.js"' /tmp/werft-api-docs.html
+test -s /tmp/werft-scalar.js
+
+wait_for() {
+  for _ in $(seq 1 180); do
+    [ "$(curl -sS "$API$1" "${AUTH[@]}" | jq -r "$2")" = "$3" ] && return 0
+    sleep 1
+  done
+  echo "timed out: $1 $2 != $3" >&2
+  curl -sS "$API$1" "${AUTH[@]}" >&2
+  return 1
+}
+wait_for_pending() {
+  for _ in $(seq 1 180); do
+    pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+    [ "$(echo "$pending" | jq -r '.items[0].kind // empty')" = "$1" ] && return 0
+    sleep 1
+  done
+  echo "timed out: pending request kind != $1" >&2
+  echo "$pending" >&2
+  return 1
+}
+revision() {
+  curl -sS "$API/v1/sessions/$SID" "${AUTH[@]}" | jq .revision
+}
+
+curl -sS "$API/v1" "${AUTH[@]}" | jq -e '.owner_id != null'
+```
+
+**期待するレスポンス.** `GET /v1` は、認証された `owner_id` を含む 200 の JSON を返します。
+
+**よくあるエラー.** 401 `UNAUTHORIZED` は key が空か、別のインストールで発行された key です。403 `FORBIDDEN` は、呼んだ operation の scope が足りません。key をログやドキュメントに貼らず、環境変数かシークレットマネージャー経由で渡します。
+
+## 2. セッションを作る: profile とリポジトリを選ぶ
+
+OpenAPI: [`createSession`](/reference/http-api/sessions/createSession)、[`getSession`](/reference/http-api/sessions/getSession)
+
+**目標.** 実行 profile とリポジトリを指定して、セッションと最初の turn を永続的に受け付けさせます。
+
+**手順.** `GET /v1/profiles`(`listProfiles`)で選べる profile とそのモデルを確認します。`profile_id`、`repository_id`、最初の `message` を送り、レスポンスの `session_id` と `turn_id` を保存します。この例は、次の節で権限リクエストを見せるために、ファイルを書くツールを呼ぶ偽の台本を使います。実際の Claude スタック(`scripts/local.sh up`)では `profile_id` は `claude-coding-real` で、`message` は自由なテキストです。任意の `model` フィールドは、その profile が許すモデル(カタログの `model` または `models`)のうち 1 つを選びます。省略すると profile の既定 `model` で動き、選ばれたモデルは `GET /v1/sessions/{id}` の `runtime.model` に出ます。セッションの profile を変える(`POST /v1/sessions/{id}/profile`)と、その後は新しい profile の既定 `model` で動きます。
+
+一覧には、運営者の profile(`source: operator`)と、ワークスペースの owner や admin がコンソールで絞り込んだ版(`source: workspace`、id は `ws_` で始まる)が並びます。ワークスペース版を新しいセッションに使えるのは、その `workspace.state` が `usable` の間だけです。規則は[運営者向けドキュメント](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile)にあります。
+
+`repository_id` を送るかどうかは、profile の `repository_mode`(`GET /v1/profiles`)で決まります。`required` なら送り、`none` なら省き、`optional` ならどちらでも構いません。`repository_id` なしで作ったセッションは空の作業ディレクトリで始まり、セッションを読むと `repository_id` は `null` です。リポジトリがないので push リクエストは 409 `PUSH_SOURCE_MISSING` を返し、`optional` の profile がリポジトリの CLAUDE.md を読む設定でも、このセッションは読みません。fake モデルのスタックでは `general` profile がリポジトリなしで動きます。その作成ボディは次のとおりです。
+
+```json
+{ "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
+```
+
+```bash
+CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
+  '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')
+CREATE_KEY=$(uuidgen)
+created=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CREATE_KEY" --data "$CREATE_BODY")
+echo "$created" | jq .
+echo "$created" | jq -e '.status == "queued" and .turn_id == "1"'
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+**期待するレスポンス.** 201 で、`session_id`、`turn_id: "1"`、`receipt_id`、`receipt_status: "accepted"`、`status: "queued"` が返ります。実際の結果は、作成 receipt に残った古い受付ボディではなく、turn を読んで判断します。
+
+### セッションのタイトル
+
+任意の `title` フィールドで、セッションに名前を付けられます。渡した場合は、連続する空白と改行を 1 つの空白にまとめ、両端を切り落とし、その結果をそのまま保存します。そのうえで、空のタイトルや 80 文字(書記素クラスター: 絵文字や結合文字列は 1 と数える)を超えるタイトルは 400 です。省略すると、最初の `message` から同じ規則で、モデルを呼ばずにタイトルを作ります。まとめたテキストが 80 文字以下ならそのまま使い、超える場合は最初の 79 文字を残し、末尾の空白を除いて `…` を付けます。同じメッセージからは常に同じタイトルになります。空白だけのメッセージは `title: null` です。このフィールドができる前のセッションは埋め戻されず `null` と読まれ、画面にはセッション id が出ます。
+
+`title` は `GET /v1/sessions` の items と `GET /v1/sessions/{id}` の詳細に現れます。名前を変えるには `PATCH /v1/sessions/{id}`(`updateSession`)に `{"title": "..."}` を送ります。Idempotency-Key は要らず、値は同じ規則で正規化して保存され、レスポンスは詳細ボディの 200 です。セッションの `revision` は上がらず、receipt も残りません。タイトルが実際に変わったときは、SSE に `status` イベントが 1 つ出て、新しいタイトルは `data.data.title` にあります(`phase` はその時点のセッション状態)。同じタイトルならイベントは出ません。名前を変えられるのは、権限リクエストに答えられる人と同じです。作成者(key が作ったセッションなら key)、そのエージェントの管理者、owner と admin です。レスポンスが詳細ボディなので、key には `sessions:write` と `sessions:read` の両方が必要です。共有で閲覧だけできる人は 403(`reason_code: role`)、セッションが見えない人は 404 です。
+
+```bash
+curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
+  --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
+```
+
+**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、profile かリポジトリの選択が不正です。`required` の profile に `repository_id` がないときのメッセージは `Profile <id> needs a repository: send repository_id`、`none` の profile に付けたときは `Profile <id> runs without a repository: omit repository_id` です。`repository_id: null` は省略ではなく 400 です。契約上 `createSession` は 429 `RATE_LIMITED` を返し得るので、後でやり直します。入力キューの上限はメッセージの追加に適用されます(4 節)。ストレージの上限は 413 `STORAGE_LIMIT_EXCEEDED` として現れるので、`/v1/limits` を見ます。実行スロットが足りないときは、セッションは拒否されず `queued` で待ちます。セッションのコストとトークンの上限はリクエストを拒否せず、超えたあとにセッションの `attention` の `BUDGET_EXCEEDED` と、`/usage` の `budget_exceeded: true` として現れます(8 節)。409 `IDEMPOTENCY_CONFLICT` は、同じ key で異なるボディを送ったことを示します。
+
+## 3. pending-requests で承認と質問に答える
+
+OpenAPI: [`listPendingRequests`](/reference/http-api/pending-requests/listPendingRequests)、[`answerPendingRequest`](/reference/http-api/pending-requests/answerPendingRequest)、[`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**目標.** worker が待っているツールの承認と `AskUserQuestion` を、同じ pending-requests の流れで処理します。
+
+**手順.** 欲しい種類の保留中リクエストが一覧に現れるまで待ち、その `request_id` を読みます。権限リクエストには `action`(`allow` か `deny`)で、質問リクエストには `question_id` ごとの `selected_option_ids` か `free_text` で答えます。レスポンスは 202 の receipt なので、receipt と turn を読み直します。
+
+```bash
+wait_for_pending permission
+echo "$pending" | jq -e '.items[0].kind == "permission"'
+PERMISSION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
+
+permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg request_id "$PERMISSION_REQUEST_ID" \
+    '{request_id:$request_id, kind:"permission", action:"allow"}')")
+echo "$permission_answer" | jq -e '.receipt_status == "accepted"'
+echo "$permission_answer" | jq -e '.approval.surface == "api" and (.approval.decision_id | length) == 36'
+wait_for "/v1/sessions/$SID/turns/1" .status completed
+wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" \
+  "${AUTH[@]}" | jq -e '.operation == "answer" and .status == "succeeded"'
+
+question_message=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-question","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' \
+  '{message:$message}')
+curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data "$question_message" | jq -e '.turn_id == "2"'
+wait_for_pending question
+echo "$pending" | jq -e '.items[0].kind == "question"'
+QUESTION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
+QUESTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].question_id')
+OPTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].options[0].option_id')
+
+question_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg request_id "$QUESTION_REQUEST_ID" --arg question_id "$QUESTION_ID" --arg option_id "$OPTION_ID" \
+    '{request_id:$request_id, kind:"question", answers:[{question_id:$question_id, selected_option_ids:[$option_id]}]}')")
+echo "$question_answer" | jq -e '.receipt_status == "accepted"'
+wait_for "/v1/sessions/$SID/turns/2" .status completed
+wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status succeeded
+```
+
+**期待するレスポンス.** 一覧の `items` には `kind: "permission"` か `kind: "question"` と有効期限があります。回答レスポンスの `approval` には、誰が答えたか(`answered_by`: プリンシパルとその背後の人)、画面(`surface`: `web`、`api`、`slack`)、回答を許した `session.approve` 判断の `decision_id` があります。同じ値は承認の行(`pending_requests`)にも残り、同じ Idempotency-Key で再送すると同じ `approval` が返ります。拒否(`action: "deny"`)の `reason` は任意で、空なら worker は理由なしの拒否としてモデルに伝えます。回答は `receipt_status: "accepted"` で受け付けられ、worker がそれを消費すると receipt は `succeeded`、turn は `completed` になります。worker は次のポーリングで回答の消費を報告するので、turn が先に `completed` になることがあります。receipt を 1 回だけ読まず、`succeeded` を待ってください。
+
+**よくあるエラー.** 409 `REQUEST_EXPIRED` は、リクエストの期限が切れたか、worker がすでに諦めたことを示すので、新しいセッションか turn でもう一度求めます。404 `NOT_FOUND` は、そのセッションかリクエストが現在のプリンシパルから見えないか、すでに閉じています。承認 scope がないと 403 `FORBIDDEN` です。
+
+## 4. メッセージを送って turn の状態を読む
+
+OpenAPI: [`appendSessionMessage`](/reference/http-api/messages-and-turns/appendSessionMessage)、[`getSessionTurn`](/reference/http-api/messages-and-turns/getSessionTurn)
+
+**目標.** 既存セッションの同じエンジン会話に入力を足し、結果が終端かどうかを確認します。
+
+**手順.** メッセージ POST の `turn_id` を保存し、その turn を読みます。終了したかどうかは、セッションの要約 `status` や SSE 接続が閉じたかではなく、turn の `status` が `completed`、`failed`、`interrupted`、`cancelled`、`outcome_unknown` のどれかかで判断します。
+
+```bash
+message=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-message","steps":[],"final":"continued"}' '{message:$message}')")
+TURN_ID=$(echo "$message" | jq -r .turn_id)
+echo "$message" | jq -e '.receipt_status == "accepted" and .turn_id == "3"'
+wait_for "/v1/sessions/$SID/turns/$TURN_ID" .status completed
+curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
+  | jq -e '.status == "completed"'
+```
+
+**期待するレスポンス.** メッセージは 202 と新しい `turn_id` を返し、turn の読み取りは最終状態とコミット済みの結果を返します。
+
+`completed` は、エンジンが turn を正常に終えたという意味で、依頼した作業が終わったという意味ではありません。モデルが「まずファイル一覧を見ます」と言ってツールを 1 回呼んで答えを終えても、ツールがエラーの `tool_result` を受け取っても、turn は `completed` です。プラットフォームは、作業が完了したかをモデルの答えから解釈しません。クライアントは、[5 節](#5-sse-で進行を見て-last-event-id-で再接続する)の `assistant`、`tool_use`、`tool_result` イベントで作業が終わったかを確かめ、終わっていなければ同じセッションに次のメッセージを送ります。5 節の最初の接続は過去の turn のイベントも再生するので、`data.turn_id` がこの turn のイベントだけを見てください。
+
+**よくあるエラー.** 409 `SESSION_PAUSED` や `RECOVERY_REQUIRED` のときは、これ以上入力を送らず、先に resume するか復旧判断をします。429 のときは、セッションごとの待機入力の上限を確認します。
+
+**長いセッションのトランスクリプト上限.** 1 つのチェックポイントが運べるトランスクリプトには、部分ごとの上限と、全体(ルートとすべてのサブエージェント)の上限があります。セッションが上限に近づくと事前に警告され、上限を超えると新しい turn を受け付けなくなります。
+
+- 最後にコミットされたチェックポイントのトランスクリプトが全体の上限の 80% 以上になると、セッション詳細の `attention` が `{ "code": "TRANSCRIPT_LIMIT", "reason": "transcript_near_limit", "transcript_bytes": …, "limit_bytes": … }` になります。その線を越えた最初のチェックポイントがコミットされるとき、`system` イベント(`subtype: "transcript_near_limit"`、`transcript_bytes`、`warn_bytes`、`limit_bytes`、`checkpoint_revision`)が SSE に 1 回届きます。まだ何も塞がれていません。作業を終えて新しいセッションに移る頃合いです。
+- 上限を超えると、その turn は実行されたとおり `completed` のままですが、新しいチェックポイントはできません。`durability.checkpoint_pending_reason` が `transcript_too_large`(1 つの部分が超えたときは `transcript_part_too_large`)になり、通常の公開失敗 `publish_failed` と区別されます。`attention.reason` も同じ値で、`limit_bytes` はその reason が指す上限です。最初に記録されるとき、`system` イベント(`subtype: "transcript_limit_reached"`、`reason`、`limit_bytes`)が SSE に 1 回届きます。
+- この状態のセッションは、新しいメッセージを 409 `CHECKPOINT_UNAVAILABLE` で拒否し、すでにキューにあった入力も実行しません。以前の turn と最後のチェックポイントはそのままで、そのチェックポイントが復元点です。トランスクリプトは同じエンジンセッションの中では縮まないので、待っても解消しません。新しいセッションを開くか、セッションが `recovery_required` になったら `start_fresh` で文脈なしに続けます([7 節](#7-outcome_unknown-と-recovery_required-の復旧判断))。このセッションの close も 409 `CHECKPOINT_UNAVAILABLE` です。閉じるには、terminate してから recovery close を使います。
+
+## 5. SSE で進行を見て Last-Event-ID で再接続する
+
+OpenAPI: [`streamSessionEvents`](/reference/http-api/events/streamSessionEvents)
+
+**目標.** すでに保存されたイベントを再生し、そのあと進行をライブで受け取り、接続が切れたら最後のカーソルの直後から続けます。
+
+**手順.** 最初の接続の最後の `id` を保存し、再接続リクエストの `Last-Event-ID` ヘッダーに入れて送ります。15 秒の keepalive があるので、健全な状態でもストリームは閉じません。例だけが `--max-time` で切ります。
+
+```bash
+FIRST_CODE=$(curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" \
+  -H "Authorization: Bearer $KEY" -o /tmp/api-guide-events.txt -w '%{http_code}' || true)
+test "$FIRST_CODE" = 200
+LAST_EVENT_ID=$(awk '/^id: / { id=$2 } END { sub(/\r$/, "", id); print id }' /tmp/api-guide-events.txt)
+test -n "$LAST_EVENT_ID"
+
+RECONNECT_CODE=$(curl -sSN --max-time 2 "$API/v1/sessions/$SID/events" \
+  -H "Authorization: Bearer $KEY" -H "Last-Event-ID: $LAST_EVENT_ID" \
+  -o /tmp/api-guide-reconnected-events.txt -w '%{http_code}' || true)
+test "$RECONNECT_CODE" = 200
+```
+
+**期待するレスポンス.** 200 `text/event-stream` で、各フレームに `id`、`event`、`data` があります。再接続は、指定したカーソルより後の保存済みイベントを再生し、そのままライブのストリームに続きます。
+
+**よくあるエラー.** 410 `CURSOR_EXPIRED` は、カーソルが保持範囲の外にあるので、セッションと turn の現在の状態を HTTP で読み直し、新しいストリームを始めます。429 のときは、同時ストリーム数を減らします。サーバーは現在イベントを切り詰めないので 410 を出しませんが、クライアントは処理できる必要があります。
+
+## 6. interrupt、pause/resume、terminate と receipt の確認
+
+OpenAPI: [`interruptSession`](/reference/http-api/session-control/interruptSession)、[`pauseSession`](/reference/http-api/session-control/pauseSession)、[`resumeSession`](/reference/http-api/session-control/resumeSession)、[`terminateSession`](/reference/http-api/session-control/terminateSession)、[`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**目標.** 1 つの turn だけを止める、チェックポイントを残して worker を落として復元する、または実行を強制終了する。非同期の制御はすべて、202 receipt の最終状態まで確認します。
+
+**手順.** interrupt は、実行中の `target_turn_id` を送ります。pause、resume、terminate は、競合する変更を防ぐために、直前に読んだ `revision` を `expected_revision` として送ります。terminate は外部への影響を取り消しません。
+
+```bash
+slow=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-interrupt","steps":[],"final":"too late","finalDelayMs":300000}' '{message:$message}')")
+SLOW_TURN=$(echo "$slow" | jq -r .turn_id)
+wait_for "/v1/sessions/$SID/turns/$SLOW_TURN" .status running
+interrupt=$(curl -sS "$API/v1/sessions/$SID/interrupt" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data "$(jq -nc --arg turn "$SLOW_TURN" '{target_turn_id:$turn}')")
+wait_for "/v1/sessions/$SID/turns/$SLOW_TURN" .status interrupted
+wait_for "/v1/receipts/$(echo "$interrupt" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$interrupt" | jq -r .receipt_id)" "${AUTH[@]}" \
+  | jq -e '.result.terminal == "interrupted" and .result.no_op == false'
+
+pause=$(curl -sS "$API/v1/sessions/$SID/pause" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, reason:"api guide"}')")
+wait_for "/v1/receipts/$(echo "$pause" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/sessions/$SID" .admission_state paused
+
+resume=$(curl -sS "$API/v1/sessions/$SID/resume" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision}')")
+wait_for "/v1/receipts/$(echo "$resume" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/sessions/$SID" .admission_state active
+
+doomed=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-terminate","steps":[],"final":"never","finalDelayMs":300000}' '{message:$message}')")
+DOOMED_TURN=$(echo "$doomed" | jq -r .turn_id)
+wait_for "/v1/sessions/$SID/turns/$DOOMED_TURN" .status running
+terminate=$(curl -sS "$API/v1/sessions/$SID/terminate" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, reason:"api guide"}')")
+echo "$terminate" | jq -e '.receipt_status == "accepted" and .external_effects_reverted == false'
+wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeeded
+```
+
+**期待するレスポンス.** 各 POST は `receipt_id` を返します。interrupt receipt の `result` には実際の終端状態と `no_op` が、pause や resume の receipt には結果の状態とチェックポイントの revision が、terminate の receipt には実行を取り除いた結果と `external_effects_reverted: false` が記録されます。
+
+**よくあるエラー.** 409 `TURN_NOT_STARTED` は、interrupt の対象がまだ queued です。409 `REVISION_CONFLICT` のときは、セッションを読み直し、ユーザーの意図がまだ有効かを判断して、新しい revision で再試行します。409 `RECOVERY_REQUIRED` のときは、次の節の判断を先に行います。
+
+### 実行中セッションの profile を変える
+
+OpenAPI: [`changeSessionProfile`](/reference/http-api/session-control/changeSessionProfile)
+
+セッションは、作成時に選んだ profile で動きます。会話を続けたままモデル、ツール、プロバイダーを変えるには、`POST /v1/sessions/{id}/profile` に `expected_revision` と新しい `profile_id` を送ります。権限は pause や resume と同じです(`control` scope で、セッションが見える人)。レスポンスは、すでに `succeeded` の receipt を持つ 200 で、receipt の `result` に `previous_profile_id` と `profile_id` が残ります。セッションの `revision` は 1 上がります。
+
+```sh
+curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, profile_id:"claude-coding-haiku"}')"
+```
+
+すでに実行中の turn は、始まったときの profile で終わります。その後に届いた入力は、新しい profile の worker が処理し、同じエンジン会話を最後のチェックポイントから復元します。turn の読み取りの `attempts[].profile_id` で、どの turn がどの profile で動いたかが分かります。同じ profile への変更は何も変えず、receipt だけを残します。
+
+**よくあるエラー.** 422 `UNSUPPORTED_CAPABILITY` は、新しい profile がカタログにない、セッションのリポジトリと組にならない(リポジトリなしで作ったセッションに、`repository_mode` が `required` の新しい profile)、runtime の種類やバージョンが違う(チェックポイントを復元できない)、課金方式(`provider.billing`)が違う、またはセッションの現在の profile がカタログから外れたか別の構成に変わって runtime を比べられない、のいずれかです。409 `RELEASE_PROFILE_MISMATCH` は、セッションがエージェントのリリースから作られたので、profile はリリースが決めます。409 `REVISION_CONFLICT` のときは、セッションを読み直します。
+
+### セッションを終える: close、terminate、recovery close
+
+OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession)、[`terminateSession`](/reference/http-api/session-control/terminateSession)、[`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery)
+
+セッションを終える方法は 3 つあります。作業を終えたセッションは close で閉じます。terminate と recovery close は、強制停止と復旧の断念です。3 つは receipt とイベントで区別できます。
+
+| | close | terminate | recovery close |
+|---|---|---|---|
+| パス | `POST /v1/sessions/{id}/close` | `POST /v1/sessions/{id}/terminate` | `POST /v1/sessions/{id}/recovery-decisions`、`decision: "close"` |
+| いつ使うか | 作業を終えたセッションを閉じる | 暴走した、または止めるべき実行を今すぐ落とす | 運営者が復旧できないセッションを終える |
+| scope | `sessions:control` | `sessions:control` | `sessions:recover` |
+| 受け付ける状態 | `active`、`paused`、resume できる `stopped` | `closed` 以外すべて | `recovery_required`、`stopping`、resume できない `stopped` |
+| 進行中の turn | 最後まで実行してチェックポイントを確定する。強制終了はしない | 実行を強制終了する。turn は `outcome_unknown` のまま残ることがある | 対象はすでに停止したセッション |
+| キュー内の入力 | `closed` にするトランザクションでキャンセル(`SESSION_CLOSED`) | 受け付けた時点でキャンセル(`SESSION_STOPPED`) | 判断した時点でキャンセル(`SESSION_CLOSED`) |
+| 結果の状態 | `closing`、そのあと `closed`(不可逆) | `stopping`、そのあと `stopped`(resume できる) | `closed`(不可逆) |
+| receipt の `operation` と `result` | `close`、`{resulting_admission_state, checkpoint_revision, cancelled_turn_count}` | `terminate`、`{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}` | `recovery_decision`、`{resulting_admission_state, checkpoint_revision, resumable}` |
+| イベント | `status` `closing`、`closed`、`system` `subtype: session_closed`(`closed_by: "close"`) | `status` `stopping`、`stopped` | `system` `subtype: recovery_decision`、`decision: "close"` |
+
+close は pause と同じように drain します。worker が付いた `active` のセッションは `closing` になり、進行中の turn が終わり、チェックポイントが確定し、実行が消えたのを確認してから `closed` になります。そのとき receipt が `succeeded` になります。worker のないセッション、`paused`、resume できる `stopped` のセッションは、リクエストの中でそのまま閉じます。drain が 60 秒を超えると、セッションの `attention` に `CLOSE_BLOCKED` と理由(`long_turn`、`pending_request`、`mirror_error`、`checkpoint_unavailable`、`execution_pending`)が出ます。開いている承認や質問は close を塞ぎます。答えるか interrupt すると解けます。それでも閉じなければ receipt は失敗し、セッションは `active` に戻ります。キューの入力はそのままです。その状態から抜けるには terminate を使います。進行中の close は `CONTROL_SUPERSEDED` で失敗します。
+
+自分の turn の中で自分のセッションを close するエージェントは、receipt を待ちません。drain はその turn が終わるのを待つので、`accepted` のレスポンスが、その turn の見る最後の答えです。結果を push するには、close が `succeeded` になってから、最後のチェックポイントから push を要求します。最後の turn の中で要求した push は、要求のあとにその turn がさらにコミットした場合、close が確定したチェックポイントのコミットと違うので、承認は `CHECKPOINT_MOVED` で拒否されます。close は push リクエストには触れません。
+
+次の例は、別のセッションを作り、その turn を終えて close します。
+
+```bash
+close_session=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-close","steps":[],"final":"work is done"}' \
+    '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')")
+CSID=$(echo "$close_session" | jq -r .session_id)
+wait_for "/v1/sessions/$CSID/turns/1" .status completed
+
+CLOSE_KEY=$(uuidgen)
+CLOSE_BODY=$(jq -nc --argjson revision "$(curl -sS "$API/v1/sessions/$CSID" "${AUTH[@]}" | jq .revision)" \
+  '{expected_revision:$revision, reason:"work is done"}')
+close=$(curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY")
+CLOSE_RECEIPT=$(echo "$close" | jq -r .receipt_id)
+wait_for "/v1/receipts/$CLOSE_RECEIPT" .status succeeded
+wait_for "/v1/sessions/$CSID" .admission_state closed
+curl -sS "$API/v1/receipts/$CLOSE_RECEIPT" "${AUTH[@]}" \
+  | jq -e '.operation == "close" and .result.resulting_admission_state == "closed" and .result.checkpoint_revision != null'
+
+# The same key and body answer the same receipt.
+curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY" \
+  | jq -e --arg receipt "$CLOSE_RECEIPT" '.receipt_id == $receipt'
+CLOSED_STATUS=$(curl -sS -o /tmp/werft-closed.json -w '%{http_code}' \
+  "$API/v1/sessions/$CSID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{"message":"one more"}')
+test "$CLOSED_STATUS" = 409
+jq -e '.error.code == "SESSION_CLOSED"' /tmp/werft-closed.json
+```
+
+**期待するレスポンス.** close は 202 と receipt を返します。receipt は、実行が消えたのを確認したあとに `succeeded` になり、`result.checkpoint_revision` はセッションの最後のチェックポイントです(turn を一度も実行していないセッションだけ null)。そのあと、メッセージ、resume、pause、terminate、close、復旧判断はすべて 409 `SESSION_CLOSED` です。
+
+**よくあるエラー.** 409 `SESSION_CLOSING` は、close がまだ drain 中なので、receipt を待ちます。409 `CHECKPOINT_UNAVAILABLE` は、最後の turn をカバーする信頼できるチェックポイントがありません。drain する worker がないか、トランスクリプトが上限(`transcript_too_large`、`transcript_part_too_large`)を超えて、drain がチェックポイントを作れません。terminate してから recovery close を使います。409 `RECOVERY_REQUIRED` は、セッションが `recovery_required` か、resume できない `stopped` です。recovery close を使います。409 `SESSION_PAUSED`(pause 中)や `SESSION_STOPPED`(stop 中)のときは、その制御が終わってから再送します。
+
+**運用メモ.** worker 側の attempt の `end_reason` は、worker が close のために落ちるときも `pause` のままです。close と pause は、サーバーログの制御結果(`operation: close`)と receipt で区別します。この機能をロールバックする前に、`closing` のセッションがないことを確認し、あれば terminate で引き抜きます(以前のバイナリは `closing` のセッションを片付けられません)。
+
+## 7. outcome_unknown と RECOVERY_REQUIRED の復旧判断
+
+OpenAPI: [`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery)、[`resumeSession`](/reference/http-api/session-control/resumeSession)、[`getSessionTurn`](/reference/http-api/messages-and-turns/getSessionTurn)
+
+**目標.** terminate や worker の喪失のあと、外部への影響を確認できない turn を、運営者が明示的に判断します。`outcome_unknown` を成功か失敗かと推測しないでください。
+
+**手順.** セッションの `admission_state: recovery_required` と、対象 turn の `outcome_unknown` を確認します。証拠に合わせて `abandon`、`confirm_completed`、`close`、`start_fresh`、`retry_restore` のどれかを選びます。ここでの `close` は、運営者が復旧を諦める判断です。作業を終えたセッションを閉じる close との違いは、[6 節の比較表](#セッションを終える-closeterminaterecovery-close)を見てください。このシナリオは外部への影響がない fake なので、`abandon` してから resume します。
+
+```bash
+wait_for "/v1/sessions/$SID" .admission_state recovery_required
+curl -sS "$API/v1/sessions/$SID/turns/$DOOMED_TURN" "${AUTH[@]}" \
+  | jq -e '.status == "outcome_unknown"'
+
+decision=$(curl -sS "$API/v1/sessions/$SID/recovery-decisions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg turn "$DOOMED_TURN" --argjson revision "$(revision)" \
+    '{decision:"abandon", expected_revision:$revision, reason:"fake call had no external effect", target_turn_id:$turn}')")
+wait_for "/v1/receipts/$(echo "$decision" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$decision" | jq -r .receipt_id)" "${AUTH[@]}" \
+  | jq -e '.result.resumable == true'
+
+recovery_resume=$(curl -sS "$API/v1/sessions/$SID/resume" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision}')")
+wait_for "/v1/receipts/$(echo "$recovery_resume" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/sessions/$SID" .admission_state active
+```
+
+**期待するレスポンス.** 復旧 receipt の `result.resumable` が `true` なら、最後のチェックポイントから resume できます。`abandon` は対象 turn を `cancelled` にしますが、すでに起きた外部への影響は取り消しません。
+
+**よくあるエラー.** 409 `RECOVERY_REQUIRED` は、必要な判断がまだ残っています。`confirm_completed` には検証できる `evidence_ref` が必要です。チェックポイントがないと、resume は `CHECKPOINT_UNAVAILABLE` で拒否されることがあるので、先に receipt の `resumable` を見ます。
+
+## 8. 使用量、コスト、上限を読む
+
+OpenAPI: [`getSessionUsage`](/reference/http-api/sessions/getSessionUsage)、[`getUsageSummary`](/reference/http-api/limits-and-receipts/getUsageSummary)、[`getInstallationLimits`](/reference/http-api/limits-and-receipts/getInstallationLimits)
+
+**目標.** セッションごとのプロバイダーコストの推定と入力キューの状態、一定期間に自分が始めたセッションの合計、実行スロット・ストレージ・turn に関するインストール全体の上限を読みます。
+
+**手順.** セッションごとの `/usage`、期間の合計 `/v1/usage/summary`、インストールごとの `/v1/limits` を別々に読みます。`/v1/limits` と `scope=installation` を読めるのは、ログインしたワークスペース owner(Web コンソールの cookie)だけです。API key は 403 です。1 つのエージェントの合計は `scope=agent&agent_id=…` で読み、読めるのは、ワークスペースの owner と admin、そのエージェントの管理者だけです(API key は 403、別のワークスペースのエージェントは 404)。メンバーは `GET /v1/limits?scope=me` で、セッションごとの 4 つの上限だけを読みます。期間の合計を profile ごとに分けるには `group_by=profile`(セッションの現在の profile 別)を付けます。コストはプラットフォームの価格表から計算した推定で、請求ではなく、`cost.complete` が false なら、まだ開いている turn か欠けている報告があり、本当の合計は分かりません。`/v1/limits` の `usage.outputs.used_bytes` は、保持されているセッション出力のバイト数で、`usage.storage` とは別に数えられ、上限の強制には使われません。`outputs.complete` が false なら、出力が記録される前のチェックポイントが残っていて、その分が合計から欠けています。
+
+```bash
+usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")
+echo "$usage" | jq .
+echo "$usage" | jq -e '.period == "session_lifetime" and .cost.kind == "estimated"'
+
+summary=$(curl -sS "$API/v1/usage/summary?scope=me&since=$(date -u +%Y-%m-01)" "${AUTH[@]}")
+echo "$summary" | jq .
+echo "$summary" | jq -e '.scope == "me" and .basis.sessions == "created_in_period"'
+
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/limits" "${AUTH[@]}" | grep -qx 403
+```
+
+**期待するレスポンス.** セッションのレスポンスは、`cost.amount_usd`、`complete`、報告済み・未報告・開いている turn の数、コストの上限、プロバイダートークンの累計(`token_count`)とトークンの上限(`token_limit`)、キュー内の入力の数を返します。`token_limit` が null なら、そのインストールにはトークンの上限がありません。`budget_exceeded` は、コストかトークンのどちらかの上限に達したら true です。セッションの profile が課金なし(`billing: none`)を宣言していれば、`cost.kind` は `"unmetered"` で、コストは増えず、コストの上限はそのセッションに適用されないので `cost_limit_usd` は null ですが、トークンの上限は引き続き適用されます([設定リファレンス](/run-server/self-hosting/operate/configuration#課金のないprofilebilling-none))。合計のレスポンスは、期間(`period`、UTC)に作られたセッションの数、コストの合計(`cost_usd`、各セッションの `cost.amount_usd` の合計)、どれかが不完全なら false になる `cost_complete`、トークンの合計、turn のウォールクロック時間の合計(`run_seconds`)を返します。個人 key は、その作成者が作ったセッションを合計し、作成者のいない key は、その key が始めたセッションを合計します。共有されたセッションは加算しません。owner が読むインストールのレスポンスには、設定された上限(`session_token_limit` を含む)と、現在の実行スロット、キュー内の入力、ストレージ使用量があります。
+
+**よくあるエラー.** 404 `NOT_FOUND` は、セッションが存在しないか、現在の owner から見えません。403 `FORBIDDEN` は、owner でない呼び出し元が `/v1/limits` か `scope=installation` を読みました。400 は、`since` がない、オフセットのない時刻、`since` より前の `until` です。`complete: false` をコストゼロと読まないでください。503 のときは、DB と使用量の集計を含むインストールの状態を確認します。
+
+## 9. Idempotency-Key で安全に再試行する
+
+OpenAPI: [`appendSessionMessage`](/reference/http-api/messages-and-turns/appendSessionMessage)、[`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**目標.** 応答が失われたりタイムアウトしたりしたあと、同じコマンドを 2 回実行せずに、元の受付結果をもう一度得ます。
+
+**手順.** 変更操作ごとに UUID の key を 1 つ作り、再試行するときは key もボディも変えずに送ります。新しいユーザーの新しい意図には、新しい key を使います。
+
+```bash
+RETRY_KEY=$(uuidgen)
+RETRY_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-idempotency","steps":[],"final":"once"}' '{message:$message}')
+first=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $RETRY_KEY" --data "$RETRY_BODY")
+second=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $RETRY_KEY" --data "$RETRY_BODY")
+test "$first" = "$second"
+RETRY_TURN=$(echo "$first" | jq -r .turn_id)
+wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
+```
+
+**期待するレスポンス.** 2 回の呼び出しは同じステータスと受付ボディを返し、turn は 1 回しか作られません。receipt の `result` は最初の受付ボディを保持し、現在の成功や失敗は、receipt の最上位の `status` と turn の読み取りから読みます。
+
+**よくあるエラー.** 同じ key で異なるボディを送ると 409 `IDEMPOTENCY_CONFLICT` です。タイムアウトのあとで結果が不明なまま新しい key で再送すると、コマンドが 2 回実行され得るので、まず同じ key で再試行します。429 と 503 `BACKEND_UNAVAILABLE`(DB の障害、30 秒の処理期限超過)には、待つ秒数の `Retry-After` ヘッダーが付きます。レスポンスにこのヘッダーがあれば、その時間のあとで同じ key とボディで再送します。
+
+## 10. セッション結果の push を要求し、承認・拒否する
+
+OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest)、[`listPushRequests`](/reference/http-api/push-requests/listPushRequests)、[`getPushRequest`](/reference/http-api/push-requests/getPushRequest)、[`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest)、[`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest)、[`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**目標.** セッションが作ったコミットを、リポジトリの `agent/<session-id>` ブランチに push するよう求め、`sessions:approve` を持つ人にそのコミットを承認または拒否してもらいます。push は worker ではなくプラットフォーム(API)が、承認の数秒後までに行います。
+
+**手順.** ボディなし(`{}`)でリクエストを送ります。プラットフォームは、セッションの最新のチェックポイントの revision とその `git_commit`、セッションの `repository_id`、ブランチ `agent/<session-id>` を固定します。承認または拒否する人は、固定された `git_commit` を確認し、同じ値を `/approve` か `/reject` のボディに入れます。別のコミットを指す承認は拒否されます。1 つのセッションが持てる開いたリクエストは 1 つだけ(`requested`、`approved`、`pushing`)なので、拒否のあとに改めて要求します。
+
+```bash
+push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+echo "$push_request" | jq -e --arg branch "agent/$SID" \
+  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+PUSH_ID=$(echo "$push_request" | jq -r .id)
+PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
+
+rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
+echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
+curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${AUTH[@]}" \
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
+
+again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')")
+test "$(echo "$again" | tail -n1)" = 409
+echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
+curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
+  | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
+
+push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+PUSH_ID=$(echo "$push_request" | jq -r .id)
+approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
+echo "$approved" | jq -e '.state == "approved"'
+curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
+
+for _ in $(seq 1 30); do
+  pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
+  echo "$pushed" | jq -e '.state == "pushed" or .state == "failed"' >/dev/null && break
+  sleep 1
+done
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@]}" \
+  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
+```
+
+**期待するレスポンス.** リクエストは 201 で、`state: "requested"` と固定された値を返します。判断は 200 で、`approved` か `rejected` と `resolved_by` を返します。リクエスト、判断、拒否された試行のすべてに receipt(`request_push`、`resolve_push`)が残り、拒否の場合はエラーの `error.details.receipt_id` がその receipt を指します。receipt の `result` には、判定(`verdict`)、拒否の理由(`refusal`)、リクエスト id、チェックポイントの revision、コミット、対象ブランチがあり、`actor` が誰が行ったかを示します。承認されたリクエストは `pushing` を経て `pushed` か `failed` になり、`push_receipt_id` が指す `push` receipt には、リモート URL、ref(`refs/heads/agent/<session-id>`)、直前のコミット、承認者、失敗時の `refusal` があります。各理由の意味は [API サーバーのドキュメント](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#승인된-요청의-push)にあります。
+
+**よくあるエラー.** 409 `PUSH_SOURCE_MISSING` は、セッションにリポジトリかチェックポイントがまだありません。409 `PUSH_REQUEST_OPEN` は、開いたリクエストがあります。409 `PUSH_REQUEST_RESOLVED` は、リクエストがすでに判断済みです。409 `CHECKPOINT_MOVED` は、承認ボディの `git_commit` が固定されたコミットと違うか、リクエストのあとにセッションが別のコミットのチェックポイントを残しました。リクエストのあとにチェックポイントがまた現れても、コミットが同じなら承認は通ります。このリクエストを拒否して、改めて要求します。`sessions:approve` のない key で判断すると 403 `FORBIDDEN` になり、receipt が残ります。worker の資格情報(起動ノンスとセッショントークン)は `/v1` で認証されないので、401 になります。
+
+## 11. セッションの出力を一覧してダウンロードする
+
+OpenAPI: [`listSessionOutputs`](/reference/http-api/sessions/listSessionOutputs)、[`downloadSessionOutput`](/reference/http-api/sessions/downloadSessionOutput)
+
+**目標.** セッションが作業ディレクトリの `out/` に残したファイルを、人が取得できるようにします。一覧は、セッションの最新のコミット済みチェックポイントが記録したもので、worker や作業ディレクトリがなくなったあとも残ります。最後のチェックポイントのあとに書かれたファイルは、次のチェックポイントがコミットされるまで一覧に載りません。
+
+**手順.** 一覧を読み、ファイルは `path` を 1 つのパスセグメントとしてパーセントエンコードしてダウンロードします(`out/report.md` は `out%2Freport.md`)。権限はセッションを読むのと同じです(`sessions:read`)。
+
+```bash
+outputs=$(curl -sS "$API/v1/sessions/$SID/outputs" "${AUTH[@]}")
+echo "$outputs" | jq .
+echo "$outputs" | jq -e --arg sid "$SID" '.session_id == $sid and (.items | type == "array")'
+OUT_PATH=$(echo "$outputs" | jq -r '[.items[] | select(.omitted == null)][0].path // empty')
+if [ -n "$OUT_PATH" ]; then
+  curl -sS -o /tmp/werft-output "${AUTH[@]}" \
+    "$API/v1/sessions/$SID/outputs/$(jq -rn --arg path "$OUT_PATH" '$path | @uri')"
+  test "$(shasum -a 256 /tmp/werft-output | cut -d' ' -f1)" = \
+    "$(echo "$outputs" | jq -r --arg path "$OUT_PATH" '.items[] | select(.path == $path) | .sha256')"
+fi
+```
+
+**期待するレスポンス.** 一覧は `checkpoint_revision` と `items`(`path`、`bytes`、`sha256`、`omitted`)を返します。まだチェックポイントがなければ、`checkpoint_revision: null` と空の `items` です。上限を超えたファイルは `omitted: "too_large"` と `sha256: null` だけが示され、内容は保存されていません。ダウンロードは、ファイルの内容をそのまま `application/octet-stream` で、`Content-Disposition: attachment`(ファイル名は `filename*`)と `X-Content-Type-Options: nosniff` を付けて返します。受け取った内容の sha256 は、一覧の `sha256` と等しくなります。ストレージのオブジェクトがチェックポイントの検証したものと違う場合は、転送が終わる前に切断されます。
+
+**よくあるエラー.** 404 `NOT_FOUND` は、セッションが存在しないか見えない、パスが一覧にない(`/` をエンコードしなかった場合を含む)、またはファイルが `omitted` のものです。409 `CHECKPOINT_UNAVAILABLE` は、最新のチェックポイントのマニフェストかそのファイルオブジェクトを読めません。
+
+## 12. ローカルの例を片付ける
+
+**目標.** このドキュメントが作ったローカルのデータと worker のリソースを取り除きます。
+
+**手順.** 既定の compose プロジェクトを、データボリュームごと落とします。本番のデプロイに対しては実行しないでください。
+
+```bash
+scripts/local.sh down
+```
+
+**期待するレスポンス.** `local.sh: deleted` が出力され、ローカルのセッション、チェックポイント、key が削除されます。
+
+**よくあるエラー.** 別のプロジェクトやインストールを、手作業の Docker コマンドで削除しないでください。別のスタックが既定のポートを使っているときは、この例を始めず、まず[開発用サーバーの実行のポート確認](/run-server/dev-server#必要なもの)に従ってください。

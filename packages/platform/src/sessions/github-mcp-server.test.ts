@@ -94,7 +94,16 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     runningTurn: number | null;
     marks: Array<{ sessionId: string; turnId: number }>;
     marked: boolean;
+    /** The status each read of a workflow run answers. */
+    runStatus: string;
+    /** How long reading the session's state takes. */
+    stateDelayMs: number;
+    /** A read of a workflow run that never answers. */
+    hangRun: boolean;
   } = {
+    hangRun: false,
+    stateDelayMs: 0,
+    runStatus: "completed",
     pushRefusal: null,
     notPushed: null,
     resolutionReason: null,
@@ -102,12 +111,35 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     marks: [],
     marked: true,
   };
+  // What the forge says the head is, and the reviews it was sent.
+  const forge = {
+    head: "a".repeat(40),
+    reviews: [] as Array<{ commitId: string; body: string | undefined }>,
+  };
   const api: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: unused,
     findPullRequestForBranch: unused,
     createPullRequest: unused,
-    getPullRequest: unused,
+    getPullRequest: async (number) => ({
+      pullRequest: {
+        number,
+        url: `https://github.com/acme/app/pull/${number}`,
+        state: "open",
+        head: "agent/x",
+        headSha: forge.head,
+        base: "main",
+        mergedAt: null,
+        closedAt: null,
+        title: "t",
+        mergeCommitSha: null,
+        additions: null,
+        deletions: null,
+        changedFiles: null,
+        commits: null,
+      },
+      rateLimit: {} as never,
+    }),
     updatePullRequestBody: unused,
     setPullRequestState: unused,
     upsertComment: unused,
@@ -115,9 +147,22 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       id: 42,
       html_url: "https://github.com/acme/app/actions/runs/42",
     }),
-    getWorkflowRun: unused,
+    getWorkflowRun: async (runId) => {
+      if (control.hangRun) return new Promise<never>(() => {});
+      return {
+        id: runId,
+        path: ".github/workflows/ci.yml",
+        head_branch: "main",
+        status: control.runStatus,
+        conclusion: control.runStatus === "completed" ? "success" : null,
+        html_url: `https://github.com/acme/app/actions/runs/${runId}`,
+      };
+    },
     rerunWorkflow: unused,
-    submitReview: unused,
+    submitReview: async (input) => {
+      forge.reviews.push({ commitId: input.commitId, body: input.body });
+      return { id: 77, html_url: "https://github.com/acme/app/pull/1#r77" };
+    },
   };
   const gate: GitHubGate = {
     grant: async (work) => {
@@ -201,27 +246,35 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         authorization,
         gate,
         store: workStore,
+        redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+        pollMs: 10,
       }),
       attachments: createRepositoryAttachmentService({
         store: attachmentStore,
         context: { context: async () => attachContext },
         catalog: attachCatalog,
-        waitMs: 0,
       }),
     };
   };
   const handle = createGitHubMcpServer({
     store: {
-      sessionState: async () => ({
-        ownerId: "owner-a",
-        agentId: creator.agent_id ?? "",
-        releaseId: "release-1",
-        source: "release",
-        github: github(),
-        enabled: true,
-        actor: creator,
-        ...state,
-      }),
+      sessionState: async () => {
+        if (control.stateDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, control.stateDelayMs),
+          );
+        }
+        return {
+          ownerId: "owner-a",
+          agentId: creator.agent_id ?? "",
+          releaseId: "release-1",
+          source: "release" as const,
+          github: github(),
+          enabled: true,
+          actor: creator,
+          ...state,
+        };
+      },
       runningTurn: async () => control.runningTurn,
       markPushContinuation: async (input) => {
         control.marks.push(input);
@@ -254,6 +307,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     workStore,
     attachmentStore,
     control,
+    forge,
   };
 }
 
@@ -462,6 +516,41 @@ describe("a session under the agent's settings", () => {
     });
   });
 
+  test("submit_review cleans the body, and a moved head is a stale_commit refusal with no review sent", async () => {
+    const h = under({ github: github({ review: true }) });
+    const ok = payload(
+      await h.call("submit_review", {
+        number: 1,
+        event: "COMMENT",
+        commit_id: "a".repeat(40),
+        body: "cc @octocat\nghp_leak",
+      }),
+    );
+    expect(ok.body.ok).toBe(true);
+    expect(h.forge.reviews).toEqual([
+      { commitId: "a".repeat(40), body: "cc @​octocat\n[REDACTED]" },
+    ]);
+
+    h.forge.head = "b".repeat(40);
+    const stale = payload(
+      await h.call("submit_review", {
+        number: 1,
+        event: "APPROVE",
+        commit_id: "a".repeat(40),
+      }),
+    );
+    expect(stale.body).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "stale_commit",
+        by: "github",
+        retryable: false,
+        details: { head_sha: "b".repeat(40) },
+      },
+    });
+    expect(h.forge.reviews).toHaveLength(1);
+  });
+
   test("a row that cannot be read gets no tools", async () => {
     const answer = await under({ github: null }).handle(
       grant,
@@ -554,6 +643,7 @@ describe("tools/call", () => {
       authorization: createAuthorizationPolicy(),
       gate: h.gate,
       store: h.workStore,
+      redact: (line) => line,
     });
     await viaApi.dispatch(
       {
@@ -970,10 +1060,72 @@ describe("attach_repository", () => {
           failure: null,
           already_attached: false,
           receipt_id: "receipt-1",
+          final: false,
         },
       },
     });
     expect(h.attachmentStore.rows.get("docs")?.attemptId).toBe("att_1");
+  });
+
+  test("a repository already attached answers final at once", async () => {
+    const h = harness();
+    await h.call("attach_repository", { repository_id: "docs" });
+    await h.attachmentStore.settle(SESSION, [
+      {
+        repository_id: "docs",
+        receipt_id: "receipt-1",
+        status: "attached",
+        commit: "c".repeat(40),
+      },
+    ]);
+    const started = performance.now();
+    const answer = payload(
+      await h.call("attach_repository", {
+        repository_id: "docs",
+        wait_seconds: 7,
+      }),
+    );
+    expect(answer.body.result).toMatchObject({
+      status: "attached",
+      already_attached: true,
+      final: true,
+    });
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  test("waits no longer than wait_seconds and answers final false", async () => {
+    const h = harness();
+    const started = performance.now();
+    const answer = payload(
+      await h.call("attach_repository", {
+        repository_id: "docs",
+        wait_seconds: 1,
+      }),
+    );
+    const took = performance.now() - started;
+    expect(answer.body.result).toMatchObject({
+      status: "pending",
+      final: false,
+    });
+    expect(took).toBeGreaterThanOrEqual(900);
+    expect(took).toBeLessThan(1_500);
+  });
+
+  test("a wait over the cap, or not a whole number, is refused before the service", async () => {
+    for (const wait_seconds of [8, -1, 1.5, "3"]) {
+      const h = harness();
+      const answer = payload(
+        await h.call("attach_repository", {
+          repository_id: "docs",
+          wait_seconds,
+        }),
+      );
+      expect(answer).toMatchObject({
+        isError: true,
+        body: { refusal: { code: "validation_error" } },
+      });
+      expect(h.attachmentStore.rows.size).toBe(0);
+    }
   });
 
   test("anything but a repository id is refused before the service", async () => {
@@ -989,6 +1141,120 @@ describe("attach_repository", () => {
       body: { refusal: { code: "validation_error" } },
     });
     expect(h.attachmentStore.receipts).toEqual([]);
+  });
+});
+
+describe("get_workflow_run", () => {
+  const actionsOn = () =>
+    harness({ github: github({ actions: true }) as never });
+
+  test("without wait_seconds answers at once; a finished run is final", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "completed";
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7 })).body,
+    ).toMatchObject({
+      ok: true,
+      result: { id: 7, status: "completed", final: true },
+    });
+    h.control.runStatus = "in_progress";
+    for (const args of [{ run_id: 7 }, { run_id: 7, wait_seconds: 0 }]) {
+      const started = performance.now();
+      const answer = payload(await h.call("get_workflow_run", args));
+      expect(answer.body.result).toMatchObject({
+        status: "in_progress",
+        final: false,
+      });
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+  });
+
+  test("a run still going at the deadline answers final false at the deadline", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "in_progress";
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 1 }),
+    );
+    const took = performance.now() - started;
+    expect(answer.body.result).toMatchObject({ final: false });
+    expect(took).toBeGreaterThanOrEqual(900);
+    expect(took).toBeLessThan(1_500);
+  });
+
+  test("a run that finishes inside the wait answers the finished run", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "in_progress";
+    setTimeout(() => {
+      h.control.runStatus = "completed";
+    }, 200);
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 5 }),
+    );
+    expect(answer.body.result).toMatchObject({
+      status: "completed",
+      conclusion: "success",
+      final: true,
+    });
+    expect(performance.now() - started).toBeLessThan(1_500);
+  });
+
+  test("the wait is counted from the start of the call, state read included", async () => {
+    const h = actionsOn();
+    h.control.runStatus = "in_progress";
+    h.control.stateDelayMs = 600;
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 1 }),
+    );
+    const took = performance.now() - started;
+    expect(answer.body.result).toMatchObject({ final: false });
+    expect(took).toBeGreaterThanOrEqual(900);
+    expect(took).toBeLessThan(1_300);
+  });
+
+  test("a budget spent before the service starts still ends at the deadline", async () => {
+    const h = actionsOn();
+    h.control.stateDelayMs = 1_100;
+    h.control.hangRun = true;
+    const started = performance.now();
+    const answer = payload(
+      await h.call("get_workflow_run", { run_id: 7, wait_seconds: 1 }),
+    );
+    expect(answer.body.refusal).toMatchObject({
+      code: "backend_unavailable",
+      retryable: true,
+    });
+    expect(performance.now() - started).toBeLessThan(1_800);
+  });
+
+  test("a wait over the cap is refused, and concurrent waits answer alike", async () => {
+    const h = actionsOn();
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7, wait_seconds: 8 })),
+    ).toMatchObject({
+      isError: true,
+      body: { refusal: { code: "validation_error" } },
+    });
+    // The cap itself is accepted: a finished run answers at once.
+    h.control.runStatus = "completed";
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7, wait_seconds: 7 }))
+        .body.result,
+    ).toMatchObject({ final: true });
+    h.control.runStatus = "queued";
+    setTimeout(() => {
+      h.control.runStatus = "completed";
+    }, 100);
+    const answers = await Promise.all(
+      [1, 2, 3].map((_) =>
+        h.call("get_workflow_run", { run_id: 7, wait_seconds: 3 }),
+      ),
+    );
+    for (const answer of answers) {
+      expect(payload(answer).body.result).toMatchObject({ final: true });
+    }
   });
 });
 

@@ -191,7 +191,7 @@ describe("SegmentedControl", () => {
     }
     const item = getByRole("button", { name: "끝남" }).className.split(" ");
     for (const name of [
-      "h-[var(--ap-control-height-sm)]",
+      "h-[var(--werft-control-height-sm)]",
       "px-2",
       "gap-2",
       "rounded-control",

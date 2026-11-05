@@ -190,7 +190,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     const response = await post(
       "/v1/auth/login",
       { email, password: PASSWORD },
-      { "X-Requested-With": "agent-platform-web" },
+      { "X-Requested-With": "werft-web" },
     );
     expect(response.status).toBe(200);
     return cookieOf(response);
@@ -668,7 +668,7 @@ integration("members and actors over HTTP on PostgreSQL", () => {
     const refused = await post(
       "/v1/auth/login",
       { email: "two-places@example.com", password: PASSWORD },
-      { "X-Requested-With": "agent-platform-web" },
+      { "X-Requested-With": "werft-web" },
     );
     expect(refused.status).toBe(401);
 

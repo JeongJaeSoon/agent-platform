@@ -144,6 +144,12 @@ export type SlackPendingPrompt = SlackLinkedTurnTarget & {
         tool: string;
         input: unknown;
         context: ToolSummaryContext;
+        /**
+         * The rules the run offered to keep for the session, redacted for
+         * display. Present, the card offers "allow for the session"; the
+         * worker that registered it announced it can take the answer.
+         */
+        rememberOffer?: { toolName: string; ruleContent?: string }[];
         expiresAt: string;
       }
     | {
@@ -313,6 +319,7 @@ export type SlackCardRendered =
   | "open"
   | "reject_only"
   | "allowed"
+  | "allowedSession"
   | "denied"
   | "answered"
   | "approved"

@@ -10,7 +10,7 @@ import type {
   GitHubSettingsConnection,
   ListGitHubRepositoriesResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -73,7 +73,7 @@ export function useRepositoryPage(
   page: number,
   enabled = true,
 ) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return useQuery({
     queryKey: [
@@ -477,7 +477,7 @@ export function RepositorySheet({
 }
 
 function useRefreshRepositories() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return () =>
@@ -498,7 +498,7 @@ function BranchDialog({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const refresh = useRefreshRepositories();
@@ -618,7 +618,7 @@ function PinsDialog({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const refresh = useRefreshRepositories();

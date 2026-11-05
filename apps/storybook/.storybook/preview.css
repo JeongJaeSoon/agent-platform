@@ -11,9 +11,9 @@
 @source "../src";
 
 body {
-  background: var(--ap-color-surface);
-  color: var(--ap-color-foreground);
-  font-family: var(--ap-font-sans);
+  background: var(--werft-color-surface);
+  color: var(--werft-color-foreground);
+  font-family: var(--werft-font-sans);
 }
 
 .story-row {

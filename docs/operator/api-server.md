@@ -1,6 +1,6 @@
 # API 서버 — 카탈로그, 자격 증명, checkpoint 저장소, 인증과 권한
 
-API 서버가 운영자 카탈로그(Agent Profile·repository)와 자격 증명을 다루는 방식, checkpoint object store, API 인증과 세션 실행 권한을 적는다. 설정값은 [설정 레퍼런스](configuration.md)에, worker 실행과 격리는 [실행 기반과 worker 격리](execution.md)에 있다.
+API 서버가 운영자 카탈로그(Agent Profile·repository)와 자격 증명을 다루는 방식, checkpoint object store, API 인증과 세션 실행 권한을 적는다. 설정값은 [설정 레퍼런스](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/)에, worker 실행과 격리는 [실행 기반과 worker 격리](execution.md)에 있다.
 
 ## provider 키와 저장소 자격 증명은 worker에 가지 않는다
 
@@ -14,7 +14,7 @@ worker 컨테이너 env에도, claim 응답에도 provider 키와 저장소 로�
   * `/object-store/<bucket>/<key>` 아래의 S3 요청(아래 object store route)
   * `POST`·`GET`·`DELETE /mcp/<name>`(아래 "원격 MCP 서버" 절)
   * `POST /decisions/v1/decisions`(query 없음). worker가 아니라 API의 성과 판정기가 판정 token(`wej_`)으로 부르는 경로다. 이 경로의 grant는 `session_id`·`attempt_id` 대신 `judgment_id`를 담고, proxy는 이 경로의 usage를 `{exchange_id, judgment_id, usage}`로 보고한다. API는 이를 세션 비용이 아니라 판정 호출 원장에 `exchange_id`마다 한 번 적고 그 판정 행(`calls`·`input_tokens`·`cost_usd`)에 더한다. 같은 exchange를 다시 보고하면 다시 더하지 않는다. 판정 grant를 다른 경로에서 받거나 세션 grant를 이 경로에서 받으면 proxy는 503으로 거절한다. 이 경로가 없는 앞 버전 proxy도 판정 grant를 거절하므로, 배포는 proxy를 먼저 올린다. 판정기 upstream은 아직 없어서 이 경로의 authorize는 지금 503이다.
-* **요청 하나의 처리:** proxy는 요청마다 API의 authorizer에 token을 묻는다. authorizer는 API의 별도 listener로, `EGRESS_AUTHORIZER_PORT`의 `POST /authorize`에서 `EGRESS_AUTHORIZER_TOKEN` bearer를 요구한다. 같은 listener의 `POST /usage`는 proxy가 Messages 호출의 usage를 보고하는 곳이다([설치 상한](configuration.md#설치-상한)). token이 지금 유효하면 authorizer는 upstream과 붙일 헤더를 돌려준다. 유효하다는 것은 lease가 DB 시계로 살아 있고 epoch가 맞으며 purpose가 일치한다는 뜻이다. proxy는 worker의 token을 떼고 카탈로그의 자격 증명을 붙여 upstream으로 보낸다.
+* **요청 하나의 처리:** proxy는 요청마다 API의 authorizer에 token을 묻는다. authorizer는 API의 별도 listener로, `EGRESS_AUTHORIZER_PORT`의 `POST /authorize`에서 `EGRESS_AUTHORIZER_TOKEN` bearer를 요구한다. 같은 listener의 `POST /usage`는 proxy가 Messages 호출의 usage를 보고하는 곳이다([설치 상한](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#설치-상한)). token이 지금 유효하면 authorizer는 upstream과 붙일 헤더를 돌려준다. 유효하다는 것은 lease가 DB 시계로 살아 있고 epoch가 맞으며 purpose가 일치한다는 뜻이다. proxy는 worker의 token을 떼고 카탈로그의 자격 증명을 붙여 upstream으로 보낸다.
 * **fail-closed:** 긍정 응답은 캐시하지 않는다. 그래서 authorizer가 죽어 있으면 503이고, attempt를 잃은 token은 다음 요청부터 401·409다.
 * **upstream 연결:** upstream은 forward proxy와 같은 allowlist·주소 규칙으로 판정한다. 연결은 판정한 주소에 하고, TLS 인증서는 카탈로그의 host 이름으로 요청을 보내기 전에 검증한다. redirect는 따라가지도 전달하지도 않는다(502, GitHub의 경우는 아래 "GitHub 저장소" 절). 오류 본문에 주입한 자격 증명이 되비쳐 있거나, 본문이 압축돼 있거나, 64 KiB를 넘으면 본문을 보류한다.
 * **요청 본문 상한:** Bun은 handler가 읽지 않은 요청 본문도 소켓에서 곧바로 받아 메모리에 쌓는다. 그래서 proxy는 await 전에, 요청 head만 보고 받을지 정한다. provider·repository 본문은 요청당 32 MiB(Messages API 한도)이고, 넘게 선언하면 authorizer에 묻기 전에 413이다. chunked 본문은 32 MiB까지만 읽고 413이다. object store 본문은 길이를 선언해야 한다(chunked면 411). 받은 요청은 선언한 길이(chunked면 32 MiB)만큼 설치 전체 예산 512 MiB(`DEFAULT_MAX_BODY_BYTES_IN_FLIGHT`)에서 떼어 두고, 교환이 끝나면 돌려놓는다(upstream은 본문을 다 받기 전에 답할 수 있다). 받은 본문은 예약한 크기의 버퍼 하나에 모은다. 예산에 들어가지 않는 요청은 503 `too many request bytes in flight`다. authorizer도 요청 본문을 16 KiB까지만 읽고 413으로 끊는다.
@@ -255,7 +255,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 
 ### 세션 결과의 push 승인
 
-세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인이고, 승인된 요청의 push는 다음 절이다. API 사용법은 [api-guide 10절](../api-guide.md#10-세션-결과의-push-요청과-승인거부)에 있다.
+세션의 결과는 worker가 아니라 플랫폼(API)이 push하고, 사람이 승인한 뒤에만 한다. 이 절은 요청과 승인이고, 승인된 요청의 push는 다음 절이다. API 사용법은 [api-guide 10절](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/#10-세션-결과의-push-요청과-승인거부)에 있다.
 
 - **고정하는 것:** 요청(`POST /v1/sessions/{id}/push-requests`, `sessions:write`)은 그때 세션의 checkpoint pointer가 가리키는 revision과, 검증된 manifest가 적은 `git_commit`을 고정한다. 저장소는 세션의 `repository_id`, 브랜치는 `agent/<session-id>`다. 요청자는 이 중 아무것도 고를 수 없다. 브랜치 규칙은 DB CHECK(`push_requests_target_branch_check`)도 지킨다. manifest가 검증되지 않으면 더 오래된 checkpoint로 대신하지 않고 거절한다.
 - **승인·거부하는 사람:** 승인(`POST .../push-requests/{push_request_id}/approve`)과 거부(`.../reject`)에는 `sessions:approve`가 필요하다. 이 scope는 API의 scope 표가 아니라 push 서비스가 검사한다. 그래야 거절도 receipt로 남는다. 승인·거부할 수 있는 principal은 API key와 로그인한 사용자뿐이다. 다른 종류(chat installation 등)는 목록에 넣기 전까지 거절된다. API key는 사람과 묶여 있지 않으므로 `sessions:approve` key는 사람만 갖게 발급한다. 자동화(CI 등)에는 주지 않는다.
@@ -285,9 +285,9 @@ API 프로세스가 3초마다 `approved` 요청을 하나씩 잡아 push한다.
 `pushed`가 된 요청의 `agent/<session-id>` 브랜치로 사람이 PR을 열고, 그 PR에 코멘트를 달거나 고칠 수 있다. 둘 다 API 호출로 한 번씩 하며, 플랫폼이 세션 이벤트마다 스스로 코멘트를 달지는 않는다. PR 승인·머지·리뷰어 지정·라벨은 하지 않는다.
 
 - **열기:** `POST /v1/sessions/{id}/push-requests/{push_request_id}/pull-request`, body `{title?, body?}`. head는 요청의 `agent/<session-id>`, base는 카탈로그 항목의 `branch`다. 요청이 `pushed`가 아니면 409 `PUSH_NOT_PUSHED`, 카탈로그 항목의 binding이 요청 때와 다르면 push와 같이 409 `CATALOG_MISMATCH`다. 요청 하나에 PR은 하나다. 이미 기록된 PR이 있거나 GitHub에 그 브랜치의 열린 PR이 있으면 새로 열지 않고 그 PR을 200(`created: false`)으로 돌려준다. 같은 세션의 다음 push 요청은 같은 브랜치를 갱신하므로 열린 PR도 같고, 그 요청으로도 코멘트를 달 수 있다. PR 행은 그 PR을 연 push 요청에 묶인다. 그 요청의 호출은 PR이 닫혀도 기록된 PR을 그대로 돌려주고, 다른 push 요청의 호출은 GitHub에서 그 브랜치의 열린 PR을 다시 찾아 없으면(사람이 닫았으면) 새 PR을 연다.
-- **코멘트:** `POST .../pull-request/comments`, body `{body, marker?}`(`marker` 기본값 `status`). 코멘트 끝에 `<!-- agent-platform:<session-id>:<marker> -->`를 붙이고, 플랫폼이 쓴(App 또는 PAT 주인이 작성자인) 같은 marker의 코멘트가 이미 있으면(오래된 순 처음 1000개 안에서) 새로 달지 않고 그 코멘트를 고친다. 다른 사람이 marker를 복사해 둔 코멘트는 건드리지 않는다. PR을 먼저 열지 않았으면 409 `PULL_REQUEST_MISSING`이다.
+- **코멘트:** `POST .../pull-request/comments`, body `{body, marker?}`(`marker` 기본값 `status`). 코멘트 끝에 `<!-- werft:<session-id>:<marker> -->`를 붙이고, 플랫폼이 쓴(App 또는 PAT 주인이 작성자인) 같은 marker의 코멘트가 이미 있으면(오래된 순 처음 1000개 안에서) 새로 달지 않고 그 코멘트를 고친다. 다른 사람이 marker를 복사해 둔 코멘트는 건드리지 않는다. PR을 먼저 열지 않았으면 409 `PULL_REQUEST_MISSING`이다.
 - **누가:** push 결정과 같은 규칙이다. `sessions:approve`를 가진 API key나 로그인한 사용자만 부르고, scope는 서비스가 검사해 거절도 receipt로 남는다. worker 자격은 `/v1`에서 401이고 `AUTH_MODE=none`에서는 403(`unverified_principal`)이며 기록하지 않는다.
-- **본문 정리:** 제목·본문·코멘트는 GitHub에 보내기 전에 정리한다. 각 줄을 로그 마스킹과 같은 규칙(`sanitizeText`)에 넣어 비밀처럼 보이는 줄(`ghp_…`, `token:` 같은 줄)은 `[REDACTED]` 한 줄로 바꾼다. `@멘션`, 다른 저장소 참조(`owner/repo#N`), closing keyword(`Closes #N`, `fixes owner/repo#N`, `resolves <URL>` 등), HTML 주석(`<!--`)은 zero-width space를 끼워 알림·링크·자동 닫기·숨김이 일어나지 않게 한다. 제목은 한 줄 256자, 본문과 코멘트는 GitHub의 65536자 안으로 자르고 `…(truncated)`를 붙인다. PR 본문 끝에는 `<!-- agent-platform:pr-tail -->`로 시작해 `<!-- /agent-platform:pr-tail -->`로 끝나는 꼬리가 붙는다. 세션 id·commit, 세션 URL(콘솔 origin이 있을 때), 에이전트·release, push 요청, 시작 경로(`web`·`slack`·`personal_key`·`agent_key`·`operator_key`), 시작자의 GitHub 연결 여부, 연결돼 있으면 `Co-authored-by:` 줄이다. 이미 있는 PR을 돌려줄 때(`created: false`)도 그 PR 본문의 꼬리를 지금 commit으로 바꾼다. 바꾸는 것은 마지막 꼬리(시작 표시 줄부터 다음 끝 표시 줄까지, 표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>` 같은 HTML 요소 밖에 있고, 사이가 플랫폼이 쓰는 줄을 그 순서로 한 번씩 담을 때만 센다. 사람이 그 안에 줄을 더하면 사람 글이다)뿐이고, 앞뒤에 사람이 쓴 글은 줄바꿈까지 쓴 그대로, 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없으면(옛 PR, 사람이 꼬리를 지운 PR) 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 닫는 줄을 더한 뒤 붙인다. 꼬리 갱신이 실패해도 PR 응답은 그대로이고 API 로그에 경고만 남는다. 아래 "GitHub 계정 연결"도 본다.
+- **본문 정리:** 제목·본문·코멘트는 GitHub에 보내기 전에 정리한다. 각 줄을 로그 마스킹과 같은 규칙(`sanitizeText`)에 넣어 비밀처럼 보이는 줄(`ghp_…`, `token:` 같은 줄)은 `[REDACTED]` 한 줄로 바꾼다. `@멘션`, 다른 저장소 참조(`owner/repo#N`), closing keyword(`Closes #N`, `fixes owner/repo#N`, `resolves <URL>` 등), HTML 주석(`<!--`)은 zero-width space를 끼워 알림·링크·자동 닫기·숨김이 일어나지 않게 한다. 제목은 한 줄 256자, 본문과 코멘트는 GitHub의 65536자 안으로 자르고 `…(truncated)`를 붙인다. PR 본문 끝에는 `<!-- werft:pr-tail -->`로 시작해 `<!-- /werft:pr-tail -->`로 끝나는 꼬리가 붙는다. 세션 id·commit, 세션 URL(콘솔 origin이 있을 때), 에이전트·release, push 요청, 시작 경로(`web`·`slack`·`personal_key`·`agent_key`·`operator_key`), 시작자의 GitHub 연결 여부, 연결돼 있으면 `Co-authored-by:` 줄이다. 이미 있는 PR을 돌려줄 때(`created: false`)도 그 PR 본문의 꼬리를 지금 commit으로 바꾼다. 바꾸는 것은 마지막 꼬리(시작 표시 줄부터 다음 끝 표시 줄까지, 표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>` 같은 HTML 요소 밖에 있고, 사이가 플랫폼이 쓰는 줄을 그 순서로 한 번씩 담을 때만 센다. 사람이 그 안에 줄을 더하면 사람 글이다)뿐이고, 앞뒤에 사람이 쓴 글은 줄바꿈까지 쓴 그대로, 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없으면(옛 PR, 사람이 꼬리를 지운 PR) 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 닫는 줄을 더한 뒤 붙인다. 꼬리 갱신이 실패해도 PR 응답은 그대로이고 API 로그에 경고만 남는다. 아래 "GitHub 계정 연결"도 본다.
 - **자격 증명:** `github_app`은 그 저장소 하나와 `contents: read`·`pull_requests: write`로 좁힌 설치 토큰을 따로 받는다(clone의 `contents: read`, push의 `contents: write` 토큰과 캐시 key가 다르다). PR 조회·생성과 코멘트 목록·작성·수정 모두 이 토큰으로 된다. `contents: read`가 없으면 github.com은 PR 생성을 422 `not all refs are readable`로 거절한다(2026-10-29 실측). github.com의 PAT는 그 값을 그대로 쓴다. GitHub가 아닌 호스트와 GHES PAT처럼 GitHub forge가 없는 저장소는 403 `FORBIDDEN`(`no_forge`)이다.
 - **필요한 권한:** GitHub App은 Repository permissions **Pull requests: Read and write**(위 App 절, Contents와 함께). fine-grained PAT는 **Pull requests: Read and write**를 더한다. `Issues`·`Workflows` 권한은 필요 없으니 주지 않는다. API 컨테이너에서 `api_base` host로 나가는 outbound가 열려 있어야 한다.
 - **rate limit:** REST 호출은 `@octokit/core`에 retry·throttling plugin을 붙여 한다. 429와 secondary rate limit 403은 GitHub가 준 `retry-after`(또는 `x-ratelimit-reset`)만큼 기다렸다 다시 보내고, 재시도는 2번까지, 기다릴 시간이 60초를 넘으면 기다리지 않는다. 5xx도 2번까지 다시 보낸다. 쓰기 호출 사이에는 plugin이 1~3초 간격을 둔다. 끝내 실패하면 503 `BACKEND_UNAVAILABLE`(`forge_failed`)이고 API 로그에 `GitHub rate limit`(`limit`, `request`, `retry_after_seconds`, `retrying`)과 `GitHub request failed`(`request`, `status`)가 남는다. 토큰과 응답 본문은 로그에 쓰지 않는다.
@@ -347,7 +347,7 @@ docker compose exec -T api bun run apps/control-host/src/api/checkpoint-gc.ts   
 
 세션 하나라도 실패하면 exit 1이고, 로그에 `Checkpoint GC failed for a session`이 남는다. 백업과 겹치면 안 된다(아래). 백업은 api와 maintenance가 멈춰 있어야 시작하므로, 이 두 컨테이너에서 도는 GC는 백업 중에 시작될 수 없다. 다만 GC가 도는 도중에 컨테이너를 멈추고 백업을 시작하면 겹칠 수 있다. 백업은 GC가 끝난 뒤에 받는다. test-ops 설치의 명령은 [test-ops.md](test-ops.md)의 점검표에 있다.
 
-**한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다([설치 상한](configuration.md#설치-상한)). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
+**한계: checkpoint 바이트는 저장량에 세지 않는다.** `STORAGE_LIMIT_BYTES`는 보관한 입력 메시지 바이트만 센다([설치 상한](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#설치-상한)). checkpoint가 S3에 쓰는 바이트와 legal hold가 걸린 version은 계측하지도 제한하지도 않는다. `locked`에서는 모든 version에 hold가 걸려 있어, GC가 hold를 풀고 지우기 전까지는 bucket lifecycle 규칙으로도 줄지 않는다. 저장량은 주 1회 GC와 bucket 크기 관찰로 관리한다.
 
 회수 범위는 세션마다 두 곳이다. `sessions/<id>/checkpoints/<rev>/<attempt>/` 아래의 version(manifest·bundle·untracked 파일), 그리고 `sessions/<id>/transcripts/generation-<n>/` 아래의 transcript part version이다. 그 밖의 key는 건드리지 않는다. version 하나를 지우는 조건은 아래 두 가지가 모두 맞을 때다.
 
@@ -378,18 +378,18 @@ MAX_TURN_SECONDS=3600 SESSION_COST_LIMIT_USD=25 PROVIDER_MAX_RETRIES=2 \
 curl -H 'Authorization: Bearer <issued-key>' http://127.0.0.1:3000/v1
 ```
 
-웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: agent-platform-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
+웹 콘솔은 같은 `/v1`을 cookie 세션으로 호출한다. 처음 한 번 `POST /v1/auth/bootstrap`이 첫 owner와 기본 workspace를 만드는데, `BOOTSTRAP_TOKEN`이 일치하고 live owner가 없을 때만 통과한다. 토큰을 먼저 보므로 틀린 토큰은 owner 유무와 관계없이 `401`이고, 맞는 토큰인데 live owner가 있으면 `409 BOOTSTRAP_DONE`이다. `BOOTSTRAP_TOKEN`을 주지 않으면 API가 기동 시 하나를 생성해 stderr에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다(live owner가 없을 때만, 구조화 로그는 토큰 필드를 가리므로 거기엔 없다). 로그인은 `POST /v1/auth/login`(email·password, argon2id)이며 `__Host-ap_session` cookie(`HttpOnly; Secure; SameSite=Lax; Path=/`, Domain 없음, 14일 sliding)를 세운다. `__Host-` 접두사라 형제 서브도메인이 같은 이름의 cookie를 심어 가리지 못한다. 미들웨어는 `Authorization` 헤더가 있으면 그것만 평가하고(잘못되거나 비었거나 Bearer가 아닌 헤더를 cookie로 대체하지 않음) 헤더가 없을 때만 cookie를 본다. cookie principal의 상태 변경 요청은 `X-Requested-With: werft-web` 헤더가 없으면 `403`이다(bearer 경로에는 적용되지 않음). login은 cookie를 세우므로 호출자와 무관하게 같은 헤더가 필요하다(없거나 cross-site면 `403`, login CSRF로 피해자를 공격자 계정에 로그인시키는 것을 막는다). 사용자당 live 세션은 10개까지이고, login이 그 사용자의 만료·폐기된 row를 지우고 가장 오래된 세션부터 밀어낸다. 로그인 실패는 email당 5회/15분 뒤 `429`. 주소를 바꿔 가며 시도해도 비밀번호 검증(argon2id)은 프로세스당 동시 4개·대기 64개까지만 받고 넘치면 조회 전에 `429`(`Retry-After: 1`)로 끊는다. IP 단위·replica 공통 제한은 ingress가 맡는다. `GET /v1/auth/me`가 선택된 principal·user·workspace와, 그 역할이 지금 워크스페이스에서 가진 관리 action 목록(`permissions`, 역할 표 그대로. 웹은 이것으로 화면 전체를 못 쓰는 메뉴를 숨긴다. API key는 빈 목록)을 돌려준다. `AUTH_MODE=none`에서는 cookie 경로가 꺼지고 `X-Owner-Id`만 본다. 기동 로그(stderr)를 설치자가 아닌 사람도 읽는 배포에서는 `BOOTSTRAP_TOKEN`을 직접 넣어 자동 생성 경로를 쓰지 않는다 — 자동 생성 토큰은 첫 owner가 생길 때까지 그 로그를 읽는 누구에게나 bootstrap 권한을 준다. 설정한 값은 32~256자여야 하며 벗어나면 API가 기동하지 않는다. 빈 값(`BOOTSTRAP_TOKEN=`)도 설정 실패로 보고 기동하지 않는다.
 
-로컬 개발 스택의 데모 계정 CLI(`apps/control-host/src/api/demo-accounts.ts`)는 운영 설치에 쓰지 않는다. `scripts/local.sh up`이 자기 compose 스택의 api 컨테이너에서 `DEMO_ACCOUNTS=local`을 주고 부를 때만 공개된 비밀번호의 owner·member를 만들고, 그 값이 없거나 Kubernetes 안이거나 `DATABASE_URL`이 로컬 postgres가 아니면 아무것도 쓰지 않고 거부한다. Kubernetes에서는 chart `preview.enabled: true`로 설치한 미리보기 namespace(api 컨테이너가 자기 namespace를 `PREVIEW_NAMESPACE`로 받는다. values로 직접 넣으면 렌더가 실패한다)에서 `DATABASE_URL`이 그 namespace의 `postgres` Service일 때만 예외다. 운영 설치에서는 이 플래그를 켜지 않는다([quickstart § 웹 콘솔 데모 계정](../quickstart.md#웹-콘솔-데모-계정)). 데모 에이전트·세션 CLI(`apps/control-host/src/api/demo-data.ts`)도 같은 조건으로 거부하고, 쓰는 프로필이 fake Messages API를 부르지 않아도 거부한다.
+로컬 개발 스택의 데모 계정 CLI(`apps/control-host/src/api/demo-accounts.ts`)는 운영 설치에 쓰지 않는다. 게시 이미지(`ghcr.io/jeongjaesoon/werft-control-host`)에는 이 CLI와 `demo-data.ts`가 없다. 거기서 `DEMO_ACCOUNTS=local`로 부르면 `Module not found`로 실패한다. 두 CLI는 Dockerfile의 `local` target(`docker build --target local`)으로 빌드한 이미지에만 있고, `scripts/local.sh`와 `deploy/kind/up.sh`가 그 이미지를 쓴다. `scripts/local.sh up`이 자기 compose 스택의 api 컨테이너에서 `DEMO_ACCOUNTS=local`을 주고 부를 때만 공개된 비밀번호의 owner·member를 만들고, 그 값이 없거나 Kubernetes 안이거나 `DATABASE_URL`이 로컬 postgres가 아니면 아무것도 쓰지 않고 거부한다. Kubernetes에서는 chart `preview.enabled: true`로 설치한 미리보기 namespace(api 컨테이너가 자기 namespace를 `PREVIEW_NAMESPACE`로 받는다. values로 직접 넣으면 렌더가 실패한다)에서 `DATABASE_URL`이 그 namespace의 `postgres` Service일 때만 예외다. 운영 설치에서는 이 플래그를 켜지 않는다([quickstart § 웹 콘솔 데모 계정](../quickstart.md#웹-콘솔-데모-계정)). 데모 에이전트·세션 CLI(`apps/control-host/src/api/demo-data.ts`)도 같은 조건으로 거부하고, 쓰는 프로필이 fake Messages API를 부르지 않아도 거부한다.
 
 ```bash
 curl -s -X POST http://127.0.0.1:3000/v1/auth/bootstrap -H 'Content-Type: application/json' \
   -d '{"bootstrap_token":"<token>","email":"owner@example.com","password":"<12+ chars>","display_name":"Owner","workspace_name":"Acme","workspace_slug":"acme"}'
 curl -s -c jar -X POST http://127.0.0.1:3000/v1/auth/login -H 'Content-Type: application/json' \
-  -H 'X-Requested-With: agent-platform-web' \
+  -H 'X-Requested-With: werft-web' \
   -d '{"email":"owner@example.com","password":"<12+ chars>"}'
 curl -s -b jar http://127.0.0.1:3000/v1/auth/me
-curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: agent-platform-web' -i
+curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With: werft-web' -i
 ```
 
 ### 계정 복구
@@ -402,7 +402,7 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/auth/logout -H 'X-Requested-With
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/members/$USER_ID/password-reset" \
-  -H 'Content-Type: application/json' -H 'X-Requested-With: agent-platform-web' \
+  -H 'Content-Type: application/json' -H 'X-Requested-With: werft-web' \
   -d '{"current_password":"<owner password>"}'
 curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: application/json' \
   -d '{"token":"<apr_…>","password":"<12+ chars>"}'
@@ -440,16 +440,16 @@ curl -s -X POST http://127.0.0.1:3000/v1/auth/password-reset -H 'Content-Type: a
 4. 콜백 화면이 생기기 전에는 아래로 확인한다. 받은 `authorization_url`을 브라우저로 열고 Google 계정으로 동의하면, 브라우저가 리디렉션 URI로 이동한다(화면이 없어도 주소창에 `code`·`state`가 남는다). 그 둘을 10분 안에 같은 cookie jar로 보낸다. 주소창의 `code`는 percent-encoding되어 있으므로(`4%2F0A…`) URL decode한 값(`4/0A…`)을 보낸다. 그대로 보내면 Google이 code를 거절해 `401`이 된다.
 
 ```bash
-curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/start -H 'X-Requested-With: agent-platform-web'
+curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/start -H 'X-Requested-With: werft-web'
 # 브라우저로 authorization_url을 열고 동의한 뒤, 이동한 주소의 code(URL decode)·state를 옮긴다
-curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/callback -H 'X-Requested-With: agent-platform-web' \
+curl -s -c jar -b jar -X POST https://<host>/v1/auth/google/callback -H 'X-Requested-With: werft-web' \
   -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
 curl -s -b jar https://<host>/v1/auth/me
 ```
 
    기대값: 허용 도메인 목록이 있고 그 밖의 계정이면 규칙보다 먼저 `403`. 그 밖에는 Google이 주소를 보증하는 계정(이메일 도메인이 `hd`와 같거나 `gmail.com`)일 때 초대한 이메일이면 `200`과 그 초대의 role, owner 이메일이면 `409 LOGIN_LINK_REQUIRED`이고, 보증되지 않는 주소는 둘 다 `401`이다. `__Host-` cookie는 `Secure`라 curl은 HTTPS나 `localhost`·`127.0.0.1`에서만 jar에 남긴다. 다른 호스트의 `http://` 주소로는 흐름이 이어지지 않는다.
 
-시험용 IdP: `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 Google 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`google-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호(2 초대, 3 JIT, 4 같은 이메일)는 위 목록의 순서와 다르다. 위 목록이 실제 적용 순서다.
+시험용 IdP는 저장소 checkout(`packages/testkit`)이나 `local` target 이미지에서만 돈다. 게시 이미지에는 testkit이 없다. `bun packages/testkit/src/mock-oidc-main.ts`(`MOCK_OIDC_PORT`·`MOCK_OIDC_CLIENT_ID`·`MOCK_OIDC_CLIENT_SECRET`·`MOCK_OIDC_ISSUER`·`MOCK_OIDC_PUBLIC_URL`)가 Google 대신 discovery·JWKS·authorize·token을 낸다. authorize는 바로 동의하고, 로그인할 계정은 authorization URL에 붙인 `login_hint`(id_token claim JSON의 base64url)로 고른다. 통합 테스트(`google-login.integration.test.ts`)가 같은 IdP로 다섯 규칙을 고정한다. 테스트 이름의 규칙 번호(2 초대, 3 JIT, 4 같은 이메일)는 위 목록의 순서와 다르다. 위 목록이 실제 적용 순서다.
 
 ### workspace key, 개인 key, 오프보딩
 
@@ -471,10 +471,10 @@ curl -s -b jar https://<host>/v1/auth/me
 
 ```bash
 bun run keys create --workspace "$WORKSPACE_ID" --scopes sessions:read,sessions:write --personal "$USER_ID"
-curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/disable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"reason":"left the team"}'
-curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/enable" -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{}'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/disable" -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{"reason":"left the team"}'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/members/$USER_ID/enable" -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{}'
 curl -s -b jar http://127.0.0.1:3000/v1/takeovers
-curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/takeover" -H 'X-Requested-With: werft-web'
 ```
 
 ### Slack 계정 연결
@@ -549,11 +549,11 @@ Enterprise Grid: id_token의 `https://slack.com/team_id`가 workspace id인지 o
 
 ```bash
 # Secure cookies only travel over https: use the console origin from step 0.
-curl -s -b jar -c jar -X POST "$CONSOLE_URL/v1/linked-accounts/slack/start" -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -c jar -X POST "$CONSOLE_URL/v1/linked-accounts/slack/start" -H 'X-Requested-With: werft-web'
 curl -s -b jar -c jar -X POST "$CONSOLE_URL/v1/linked-accounts/slack/callback" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{"code":"<code>","state":"<state>"}'
 curl -s -b jar "$CONSOLE_URL/v1/linked-accounts"
-curl -s -b jar -X DELETE "$CONSOLE_URL/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: agent-platform-web'
+curl -s -b jar -X DELETE "$CONSOLE_URL/v1/linked-accounts/$LINKED_ACCOUNT_ID" -H 'X-Requested-With: werft-web'
 ```
 
 로컬에서는 `infra/compose.mock-slack.yml`을 겹쳐 띄우면 Slack 앱 없이 같은 흐름을 돌릴 수 있다. overlay는 fallback client를 비워 두므로, `POST http://mock-slack:4020/fake/config-tokens`로 받은 token을 owner가 `PUT /v1/workspaces/{id}/slack/config-token`으로 넣은 뒤의 첫 연결 시작이 Web API 가짜로 link 앱을 만든다(master key가 있어야 한다). mock IdP는 그 앱의 client를 받는다. 예전처럼 고정 client로 돌리려면 `MOCK_SLACK_FALLBACK_CLIENT_ID=mock-client-id`·`MOCK_SLACK_FALLBACK_CLIENT_SECRET=mock-client-secret`을 주고 띄운다. mock은 동의를 자동으로 하고 `MOCK_SLACK_TEAM_ID`·`MOCK_SLACK_USER_ID`(기본 `T0MOCK`·`U0MOCK`)를 돌려준다. `authorize_url`에 `mock_team`·`mock_user`를 붙이면 그 계정을 돌려준다. `MOCK_SLACK_TEAM_NAME`·`MOCK_SLACK_USER_NAME`(기본 빈 값)을 주면 id_token에 워크스페이스 이름(`https://slack.com/team_name`)과 표시 이름(`name`)을 싣고, `authorize_url`의 `mock_team_name`·`mock_user_name`이 그 값을 바꾼다(빈 값이면 이름 없음). 설치 등록 CLI가 부르는 `auth.test`·`bots.info`도 답한다: bot token `mock-bot-token`이면 team `MOCK_SLACK_TEAM_ID`, app `A0MOCK`, bot 사용자 `U0MOCKBOT`. 그때는 `SLACK_API_URL=http://mock-slack:4020/api`로 CLI를 실행한다. 실제 배포에는 절대 겹치지 않는다. API가 mock이 서명한 것을 믿게 된다.
@@ -582,7 +582,7 @@ key는 웹(cookie 세션)에서 `POST /v1/api-keys`로 발급한다.
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"kind":"agent","agent_id":"<agent_id>","name":"ci-deploy","scopes":["sessions:read","sessions:write"]}'
 ```
 
@@ -624,11 +624,11 @@ curl -s -b jar -X POST http://127.0.0.1:3000/v1/api-keys \
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/teams \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d '{"name":"리서치봇 관리팀"}'
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d '{"name":"리서치봇 관리팀"}'
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/teams/$TEAM_ID/members" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d "{\"user_id\":\"$USER_ID\"}"
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d "{\"user_id\":\"$USER_ID\"}"
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' -d "{\"team_id\":\"$TEAM_ID\"}"
 ```
 
 ### 세션 공유 범위와 감사 열람
@@ -669,7 +669,7 @@ curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/admins" \
 
 ```bash
 curl -s -b jar -X PATCH "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/agent-access" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"agent_outsider_access":"view"}'
 ```
 
@@ -693,10 +693,10 @@ owner·admin은 범위 밖 세션을 두 길로만 다룬다. 둘 다 사유(`ju
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/share" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d "{\"scope\":\"team\",\"team_ids\":[\"$TEAM_ID\"]}"
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/sessions/$SESSION_ID/audit-read" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"justification":"장애 조사 INC-42"}'
 curl -s -b jar http://127.0.0.1:3000/v1/admin/sessions
 ```
@@ -748,7 +748,7 @@ Slack DM이 만든 세션은 `private`로 시작한다(아래 "Slack 스레드�
 
 ```bash
 curl -s -b jar -X POST http://127.0.0.1:3000/v1/agents/<agent_id>/credential-bindings \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"credential_ref":"notion_token"}'
 ```
 
@@ -778,7 +778,7 @@ Slack ingress는 이벤트를 받을 때 `agentForSlackEvent(store, {appId, team
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/agents/$AGENT_ID/identities" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"provider":"slack_bot","app_id":"A0APP","team_id":"T0TEAM","credential_ref":"slack/research-bot-token"}'
 ```
 
@@ -866,14 +866,14 @@ docker compose --profile apps exec -T api \
 | `6` | 앱이 아직 만들어지는 중이거나 지워지는 중이다. Slack에서 확인한 뒤 `--replace-uncertain`으로 잃어버린 생성을 포기한다 |
 | `7` | Slack이 거절했거나 닿지 않는다 |
 
-로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. `GET http://mock-slack:4020/fake/oauth/authorize?<설치 URL의 query>`는 동의 화면 대신 `{ok, code, state}`를 JSON으로 돌려준다(아래 설치 흐름을 curl로 돌릴 때). 실제 Slack은 부르지 않는다.
+로컬 스택의 mock overlay(`infra/compose.mock-slack.yml`, `local` target으로 빌드한 control-host 이미지에서 돈다. 게시 이미지에는 testkit이 없어 쓸 수 없다)는 `SLACK_API_URL=http://mock-slack:4020/api`로 Slack Web API의 가짜(`packages/testkit/src/fake-slack-api.ts`)를 가리킨다. `POST http://mock-slack:4020/fake/config-tokens`가 그 가짜가 받는 config token을 하나 돌려준다. `GET http://mock-slack:4020/fake/oauth/authorize?<설치 URL의 query>`는 동의 화면 대신 `{ok, code, state}`를 JSON으로 돌려준다(아래 설치 흐름을 curl로 돌릴 때). 실제 Slack은 부르지 않는다.
 
 값은 repo 밖 파일에 두고 셸에서 읽어 보낸다. 값이 명령 인자나 셸 기록에 남지 않게 한다.
 
 ```bash
 printf '{"value":"%s"}' "$(cat ~/.config/agent-platform/slack-config-token)" |
   curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack/config-token" \
-    -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' --data-binary @-
+    -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' --data-binary @-
 ```
 
 **에이전트의 Slack 앱 설치**
@@ -1024,7 +1024,7 @@ Slack 스레드 하나는 세션 하나다. 그 묶음이 `session_links`의 행
 
 ```bash
 curl -s -b jar -X PUT "http://127.0.0.1:3000/v1/agents/$AGENT_ID/slack-bindings" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"channel_id":"C0OPS","mode":"mention","home":true}'
 ```
 
@@ -1077,7 +1077,7 @@ guest 사용 설정은 `workspace.settings.slack_guest_enabled`(기본 `false`)�
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/slack-guest" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"slack_guest_enabled":true}'
 ```
 
@@ -1099,7 +1099,7 @@ WHERE d.request_id = '<X-Request-Id>';
 
 ```bash
 curl -s -b jar -X POST "http://127.0.0.1:3000/v1/workspaces/$WORKSPACE_ID/audit-retention" \
-  -H 'X-Requested-With: agent-platform-web' -H 'Content-Type: application/json' \
+  -H 'X-Requested-With: werft-web' -H 'Content-Type: application/json' \
   -d '{"audit_retention_days":60}'
 ```
 

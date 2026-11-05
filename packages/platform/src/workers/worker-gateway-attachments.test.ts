@@ -146,7 +146,6 @@ function wired() {
     store,
     context: { context },
     catalog,
-    waitMs: 0,
   });
   const binding = {
     sessionId: SESSION,

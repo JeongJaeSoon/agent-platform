@@ -387,7 +387,7 @@ describe("SessionRow", () => {
         messages={ROW_MESSAGES}
       />,
     );
-    const labels = [...container.querySelectorAll(".ap-status")].map(
+    const labels = [...container.querySelectorAll(".werft-status")].map(
       (label) => [
         label.getAttribute("data-axis"),
         label.getAttribute("data-tone"),
@@ -728,7 +728,7 @@ describe("StatusLabel dot", () => {
       </>,
     );
     const [waiting, running] = [...container.children] as HTMLElement[];
-    expect(waiting?.className).not.toContain("ap-status");
+    expect(waiting?.className).not.toContain("werft-status");
     expect(waiting?.getAttribute("data-tone")).toBe("attention");
     expect(waiting?.textContent).toBe("작업: 답변 대기 · 12분");
     const ring = running?.querySelector('[aria-hidden="true"]');
@@ -738,6 +738,6 @@ describe("StatusLabel dot", () => {
 
   test("기본은 지금처럼 배지다", () => {
     const { container } = render(<StatusLabel axis="session" state="idle" />);
-    expect(container.querySelector(".ap-status")).toBeTruthy();
+    expect(container.querySelector(".werft-status")).toBeTruthy();
   });
 });

@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { postSessionAnswerRequestSchema } from "../api/answer.ts";
+import {
+  postSessionAnswerRequestSchema,
+  rememberRuleSchema,
+} from "../api/answer.ts";
 import { sessionEventVariants } from "../api/event.ts";
 import { repositoryAttachFailureSchema } from "../api/github-mcp.ts";
 import { pendingQuestionSchema } from "../api/pending.ts";
@@ -67,8 +70,22 @@ export const checkpointRefSchema = z.object({
   manifest_version: objectVersionSchema.optional(),
 });
 
+// What this worker's image can do beyond the protocol's first version, sent
+// on the calls whose answer the server shapes by it (the claim and the
+// pending-control poll). The server never stores it: the worker that is
+// asking is the one that has to parse the answer. Each key is a promise to
+// parse a field an older worker's strict schemas refuse.
+//   approval_remember: a permission answer may carry `remember`
+// A server older than this field refuses the body, so servers deploy first.
+export const workerCapabilitiesSchema = z
+  .object({
+    approval_remember: z.literal(true).optional(),
+  })
+  .strict();
+
 export const bootstrapClaimRequestSchema = z
   .object({
+    capabilities: workerCapabilitiesSchema.optional(),
     execution_id: executionIdSchema,
     execution_generation: epochSchema,
     credential: z.discriminatedUnion("kind", [
@@ -337,6 +354,10 @@ export const permissionGrantSchema = z
     turn_id: turnIdSchema,
     tool: z.string().min(1),
     input_hash: sha256HexSchema,
+    // The rules the person agreed to keep allowing for the session. Present
+    // only for a worker that announced `approval_remember`; the resumed
+    // engine asks again, and installs a rule only if it offers exactly these.
+    remember_offer: z.array(rememberRuleSchema).min(1).optional(),
   })
   .strict();
 
@@ -615,6 +636,12 @@ export const registerPendingRequestSchema = workerScopeSchema
           kind: z.literal("permission"),
           tool: z.string().min(1),
           input: requiredUnknownSchema,
+          // The rules the engine proposed to keep allowing for the session,
+          // already filtered and redacted by the run. Stored with the row for
+          // the card and for checking an answer's `remember`; never part of
+          // what the API lists. An older worker leaves it out, and that
+          // request offers nothing.
+          remember_offer: z.array(rememberRuleSchema).min(1).optional(),
         })
         .strict(),
       z
@@ -750,6 +777,9 @@ export const repositoryAttachResultSchema = z.discriminatedUnion("status", [
 // they are independent of the cursor, which only says what was seen.
 export const pendingControlRequestSchema = workerScopeSchema
   .extend({
+    // The poller is the one that parses the answers it gets back, so it
+    // declares here what it parses (see `workerCapabilitiesSchema`).
+    capabilities: workerCapabilitiesSchema.optional(),
     answers_after: z.number().int().nonnegative(),
     settled: z
       .array(pendingSettlementSchema)
@@ -1142,6 +1172,7 @@ export type RegisterPendingResponse = z.infer<
   typeof registerPendingResponseSchema
 >;
 export type PendingSettlement = z.infer<typeof pendingSettlementSchema>;
+export type WorkerCapabilities = z.infer<typeof workerCapabilitiesSchema>;
 export type PendingControlRequest = z.infer<typeof pendingControlRequestSchema>;
 export type ControlIntent = z.infer<typeof controlIntentSchema>;
 export type PendingControlResponse = z.infer<

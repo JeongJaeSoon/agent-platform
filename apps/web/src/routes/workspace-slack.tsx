@@ -9,7 +9,7 @@ import type {
   PutSlackConfigTokenResponse,
   SlackConfigTokenSummary,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -68,7 +68,7 @@ const tokenKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "slack-config-token");
 
 function useConfigToken() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
   return useQuery({
@@ -135,7 +135,7 @@ function TileMark({ className }: { readonly className?: string }) {
     <SlackMark
       className={cn(
         className,
-        "text-(--ap-color-tile-foreground) [&_path]:fill-current",
+        "text-(--werft-color-tile-foreground) [&_path]:fill-current",
       )}
     />
   );
@@ -160,7 +160,7 @@ function SlackCard({
   readonly onOutcome: OnOutcome;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
@@ -491,7 +491,7 @@ function TokenRow({
         ) : null}
       </div>
       {summary?.state === "needs_reentry" ? (
-        <Text className="text-(color:--ap-tone-danger-fg)">
+        <Text className="text-(color:--werft-tone-danger-fg)">
           {t("workspace.tokenNeedsReentryHint")}
         </Text>
       ) : null}

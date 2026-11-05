@@ -178,7 +178,7 @@ integration("the member list offers what the writes accept", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Requested-With": "agent-platform-web",
+        "X-Requested-With": "werft-web",
       },
       body: JSON.stringify({ email, password: PASSWORD }),
     });

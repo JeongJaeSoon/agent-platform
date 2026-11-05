@@ -183,7 +183,7 @@ function Members({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="size-[var(--ap-control-height-sm)]"
+                        className="size-[var(--werft-control-height-sm)]"
                         aria-label={t.whyFor(person.name)}
                       >
                         <Info aria-hidden="true" />
@@ -214,7 +214,7 @@ export const Default: Story = {
 
 /**
  * `variant="actions"` on the head and cells: the column fits its buttons and
- * each labelled button is at least --ap-row-action-button-min-width (48px)
+ * each labelled button is at least --werft-row-action-button-min-width (48px)
  * wide, its width following the label; right ends line up.
  */
 export const Actions: Story = {
@@ -266,7 +266,7 @@ export const TwoLineCells: Story = {
 };
 
 /**
- * When the columns' floors (the `text` column's --ap-row-text-min-width and
+ * When the columns' floors (the `text` column's --werft-row-text-min-width and
  * the content width of the others) add up to more than the frame, the table
  * scrolls sideways inside it. The frame is a tab stop with a name, so a
  * keyboard reaches it and scrolls with the arrow keys.
@@ -307,7 +307,7 @@ export const ActionWidthToken: Story = {
     <Members
       locale={globals.locale}
       actions={true}
-      style={{ "--ap-row-action-button-min-width": "8rem" } as CSSProperties}
+      style={{ "--werft-row-action-button-min-width": "8rem" } as CSSProperties}
     />
   ),
   play: async ({ canvasElement }) => {
@@ -350,7 +350,7 @@ export const English: Story = {
 
 /**
  * An icon button in the actions column keeps its square size; only labelled
- * buttons take the --ap-row-action-button-min-width floor.
+ * buttons take the --werft-row-action-button-min-width floor.
  */
 export const ActionsWithIconButton: Story = {
   name: "Actions with an icon button",

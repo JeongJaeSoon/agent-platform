@@ -629,7 +629,7 @@ function pullRequestOf(data: {
   number: number;
   html_url: string;
   state: string;
-  head: { ref: string };
+  head: { ref: string; sha: string };
   base: { ref: string };
   merged_at?: string | null;
   closed_at?: string | null;
@@ -639,6 +639,7 @@ function pullRequestOf(data: {
     url: data.html_url,
     state: data.state === "open" ? "open" : "closed",
     head: data.head.ref,
+    headSha: data.head.sha,
     base: data.base.ref,
     mergedAt: data.merged_at ?? null,
     closedAt: data.closed_at ?? null,

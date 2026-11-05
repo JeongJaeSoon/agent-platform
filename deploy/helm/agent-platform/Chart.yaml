@@ -4,3 +4,7 @@ description: The Werft control plane (api, scheduler, reconciler, egress-proxy) 
 type: application
 version: 0.1.0
 appVersion: "main"
+# helm push turns the first entry into the OCI source annotation, which is
+# what ties the ghcr package to the repository.
+sources:
+  - https://github.com/JeongJaeSoon/werft

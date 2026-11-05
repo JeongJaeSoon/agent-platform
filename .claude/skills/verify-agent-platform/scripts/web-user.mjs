@@ -17,6 +17,9 @@
 //   web-user.mjs <run> slack-config <who> <workspace>  mock config token, never printed
 //   web-user.mjs <run> slack-install <who> <agent id>  mock OAuth with the person's cookie
 //   web-user.mjs <run> slack-event <agent> <mode> [channel seq [parent]]  signed mock inbound request
+//   web-user.mjs <run> slack-cards <agent>           the mock's cards: ts, buttons, updates so far
+//   web-user.mjs <run> slack-click <agent> <allow|allow-session|deny|push-approve|push-reject>  press that button on the newest card, signed by the mock
+//   web-user.mjs <run> slack-click-bad <agent>       a press with a wrong signature (401)
 //   web-user.mjs <run> github-app <who> <workspace> <app id> [connection id]  register the App, or a new key for that connection; key read from its file
 //   web-user.mjs <run> github-app-stranger-key <who> <workspace> <app id> <connection id>  a fresh RSA key GitHub does not know (400)
 import { execFileSync } from "node:child_process";
@@ -282,7 +285,8 @@ switch (cmd) {
       throw new Error("agent UUID and event mode required");
     // mention|plain take a channel id and a sequence number for new ids;
     // reply also takes the sequence number of the post it answers.
-    const [channel = "C0VERIFY", seq = "1", parent] = rest.slice(1);
+    // The optional last word is the post's text, e.g. a GATE-SPEC script.
+    const [channel = "C0VERIFY", seq = "1", parent, text] = rest.slice(1);
     if (!/^[A-Z0-9]{1,20}$/.test(channel) || !/^[0-9]{1,6}$/.test(seq))
       throw new Error("channel id and sequence number required");
     if (mode === "reply" && !/^[0-9]{1,6}$/.test(parent ?? ""))
@@ -290,9 +294,57 @@ switch (cmd) {
     console.log(
       composeBun(
         readFileSync(new URL("./slack-event.ts", import.meta.url), "utf8"),
-        [who, mode, channel, seq, ...(parent ? [parent] : [])],
+        [who, mode, channel, seq, parent ?? "", text ?? ""],
       ),
     );
+    break;
+  }
+  case "slack-cards":
+  case "slack-click": {
+    if (!/^[0-9a-f-]{36}$/i.test(who)) throw new Error("agent UUID required");
+    const action = rest[0] ?? "";
+    if (
+      cmd === "slack-click" &&
+      ![
+        "allow",
+        "allow-session",
+        "deny",
+        "push-approve",
+        "push-reject",
+      ].includes(action)
+    )
+      throw new Error(
+        "action must be allow, allow-session, deny, push-approve or push-reject",
+      );
+    // The app id is public: the owner reads it from the agent's Slack app.
+    const app = await call("GET", `/v1/agents/${who}/slack/app`, undefined, {
+      cookie: cookieOf("owner"),
+    });
+    const appId = app.json?.slack_app?.app_id;
+    if (typeof appId !== "string")
+      throw new Error("create agent Slack app first");
+    console.log(
+      composeBun(
+        readFileSync(new URL("./slack-click.ts", import.meta.url), "utf8"),
+        [cmd === "slack-cards" ? "cards" : "click", appId, who, action],
+      ),
+    );
+    break;
+  }
+  case "slack-click-bad": {
+    if (!/^[0-9a-f-]{36}$/i.test(who)) throw new Error("agent UUID required");
+    const body = `payload=${encodeURIComponent(JSON.stringify({ type: "block_actions" }))}`;
+    const res = await fetch(`${api}/v1/slack/interactions/${who}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "X-Slack-Request-Timestamp": String(Math.floor(Date.now() / 1000)),
+        "X-Slack-Signature": `v0=${"0".repeat(64)}`,
+      },
+      body,
+    });
+    console.log(await res.text());
+    console.log(res.status);
     break;
   }
   case "bootstrap":

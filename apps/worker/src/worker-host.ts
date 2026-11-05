@@ -45,6 +45,7 @@ import {
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 
+import { WORKER_CAPABILITIES } from "./capabilities.ts";
 import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import { consoleLogger } from "./console-logger.ts";
@@ -157,6 +158,14 @@ export type WorkerHostOptions = {
   approvalCheckpointMs?: number;
   /** Hands the claim's commit author and trailers to the image's git config and hook. */
   gitTrailers?: (claim: BootstrapClaimResponse) => Promise<void>;
+  /**
+   * Leaves the platform's instructions in the workspace once it is ready,
+   * before the engine starts; the answer is what happened, for the log.
+   */
+  placeInstructions?: (
+    claim: BootstrapClaimResponse,
+    signal: AbortSignal,
+  ) => Promise<string>;
   /** The git settings the claim's engine runs every git under. */
   gitEnvironment?: (
     claim: BootstrapClaimResponse,
@@ -514,6 +523,28 @@ export class WorkerHost {
       try {
         const plan = await this.startUp(claim);
         if (plan !== undefined) this.startAttachments();
+        if (plan !== undefined && this.stopping === undefined) {
+          // A convenience file: the engine's prompt carries the same text.
+          // Raced with a stop like the other stages, so slow I/O cannot hold
+          // the shutdown back.
+          const placing = this.options.placeInstructions;
+          if (placing !== undefined) {
+            await this.untilStopped(
+              placing(claim, this.preparation.signal)
+                .then((placement) =>
+                  this.logger.info("worker.instruction_files.placed", {
+                    placement,
+                  }),
+                )
+                .catch((error: unknown) =>
+                  this.logger.warn("worker.instruction_files.not_placed", {
+                    reason: describe(error),
+                  }),
+                ),
+            );
+          }
+        }
+        // Again: a stop can land while the files are being placed.
         if (plan !== undefined && this.stopping === undefined) {
           this.engineBudgeted = claim.remaining_budget_usd !== null;
           const gitEnvironment = this.options.gitEnvironment?.(claim);
@@ -927,6 +958,7 @@ export class WorkerHost {
       try {
         const claimed = await this.untilStopGraceSpent(
           this.options.gateway.bootstrapClaim({
+            capabilities: WORKER_CAPABILITIES,
             execution_id: this.options.execution.id,
             execution_generation: this.options.execution.generation,
             credential: {
@@ -2399,7 +2431,23 @@ export class WorkerHost {
     }
     const grant = this.takeGrant(request);
     if (grant !== undefined) {
-      void answer({ kind: "selected", optionKind: "allow_once" }).then(
+      void answer({
+        kind: "selected",
+        optionKind: "allow_once",
+        ...(grant.remember_offer === undefined
+          ? {}
+          : {
+              remember: {
+                scope: "session" as const,
+                rules: grant.remember_offer.map((rule) => ({
+                  toolName: rule.tool_name,
+                  ...(rule.rule_content === undefined
+                    ? {}
+                    : { ruleContent: rule.rule_content }),
+                })),
+              },
+            }),
+      }).then(
         (result) => this.grantAnswered(grant, result),
         () => this.grantAnswered(grant, "stale"),
       );

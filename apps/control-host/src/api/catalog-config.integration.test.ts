@@ -10,7 +10,7 @@ import { secretsManagerReader } from "./catalog-config.ts";
 const integration = localstackEnabled() ? describe : describe.skip;
 
 integration("credentials from LocalStack Secrets Manager", () => {
-  const secretId = `agent-platform/it/${crypto.randomUUID()}`;
+  const secretId = `werft/it/${crypto.randomUUID()}`;
   const value = `secret-${crypto.randomUUID()}`;
   let client: SecretsManagerClient;
   let env: Record<string, string>;

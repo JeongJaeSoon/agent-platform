@@ -128,6 +128,8 @@ services:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
+      # The published image has no testkit; `local` adds it (and the demo tools).
+      target: local
     command: ["bun", "run", "packages/testkit/src/fake-git-main.ts", "sample-app", "gate-app"]
     ports:
       # HTTP clone for this host. Workers clone through the proxy's
@@ -147,6 +149,7 @@ services:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
+      target: local
     volumes:
       - ../tests/fixtures/settings:/settings:ro
 
@@ -163,6 +166,9 @@ services:
     build:
       context: ..
       dockerfile: apps/control-host/Dockerfile
+      # Also the image of scheduler, slack, reconciler and the mock-slack
+      # overlay (API_IMAGE), which run testkit and the demo CLIs from it.
+      target: local
     env_file:
       - path: ../.env
         required: false
@@ -182,7 +188,7 @@ services:
       # needs no opt-in.
       PLATFORM_ALLOW_UNATTENDED_PERMISSIONS: ${PLATFORM_ALLOW_UNATTENDED_PERMISSIONS:-false}
       # This stack builds the API, the Slack role and the worker from one
-      # tree, so every claimant knows the revision (docs/operator/configuration.md).
+      # tree, so every claimant knows the revision (apps/docs/content/docs/run-server/self-hosting/operate/configuration.mdx).
       SESSION_PROMPT_REVISION: ${SESSION_PROMPT_REVISION:-1}
     depends_on:
       localstack:

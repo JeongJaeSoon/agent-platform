@@ -541,6 +541,209 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     expect(messageTypes(messages)).toContain("result");
   }, 30_000);
 
+  test("a session rule returned with an allow lets the next calls pass without canUseTool", async () => {
+    context = await createProbeContext();
+    const command = "touch session-rule.txt";
+    server = startFakeAnthropicServer((_request, index) =>
+      index < 3
+        ? toolReply("Bash", { command }, `toolu_sdkcompat_session_${index}`)
+        : textReply("session rule complete"),
+    );
+    const asked: string[] = [];
+
+    await runSdkQuery(context, server.url, "Run the command.", {
+      canUseTool: async (_name, input, options) => {
+        asked.push(options.toolUseID);
+        return {
+          behavior: "allow",
+          updatedInput: input,
+          updatedPermissions: [
+            {
+              type: "addRules",
+              behavior: "allow",
+              destination: "session",
+              rules: [{ toolName: "Bash", ruleContent: command }],
+            },
+          ],
+        };
+      },
+      permissionMode: "default",
+      tools: ["Bash"],
+    });
+
+    // Once the rule is installed, the later calls are not asked about.
+    expect(asked).toEqual(["toolu_sdkcompat_session_0"]);
+    // All three calls ran: two tool results came back after the first.
+    expect(JSON.stringify(server.requests.at(-1)?.body.messages)).toContain(
+      "toolu_sdkcompat_session_2",
+    );
+  }, 60_000);
+
+  test("a session rule lives in the engine process: a new engine asks about the same call again", async () => {
+    context = await createProbeContext();
+    const command = "touch session-rule.txt";
+    const askedByRun: string[][] = [];
+    let resume: string | undefined;
+    for (const run of [0, 1]) {
+      server = startFakeAnthropicServer((_request, index) =>
+        index < 2
+          ? toolReply(
+              "Bash",
+              { command },
+              `toolu_sdkcompat_restart_${run}_${index}`,
+            )
+          : textReply("restart complete"),
+      );
+      const asked: string[] = [];
+      const messages = await runSdkQuery(
+        context,
+        server.url,
+        "Run the command.",
+        {
+          // The second engine resumes the first one's conversation, so only
+          // the process, not the transcript, differs between the runs.
+          ...(resume === undefined ? {} : { resume }),
+          canUseTool: async (_name, input, options) => {
+            asked.push(options.toolUseID);
+            return {
+              behavior: "allow",
+              updatedInput: input,
+              updatedPermissions: [
+                {
+                  type: "addRules",
+                  behavior: "allow",
+                  destination: "session",
+                  rules: [{ toolName: "Bash", ruleContent: command }],
+                },
+              ],
+            };
+          },
+          permissionMode: "default",
+          tools: ["Bash"],
+        },
+      );
+      resume = messages.find((message) => "session_id" in message)?.session_id;
+      expect(resume).toBeDefined();
+      askedByRun.push(asked);
+      server.stop();
+    }
+    // Each engine asks once for the first call and not for the second.
+    expect(askedByRun).toEqual([
+      ["toolu_sdkcompat_restart_0_0"],
+      ["toolu_sdkcompat_restart_1_0"],
+    ]);
+  }, 90_000);
+
+  test("a PreToolUse deny binds a call that a session rule would let through", async () => {
+    context = await createProbeContext();
+    const outputPath = join(context.workspace, "session-rule-denied.txt");
+    const command = `printf x >> ${JSON.stringify(outputPath)}`;
+    server = startFakeAnthropicServer((_request, index) =>
+      index < 2
+        ? toolReply("Bash", { command }, `toolu_sdkcompat_hooked_${index}`)
+        : textReply("hook complete"),
+    );
+    const asked: string[] = [];
+
+    await runSdkQuery(context, server.url, "Run the command.", {
+      canUseTool: async (_name, input, options) => {
+        asked.push(options.toolUseID);
+        return {
+          behavior: "allow",
+          updatedInput: input,
+          updatedPermissions: [
+            {
+              type: "addRules",
+              behavior: "allow",
+              destination: "session",
+              rules: (options.suggestions ?? []).flatMap((update) =>
+                update.type === "addRules" ? update.rules : [],
+              ),
+            },
+          ],
+        };
+      },
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [
+              async (_input: unknown, toolUseId: string | undefined) =>
+                toolUseId === "toolu_sdkcompat_hooked_1"
+                  ? {
+                      hookSpecificOutput: {
+                        hookEventName: "PreToolUse" as const,
+                        permissionDecision: "deny" as const,
+                        permissionDecisionReason: "outside the allowlist",
+                      },
+                    }
+                  : { continue: true },
+            ],
+          },
+        ],
+      },
+      permissionMode: "default",
+      tools: ["Bash"],
+    });
+
+    // The first call ran and installed the rule. The second never asked
+    // canUseTool, and the hook's deny still stopped it.
+    expect(asked).toEqual(["toolu_sdkcompat_hooked_0"]);
+    expect(await readFile(outputPath, "utf8")).toBe("x");
+  }, 60_000);
+
+  // The engine proposes a rule for the call it asks about, and for a command
+  // with a redirect or a second command the rule does not match that call.
+  // The adapter's offerableRules relies on this; it has no API to ask.
+  test.each([
+    ["touch a.txt", "touch a.txt", 1],
+    ["git commit -m 'x y'", "git commit *", 1],
+    ["echo alpha > hello.txt", "echo alpha *", 2],
+    ["echo alpha >> hello.txt", "echo alpha *", 2],
+    ["cd sub && touch b.txt", "cd sub *", 2],
+  ])(
+    "the rule the engine suggests for %s is %s and the same call is asked %d time(s)",
+    async (command, suggested, askedCount) => {
+      context = await createProbeContext();
+      server = startFakeAnthropicServer((_request, index) =>
+        index < 2
+          ? toolReply("Bash", { command }, `toolu_sdkcompat_suggest_${index}`)
+          : textReply("suggestion complete"),
+      );
+      const rules: string[] = [];
+      let asked = 0;
+
+      await runSdkQuery(context, server.url, "Run the command.", {
+        canUseTool: async (_name, input, options) => {
+          asked += 1;
+          const proposed = (options.suggestions ?? []).flatMap((update) =>
+            update.type === "addRules" && update.behavior === "allow"
+              ? update.rules
+              : [],
+          );
+          for (const rule of proposed) rules.push(rule.ruleContent ?? "");
+          return {
+            behavior: "allow",
+            updatedInput: input,
+            updatedPermissions: [
+              {
+                type: "addRules",
+                behavior: "allow",
+                destination: "session",
+                rules: proposed,
+              },
+            ],
+          };
+        },
+        permissionMode: "default",
+        tools: ["Bash"],
+      });
+
+      expect(new Set(rules)).toEqual(new Set([suggested]));
+      expect(asked).toBe(askedCount);
+    },
+    60_000,
+  );
+
   test("bypasses canUseTool for a fully allowed Bash rule", async () => {
     context = await createProbeContext();
     const outputPath = join(context.workspace, "rule-allowed.txt");

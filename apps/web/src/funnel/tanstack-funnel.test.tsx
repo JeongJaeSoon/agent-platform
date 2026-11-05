@@ -21,7 +21,7 @@ const {
   createRouter,
   RouterProvider,
 } = await import("@tanstack/react-router");
-const { AgentPlatformProvider, useStepper } = await import("@werft-ai/react");
+const { WerftProvider, useStepper } = await import("@werft-ai/react");
 const { Stepper } = await import("@werft-ai/ui");
 const { I18nProvider } = await import("../i18n/i18n.tsx");
 const { FunnelResetNotice, useDialogFunnel, useFunnel } = await import(
@@ -129,13 +129,13 @@ function mount({ strict = false }: { readonly strict?: boolean } = {}) {
   const view = render(
     <Wrap>
       <I18nProvider locale="ko">
-        <AgentPlatformProvider
+        <WerftProvider
           client={{} as ApiClient}
           locale="ko"
           renderLink={({ children }) => children}
         >
           <RouterProvider router={router} />
-        </AgentPlatformProvider>
+        </WerftProvider>
       </I18nProvider>
     </Wrap>,
   );

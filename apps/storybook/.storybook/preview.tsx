@@ -1,11 +1,11 @@
 import type { Decorator, Preview } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  AgentPlatformProvider,
   LOCALES,
   type Locale,
   QueryScopeProvider,
   type RenderLink,
+  WerftProvider,
 } from "@werft-ai/react";
 import { type ReactNode, useMemo, useState } from "react";
 import { type FakeRoutes, fakeClient } from "./fake-client.ts";
@@ -42,13 +42,9 @@ function Platform({
   const client = useMemo(() => fakeClient(routes), [routes]);
   return (
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
-        client={client}
-        locale={locale}
-        renderLink={renderLink}
-      >
+      <WerftProvider client={client} locale={locale} renderLink={renderLink}>
         <QueryScopeProvider scope={STORY_SCOPE}>{children}</QueryScopeProvider>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   );
 }

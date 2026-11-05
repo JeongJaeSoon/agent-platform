@@ -134,10 +134,10 @@ export function ApprovalRow({
       data-slot="approval-row"
       data-expired={expired || undefined}
       className={cn(
-        "flex min-h-[var(--ap-row-min-height)] min-w-0 flex-col gap-3 px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-control",
+        "flex min-h-[var(--werft-row-min-height)] min-w-0 flex-col gap-3 px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)] text-control",
         // A list line sits in its list's frame; a lone row carries its own.
         heading === undefined &&
-          "rounded-card border border-[var(--ap-tone-attention-border)] bg-[var(--ap-tone-attention-bg)]",
+          "rounded-card border border-[var(--werft-tone-attention-border)] bg-[var(--werft-tone-attention-bg)]",
         className,
       )}
       {...within}
@@ -151,7 +151,7 @@ export function ApprovalRow({
         {/* At least the buttons' height, centred, so the two read as one
             line; wrapped lines keep their own height. */}
         {heading === undefined ? (
-          <div className="flex min-h-[var(--ap-control-height)] min-w-0 flex-1 basis-60 flex-wrap content-center items-center gap-x-4 gap-y-1">
+          <div className="flex min-h-[var(--werft-control-height)] min-w-0 flex-1 basis-60 flex-wrap content-center items-center gap-x-4 gap-y-1">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2">
               <Hourglass
                 className="size-4 shrink-0"

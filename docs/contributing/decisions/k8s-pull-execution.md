@@ -39,7 +39,7 @@ Kubernetes 설치에 실행 모드 `kubernetes_pull`을 opt-in으로 하나 더 
 
 ## 지금 구조
 
-[Kubernetes 실행 backend](../../operator/kubernetes-backend.md)와 `packages/adapters/execution/kubernetes`가 정본이다. 요약하면 다음과 같다.
+[Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/)와 `packages/adapters/execution/kubernetes`가 정본이다. 요약하면 다음과 같다.
 
 - scheduler pass가 대기 세션마다 launch를 예약하고(`worker_launches` 행, generation, 이미지·리소스 고정), `ensureExecution`으로 Pod 하나, Pod가 소유하는 nonce Secret 하나, 세션 workspace PVC(`ap-ws-<installation>-<session>`)를 만든다(`packages/platform/src/scheduler/launch.ts`, `kubernetes/src/backend.ts`).
 - scheduler Role은 worker namespace 하나에 걸리고 `pods`·`secrets`·`persistentvolumeclaims`의 get·list·create·delete와 `pods/log` get을 갖는다(`deploy/helm/agent-platform/templates/scheduler.yaml`). SA token을 마운트하는 Pod는 scheduler뿐이다.
@@ -176,7 +176,7 @@ chart에 `execution.workerNamespace`를 둔다. 값이 있으면 다음을 그 n
 | `secrets` | get·list·create·delete | 없음 |
 | `pods/log` | get | 켜면 get(worker Pod만 있는 namespace), 끄면 없음 |
 
-어댑터, chart Role, `deploy/helm/render-check.ts`의 Role 검사, [Kubernetes 실행 backend](../../operator/kubernetes-backend.md)의 RBAC 표가 함께 바뀐다.
+어댑터, chart Role, `deploy/helm/render-check.ts`의 Role 검사, [Kubernetes 실행 backend](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/kubernetes-backend/)의 RBAC 표가 함께 바뀐다.
 
 ### 0안의 이전
 
@@ -273,7 +273,7 @@ KEDA [PostgreSQL scaler](https://keda.sh/docs/latest/scalers/postgresql/)를 쓰
 - ScaledJob은 `scalingStrategy: accurate`, `targetValue: 1`이다. `default`는 `min(max, 대기 수) - 실행 중 Job 수`라서 세션을 받아 오래 도는 Job까지 뺀다. PoC 3a에서 실제로 새 세션이 45초 동안 굶었다(아래 "검증").
 - `pendingPodConditions: [Ready]`를 두고, worker의 readiness probe는 claim이 끝난 뒤에만 Ready가 된다. 그래야 Running이지만 아직 claim하지 않은 Job이 pending으로 세어져 같은 대기 세션에 Job이 두 번 뜨지 않는다([ScaledJob spec](https://keda.sh/docs/2.21/reference/scaledjob-spec/)).
 - Job spec: `parallelism: 1`, `completions: 1`, `backoffLimit: 0`, `restartPolicy: Never`. 재시도로 생긴 새 Pod는 새 UID라 다른 세션을 claim할 수 있으므로 Job 수준 재시도를 쓰지 않는다. 다시 띄우는 일은 다음 poll이 한다.
-- 같은 숫자를 지표로도 낸다. 지금은 대기 세션 수 지표가 없다(`agent_platform.queue.oldest_age_seconds`뿐). 진행 중인 Kubernetes 실행 지표 작업과 하나로 합친다.
+- 같은 숫자를 지표로도 낸다. 지금은 대기 세션 수 지표가 없다(`werft.queue.oldest_age_seconds`뿐). 진행 중인 Kubernetes 실행 지표 작업과 하나로 합친다.
 
 ### 두 상한
 

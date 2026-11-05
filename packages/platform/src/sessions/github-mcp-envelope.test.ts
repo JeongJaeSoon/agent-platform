@@ -97,9 +97,14 @@ function server(failure: SessionServiceError | null) {
       open: answer({
         pull_request: pullRequest,
         created: true,
+        body_source: { kind: "platform" as const },
         receipt_id: RECEIPT,
       }),
-      update: answer({ pull_request: pullRequest, receipt_id: RECEIPT }),
+      update: answer({
+        pull_request: pullRequest,
+        body_source: null,
+        receipt_id: RECEIPT,
+      }),
       comment: answer({
         pull_request: pullRequest,
         comment: {

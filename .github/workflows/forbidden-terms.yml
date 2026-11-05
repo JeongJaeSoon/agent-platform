@@ -1,0 +1,40 @@
+name: Forbidden terms
+
+# A separate workflow, not a job in ci.yml: the check re-runs when a PR title or
+# body is edited, and ci.yml's concurrency group would cancel the whole suite on
+# every edit. The job name below is the required-check name; keep it unique.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: forbidden-terms-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  forbidden-terms:
+    name: forbidden-terms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the commit range
+          persist-credentials: false
+      - uses: ./.github/actions/bun-setup
+      # The script prints counts only. The list is a secret and this log is public.
+      - run: bun .github/scripts/forbidden-terms.ts
+        env:
+          FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}

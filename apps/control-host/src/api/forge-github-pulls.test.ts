@@ -69,6 +69,7 @@ describe("GitHub pull requests", () => {
       number: 1,
       state: "open",
       head,
+      headSha: "1".repeat(40),
       base: "main",
     });
     expect(opened.url).toBe(`${github.origin}/acme/app/pull/1`);
@@ -211,12 +212,12 @@ describe("GitHub pull requests", () => {
 
   test("upserts one comment per marker", async () => {
     const { forge } = await appForge();
-    const marker = "<!-- agent-platform:s:status -->";
+    const marker = "<!-- werft:s:status -->";
     const first = await forge.upsertComment(1, marker, "Running.");
     expect(first.created).toBe(true);
     const other = await forge.upsertComment(
       1,
-      "<!-- agent-platform:s:other -->",
+      "<!-- werft:s:other -->",
       "Elsewhere.",
     );
     const second = await forge.upsertComment(1, marker, "Done.");
@@ -229,7 +230,7 @@ describe("GitHub pull requests", () => {
 
   test("two first comments for one marker at once leave one comment", async () => {
     const { forge } = await appForge();
-    const marker = "<!-- agent-platform:s:racing -->";
+    const marker = "<!-- werft:s:racing -->";
     const [a, b] = await Promise.all([
       forge.upsertComment(1, marker, "One."),
       forge.upsertComment(1, marker, "Two."),
@@ -246,7 +247,7 @@ describe("GitHub pull requests", () => {
 
   test("a marker someone else pasted is left alone", async () => {
     const { forge } = await appForge();
-    const marker = "<!-- agent-platform:s:pasted -->";
+    const marker = "<!-- werft:s:pasted -->";
     const pasted = github.addComment("acme", "app", 1, `Copied ${marker}`);
     const ours = await forge.upsertComment(1, marker, "Running.");
     expect(ours.created).toBe(true);
@@ -281,7 +282,7 @@ describe("GitHub pull requests", () => {
     try {
       const forge = await patForge(stub.port);
       await expect(
-        forge.upsertComment(1, "<!-- agent-platform:s:x -->", "Hi"),
+        forge.upsertComment(1, "<!-- werft:s:x -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
       expect(seen).toEqual(Array(10).fill("GET"));
     } finally {
@@ -303,7 +304,7 @@ describe("GitHub pull requests", () => {
     try {
       const forge = await patForge(stub.port);
       await expect(
-        forge.upsertComment(1, "<!-- agent-platform:s:y -->", "Hi"),
+        forge.upsertComment(1, "<!-- werft:s:y -->", "Hi"),
       ).rejects.toBeInstanceOf(ForgeCredentialError);
       expect(seen).toEqual(["GET", "POST"]);
     } finally {
@@ -312,7 +313,7 @@ describe("GitHub pull requests", () => {
   });
 
   test("with a PAT, the platform's comment is the token owner's", async () => {
-    const marker = "<!-- agent-platform:s:status -->";
+    const marker = "<!-- werft:s:status -->";
     const thread = [
       { id: 1, body: `Mine? ${marker}`, html_url: "h/1", user: { id: 7 } },
       { id: 2, body: `Ours ${marker}`, html_url: "h/2", user: { id: 42 } },
@@ -414,6 +415,8 @@ describe("reading a pull request for the outcome refresher", () => {
         pullRequest: expect.objectContaining({
           number: 1,
           state: "open",
+          head,
+          headSha: "1".repeat(40),
           mergedAt: null,
           closedAt: null,
           mergeCommitSha: null,

@@ -32,8 +32,8 @@ describe("Button", () => {
     );
     const classes = getByRole("button").className.split(" ");
     expect(classes).toContain("text-destructive");
-    expect(classes).toContain("border-[var(--ap-tone-danger-border)]");
-    expect(classes).toContain("hover:bg-[var(--ap-tone-danger-bg)]");
+    expect(classes).toContain("border-[var(--werft-tone-danger-border)]");
+    expect(classes).toContain("hover:bg-[var(--werft-tone-danger-bg)]");
     expect(classes).toContain("bg-card");
   });
 
@@ -44,7 +44,7 @@ describe("Button", () => {
     const button = getByRole("button", { name: "복사" });
     expect(button.getAttribute("data-size")).toBe("icon-sm");
     expect(button.className.split(" ")).toContain(
-      "size-[var(--ap-control-height-sm)]",
+      "size-[var(--werft-control-height-sm)]",
     );
   });
 

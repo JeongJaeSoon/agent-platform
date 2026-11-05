@@ -36,6 +36,12 @@ RUN bun install --frozen-lockfile --production \
     --filter ./apps/worker \
   && bun run --filter @werft-ai/runtime-registry image:verify
 
+# What is published: deps without test sources, testkit and the demo tools
+# (scripts/image-prune.sh).
+FROM deps AS pruned
+RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
+  sh /tmp/image-prune.sh --delete /app
+
 # Git LFS, for a session's LFS objects through the proxy's repository route.
 # Built here from upstream's release source rather than taken as its binary or
 # Debian's package: both link a golang.org/x/net the image scan fails on
@@ -65,11 +71,16 @@ ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587
   /tmp/go-arm64.tar.gz
 # The base has no CA roots; Go needs them to reach the module proxy. Trixie's
 # package, pinned to its archive sha256 and unpacked only (no maintainer
-# scripts): Go reads every certificate under SSL_CERT_DIR.
-ADD --checksum=sha256:ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+# scripts): Go reads every certificate under SSL_CERT_DIR. Not an ADD: that
+# has no retry, and snapshot.debian.org has answered with a body of another
+# hash for this pin (94S-1396). Bun carries its own roots; fetch-pinned.ts
+# retries a wrong body like a failed request and writes only the pinned bytes.
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
   https://snapshot.debian.org/archive/debian/20250419T084132Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb \
-  /tmp/ca-certificates.deb
-RUN dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
+  ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+  /tmp/ca-certificates.deb \
+  && dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
 ENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla
 WORKDIR /tmp/git-lfs-src
 # GOTOOLCHAIN=local: the go directive x/net raises must not fetch another Go.
@@ -164,7 +175,7 @@ RUN cd /usr/local/share/werft/git-hooks \
 RUN test "$(id -u bun)" = 1000 && test "$(id -g bun)" = 1000 \
   && mkdir -p /workspace && chown 1000:1000 /workspace
 WORKDIR /app
-COPY --from=deps --chown=1000:1000 /app /app
+COPY --from=pruned --chown=1000:1000 /app /app
 # Each installed runtime checks its engine and puts it on PATH (for Claude,
 # `claude`, resolved the way the runtime does at run time), so the build fails
 # if an engine stops shipping for this arch.
@@ -190,3 +201,7 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/docker-entrypoint.sh"]
 # The scheduler passes bootstrap identity through env (WORKER_EXECUTION_ID,
 # WORKER_BOOTSTRAP_NONCE, WORKER_GATEWAY_URL, ...) and may override Cmd.
 CMD ["bun", "run", "apps/worker/src/main.ts"]
+
+# The last stage is the default target, and the one images.yml builds
+# (`target: release`).
+FROM runtime AS release

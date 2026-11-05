@@ -33,7 +33,7 @@ images:
     repository: ghcr.io/jeongjaesoon/werft-worker
     digest: ""
     # The `runtime` images.yml recorded with this digest, as given, e.g.
-    # {engine: claude-agent-sdk, sdkVersion: 0.3.280, cliVersion: 2.1.280,
+    # {engine: claude, sdkVersion: 0.3.280, cliVersion: 2.1.280,
     # profileDigestScheme: 1}. Empty launches every session on this image, and
     # an upgrade can then keep this image but not replace it
     # (docs/operator/kubernetes-deployment.md).
@@ -232,7 +232,7 @@ migrate:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
 
-# The platform metrics (docs/operator/metrics.md): GET /metrics on port 9464
+# The platform metrics (apps/docs/content/docs/run-server/self-hosting/operate/metrics.mdx): GET /metrics on port 9464
 # in the Prometheus text format, computed from the database at each scrape.
 # Off by default. One replica, replaced with Recreate: every replica would
 # report the same installation-wide totals, so a second one is a duplicate
@@ -243,7 +243,7 @@ metrics:
   port: 9464
   # How the collector finds the Pod: Prometheus annotations, or a Datadog
   # Agent openmetrics check under ad.datadoghq.com/metrics.checks
-  # (docs/operator/metrics.md). For example:
+  # (apps/docs/content/docs/run-server/self-hosting/operate/metrics.mdx). For example:
   #   prometheus.io/scrape: "true"
   #   prometheus.io/port: "9464"
   podAnnotations: {}
@@ -257,8 +257,9 @@ metrics:
   extraEnv: {}
 
 # The pre-upgrade check (templates/upgrade-check-job.yaml): an upgrade that
-# changes the worker image stops unless every session it would leave with no
-# image to resume on is listed here, exactly the list the check prints.
+# changes the worker image, or drops or replaces the previous image deployed
+# now, stops unless every session it would leave with no image to resume on
+# is listed here, exactly the list the check prints.
 upgrade:
   approvedSessions: []
   activeDeadlineSeconds: 300
@@ -303,7 +304,7 @@ worker:
   cpus: 1
   # Requests equal limits on worker pods; sized so a resumed engine holding
   # a transcript at the 512 MiB checkpoint limit stays under half of it.
-  # Sessions per node and how to trade them off: docs/operator/capacity.md.
+  # Sessions per node and how to trade them off: apps/docs/content/docs/run-server/self-hosting/operate/capacity.mdx.
   memoryMb: 4608
   # Node disk a worker may use outside its PVC (mostly its log), request
   # and limit both; past it the kubelet evicts the Pod.

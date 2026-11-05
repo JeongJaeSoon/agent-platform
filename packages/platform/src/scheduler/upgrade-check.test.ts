@@ -133,6 +133,97 @@ describe("assessUpgrade", () => {
     ).toEqual({ verdict: "proceed", affected: [], approved: [] });
   });
 
+  describe("the worker image stays and the deployed previous image goes", () => {
+    const kept = {
+      ...upgrade,
+      deployedWorker: "worker@sha256:n1",
+      deployedPreviousWorker: "worker@sha256:n",
+      runtimes: { current, previous: null },
+      targetPreviousWorker: null,
+    };
+
+    test("lists a session sealed on the dropped image and refuses until it is approved", () => {
+      const sessions = [on("s-previous", previous), on("s-current", current)];
+      const refused = assessUpgrade({ ...kept, sessions, approved: [] });
+      expect(refused.verdict).toBe("refused");
+      expect(refused.affected).toEqual([
+        { sessionId: "s-previous", reason: "no_image" },
+      ]);
+      expect(refused.reason).toContain("deployed previous image");
+
+      expect(
+        assessUpgrade({ ...kept, sessions, approved: ["s-previous"] }).verdict,
+      ).toBe("proceed");
+    });
+
+    test("a replaced previous image refuses sessions its runtime does not cover, and keeps those it does", () => {
+      const replaced = {
+        ...kept,
+        targetPreviousWorker: "worker@sha256:other",
+      };
+      const sessions = [on("s-previous", previous)];
+      const incompatible = assessUpgrade({
+        ...replaced,
+        runtimes: { current, previous: older },
+        sessions,
+        approved: [],
+      });
+      expect(incompatible.verdict).toBe("refused");
+      expect(incompatible.affected).toEqual([
+        { sessionId: "s-previous", reason: "no_image" },
+      ]);
+      expect(
+        assessUpgrade({
+          ...replaced,
+          runtimes: { current, previous },
+          sessions,
+          approved: [],
+        }).verdict,
+      ).toBe("proceed");
+    });
+
+    test("a session with no recorded combination is listed too, as for a replaced image", () => {
+      const assessment = assessUpgrade({
+        ...kept,
+        sessions: [on("s-unrecorded", null)],
+        approved: [],
+      });
+      expect(assessment.verdict).toBe("refused");
+      expect(assessment.affected).toEqual([
+        { sessionId: "s-unrecorded", reason: "unrecorded" },
+      ]);
+    });
+
+    test("proceeds when no session was sealed on it", () => {
+      expect(
+        assessUpgrade({
+          ...kept,
+          sessions: [on("s-current", current)],
+          approved: [],
+        }),
+      ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+    });
+
+    test("a previous image that is kept, or that the deployed release never had, compares nothing", () => {
+      for (const overrides of [
+        {
+          targetPreviousWorker: "worker@sha256:n",
+          runtimes: { current, previous },
+        },
+        { deployedPreviousWorker: null },
+      ]) {
+        expect(
+          assessUpgrade({
+            ...kept,
+            ...overrides,
+            sessions: [on("s-older", older)],
+            approved: [],
+          }),
+        ).toEqual({ verdict: "proceed", affected: [], approved: [] });
+      }
+    });
+  });
+
   test("a stale approval left in the values is refused even when nothing is affected", () => {
     const changed = assessUpgrade({
       ...upgrade,

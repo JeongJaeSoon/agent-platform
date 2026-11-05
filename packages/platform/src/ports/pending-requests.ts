@@ -47,7 +47,12 @@ export type AnswerRequestResult =
 export type PendingRequestOutcome =
   | { state: "open" | "closed"; kind: "permission" | "question" }
   | { state: "answered"; kind: "question" }
-  | { state: "answered"; kind: "permission"; decision: "allow" | "deny" };
+  | {
+      state: "answered";
+      kind: "permission";
+      decision: "allow" | "deny";
+      remember?: "session";
+    };
 
 /**
  * What a tool's input points at, read from the platform's own rows: the
@@ -80,6 +85,8 @@ export type PendingRequestDisplay = (
 ) & {
   state: "open" | "answered" | "closed";
   decision: "allow" | "deny" | null;
+  /** The allow was also kept for the session; absent or null, it was not. */
+  remember?: "session" | null;
   decidedByUserId: string | null;
   /** Why a request no one answered closed. */
   closedReason: "expired" | "session_closed" | "stale" | null;

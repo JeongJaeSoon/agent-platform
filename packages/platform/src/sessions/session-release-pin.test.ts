@@ -467,7 +467,6 @@ describe("a session pinned to an agent release", () => {
               attachmentContext({ attachedRepositoryIds: store.attached() }),
           },
           catalog: attachCatalog,
-          waitMs: 0,
         });
         const outcome = await attachments.attach({
           sessionId: "11111111-1111-4111-8111-111111111111",

@@ -52,7 +52,7 @@ export const SLACK_WARNING_KEY = {
   { title: MessageKey; body: MessageKey }
 >;
 export const SECTION_BOX =
-  "flex scroll-mt-4 flex-col gap-[var(--ap-space-block)] outline-none";
+  "flex scroll-mt-4 flex-col gap-[var(--werft-space-block)] outline-none";
 export const RECHECK_ID = "slack-events-recheck";
 export const UNVERIFIED_POLL_MS = 10_000;
 export const EVENTS_BADGE = {

@@ -9,7 +9,7 @@ import type {
   GitHubAppPermissions,
   GitHubSettingsResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   ConfirmDialog,
@@ -42,7 +42,7 @@ export const githubSettingsKey = (client: ApiClient, workspaceId: string) =>
   scopedKey(client, "workspace", workspaceId, "github-settings");
 
 export function useGitHubSettings(): UseQueryResult<GitHubSettingsResponse> {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return useQuery({
     queryKey: githubSettingsKey(client, workspaceId),
@@ -88,7 +88,7 @@ export function FeatureList({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";

@@ -111,8 +111,8 @@ export type SessionAttributionService = ReturnType<
 >;
 
 /** Where the platform's part of a pull request body starts and ends. */
-export const PULL_REQUEST_TAIL_MARKER = "<!-- agent-platform:pr-tail -->";
-export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /agent-platform:pr-tail -->";
+export const PULL_REQUEST_TAIL_MARKER = "<!-- werft:pr-tail -->";
+export const PULL_REQUEST_TAIL_END_MARKER = "<!-- /werft:pr-tail -->";
 
 /**
  * The pull request body's tail (decision 5): how to find the session again.
@@ -370,7 +370,7 @@ export function withPullRequestTail(body: string, tail: string): string {
         if (
           marks[0] === fence[0] &&
           marks.length >= fence.length &&
-          after.trim() === ""
+          /^[ \t]*$/.test(after)
         ) {
           fence = null;
         }
@@ -415,4 +415,16 @@ export function withPullRequestTail(body: string, tail: string): string {
   while (next < lines.length && blank(next)) next += 1;
   const rest = next < lines.length ? body.slice(starts[next]) : "";
   return [head, tail, rest].filter((part) => part !== "").join("\n\n");
+}
+
+const NO_TAIL = "\u0000";
+
+/**
+ * `text` with any code fence or HTML element it leaves open closed, so text
+ * placed after it is not swallowed. Uses the scan `withPullRequestTail` runs
+ * on a body that has no tail, with a placeholder in the tail's place.
+ */
+export function closeOpenBlocks(text: string): string {
+  const closed = withPullRequestTail(text, NO_TAIL);
+  return closed === NO_TAIL ? "" : closed.slice(0, -(NO_TAIL.length + 2));
 }

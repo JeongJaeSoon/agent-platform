@@ -6,6 +6,7 @@ import { realRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import {
   claimFingerprint,
   createWorkerHost,
+  instructionParts,
   OUT_DIRECTORY_PROMPT,
   runtimeProfile,
   workerRuntimeRegistry,
@@ -298,6 +299,67 @@ describe("claimFingerprint", () => {
         },
       }).profileSha256,
     ).toBe(onMain["claude-coding-real"]);
+  });
+
+  test("which instruction file is read, and its name, stay out of the digest an older session was stamped with", () => {
+    const launch = {
+      principal,
+      runtimeConfig: shipped["claude-coding-real"],
+      workspace: {
+        repository: {
+          id: "sample-app",
+          url: "https://example.invalid/team/app.git",
+          branch: "main",
+        },
+      },
+    };
+    const only = (instructionFiles: string[]) =>
+      runtimeProfile(
+        config,
+        { descriptor: { ...claude.descriptor, instructionFiles } },
+        launch,
+        () => "rules\n",
+      );
+    const before = only(["CLAUDE.md"]);
+    const after = only(["AGENTS.md", "CLAUDE.md"]);
+
+    expect(claude.descriptor.instructionFiles).toEqual([
+      "AGENTS.md",
+      "CLAUDE.md",
+    ]);
+    expect(after.bundle.repoInstructions).toEqual({
+      files: ["AGENTS.md", "CLAUDE.md"],
+      text: "rules\n",
+    });
+    expect(claude.fingerprint(after).profileSha256).toBe(
+      claude.fingerprint(before).profileSha256,
+    );
+    expect(claude.fingerprint(after).profileSha256).toBe(
+      onMain["claude-coding-real"],
+    );
+  });
+
+  test("the engine's instructions and the workspace's AGENTS.md come from one list", () => {
+    const runtimeConfig = {
+      ...shipped["claude-coding-real"],
+      agent_instructions: "Answer in Korean.",
+    };
+    const parts = instructionParts(runtimeConfig, {
+      repository: null,
+    });
+
+    expect(parts).toEqual([
+      { scope: "platform", text: OUT_DIRECTORY_PROMPT },
+      { scope: "agent", text: "Answer in Korean." },
+    ]);
+    expect(
+      runtimeProfile(
+        config,
+        claude,
+        { principal, runtimeConfig, workspace: { repository: null } },
+        () => null,
+      ).bundle.instructions,
+    ).toEqual(parts);
   });
 
   test("the claim carries agent instructions only as runtime_config.agent_instructions; no name, description or role", () => {

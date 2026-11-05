@@ -18,7 +18,7 @@ export type RowActionProps = Omit<ButtonProps, "size" | "variant"> & {
 /**
  * The button at the end of a setting row, a danger zone row or a list or
  * table row. The row aligns right ends; the width follows the label, down to
- * --ap-row-action-button-min-width. Page header, in-field, form and dialog
+ * --werft-row-action-button-min-width. Page header, in-field, form and dialog
  * buttons are not row actions.
  */
 export function RowAction({
@@ -36,7 +36,7 @@ export function RowAction({
       variant={variant}
       size={size}
       className={cn(
-        size === "sm" && "min-w-[var(--ap-row-action-button-min-width)]",
+        size === "sm" && "min-w-[var(--werft-row-action-button-min-width)]",
         className,
       )}
       {...props}

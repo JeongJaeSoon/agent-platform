@@ -8,6 +8,7 @@
 # by hand first (docs/operator/kubernetes-deployment.md).
 {{- $scheduler := printf "%s-scheduler" (include "ap.fullname" .) }}
 {{- $deployed := "" }}
+{{- $deployedPrevious := "" }}
 {{- $state := "" }}
 {{- /* Both empty under `helm template` and a client --dry-run, where lookup reads nothing: the check then fails rather than guess. */}}
 {{- $found := lookup "apps/v1" "Deployment" .Release.Namespace $scheduler }}
@@ -18,7 +19,10 @@
 {{- range .env }}
 {{- if eq .name "WORKER_IMAGE" }}
 {{- $deployed = .value }}
-{{- else if has .name (list "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS" "WORKER_IMAGE_PREVIOUS_RUNTIME") }}
+{{- else if eq .name "WORKER_IMAGE_PREVIOUS" }}
+{{- $deployedPrevious = .value }}
+{{- $pinned = true }}
+{{- else if has .name (list "WORKER_IMAGE_RUNTIME" "WORKER_IMAGE_PREVIOUS_RUNTIME") }}
 {{- $pinned = true }}
 {{- end }}
 {{- end }}
@@ -65,6 +69,8 @@ spec:
             {{- include "ap.secretEnv" (dict "root" . "key" "DATABASE_URL") | nindent 12 }}
             - name: UPGRADE_DEPLOYED_WORKER_IMAGE
               value: {{ $deployed | quote }}
+            - name: UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS
+              value: {{ $deployedPrevious | quote }}
             - name: UPGRADE_DEPLOYED_STATE
               value: {{ $state | quote }}
             - name: WORKER_IMAGE

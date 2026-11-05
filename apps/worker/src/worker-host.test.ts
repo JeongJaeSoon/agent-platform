@@ -26,11 +26,13 @@ import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { waitFor } from "./testing/wait-for.ts";
 import {
   frameTurn,
   inputUuid,
   type RuntimeRegistry,
   WorkerHost,
+  type WorkerHostOptions,
   type WorkerLogger,
 } from "./worker-host.ts";
 import { noWorkspace, type WorkspacePreparer } from "./workspace.ts";
@@ -90,6 +92,7 @@ function harness(
     gateway?: FakeWorkerGateway;
     imageRuntime?: ImageRuntime;
     logger?: WorkerLogger;
+    placeInstructions?: WorkerHostOptions["placeInstructions"];
     /** Input uuids the engine session a resumed run opens already holds. */
     resumedTranscript?: string[];
     sleep?: (ms: number) => Promise<void>;
@@ -137,6 +140,9 @@ function harness(
       ? {}
       : { imageRuntime: overrides.imageRuntime }),
     ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
+    ...(overrides.placeInstructions === undefined
+      ? {}
+      : { placeInstructions: overrides.placeInstructions }),
   });
   return {
     budgets,
@@ -148,14 +154,6 @@ function harness(
     runtime,
     workspaces,
   };
-}
-
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 2_000; waited += 5) {
-    if (condition()) return;
-    await Bun.sleep(5);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }
 
 describe("WorkerHost turn loop", () => {
@@ -218,6 +216,68 @@ describe("WorkerHost turn loop", () => {
     // Checkpoints are not wired to this gateway yet.
     expect(gateway.finalized[0]?.checkpoint).toBeNull();
     expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("places the instruction files after the workspace is ready and before the engine starts, and runs on when it cannot", async () => {
+    const order: string[] = [];
+    const warnings: string[] = [];
+    const prepared: WorkspacePreparer = {
+      ...noWorkspace,
+      async prepare() {
+        order.push("prepare");
+        return "reuse";
+      },
+    };
+    const { gateway, host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: assistantMessage("hi") },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        logger: { ...silent, warn: (event) => warnings.push(event) },
+        placeInstructions: async () => {
+          order.push("place");
+          throw new Error("disk full");
+        },
+        workspace: prepared,
+        wrap: (run) => {
+          order.push("start");
+          return run;
+        },
+      },
+    );
+    gateway.enqueue("hello");
+
+    const summary = await host.runLoop();
+
+    expect(order).toEqual(["prepare", "place", "start"]);
+    expect(warnings).toContain("worker.instruction_files.not_placed");
+    expect(summary.outcome).toBe("idle");
+  });
+
+  test("starts no engine when a stop landed while the instruction files were being placed", async () => {
+    let started = false;
+    let hostRef: WorkerHost | undefined;
+    const { gateway, host } = harness([{ type: "await-input" }], {
+      // Never answers: the shutdown must not wait for it.
+      placeInstructions: async () => {
+        hostRef?.drain("received SIGTERM");
+        await new Promise<void>(() => {});
+        return "placed";
+      },
+      wrap: (run) => {
+        started = true;
+        return run;
+      },
+    });
+    hostRef = host;
+    gateway.enqueue("hello");
+
+    await host.runLoop();
+
+    expect(started).toBe(false);
   });
 
   test("makes the turn's events durable before it finalizes", async () => {

@@ -87,15 +87,17 @@ export type ClaudeRuntimeConfig = DriverConfig & {
   plugins?: RuntimePlugin[];
   profile: RuntimeProfile;
   /**
-   * The repository's own CLAUDE.md, let into the system prompt by the caller
+   * The repository's own instruction file (AGENTS.md, else CLAUDE.md; the
+   * caller picks), let into the system prompt by the caller
    * rather than loaded by the engine: the engine only reads it together with
    * the rest of the project source — settings.json with its hooks, env and
    * permission rules — so this requires `settingSources: []`. `contents` is
    * whatever the caller read (null when the repository has none); where it
    * reads it from is the trust decision, and it is the caller's.
    *
-   * The checkpoint fingerprint takes the switch, not the text, so a branch
-   * that changed its CLAUDE.md does not make a session's checkpoints
+   * The checkpoint fingerprint takes the switch, not the text or the file's
+   * name, so a branch that changed its instruction file, or moved it from
+   * CLAUDE.md to AGENTS.md, does not make a session's checkpoints
    * unresumable. A resumed run keeps the text it started with anyway: the
    * engine replays the system prompt it recorded (`snapshot`) until the
    * conversation is compacted, and after that carries this run's `contents`.

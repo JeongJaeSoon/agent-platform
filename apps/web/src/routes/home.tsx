@@ -16,7 +16,7 @@ import {
   scopedKey,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import { useAgentPlatform, useSessions } from "@werft-ai/react";
+import { useSessions, useWerft } from "@werft-ai/react";
 import { ApprovalInbox, usePendingRail } from "@werft-ai/react/blocks";
 import {
   DetailLayout,
@@ -171,7 +171,7 @@ export function HomeScreen() {
     unavailable,
     refusal,
   });
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   // The server refuses these lists to anyone else; a member asks for none.
   const managesMembers = useHasPermission("member.manage");
   const managesAgents = useHasPermission("agent.manage");
@@ -848,7 +848,7 @@ function useReader(): {
   /** The agents that tell the reader apart are still on their way. */
   readonly deciding: boolean;
 } {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   // Same query as the agents section below, so it is read once.
   const administered = useQuery({
@@ -1021,7 +1021,7 @@ function SlackTodo({
 function HomeSkeleton() {
   const { t } = useI18n();
   return (
-    <div className="@container flex flex-col gap-[var(--ap-space-section)]">
+    <div className="@container flex flex-col gap-[var(--werft-space-section)]">
       <Skeleton
         shape="block"
         height="10rem"
@@ -1047,7 +1047,7 @@ function NoRequests() {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-center gap-2 rounded-card border bg-card px-4 py-6 text-center text-control text-muted-foreground">
-      <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--ap-color-surface-sunken) text-subtle-foreground">
+      <span className="mb-1 grid size-10 place-items-center rounded-[8px] border bg-(--werft-color-surface-sunken) text-subtle-foreground">
         <Inbox className="size-4" strokeWidth={1.5} aria-hidden="true" />
       </span>
       <Text className="font-semibold text-body">
@@ -1144,14 +1144,14 @@ function GlanceCard({
       <Card className="h-full gap-3 p-4">
         <div className="flex items-center gap-3">
           <IconTile {...tile} size="two-line" />
-          <div className="flex min-w-0 flex-1 flex-col gap-(--ap-row-line-gap)">
+          <div className="flex min-w-0 flex-1 flex-col gap-(--werft-row-line-gap)">
             <Text
               variant="meta"
-              className="text-muted-foreground leading-(--ap-leading-caption)"
+              className="text-muted-foreground leading-(--werft-leading-caption)"
             >
               {eyebrow}
             </Text>
-            <Heading level={3} className="leading-(--ap-leading-body)">
+            <Heading level={3} className="leading-(--werft-leading-body)">
               {title}
             </Heading>
           </div>
@@ -1241,7 +1241,7 @@ function RecentSessionTable({
       // Framed as the table it stands in for, inside its padding.
       <Text
         variant="sub"
-        className="rounded-card border bg-card px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)] text-body"
+        className="rounded-card border bg-card px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)] text-body"
       >
         {t("sessions.empty")}
       </Text>

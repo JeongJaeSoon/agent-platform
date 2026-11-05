@@ -1,7 +1,7 @@
 import { Badge, EmptyState, Skeleton, Text } from "@werft-ai/ui";
 import type { JSX } from "react";
 
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import type { ToolCallsMessages } from "./messages.ts";
 import type { UsageToolCall } from "./tools.ts";
 import { useOperationsMessages } from "./use-messages.ts";
@@ -33,7 +33,7 @@ export function ToolCalls({
   messages: override,
 }: ToolCallsProps): JSX.Element {
   const { messages, format } = useOperationsMessages("toolCalls", override);
-  const { locale, renderLink } = useAgentPlatform();
+  const { locale, renderLink } = useWerft();
   const time = new Intl.DateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",

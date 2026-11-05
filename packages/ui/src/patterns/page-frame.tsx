@@ -9,8 +9,8 @@ export type PageFrameProps = ComponentProps<"div"> & {
 
 /**
  * The one frame every console page sits in (V4-PAGE-FRAME): 16px on every
- * side, then 24px from 768px (`--ap-space-page-top` above and below), and
- * a column that grows to `--ap-w-page` and then centres. Lists, settings,
+ * side, then 24px from 768px (`--werft-space-page-top` above and below), and
+ * a column that grows to `--werft-w-page` and then centres. Lists, settings,
  * forms and details share it, so the content's edges and the title's y are
  * the same on every page.
  */
@@ -23,14 +23,14 @@ export function PageFrame({
     <div
       data-slot="page-frame"
       className={cn(
-        "flex w-full min-w-0 flex-col p-4 md:px-6 md:py-[var(--ap-space-page-top)]",
+        "flex w-full min-w-0 flex-col p-4 md:px-6 md:py-[var(--werft-space-page-top)]",
         className,
       )}
       {...props}
     >
       <div
         data-slot="page-frame-body"
-        className="mx-auto flex w-full min-w-0 max-w-[var(--ap-w-page)] flex-1 flex-col"
+        className="mx-auto flex w-full min-w-0 max-w-[var(--werft-w-page)] flex-1 flex-col"
       >
         {children}
       </div>
@@ -52,7 +52,7 @@ export function Page({ children, ...header }: PageProps): JSX.Element {
   return (
     <div data-slot="page" className="flex flex-col">
       <PageHeader {...header} />
-      <div className="flex flex-col gap-[var(--ap-space-section)]">
+      <div className="flex flex-col gap-[var(--werft-space-section)]">
         {children}
       </div>
     </div>

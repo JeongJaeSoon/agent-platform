@@ -636,7 +636,7 @@ describe("에이전트 카드", () => {
     expect(line?.className).toContain("relative z-1");
   });
   test("아바타 색은 이름으로 정해져 목록과 상세에서 같다", async () => {
-    const tone = `--ap-avatar-${avatarTone("결제 담당")}-bg`;
+    const tone = `--werft-avatar-${avatarTone("결제 담당")}-bg`;
     renderAt("/agents", { ...meOk, ...releasedServer() });
     const card = await cardFor("결제 담당");
     const avatar = card.querySelector("[data-slot=avatar]");

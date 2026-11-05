@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import { S3Client } from "@aws-sdk/client-s3";
-
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import {
   type BodyReadBounds,
@@ -9,6 +8,7 @@ import {
   DEFAULT_BODY_READ_BOUNDS,
   type S3ClientLike,
 } from "./s3.ts";
+import { listen } from "./testing/listen.ts";
 
 /**
  * What this pins down: a GetObject settles as soon as the response headers
@@ -242,15 +242,4 @@ function directClient(endpoint: string): S3Client {
     maxAttempts: 1,
     region: "ap-northeast-1",
   });
-}
-
-async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Test peer did not bind a port");
-  }
-  return `http://127.0.0.1:${address.port}`;
 }

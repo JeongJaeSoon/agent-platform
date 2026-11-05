@@ -1,0 +1,165 @@
+---
+title: "Kubernetes 설치"
+description: 게시된 Helm chart로 Kubernetes에 Werft를 설치하고 /readyz 200까지 확인한다
+---
+
+게시된 Helm chart로 Kubernetes에 Werft를 설치한다. 저장소 checkout 없이 chart 하나가 세 이미지의 digest와 worker runtime을 담고 있다. 이 페이지만 따라 `/readyz`가 200을 돌려줄 때까지 간다. Linux 서버 한 대에 Docker Compose로 올린다면 [단일 서버 설치](/run-server/self-hosting/single-server)를 읽는다.
+
+<Callout type="warn">
+첫 `v` 태그가 아직 없다. 지금은 `main`에 머지될 때마다 게시되는 chart `0.1.0-main-<12>`를 쓴다. 이 버전은 릴리스가 아니다. 첫 `v` 태그가 생기면 `v` 없이 태그의 버전(`v1.2.3`이면 `1.2.3`)이 chart 버전이 되고, 아래 명령은 `VERSION`만 바꾸면 같다.
+</Callout>
+
+## 준비물
+
+| 항목 | 요구 |
+| --- | --- |
+| 클러스터 | Kubernetes. NetworkPolicy를 강제하는 CNI가 필요하다. 강제하지 않으면 worker 격리가 없다 |
+| 도구 | `helm` 3, `kubectl`, `curl` |
+| PostgreSQL | 16. 클러스터 안에서 닿는 주소 |
+| S3 호환 object store | bucket 하나. 기본 보호 모드 `locked`는 versioning, Object Lock, 기본 암호화 SSE-S3(`AES256`)가 켜진 bucket을 요구한다. 아니면 api가 기동을 거부한다 |
+| 외부 | `ghcr.io`에서 chart와 이미지를 받을 수 있다. 패키지는 로그인 없이 받는다 |
+
+chart는 PostgreSQL, object store, Secret 값을 만들지 않는다. worker Pod도 만들지 않는다. scheduler가 세션마다 만든다. 게시 이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이므로 노드가 자기 아키텍처를 받는다.
+
+## 1. 버전 정하기
+
+버전은 항상 정확히 적는다. `main` 머지의 chart 버전은 `0.1.0-main-<12>`이고 `<12>`는 commit SHA의 앞 12자다. `main` 버전끼리는 순서에 뜻이 없으므로 `--devel`로 최신을 고르지 않는다. 저장소의 [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml)에서 초록색으로 끝난 `main` run의 commit을 골라 적는다.
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+`images` 아래 세 이미지의 `digest`와 `worker.runtime`이 나오면 된다. 이 값은 chart에 들어 있으므로 설치별 values에 다시 적지 않는다. 적으면 다음 chart의 값을 계속 덮는다.
+
+## 2. namespace와 Secret 만들기
+
+Secret은 키마다 파일 하나인 디렉터리(`0700`, 파일 이름이 키)에서 만든다. 값이 명령줄과 셸 history에 남지 않는다.
+
+| 키 | 값 |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL 연결 URL |
+| `EGRESS_AUTHORIZER_TOKEN` | 무작위 값. api와 egress proxy가 같은 값을 쓴다 |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32`의 64자 hex. 저장한 자격 증명을 봉인한다. 없으면 Pod가 뜨지 않는다 |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | object store key. IRSA로 서명하려면 두 키를 빼고 values에 `secrets.objectStoreKeys: false`와 `serviceAccounts.api.annotations`를 둔다 |
+| `ANTHROPIC_API_KEY` | 세션이 쓸 Anthropic key. api에만 간다 |
+
+```bash
+kubectl create namespace werft
+kubectl -n werft create secret generic werft --from-file=<secret-dir>
+```
+
+## 3. values 파일 만들기
+
+설치별 값은 `values-<installation>.yaml` 하나에 둔다. 최소한 checkpoint bucket과 worker가 bucket에 닿는 경로가 들어간다.
+
+```yaml
+config:
+  checkpoints:
+    bucket: <bucket>
+  egress:
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+```
+
+`credentialAllowlist`는 기본값을 통째로 바꾼다. 기본 목록(provider와 패키지 registry)을 그대로 두고 저장소 호스트(`github.com:443`, 다른 Git 호스트를 쓰면 그 호스트도)와 bucket 호스트를 뒤에 더한다.
+
+`config.aws.region`의 기본값은 `ap-northeast-1`이다. 다른 리전의 bucket이면 바꾼다. 연결, 저장소, MCP 서버, 상한은 values에 없다. 설치한 뒤 웹 콘솔에서 더하거나 `bun run settings:k8s import`로 가져온다. 기본값과 설명은 `helm show values`에 있다.
+
+## 4. 설치하기
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+migrate Job이 먼저 schema를 올리고, 끝나면 api, egress proxy, reconciler, scheduler, slack이 한꺼번에 적용된다. 첫 설치가 이미지 경로나 pull 권한 오류로 실패하면 값을 고치고 같은 명령을 다시 돌린다.
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+release 이름에 `werft`가 들어가지 않으면 리소스 이름은 `<release>-werft-…`가 된다.
+
+## 5. 확인하기
+
+api Service를 로컬로 열어 `/readyz`를 부른다. readiness는 DB, schema, 설정을 본다.
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl -fs -o /dev/null http://127.0.0.1:13000/healthz; do sleep 1; done
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+kill "$PF"
+```
+
+`{"status":"ready",…}`와 `200`이 나오면 설치가 된 것이다. `/docs`도 200이다. 사용자에게는 Ingress로 내보낸다. `ingress.enabled: true`와 controller별 설정은 [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#aws-값-넣기)에 있다.
+
+## 6. 첫 owner와 API key
+
+웹 콘솔 `/bootstrap`에서 첫 owner와 workspace를 만든다. api Pod가 기동할 때 토큰을 만들어 로그에 `BOOTSTRAP_TOKEN=…` 한 줄로 출력한다. 첫 owner가 생길 때까지 로그를 읽는 사람은 누구나 bootstrap할 수 있으므로 로그를 읽는 사람은 운영자로 제한한다.
+
+API key는 api Pod 안에서 발급한다. 아래 `kubectl exec` 형식은 checkout이 필요 없다. `bun run keys:k8s`로 줄여 쓰는 방법은 [Kubernetes 설치 (Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#api-key-실행-권한-설정-문서)에 있다.
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/keys.ts create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
+```
+
+stdout에 평문 key가 한 번만 나오고 stderr에 key id가 나온다. 사용자마다 owner와 key를 따로 발급한다. SDK와 HTTP API는 서버 주소와 이 key로 붙는다([SDK 설치](/getting-started/install)).
+
+## kind에서 먼저 해 보기
+
+노트북에서 같은 chart를 시험하려면 kind 클러스터에 PostgreSQL과 object store 대역을 먼저 띄운다. 대역은 저장소의 `deploy/kind/deps.yaml`에 있으므로 저장소를 받는다. 이 대역은 시험용이다. 실서버의 DB와 bucket으로 쓰지 않는다.
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+kind create cluster --name werft-try
+kubectl create namespace werft
+kubectl -n werft create configmap localstack-init \
+  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
+kubectl -n werft apply -f deploy/kind/deps.yaml
+SECRETS="$(mktemp -d)"
+```
+
+다음 명령의 `read -rs`는 프롬프트 없이 입력을 기다린다. 입력할 값은 `deploy/kind/deps.yaml`의 `POSTGRES_PASSWORD`이고, 값을 명령줄에 쓰지 않으려고 터미널에서 읽는다. Secret 값은 모두 이 kind 시험용이다. 실서버에는 2단계의 방식으로 직접 만든 값을 쓴다. Secret을 만든 뒤에는 변수와 임시 디렉터리를 지운다.
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+printf unused > "$SECRETS/ANTHROPIC_API_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f deploy/kind/values.yaml --timeout 10m
+```
+
+이어서 4단계의 rollout 확인과 5단계의 확인을 그대로 한다. 끝나면 `kind delete cluster --name werft-try`로 클러스터를 지운다.
+
+## 업그레이드와 제거
+
+새 버전으로 올릴 때 worker 이미지가 바뀌면 직전 worker 이미지를 함께 넘겨야 한다. `--reuse-values`는 새 chart의 이미지를 적용하지 않으니 쓰지 않는다. 절차와 업그레이드 전 검사, 롤백은 [업그레이드](/run-server/self-hosting/upgrade)에 있다.
+
+```bash
+helm -n werft uninstall werft
+```
+
+`uninstall`은 scheduler가 만든 worker Pod, workspace PVC, 직접 만든 Secret을 남긴다. PVC를 지우면 checkpoint되지 않은 작업이 사라지므로 세션이 끝났는지 먼저 본다.
+
+## 다음 단계
+
+- [Kubernetes 설치 (Helm chart) 전체](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md): AWS 값, 웹 콘솔 Ingress, 업그레이드 전 검사
+- [Kubernetes 실행 backend](/run-server/self-hosting/operate/kubernetes-backend)
+- [용량 관리](/run-server/self-hosting/operate/capacity)
+- [설정 레퍼런스](/run-server/self-hosting/operate/configuration)

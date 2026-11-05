@@ -1,0 +1,508 @@
+---
+title: API use-case guide
+description: Which APIs to call in what order for each use case, with commands that run as written
+---
+
+{/*
+Translation of api-guide.mdx. The code blocks must stay identical to the Korean
+page: tests/docs-i18n-code.test.ts compares them. CI runs only the Korean page.
+*/}
+
+This is a runnable guide for API users who want to find quickly "which endpoint to call in what order". The source of truth for request and response schemas is `docs/openapi.json`; the unauthenticated `GET /docs` of a deployed server serves a read-only reference together with `/docs/scalar.js` from the same origin. The [HTTP API pages](/reference/http-api/auth/getApiRoot) on this site are generated from the same spec. This guide does not copy schemas; it links to them by operation name. CI runs the `bash` blocks below as written against compose's fake Messages API, so they need no Anthropic account and cost nothing.
+
+The examples use the local default address `http://127.0.0.1:3000`. For a deployed server, change only `API`.
+
+## 1. Authenticate with an API key and check the scopes
+
+OpenAPI: [`getApiRoot`](/reference/http-api/auth/getApiRoot)
+
+**Goal.** Get a Bearer API key and confirm in one call the minimum scopes the later use cases need. Reading, session input, approval, control and recovery are split into `sessions:read`, `sessions:write`, `sessions:approve`, `sessions:control` and `sessions:recover`.
+
+**Steps.** Start the local stack with the fake model that needs no key (`--fake-model`, [Run a development server](/run-server/dev-server)), issue a key, and check with `GET /v1` that the key is valid. In production, put the key your platform administrator issued into `KEY` and skip the two `scripts/local.sh` lines.
+
+```bash
+scripts/local.sh up --fake-model
+KEY=$(scripts/local.sh key api-guide \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)
+API=http://127.0.0.1:3000
+AUTH=(-H "Authorization: Bearer $KEY" -H 'Content-Type: application/json')
+
+DOCS_STATUS=$(curl -sS -o /tmp/werft-api-docs.html -w '%{http_code}' "$API/docs")
+SCALAR_STATUS=$(curl -sS -o /tmp/werft-scalar.js -w '%{http_code}' "$API/docs/scalar.js")
+printf 'GET /docs %s, GET /docs/scalar.js %s\n' "$DOCS_STATUS" "$SCALAR_STATUS"
+test "$DOCS_STATUS" = 200
+test "$SCALAR_STATUS" = 200
+grep -q 'src="/docs/scalar.js"' /tmp/werft-api-docs.html
+test -s /tmp/werft-scalar.js
+
+wait_for() {
+  for _ in $(seq 1 180); do
+    [ "$(curl -sS "$API$1" "${AUTH[@]}" | jq -r "$2")" = "$3" ] && return 0
+    sleep 1
+  done
+  echo "timed out: $1 $2 != $3" >&2
+  curl -sS "$API$1" "${AUTH[@]}" >&2
+  return 1
+}
+wait_for_pending() {
+  for _ in $(seq 1 180); do
+    pending=$(curl -sS "$API/v1/sessions/$SID/pending-requests" "${AUTH[@]}")
+    [ "$(echo "$pending" | jq -r '.items[0].kind // empty')" = "$1" ] && return 0
+    sleep 1
+  done
+  echo "timed out: pending request kind != $1" >&2
+  echo "$pending" >&2
+  return 1
+}
+revision() {
+  curl -sS "$API/v1/sessions/$SID" "${AUTH[@]}" | jq .revision
+}
+
+curl -sS "$API/v1" "${AUTH[@]}" | jq -e '.owner_id != null'
+```
+
+**Expected response.** `GET /v1` returns a 200 JSON body that includes the authenticated `owner_id`.
+
+**Common errors.** 401 `UNAUTHORIZED` means the key is empty or was issued by another installation. 403 `FORBIDDEN` means the scope of the operation you called is missing. Do not paste keys into logs or documents; pass them through environment variables or a secret manager.
+
+## 2. Create a session: choose a profile and a repository
+
+OpenAPI: [`createSession`](/reference/http-api/sessions/createSession), [`getSession`](/reference/http-api/sessions/getSession)
+
+**Goal.** Durably accept a session and its first turn, naming the execution profile and the repository.
+
+**Steps.** `GET /v1/profiles` (`listProfiles`) shows the profiles you can pick and their models. Send `profile_id`, `repository_id` and the first `message`, and save the `session_id` and `turn_id` from the response. This example uses a fake script that calls a file-writing tool so that the next section can show a permission request. On a real Claude stack (`scripts/local.sh up`), `profile_id` is `claude-coding-real` and `message` is free text. The optional field `model` picks one of the models the profile allows (the `model` or `models` of the catalog). If you leave it out, the session runs on the profile's default `model`, and the chosen model appears in `runtime.model` of `GET /v1/sessions/{id}`. If you change the session's profile (`POST /v1/sessions/{id}/profile`), it runs on the new profile's default `model` from then on.
+
+The list contains operator profiles (`source: operator`) together with narrowed versions that a workspace owner or admin made in the console (`source: workspace`, with an id that starts with `ws_`). A workspace version can be used for a new session only while its `workspace.state` is `usable`. The rules are in the [operator documentation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#워크스페이스-프로필-콘솔에서-좁힌-profile).
+
+Whether to send `repository_id` depends on the profile's `repository_mode` (`GET /v1/profiles`). Send it with `required`, omit it with `none`, and either works with `optional`. A session created without `repository_id` starts in an empty working directory, and `repository_id` is `null` when you read the session. Because there is no repository, a push request returns 409 `PUSH_SOURCE_MISSING`, and even if an `optional` profile was set to read the repository's CLAUDE.md, this session does not read it. On the fake-model stack, the `general` profile runs without a repository. Its create body looks like this.
+
+```json
+{ "profile_id": "general", "message": "회의 메모를 세 줄로 요약해 줘." }
+```
+
+```bash
+CREATE_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-permission","steps":[{"tool":"Bash","input":{"command":"echo guide > api-guide.txt","description":"write api-guide.txt"}}],"final":"wrote api-guide.txt"}' \
+  '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')
+CREATE_KEY=$(uuidgen)
+created=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CREATE_KEY" --data "$CREATE_BODY")
+echo "$created" | jq .
+echo "$created" | jq -e '.status == "queued" and .turn_id == "1"'
+SID=$(echo "$created" | jq -r .session_id)
+```
+
+**Expected response.** 201 with `session_id`, `turn_id: "1"`, `receipt_id`, `receipt_status: "accepted"` and `status: "queued"`. Judge the actual outcome by reading the turn, not by the old acceptance body in the creation receipt.
+
+### Session title
+
+The optional field `title` gives the session a name. If you pass one, runs of whitespace and line breaks are collapsed to one space, the ends are trimmed, and the result is stored as is. After that, an empty title or one longer than 80 characters (grapheme clusters: an emoji or a combining sequence counts as 1) is a 400. If you omit it, the title is derived from the first `message` by the same rule, without calling a model. If the collapsed text is 80 characters or fewer it is used as is; otherwise the first 79 characters are kept, trailing whitespace is removed and `…` is appended. The same message always gives the same title. A whitespace-only message gives `title: null`. Sessions that existed before this field are not backfilled and read as `null`; screens then show the session id.
+
+`title` appears in the items of `GET /v1/sessions` and in the detail of `GET /v1/sessions/{id}`. To rename, send `{"title": "..."}` to `PATCH /v1/sessions/{id}` (`updateSession`). No Idempotency-Key is needed, the value is normalized and stored by the same rule, and the response is 200 with the detail body. The session `revision` does not rise and no receipt is left. When the title really changes, one `status` event goes out on SSE and the new title is in `data.data.title` (`phase` is the session status at that moment). The same title produces no event. Whoever may rename is the same as whoever answers permission requests: the creator (the key, for a session a key created), the manager of that agent, and owners and admins. Because the response is the detail body, the key needs both `sessions:write` and `sessions:read`. Someone who can only view through sharing gets 403 (`reason_code: role`), and someone who cannot see the session gets 404.
+
+```bash
+curl -sS -X PATCH "$API/v1/sessions/$SID" "${AUTH[@]}" \
+  --data '{"title":"권한 요청 예시 세션"}' | jq '{id, title, revision}'
+```
+
+**Common errors.** 422 `UNSUPPORTED_CAPABILITY` means the profile or repository choice is invalid. If a `required` profile gets no `repository_id`, the message is `Profile <id> needs a repository: send repository_id`; if a `none` profile gets one, it is `Profile <id> runs without a repository: omit repository_id`. `repository_id: null` is a 400, not an omission. By contract `createSession` can return 429 `RATE_LIMITED`, so retry later. The input queue limit applies to adding messages (section 4). The storage limit shows up as 413 `STORAGE_LIMIT_EXCEEDED`; look at `/v1/limits`. If execution slots run short, the session is not rejected but waits as `queued`. The session cost and token limits do not reject the request; after you exceed them they show up as `BUDGET_EXCEEDED` in the session `attention` and `budget_exceeded: true` in `/usage` (section 8). 409 `IDEMPOTENCY_CONFLICT` means you sent a different body with the same key.
+
+## 3. Answer approvals and questions in pending-requests
+
+OpenAPI: [`listPendingRequests`](/reference/http-api/pending-requests/listPendingRequests), [`answerPendingRequest`](/reference/http-api/pending-requests/answerPendingRequest), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**Goal.** Handle the tool approvals the worker waits for and `AskUserQuestion` in the same pending-requests flow.
+
+**Steps.** Wait until a pending request of the kind you want appears in the list, and read its `request_id`. Answer a permission request with `action` (`allow` or `deny`), and a question request with `selected_option_ids` or `free_text` for each `question_id`. The response is a 202 receipt, so read the receipt and the turn again.
+
+```bash
+wait_for_pending permission
+echo "$pending" | jq -e '.items[0].kind == "permission"'
+PERMISSION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
+
+permission_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg request_id "$PERMISSION_REQUEST_ID" \
+    '{request_id:$request_id, kind:"permission", action:"allow"}')")
+echo "$permission_answer" | jq -e '.receipt_status == "accepted"'
+echo "$permission_answer" | jq -e '.approval.surface == "api" and (.approval.decision_id | length) == 36'
+wait_for "/v1/sessions/$SID/turns/1" .status completed
+wait_for "/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$permission_answer" | jq -r .receipt_id)" \
+  "${AUTH[@]}" | jq -e '.operation == "answer" and .status == "succeeded"'
+
+question_message=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-question","steps":[{"tool":"AskUserQuestion","input":{"questions":[{"question":"Which environment?","header":"Environment","options":[{"label":"staging","description":"safe"},{"label":"production","description":"live"}],"multiSelect":false}]}}],"final":"selected"}' \
+  '{message:$message}')
+curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data "$question_message" | jq -e '.turn_id == "2"'
+wait_for_pending question
+echo "$pending" | jq -e '.items[0].kind == "question"'
+QUESTION_REQUEST_ID=$(echo "$pending" | jq -r '.items[0].request_id')
+QUESTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].question_id')
+OPTION_ID=$(echo "$pending" | jq -r '.items[0].questions[0].options[0].option_id')
+
+question_answer=$(curl -sS "$API/v1/sessions/$SID/answers" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg request_id "$QUESTION_REQUEST_ID" --arg question_id "$QUESTION_ID" --arg option_id "$OPTION_ID" \
+    '{request_id:$request_id, kind:"question", answers:[{question_id:$question_id, selected_option_ids:[$option_id]}]}')")
+echo "$question_answer" | jq -e '.receipt_status == "accepted"'
+wait_for "/v1/sessions/$SID/turns/2" .status completed
+wait_for "/v1/receipts/$(echo "$question_answer" | jq -r .receipt_id)" .status succeeded
+```
+
+**Expected response.** The `items` of the list carry `kind: "permission"` or `kind: "question"` and an expiry time. The `approval` of an answer response has who answered (`answered_by`: the principal and the person behind it), the surface (`surface`: `web`, `api` or `slack`), and the `decision_id` of the `session.approve` decision that allowed the answer. The same values stay on the approval row (`pending_requests`), and sending again with the same Idempotency-Key returns the same `approval`. The `reason` of a denial (`action: "deny"`) is optional; if empty, the worker tells the model about a denial without a reason. The answer is accepted with `receipt_status: "accepted"`, and when the worker consumes it the receipt becomes `succeeded` and the turn `completed`. The worker reports consuming the answer on its next poll, so the turn can become `completed` first. Do not read the receipt once; wait for `succeeded`.
+
+**Common errors.** 409 `REQUEST_EXPIRED` means the request expired or the worker already gave up on it, so ask again in a new session or turn. 404 `NOT_FOUND` means the session or request is not visible to the current principal, or it is already closed. Without the approval scope you get 403 `FORBIDDEN`.
+
+## 4. Send messages and read the turn status
+
+OpenAPI: [`appendSessionMessage`](/reference/http-api/messages-and-turns/appendSessionMessage), [`getSessionTurn`](/reference/http-api/messages-and-turns/getSessionTurn)
+
+**Goal.** Add input to the same engine conversation of an existing session and check whether the result is terminal.
+
+**Steps.** Save the `turn_id` of the message POST and read that turn. Decide that it ended not by the session's summary `status` or by whether the SSE connection closed, but by whether the turn's `status` is one of `completed`, `failed`, `interrupted`, `cancelled` and `outcome_unknown`.
+
+```bash
+message=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-message","steps":[],"final":"continued"}' '{message:$message}')")
+TURN_ID=$(echo "$message" | jq -r .turn_id)
+echo "$message" | jq -e '.receipt_status == "accepted" and .turn_id == "3"'
+wait_for "/v1/sessions/$SID/turns/$TURN_ID" .status completed
+curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
+  | jq -e '.status == "completed"'
+```
+
+**Expected response.** The message returns 202 and a new `turn_id`, and the turn read returns the final status and the committed result.
+
+`completed` means the engine ended the turn normally, not that the requested work is done. A turn is `completed` even if the model says "let me look at the file list first", calls one tool and ends its answer, or if a tool received an error `tool_result`. The platform does not interpret the model's answer to decide whether the task is complete. The client checks whether the work is done through the `assistant`, `tool_use` and `tool_result` events of [section 5](#5-watching-progress-over-sse-and-reconnecting-with-last-event-id), and if it is not, sends the next message to the same session. The first connection in section 5 also replays the events of earlier turns, so look only at events whose `data.turn_id` is this turn.
+
+**Common errors.** With 409 `SESSION_PAUSED` or `RECOVERY_REQUIRED`, do not send more input; resume or make a recovery decision first. With 429, check the per-session limit of queued input.
+
+**Transcript limits of long sessions.** The transcript one checkpoint can carry has a limit per part and a limit on the total (the root and all subagents). As a session approaches the limit it is warned in advance, and once it exceeds the limit it accepts no new turns.
+
+- When the transcript of the last committed checkpoint reaches 80% or more of the total limit, the session detail `attention` becomes `{ "code": "TRANSCRIPT_LIMIT", "reason": "transcript_near_limit", "transcript_bytes": …, "limit_bytes": … }`. When the first checkpoint over that mark commits, a `system` event (`subtype: "transcript_near_limit"`, `transcript_bytes`, `warn_bytes`, `limit_bytes`, `checkpoint_revision`) arrives once on SSE. Nothing is blocked yet. It is time to finish what you are doing and move to a new session.
+- When the limit is exceeded, that turn stays `completed` as it ran, but there is no new checkpoint. `durability.checkpoint_pending_reason` becomes `transcript_too_large` (`transcript_part_too_large` if a single part exceeds it), which is told apart from the ordinary publish failure `publish_failed`. `attention.reason` has the same value, and `limit_bytes` is the limit that reason points to. When it is first recorded, a `system` event (`subtype: "transcript_limit_reached"`, `reason`, `limit_bytes`) arrives once on SSE.
+- A session in this state rejects new messages with 409 `CHECKPOINT_UNAVAILABLE` and does not run input that was already in the queue. The earlier turns and the last checkpoint stay as they are, and that checkpoint is the restore point. The transcript does not shrink within the same engine session, so waiting does not clear it. Open a new session, or when the session becomes `recovery_required`, continue without context with `start_fresh` ([section 7](#7-recovery-decisions-for-outcome_unknown-and-recovery_required)). Closing this session is also 409 `CHECKPOINT_UNAVAILABLE`. To close it, terminate it and then use recovery close.
+
+## 5. Watching progress over SSE and reconnecting with Last-Event-ID
+
+OpenAPI: [`streamSessionEvents`](/reference/http-api/events/streamSessionEvents)
+
+**Goal.** Replay the events already stored, then receive live progress, and when the connection drops, continue from just after the last cursor.
+
+**Steps.** Save the last `id` from the first connection and send it in the `Last-Event-ID` header of the reconnect request. Because of the 15-second keepalive the stream does not close even in a healthy state, so only the example cuts it with `--max-time`.
+
+```bash
+FIRST_CODE=$(curl -sSN --max-time 5 "$API/v1/sessions/$SID/events" \
+  -H "Authorization: Bearer $KEY" -o /tmp/api-guide-events.txt -w '%{http_code}' || true)
+test "$FIRST_CODE" = 200
+LAST_EVENT_ID=$(awk '/^id: / { id=$2 } END { sub(/\r$/, "", id); print id }' /tmp/api-guide-events.txt)
+test -n "$LAST_EVENT_ID"
+
+RECONNECT_CODE=$(curl -sSN --max-time 2 "$API/v1/sessions/$SID/events" \
+  -H "Authorization: Bearer $KEY" -H "Last-Event-ID: $LAST_EVENT_ID" \
+  -o /tmp/api-guide-reconnected-events.txt -w '%{http_code}' || true)
+test "$RECONNECT_CODE" = 200
+```
+
+**Expected response.** 200 `text/event-stream`, and each frame has `id`, `event` and `data`. A reconnect replays the stored events after the given cursor and continues into the live stream.
+
+**Common errors.** 410 `CURSOR_EXPIRED` means the cursor is outside the retention range, so read the current state of the session and turn again over HTTP and start a new stream. With 429, reduce the number of concurrent streams. The server does not trim events today and so does not produce 410, but clients must handle it.
+
+## 6. interrupt, pause/resume, terminate and checking the receipt
+
+OpenAPI: [`interruptSession`](/reference/http-api/session-control/interruptSession), [`pauseSession`](/reference/http-api/session-control/pauseSession), [`resumeSession`](/reference/http-api/session-control/resumeSession), [`terminateSession`](/reference/http-api/session-control/terminateSession), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**Goal.** Stop only one turn, leave a checkpoint and take the worker down and restore it, or terminate execution by force. Check every asynchronous control through to the final state of its 202 receipt.
+
+**Steps.** interrupt sends the running `target_turn_id`. pause, resume and terminate send the `revision` you read just before as `expected_revision` to prevent a racing change. terminate does not undo external effects.
+
+```bash
+slow=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-interrupt","steps":[],"final":"too late","finalDelayMs":300000}' '{message:$message}')")
+SLOW_TURN=$(echo "$slow" | jq -r .turn_id)
+wait_for "/v1/sessions/$SID/turns/$SLOW_TURN" .status running
+interrupt=$(curl -sS "$API/v1/sessions/$SID/interrupt" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data "$(jq -nc --arg turn "$SLOW_TURN" '{target_turn_id:$turn}')")
+wait_for "/v1/sessions/$SID/turns/$SLOW_TURN" .status interrupted
+wait_for "/v1/receipts/$(echo "$interrupt" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$interrupt" | jq -r .receipt_id)" "${AUTH[@]}" \
+  | jq -e '.result.terminal == "interrupted" and .result.no_op == false'
+
+pause=$(curl -sS "$API/v1/sessions/$SID/pause" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, reason:"api guide"}')")
+wait_for "/v1/receipts/$(echo "$pause" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/sessions/$SID" .admission_state paused
+
+resume=$(curl -sS "$API/v1/sessions/$SID/resume" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision}')")
+wait_for "/v1/receipts/$(echo "$resume" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/sessions/$SID" .admission_state active
+
+doomed=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-terminate","steps":[],"final":"never","finalDelayMs":300000}' '{message:$message}')")
+DOOMED_TURN=$(echo "$doomed" | jq -r .turn_id)
+wait_for "/v1/sessions/$SID/turns/$DOOMED_TURN" .status running
+terminate=$(curl -sS "$API/v1/sessions/$SID/terminate" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, reason:"api guide"}')")
+echo "$terminate" | jq -e '.receipt_status == "accepted" and .external_effects_reverted == false'
+wait_for "/v1/receipts/$(echo "$terminate" | jq -r .receipt_id)" .status succeeded
+```
+
+**Expected response.** Each POST returns a `receipt_id`. The `result` of an interrupt receipt records the actual terminal state and `no_op`, a pause or resume receipt records the resulting state and the checkpoint revision, and a terminate receipt records the result of removing the execution and `external_effects_reverted: false`.
+
+**Common errors.** 409 `TURN_NOT_STARTED` means the interrupt target is still queued. With 409 `REVISION_CONFLICT`, read the session again, judge whether the user's intent is still valid, and retry with the new revision. With 409 `RECOVERY_REQUIRED`, make the decision in the next section first.
+
+### Change the profile of a running session
+
+OpenAPI: [`changeSessionProfile`](/reference/http-api/session-control/changeSessionProfile)
+
+A session runs on the profile chosen when it was created. To change the model, tools or provider while continuing the conversation, send `expected_revision` and the new `profile_id` to `POST /v1/sessions/{id}/profile`. The permission is the same as for pause and resume (the `control` scope, someone who can see the session). The response is 200 with a receipt that is already `succeeded`, and the receipt `result` keeps `previous_profile_id` and `profile_id`. The session `revision` rises by 1.
+
+```sh
+curl -sS "$API/v1/sessions/$SID/profile" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision, profile_id:"claude-coding-haiku"}')"
+```
+
+A turn that is already running ends on the profile it started with. Input that arrives after that is handled by a worker of the new profile, which restores the same engine conversation from the last checkpoint. The turn read's `attempts[].profile_id` shows which turn ran on which profile. Changing to the same profile changes nothing and only leaves a receipt.
+
+**Common errors.** 422 `UNSUPPORTED_CAPABILITY` happens when the new profile is not in the catalog; is not a pair with the session's repository (for a session created without a repository, when the new profile's `repository_mode` is `required`); has a different runtime kind or version (the checkpoint cannot be restored); has a different billing mode (`provider.billing`); or when the session's current profile has left the catalog or been changed to a different configuration so the runtimes cannot be compared. 409 `RELEASE_PROFILE_MISMATCH` means the session was created from an agent release, so the release decides the profile. With 409 `REVISION_CONFLICT`, read the session again.
+
+### Ending a session: close, terminate and recovery close
+
+OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession), [`terminateSession`](/reference/http-api/session-control/terminateSession), [`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery)
+
+There are three ways to end a session. A session that has finished its work is closed with close. terminate and recovery close are a forced stop and giving up on recovery. The three are told apart by receipt and events.
+
+| | close | terminate | recovery close |
+|---|---|---|---|
+| Path | `POST /v1/sessions/{id}/close` | `POST /v1/sessions/{id}/terminate` | `POST /v1/sessions/{id}/recovery-decisions`, `decision: "close"` |
+| When to use | Close a session that has finished its work | Take down at once an execution that runs away or must stop | An operator ends a session that cannot be recovered |
+| scope | `sessions:control` | `sessions:control` | `sessions:recover` |
+| Accepted states | `active`, `paused`, `stopped` that can resume | everything except `closed` | `recovery_required`, `stopping`, `stopped` that cannot resume |
+| Turn in progress | Runs to the end and finalizes the checkpoint. It is not killed by force | Kills the execution. The turn can remain `outcome_unknown` | The target is a session that has already stopped |
+| Queued input | Cancelled in the transaction that makes it `closed` (`SESSION_CLOSED`) | Cancelled as soon as it is accepted (`SESSION_STOPPED`) | Cancelled as soon as it is decided (`SESSION_CLOSED`) |
+| Resulting state | `closing`, then `closed` (irreversible) | `stopping`, then `stopped` (can resume) | `closed` (irreversible) |
+| receipt `operation` and `result` | `close`, `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}` | `terminate`, `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}` | `recovery_decision`, `{resulting_admission_state, checkpoint_revision, resumable}` |
+| Events | `status` `closing`, `closed`; `system` `subtype: session_closed` (`closed_by: "close"`) | `status` `stopping`, `stopped` | `system` `subtype: recovery_decision`, `decision: "close"` |
+
+close drains in the same way as pause. An `active` session with a worker attached becomes `closing`, and becomes `closed` after the turn in progress ends, the checkpoint is finalized and the execution is seen to be gone. The receipt becomes `succeeded` then. A session without a worker, `paused`, and a `stopped` session that can resume are closed right within the request. If the drain exceeds 60 seconds, the session `attention` shows `CLOSE_BLOCKED` and a reason (`long_turn`, `pending_request`, `mirror_error`, `checkpoint_unavailable`, `execution_pending`). An open approval or question blocks close. Answering it or interrupting clears it. If it never closes, the receipt fails and the session returns to `active`; the queued input stays as it is. To get out of that state, use terminate. A close in progress fails with `CONTROL_SUPERSEDED`.
+
+An agent that closes its own session inside its own turn does not wait for the receipt. The drain waits for that turn to end, so the `accepted` response is the last answer that turn sees. To push the result, request the push from the final checkpoint after close has become `succeeded`. For a push requested inside the last turn, if that turn made more commits after the request, the commit of the checkpoint that close finalized differs, so approval is refused with `CHECKPOINT_MOVED`. close does not touch push requests.
+
+The example below creates a separate session, finishes its turn and closes it.
+
+```bash
+close_session=$(curl -sS "$API/v1/sessions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg message 'GATE-SPEC {"id":"guide-close","steps":[],"final":"work is done"}' \
+    '{profile_id:"claude-coding-local", repository_id:"sample-app", message:$message}')")
+CSID=$(echo "$close_session" | jq -r .session_id)
+wait_for "/v1/sessions/$CSID/turns/1" .status completed
+
+CLOSE_KEY=$(uuidgen)
+CLOSE_BODY=$(jq -nc --argjson revision "$(curl -sS "$API/v1/sessions/$CSID" "${AUTH[@]}" | jq .revision)" \
+  '{expected_revision:$revision, reason:"work is done"}')
+close=$(curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY")
+CLOSE_RECEIPT=$(echo "$close" | jq -r .receipt_id)
+wait_for "/v1/receipts/$CLOSE_RECEIPT" .status succeeded
+wait_for "/v1/sessions/$CSID" .admission_state closed
+curl -sS "$API/v1/receipts/$CLOSE_RECEIPT" "${AUTH[@]}" \
+  | jq -e '.operation == "close" and .result.resulting_admission_state == "closed" and .result.checkpoint_revision != null'
+
+# The same key and body answer the same receipt.
+curl -sS "$API/v1/sessions/$CSID/close" "${AUTH[@]}" \
+  -H "Idempotency-Key: $CLOSE_KEY" --data "$CLOSE_BODY" \
+  | jq -e --arg receipt "$CLOSE_RECEIPT" '.receipt_id == $receipt'
+CLOSED_STATUS=$(curl -sS -o /tmp/werft-closed.json -w '%{http_code}' \
+  "$API/v1/sessions/$CSID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{"message":"one more"}')
+test "$CLOSED_STATUS" = 409
+jq -e '.error.code == "SESSION_CLOSED"' /tmp/werft-closed.json
+```
+
+**Expected response.** close returns 202 and a receipt. The receipt becomes `succeeded` after the execution is seen to be gone, and `result.checkpoint_revision` is the session's last checkpoint (null only for a session that never ran a turn). After that, messages, resume, pause, terminate, close and recovery decisions are all 409 `SESSION_CLOSED`.
+
+**Common errors.** 409 `SESSION_CLOSING` means close is still draining; wait for the receipt. 409 `CHECKPOINT_UNAVAILABLE` means no trustworthy checkpoint covers the last turn: there is no worker to drain, or the transcript exceeded the limit (`transcript_too_large`, `transcript_part_too_large`) so the drain cannot make a checkpoint. Terminate and then use recovery close. 409 `RECOVERY_REQUIRED` means the session is `recovery_required` or a `stopped` session that cannot resume. Use recovery close. With 409 `SESSION_PAUSED` (pausing) or `SESSION_STOPPED` (stopping), send again after that control has finished.
+
+**Operations note.** The worker-side attempt's `end_reason` stays `pause` even when the worker goes down for close. Tell close and pause apart by the control result in the server log (`operation: close`) and by the receipt. Before rolling this feature back, check that no session is `closing`, and if one is, pull it out with terminate (the previous binary cannot settle a `closing` session).
+
+## 7. Recovery decisions for outcome_unknown and RECOVERY_REQUIRED
+
+OpenAPI: [`decideSessionRecovery`](/reference/http-api/recovery/decideSessionRecovery), [`resumeSession`](/reference/http-api/session-control/resumeSession), [`getSessionTurn`](/reference/http-api/messages-and-turns/getSessionTurn)
+
+**Goal.** After a terminate or a lost worker, an operator explicitly judges a turn whose external effects cannot be confirmed. Do not guess `outcome_unknown` as success or failure.
+
+**Steps.** Check the session's `admission_state: recovery_required` and the target turn's `outcome_unknown`. Choose one of `abandon`, `confirm_completed`, `close`, `start_fresh` and `retry_restore` to match the evidence. The `close` here is the operator's decision to give up on recovery. For how it differs from closing a session that finished its work, see the [comparison table in section 6](#ending-a-session-close-terminate-and-recovery-close). This scenario is a fake one with no external effects, so we `abandon` and then resume.
+
+```bash
+wait_for "/v1/sessions/$SID" .admission_state recovery_required
+curl -sS "$API/v1/sessions/$SID/turns/$DOOMED_TURN" "${AUTH[@]}" \
+  | jq -e '.status == "outcome_unknown"'
+
+decision=$(curl -sS "$API/v1/sessions/$SID/recovery-decisions" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg turn "$DOOMED_TURN" --argjson revision "$(revision)" \
+    '{decision:"abandon", expected_revision:$revision, reason:"fake call had no external effect", target_turn_id:$turn}')")
+wait_for "/v1/receipts/$(echo "$decision" | jq -r .receipt_id)" .status succeeded
+curl -sS "$API/v1/receipts/$(echo "$decision" | jq -r .receipt_id)" "${AUTH[@]}" \
+  | jq -e '.result.resumable == true'
+
+recovery_resume=$(curl -sS "$API/v1/sessions/$SID/resume" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --argjson revision "$(revision)" '{expected_revision:$revision}')")
+wait_for "/v1/receipts/$(echo "$recovery_resume" | jq -r .receipt_id)" .status succeeded
+wait_for "/v1/sessions/$SID" .admission_state active
+```
+
+**Expected response.** If the recovery receipt's `result.resumable` is `true`, you can resume from the last checkpoint. `abandon` turns the target turn into `cancelled` but does not undo external effects that already happened.
+
+**Common errors.** 409 `RECOVERY_REQUIRED` means a required decision is still outstanding. `confirm_completed` needs a verifiable `evidence_ref`. If there is no checkpoint, resume can be refused with `CHECKPOINT_UNAVAILABLE`, so look at the receipt's `resumable` first.
+
+## 8. Read usage, cost and limits
+
+OpenAPI: [`getSessionUsage`](/reference/http-api/sessions/getSessionUsage), [`getUsageSummary`](/reference/http-api/limits-and-receipts/getUsageSummary), [`getInstallationLimits`](/reference/http-api/limits-and-receipts/getInstallationLimits)
+
+**Goal.** Read the estimated provider cost and input queue state of a session, the total of the sessions you started over a period, and the installation-wide limits on execution slots, storage and turns.
+
+**Steps.** Read the per-session `/usage`, the period total `/v1/usage/summary`, and the per-installation `/v1/limits` separately. `/v1/limits` and `scope=installation` can be read only by a logged-in workspace owner (the web console's cookie). An API key gets 403. The total for one agent is read with `scope=agent&agent_id=…`, and only workspace owners and admins and the manager of that agent can read it (403 for an API key, 404 for an agent of another workspace). Members read only the four per-session limits with `GET /v1/limits?scope=me`, and to split the period total by profile, add `group_by=profile` (by the session's current profile). Cost is an estimate computed from the platform's price list, not a bill, and if `cost.complete` is false there is still an open turn or a missing report, so the real total is unknown. `usage.outputs.used_bytes` in `/v1/limits` is the bytes of retained session outputs; it is counted separately from `usage.storage` and is not used to enforce a limit. If `outputs.complete` is false, checkpoints from before outputs were recorded remain and are missing from the sum by that much.
+
+```bash
+usage=$(curl -sS "$API/v1/sessions/$SID/usage" "${AUTH[@]}")
+echo "$usage" | jq .
+echo "$usage" | jq -e '.period == "session_lifetime" and .cost.kind == "estimated"'
+
+summary=$(curl -sS "$API/v1/usage/summary?scope=me&since=$(date -u +%Y-%m-01)" "${AUTH[@]}")
+echo "$summary" | jq .
+echo "$summary" | jq -e '.scope == "me" and .basis.sessions == "created_in_period"'
+
+curl -sS -o /dev/null -w '%{http_code}\n' "$API/v1/limits" "${AUTH[@]}" | grep -qx 403
+```
+
+**Expected response.** The session response gives `cost.amount_usd`, `complete`, the numbers of reported, unreported and open turns, the cost limit, the cumulative provider token count (`token_count`) and token limit (`token_limit`), and the number of queued inputs. If `token_limit` is null, the installation has no token limit. `budget_exceeded` is true when either the cost or the token limit is reached. If the session's profile declared no billing (`billing: none`), `cost.kind` is `"unmetered"`. Then cost does not grow and the cost limit does not apply to that session, so `cost_limit_usd` is null, but the token limit still applies ([Configuration reference](/run-server/self-hosting/operate/configuration#profiles-without-billing-billing-none)). The total response gives the number of sessions created in the period (`period`, UTC), the sum of cost (`cost_usd`, the sum of each session's `cost.amount_usd`), `cost_complete` which is false if any of them is incomplete, the token sum, and the sum of turn wall-clock time (`run_seconds`). A personal key adds up the sessions its creator made, and a key with no creator adds up the sessions that key started. Sessions shared with you are not added. The installation response an owner reads gives the configured limits (including `session_token_limit`) and the current execution slots, queued input and storage usage.
+
+**Common errors.** 404 `NOT_FOUND` means the session does not exist or is not visible to the current owner. 403 `FORBIDDEN` means a caller who is not an owner read `/v1/limits` or `scope=installation`. 400 is for a missing `since`, a time without an offset, or an `until` earlier than `since`. Do not read `complete: false` as zero cost. With 503, check the installation state, including the DB and the usage aggregation.
+
+## 9. Retry safely with an Idempotency-Key
+
+OpenAPI: [`appendSessionMessage`](/reference/http-api/messages-and-turns/appendSessionMessage), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**Goal.** After a lost response or a timeout, get the original acceptance result again without running the same command twice.
+
+**Steps.** Make one UUID key per mutation, and when you retry, send both the key and the body unchanged. Use a new key for a new user's new intent.
+
+```bash
+RETRY_KEY=$(uuidgen)
+RETRY_BODY=$(jq -nc --arg message 'GATE-SPEC {"id":"guide-idempotency","steps":[],"final":"once"}' '{message:$message}')
+first=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $RETRY_KEY" --data "$RETRY_BODY")
+second=$(curl -sS "$API/v1/sessions/$SID/messages" "${AUTH[@]}" \
+  -H "Idempotency-Key: $RETRY_KEY" --data "$RETRY_BODY")
+test "$first" = "$second"
+RETRY_TURN=$(echo "$first" | jq -r .turn_id)
+wait_for "/v1/sessions/$SID/turns/$RETRY_TURN" .status completed
+```
+
+**Expected response.** The two calls return the same status and acceptance body, and the turn is created only once. The receipt's `result` keeps the first acceptance body, and the current success or failure is read from the receipt's top-level `status` and from the turn read.
+
+**Common errors.** Sending a different body with the same key is 409 `IDEMPOTENCY_CONFLICT`. If the result is unclear after a timeout and you send again with a new key, the command can run twice, so retry with the same key first. 429 and 503 `BACKEND_UNAVAILABLE` (DB failure, the 30-second processing deadline exceeded) carry a `Retry-After` header with the seconds to wait. If the response has this header, send again with the same key and body after that time.
+
+## 10. Request, approve and reject the push of a session's result
+
+OpenAPI: [`createPushRequest`](/reference/http-api/push-requests/createPushRequest), [`listPushRequests`](/reference/http-api/push-requests/listPushRequests), [`getPushRequest`](/reference/http-api/push-requests/getPushRequest), [`approvePushRequest`](/reference/http-api/push-requests/approvePushRequest), [`rejectPushRequest`](/reference/http-api/push-requests/rejectPushRequest), [`getReceipt`](/reference/http-api/limits-and-receipts/getReceipt)
+
+**Goal.** Ask for the commit a session made to be pushed to the repository's `agent/<session-id>` branch, and have someone with `sessions:approve` approve or reject that commit. The push is done by the platform (the API), not the worker, within a few seconds after approval.
+
+**Steps.** Send the request with no body (`{}`). The platform pins the session's latest checkpoint revision and its `git_commit`, the session's `repository_id` and the branch `agent/<session-id>`. The person who approves or rejects checks the pinned `git_commit` and puts the same value in the `/approve` or `/reject` body. An approval that names a different commit is refused. A session can have only one open request (`requested`, `approved`, `pushing`), so request again after a rejection.
+
+```bash
+push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+echo "$push_request" | jq -e --arg branch "agent/$SID" \
+  '.state == "requested" and .target_branch == $branch and (.git_commit | test("^[0-9a-f]{40}$"))'
+PUSH_ID=$(echo "$push_request" | jq -r .id)
+PUSH_COMMIT=$(echo "$push_request" | jq -r .git_commit)
+
+rejected=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/reject" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit, reason:"not yet"}')")
+echo "$rejected" | jq -e '.state == "rejected" and .resolved_by != null'
+curl -sS "$API/v1/receipts/$(echo "$rejected" | jq -r .resolution_receipt_id)" "${AUTH[@]}" \
+  | jq -e '.operation == "resolve_push" and .result.verdict == "allow" and .result.action == "reject"'
+
+again=$(curl -sS -w '\n%{http_code}' "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$PUSH_COMMIT" '{git_commit:$commit}')")
+test "$(echo "$again" | tail -n1)" = 409
+echo "$again" | sed '$d' | jq -e '.error.code == "PUSH_REQUEST_RESOLVED"'
+curl -sS "$API/v1/receipts/$(echo "$again" | sed '$d' | jq -r .error.details.receipt_id)" "${AUTH[@]}" \
+  | jq -e '.status == "failed" and .result.refusal == "already_resolved"'
+
+push_request=$(curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" --data '{}')
+PUSH_ID=$(echo "$push_request" | jq -r .id)
+approved=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID/approve" "${AUTH[@]}" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  --data "$(jq -nc --arg commit "$(echo "$push_request" | jq -r .git_commit)" '{git_commit:$commit}')")
+echo "$approved" | jq -e '.state == "approved"'
+curl -sS "$API/v1/sessions/$SID/push-requests" "${AUTH[@]}" | jq -e '.items[1].state == "rejected"'
+
+for _ in $(seq 1 30); do
+  pushed=$(curl -sS "$API/v1/sessions/$SID/push-requests/$PUSH_ID" "${AUTH[@]}")
+  echo "$pushed" | jq -e '.state == "pushed" or .state == "failed"' >/dev/null && break
+  sleep 1
+done
+curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" "${AUTH[@]}" \
+  | jq '{operation, status, refusal: .result.refusal, remote_ref: .result.remote_ref, git_commit: .result.git_commit, approved_by: .result.approved_by.principal}'
+```
+
+**Expected response.** The request returns 201 with `state: "requested"` and the pinned values. The decision returns 200 with `approved` or `rejected` and `resolved_by`. A receipt (`request_push`, `resolve_push`) is left for every request, decision and refused attempt, and for a refusal the error's `error.details.receipt_id` points to that receipt. The receipt's `result` has the verdict (`verdict`), the refusal reason (`refusal`), the request id, the checkpoint revision, the commit and the target branch, and `actor` says who did it. An approved request goes through `pushing` to `pushed` or `failed`, and the `push` receipt that `push_receipt_id` points to has the remote URL, the ref (`refs/heads/agent/<session-id>`), the previous commit, the approver, and on failure the `refusal`. What each reason means is in the [API server documentation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#승인된-요청의-push).
+
+**Common errors.** 409 `PUSH_SOURCE_MISSING` means the session has no repository or checkpoint yet. 409 `PUSH_REQUEST_OPEN` means there is an open request. 409 `PUSH_REQUEST_RESOLVED` means the request was already decided. 409 `CHECKPOINT_MOVED` means the `git_commit` in the approval body differs from the pinned commit, or after the request the session left a checkpoint with a different commit. If a checkpoint appears again after the request but the commit is the same, the approval goes through. Reject this request and request again. Deciding with a key that lacks `sessions:approve` is 403 `FORBIDDEN` and leaves a receipt. A worker's credentials (launch nonce and session token) are not authenticated on `/v1`, so they get 401.
+
+## 11. List and download session outputs
+
+OpenAPI: [`listSessionOutputs`](/reference/http-api/sessions/listSessionOutputs), [`downloadSessionOutput`](/reference/http-api/sessions/downloadSessionOutput)
+
+**Goal.** Let a person fetch the files a session left under `out/` in its working directory. The list is what the session's latest committed checkpoint recorded, so it remains even after the worker or the working directory is gone. Files written after the last checkpoint are not in the list until the next checkpoint commits.
+
+**Steps.** Read the list, and download a file by percent-encoding its `path` as a single path segment (`out/report.md` becomes `out%2Freport.md`). The permission is the same as reading the session (`sessions:read`).
+
+```bash
+outputs=$(curl -sS "$API/v1/sessions/$SID/outputs" "${AUTH[@]}")
+echo "$outputs" | jq .
+echo "$outputs" | jq -e --arg sid "$SID" '.session_id == $sid and (.items | type == "array")'
+OUT_PATH=$(echo "$outputs" | jq -r '[.items[] | select(.omitted == null)][0].path // empty')
+if [ -n "$OUT_PATH" ]; then
+  curl -sS -o /tmp/werft-output "${AUTH[@]}" \
+    "$API/v1/sessions/$SID/outputs/$(jq -rn --arg path "$OUT_PATH" '$path | @uri')"
+  test "$(shasum -a 256 /tmp/werft-output | cut -d' ' -f1)" = \
+    "$(echo "$outputs" | jq -r --arg path "$OUT_PATH" '.items[] | select(.path == $path) | .sha256')"
+fi
+```
+
+**Expected response.** The list gives `checkpoint_revision` and `items` (`path`, `bytes`, `sha256`, `omitted`). If there is no checkpoint yet, it is `checkpoint_revision: null` and empty `items`. A file over the limit is shown only as `omitted: "too_large"` and `sha256: null`, and its content was not stored. A download returns the file content as is, as `application/octet-stream`, with `Content-Disposition: attachment` (the file name in `filename*`) and `X-Content-Type-Options: nosniff`. The sha256 of the content you receive equals the `sha256` in the list. If the object in storage differs from what the checkpoint verified, the transfer is cut off before it finishes.
+
+**Common errors.** 404 `NOT_FOUND` means the session does not exist or is not visible, the path is not in the list (including when `/` was not encoded), or the file is an `omitted` one. 409 `CHECKPOINT_UNAVAILABLE` means the latest checkpoint's manifest or its file object cannot be read.
+
+## 12. Clean up the local example
+
+**Goal.** Remove the local data and worker resources this document created.
+
+**Steps.** Take the default compose project down together with its data volumes. Do not run this against a production deployment.
+
+```bash
+scripts/local.sh down
+```
+
+**Expected response.** `local.sh: deleted` is printed, and the local sessions, checkpoints and keys are deleted.
+
+**Common errors.** Do not delete another project or installation with manual Docker commands. If another stack is using the default ports, do not start this example; first follow the [port check in Run a development server](/run-server/dev-server#prerequisites).

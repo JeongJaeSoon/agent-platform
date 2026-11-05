@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,11 @@ import {
   DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS,
 } from "@werft-ai/platform";
 import { DEFAULT_MAX_GIT_MEMORY_BYTES } from "@werft-ai/storage";
+import {
+  bakeValues,
+  chartVersion,
+  publishedImages,
+} from "../.github/scripts/chart-package.ts";
 import {
   SHUTDOWN_CLOSE_MS,
   SHUTDOWN_DRAIN_MS,
@@ -46,6 +52,8 @@ import {
 // the images workflow builds every app compose runs. Building and smoking the
 // images is images.yml's job.
 
+type Row = Record<string, unknown>;
+
 const root = join(import.meta.dir, "..");
 const apps = ["control-host", "worker", "egress-proxy"] as const;
 /** The apps with a workspace install; the egress proxy imports nothing. */
@@ -63,6 +71,15 @@ const basePins = Object.fromEntries(
   }),
 ) as Record<(typeof apps)[number], { pin?: string; source: string }>;
 
+// The `runtime` stage: what `release` (and, for the control host, `local`)
+// ship, up to the next stage.
+function shippedStage(source: string): string {
+  const start = source.indexOf("\nFROM ${BUN_IMAGE} AS runtime");
+  expect(start).toBeGreaterThan(-1);
+  const next = source.indexOf("\nFROM ", start + 1);
+  return source.slice(start, next === -1 ? undefined : next);
+}
+
 describe("app Dockerfiles", () => {
   test.each(apps)("%s pins its base image by digest", (app) => {
     const { pin, source } = basePins[app];
@@ -70,10 +87,70 @@ describe("app Dockerfiles", () => {
     // Every FROM goes through the ARG; a literal tag would silently float.
     const froms = source.match(/^FROM .*$/gm) ?? [];
     expect(froms.length).toBeGreaterThan(0);
+    // The stages derived from one of ours (pruned, local, release) inherit
+    // its base.
     for (const line of froms)
       expect(line).toMatch(
-        /^FROM (--platform=\$BUILDPLATFORM )?\$\{BUN_IMAGE\}/,
+        /^FROM ((--platform=\$BUILDPLATFORM )?\$\{BUN_IMAGE\}|(deps|runtime) AS (pruned|local|release)$)/,
       );
+  });
+
+  // Published images are the default target and images.yml names it; the
+  // local stack's extras live in a target nothing publishes.
+  test.each(apps)("%s ends in a release stage", (app) => {
+    const source = basePins[app].source;
+    expect(source.trimEnd().split("\n").at(-1)).toBe("FROM runtime AS release");
+    expect(source.match(/^FROM .* AS (local|release)$/gm)).toEqual(
+      app === "control-host"
+        ? ["FROM runtime AS local", "FROM runtime AS release"]
+        : ["FROM runtime AS release"],
+    );
+  });
+
+  test.each(installingApps)(
+    "%s prunes test and demo sources before the shipped stage",
+    (app) => {
+      const source = basePins[app].source;
+      expect(source).toMatch(
+        /^FROM deps AS pruned\nRUN --mount=type=bind,source=scripts\/image-prune\.sh,target=\/tmp\/image-prune\.sh \\\n {2}sh \/tmp\/image-prune\.sh --delete \/app$/m,
+      );
+      expect(source).toContain(
+        "COPY --from=pruned --chown=1000:1000 /app /app",
+      );
+      expect(source).not.toContain(
+        "COPY --from=deps --chown=1000:1000 /app /app",
+      );
+    },
+  );
+
+  test("the control-host local target adds back only testkit and the demo tools", () => {
+    const source = basePins["control-host"].source;
+    const local = source.slice(
+      source.indexOf("FROM runtime AS local"),
+      source.indexOf("FROM runtime AS release"),
+    );
+    expect(local.match(/^(COPY|RUN) .*$/gm)).toEqual([
+      "COPY --from=deps --chown=1000:1000 /app/packages/testkit /app/packages/testkit",
+      "COPY --from=deps --chown=1000:1000 /app/apps/control-host/src/api/demo-accounts.ts /app/apps/control-host/src/api/demo-data.ts /app/apps/control-host/src/api/",
+    ]);
+  });
+
+  test("images.yml builds the release target, and only the local stack builds local", () => {
+    const workflow = read(".github/workflows/images.yml");
+    expect(workflow.match(/^ {10}target: release$/gm)?.length).toBe(2);
+    expect(workflow).not.toMatch(/target: local/);
+    const local = read("infra/compose.local.yml");
+    // api is also the image of scheduler, slack, reconciler and mock-slack.
+    expect(local.match(/^ {6}target: local$/gm)?.length).toBe(3);
+    expect(local).not.toMatch(/target: release/);
+    expect(read("deploy/kind/up.sh")).toContain("--target local");
+  });
+
+  test("the image smoke counts test and demo files in every published image", () => {
+    const smoke = read(".github/scripts/image-smoke.sh");
+    expect(smoke).toContain('assert_published_tree "$image"');
+    expect(smoke).toContain("image-prune.sh --list /app");
+    expect(smoke).toContain("Module not found");
   });
 
   test("all of them share one base digest", () => {
@@ -147,8 +224,7 @@ describe("app Dockerfiles", () => {
   // The Bun pin freezes Debian too, so the stage that ships upgrades it,
   // under the key images.yml changes daily.
   test.each(apps)("%s upgrades Debian in the stage it ships", (app) => {
-    const source = basePins[app].source;
-    const shipped = source.slice(source.lastIndexOf("\nFROM "));
+    const shipped = shippedStage(basePins[app].source);
     expect(shipped).toMatch(
       /^ARG APT_UPGRADE_KEY=\nRUN apt-get update --error-on=any \\\n {2}&& DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --with-new-pkgs \\$/m,
     );
@@ -160,8 +236,7 @@ describe("app Dockerfiles", () => {
   test.each(apps)(
     "%s writes DEBIAN_SOURCES.md after its last apt-get, before dropping root",
     (app) => {
-      const source = basePins[app].source;
-      const shipped = source.slice(source.lastIndexOf("\nFROM "));
+      const shipped = shippedStage(basePins[app].source);
       const write = shipped.indexOf(
         "bun /tmp/third-party-notices.ts --debian-sources >DEBIAN_SOURCES.md",
       );
@@ -202,8 +277,8 @@ describe("app Dockerfiles", () => {
           `echo "[0-9a-f]{64} {2}${file.replace(".", "\\.")}" \\| sha256sum -c -`,
         ),
       );
-    // Unpinned packages would reach the build: every input there is ADDed by
-    // checksum instead.
+    // Unpinned packages would reach the build: every input there is pinned by
+    // checksum, by ADD or, for the deb, by scripts/fetch-pinned.ts (retries).
     const start = source.indexOf(" AS git-lfs\n");
     const end = source.indexOf(" AS runtime\n");
     expect(start).toBeGreaterThan(-1);
@@ -211,8 +286,9 @@ describe("app Dockerfiles", () => {
     const stage = source.slice(start, end);
     expect(stage).not.toContain("apt-get");
     expect(stage).toMatch(
-      /^ADD --checksum=sha256:[0-9a-f]{64} \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\$/m,
+      /^RUN --mount=type=bind,source=scripts\/fetch-pinned\.ts,target=\/tmp\/fetch-pinned\.ts \\\n {2}bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/ca-certificates\.deb \\\n {2}&& dpkg-deb -x /m,
     );
+    expect(stage).not.toMatch(/ADD [^\n]*\n[^\n]*snapshot\.debian\.org/);
     expect(stage).toContain(
       "\nENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla\n",
     );
@@ -799,6 +875,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       environment?: string;
       concurrency?: { group: string; "cancel-in-progress": boolean };
       permissions?: Record<string, string>;
+      "runs-on"?: string;
+      "timeout-minutes"?: number;
+      strategy?: { matrix: { app: string[]; arch: string[] } };
       steps: Step[];
     };
     const text = read(".github/workflows/images.yml");
@@ -834,6 +913,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(on.push.tags).toEqual(["v*"]);
       expect(permissions).toEqual({ contents: "read" });
       expect(writers.sort()).toEqual([
+        "chart-publish",
+        "chart-publish-main",
+        "index",
+        "index-main",
         "promote",
         "promote-main",
         "publish",
@@ -843,9 +926,64 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(runsOf(jobs.build)).toContain(".github/scripts/image-smoke.sh");
     });
 
+    test("every image builds and publishes on a runner of each arch", () => {
+      const runner = expression(
+        "matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'",
+      );
+      for (const name of ["build", "publish", "publish-main"]) {
+        const job = jobs[name];
+        expect(job?.strategy?.matrix).toEqual({
+          app: ["control-host", "worker", "egress-proxy"],
+          arch: ["amd64", "arm64"],
+        });
+        expect(job?.["runs-on"]).toBe(runner);
+        const build = job?.steps.find((step) =>
+          step.uses?.startsWith("docker/build-push-action@"),
+        );
+        expect(build?.with?.platforms).toBe(
+          `linux/${expression("matrix.arch")}`,
+        );
+        // One scope per arch, or each build evicts the other's layers.
+        expect(build?.with?.["cache-from"]).toBe(
+          `type=gha,scope=images-${expression("matrix.app")}-${expression("matrix.arch")}`,
+        );
+      }
+    });
+
+    test("nothing of one arch overwrites the other's", () => {
+      const perArch = `${expression("matrix.app")}-${expression("matrix.arch")}`;
+      const uploads = (job: Job | undefined) =>
+        (job?.steps ?? [])
+          .filter((step) => step.uses?.startsWith("actions/upload-artifact@"))
+          .map((step) => [step.with?.name, step.with?.path]);
+      expect(uploads(jobs.build)).toEqual([
+        [`vulnerabilities-${perArch}`, `vulnerabilities/${perArch}.*`],
+        [`image-digest-${perArch}`, `digests/${perArch}.json`],
+      ]);
+      expect(uploads(jobs.publish)).toEqual([
+        [`arch-digest-${perArch}`, `arch-staged/${perArch}.json`],
+        [`debian-sources-${perArch}`, `debian-sources/${perArch}.md`],
+      ]);
+      expect(runsOf(jobs.publish)).toContain(
+        "staging=$" +
+          "{name}:staging-$" +
+          "{GITHUB_RUN_ID}-$" +
+          "{GITHUB_RUN_ATTEMPT}-$" +
+          '{ARCH}"',
+      );
+    });
+
     test.each([
-      ["push", "refs/heads/main", ["promote-main", "publish-main"]],
-      ["push", "refs/tags/v1.2.3", ["promote", "publish"]],
+      [
+        "push",
+        "refs/heads/main",
+        ["chart-publish-main", "index-main", "promote-main", "publish-main"],
+      ],
+      [
+        "push",
+        "refs/tags/v1.2.3",
+        ["chart-publish", "index", "promote", "publish"],
+      ],
       ["push", "refs/heads/feature", []],
       ["push", "refs/tags/sdk-v0.1.0", []],
       ["pull_request", "refs/pull/1/merge", []],
@@ -865,57 +1003,145 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     test("only the tag path waits for the release environment", () => {
-      expect(jobs.publish?.environment).toBe("release");
-      expect(jobs.promote?.environment).toBe("release");
-      expect(jobs["publish-main"]?.environment).toBeUndefined();
-      expect(jobs["promote-main"]?.environment).toBeUndefined();
+      for (const name of ["publish", "index", "promote", "chart-publish"]) {
+        expect(jobs[name]?.environment).toBe("release");
+        expect(jobs[`${name}-main`]?.environment).toBeUndefined();
+      }
+    });
+
+    test("the sources job holds no write, so it needs no approval", () => {
+      for (const name of ["sources", "sources-main"]) {
+        expect(jobs[name]?.permissions).toBeUndefined();
+        expect(jobs[name]?.environment).toBeUndefined();
+      }
+      expect(jobs["sources-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs.sources?.if).toBe(jobs.publish?.if);
+    });
+
+    test.each([
+      ["main", "sources-main"],
+      ["release", "sources"],
+    ])("the %s budget leaves %s time to report an outage", (mode, name) => {
+      const script = read(".github/scripts/image-sources.sh");
+      const budget = Number(
+        new RegExp(`${mode}\\) budget=(\\d+)`).exec(script)?.[1],
+      );
+      const timeout = jobs[name]?.["timeout-minutes"] ?? 0;
+      expect(budget).toBeGreaterThan(0);
+      expect(budget + 300).toBeLessThanOrEqual(timeout * 60);
+    });
+
+    test("the chart follows its own path's promotion, and installs before it is pushed", () => {
+      expect(jobs.chart?.needs).toBe("promote");
+      expect(jobs["chart-main"]?.needs).toBe("promote-main");
+      expect(jobs["chart-publish"]?.needs).toBe("chart");
+      expect(jobs["chart-publish-main"]?.needs).toBe("chart-main");
+      for (const name of ["chart", "chart-main"]) {
+        expect(jobs[name]?.permissions).toBeUndefined();
+      }
+      expect(jobs["chart-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs.chart?.if).toBe(jobs.publish?.if);
+      expect(jobs["chart-publish-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["chart-publish"]?.if).toBe(jobs.publish?.if);
+      expect(jobs["chart-main"]?.steps).toEqual(jobs.chart?.steps ?? []);
+      expect(jobs["chart-publish-main"]?.steps).toEqual(
+        jobs["chart-publish"]?.steps ?? [],
+      );
+
+      const steps = jobs.chart?.steps ?? [];
+      const index = (needle: string) =>
+        steps.findIndex((step) => (step.run ?? "").includes(needle));
+      const packageStep = index("chart-package.ts published chart-out");
+      const read = index("docker manifest inspect");
+      const install = index("deploy/kind/up.sh");
+      const upload = steps.findIndex((step) => step.with?.name === "chart");
+      expect(packageStep).toBeGreaterThan(-1);
+      expect(read).toBeGreaterThan(packageStep);
+      expect(install).toBeGreaterThan(read);
+      expect(upload).toBeGreaterThan(install);
+      expect(steps[install]?.run).toContain("CHART_PACKAGE=");
+      expect(
+        steps.flatMap((step) => step.with?.name ?? []).slice(0, 1),
+      ).toEqual(["image-digests-published"]);
+      expect(runsOf(jobs.chart)).not.toContain("docker login");
+      expect(runsOf(jobs["chart-publish"])).toContain("chart-push.sh");
+    });
+
+    test("the chart's tools are the k8s-smoke job's", () => {
+      const smoke = (
+        Bun.YAML.parse(read(".github/workflows/ci.yml")) as {
+          jobs: Record<string, { env: Record<string, string> }>;
+        }
+      ).jobs["k8s-smoke"]?.env;
+      const { env } = Bun.YAML.parse(text) as { env: Record<string, string> };
+      for (const key of [
+        "HELM_VERSION",
+        "HELM_SHA256",
+        "KIND_VERSION",
+        "KIND_SHA256",
+        "KUBECTL_VERSION",
+        "KUBECTL_SHA256",
+      ]) {
+        expect(env[key]).toBe(smoke?.[key] ?? "missing");
+      }
     });
 
     test("both paths run one list of steps and promote after every image", () => {
-      expect(jobs["publish-main"]?.steps).toEqual(jobs.publish?.steps ?? []);
-      expect(jobs["promote-main"]?.steps).toEqual(jobs.promote?.steps ?? []);
-      expect(jobs.promote?.needs).toBe("publish");
-      expect(jobs["promote-main"]?.needs).toBe("publish-main");
+      for (const name of ["publish", "sources", "index", "promote"]) {
+        expect(jobs[`${name}-main`]?.steps).toEqual(jobs[name]?.steps ?? []);
+      }
+      // A chain per path: one job needing both would be skipped with the path
+      // that did not run, and always() would pass a failed one.
+      expect(jobs.sources?.needs).toBe("publish");
+      expect(jobs.index?.needs).toBe("sources");
+      expect(jobs.promote?.needs).toBe("index");
+      expect(jobs["sources-main"]?.needs).toBe("publish-main");
+      expect(jobs["index-main"]?.needs).toBe("sources-main");
+      expect(jobs["promote-main"]?.needs).toBe("index-main");
       const publish = runsOf(jobs.publish);
       expect(publish).toContain("git merge-base --is-ancestor");
       expect(publish).toContain(
         'image-smoke.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
       );
-      // Only the digest going out needs its sources on record.
       expect(publish).toContain(
-        'image-licenses.sh "$APP" "$' +
+        'image-licenses.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
+      );
+      expect(publish).toContain(
+        'image-scan.sh "$' +
+          "{APP}-$" +
+          '{ARCH}" "$' +
           "{NAME}@$" +
-          '{DIGEST}" "$LICENSE_MODE"',
+          '{DIGEST}"',
       );
       expect(runsOf(jobs.build)).toContain(
-        'image-licenses.sh "$APP" "$' +
-          "{NAME}:sha-$" +
-          '{GITHUB_SHA::12}" "$LICENSE_MODE"',
+        'image-licenses.sh "$APP" "$' + "{NAME}:sha-$" + '{GITHUB_SHA::12}"',
       );
-      const licenseMode = (job: Job | undefined) =>
-        job?.steps.flatMap((step) => step.env?.LICENSE_MODE ?? []);
       // Shared steps: the tag path stays strict by the ref, not by the job.
-      expect(licenseMode(jobs.publish)).toEqual([
-        expression(
-          "github.ref == 'refs/heads/main' && 'publish-main' || 'publish'",
-        ),
+      expect(
+        jobs.sources?.steps.flatMap((step) => step.env?.SOURCES_MODE ?? []),
+      ).toEqual([
+        expression("github.ref == 'refs/heads/main' && 'main' || 'release'"),
       ]);
-      expect(licenseMode(jobs.build)).toEqual([
-        expression(
-          "github.event_name == 'push' && github.ref == 'refs/heads/main' && 'skip-snapshot' || 'build'",
-        ),
-      ]);
+      expect(runsOf(jobs.sources)).toContain(
+        'image-sources.sh debian-sources unverified-sources "$SOURCES_MODE"',
+      );
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.push ?? []),
       ).toEqual([true]);
       expect(
         jobs.publish?.steps.flatMap((step) => step.with?.tags ?? []),
       ).toEqual([expression("steps.meta.outputs.staging")]);
+      expect(runsOf(jobs.index)).toContain(
+        "image-index.sh arch-staged unverified-sources staged",
+      );
       expect(runsOf(jobs.promote)).toContain("image-promote.sh staged digests");
       // The digests of a run, for whatever reads them next.
       expect(
+        jobs.index?.steps.flatMap((step) => step.with?.name ?? []),
+      ).toEqual(["unverified-sources", "staged-digests"]);
+      expect(
         jobs.promote?.steps.flatMap((step) => step.with?.name ?? []),
-      ).toEqual(["image-digests-published"]);
+      ).toEqual(["staged-digests", "image-digests-published"]);
     });
 
     test("a later merge neither drops nor interrupts a main commit", () => {
@@ -937,31 +1163,378 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
   });
 
-  describe("image-licenses.sh snapshot modes", () => {
-    const urls = [
-      "https://snapshot.debian.org/package/acl/2.3.2-2/",
-      "https://snapshot.debian.org/package/apt/3.0.3/",
+  describe("chart-package.ts", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const repo = (app: string) => `ghcr.io/jeongjaesoon/werft-${app}`;
+    const hex = (c: string) => `sha256:${c.repeat(64)}`;
+    const runtime = {
+      engine: "claude",
+      sdkVersion: "0.3.280",
+      cliVersion: "2.1.280",
+      profileDigestScheme: 1,
+    };
+    const records = () => [
+      {
+        app: "control-host",
+        image: repo("control-host"),
+        digest: hex("a"),
+        promoted: true,
+        commit: sha,
+        runtime: null,
+      },
+      {
+        app: "egress-proxy",
+        image: repo("egress-proxy"),
+        digest: hex("b"),
+        promoted: true,
+        commit: sha,
+        runtime: null,
+      },
+      {
+        app: "worker",
+        image: repo("worker"),
+        digest: hex("c"),
+        promoted: true,
+        commit: sha,
+        runtime,
+      },
     ];
-    const fakeDocker = `#!/usr/bin/env bash
-case "$*" in
-  *--snapshot-check*)
-    echo "$*" >"$FAKE/check"
-    printf '%b' "$FAKE_STDERR" >&2
-    exit "$FAKE_EXIT"
+    const version = (ref: string, chartYamlVersion = "0.1.0") =>
+      chartVersion({ ref, sha, chartYamlVersion, chartName: "werft" });
+
+    test("main prereleases carry the commit in one hyphenated identifier", () => {
+      expect(version("refs/heads/main")).toEqual({
+        version: "0.1.0-main-0123456789ab",
+        appVersion: "main-0123456789ab",
+      });
+    });
+
+    test.each([
+      ["refs/tags/v1.2.3", "1.2.3"],
+      ["refs/tags/v1.2.3-rc.1", "1.2.3-rc.1"],
+    ])("%s gives chart %s", (ref, expected) => {
+      expect(version(ref)).toEqual({
+        version: expected,
+        appVersion: ref.slice("refs/tags/".length),
+      });
+    });
+
+    test.each([
+      ["refs/tags/v1", /is not v/],
+      ["refs/tags/v1.2.3+build.1", /is not v/],
+      ["refs/tags/v1.2.3-rc.", /is not v/],
+      ["refs/tags/v1.2.3-01", /is not v/],
+      ["refs/tags/v01.2.3", /is not v/],
+      ["refs/tags/sdk-v0.1.0", /is not v/],
+      ["refs/heads/feature", /no chart is published/],
+      ["refs/pull/1/merge", /no chart is published/],
+      [`refs/tags/v1.2.3-${"a".repeat(60)}`, /label/],
+    ])("%s is refused", (ref, message) => {
+      expect(() => version(ref)).toThrow(message);
+    });
+
+    test("main refuses a Chart.yaml version it cannot extend", () => {
+      expect(() => version("refs/heads/main", "1.2.3-rc.1")).toThrow(
+        "not X.Y.Z",
+      );
+    });
+
+    test("takes one promoted image of this commit per app", () => {
+      expect(publishedImages(records(), sha).worker).toEqual({
+        repository: repo("worker"),
+        digest: hex("c"),
+        runtime,
+      });
+    });
+
+    test.each([
+      ["a missing app", (r: Row[]) => r.slice(1), /no image record/],
+      ["a duplicate", (r: Row[]) => [...r, r[0]], /two image records/],
+      ["an unknown app", (r: Row[]) => [{ ...r[0], app: "x" }], /unexpected/],
+      [
+        "an image never promoted",
+        (r: Row[]) => [{ ...r[0], promoted: false }, r[1], r[2]],
+        /not promoted/,
+      ],
+      [
+        "another commit",
+        (r: Row[]) => [{ ...r[0], commit: "f".repeat(40) }, r[1], r[2]],
+        /is of/,
+      ],
+      [
+        "a tag for a digest",
+        (r: Row[]) => [{ ...r[0], digest: "main-1" }, r[1], r[2]],
+        /has digest/,
+      ],
+      [
+        "a worker without a runtime",
+        (r: Row[]) => [r[0], r[1], { ...r[2], runtime: null }],
+        /./,
+      ],
+      [
+        "a runtime the readers refuse",
+        (r: Row[]) => [r[0], r[1], { ...r[2], runtime: { engine: "e" } }],
+        /./,
+      ],
+    ])("refuses %s", (_label, change, message) => {
+      expect(() => publishedImages(change(records()) as Row[], sha)).toThrow(
+        message,
+      );
+    });
+
+    const chartValues = read("deploy/helm/agent-platform/values.yaml");
+
+    test("bakes the digests and runtime and changes nothing else", () => {
+      const images = publishedImages(records(), sha);
+      const baked = bakeValues(chartValues, images);
+      const parsed = Bun.YAML.parse(baked) as {
+        images: Record<string, Record<string, unknown>>;
+      };
+      expect(parsed.images.controlHost?.digest).toBe(hex("a"));
+      expect(parsed.images.egressProxy?.digest).toBe(hex("b"));
+      expect(parsed.images.worker?.digest).toBe(hex("c"));
+      expect(parsed.images.worker?.runtime).toEqual(runtime);
+      expect(parsed.images.workerPrevious?.digest).toBe("");
+      expect(parsed.images.workerPrevious?.runtime).toEqual({});
+
+      const original = chartValues.split("\n");
+      const lines = baked.split("\n");
+      expect(lines).toHaveLength(original.length);
+      const changed = lines.filter((line, i) => line !== original[i]);
+      expect(changed).toHaveLength(4);
+      for (const line of changed)
+        expect(line).toMatch(/^ {4}(digest|runtime):/);
+    });
+
+    test("stops on a repository the chart does not default to", () => {
+      const images = publishedImages(records(), sha);
+      expect(() =>
+        bakeValues(chartValues, {
+          ...images,
+          worker: { ...images.worker, repository: "ghcr.io/x/werft-worker" },
+        }),
+      ).toThrow("images.worker.repository is");
+    });
+
+    test("stops when values.yaml is not in the form it edits", () => {
+      const images = publishedImages(records(), sha);
+      const filled = chartValues.replace(
+        /^( {2}worker:\n {4}repository: \S+\n {4})digest: ""/m,
+        `$1digest: ${hex("d")}`,
+      );
+      expect(filled).not.toBe(chartValues);
+      expect(() => bakeValues(filled, images)).toThrow("known form");
+      expect(() => bakeValues("other: 1\n", images)).toThrow("no images block");
+    });
+  });
+
+  describe("chart-push.sh", () => {
+    // A registry of one tgz per version. Anything but the logged-in client
+    // sets HELM_REGISTRY_CONFIG, so the fake can tell the two apart.
+    const fakeHelm = `#!/usr/bin/env bash
+set -euo pipefail
+if [ -n "\${HELM_REGISTRY_CONFIG:-}" ]; then who=anonymous; else who=login; fi
+echo "$who $1 $2 docker=\${DOCKER_CONFIG:-unset}" >>"$FAKE/log"
+case "$1" in
+  registry) cat >"$FAKE/token" ;;
+  pull)
+    if [ "$who" = login ] && [ -n "\${FAKE_LOGIN_SAYS:-}" ]; then echo "$FAKE_LOGIN_SAYS" >&2; exit 1; fi
+    if [ "$who" = anonymous ] && [ -n "\${FAKE_ANONYMOUS_BEFORE_PUSH_SAYS:-}" ] && [ ! -f "$FAKE/pushed" ]; then
+      echo "$FAKE_ANONYMOUS_BEFORE_PUSH_SAYS" >&2; exit 1
+    fi
+    if [ "$who" = anonymous ] && [ -n "\${FAKE_ANONYMOUS_AFTER_PUSH_SAYS:-}" ] && [ -f "$FAKE/pushed" ]; then
+      echo "$FAKE_ANONYMOUS_AFTER_PUSH_SAYS" >&2; exit 1
+    fi
+    shift 2
+    version=""; dest=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --version) version="$2"; shift 2 ;;
+        --destination) dest="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    stored="$FAKE/store/werft-$version.tgz"
+    if [ ! -f "$stored" ]; then echo "failed to perform: not found" >&2; exit 1; fi
+    cp "$stored" "$dest/"
     ;;
+  push) touch "$FAKE/pushed"; cp "$2" "$FAKE/store/" ;;
+  show) echo "name: werft" ;;
+  *) exit 64 ;;
 esac
 `;
-    const run = (mode: string | undefined, exit: number, stderr = "") => {
-      const directory = mkdtempSync(join(tmpdir(), "image-licenses-"));
+    const version = "0.1.0-main-0123456789ab";
+
+    const fixture = () => {
+      const directory = mkdtempSync(join(tmpdir(), "chart-push-"));
+      for (const name of ["bin", "store", "out"])
+        mkdirSync(join(directory, name));
+      writeFileSync(join(directory, "bin/helm"), fakeHelm, { mode: 0o755 });
+      const pack = (target: string, values: string, stamp: string) => {
+        const chart = join(directory, `src-${stamp}`, "werft");
+        mkdirSync(chart, { recursive: true });
+        writeFileSync(join(chart, "values.yaml"), values);
+        // A packaging time, as two runs' packages of one chart differ by.
+        const packed = Bun.spawnSync([
+          "tar",
+          "-czf",
+          target,
+          "-C",
+          join(directory, `src-${stamp}`),
+          "werft",
+        ]);
+        expect(packed.exitCode).toBe(0);
+      };
+      const candidate = join(directory, "out", `werft-${version}.tgz`);
+      const stored = join(directory, "store", `werft-${version}.tgz`);
+      pack(candidate, "digest: a\n", "candidate");
+      const push = (env: Record<string, string> = {}) => {
+        const run = Bun.spawnSync(
+          [
+            "bash",
+            join(root, ".github/scripts/chart-push.sh"),
+            candidate,
+            "ghcr.io/o",
+          ],
+          {
+            env: {
+              PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+              FAKE: directory,
+              REGISTRY_TOKEN: "token",
+              GITHUB_ACTOR: "actor",
+              ...env,
+            },
+          },
+        );
+        return {
+          code: run.exitCode,
+          out: `${run.stdout.toString()}${run.stderr.toString()}`,
+        };
+      };
+      const log = () => readFileSync(join(directory, "log"), "utf8");
+      const pushed = () => existsSync(join(directory, "pushed"));
+      return { pack, candidate, stored, push, log, pushed };
+    };
+
+    test("a new version is pushed and read back with no login at all", () => {
+      const repo = fixture();
+      const run = repo.push();
+      expect(run.code).toBe(0);
+      expect(repo.pushed()).toBe(true);
+      expect(run.out).toContain("name: werft");
+      const lines = repo.log().trim().split("\n");
+      expect(lines[0]).toStartWith("login registry login");
+      const last = lines.filter((line) => line.startsWith("anonymous"));
+      expect(last.map((line) => line.split(" ")[1])).toEqual(["pull", "show"]);
+      // Helm falls back to Docker's credentials unless they are cleared too.
+      for (const line of last) expect(line).toContain("/no-login");
+    });
+
+    test("the same files under a new package time are a rerun, not a write", () => {
+      const repo = fixture();
+      repo.pack(repo.stored, "digest: a\n", "stored");
+      const run = repo.push();
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("already published");
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("other files under the version fail and overwrite nothing", () => {
+      const repo = fixture();
+      repo.pack(repo.stored, "digest: b\n", "stored");
+      const before = readFileSync(repo.stored);
+      const run = repo.push();
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("differs");
+      expect(repo.pushed()).toBe(false);
+      expect(readFileSync(repo.stored).equals(before)).toBe(true);
+    });
+
+    test("denied both ways is the package's first publish", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_LOGIN_SAYS: "403: denied",
+        FAKE_ANONYMOUS_BEFORE_PUSH_SAYS: "403: denied",
+      });
+      expect(run.code).toBe(0);
+      expect(repo.pushed()).toBe(true);
+    });
+
+    test("denied to the login, then a broken anonymous lookup, writes nothing", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_LOGIN_SAYS: "403: denied",
+        FAKE_ANONYMOUS_BEFORE_PUSH_SAYS: "500 upstream",
+      });
+      expect(run.code).toBe(1);
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("denied to the login does not hide a public version", () => {
+      const repo = fixture();
+      repo.pack(repo.stored, "digest: b\n", "stored");
+      const run = repo.push({ FAKE_LOGIN_SAYS: "403: denied" });
+      expect(run.code).toBe(1);
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("a lookup that fails for another reason does not read as absent", () => {
+      const repo = fixture();
+      const run = repo.push({ FAKE_LOGIN_SAYS: "500 upstream" });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("could not look up");
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("a chart nobody can read without a login fails the run", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_ANONYMOUS_AFTER_PUSH_SAYS: "403: denied",
+      });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("does not read back without a login");
+    });
+  });
+
+  describe("image-sources.sh", () => {
+    const shared = "https://snapshot.debian.org/package/acl/2.3.2-2/";
+    const workerOnly = "https://snapshot.debian.org/package/gh/1/";
+    const fakeBun = `#!/usr/bin/env bash
+echo "$*" >"$FAKE/check"
+printf '%b' "$FAKE_STDERR" >&2
+exit "$FAKE_EXIT"
+`;
+    const lists = ["control-host", "worker", "egress-proxy"].flatMap((app) =>
+      ["amd64", "arm64"].map((arch) => ({ app, arch })),
+    );
+    const run = (
+      mode: string,
+      exit: number,
+      stderr = "",
+      skip?: { app: string; arch: string },
+    ) => {
+      const directory = mkdtempSync(join(tmpdir(), "image-sources-"));
       mkdirSync(join(directory, "bin"));
-      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      mkdirSync(join(directory, "lists"));
+      writeFileSync(join(directory, "bin/bun"), fakeBun, { mode: 0o755 });
+      for (const { app, arch } of lists) {
+        if (skip?.app === app && skip.arch === arch) continue;
+        writeFileSync(
+          join(directory, "lists", `${app}-${arch}.md`),
+          `| acl | 2.3.2-2 | acl |  | ${shared} |\n${
+            app === "worker" && arch === "arm64"
+              ? `| gh | 1 | gh |  | ${workerOnly} |\n`
+              : ""
+          }`,
+        );
+      }
       const result = Bun.spawnSync(
         [
           "bash",
-          join(root, ".github/scripts/image-licenses.sh"),
-          "worker",
-          "image@sha256:a",
-          ...(mode === undefined ? [] : [mode]),
+          join(root, ".github/scripts/image-sources.sh"),
+          "lists",
+          "results",
+          mode,
         ],
         {
           cwd: directory,
@@ -974,76 +1547,263 @@ esac
           },
         },
       );
-      const listed = join(directory, "unverified-sources/worker.txt");
       const textOf = (path: string) =>
         existsSync(path) ? readFileSync(path, "utf8") : undefined;
+      const listed = (app: string) => {
+        const text = textOf(join(directory, "results", `${app}.json`));
+        return text === undefined ? undefined : JSON.parse(text);
+      };
       return {
         code: result.exitCode,
         out: `${result.stdout.toString()}${result.stderr.toString()}`,
-        listed: textOf(listed),
+        listed,
         summary: textOf(join(directory, "summary")),
         check: textOf(join(directory, "check")),
       };
     };
-    const unreachable = urls.map((url) => `unreachable: ${url}\n`).join("");
+    const unreachable = `unreachable: ${shared}\nunreachable: ${workerOnly}\n`;
 
-    test("a main build goes out without answers, and says which", () => {
-      const result = run("publish-main", 3, unreachable);
-      expect(result.code).toBe(0);
-      expect(result.listed).toBe(`${urls.join("\n")}\n`);
-      expect(result.summary).toContain("2 sources unverified");
-      expect(result.summary).toContain(`- ${urls[0]}`);
-      expect(result.out).toContain("::warning::worker");
-      expect(result.check).toEndWith("/app/DEBIAN_SOURCES.md 240\n");
+    test("every image's list goes to one check", () => {
+      const { check } = run("main", 0);
+      expect(check).toStartWith(
+        "scripts/third-party-notices.ts --snapshot-check 600 lists/control-host-amd64.md lists/control-host-arm64.md ",
+      );
+      expect(check).toEndWith("lists/egress-proxy-arm64.md\n");
+      expect(check?.split(" ").filter((word) => word.endsWith(".md")).length)
+        // The last word ends in a newline.
+        .toBe(5);
     });
 
-    test("a clean main check leaves an empty list, not none", () => {
-      const result = run("publish-main", 0);
+    test("a main build goes out without answers, each image with its own", () => {
+      const result = run("main", 3, unreachable);
       expect(result.code).toBe(0);
-      expect(result.listed).toBe("");
+      expect(result.listed("worker")).toEqual([shared, workerOnly]);
+      expect(result.listed("control-host")).toEqual([shared]);
+      expect(result.summary).toContain("### worker: 2 sources unverified");
+      expect(result.summary).toContain(`- ${workerOnly}`);
+      expect(result.out).toContain("::warning::worker");
+    });
+
+    test("a clean check leaves an empty list per image, not none", () => {
+      const result = run("main", 0);
+      expect(result.code).toBe(0);
+      for (const { app } of lists) expect(result.listed(app)).toEqual([]);
     });
 
     test("a main build stops on a denied source, also among unanswered ones", () => {
       const result = run(
-        "publish-main",
+        "main",
         1,
-        `missing: ${urls[0]}\nunreachable: ${urls[1]}\n`,
+        `missing: ${shared}\nunreachable: ${workerOnly}\n`,
       );
       expect(result.code).toBe(1);
-      expect(result.out).toContain("::error::worker");
+      expect(result.out).toContain("::error::");
+      expect(result.listed("worker")).toBeUndefined();
     });
 
-    test("only exit 3 is forgiven: docker and timeouts are not", () => {
-      for (const exit of [2, 125, 124, 137]) {
-        expect(run("publish-main", exit, unreachable).code).toBe(1);
+    test("only exit 3 is forgiven, and only on main", () => {
+      for (const exit of [2, 124, 137]) {
+        expect(run("main", exit, unreachable).code).toBe(1);
       }
+      const refused = run("release", 3, unreachable);
+      expect(refused.code).toBe(1);
+      expect(refused.listed("worker")).toBeUndefined();
+      const clean = run("release", 0);
+      expect(clean.code).toBe(0);
+      expect(clean.check).toContain("--snapshot-check 1800 ");
+      expect(clean.listed("worker")).toEqual([]);
     });
 
     test("exit 3 with no list stops instead of recording none", () => {
-      expect(run("publish-main", 3).code).toBe(1);
+      expect(run("main", 3).code).toBe(1);
     });
 
-    test("a release needs every answer and has no budget", () => {
-      const refused = run("publish", 3, unreachable);
-      expect(refused.code).toBe(1);
-      const clean = run("publish", 0);
-      expect(clean.code).toBe(0);
-      expect(clean.listed).toBe("");
-      expect(clean.check).toEndWith("/app/DEBIAN_SOURCES.md\n");
-    });
-
-    test("a build only warns, and a main push build does not ask", () => {
-      const build = run(undefined, 1);
-      expect(build.code).toBe(0);
-      expect(build.out).toContain("::warning::worker");
-      expect(build.listed).toBeUndefined();
-      const skipped = run("skip-snapshot", 1);
-      expect(skipped.code).toBe(0);
-      expect(skipped.check).toBeUndefined();
+    test("a list that did not arrive stops before anything is asked", () => {
+      const result = run("main", 0, "", { app: "worker", arch: "arm64" });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("no source list for worker on arm64");
+      expect(result.check).toBeUndefined();
     });
 
     test("an unknown mode is refused", () => {
-      expect(run("publish-mian", 0).code).toBe(2);
+      expect(run("relaese", 0).code).toBe(2);
+    });
+  });
+
+  describe("image-index.sh", () => {
+    const apps3 = ["control-host", "worker", "egress-proxy"];
+    const imageOf = (app: string) => `ghcr.io/o/werft-${app}`;
+    const child = (app: string, arch: string) => `sha256:${arch}-${app}`;
+    const indexOf = (app: string) => `sha256:index-${app}`;
+
+    // `create` logs its arguments; the index it writes names what it was given
+    // unless FAKE_MANIFESTS says otherwise.
+    const fakeDocker = `#!/usr/bin/env bash
+set -euo pipefail
+case "$3" in
+  create)
+    echo "\${*:4}" >>"$FAKE/creates"
+    [ -z "\${FAKE_CREATE_FAILS:-}" ] || exit 1
+    ;;
+  inspect)
+    case "$4" in
+      --raw)
+        app="$5"; app="\${app#*werft-}"; app="\${app%@*}"
+        printf '%s' "\${FAKE_MANIFESTS:-[[\\"amd64\\",\\"sha256:amd64-$app\\"],[\\"arm64\\",\\"sha256:arm64-$app\\"]]}" |
+          jq '{manifests: map({platform: {os: "linux", architecture: .[0]}, digest: .[1]})}'
+        ;;
+      *)
+        app="$4"; app="\${app#*werft-}"; app="\${app%:*}"
+        printf '"sha256:index-%s"\\n' "$app"
+        ;;
+    esac
+    ;;
+  *) exit 64 ;;
+esac
+`;
+    const run = (
+      env: Record<string, string> = {},
+      change?: (directory: string) => void,
+    ) => {
+      const directory = mkdtempSync(join(tmpdir(), "image-index-"));
+      mkdirSync(join(directory, "bin"));
+      mkdirSync(join(directory, "arches"));
+      mkdirSync(join(directory, "unverified"));
+      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      for (const app of apps3) {
+        for (const arch of ["amd64", "arm64"]) {
+          writeFileSync(
+            join(directory, "arches", `${app}-${arch}.json`),
+            JSON.stringify({
+              app,
+              arch,
+              image: imageOf(app),
+              base: "bun",
+              commit: "abc",
+              ref: "refs/heads/main",
+              promoted: false,
+              digest: child(app, arch),
+              imageId: `sha256:config-${arch}`,
+              runtime: app === "worker" ? { engine: "claude" } : null,
+            }),
+          );
+        }
+        writeFileSync(
+          join(directory, "unverified", `${app}.json`),
+          app === "worker" ? '["https://snapshot/a/"]' : "[]",
+        );
+      }
+      change?.(directory);
+      const result = Bun.spawnSync(
+        [
+          "bash",
+          join(root, ".github/scripts/image-index.sh"),
+          join(directory, "arches"),
+          join(directory, "unverified"),
+          join(directory, "staged"),
+        ],
+        {
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            GITHUB_RUN_ID: "7",
+            GITHUB_RUN_ATTEMPT: "1",
+            ...env,
+          },
+        },
+      );
+      const stagedFile = (app: string) =>
+        join(directory, "staged", `${app}.json`);
+      const creates = join(directory, "creates");
+      return {
+        code: result.exitCode,
+        out: `${result.stdout.toString()}${result.stderr.toString()}`,
+        record: (app: string) =>
+          JSON.parse(readFileSync(stagedFile(app), "utf8")),
+        hasRecord: (app: string) => existsSync(stagedFile(app)),
+        creates: existsSync(creates) ? readFileSync(creates, "utf8") : "",
+      };
+    };
+
+    test("each image gets one index on its staging tag, amd64 first", () => {
+      const result = run();
+      expect(result.code).toBe(0);
+      for (const app of apps3) {
+        expect(result.creates).toContain(
+          `-t ${imageOf(app)}:staging-7-1 ${imageOf(app)}@${child(app, "amd64")} ${imageOf(app)}@${child(app, "arm64")}\n`,
+        );
+      }
+    });
+
+    test("the record promote reads names the index and keeps each arch", () => {
+      const record = run().record("worker");
+      expect(record).toEqual({
+        app: "worker",
+        image: imageOf("worker"),
+        base: "bun",
+        commit: "abc",
+        ref: "refs/heads/main",
+        promoted: false,
+        digest: indexOf("worker"),
+        runtime: { engine: "claude" },
+        platforms: {
+          amd64: {
+            digest: child("worker", "amd64"),
+            imageId: "sha256:config-amd64",
+          },
+          arm64: {
+            digest: child("worker", "arm64"),
+            imageId: "sha256:config-arm64",
+          },
+        },
+        unverifiedSources: ["https://snapshot/a/"],
+      });
+    });
+
+    test.each([
+      ["a digest that is not the smoked one", '[["amd64","sha256:other"]]'],
+      [
+        "a third platform",
+        '[["amd64","sha256:amd64-control-host"],["arm64","sha256:arm64-control-host"],["riscv64","sha256:r"]]',
+      ],
+    ])("an index with %s is not staged", (_, manifests) => {
+      const result = run({ FAKE_MANIFESTS: manifests });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("expected");
+      expect(result.hasRecord("control-host")).toBe(false);
+    });
+
+    test("two arches of different builds are not joined", () => {
+      const result = run({}, (directory) => {
+        const path = join(directory, "arches/worker-arm64.json");
+        const record = JSON.parse(readFileSync(path, "utf8"));
+        writeFileSync(
+          path,
+          JSON.stringify({ ...record, runtime: { engine: "other" } }),
+        );
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("worker: amd64 and arm64 differ in runtime");
+      expect(result.creates).not.toContain("werft-worker");
+    });
+
+    test("a missing arch or source list stops it", () => {
+      const noArch = run({}, (directory) =>
+        rmSync(join(directory, "arches/egress-proxy-arm64.json")),
+      );
+      expect(noArch.code).not.toBe(0);
+      expect(noArch.creates).toBe("");
+      const noList = run({}, (directory) =>
+        rmSync(join(directory, "unverified/worker.json")),
+      );
+      expect(noList.code).toBe(1);
+      expect(noList.out).toContain("worker.json is missing");
+    });
+
+    test("a failed create stages nothing", () => {
+      const result = run({ FAKE_CREATE_FAILS: "1" });
+      expect(result.code).toBe(1);
+      expect(result.hasRecord("control-host")).toBe(false);
     });
   });
 
@@ -1569,25 +2329,25 @@ describe("compose layers", () => {
     }
     expect(metricDefinitions.requests.map(({ data }) => data.id)).toEqual(
       expect.arrayContaining([
-        "agent_platform.checkpoint.capture.duration_ms",
-        "agent_platform.checkpoint.bundle_bytes",
-        "agent_platform.checkpoint.untracked_bytes",
-        "agent_platform.checkpoint.untracked_uploads",
-        "agent_platform.checkpoint.manifest_bytes",
-        "agent_platform.checkpoint.put_count",
-        "agent_platform.checkpoint.uploaded_bytes",
-        "agent_platform.checkpoint.reused_count",
-        "agent_platform.checkpoint.conflict_count",
-        "agent_platform.terminate.acceptance.duration_ms",
-        "agent_platform.session.create.duration_ms",
-        "agent_platform.control.effect.duration_ms",
+        "werft.checkpoint.capture.duration_ms",
+        "werft.checkpoint.bundle_bytes",
+        "werft.checkpoint.untracked_bytes",
+        "werft.checkpoint.untracked_uploads",
+        "werft.checkpoint.manifest_bytes",
+        "werft.checkpoint.put_count",
+        "werft.checkpoint.uploaded_bytes",
+        "werft.checkpoint.reused_count",
+        "werft.checkpoint.conflict_count",
+        "werft.terminate.acceptance.duration_ms",
+        "werft.session.create.duration_ms",
+        "werft.control.effect.duration_ms",
       ]),
     );
     for (const id of [
-      "agent_platform.checkpoint.capture.duration_ms",
-      "agent_platform.terminate.acceptance.duration_ms",
-      "agent_platform.session.create.duration_ms",
-      "agent_platform.control.effect.duration_ms",
+      "werft.checkpoint.capture.duration_ms",
+      "werft.terminate.acceptance.duration_ms",
+      "werft.session.create.duration_ms",
+      "werft.control.effect.duration_ms",
     ]) {
       expect(
         metricDefinitions.requests.find(({ data }) => data.id === id)?.data
@@ -1599,13 +2359,12 @@ describe("compose layers", () => {
     }
     expect(
       metricDefinitions.requests.find(
-        ({ data }) =>
-          data.id === "agent_platform.terminate.acceptance.duration_ms",
+        ({ data }) => data.id === "werft.terminate.acceptance.duration_ms",
       )?.data.attributes.filter.query,
     ).toContain("@event:api.request.completed");
     expect(
       metricDefinitions.requests.find(
-        ({ data }) => data.id === "agent_platform.control.effect.duration_ms",
+        ({ data }) => data.id === "werft.control.effect.duration_ms",
       )?.data.attributes.group_by,
     ).toContainEqual({
       path: "@fields.operation",
@@ -1881,9 +2640,9 @@ describe("compose layers", () => {
   test("api, slack and the scheduler read the same worker image runtimes, and only the scheduler the previous image", () => {
     const runtimes = {
       WORKER_IMAGE_RUNTIME:
-        '{"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+        '{"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       WORKER_IMAGE_PREVIOUS_RUNTIME:
-        '{"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+        '{"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
     };
     const previous = `registry.invalid/worker@sha256:${"d".repeat(64)}`;
     const { exitCode, stderr, model } = render(LOCAL_LAYERS, {

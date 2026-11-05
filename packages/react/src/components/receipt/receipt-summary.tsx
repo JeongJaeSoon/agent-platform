@@ -152,9 +152,9 @@ export function ReceiptSummary({
   const guidance = guidanceFor(error?.code, locale);
 
   return (
-    <div className={cn("ap-receipt", className)} data-status={status}>
-      <div className="ap-receipt__head">
-        <span className="ap-receipt__operation">
+    <div className={cn("werft-receipt", className)} data-status={status}>
+      <div className="werft-receipt__head">
+        <span className="werft-receipt__operation">
           {Object.hasOwn(RECEIPT_OPERATION_LABEL, operation)
             ? RECEIPT_OPERATION_LABEL[operation]
             : operation}
@@ -162,38 +162,38 @@ export function ReceiptSummary({
         <StatusLabel axis="receipt" state={status} />
       </div>
 
-      <dl className="ap-receipt__target">
+      <dl className="werft-receipt__target">
         {"session_id" in target ? (
           <>
-            <div className="ap-receipt__field">
+            <div className="werft-receipt__field">
               <dt>세션</dt>
-              <dd className="ap-receipt__id">{target.session_id}</dd>
+              <dd className="werft-receipt__id">{target.session_id}</dd>
             </div>
             {target.turn_id ? (
-              <div className="ap-receipt__field">
+              <div className="werft-receipt__field">
                 <dt>턴</dt>
-                <dd className="ap-receipt__id">{target.turn_id}</dd>
+                <dd className="werft-receipt__id">{target.turn_id}</dd>
               </div>
             ) : null}
             {target.request_id ? (
-              <div className="ap-receipt__field">
+              <div className="werft-receipt__field">
                 <dt>요청</dt>
-                <dd className="ap-receipt__id">{target.request_id}</dd>
+                <dd className="werft-receipt__id">{target.request_id}</dd>
               </div>
             ) : null}
           </>
         ) : "user_id" in target ? (
-          <div className="ap-receipt__field">
+          <div className="werft-receipt__field">
             <dt>사용자</dt>
-            <dd className="ap-receipt__id">{target.user_id}</dd>
+            <dd className="werft-receipt__id">{target.user_id}</dd>
           </div>
         ) : (
           // A mutation outside a session names its resource instead.
           // The kind shows raw until a screen actually renders one of these —
           // the ticket that adds that route owns the Korean label for it.
-          <div className="ap-receipt__field">
+          <div className="werft-receipt__field">
             <dt>대상</dt>
-            <dd className="ap-receipt__id">
+            <dd className="werft-receipt__id">
               {target.resource.kind} · {target.resource.id}
             </dd>
           </div>
@@ -201,16 +201,16 @@ export function ReceiptSummary({
       </dl>
 
       {error ? (
-        <p className="ap-receipt__error">
-          <span className="ap-receipt__guidance">{guidance}</span>
-          <span className="ap-receipt__detail">
+        <p className="werft-receipt__error">
+          <span className="werft-receipt__guidance">{guidance}</span>
+          <span className="werft-receipt__detail">
             {error.code} · {error.message}
           </span>
         </p>
       ) : null}
 
-      <div className="ap-receipt__foot">
-        <span className="ap-receipt__times">
+      <div className="werft-receipt__foot">
+        <span className="werft-receipt__times">
           접수{" "}
           <time dateTime={timestamps.created_at}>
             {formatTimestamp(timestamps.created_at)}

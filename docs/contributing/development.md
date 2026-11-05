@@ -120,28 +120,9 @@ deploy/preview/preview.sh reap       # PR이 닫혔거나 머지됐거나 TTL이
 
 실행마다 시각, namespace별 판단, 지운 namespace 목록(`reap deleted: …`)을 출력한다. `down`이 하나라도 실패하면 나머지를 마저 본 뒤 0이 아닌 값으로 끝난다.
 
-이 Mac에서는 LaunchAgent `dev.94soon.agent-platform.preview-reap`이 15분마다 `reap`을 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀌므로, `reap` 전용 detached checkout `~/.cache/agent-platform/preview-reap/checkout`을 만들어 거기서 돌린다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 `reap`을 돌린다. 그 checkout은 손으로 고치지 않는다.
+`reap`을 주기적으로 돌리려면 작업용 worktree가 아니라 `reap` 전용 detached checkout에서 돌린다. 작업용 worktree는 지워지거나 브랜치가 바뀐다. 실행마다 그 checkout만 `git fetch origin` 뒤 `origin/main`으로 옮기고, 실패하면 이유를 로그에 적고 가진 코드로 `reap`을 돌린다. 그 checkout은 손으로 고치지 않는다.
 
-```bash
-# 이 저장소의 아무 checkout에서
-git fetch origin
-git worktree add --detach ~/.cache/agent-platform/preview-reap/checkout origin/main
-mkdir -p ~/Library/Logs/agent-platform
-sed -e "s|@CHECKOUT@|$HOME/.cache/agent-platform/preview-reap/checkout|g" -e "s|@HOME@|$HOME|g" \
-  deploy/preview/preview-reap.plist > ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-plutil -lint ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-
-launchctl print gui/$(id -u)/dev.94soon.agent-platform.preview-reap   # 상태·마지막 종료 코드
-tail ~/Library/Logs/agent-platform/preview-reap.log                    # 실행 기록
-
-# 해제
-launchctl bootout gui/$(id -u)/dev.94soon.agent-platform.preview-reap
-rm ~/Library/LaunchAgents/dev.94soon.agent-platform.preview-reap.plist
-git worktree remove ~/.cache/agent-platform/preview-reap/checkout
-```
-
-설치하면 바로 한 번 돌고, 그 뒤 15분마다 돈다. gh는 로그인한 사용자의 keychain 토큰을 쓰므로 GUI 세션의 LaunchAgent로만 설치한다. 로그는 지워지지 않고 쌓이니 필요하면 손으로 비운다.
+gh는 로그인한 사용자의 인증을 쓰므로, 주기 실행은 그 사용자의 세션에서 도는 스케줄러(예: 15분 간격)로 건다.
 
 ## 테스트·스크립트 배치
 
@@ -155,6 +136,13 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 - 서비스가 필요한 테스트는 opt-in 변수(`localstackEnabled()`, `QUEUE_DATABASE_URL` 등)가 꺼지면 `describe.skip`·`skipIf`로 skip된다. 그 skip은 해당 변수를 켜는 integration job에서 사라져야 한다. 그 밖의 이유로 skip하는 코드(플랫폼 조건 등)를 새로 넣으면 integration job이 선언되지 않은 skip으로 실패시키므로 ci.yml `skips`에 선언한다.
 - `bun run typecheck`는 workspace 패키지마다 typecheck를 돈 뒤 루트 `tsconfig.json`으로 `scripts/**`·`.github/scripts/*`의 `.ts`를 본다. `scripts/agent-sdk-compat`은 자기 tsconfig로 `agent-sdk-compat` job이 본다. 루트 `tests/`는 아직 typecheck 범위 밖이라 고친 파일은 직접 실행해 확인한다.
 - 운영자와 개발자가 부르는 도구는 `scripts/`에, workflow만 부르는 helper는 `.github/scripts/`에 둔다.
+- kind에 대한 Kubernetes backend 테스트는 opt-in이다. `K8S_BACKEND_TEST=1`과 `KUBECONFIG`를 주면 실행된다. `K8S_BACKEND_TEST_IMAGE`로 digest 형식의 이미지를 바꿀 수 있고, `K8S_BACKEND_TEST_KEEP=1`을 주면 테스트 namespace를 지우지 않고 남긴다.
+
+  ```sh
+  K8S_BACKEND_TEST=1 KUBECONFIG=<kind kubeconfig> \
+    bun test packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts \
+    packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+  ```
 
 ## 문서 쓰기
 
@@ -172,7 +160,7 @@ git worktree remove ~/.cache/agent-platform/preview-reap/checkout
 
 ## DB 사용 규칙
 
-`packages/db`에 쿼리나 migration을 더할 때 지킨다. 운영자 쪽 설정(연결 수, 서버 파라미터, 느린 쿼리 보기)은 [데이터베이스 연결과 느린 쿼리](../operator/database.md)에 있다.
+`packages/db`에 쿼리나 migration을 더할 때 지킨다. 운영자 쪽 설정(연결 수, 서버 파라미터, 느린 쿼리 보기)은 [데이터베이스 연결과 느린 쿼리](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/database/)에 있다.
 
 - **트랜잭션 범위.** 한 요청이 여러 표에 쓰면(turn·이벤트·사용량·receipt 등) 모두 한 `db.transaction` 안에서 쓴다. 트랜잭션 안에서는 SQL만 기다린다. object store·HTTP·Slack·GitHub·Docker·Kubernetes 호출, 파일 읽기, sleep은 트랜잭션 앞이나 뒤에 둔다. checkpoint는 S3 검증을 끝낸 뒤 트랜잭션을 연다(`finalizeAtomic`). 풀은 30초 동안 문장 없이 열린 트랜잭션의 연결을 서버가 끊게 한다(`IDLE_IN_TRANSACTION_MS`).
 - **격리 수준.** 기본 READ COMMITTED에 행 잠금으로 맞춘다. 여러 문장이 같은 스냅샷을 봐야 하는 읽기만 `{ isolationLevel: "repeatable read", accessMode: "read only" }`로 연다. serializable은 쓰지 않는다.

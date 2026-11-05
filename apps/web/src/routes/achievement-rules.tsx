@@ -17,7 +17,7 @@ import type {
   ListAchievementTypesResponse,
   UsageAchievementsResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
   Alert,
@@ -184,7 +184,7 @@ export function subjectParticle(name: string): string {
 }
 
 function useCatalog() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const categories = useQuery({
     queryKey: scopedKey(client, "achievement-categories"),
     queryFn: () =>
@@ -218,7 +218,7 @@ function useCatalog() {
  * for the workspace's spend.
  */
 function useUsage(period: "1" | "30" | "month") {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const allowed = useHasPermission("usage.installation_read");
   const query = {
     scope: "installation",
@@ -237,7 +237,7 @@ function useUsage(period: "1" | "30" | "month") {
 }
 
 function useInvalidate() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   return (...names: string[]) =>
     Promise.all(
@@ -469,7 +469,7 @@ function JudgeCard({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const format = OPERATIONS_MESSAGES[locale].format;
@@ -894,7 +894,7 @@ function CategoryForm({
   readonly onArchived: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const [name, setName] = useState(category?.name ?? "");
   const lists = ["achievement-categories", "achievement-rules"];
   const save = useChange<string, AchievementCategoryChangeResponse>(
@@ -1152,7 +1152,7 @@ function TypeForm({
   readonly onCreated: ((type: AchievementType) => void) | undefined;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const [name, setName] = useState(type?.name ?? "");
   const [key, setKey] = useState("");
   const [evidence, setEvidence] = useState<AchievementEvidenceKind>(
@@ -1267,7 +1267,7 @@ function RulesCard({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const invalidate = useInvalidate();
   const usage = useUsage("30");
@@ -1504,7 +1504,7 @@ function RuleEditor({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const invalidate = useInvalidate();
   const titleRef = useRef<HTMLHeadingElement>(null);

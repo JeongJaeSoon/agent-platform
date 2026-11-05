@@ -291,7 +291,7 @@ export function lookupEveryTimeStream(): LookupEveryTimeSocket {
 }
 
 // pg's own default. The connection budget across roles is in
-// docs/operator/database.md; a role that never runs statements side by side
+// apps/docs/content/docs/run-server/self-hosting/operate/database.mdx; a role that never runs statements side by side
 // takes less.
 export const DEFAULT_POOL_MAX = 10;
 

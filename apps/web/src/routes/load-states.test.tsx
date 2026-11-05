@@ -29,7 +29,7 @@ describe("데이터 로딩", () => {
     });
     const label = await screen.findByText("불러오는 중입니다");
     const placeholder = label.closest("output");
-    expect(placeholder?.classList.contains("ap-skeleton")).toBe(true);
+    expect(placeholder?.classList.contains("werft-skeleton")).toBe(true);
     expect(placeholder?.getAttribute("aria-busy")).toBe("true");
     expect(screen.queryByText("로그인 상태를 확인하는 중입니다")).toBeNull();
   });

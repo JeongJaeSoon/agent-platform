@@ -244,7 +244,7 @@ function KeyKindGuide({ kind }: { readonly kind: KeyKind }) {
 function Forbidden() {
   return (
     <section
-      className="flex flex-col items-start gap-2 rounded-card border border-[var(--ap-tone-danger-border)] bg-card p-4 text-card-foreground"
+      className="flex flex-col items-start gap-2 rounded-card border border-[var(--werft-tone-danger-border)] bg-card p-4 text-card-foreground"
       data-status="forbidden"
       role="alert"
     >
@@ -323,7 +323,7 @@ function ExpiryMeta({ row }: { readonly row: ApiKeyView }) {
       variant="meta"
       data-tone={danger ? "danger" : "caution"}
       data-expiry={state}
-      className="inline-flex items-center gap-1 font-medium text-[var(--ap-tone-fg)]"
+      className="inline-flex items-center gap-1 font-medium text-[var(--werft-tone-fg)]"
     >
       {danger ? (
         <CircleAlert aria-hidden="true" className={ICON} />

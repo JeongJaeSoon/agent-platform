@@ -25,24 +25,24 @@ describe("EmptyState", () => {
 
     expect(getByText("아직 세션이 없습니다")).toBeDefined();
     expect(
-      container.querySelectorAll(".ap-state__actions button"),
+      container.querySelectorAll(".werft-state__actions button"),
     ).toHaveLength(2);
     expect(htmlOf(container.firstElementChild)).toMatchSnapshot();
   });
 
   test("icon은 제목 위 장식 상자에 들어가고 size는 data-size로 남는다", () => {
     const plain = render(<EmptyState title="비어 있습니다" />);
-    expect(plain.container.querySelector(".ap-state__icon")).toBeNull();
+    expect(plain.container.querySelector(".werft-state__icon")).toBeNull();
     expect(
-      plain.container.querySelector(".ap-state")?.getAttribute("data-size"),
+      plain.container.querySelector(".werft-state")?.getAttribute("data-size"),
     ).toBe("default");
 
     const { container } = render(
       <EmptyState title="비어 있습니다" icon={<svg />} size="sm" />,
     );
-    const root = container.querySelector(".ap-state");
+    const root = container.querySelector(".werft-state");
     const box = root?.firstElementChild;
-    expect(box?.className).toBe("ap-state__icon");
+    expect(box?.className).toBe("werft-state__icon");
     expect(box?.getAttribute("aria-hidden")).toBe("true");
     expect(box?.querySelector("svg")).not.toBeNull();
     expect(root?.getAttribute("data-size")).toBe("sm");
@@ -65,15 +65,15 @@ describe("ErrorState", () => {
       />,
     );
 
-    const emptyRoot = empty.container.querySelector(".ap-state");
-    const errorRoot = error.container.querySelector(".ap-state");
+    const emptyRoot = empty.container.querySelector(".werft-state");
+    const errorRoot = error.container.querySelector(".werft-state");
 
-    expect(emptyRoot?.className).toContain("ap-state--empty");
-    expect(errorRoot?.className).toContain("ap-state--error");
-    expect(emptyRoot?.className).not.toContain("ap-state--error");
+    expect(emptyRoot?.className).toContain("werft-state--empty");
+    expect(errorRoot?.className).toContain("werft-state--error");
+    expect(emptyRoot?.className).not.toContain("werft-state--error");
     expect(errorRoot?.getAttribute("role")).toBe("alert");
-    expect(errorRoot?.querySelector(".ap-state__mark")).not.toBeNull();
-    expect(emptyRoot?.querySelector(".ap-state__mark")).toBeNull();
+    expect(errorRoot?.querySelector(".werft-state__mark")).not.toBeNull();
+    expect(emptyRoot?.querySelector(".werft-state__mark")).toBeNull();
     expect(htmlOf(errorRoot)).toMatchSnapshot();
   });
 
@@ -81,19 +81,19 @@ describe("ErrorState", () => {
     const { container } = render(
       <ErrorState guidance="다시 로그인하세요." message="token expired" />,
     );
-    const lines = [...container.querySelectorAll(".ap-state > p")].map(
+    const lines = [...container.querySelectorAll(".werft-state > p")].map(
       (line) => line.className,
     );
     expect(lines).toEqual([
-      "ap-state__title",
-      "ap-state__guidance",
-      "ap-state__description",
+      "werft-state__title",
+      "werft-state__guidance",
+      "werft-state__description",
     ]);
   });
 
   test("할 일을 받지 않으면 안내 줄이 없다", () => {
     const { container } = render(<ErrorState message="boom" code="X" />);
-    expect(container.querySelector(".ap-state__guidance")).toBeNull();
+    expect(container.querySelector(".werft-state__guidance")).toBeNull();
   });
 
   test("retry와 증거 링크를 준 만큼만 그린다", () => {
@@ -138,18 +138,18 @@ describe("ErrorState", () => {
 describe("Skeleton", () => {
   test("줄 수만큼 막대를 만든다", () => {
     const { container } = render(<Skeleton lines={3} />);
-    expect(container.querySelectorAll(".ap-skeleton__bar")).toHaveLength(3);
+    expect(container.querySelectorAll(".werft-skeleton__bar")).toHaveLength(3);
     expect(htmlOf(container.firstElementChild)).toMatchSnapshot();
   });
 
   test("text가 아니면 막대는 하나다", () => {
     const { container } = render(<Skeleton shape="circle" lines={5} />);
-    expect(container.querySelectorAll(".ap-skeleton__bar")).toHaveLength(1);
+    expect(container.querySelectorAll(".werft-skeleton__bar")).toHaveLength(1);
   });
 
   test("읽는 사람에게 로딩 중임을 알린다", () => {
     const { container } = render(<Skeleton />);
-    const root = container.querySelector(".ap-skeleton");
+    const root = container.querySelector(".werft-skeleton");
     // <output> is role="status" without spelling it out.
     expect(root?.tagName).toBe("OUTPUT");
     expect(root?.getAttribute("aria-busy")).toBe("true");
@@ -158,7 +158,7 @@ describe("Skeleton", () => {
 
   test("decorative면 보조기술에서 숨는다", () => {
     const { container } = render(<Skeleton decorative inline />);
-    const root = container.querySelector(".ap-skeleton");
+    const root = container.querySelector(".werft-skeleton");
     expect(root?.getAttribute("aria-hidden")).toBe("true");
     expect(root?.getAttribute("data-inline")).toBe("true");
   });
@@ -168,7 +168,9 @@ describe("Skeleton", () => {
     try {
       const { container } = render(<Skeleton />);
       expect(
-        container.querySelector(".ap-skeleton")?.getAttribute("data-animated"),
+        container
+          .querySelector(".werft-skeleton")
+          ?.getAttribute("data-animated"),
       ).toBeNull();
     } finally {
       restore();

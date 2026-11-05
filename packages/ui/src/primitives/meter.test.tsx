@@ -69,6 +69,6 @@ describe("Meter", () => {
     ).container;
     expect(
       classesOf(caution.querySelector("[data-slot=meter-mark]")),
-    ).toContain("bg-(color:--ap-tone-caution-fg)");
+    ).toContain("bg-(color:--werft-tone-caution-fg)");
   });
 });

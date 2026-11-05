@@ -9,7 +9,7 @@ image="$2"
 
 # Only containers this run started carry this label, so cleanup never
 # touches anything else on the daemon.
-smoke_label="agent-platform.image-smoke=$$-${RANDOM}"
+smoke_label="werft.image-smoke=$$-${RANDOM}"
 cleanup() {
   ids="$(docker ps -aq --filter "label=${smoke_label}")"
   [ -z "$ids" ] || docker rm -f $ids >/dev/null
@@ -150,6 +150,29 @@ egress_proxy_smoke() {
   [ "$exit_code" = 0 ] || { echo "expected the proxy to exit 0 on SIGTERM, not be killed" >&2; exit 1; }
 }
 
+# A published image holds no test source, testkit, Storybook or demo tool.
+# Two counts: scripts/image-prune.sh's own list run inside the image, and the
+# names the release checklist is written in, spelled out here so a list that
+# is too narrow cannot vouch for itself. Neither may print anything.
+assert_published_tree() {
+  local image="$1" listed named
+  listed="$(docker run --rm --entrypoint sh \
+    -v "$(cd "$(dirname "$0")/../.." && pwd)/scripts/image-prune.sh:/tmp/image-prune.sh:ro" \
+    "$image" /tmp/image-prune.sh --list /app)"
+  # A dependency's own tests (zod's) are not ours: node_modules is skipped.
+  named="$(docker run --rm --entrypoint find "$image" /app -name node_modules -prune -o \
+    \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.stories.tsx' \
+       -o -name '*.snap' -o -name __snapshots__ -o -name pglite-release.ts \
+       -o -name storybook -o -name testkit -o -name demo-accounts.ts -o -name demo-data.ts \) -print)"
+  echo "test sources and demo files in the image: $(printf '%s' "${listed}${named}" | grep -c . || true)"
+  if [ -n "${listed}${named}" ]; then
+    printf '%s\n%s\n' "$listed" "$named" >&2
+    echo "the published image still holds test or demo files" >&2
+    exit 1
+  fi
+}
+assert_published_tree "$image"
+
 case "$app" in
   worker)
     # The ticket's check: the bundled executable resolves and is the version
@@ -159,6 +182,7 @@ case "$app" in
     echo "claude --version: $version"
     echo "$version" | grep -q '^2\.1\.270 ' || { echo "expected 2.1.270"; exit 1; }
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && git --version && git lfs version && gh --version && test -d /workspace'
+    docker run --rm "$image" bun build --target=bun --outdir=/tmp/resolve apps/worker/src/main.ts >/dev/null
     # a commit in a fresh repository needs no identity of its own
     # and carries the one docs/operator/images-and-supply-chain.md names.
     ident="$(docker run --rm "$image" sh -c 'cd "$(mktemp -d)" && git init -q && git commit -q --allow-empty -m smoke && git log -1 --format="%an <%ae>|%cn <%ce>"')"
@@ -183,6 +207,17 @@ case "$app" in
     # git: the checkpoint bundle verifier spawns it.
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
     api_init_smoke "$image"
+    # Every import of the pruned tree resolves: bundling the role entry point
+    # follows them all, so one into a removed file fails the build here.
+    docker run --rm "$image" bun build --target=bun --outdir=/tmp/resolve apps/control-host/src/main.ts >/dev/null
+    # DEMO_ACCOUNTS=local has nothing to run in a published image: the CLI is
+    # absent, and bun says so. Any other failure (a refusal exits 2 with
+    # "demo accounts refused") would mean the file is there.
+    demo="$(docker run --rm -e DEMO_ACCOUNTS=local "$image" bun run apps/control-host/src/api/demo-accounts.ts 2>&1)" && {
+      echo "expected the demo-account CLI to be absent" >&2; exit 1
+    }
+    [[ "$demo" == *"Module not found"* ]] || { printf '%s\n' "$demo" >&2; echo "expected a missing-module error from the demo-account CLI" >&2; exit 1; }
+    echo "demo-account CLI in the published image: absent"
     # One executable for every role; it refuses to guess one.
     if docker run --rm "$image" bun run apps/control-host/src/main.ts >/dev/null 2>&1; then
       echo "expected the executable to refuse a missing role" >&2; exit 1

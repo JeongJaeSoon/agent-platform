@@ -103,7 +103,7 @@ GitHub 토큰 하나가 가질 권한은 아래 다섯의 교집합이고, **발
 - **hook 디렉터리.** `core.hooksPath`를 system에 두면 저장소의 `.git/hooks`가 돌지 않는다. 그래서 플랫폼 hook 디렉터리(`/usr/local/share/werft/git-hooks`)의 모든 client hook은 같은 스크립트 하나이고, 저장소의 `.git/hooks/<이름>`이 실행 가능하면 그것을 먼저 그대로 부른다. `commit-msg`만은 저장소 hook이 성공한 뒤 플랫폼 트레일러를 더하고, 저장소 hook이 실패하면 그 실패로 commit을 멈춘다. `pre-commit install`처럼 `core.hooksPath`가 있으면 설치를 거절하는 도구는 그대로 거절한다(알려진 한계).
 - **트레일러 값의 전달.** worker는 claim을 받으면 `$HOME/.werft/git-trailers`에 트레일러를 한 줄에 하나씩 쓴다(`Co-authored-by: …`, `Agent-Session: …`). 값이 없으면 그 줄이 없고, 둘 다 없으면 파일을 지운다. hook은 그 파일의 줄을 `--trailer` argv로만 넘기고, 이 두 키가 아니거나 CR이 든 줄은 건너뛴다. engine의 환경 변수는 바꾸지 않는다.
 - **트리거 종류.** 세션 행의 `channel`과 만든 key로 정한다. `web`·`slack`은 그대로, `api`면 만든 key의 `kind`가 `personal`이면 `personal_key`, `agent`면 `agent_key`, key 행이 없으면 `operator_key`다. `channel`이 없는 옛 행은 만든 key가 있으면 그 key로, 만든 사람만 있으면 `web`이다.
-- **PR 본문 꼬리.** 꼬리는 `<!-- agent-platform:pr-tail -->` 줄부터 `<!-- /agent-platform:pr-tail -->` 줄까지다. PR 열기가 GitHub에서 열린 PR을 찾아 답할 때 그 PR 본문에서 마지막 꼬리만 새 꼬리로 바꾸고(표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>`·`<pre>` 같은 HTML 요소 밖에 있을 때만 표시로 보고, 그 사이가 플랫폼이 쓰는 줄을 쓰는 순서 그대로 한 번씩 담을 때만 꼬리로 본다. 사람이 그 안에 한 줄이라도 더하면(`Co-authored-by` 줄도) 그 짝은 사람 글이다. 앞뒤의 사람 글은 줄바꿈(CRLF)까지 쓴 그대로 두고, 같은 본문을 두 번 갱신한 결과는 한 번 갱신한 결과와 같다. 처음 여는 PR 본문도 같은 규칙으로 꼬리를 붙인다. 사람이 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없는 PR은 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 그것을 닫은 뒤 붙여, 다음 갱신이 꼬리를 다시 찾는다), 이미 기록된 같은 push 요청을 다시 답할 때는 고치지 않는다. 꼬리를 고치지 못해도(GitHub 오류) PR 열기는 실패하지 않고 로그만 남긴다. GA-4b의 성과물 기록은 이 경로의 `savePullRequest` 그대로다.
+- **PR 본문 꼬리.** 꼬리는 `<!-- werft:pr-tail -->` 줄부터 `<!-- /werft:pr-tail -->` 줄까지다. 옛 이름(`agent-platform:pr-tail`)의 꼬리는 첫 태그 전이라 읽지 않는다. 그런 본문은 옛 줄을 글로 두고 끝에 새 꼬리를 붙인다. PR 열기가 GitHub에서 열린 PR을 찾아 답할 때 그 PR 본문에서 마지막 꼬리만 새 꼬리로 바꾸고(표시는 각자 한 줄에 들여쓰기 없이 홀로, 코드 블록과 `<details>`·`<pre>` 같은 HTML 요소 밖에 있을 때만 표시로 보고, 그 사이가 플랫폼이 쓰는 줄을 쓰는 순서 그대로 한 번씩 담을 때만 꼬리로 본다. 사람이 그 안에 한 줄이라도 더하면(`Co-authored-by` 줄도) 그 짝은 사람 글이다. 앞뒤의 사람 글은 줄바꿈(CRLF)까지 쓴 그대로 두고, 같은 본문을 두 번 갱신한 결과는 한 번 갱신한 결과와 같다. 처음 여는 PR 본문도 같은 규칙으로 꼬리를 붙인다. 사람이 문장·코드 블록·HTML 블록에 인용하거나 사이를 고친 표시는 글로 둔다. 그런 짝이 없는 PR은 아무것도 지우지 않고 끝에 붙인다. 본문이 코드 블록이나 HTML 요소를 연 채 끝나면 그것을 닫은 뒤 붙여, 다음 갱신이 꼬리를 다시 찾는다), 이미 기록된 같은 push 요청을 다시 답할 때는 고치지 않는다. 꼬리를 고치지 못해도(GitHub 오류) PR 열기는 실패하지 않고 로그만 남긴다. GA-4b의 성과물 기록은 이 경로의 `savePullRequest` 그대로다.
 - **commit 작성자(2026-11-01, 오너 원문 "커밋 작성자가 Werft이고 Co-authored-by가 없는 것: 개선해줘").** 결정 1은 "플랫폼이 연 PR의 작성자는 작성용 App bot"이라 했지만 commit은 이미지 기본값 `Werft <noreply@werft.invalid>`로 남아 있었다. 세션 저장소가 콘솔의 작성용 App(`{ kind: github_app }` 한 줄)을 쓰면 claim의 새 칸 `git_author`가 그 App의 bot 계정 `<slug>[bot]`과 `<bot user id>+<slug>[bot]@users.noreply.github.com`을 싣는다. bot user id는 `GET /users/<slug>[bot]`의 `id`다(GitHub 공식 예: [actions/checkout](https://github.com/actions/checkout#push-a-commit-using-the-built-in-token) "The user email is `{user.id}+{user.login}@users.noreply.github.com`", [actions/create-github-app-token](https://github.com/actions/create-github-app-token#configure-git-cli-for-an-apps-bot-user)). `git` 안이 아니라 옆에 둔 것은 앞 이미지 worker의 `claimGitSchema`가 strict라 새 칸 하나로 claim 전체를 거절하기 때문이다. worker는 `$HOME/.werft/git-identity`에 `[user]`를 쓰고, 이미지의 system 설정이 기본값 뒤에서 `include.path=~/.werft/git-identity`로 읽는다. 값이 없거나 bot 형식이 아니면 파일을 지워 기본값으로 돌아간다. 카탈로그 App, PAT, GHES, GitHub가 아닌 호스트의 저장소와 checkpoint·workspace 내부 commit은 그대로다.
 - **콘솔 주소가 없을 때의 Agent-Session.** 위 "콘솔 주소" 항목과 달리, `git.session_url`이 null이면 worker가 `Agent-Session: <세션 id>`를 넣는다. PR 꼬리가 싣는 것과 같은 id다. `git`이 없는 앞 API의 claim에는 지금처럼 아무 트레일러도 넣지 않는다.
 - **세션 상세의 귀속 줄.** `GET /v1/sessions/{id}/github/attribution`(`session.read`)이 `{ trigger, attribution: "co_author" | "unlinked" | "app_only", login }`을 준다. 지금 연결 상태로 계산하므로 다음 claim의 commit부터의 귀속이다. 화면은 저장소가 있는 세션의 "결과물" 탭 위쪽에 한 줄로 보인다(GA-4b의 GitHub PR 영역이 같은 자리에 붙는다). 게이트 거절 이유는 리드 결정으로 GA-3에서 GA-4b로 옮겼다([GA-4b에서 정한 것](#ga-4b에서-정한-것)).
@@ -183,7 +183,7 @@ D1~D5 확정(2026-11-03). PR 본문 템플릿과 commit 귀속은 플랫폼 도�
 
 ### 결정 11. 같은 역할에 App 여럿
 
-- 오너 원문(2026-11-02, 오케스트레이터 경유): "결정필요 추천대로 해줘". 아래 1~5가 그 다섯 건이다. 설계 근거는 GitHub 연결 설정 재설계안(repo 밖 `~/share/owner-checks/github-settings-ui-20261102/design.md` 6·7절)과 그 설계에 대한 Codex 의견 두 번(같은 디렉터리 `codex-1.md`·`codex-2.md`)이다.
+- 오너 원문(2026-11-02, 오케스트레이터 경유): "결정필요 추천대로 해줘". 아래 1~5가 그 다섯 건이다. 설계 근거는 GitHub 연결 설정 재설계안(repo 밖 문서 6·7절)과 그 설계에 대한 Codex 의견 두 번이다.
 - 이전 결정: 역할(작성용·리뷰용)마다 App 연결 하나였다(결정 1, [4절](#github_apps-0192-열-추가)의 `UNIQUE (workspace_id, role)`, [6절](#6-api)의 `…/github-apps/{role}`). 바뀐 이유: 한 워크스페이스가 저장소마다 다른 App(조직마다 App, 저장소 묶음마다 App)을 써야 하는 경우를 받지 못했다. 오너가 추천안대로 바꿨다.
 - 이 절은 위 결정 1·2, [GA-4에서 정한 것](#ga-4에서-정한-것), 3절 게이트, 4절, 6절, [GA-5에서 정한 것](#ga-5에서-정한-것), [GA-3에서 정한 것](#ga-3에서-정한-것) 가운데 "역할마다 App 하나"를 전제한 문장을 대체한다. 둘이 다르면 이 절이 맞다. 그 문장들은 이렇게 읽는다.
   - "작성용 App"이 OAuth를 뜻하는 곳(GA-4의 Client ID·client secret·`no_author_app`)은 아래 3의 연결이다. `client_id` 채우기는 `GET …/github-apps/{connectionId}`와 목록 조회에서도 한다.
@@ -553,7 +553,7 @@ export const agentGitHubSchema = z.object({
 
 ## 7. 화면
 
-시안은 GA-MOCKUP이 만든 오너 확인용 사본이다(repo 밖 `~/share/owner-checks/github-agent-20261030/mockups/`, 목차 `index.html`, 결정별 대응표 `decisions.md`). 화면 이름은 그 파일 이름이다. A는 에이전트 GitHub 탭(`a-default`, `a-nogh`, `a-noreview`, `a-ceiling`), B는 연동 계정(`b-unlinked`, `b-linked`), C는 GitHub 연결 설정(`c-default`, `c-noreview`, `c-member`)이다. 화면 PR(GA-3·GA-4·GA-6)은 이 절과 시안을 같이 기준으로 삼는다. 둘이 다르면 이 문서를 먼저 고친다. 시안과 이 문서가 다른 곳은 하나다. 시안 A는 저장소 후보를 "작성용 App을 쓰는 설치된 저장소"로 그렸다. 이 문서는 거기에 릴리스 프로필이 허용하는 것(`allowedPair`)이라는 조건을 더하고 PAT 저장소를 뺀다([결정 8](#결정-8-에이전트별-저장소-범위)). 탭은 프로필이 허용하지 않는 저장소를 이유와 함께 비활성으로 보인다.
+시안은 GA-MOCKUP이 만든 오너 확인용 사본이다(repo 밖 시안 모음). 화면 이름은 그 시안의 파일 이름이다. A는 에이전트 GitHub 탭(`a-default`, `a-nogh`, `a-noreview`, `a-ceiling`), B는 연동 계정(`b-unlinked`, `b-linked`), C는 GitHub 연결 설정(`c-default`, `c-noreview`, `c-member`)이다. 화면 PR(GA-3·GA-4·GA-6)은 이 절과 시안을 같이 기준으로 삼는다. 둘이 다르면 이 문서를 먼저 고친다. 시안과 이 문서가 다른 곳은 하나다. 시안 A는 저장소 후보를 "작성용 App을 쓰는 설치된 저장소"로 그렸다. 이 문서는 거기에 릴리스 프로필이 허용하는 것(`allowedPair`)이라는 조건을 더하고 PAT 저장소를 뺀다([결정 8](#결정-8-에이전트별-저장소-범위)). 탭은 프로필이 허용하지 않는 저장소를 이유와 함께 비활성으로 보인다.
 
 ### 에이전트 상세 GitHub 탭
 
@@ -587,7 +587,7 @@ export const agentGitHubSchema = z.object({
 
 ### 설정 > 워크스페이스 > GitHub 연결
 
-`/settings/workspace/github`(`router.tsx:355`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 `~/share/owner-checks/github-settings-ui-20261102/v3/design-v3.md` 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
+`/settings/workspace/github`(`router.tsx:355`)는 위에서 아래로 GitHub 카드, 에이전트가 쓸 수 있는 기능, 구성원 GitHub 계정 연결 세 덩어리다. 화면 계약은 GitHub 연결 설정 시안 v3(repo 밖 설계 문서 4절)와 그 7절의 오너 결정 1~8(2026-11-02, 모두 추천안)이다. 이전 결정: 작성용·리뷰용 영역마다 등록 양식과 App 권한 표를 두었고, 결정 11 개정 뒤에는 역할 섹션 안에 연결 카드를 그렸다. 바뀐 이유: 오너가 권한 표·비교 열·경고 상자·키 교체 버튼·요약 카드·계정 칩 줄을 빼고 한 카드로 줄이기로 했다.
 
 1. **GitHub 카드**
    - 머리: GitHub 타일, "App N개 · 계정 N곳", 주 버튼 **조직 추가**. App이 여럿이면 설치할 App을 고르는 메뉴가 열린다. 콘솔이 일회용 상태(`POST …/github-apps/{connectionId}/installations/start`)를 만들어 그 App의 설치 화면으로 보내고, 돌아오면 `POST …/github-apps/installations/complete`로 연결한 사람을 남긴다.
@@ -613,7 +613,7 @@ i18n ko·en·ja를 같이 고친다.
 
 ## 8. 검증 기준(werft-sandbox)
 
-실 GitHub 검증은 `JeongJaeSoon/werft-sandbox`와 작성용 App `werft-sandbox-agent`(App ID 5513262)로 한다. 리뷰용 App은 오너가 새로 만든다. 각 구현 PR의 실측 항목은 [9절](#9-구현-pr-분할)에 있다. 공통 규칙은 셋이다. 자기 verify 스택 하나를 쓰고 끝나면 바로 `--keep-volumes`로 내린다. 키 파일은 경로만 넘기고 읽지 않는다. 거절을 확인할 때는 플랫폼 거절(게이트 `reason_code`)과 GitHub 거절(403·422)을 나눠 적는다.
+실 GitHub 검증은 `JeongJaeSoon/werft-sandbox`와 작성용 App `werft-sandbox-agent`(App ID는 저장소 밖 노트에 있다)로 한다. 리뷰용 App은 오너가 새로 만든다. 각 구현 PR의 실측 항목은 [9절](#9-구현-pr-분할)에 있다. 공통 규칙은 셋이다. 자기 verify 스택 하나를 쓰고 끝나면 바로 `--keep-volumes`로 내린다. 키 파일은 경로만 넘기고 읽지 않는다. 거절을 확인할 때는 플랫폼 거절(게이트 `reason_code`)과 GitHub 거절(403·422)을 나눠 적는다.
 
 ## 9. 구현 PR 분할
 

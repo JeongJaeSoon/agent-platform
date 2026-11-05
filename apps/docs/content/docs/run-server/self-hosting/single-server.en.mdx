@@ -1,0 +1,213 @@
+---
+title: "Single-server install"
+description: The steps to install Werft on one Linux server from the published images
+---
+
+Install Werft on one Linux server with Docker Compose. You do not build the images. You pull the published ones, pinned by digest. This page lists the steps up to the point where `/readyz` returns 200. To run on Kubernetes, read [Kubernetes install](/run-server/self-hosting/kubernetes) instead.
+
+<Callout type="warn">
+These steps are carried over from the operations runbook. They have not been run from start to finish with the published images. If anything differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md) (in Korean).
+</Callout>
+
+<Callout type="warn">
+There is no `v` tag yet. For now, use the `main-<12>` tag published on every merge to `main`. It is not a release, and you pin the image it points to by digest. Once the first `v` tag exists, change `TAG` below to `v<version>` and check out the same tag in step 2. Every other command stays the same.
+</Callout>
+
+## Requirements
+
+| Item | Requirement |
+| --- | --- |
+| OS | Linux, `x86_64` or `arm64` |
+| Docker Engine | 28 or later |
+| Docker Compose | 2.24.6 or later |
+| Disk | The Docker data root is XFS mounted with `prjquota`. `preflight` does not check this. Otherwise the scheduler's quota check fails in `deploy` and the install stops. It does not work on Docker Desktop |
+| Time | NTP is in sync. Docker starts on its own after a reboot |
+| Tools | `git`, `jq`, `curl`, `openssl`, Bun 1.3.14, the Docker Buildx plugin. An account that can reach the Docker daemon |
+| Network | The host can pull images from `ghcr.io` and Docker Hub. The packages need no login. Sessions reach `api.anthropic.com` and `github.com` |
+
+The install needs a repository checkout, because the compose files and `scripts/test-ops.sh` are read from it. The images are not built from the checkout.
+
+## 1. Read the image digests
+
+Pick a tag and read the digest of the three images. Each image is an index of `linux/amd64` and `linux/arm64`, so the server pulls its own architecture.
+
+In `main-<12>`, `<12>` is the first 12 characters of the commit SHA. To choose a commit, open the [Images workflow](https://github.com/JeongJaeSoon/werft/actions/workflows/images.yml) and pick a `main` push run that finished green.
+
+```bash
+TAG=main-<12>
+for app in control-host worker egress-proxy; do
+  echo "$app $(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$app:$TAG" --format '{{.Manifest.Digest}}')"
+done
+```
+
+Each of the three lines should end in a digest that starts with `sha256:`. `TAG` only finds the digest; the install itself uses the digest.
+
+## 2. Get the checkout
+
+Check out the same commit as the images. `<12>` is the 12 characters from `TAG` above. After the first `v` tag, use `git checkout v<version>`.
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+git checkout <12>
+bun install --frozen-lockfile
+```
+
+## 3. Write the configuration
+
+Secrets live only in an env file outside the repository. Only the operator may read it; the script refuses a file that group or others can access.
+
+```bash
+sudo mkdir -p /etc/agent-platform
+sudo install -m 600 -o "$USER" infra/test-ops.env.example /etc/agent-platform/test-ops.env
+sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
+```
+
+Open `/etc/agent-platform/test-ops.env` in an editor and fill in the following. Use an editor that writes in place: tools such as `sed -i` create a temporary file and fail with `Permission denied` in `/etc/agent-platform`.
+
+| Variable | Value |
+| --- | --- |
+| `POSTGRES_PASSWORD` | A random value. Use only letters, digits, `.` `_` `~` `-` |
+| `EGRESS_AUTHORIZER_TOKEN` | A random value of 32 or more characters |
+| `PLATFORM_SECRET_KEY` | 64 hex characters from `openssl rand -hex 32`. If you lose it, stored credentials cannot be read |
+| `ANTHROPIC_API_KEY` | The Anthropic key sessions use. It goes only to the API container |
+| `BOOTSTRAP_TOKEN` | Uncomment it and set 32 to 256 random characters. It creates the first owner. If you leave it out, the API generates one and prints it to the container log |
+
+The example file already fills `EXECUTION_INSTALLATION_ID` (`test-ops`), `PLATFORM_SETTINGS_DOCUMENT` (`/etc/agent-platform/settings.json`), `EGRESS_CREDENTIAL_ALLOWLIST` (`api.anthropic.com:443,github.com:443`), `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`localstack:4566`) and `EXECUTION_WORKSPACE_QUOTA` (`on`). For the default LocalStack install, leave them. If one is empty, compose refuses to render.
+
+Do not print values to the terminal or pass them as command arguments. Generate random values with `openssl rand -hex 32` and paste them into the editor.
+
+Put the settings document at `/etc/agent-platform/settings.json`. It names the model connection, the GitHub repository and the profile that sessions use. It holds environment variable names, not values, so it has no secrets. Change only the repository URL. The example assumes a public repository. For a private one, follow the [API server page](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md) (in Korean).
+
+The file must be `0644` because the migrate container reads it. Create an empty file first, then fill it in an editor with the content below.
+
+```bash
+sudo install -m 644 -o "$USER" /dev/null /etc/agent-platform/settings.json
+```
+
+```json
+{
+  "version": 1,
+  "connections": {
+    "anthropic": {
+      "kind": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+    }
+  },
+  "repositories": {
+    "sample-app": {
+      "url": "https://github.com/<owner>/<repo>.git",
+      "branch": "main",
+      "profiles": ["claude-coding"]
+    }
+  },
+  "mcp_servers": {},
+  "profiles": {
+    "claude-coding": {
+      "runtime_kind": "claude_agent_sdk",
+      "runtime_version": "0.3.270",
+      "model": "claude-sonnet-5",
+      "tools": ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+      "permission_mode": "default",
+      "provider": {
+        "kind": "anthropic",
+        "endpoint": "https://api.anthropic.com",
+        "auth": { "kind": "api_key", "value_env": "ANTHROPIC_API_KEY" }
+      },
+      "project_settings": { "claude_md": true }
+    }
+  }
+}
+```
+
+Once the content is in, compute the file's digest.
+
+```bash
+bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json
+```
+
+## 4. Write the release file
+
+`release.json` names the commit to install, the digest of the three images and the digest of the settings document. An image given only by tag is refused. Run this in the shell where `TAG` from step 1 is still set.
+
+```bash
+SETTINGS_DIGEST="$(bun run scripts/lib/test-ops.ts settings-digest /etc/agent-platform/settings.json)"
+digest() { docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-$1:$TAG" --format '{{.Manifest.Digest}}'; }
+jq -n \
+  --arg commit "$(git rev-parse HEAD)" \
+  --arg control "ghcr.io/jeongjaesoon/werft-control-host@$(digest control-host)" \
+  --arg worker "ghcr.io/jeongjaesoon/werft-worker@$(digest worker)" \
+  --arg egress "ghcr.io/jeongjaesoon/werft-egress-proxy@$(digest egress-proxy)" \
+  --arg settings "$SETTINGS_DIGEST" \
+  '{source_commit: $commit,
+    images: {control_host: $control, worker: $worker, egress_proxy: $egress},
+    settings_digest: $settings}' > release.json
+```
+
+## 5. Install
+
+The object store is chosen at the first `deploy` and cannot be changed afterwards. The default is a LocalStack on the same host. For a real server, put `TEST_OPS_OBJECT_STORE=s3` in front of both commands below, prepare a dedicated AWS S3 bucket, and fill `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in the env file. Add `<bucket>.s3.ap-northeast-1.amazonaws.com:443` to `EGRESS_CREDENTIAL_ALLOWLIST` and empty `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` (`preflight` refuses it while `localstack:4566` remains). For the bucket and these values, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#aws-준비s3에서만).
+
+`preflight` checks the Docker version, the checkout, the env file and the release file first. The scheduler checks the disk quota during `deploy`. If it passes, `deploy` installs from the same file.
+
+```bash
+scripts/test-ops.sh preflight release.json
+scripts/test-ops.sh deploy release.json
+```
+
+`deploy` runs migrate, starts the API, scheduler and reconciler, and waits for their health checks. LocalStack loses checkpoints when the host or Docker restarts, and after a restart the API can refuse to start (recover with `reseed` or `reset` from the runbook). Use it only to try things out.
+
+If the first `deploy` fails, `reset` cannot remove it. Fix the cause, delete the containers, volumes and network of this project (`agent-platform-test-ops`) by hand, and run `deploy` again.
+
+## 6. Check
+
+The API listens only on `127.0.0.1:3000`.
+
+```bash
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:3000/readyz
+```
+
+If you see `{"status":"ready",…}` and `200`, the install works. At the address your users will use, `/docs` should also return 200 without authentication.
+
+To reach it from another machine, open an SSH tunnel.
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
+```
+
+To expose it on an internal DNS name, put a reverse proxy with TLS and a VPN or an IP allowlist in front. Turn buffering off for the event stream (SSE) and keep the read timeout long. Never expose PostgreSQL or the Docker socket.
+
+## 7. First owner and API key
+
+Open `http://127.0.0.1:3000/bootstrap` in a browser and enter the `BOOTSTRAP_TOKEN` from the env file, the owner details and a workspace name. If you did not put it in the env file, find it in the API log as the [first owner procedure](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#첫-owner) describes. Sending the same token again returns `409 BOOTSTRAP_DONE`. Then sign in at `/login`.
+
+Issue a separate owner and API key for each user. The plain key is printed once, so capture it in a variable and hand it over directly.
+
+```bash
+KEY="$(scripts/test-ops.sh key create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover)"
+```
+
+`<owner_id>` is a name that groups the sessions of this key. Choose a different value for each user. It is separate from web console accounts, and you do not use the workspace id.
+
+The SDK and the HTTP API connect with this server address and key ([SDK install](/getting-started/install)).
+
+## Take it down
+
+Check state with `scripts/test-ops.sh status`. To empty the installation, use `reset`.
+
+```bash
+scripts/test-ops.sh reset --yes
+```
+
+`reset` removes this installation's containers and volumes (the database and LocalStack), and the worker containers and workspace volumes that sessions created. Sessions, checkpoints and API keys go with them, so take a [backup](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md) first.
+
+## Next
+
+These pages are written in Korean.
+
+- [Upgrade and rollback](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드): rebuild `release.json` from the new tag's digests and run `upgrade`
+- [Backup and restore](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
+- [Single-server checklist](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md): reboots, day-one operation, recording evidence
+- [Configuration reference](/run-server/self-hosting/operate/configuration)

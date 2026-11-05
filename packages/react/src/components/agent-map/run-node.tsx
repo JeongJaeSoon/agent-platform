@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { type CSSProperties, type JSX, type RefObject, useRef } from "react";
 
-import { useAgentPlatform } from "../../provider.tsx";
+import { useWerft } from "../../provider.tsx";
 import { statusDot } from "../status/vocabulary.ts";
 import { FRESH_CLASS, useArrival } from "./fresh.ts";
 import type { AgentMapMessages } from "./messages.ts";
@@ -63,7 +63,7 @@ export function RunNode({
   messages: override,
 }: RunNodeProps): JSX.Element {
   const messages = useAgentMapMessages(override);
-  const { locale } = useAgentPlatform();
+  const { locale } = useWerft();
   const edge = node.edge === "delegation" ? null : EDGE_BADGE[node.edge];
   const EdgeIcon = edge?.icon;
   const showTask = layout === "graph" && node.kind === "run" && node.label;

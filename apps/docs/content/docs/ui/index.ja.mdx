@@ -8,7 +8,7 @@ Werft の Web コンソールの画面は二つのパッケージで作られて
 | パッケージ | 含まれるもの |
 | --- | --- |
 | `@werft-ai/ui` | デザイントークン(`tokens.css`)、Tailwind との接続(`theme.css`)、primitive(`Button`, `Card`, `Dialog`, `Tabs`, `Skeleton` など)、状態表示(`ErrorState`, `EmptyState`) |
-| `@werft-ai/react` | サーバー状態を読み書きする hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` など)と `AgentPlatformProvider`。`@werft-ai/react/components` には API の型を受け取って描画する部品(`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard` など)が、`@werft-ai/react/blocks` には、データの読み取りまで行って描画するセッションブロック `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` がある |
+| `@werft-ai/react` | サーバー状態を読み書きする hook(`useSessions`, `useSession`, `useSessionEvents`, `useSendMessage`, `useAnswer` など)と `WerftProvider`。`@werft-ai/react/components` には API の型を受け取って描画する部品(`StatusLabel`, `Timeline`, `Composer`, `ApprovalCard`, `QuestionCard` など)が、`@werft-ai/react/blocks` には、データの読み取りまで行って描画するセッションブロック `SessionList`, `RecentSessions`, `WaitingSessions`, `SessionDetail`, `ApprovalInbox` がある |
 
 `@werft-ai/ui` は受け取った状態を描画するだけである。API を呼んだり、権限を判断したりはしない。API の呼び出しは `@werft-ai/react` の hook とブロックが担う。
 

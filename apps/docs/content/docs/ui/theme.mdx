@@ -3,7 +3,7 @@ title: "테마 적용"
 description: "토큰과 Tailwind 연결을 import하고 어두운 테마를 켠다"
 ---
 
-컴포넌트의 색, 간격, 글꼴, radius, 그림자는 모두 `--ap-` 접두사가 붙은 CSS 변수(토큰)에서 나온다. 앱은 CSS 세 개를 import하고, 패키지 소스를 Tailwind가 스캔하게 한다.
+컴포넌트의 색, 간격, 글꼴, radius, 그림자는 모두 `--werft-` 접두사가 붙은 CSS 변수(토큰)에서 나온다. 앱은 CSS 세 개를 import하고, 패키지 소스를 Tailwind가 스캔하게 한다.
 
 ## CSS 가져오기
 
@@ -19,9 +19,9 @@ description: "토큰과 Tailwind 연결을 import하고 어두운 테마를 켠�
 
 body {
   margin: 0;
-  background: var(--ap-color-canvas);
-  color: var(--ap-color-foreground);
-  font-family: var(--ap-font-sans);
+  background: var(--werft-color-canvas);
+  color: var(--werft-color-foreground);
+  font-family: var(--werft-font-sans);
 }
 ```
 
@@ -44,11 +44,11 @@ body {
 document.documentElement.dataset.theme = "dark";
 ```
 
-컴포넌트는 Tailwind의 `dark:` variant를 쓰지 않는다. `dark:`는 `data-theme` 전환을 보지 못하므로, 앱의 CSS도 색을 바꿀 때 토큰(`var(--ap-color-…)`)을 쓰면 두 방식 모두에서 따라온다.
+컴포넌트는 Tailwind의 `dark:` variant를 쓰지 않는다. `dark:`는 `data-theme` 전환을 보지 못하므로, 앱의 CSS도 색을 바꿀 때 토큰(`var(--werft-color-…)`)을 쓰면 두 방식 모두에서 따라온다.
 
 ## 덮어쓰기
 
-`tokens.css`와 `styles.css`의 규칙은 `@layer ap` 안에 있고, 이 layer는 Tailwind의 `utilities` 뒤에 온다. 그래서 다음 두 가지가 정해진다.
+`tokens.css`와 `styles.css`의 규칙은 `@layer werft` 안에 있고, 이 layer는 Tailwind의 `utilities` 뒤에 온다. 그래서 다음 두 가지가 정해진다.
 
 - `ConfirmDialog`, `DestructiveActionDialog`, `EmptyState`, `ErrorState`, `Skeleton`, `StatusLabel`, `ReceiptSummary`, `ReceiptLink`는 자기 클래스로 그린다. 여기에 `className`으로 넘긴 Tailwind 유틸리티는 같은 속성이면 적용되지 않는다.
 - layer 밖에 쓴 앱의 CSS는 이 규칙들을 이긴다. 모양을 바꾸려면 layer 밖 CSS로 덮는다.

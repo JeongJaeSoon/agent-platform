@@ -1,0 +1,167 @@
+---
+title: "Kubernetes の設置"
+description: 公開された Helm chart で Kubernetes に Werft を設置し、/readyz 200 まで確認する
+---
+
+公開された Helm chart で Kubernetes に Werft を設置します。リポジトリの checkout は不要で、chart 1つに3つのイメージの digest と worker runtime が入っています。このページだけに従えば、`/readyz` が 200 を返すところまで進めます。Linux サーバー1台に Docker Compose で設置する場合は [単一サーバーの設置](/run-server/self-hosting/single-server) を読んでください。
+
+<Callout type="warn">
+`v` タグはまだありません。今は `main` にマージされるたびに公開される chart `0.1.0-main-<12>` を使います。これはリリースではありません。最初の `v` タグができると、chart のバージョンは `v` を除いたタグ(`v1.2.3` なら `1.2.3`)になり、`VERSION` だけを変えれば下のコマンドは同じです。
+</Callout>
+
+## 必要なもの
+
+| 項目 | 要件 |
+| --- | --- |
+| クラスター | Kubernetes。NetworkPolicy を強制する CNI が必要。強制しないと worker の分離がない |
+| ツール | `helm` 3、`kubectl`、`curl` |
+| PostgreSQL | 16。クラスターの中から届くアドレス |
+| S3 互換オブジェクトストア | bucket 1つ。既定の保護モード `locked` は versioning、Object Lock、既定の暗号化 SSE-S3(`AES256`)が有効な bucket を要求する。そうでないと API は起動を拒否する |
+| ネットワーク | クラスターが `ghcr.io` から chart とイメージを取得できる。パッケージはログイン不要 |
+
+chart は PostgreSQL、オブジェクトストア、Secret の値を作りません。worker Pod も作りません。scheduler がセッションごとに作ります。公開イメージは `linux/amd64` と `linux/arm64` を含む index なので、ノードは自分のアーキテクチャを取得します。
+
+## 1. バージョンを決める
+
+バージョンは常に正確に指定します。`main` マージの chart バージョンは `0.1.0-main-<12>` で、`<12>` は commit SHA の先頭12文字です。`main` のバージョン同士の順序に意味はないので、`--devel` で最新を選びません。リポジトリの [Images workflow](https://github.com/JeongJaeSoon/werft/blob/main/.github/workflows/images.yml) で緑で終わった `main` の run の commit を選んで書きます。
+
+```bash
+VERSION=0.1.0-main-<12>
+helm show chart oci://ghcr.io/jeongjaesoon/werft --version "$VERSION"
+helm show values oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" | sed -n '/^images:/,/^$/p'
+```
+
+`images` の下に、3つのイメージの `digest` と `worker.runtime` が出れば正常です。これらは chart に入っているので、設置ごとの values には書きません。書くと、次の chart の値を上書きし続けます。
+
+## 2. namespace と Secret を作る
+
+Secret は、キーごとに1ファイルのディレクトリ(`0700`、ファイル名がキー)から作ります。値がコマンドラインやシェルの history に残りません。
+
+| キー | 値 |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL の接続 URL |
+| `EGRESS_AUTHORIZER_TOKEN` | ランダムな値。API と egress proxy が同じ値を使う |
+| `PLATFORM_SECRET_KEY` | `openssl rand -hex 32` の64文字の hex。保存した認証情報を封印する。ないと Pod が起動しない |
+| `AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` | オブジェクトストアの key。IRSA で署名するなら2つとも省き、values に `secrets.objectStoreKeys: false` と `serviceAccounts.api.annotations` を置く |
+| `ANTHROPIC_API_KEY` | セッションが使う Anthropic key。API にだけ渡る |
+
+```bash
+kubectl create namespace werft
+kubectl -n werft create secret generic werft --from-file=<secret-dir>
+```
+
+## 3. values ファイルを作る
+
+設置ごとの値は `values-<installation>.yaml` 1つに置きます。最低限、checkpoint の bucket と、worker が bucket に届く経路が入ります。
+
+```yaml
+config:
+  checkpoints:
+    bucket: <bucket>
+  egress:
+    credentialAllowlist: "api.anthropic.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443,github.com:443,<bucket>.s3.<region>.amazonaws.com:443"
+```
+
+`credentialAllowlist` は既定値をまるごと置き換えます。既定の一覧(provider とパッケージ registry)は残し、リポジトリのホスト(`github.com:443`、ほかの Git ホストを使うならそのホストも)と bucket のホストを後ろに足します。
+
+`config.aws.region` の既定値は `ap-northeast-1` です。別のリージョンの bucket なら変えます。接続、リポジトリ、MCP サーバー、上限は values にありません。設置後に Web コンソールで追加するか、`bun run settings:k8s import` で取り込みます。既定値と説明は `helm show values` にあります。
+
+## 4. 設置する
+
+```bash
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f values-<installation>.yaml --timeout 10m
+```
+
+migrate Job が先に schema を上げ、終わると API、egress proxy、reconciler、scheduler、slack がまとめて適用されます。最初の設置がイメージのパスや pull 権限のエラーで失敗したら、値を直して同じコマンドをもう一度実行します。
+
+```bash
+kubectl -n werft get job werft-migrate
+for d in api egress-proxy reconciler scheduler; do
+  kubectl -n werft rollout status deploy/werft-$d --timeout=600s
+done
+```
+
+release 名に `werft` が含まれないと、リソース名は `<release>-werft-…` になります。
+
+## 5. 確認する
+
+API Service をローカルに開いて `/readyz` を呼びます。readiness は DB、schema、設定を見ます。
+
+```bash
+kubectl -n werft port-forward svc/werft-api 13000:3000 &
+PF=$!
+until curl -fs -o /dev/null http://127.0.0.1:13000/healthz; do sleep 1; done
+curl -fsS -w '\n%{http_code}\n' http://127.0.0.1:13000/readyz
+curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13000/docs
+kill "$PF"
+```
+
+`{"status":"ready",…}` と `200` が出れば設置できています。`/docs` も 200 です。利用者には Ingress で公開します。`ingress.enabled: true` と controller ごとの設定は [Kubernetes の設置(Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#aws-값-넣기) にあります。
+
+## 6. 最初の owner と API key
+
+Web コンソールの `/bootstrap` で最初の owner と workspace を作ります。API Pod は起動時にトークンを生成し、ログに `BOOTSTRAP_TOKEN=…` の1行で出力します。最初の owner ができるまでは、そのログを読める人なら誰でも bootstrap できるので、ログを読める人は運用者に限ります。
+
+API key は API Pod の中で発行します。次の `kubectl exec` 形式は checkout が要りません。`bun run keys:k8s` を使う近道は [Kubernetes の設置(Helm chart)](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#api-key-실행-권한-설정-문서) にあります。
+
+```bash
+kubectl -n werft exec deploy/werft-api -c api -- \
+  bun run apps/control-host/src/api/keys.ts create <owner_id> \
+  --scopes sessions:read,sessions:write,sessions:approve,sessions:control,sessions:recover
+```
+
+stdout に平文の key が一度だけ、stderr に key id が出ます。利用者ごとに owner と key を別々に発行します。SDK と HTTP API は、サーバーのアドレスとこの key で接続します([SDK のインストール](/getting-started/install))。
+
+## まず kind で試す
+
+同じ chart をノート PC で試すには、kind クラスターに PostgreSQL とオブジェクトストアの代役を先に立てます。代役はリポジトリの `deploy/kind/deps.yaml` にあるので、リポジトリを取得します。代役は試用専用です。実サーバーの DB や bucket には使いません。
+
+```bash
+git clone https://github.com/JeongJaeSoon/werft.git
+cd werft
+kind create cluster --name werft-try
+kubectl create namespace werft
+kubectl -n werft create configmap localstack-init \
+  --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
+kubectl -n werft apply -f deploy/kind/deps.yaml
+SECRETS="$(mktemp -d)"
+```
+
+次のコマンド `read -rs` は、プロンプトなしで入力を待ちます。入力する値は `deploy/kind/deps.yaml` の `POSTGRES_PASSWORD` で、値をコマンドラインに書かないよう端末から読みます。Secret の値はすべてこの kind の試用専用です。実サーバーでは、手順2の方法で自分で作った値を使います。Secret を作った後は、変数と一時ディレクトリを削除します。
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+printf unused > "$SECRETS/ANTHROPIC_API_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
+helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+  --namespace werft -f deploy/kind/values.yaml --timeout 10m
+```
+
+続けて、手順4の rollout の確認と手順5の確認をそのまま行います。終わったら `kind delete cluster --name werft-try` でクラスターを削除します。
+
+## アップグレードと削除
+
+アップグレードで worker イメージが変わる場合は、直前の worker イメージも一緒に渡す必要があります。`--reuse-values` は新しい chart のイメージを適用しないので使いません。手順、アップグレード前の検査、ロールバックは[アップグレード](/run-server/self-hosting/upgrade)にあります。
+
+```bash
+helm -n werft uninstall werft
+```
+
+`uninstall` は、scheduler が作った worker Pod、workspace の PVC、自分で作った Secret を残します。PVC を消すと checkpoint されていない作業が失われるので、先にセッションが終わっているか確認します。
+
+## 次のステップ
+
+これらのページは韓国語で書かれています。
+
+- [Kubernetes の設置(Helm chart)全体](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md): AWS の値、Web コンソールの Ingress、アップグレード前の検査
+- [Kubernetes 実行バックエンド](/run-server/self-hosting/operate/kubernetes-backend)
+- [容量管理](/run-server/self-hosting/operate/capacity)
+- [設定リファレンス](/run-server/self-hosting/operate/configuration)

@@ -12,7 +12,7 @@ import {
   workspaceProfileNameStep,
   workspaceProfileStep,
 } from "@werft-ai/core/forms";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -124,7 +124,7 @@ export function ProfileEditor({
   readonly onCancel: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const fixed = start.mode !== "new";
@@ -309,7 +309,7 @@ export function ProfileEditor({
 
   return (
     <form
-      className="flex flex-col gap-[var(--ap-space-block)] rounded-card border bg-card p-4"
+      className="flex flex-col gap-[var(--werft-space-block)] rounded-card border bg-card p-4"
       noValidate
       onSubmit={submit}
     >

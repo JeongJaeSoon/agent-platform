@@ -31,6 +31,8 @@ export type ForgePullRequest = {
   url: string;
   state: "open" | "closed";
   head: string;
+  /** The commit the head branch points at when the forge answered. */
+  headSha: string;
   base: string;
   /** GitHub's own times, as it reports them; null while open or unmerged. */
   mergedAt: string | null;

@@ -5,7 +5,7 @@ import { type ApiClientOptions, createApiClient } from "@werft-ai/client";
 import { withQueryScope } from "@werft-ai/core";
 import { setupDom } from "@werft-ai/ui/test-support/dom";
 import type { ReactNode } from "react";
-import { AgentPlatformProvider, useMemberPages } from "./index.ts";
+import { useMemberPages, WerftProvider } from "./index.ts";
 
 const { renderHook, waitFor, act } = await setupDom();
 
@@ -32,13 +32,9 @@ function harness(
   const queryClient = new QueryClient();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
-        client={client}
-        locale="en"
-        renderLink={() => null}
-      >
+      <WerftProvider client={client} locale="en" renderLink={() => null}>
         {children}
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   );
   return { sent, wrapper };

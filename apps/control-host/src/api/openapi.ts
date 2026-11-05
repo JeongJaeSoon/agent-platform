@@ -1964,7 +1964,7 @@ export const API_ROUTE_DECLARATIONS = [
     body: "CompleteGitHubInstallationRequest",
     requestExample: {
       state: "state-from-the-redirect",
-      installation_id: 176243287,
+      installation_id: 7654323,
     },
     success: {
       status: 200,
@@ -1973,7 +1973,7 @@ export const API_ROUTE_DECLARATIONS = [
         "The installation's connection, and whether it was recorded now.",
       example: {
         connection_id: "6f1b8c1e-3a4d-4f0a-9c7e-2b5d8e9f0a1b",
-        installation_id: 176243287,
+        installation_id: 7654323,
         recorded: true,
       },
     },
@@ -3528,7 +3528,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Open a pull request from a pushed request",
     description:
-      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\n`title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
+      "Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.\n\nThe content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on its default template, a heading per field that has content, in Korean; `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.\n\n`title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.\n\nSafe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.\n\nA verified credential that holds `sessions:approve` opens one, as for a push decision. One that may only submit to the session (an agent's key without `sessions:approve`, or the key that started the session) opens one too, since the request was already pushed. The token is issued through the agent's GitHub settings: with GitHub off for the agent, or the repository outside its release, the call is refused with `GITHUB_REFUSED`. Worker credentials are not accepted on `/v1` (401).",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
@@ -3542,6 +3542,7 @@ export const API_ROUTE_DECLARATIONS = [
       example: {
         pull_request: EXAMPLE_PULL_REQUEST,
         created: true,
+        body_source: { kind: "platform" },
         receipt_id: EXAMPLE_PULL_REQUEST.receipt_id,
       },
     },
@@ -3566,7 +3567,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Push requests",
     summary: "Post or update a comment on the pull request",
     description:
-      "Posts a comment on the pull request opened from this push request, or edits the one posted before with the same `marker` (default `status`), so a progress note is updated in place instead of piling up. The comment carries a hidden line `<!-- agent-platform:<session-id>:<marker> -->` that finds it again. `body` is cleaned the same way as a pull request body.\n\nEvery attempt, refused ones included, leaves a `comment_pull_request` receipt with the actor, the pull request, the comment id and `created`. The same credentials as opening the pull request are needed.",
+      "Posts a comment on the pull request opened from this push request, or edits the one posted before with the same `marker` (default `status`), so a progress note is updated in place instead of piling up. The comment carries a hidden line `<!-- werft:<session-id>:<marker> -->` that finds it again. `body` is cleaned the same way as a pull request body.\n\nEvery attempt, refused ones included, leaves a `comment_pull_request` receipt with the actor, the pull request, the comment id and `created`. The same credentials as opening the pull request are needed.",
     scope: "approve",
     scopeCheckedBy: "service",
     idempotent: false,
@@ -3958,7 +3959,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "GitHub work",
     summary: "Review a pull request in the session's repository",
     description:
-      "Submits a review (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) on pull request `number` of the session's repository with the workspace's reviewer App, a second App apart from the one that opens pull requests, since GitHub refuses an approval from a pull request's own author. Any open pull request in the repository can be reviewed, whoever opened it. The agent's release must turn on `review` under the workspace ceiling; without a reviewer App the call is refused (409 `GITHUB_REFUSED` `no_reviewer_app`). The token is the reviewer App's, scoped to this repository with `contents: read` and `pull_requests: write`.\n\n`commit_id` is the head the caller read and is required: GitHub files the review on that commit, so nothing pushed after the read is approved. `body` (required unless `APPROVE`) goes to GitHub only. Whether an approval satisfies the repository's required reviews is GitHub's rule, as are branch protection and CODEOWNERS. Leaves a `review_pull_request` receipt either way, naming the commit, the event and, when the platform opened the pull request, the session and agent that opened it; never the body.",
+      "Submits a review (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) on pull request `number` of the session's repository with the workspace's reviewer App, a second App apart from the one that opens pull requests, since GitHub refuses an approval from a pull request's own author. Any open pull request in the repository can be reviewed, whoever opened it. The agent's release must turn on `review` under the workspace ceiling; without a reviewer App the call is refused (409 `GITHUB_REFUSED` `no_reviewer_app`). The token is the reviewer App's, scoped to this repository with `contents: read` and `pull_requests: write`.\n\n`commit_id` is the head the caller read and is required: GitHub files the review on that commit, so nothing pushed after the read is approved. The platform also reads the pull request first, and when its head is not `commit_id` it submits nothing and refuses with 409 `GITHUB_REFUSED` `stale_commit` (`error.details.head_sha` is the head it read). `body` (required unless `APPROVE`) goes to GitHub only, with mentions and cross-references neutralized and secret-shaped lines replaced by `[REDACTED]`. Whether an approval satisfies the repository's required reviews is GitHub's rule, as are branch protection and CODEOWNERS. Leaves a `review_pull_request` receipt either way, naming the commit, the event and, when the platform opened the pull request, the session and agent that opened it; never the body.",
     scope: "write",
     body: "SubmitPullRequestReviewRequest",
     requestExample: {
@@ -7443,9 +7444,9 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
       required: route.csrf === "always",
       description:
         route.csrf === "always"
-          ? "Always required: the literal `agent-platform-web`."
-          : "Required with a cookie session: the literal `agent-platform-web`.",
-      schema: { type: "string", enum: ["agent-platform-web"] },
+          ? "Always required: the literal `werft-web`."
+          : "Required with a cookie session: the literal `werft-web`.",
+      schema: { type: "string", enum: ["werft-web"] },
     });
   }
   const success = route.success;

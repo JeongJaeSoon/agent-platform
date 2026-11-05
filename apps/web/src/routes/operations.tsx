@@ -26,7 +26,7 @@ import {
   usageBreakdownQuery,
   usageSeriesQuery,
 } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   DetailLayout,
   Findings,
@@ -179,7 +179,7 @@ function usageToolCallsQuery(
 }
 
 export function useInstallationLimits(enabled: boolean) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     // The home's key, so the two screens share one read.
     queryKey: scopedKey(client, "limits"),
@@ -252,7 +252,7 @@ export function OperationsLayout() {
 
 export function OperationsOverviewScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const filters = useUsageFilters();
   const { since, until } = usagePeriod(filters.days);
   const counts = useQuery({
@@ -415,7 +415,7 @@ type UsageSet = {
 
 export function OperationsUsageScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const filters = useUsageFilters();
   const period = usagePeriod(filters.days);
   const { since, until } = period;
@@ -542,7 +542,7 @@ export function OperationsUsageScreen() {
 
 export function OperationsToolsScreen() {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const filters = useUsageFilters();
   const { agent_id: agentId } = useSearch({ from: "/authed/operations/tools" });
   const { since, until } = usagePeriod(filters.days);

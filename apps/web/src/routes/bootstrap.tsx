@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ApiError, unwrap } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Button,
   Field,
@@ -93,7 +93,7 @@ const EMPTY: Form = {
 // from the answer: 409 BOOTSTRAP_DONE points the reader to log in.
 export function BootstrapScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const navigate = useNavigate();
   const [form, setForm] = useState<Form>(EMPTY);
 

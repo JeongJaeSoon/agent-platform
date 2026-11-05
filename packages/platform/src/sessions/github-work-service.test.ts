@@ -20,6 +20,7 @@ import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const SECRET_INPUT = "s3cret-input-value";
+const HEAD = "0123456789abcdef0123456789abcdef01234567";
 const principal: Principal = {
   kind: "api_key",
   id: "owner-a",
@@ -39,8 +40,17 @@ function harness(
     refuse?: GitHubGateError | ForgeCredentialError;
     fail?: GitHubCallError;
     run?: { id: number; html_url: string } | null;
+    /** The status of each successive run read; the last one repeats. */
+    statuses?: string[];
+    /** Which call never answers: the grant, the first read or a later one. */
+    hang?: "grant" | "read" | "later-read";
+    /** Fails the pull request read only; `fail` fails the writes. */
+    failRead?: GitHubCallError;
+    /** The head the forge reports; the reviewed commit by default. */
+    head?: string;
   } = {},
 ) {
+  let clock = 0;
   const works: GitHubWork[] = [];
   const calls: string[] = [];
   const receipts: GitHubGateReceipt[] = [];
@@ -60,8 +70,28 @@ function harness(
     createPullRequest: async () => {
       throw new Error("not used");
     },
-    getPullRequest: async () => {
-      throw new Error("not used");
+    getPullRequest: async (number) => {
+      calls.push(`pull ${number}`);
+      if (options.failRead) throw options.failRead;
+      return {
+        pullRequest: {
+          number,
+          url: `https://github.com/acme/app/pull/${number}`,
+          state: "open",
+          head: "agent/x",
+          headSha: ("head" in options ? options.head : HEAD) as string,
+          base: "main",
+          mergedAt: null,
+          closedAt: null,
+          title: "t",
+          mergeCommitSha: null,
+          additions: null,
+          deletions: null,
+          changedFiles: null,
+          commits: null,
+        },
+        rateLimit: {} as never,
+      };
     },
     updatePullRequestBody: async () => {
       throw new Error("not used");
@@ -82,12 +112,21 @@ function harness(
     getWorkflowRun: async (runId) => {
       calls.push(`run ${runId}`);
       fail();
+      const reads = calls.filter((call) => call.startsWith("run ")).length;
+      if (
+        (options.hang === "read" && reads === 1) ||
+        (options.hang === "later-read" && reads > 1)
+      ) {
+        return new Promise<never>(() => {});
+      }
+      const statuses = options.statuses ?? ["completed"];
+      const status = statuses[Math.min(reads, statuses.length) - 1] ?? null;
       return {
         id: runId,
         path: ".github/workflows/ci.yml",
         head_branch: "main",
-        status: "completed",
-        conclusion: "success",
+        status,
+        conclusion: status === "completed" ? "success" : null,
         html_url: `https://github.com/acme/app/actions/runs/${runId}`,
       };
     },
@@ -109,6 +148,7 @@ function harness(
   const gate: GitHubGate = {
     grant: async (work) => {
       works.push(work);
+      if (options.hang === "grant") return new Promise<never>(() => {});
       if (options.refuse) throw options.refuse;
       const grant: GitHubGrant = {
         role: "author",
@@ -166,8 +206,22 @@ function harness(
     authorization: createAuthorizationPolicy(),
     gate,
     store,
+    redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+    pollMs: 1_000,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+    now: () => clock,
   });
-  return { service, works, calls, receipts, dispatches, reviews };
+  return {
+    service,
+    works,
+    calls,
+    receipts,
+    dispatches,
+    reviews,
+    elapsedMs: () => clock,
+  };
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -333,6 +387,69 @@ describe("reading a run", () => {
     expect(works[0]?.purpose).toBe("actions_read");
   });
 
+  test("reads once and does not wait when no wait is asked for", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["in_progress"],
+    });
+    const run = await service.getRun(actor, SESSION, 7);
+    expect(run.status).toBe("in_progress");
+    expect(calls).toEqual(["run 7"]);
+    expect(elapsedMs()).toBe(0);
+  });
+
+  test("a spent budget is a deadline that has passed, not a call that never waits", async () => {
+    for (const hang of ["read", "grant"] as const) {
+      const { service } = harness({ hang });
+      const started = performance.now();
+      const error = await refusal(
+        service.getRun(actor, SESSION, 7, { waitMs: 0 }),
+      );
+      expect(error.code).toBe("BACKEND_UNAVAILABLE");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+
+  test("waits until the run completes and answers the finished run", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["queued", "in_progress", "completed"],
+    });
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 8_000 });
+    expect(run).toMatchObject({ status: "completed", conclusion: "success" });
+    expect(calls).toEqual(["run 7", "run 7", "run 7"]);
+    expect(elapsedMs()).toBe(2_000);
+  });
+
+  test("answers the last read when the run is still going at the deadline", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["in_progress"],
+    });
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 3_000 });
+    expect(run.status).toBe("in_progress");
+    // Reads at 0, 1, 2 and 3 seconds; the last one lands on the deadline.
+    expect(calls.length).toBe(4);
+    expect(elapsedMs()).toBe(3_000);
+  });
+
+  test("a first read or a grant that outlasts the deadline is cut at it", async () => {
+    for (const hang of ["read", "grant"] as const) {
+      const { service } = harness({ hang });
+      const started = performance.now();
+      const error = await refusal(
+        service.getRun(actor, SESSION, 7, { waitMs: 100 }),
+      );
+      expect(error.code).toBe("BACKEND_UNAVAILABLE");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+
+  test("a later read that outlasts the deadline is dropped and the last run answered", async () => {
+    const { service } = harness({ statuses: ["queued"], hang: "later-read" });
+    const started = performance.now();
+    const run = await service.getRun(actor, SESSION, 7, { waitMs: 100 });
+    expect(run.status).toBe("queued");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   test("a run GitHub does not have is NOT_FOUND", async () => {
     const { service } = harness({
       fail: new GitHubCallError("run", 404, null),
@@ -428,6 +545,7 @@ describe("reviewing a pull request", () => {
     ]);
     expect(calls).toEqual([
       "opener owner-a app 12",
+      "pull 12",
       `review 12 REQUEST_CHANGES ${COMMIT} ${REVIEW_BODY}`,
     ]);
     expect(receipts).toEqual([
@@ -476,6 +594,105 @@ describe("reviewing a pull request", () => {
       opened_by_session_id: "33333333-3333-4333-8333-333333333333",
     });
     expect(JSON.stringify(reviews)).not.toContain(REVIEW_BODY);
+  });
+
+  test("a head that is not the commit ends as stale_commit: no review is submitted, a failed receipt keeps no body", async () => {
+    const moved = "f".repeat(40);
+    const { service, calls, receipts, reviews } = harness({ head: moved });
+    expect(
+      await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "APPROVE",
+          commit_id: COMMIT,
+          body: REVIEW_BODY,
+        }),
+      ),
+    ).toEqual({
+      code: "GITHUB_REFUSED",
+      details: {
+        reason_code: "stale_commit",
+        receipt_id: "receipt-1",
+        head_sha: moved,
+      },
+    });
+    console.log("forge calls on a moved head:", calls);
+    expect(calls.some((call) => call.startsWith("review "))).toBe(false);
+    expect(calls).toContain("pull 12");
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      operation: "review_pull_request",
+      status: "failed",
+      result: { number: 12, commit_id: COMMIT, reason_code: "stale_commit" },
+    });
+    expect(reviews).toEqual([]);
+    expect(JSON.stringify(receipts)).not.toContain(REVIEW_BODY);
+  });
+
+  test("a failing pull request read is BACKEND_UNAVAILABLE and nothing is submitted", async () => {
+    const { service, calls } = harness({
+      failRead: new GitHubCallError("pull request read", 502, "req-3"),
+    });
+    expect(
+      (
+        await refusal(
+          service.review(actor, SESSION, 12, {
+            event: "APPROVE",
+            commit_id: COMMIT,
+          }),
+        )
+      ).code,
+    ).toBe("BACKEND_UNAVAILABLE");
+    expect(calls.some((call) => call.startsWith("review "))).toBe(false);
+  });
+
+  // A wrong head check may only fail toward not submitting.
+  const badHeads: Array<[string, string | undefined]> = [
+    ["an empty head sha", ""],
+    ["a missing head sha", undefined],
+    ["an upper-case head sha", COMMIT.toUpperCase()],
+    ["an abbreviated head sha", COMMIT.slice(0, 7)],
+    ["a head sha with trailing whitespace", `${COMMIT} `],
+  ];
+  for (const [name, head] of badHeads) {
+    test(`${name} is stale_commit and nothing is submitted`, async () => {
+      const { service, calls, reviews } = harness({ head: head as string });
+      const failure = await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "APPROVE",
+          commit_id: COMMIT,
+        }),
+      );
+      expect(failure.code).toBe("GITHUB_REFUSED");
+      expect(failure.details).toMatchObject({ reason_code: "stale_commit" });
+      expect(calls.filter((call) => call.startsWith("review "))).toEqual([]);
+      expect(reviews).toEqual([]);
+    });
+  }
+
+  test("an unexpected error from the pull request read propagates and nothing is submitted", async () => {
+    const { service, calls, reviews } = harness({
+      failRead: new TypeError("boom") as never,
+    });
+    await expect(
+      service.review(actor, SESSION, 12, {
+        event: "APPROVE",
+        commit_id: COMMIT,
+      }),
+    ).rejects.toThrow("boom");
+    expect(calls.filter((call) => call.startsWith("review "))).toEqual([]);
+    expect(reviews).toEqual([]);
+  });
+
+  test("the body goes out with mentions neutralized and a secret-shaped line redacted", async () => {
+    const { service, calls } = harness();
+    await service.review(actor, SESSION, 12, {
+      event: "COMMENT",
+      commit_id: COMMIT,
+      body: "cc @octocat, fixes acme/other#4\nghp_leaked\nplain",
+    });
+    expect(calls.at(-1)).toBe(
+      `review 12 COMMENT ${COMMIT} cc @​octocat, f​ixes acme/other#​4\n[REDACTED]\nplain`,
+    );
   });
 
   test("a pull request the platform did not open names no opener", async () => {

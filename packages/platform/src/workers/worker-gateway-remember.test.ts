@@ -1,0 +1,210 @@
+import { describe, expect, test } from "bun:test";
+import {
+  bootstrapClaimResponseSchema,
+  type PostSessionAnswerRequest,
+  pendingControlResponseSchema,
+} from "@werft-ai/contracts";
+import { z } from "zod";
+
+import { acceptAllCheckpoints } from "../ports/checkpoint-verifier.ts";
+import type { WorkerPendingStore } from "../ports/pending-requests.ts";
+import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
+import type { CatalogProfile } from "../sessions/catalog.ts";
+import { withSeededInstallation } from "../sessions/profile-registry.ts";
+import { createWorkerGateway } from "./worker-gateway.ts";
+
+const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
+const HASH = "a".repeat(64);
+const scope = {
+  session_id: SESSION,
+  turn_id: null,
+  attempt_id: "att_1",
+  lease_epoch: 1,
+  execution_generation: 1,
+  auth_revision: 0,
+};
+const principal = {
+  kind: "session",
+  attemptId: "att_1",
+  sessionId: SESSION,
+  leaseEpoch: 1,
+  executionGeneration: 1,
+  authRevision: 0,
+} as const;
+
+const profile: CatalogProfile = {
+  runtime_kind: "claude_agent_sdk",
+  runtime_version: "0.3.270",
+  model: "claude-sonnet-5",
+  tools: ["Read"],
+  permission_mode: "default",
+  repository: "optional",
+  provider: {
+    kind: "anthropic",
+    endpoint: "https://api.anthropic.invalid",
+    auth: { kind: "api_key", value: "anthropic-key", ref: { value_env: "K" } },
+  },
+};
+const catalog = withSeededInstallation({
+  profiles: { p: profile },
+  repositories: {},
+});
+
+const OFFER = [{ tool_name: "Read" }];
+
+// The schemas of a worker image from before `remember`: every object strict,
+// as they were. A field they do not know refuses the whole message.
+const oldAnswers = z.object({
+  answers: z.array(
+    z
+      .object({
+        sequence: z.number(),
+        input_hash: z.string(),
+        answer: z
+          .object({
+            request_id: z.string(),
+            kind: z.literal("permission"),
+            decision: z.enum(["allow", "deny"]),
+            reason: z.string().optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+  ),
+});
+const oldGrant = z
+  .object({
+    request_id: z.string(),
+    turn_id: z.string(),
+    tool: z.string(),
+    input_hash: z.string(),
+  })
+  .strict();
+
+function wired() {
+  const stored: PostSessionAnswerRequest = {
+    request_id: "req_1",
+    kind: "permission",
+    decision: "allow",
+    remember: "session",
+  };
+  const pending = {
+    hasUndelivered: async () => false,
+    pendingControlAtomic: async () => ({
+      outcome: "ok",
+      control: null,
+      answers: [{ sequence: 1, answer: stored, inputHash: HASH }],
+    }),
+  } as unknown as WorkerPendingStore;
+  const binding = {
+    sessionId: SESSION,
+    attemptId: "att_1",
+    profileId: "p",
+    model: profile.model,
+    githubPolicySource: "release",
+    costUsd: 0,
+    providerTokens: 0,
+    repository: null,
+    leaseEpoch: 1,
+    executionGeneration: 1,
+    authRevision: 0,
+    leaseExpiresAt: new Date("2026-09-22T00:00:30Z"),
+    leaseRemainingMs: 29_950,
+    profileFingerprint: null,
+    unmetered: false,
+    ownerScope: "owner-a",
+    restore: null,
+    restoreProfiles: [],
+    grants: [
+      {
+        request_id: "req_parked",
+        turn_id: "1",
+        tool: "Read",
+        input_hash: HASH,
+        remember_offer: OFFER,
+      },
+      { request_id: "req_plain", turn_id: "1", tool: "Read", input_hash: HASH },
+    ],
+  };
+  const work = new Proxy(
+    { claimAtomic: async () => ({ outcome: "claimed", binding }) },
+    {
+      get(target, key) {
+        if (key in target) return target[key as keyof typeof target];
+        return () => {
+          throw new Error(`not reached: ${String(key)}`);
+        };
+      },
+    },
+  ) as unknown as WorkerUnitOfWork;
+  const gateway = createWorkerGateway({
+    work,
+    catalog,
+    pending,
+    checkpoints: acceptAllCheckpoints,
+    options: {
+      sessionCostLimitUsd: 1_000,
+      sessionTokenLimit: null,
+      leaseTtlMs: 30_000,
+    },
+  });
+  const claim = (capabilities?: { approval_remember: true }) =>
+    gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        ...(capabilities === undefined ? {} : { capabilities }),
+        execution_id: "e",
+        execution_generation: 1,
+        credential: { kind: "launch_nonce", nonce: "n" },
+      },
+    );
+  const poll = (capabilities?: { approval_remember: true }) =>
+    gateway.pendingControl(principal, {
+      ...scope,
+      ...(capabilities === undefined ? {} : { capabilities }),
+      answers_after: 0,
+    });
+  return { claim, poll };
+}
+
+describe("an answer remembered for the session, across worker versions", () => {
+  test("a poll that announces approval_remember gets the answer as stored", async () => {
+    const response = await wired().poll({ approval_remember: true });
+    expect(
+      pendingControlResponseSchema.parse(response).answers[0],
+    ).toMatchObject({ answer: { decision: "allow", remember: "session" } });
+  });
+
+  test("an older poller gets the plain allow, which its strict parser takes", async () => {
+    const response = await wired().poll();
+    expect(response.answers[0]?.answer).toEqual({
+      request_id: "req_1",
+      kind: "permission",
+      decision: "allow",
+    });
+    expect(oldAnswers.safeParse(response).success).toBe(true);
+  });
+
+  test("the same response with remember is what the older parser refuses", async () => {
+    const response = await wired().poll({ approval_remember: true });
+    expect(oldAnswers.safeParse(response).success).toBe(false);
+  });
+
+  test("a claim that announces it carries the rules a parked allow keeps", async () => {
+    const claimed = bootstrapClaimResponseSchema.parse(
+      await wired().claim({ approval_remember: true }),
+    );
+    expect(claimed.grants?.map((grant) => grant.remember_offer)).toEqual([
+      OFFER,
+      undefined,
+    ]);
+  });
+
+  test("an older claimer gets grants its strict parser takes", async () => {
+    const claimed = await wired().claim();
+    expect(claimed.grants?.every((g) => !("remember_offer" in g))).toBe(true);
+    for (const grant of claimed.grants ?? []) {
+      expect(oldGrant.safeParse(grant).success).toBe(true);
+    }
+  });
+});

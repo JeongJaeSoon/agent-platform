@@ -17,7 +17,7 @@ describe("StatusDot", () => {
     expect(dot?.getAttribute("aria-hidden")).toBe("true");
     const classes = classesOf(dot);
     expect(classes).toContain("size-2");
-    expect(classes).toContain("bg-(color:--ap-color-status-dot-wait)");
+    expect(classes).toContain("bg-(color:--werft-color-status-dot-wait)");
   });
 
   test("run은 0.9초에 도는 10px 고리이고, 움직임을 줄이면 8px 점이다", () => {
@@ -30,12 +30,12 @@ describe("StatusDot", () => {
     expect(classes).toContain("border-r-transparent");
     expect(classes).toContain("border-[1.5px]");
     expect(classes).toContain(
-      "motion-reduce:border-r-(color:--ap-color-status-dot-run)",
+      "motion-reduce:border-r-(color:--werft-color-status-dot-run)",
     );
     expect(classes).toContain("motion-reduce:animate-none");
     expect(classes).toContain("motion-reduce:size-2");
     expect(classes).toContain(
-      "motion-reduce:bg-(color:--ap-color-status-dot-run)",
+      "motion-reduce:bg-(color:--werft-color-status-dot-run)",
     );
     expect(dot?.style.animationDuration).toBe("0.9s");
   });
@@ -45,7 +45,7 @@ describe("Badge", () => {
   test("기본 variant는 그대로 gray이고 점이 없다", () => {
     const { container } = render(<Badge>초안</Badge>);
     const badge = container.querySelector("[data-slot=badge]");
-    expect(classesOf(badge)).toContain("bg-(color:--ap-tone-neutral-bg)");
+    expect(classesOf(badge)).toContain("bg-(color:--werft-tone-neutral-bg)");
     expect(badge?.querySelector("[data-slot=status-dot]")).toBeNull();
     expect(badge?.textContent).toBe("초안");
   });
@@ -65,7 +65,7 @@ describe("Badge", () => {
     expect(classes).toContain("font-mono");
     expect(classes).toContain("font-normal");
     expect(classes).not.toContain("font-medium");
-    expect(classes).toContain("bg-(color:--ap-tone-neutral-bg)");
+    expect(classes).toContain("bg-(color:--werft-tone-neutral-bg)");
   });
 
   test("dot은 글자 앞에 상태 점을 두고, 이름은 글자가 맡는다", () => {

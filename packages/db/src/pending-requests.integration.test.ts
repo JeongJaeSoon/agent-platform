@@ -8,6 +8,7 @@ import type {
 import {
   createAuthorizationPolicy,
   createPendingRequestService,
+  createPushRequestService,
   createWorkerGateway,
   payloadHash,
   type SessionCatalog,
@@ -36,6 +37,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
+import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -671,6 +673,163 @@ integration("pending requests and answers on PostgreSQL", () => {
       answers: [{ question_id: "q0", selected_option_ids: ["q0o1"] }],
     });
     expect(good.receipt_status).toBe("accepted");
+  });
+
+  describe("allowing for the session", () => {
+    const offer = [{ tool_name: "Bash", rule_content: "git status:*" }];
+    const remembering = (requestId: string): PostSessionAnswerRequest => ({
+      request_id: requestId,
+      kind: "permission",
+      decision: "allow",
+      remember: "session",
+    });
+
+    test("an answer that remembers is refused for a request that offered nothing, and takes nothing", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, permission("ls"));
+      expect(
+        await failure(answer(owner, sessionId, remembering(requestId))),
+      ).toBe("BAD_REQUEST");
+      // The request is still open: a plain allow is taken.
+      const plain = await answer(owner, sessionId, {
+        request_id: requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      expect(plain.receipt_status).toBe("accepted");
+    });
+
+    test("a request that offered rules takes the answer, hands it to the worker as stored, and never lists the offer", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+
+      const listed = await service.listPendingRequests(owner, sessionId);
+      expect(JSON.stringify(listed)).not.toContain("remember_offer");
+      expect(JSON.stringify(listed)).not.toContain("git status:*");
+
+      await answer(owner, sessionId, remembering(requestId));
+      const capable = await gateway.pendingControl(worker.principal, {
+        ...worker.scope,
+        capabilities: { approval_remember: true },
+        answers_after: 0,
+        settled: [],
+      });
+      expect(capable.answers.map((item) => item.answer)).toEqual([
+        { ...remembering(requestId) },
+      ]);
+    });
+
+    test("a poll that does not announce the capability gets the plain allow", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+      await answer(owner, sessionId, remembering(requestId));
+      const old = await poll(worker);
+      expect(old.answers.map((item) => item.answer)).toEqual([
+        { request_id: requestId, kind: "permission", decision: "allow" },
+      ]);
+    });
+
+    test("displayOf says the allow was kept for the session, and a plain allow was not", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const store = createPostgresPendingRequests(db);
+      const kept = await register(worker, {
+        ...permission("git status"),
+        remember_offer: offer,
+      } as RegisterPendingRequest["request"]);
+      const once = await register(worker, permission("ls"), HASH_B);
+      await answer(owner, sessionId, remembering(kept.requestId));
+      await answer(owner, sessionId, {
+        request_id: once.requestId,
+        kind: "permission",
+        decision: "allow",
+      });
+      expect(
+        await store.displayOf(owner.ownerId, sessionId, kept.requestId),
+      ).toMatchObject({ decision: "allow", remember: "session" });
+      expect(
+        await store.displayOf(owner.ownerId, sessionId, once.requestId),
+      ).toMatchObject({ decision: "allow", remember: null });
+      expect(
+        await store.requestOutcome(owner.ownerId, sessionId, kept.requestId),
+      ).toMatchObject({ decision: "allow", remember: "session" });
+    });
+
+    // The engine's rule only lets the tool call start. Whether the push runs
+    // is the push request's own state, which a person decides.
+    test("allowing request_push for the session leaves its push request waiting for a person", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        kind: "permission",
+        tool: "mcp__github__request_push",
+        input: {},
+        remember_offer: [{ tool_name: "mcp__github__request_push" }],
+      } as RegisterPendingRequest["request"]);
+      await answer(owner, sessionId, remembering(requestId));
+      expect(
+        await createPostgresPendingRequests(db).displayOf(
+          owner.ownerId,
+          sessionId,
+          requestId,
+        ),
+      ).toMatchObject({ decision: "allow", remember: "session" });
+
+      await db
+        .update(sessions)
+        .set({ checkpointRevision: 2, repositoryId: "sample-app" })
+        .where(eq(sessions.id, sessionId));
+      // The push is requested through the platform's own service on the real
+      // store, as the request_push tool does.
+      const pushes = createPostgresPushRequests(db);
+      const service = createPushRequestService({
+        authorization: createAuthorizationPolicy(),
+        store: pushes,
+        catalog: {
+          profiles: {},
+          repositories: {
+            "sample-app": {
+              url: "https://example.invalid/app.git",
+              branch: "main",
+              profiles: ["claude-coding-v1"],
+            },
+          },
+        },
+        source: {
+          readPushSource: async () => ({
+            status: "ready",
+            revision: 2,
+            gitCommit: "b".repeat(40),
+          }),
+        },
+      });
+      const created = await service.create(
+        {
+          caller: owner,
+          principal: {
+            kind: "api_key",
+            id: owner.ownerId,
+            owner_id: owner.ownerId,
+            workspace_id: null,
+            scopes: ["sessions:write"],
+          },
+          ownerId: owner.ownerId,
+          verified: true,
+        },
+        sessionId,
+        { idempotencyKey: crypto.randomUUID() },
+      );
+      expect(created).toMatchObject({
+        state: "requested",
+        resolved_by: null,
+      });
+      // Nothing is approved, so the pusher has nothing to claim.
+      expect(await pushes.claimNextApproved(60_000)).toBeNull();
+    });
   });
 
   test("a request past its expiry, or one the worker gave up on, is REQUEST_EXPIRED", async () => {

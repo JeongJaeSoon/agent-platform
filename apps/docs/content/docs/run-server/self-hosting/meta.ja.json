@@ -1,0 +1,4 @@
+{
+  "title": "セルフホスティング",
+  "pages": ["index", "single-server", "kubernetes", "upgrade", "operate"]
+}

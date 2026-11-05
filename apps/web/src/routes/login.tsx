@@ -6,7 +6,7 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { type ApiError, CSRF_HEADER_VALUE, unwrap } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Button,
   Field,
@@ -69,7 +69,7 @@ const NOTICE_KEY = {
 
 export function LoginScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
@@ -156,7 +156,7 @@ export function LoginScreen() {
  */
 function GoogleChoice({ redirect }: { readonly redirect: string | undefined }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const { leave } = useAppServices();
   const methods = useQuery(loginMethodsQuery(client));
 

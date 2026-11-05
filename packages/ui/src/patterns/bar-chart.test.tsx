@@ -104,7 +104,7 @@ describe("BarChart", () => {
     expect(partial.dataset.partial).toBe("true");
     const mark = partial.firstElementChild as HTMLElement;
     expect(mark.className.split(" ")).toContain(
-      "group-data-active:[--ap-chart-mark:var(--ap-chart-mark-active)]",
+      "group-data-active:[--werft-chart-mark:var(--werft-chart-mark-active)]",
     );
   });
 

@@ -63,6 +63,7 @@ import {
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
+import { until } from "./until.ts";
 
 /**
  * A drain park carried on end to end in one process: a real SIGTERM parks
@@ -138,20 +139,6 @@ function capturing(
       };
     },
   };
-}
-
-async function until<T>(
-  read: () => Promise<T | undefined>,
-  label: string,
-  timeoutMs = 10_000,
-): Promise<T> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    const value = await read();
-    if (value !== undefined) return value;
-    await Bun.sleep(20);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }
 
 integration(

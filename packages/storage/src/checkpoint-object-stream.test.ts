@@ -16,9 +16,9 @@ import {
   localstackEnabled,
   withLocalstackBucket,
 } from "@werft-ai/testkit/localstack";
-
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import { type BodyReadBounds, DEFAULT_BODY_READ_BOUNDS } from "./s3.ts";
+import { listen } from "./testing/listen.ts";
 
 const KEY = "sessions/s1/checkpoints/0000000000/a/p/workspace.bundle";
 
@@ -373,15 +373,4 @@ function encode(text: string): Uint8Array {
 
 function decode(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
-}
-
-async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Test peer did not bind a port");
-  }
-  return `http://127.0.0.1:${address.port}`;
 }

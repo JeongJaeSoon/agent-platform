@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "@werft-ai/client";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { FieldError, SettingRow, Switch, Text } from "@werft-ai/ui";
 import { useState } from "react";
 import { useManagesAgent } from "../../../components/agent-access.tsx";
@@ -12,7 +12,7 @@ import { dmOn, slackFailure, slackReason } from "./shared.ts";
 
 export function SlackDmSetting({ agentId }: { readonly agentId: string }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
   const key = [...slackKey(client, agentId), "bindings"];
@@ -87,7 +87,7 @@ export function SlackMentionOnly({
   readonly notify: Notify;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const cache = useQueryClient();
   const manages = useManagesAgent();
   const settings = useSlackSettings(agentId);

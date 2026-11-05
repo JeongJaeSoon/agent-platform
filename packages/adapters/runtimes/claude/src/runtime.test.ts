@@ -375,6 +375,86 @@ describe("Claude SDK adapter options", () => {
     expect(callbackCount).toBe(1);
   });
 
+  test("canUseTool hands the host only the allow rules it may offer, and none when the engine proposed none", async () => {
+    const seen: (readonly unknown[] | undefined)[] = [];
+    const options = buildSdkOptions(config, {
+      onPermission: async (request) => {
+        seen.push(request.suggestedRules);
+        return { behavior: "allow" };
+      },
+    });
+    const canUseTool = options.canUseTool;
+    if (canUseTool === undefined) throw new Error("canUseTool is required");
+    const ask = (suggestions: unknown) =>
+      canUseTool("Read", { file_path: "a" }, {
+        requestId: "request-1",
+        signal: new AbortController().signal,
+        toolUseID: "tool-1",
+        suggestions,
+      } as Parameters<typeof canUseTool>[2]);
+
+    await ask([
+      {
+        type: "addRules",
+        behavior: "allow",
+        destination: "projectSettings",
+        rules: [{ toolName: "Read" }],
+      },
+      { type: "setMode", mode: "bypassPermissions", destination: "session" },
+      {
+        type: "replaceRules",
+        behavior: "allow",
+        destination: "session",
+        rules: [{ toolName: "Read" }],
+      },
+    ]);
+    await ask(undefined);
+    expect(seen).toEqual([[{ toolName: "Read" }], undefined]);
+  });
+
+  test("canUseTool offers no session rule that misses the call or that the engine marks too broad", async () => {
+    const seen: (readonly unknown[] | undefined)[] = [];
+    const options = buildSdkOptions(
+      { ...config, tools: ["Bash"] },
+      {
+        onPermission: async (request) => {
+          seen.push(request.suggestedRules);
+          return { behavior: "allow" };
+        },
+      },
+    );
+    const canUseTool = options.canUseTool;
+    if (canUseTool === undefined) throw new Error("canUseTool is required");
+    const ask = (
+      command: string,
+      ruleContent: string,
+      extra: Record<string, unknown> = {},
+    ) =>
+      canUseTool("Bash", { command }, {
+        requestId: "request-1",
+        signal: new AbortController().signal,
+        toolUseID: "tool-1",
+        suggestions: [
+          {
+            type: "addRules",
+            behavior: "allow",
+            destination: "localSettings",
+            rules: [{ toolName: "Bash", ruleContent }],
+          },
+        ],
+        ...extra,
+      } as Parameters<typeof canUseTool>[2]);
+
+    await ask("echo alpha > hello.txt", "echo alpha *");
+    await ask("touch a.txt", "touch a.txt");
+    await ask("touch a.txt", "touch a.txt", { suppressAlwaysAllowRule: true });
+    expect(seen).toEqual([
+      undefined,
+      [{ toolName: "Bash", ruleContent: "touch a.txt" }],
+      undefined,
+    ]);
+  });
+
   test("the PreToolUse gate admits tools into the ledger and refuses them under a checkpoint lease", async () => {
     const ledger = new TurnLedger("s1");
     const options = buildSdkOptions(
@@ -389,7 +469,7 @@ describe("Claude SDK adapter options", () => {
         callback(
           {
             hook_event_name: event,
-            tool_name: "Bash",
+            tool_name: "Read",
             tool_input: {},
             tool_use_id: toolUseId,
           } as never,
@@ -568,6 +648,41 @@ describe("Claude SDK adapter options", () => {
     ).toMatchObject({
       hookSpecificOutput: { permissionDecision: "deny" },
     });
+  });
+
+  // A session rule lets the engine pass a call without asking canUseTool, so
+  // the hook is the only place the allowlist can still bind in these modes.
+  test("default, acceptEdits and plan keep the allowlist in the hook", async () => {
+    for (const permissionMode of ["default", "acceptEdits", "plan"] as const) {
+      const ledger = new TurnLedger("s1");
+      const options = buildSdkOptions(
+        { ...config, permissionMode },
+        { onPermission: async () => ({ behavior: "allow" }) },
+        ledger,
+      );
+      const pre = options.hooks?.PreToolUse?.[0]?.hooks[0];
+      if (pre === undefined) throw new Error("PreToolUse hook is required");
+      const call = (tool: string, toolUseId: string) =>
+        pre(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: tool,
+            tool_input: {},
+            tool_use_id: toolUseId,
+          } as never,
+          toolUseId,
+          { signal: new AbortController().signal },
+        );
+      expect(await call("Bash", "toolu_1")).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: "Tool is outside the server allowlist",
+        },
+      });
+      expect(ledger.prepareCheckpoint().status).toBe("ready");
+      expect(await call("Read", "toolu_2")).toEqual({});
+    }
   });
 
   test("other modes leave the skip off", () => {

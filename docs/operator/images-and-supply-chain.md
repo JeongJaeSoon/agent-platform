@@ -6,6 +6,8 @@
 
 앱 이미지는 `apps/{control-host,worker,egress-proxy}/Dockerfile` 셋이 정의한다. 셋 다 저장소 루트를 context로 `oven/bun:1.3.14`의 multi-arch index digest 하나를 base로 pin한다(`tests/images.test.ts`가 digest 일치를 검사). control-host 이미지 하나가 api·scheduler·reconciler 세 role을 모두 돌린다 — compose에서는 `api`만 빌드하고 scheduler·reconciler는 같은 `API_IMAGE`를 쓴다. 같은 태그를 두 서비스가 함께 빌드하면 export가 경합하기 때문이다. control-host·worker는 `bun install --frozen-lockfile --production`으로 workspace closure만 설치한 뒤 runtime stage로 복사하고, egress-proxy는 `bun install` 없이 자기 소스만 담은 한 stage다.
 
+게시하는 target은 `release`이고 Dockerfile의 마지막 stage라 기본 target이다. images.yml이 `target: release`로 빌드한다. 게시 이미지에는 테스트 소스(`*.test.ts(x)`, `*.stories.*`, `src/testing`, `src/test-support`, `__fixtures__`, `bench`), `apps/storybook`, `packages/testkit`, 데모 계정 CLI(`demo-accounts.ts`·`demo-data.ts`)가 없다. 설치(`bun install --frozen-lockfile`)가 끝난 뒤 `scripts/image-prune.sh --delete`가 지우므로 workspace manifest는 그대로 고정된다. `image-smoke.sh`가 이미지를 열어 같은 목록과 이름 목록을 세고, 하나라도 있으면 실패한다. control-host에는 `local` target이 따로 있다. `release`에 testkit과 데모 CLI를 다시 얹은 것이고, 게시하지 않는다. `scripts/local.sh`(compose)와 `deploy/kind/up.sh`가 이 target으로 빌드한다. 게시 이미지에서 `DEMO_ACCOUNTS=local`로 데모 CLI를 부르면 파일이 없어 `Module not found`로 실패한다.
+
 digest pin은 Bun 버전과 함께 베이스의 Debian 패키지도 고정한다. oven/bun은 발행한 tag를 다시 빌드하지 않아서, 2026-09-25 기준 `oven/bun:1.3.14`의 마지막 빌드는 2026-05-13이다. 그래서 세 이미지의 배포 stage는 `apt-get upgrade`로 Debian 보안 수정을 올린다. Bun을 올리지 않고 수정을 받는 방법이 이것뿐이기 때문이다. 대가는 재현성이다. 같은 commit이라도 빌드한 날에 따라 Debian 패키지 버전이 다를 수 있다. 배포한 것은 release manifest가 image digest로 고정하고, 빌드마다 images.yml의 라이선스 대조와 Grype 검사가 그 이미지를 본다. layer cache는 `APT_UPGRADE_KEY` build arg가 가른다. images.yml은 UTC 날짜를 넘기고, 로컬 compose 빌드는 빈 값이라 한 번 만든 upgrade layer를 계속 쓴다. 로컬에서 새 수정을 받으려면 `--build-arg APT_UPGRADE_KEY=$(date -u +%F)`나 `--no-cache`로 빌드한다.
 
 | 이미지 | 내용 | 실행 주체 |
@@ -28,44 +30,89 @@ compose 진입 파일은 `infra/compose.yml`, 복원용 layer는 `infra/compose.
 
 같은 daemon에 두 설치를 올리면 `EXECUTION_INSTALLATION_ID`를 설치마다 다르게 준다. compose의 `egress-proxy` label은 이 값을 따르므로 설치마다 자기 proxy가 붙는다. 다른 worktree의 compose project가 기본 포트를 잡고 있으면 `-p <name>`과 `ports: !override` override 파일로 분리한다.
 
-`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 빌드하고 worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>` artifact로 남긴다. 게시는 `main` push와 `v*` tag push에서만 일어난다. `main` push는 아래 [main 머지마다 게시되는 이미지](#main-머지마다-게시되는-이미지)를 본다. `v*` tag의 **push 이벤트**에서는(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`promote` job이 `ghcr.io/jeongjaesoon/werft-<app>`으로 게시한다. package write 권한은 게시 job만 가진다. 두 job은 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시키고, `promote`가 세 digest가 모두 통과한 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 staged artifact가 남아 있는 동안 **같은 run의 "Re-run failed jobs"**로 채운다(publish job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 커밋하는 소비자용 release manifest는 아직 없고, 그 전까지는 초록 run의 `image-digests-published` artifact가 세트의 기록이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
+`.github/workflows/images.yml`은 PR·main push마다 세 이미지를 `linux/amd64`와 `linux/arm64`로, 아키텍처마다 그 아키텍처의 runner에서 빌드한다. worker에서 `claude --version`이 2.1.270인지, api·scheduler에 `@anthropic-ai`가 없는지 확인한 뒤 digest JSON을 `image-digest-<app>-<arch>` artifact로 남긴다. 게시는 `main` push와 `v*` tag push에서만 일어난다. `main` push는 아래 [main 머지마다 게시되는 이미지](#main-머지마다-게시되는-이미지)를 본다. `v*` tag의 **push 이벤트**에서는(`workflow_dispatch`는 어떤 ref든 지정할 수 있어 이벤트도 본다) `publish`·`index`·`promote` job이 `ghcr.io/jeongjaesoon/werft-<app>`으로 게시한다. package write 권한은 게시 job만 가진다. 세 job은 `release` environment에서 돌고, tag가 가리키는 commit이 `main`의 조상이 아니면 실패한다(tag는 리뷰가 아니다). `publish`는 이미지·아키텍처마다 run 전용 staging tag로 push한 뒤 그 digest를 pull해 같은 smoke(`.github/scripts/image-smoke.sh`)를 통과시킨다. `sources`는 여섯 이미지의 Debian 소스가 snapshot.debian.org에 있는지 묻는다. package write도 environment도 없다. `index`는 이미지마다 두 digest를 index 하나로 묶어 run 전용 staging tag에 올리고, index가 정확히 그 두 digest를 가리키는지 확인한다. `promote`는 세 index가 준비된 뒤에야 `vX`·`sha-…` tag로 retag한다(registry-side, 재빌드 없음). 이 run의 staged index digest가 release candidate다. 기존 tag가 다른 digest를 가리키면 아무 tag도 쓰기 전에 실패하고(한 버전이 두 build attempt의 이미지로 섞이지 않는다), 조회 자체가 실패하면(인증·rate limit·5xx) "없음"으로 보지 않고 중단한다(fail-closed). tag를 쓴 뒤 여섯 reference(세 이미지 × 두 tag)를 다시 읽어 candidate와 같을 때만 `image-digests-published` artifact를 만든다. retag는 저장소별로 순서대로 일어나므로 중간에 실패하면 세트가 반만 tag된 채 남는다 — 그때는 staged artifact가 남아 있는 동안 **같은 run의 "Re-run failed jobs"**로 채운다(publish·index job은 다시 돌지 않아 staged artifact와 digest가 그대로다). tag를 다시 push하면 새 build(worker의 apt layer는 pin되지 않는다)라 거부된다. 세 digest를 한 번에 담는 소비자용 기록은 태그의 GitHub Release에 붙는 [`release-manifest.json`](#릴리스-manifest-읽기)이다. `release` environment의 required reviewer·deployment branch 규칙은 저장소 설정에서 건다. registry CD는 아직 없다.
 
 ### main 머지마다 게시되는 이미지
 
-`main` push run의 `publish-main`·`promote-main` job이 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `<12>`는 commit SHA의 앞 12자다. namespace는 `github.repository_owner`에서 나온다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
+`main` push run의 `publish-main`·`index-main`·`promote-main` job이 세 이미지를 `ghcr.io/jeongjaesoon/werft-<app>:main-<12>`로 게시한다. `<12>`는 commit SHA의 앞 12자다. namespace는 `github.repository_owner`에서 나온다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
 
-- **검사.** 두 job은 태그 경로의 `publish`·`promote`와 같은 step을 돈다. `build`와 `supply-chain`이 통과한 뒤 다시 빌드해 run 전용 staging tag로 push하고, 그 digest로 smoke, 라이선스 대조, Grype 검사를 돌린다. 세 digest가 모두 통과해야 `main-<12>`로 retag한다(재빌드 없음). `release` 승인은 받지 않는다. 머지가 리뷰이기 때문이다.
+- **검사.** 이 job들과 `sources-main`은 태그 경로의 `publish`·`sources`·`index`·`promote`와 같은 step을 돈다. `build`와 `supply-chain`이 통과한 뒤 이미지·아키텍처마다 다시 빌드해 run 전용 staging tag로 push하고, 그 digest로 smoke, 라이선스 대조, Grype 검사를 돌린다. 여섯 digest가 모두 통과하고 `sources-main`이 끝나야 index를 묶어 `main-<12>`로 retag한다(재빌드 없음). `release` 승인은 받지 않는다. 머지가 리뷰이기 때문이다.
 - **`main-<12>`는 digest로 쓴다.** 태그는 commit을 찾는 데만 쓰고, 배포에는 `name@sha256:…`를 적는다. 움직이는 태그는 없다. `sha-<12>`는 `v*` 게시의 태그이고 main 게시는 쓰지 않는다.
 - **digest를 읽는다.** 공개 패키지는 GitHub 로그인 없이 태그에서 읽는다. 세 태그는 저장소별로 차례로 쓰이므로, 세 조회가 모두 성공해야 한 세트다.
 
   ```bash
   TAG="main-$(git rev-parse HEAD | cut -c1-12)"   # 배포할 commit의 checkout에서
   for app in control-host worker egress-proxy; do
-    docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{json .Manifest.Digest}}'
+    digest="$(docker buildx imagetools inspect "ghcr.io/jeongjaesoon/werft-${app}:${TAG}" --format '{{.Manifest.Digest}}')"
+    echo "werft-${app}@${digest}"
   done
   ```
 
-  GitHub에 로그인할 수 있으면 초록 run의 `image-digests-published` artifact에서 세 digest를 함께 읽어도 된다. 이미지마다 JSON 하나이고, worker의 `runtime`은 여기에만 있다. 같은 내용이 run의 job summary에도 남는다. artifact는 보존 기간이 지나면 사라진다.
-
-  ```bash
-  jq -r '"\(.image)@\(.digest)"' image-digests-published/*.json
-  ```
+  이 digest는 두 아키텍처를 담는 index의 digest다. `main` 머지는 Release를 만들지 않는다. 릴리스(`v*` 태그)의 세 digest는 [릴리스 manifest](#릴리스-manifest-읽기)에서 읽는다.
 
 - **덮어쓰지 않는다.** 쓰기 전에 세 태그를 모두 조회해, 태그가 이미 다른 digest를 가리키면 아무 태그도 쓰지 않고 실패한다. 같은 digest면 재실행으로 보고 통과한다. 조회가 "없음" 외의 이유로 실패하면 중단한다. 같은 run을 전체 재실행하면 다시 빌드하므로 digest가 달라질 수 있고, 그때는 거부되어 먼저 올린 이미지가 그대로 남는다. 세트가 반만 태그됐을 때는 staged artifact가 남아 있는 동안 "Re-run failed jobs"로 같은 digest를 채운다.
-- **`main-<12>`는 릴리스가 아니다.** 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. snapshot.debian.org가 답하지 않은 소스는 경고로 넘기고, 그 목록을 run의 job summary와 `image-digests-published` JSON의 `unverifiedSources`에 남긴다. 빈 배열은 모두 확인됐다는 뜻이고, 필드가 없는 옛 JSON은 기록이 없다는 뜻이다. 답하지 않은 소스가 실제로 없을 가능성은 남는다. 공식 릴리스(`v*` 태그)는 모든 소스의 보관을 확인해야 게시된다.
+- **`main-<12>`는 릴리스가 아니다.** 대응 소스 보관을 일부 확인하지 못한 채 나갈 수 있다. `sources-main`은 여섯 이미지의 소스를 합쳐 한 번만 묻고, 답을 못 받은 소스를 10분까지 다시 묻는다. 그래도 답하지 않은 소스는 경고로 넘기고, 그 목록을 run의 job summary와 `image-digests-published` JSON의 `unverifiedSources`에 남긴다. 빈 배열은 모두 확인됐다는 뜻이고, 필드가 없는 옛 JSON은 기록이 없다는 뜻이다. 답하지 않은 소스가 실제로 없을 가능성은 남는다. 공식 릴리스(`v*` 태그)는 모든 소스의 보관을 확인해야 게시된다. `sources`는 30분까지 묻고, 그래도 남으면 실패한다. 이때는 서비스가 돌아온 뒤 "Re-run failed jobs"로 그 job만 다시 돌린다.
 - **게시되지 않는 commit이 있다.** 재검사에서 수정판 있는 high·critical이 나오거나, 취약점 검사가 답을 못 받거나, snapshot.debian.org가 소스가 없다고 답하면 그 commit은 게시되지 않고 Images run이 빨갛게 끝난다. 필수 check는 아니므로 머지는 막지 않고, 다음 머지가 새 세트를 올린다. 머지가 1초 안에 이어져 한 push로 묶인 commit은 run이 없어서 태그도 없다.
-- **아키텍처.** 태그 경로와 같이 `linux/amd64`만 게시한다.
-- **받기.** 패키지가 비공개이면 `docker login ghcr.io`가 먼저다.
+- **아키텍처.** 태그 경로와 같이 `linux/amd64`와 `linux/arm64`를 담는 index로 게시한다. 두 아키텍처가 모두 smoke, 라이선스 대조, Grype 검사를 통과해야 하고, 한쪽이 실패하면 그 commit은 게시되지 않는다. 이 방식 이전의 `main-<12>`는 `linux/amd64`뿐이다.
+- **받기.** index의 digest로 받으면 Docker가 호스트의 아키텍처를 고른다. 패키지가 비공개이면 `docker login ghcr.io`가 먼저다.
+
+  ```bash
+  docker pull "ghcr.io/jeongjaesoon/werft-worker@<위에서 읽은 digest>"
+  ```
 
 ### 저장소 관리자: `v*` 태그로 게시
 
 이 절은 저장소에 태그를 push할 권한이 있는 관리자의 절차다. 설치하는 운영자는 태그를 달지 않고 [게시된 이미지](test-ops.md#게시된-이미지를-쓸-때)를 쓴다.
 
-지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다. 게시 job은 `platforms`를 지정하지 않아 `linux/amd64` 이미지만 만든다. Helm chart를 게시하는 경로는 없다.
+지금까지 `v*` 태그를 단 적이 없어 이 경로는 한 번도 실행되지 않았다.
 
-1. `main`의 검증된 commit에 `v*` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다.
-2. `publish`·`promote` job이 `release` environment 승인을 받고 끝나는지 본다.
-3. 초록 run의 `image-digests-published` artifact에서 세 이미지의 digest를 읽는다.
+1. `main`의 검증된 commit에 `vX.Y.Z` 또는 `vX.Y.Z-<프리릴리스>` 태그를 push한다. 그 commit이 `main`의 조상이 아니면 게시 job이 실패한다. 다른 꼴의 태그(`v1`, `v1.2.3+build`)는 이미지만 나가고 `chart` job에서 실패한다.
+2. `publish`·`index`·`promote`·`chart-publish` job이 `release` environment 승인을 받고 끝나는지 본다. 승인은 이 순서로 따로 네 번 요청된다. `publish`와 `index` 사이의 `sources`는 승인 없이 돌고 30분까지 걸릴 수 있다.
+3. `chart-publish`가 끝나면 `release` job이 태그의 GitHub Release를 만들고 `release-manifest.json`을 붙인다. 이 job은 승인을 따로 받지 않는다. 앞선 네 번의 승인이 이미 지났고, `contents: write`는 이 job만 가진다. Release는 draft로 만들어 manifest를 올리고 다시 읽어 본 뒤에야 공개한다. [릴리스 manifest 읽기](#릴리스-manifest-읽기)의 명령으로 digest와 chart 버전을 확인한다.
+4. 같은 태그를 "Re-run failed jobs"로 다시 돌려도 안전하다. 이미 붙은 manifest와 내용이 같으면 통과하고, 다르면 실패하며 덮어쓰지 않는다. Release 생성이나 업로드가 중간에 끊겼으면 같은 방법으로 마저 채운다. 이미지가 같은 태그로 다시 빌드돼 digest가 달라지는 경우는 `promote`가 먼저 거부한다.
+
+릴리스 뒤에는 `Chart.yaml`의 `version`을 다음 버전으로 올린다. `main` chart 버전은 이 값 뒤에 붙으므로, 그래야 프리릴리스가 방금 낸 릴리스보다 뒤로 정렬된다.
+
+### 릴리스 manifest 읽기
+
+`v*` 태그마다 GitHub Release가 하나 생기고, 파일 `release-manifest.json`이 붙는다. 운영자는 run이나 artifact를 찾지 않는다. 저장소 checkout도 필요 없고 `gh`와 `jq`면 된다. 아직 `v*` 태그를 단 적이 없어 Release는 없다. 아래 `TAG`는 Release가 생긴 뒤의 태그다.
+
+```bash
+TAG=v0.1.0   # 읽을 릴리스 태그
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # 태그마다 디렉터리 하나
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # 배포에 쓰는 세 digest
+jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart 위치와 버전
+helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(jq -r .chart.version "$TAG/release-manifest.json")"
+```
+
+저장소가 공개이므로 `gh` 없이 `mkdir -p "$TAG" && curl -fsSL -o "$TAG/release-manifest.json" "https://github.com/JeongJaeSoon/werft/releases/download/$TAG/release-manifest.json"`으로도 받는다. 레지스트리와 대조하려면 digest 하나를 `docker buildx imagetools inspect <이미지>@<digest>`에 넣는다.
+
+| 필드 | 값 |
+|---|---|
+| `schema` | manifest 형식 버전. 지금은 `1` |
+| `tag`, `commit` | 릴리스 태그와 그 commit(40자 hex) |
+| `images.<app>.image` | `ghcr.io/<owner>/werft-<app>`. `<app>`은 `control-host`, `worker`, `egress-proxy` |
+| `images.<app>.digest` | 두 아키텍처를 담는 index의 digest. 배포는 이 값으로 고정한다 |
+| `images.<app>.platforms.amd64`, `.arm64` | 그 아키텍처의 manifest digest |
+| `workerRuntime` | worker 이미지가 담은 Claude 실행 환경(`engine`, `sdkVersion`, `cliVersion`, `profileDigestScheme`) |
+| `chart.name`, `chart.version`, `chart.appVersion`, `chart.ref` | 같은 run이 게시한 chart. `chart.ref`는 `oci://` 위치 |
+
+값은 `promote`가 레지스트리에서 다시 읽어 확인한 digest와, `chart-publish`가 로그인 없이 읽어 확인한 chart에서 온다. manifest를 만들 때 chart 패키지의 `Chart.yaml`·`values.yaml`이 같은 digest와 버전을 담는지도 대조한다. 한번 붙은 manifest는 바뀌지 않는다. 같은 태그를 다시 돌려 다른 내용이 나오면 job이 실패한다.
+
+설치하는 운영자는 이 manifest에서 [test-ops release manifest](test-ops.md#release-manifest)의 이미지 줄을 얻는다.
+
+### Helm chart 게시
+
+이미지 promote가 끝나면 같은 run이 chart `werft`를 `oci://ghcr.io/jeongjaesoon/werft`로 게시한다. 경로는 `main` push(`chart-main`, `chart-publish-main`)와 `v*` 태그 push(`chart`, `chart-publish`) 둘이고 step은 같다. schedule, pull request, `workflow_dispatch` run은 게시하지 않는다.
+
+- **버전.** 태그 `v1.2.3`은 chart `1.2.3`, appVersion `v1.2.3`이다. `main`은 `<Chart.yaml version>-main-<12>`, appVersion `main-<12>`다. `-main.<12>`가 아닌 이유는 12자리가 전부 숫자이고 0으로 시작하면 semver가 아니어서 helm이 거부하기 때문이다.
+- **값.** `.github/scripts/chart-package.ts`가 그 run의 `image-digests-published`에서 세 digest와 worker runtime을 읽어 패키지 안 `values.yaml`에 넣는다. 세 앱이 정확히 한 번씩, 이 commit의 promote된 이미지이고 repository가 chart 기본값과 같아야 한다. 저장소의 `values.yaml`은 그대로다. 같은 값을 `chart` artifact의 `werft-<version>.values.yaml`에도 남긴다. 운영자는 artifact 없이 `helm show values`로 읽는다. digest는 index의 digest다. worker runtime은 아키텍처와 무관한 값이고, 두 아키텍처의 값이 다르면 `index`가 멈춘다. worker 비교는 digest가 아니라 이 값을 보므로, 단일 manifest로 게시된 chart에서 index chart로 올려도 digest 값만 바뀌고 재설치 동작은 그대로다.
+- **검사.** `chart` job은 세 index와 그 아키텍처별 manifest를 로그인 없이 조회하고, 패키지를 amd64 kind에 설치해 `/readyz`와 `/docs`가 200일 때만 패키지를 넘긴다. arm64는 `publish`의 smoke와 이 조회까지 확인하고, kind 설치는 하지 않는다. 빈 설치는 worker를 띄우지 않으므로 worker는 조회까지만 확인한다. package write 권한은 없다. pull request에서는 `helm-chart` job의 `render-check.ts`가 fixture digest로 패키지를 만들어 렌더한다.
+- **게시.** package write는 `chart-publish`·`chart-publish-main`만 가진다. 태그 경로의 `chart-publish`는 `release` environment를 받고, `main` 경로는 받지 않는다. 이미지 게시가 실패한 run에서는 chart 단계가 돌지 않는다.
+- **덮어쓰지 않는다.** `.github/scripts/chart-push.sh`는 같은 버전이 이미 있으면 받아서 풀린 파일을 후보와 비교한다. 같으면 재실행으로 보고 push하지 않고, 다르면 실패한다. 조회가 "없음"을 확인하지 못하면 중단한다. `denied`는 없는 패키지에 ghcr가 줄 수 있는 답이라, 로그인 없는 조회도 `denied`일 때만 없음으로 본다.
+- **읽기 확인.** push 뒤 Helm과 Docker의 로그인 정보를 모두 비운 상태로 받아 후보와 비교하고 `helm show chart`를 찍는다. 패키지가 비공개로 생겼으면 여기서 run이 빨갛게 끝난다. 공개 범위는 패키지 설정에서 저장소 관리자가 바꾼다.
+- **라이선스.** chart는 저장소와 같은 PolyForm Small Business License 1.0.0을 따른다.
 
 ### worker 안에서 만든 commit의 작성자
 
@@ -112,7 +159,7 @@ USER 1000:1000
 
 `scripts/test-ops.sh upgrade`에서 worker 이미지가 바뀌면 새 이미지의 engine·SDK·CLI·profile digest로 각 현재 checkpoint의 restore plan을 계산한다. 네 값이 모두 같아 호환되는 세션은 승인 없이 이어지고, `INCOMPATIBLE_CHECKPOINT`인 세션만 사용자에게 알리고 정확한 목록을 승인받는다. 검사를 끝까지 돌릴 수 없거나 다른 검증 실패가 섞이면 미수거 checkpoint가 있는 세션 전부를 영향 목록으로 삼는 fail-closed 동작을 하고 로그에 남긴다. writer를 멈춘 뒤에도 같은 검사를 다시 한다. 불호환 세션에 `start_fresh`를 선택하면 이전 checkpoint의 context를 버린다. Kubernetes(helm) 설치에서는 pre-upgrade hook이 같은 판정을 이미지를 실행하지 않고 포인터의 조합으로 한다([kubernetes-deployment.md § 업그레이드 전 검사](kubernetes-deployment.md#업그레이드-전-검사)).
 
-worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(`$TEST_OPS_STATE_DIR/previous-worker`). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([configuration.md § scheduler·worker 컨테이너·egress 설정](configuration.md#schedulerworker-컨테이너egress-설정)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(`apps/worker/src/image-runtime.ts`가 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다.
+worker 이미지가 바뀌면 upgrade는 바뀌기 전 이미지를 직전 이미지로 남긴다(`$TEST_OPS_STATE_DIR/previous-worker`). scheduler는 세션마다 checkpoint 포인터의 조합(engine·SDK·CLI·profile digest scheme)과 같은 이미지를 현재·직전 중에서 고르고, 둘 다 맞으면 현재 이미지를 쓴다([configuration.md § scheduler·worker 컨테이너·egress 설정](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/configuration/#schedulerworker-컨테이너egress-설정)). 그래서 게이트는 새 이미지로 복원할 수 없는 세션 가운데 직전 이미지로도 복원할 수 없는 세션만 영향 목록에 올린다. 새 이미지와 직전 이미지 가운데 어느 한쪽의 검사라도 fail-closed로 끝나면 새 이미지 기준 목록을 그대로 쓴다. 같은 조합으로 다시 빌드한 이미지라면 scheduler는 새 이미지로 띄우므로, 새 이미지로 복원된다고 확인하지 못한 세션은 직전 이미지가 복원하더라도 목록에서 빼지 않는다. 어느 한쪽이 자기 조합을 출력하지 못하는 옛 이미지면(`apps/worker/src/image-runtime.ts`가 없는 빌드) 직전 이미지를 쓰지 않고, 게이트도 새 이미지 기준 목록을 그대로 쓴다. 지원 창은 한 릴리스다. 한 번 더 업그레이드하면 그 전 이미지에 남은 세션이 다시 영향 목록에 오른다.
 
 SDK를 올리는 릴리스는 예시 설정 문서(`tests/fixtures/settings/`)의 `runtime_version`도 함께 올리고, 운영 설치의 상한은 새 버전으로 저장한다. 현재 이미지가 싣지 않은 `runtime_version`의 profile은 새 세션을 받지 않는다. 같은 릴리스에 새 엔진 조합의 내장 도구 지원 목록(`packages/adapters/runtimes/claude-codec/src/tool-catalog.ts`)도 넣는다. 목록이 없는 버전의 상한은 `deny`로 만들 수 없다. 새 목록에 생긴 도구는 각 상한의 새 버전에서 막힌 채 이어지고, `accept_added_tools`로 받아들여야 열린다([api-server.md](api-server.md#운영자-카탈로그-agent-profile--repository)). Kubernetes(helm) 설치의 배포 순서와 변경별 세션 동작은 [kubernetes-deployment.md § 업그레이드와 롤백](kubernetes-deployment.md#업그레이드와-롤백)에 있다.
 
@@ -174,6 +221,7 @@ worker가 보내는 worker protocol 필드를 새로 더할 때도 API가 먼저
 | 필드 | 먼저 배포 | 옛 API를 만난 새 worker |
 |---|---|---|
 | pending-control 요청 `settled[].reason`·`settled[].answer_result` | API | `worker.pending.settlement_detail_refused` 경고를 한 번 남기고, 그 attempt가 끝날 때까지 `outcome`만 보낸다. receipt는 예전 규칙대로 정산되고 `pending_requests.settled_reason`·`settled_answer_result`는 비어 있다 |
+| bootstrap-claim·pending-control 요청 `capabilities`, register-pending 요청 `remember_offer` | API | 호환 재시도가 없다. 새 worker의 첫 요청인 bootstrap-claim이 400 `BAD_REQUEST`(재시도 불가)로 거절되면 worker는 오류로 끝나고 turn을 하나도 돌리지 않는다. API만 되돌려도 같다. API를 되돌리기 전에 새 worker 이미지를 쓰는 세션이 없는지 본다 |
 
 ### DB 스키마를 바꾸는 순서
 

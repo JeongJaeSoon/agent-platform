@@ -52,14 +52,6 @@ export function formatMessage({ key, params }: TurnEventMessage): string {
   );
 }
 
-export const TIMELINE_MESSAGES = {
-  label: "Session events",
-  empty: "No events yet.",
-  connecting: "Connecting…",
-  closed: "Disconnected. Showing events so far.",
-  turn: (turnId: string) => `turn ${turnId}`,
-};
-
 // Fixed ids and times, as in the other stories: no clocks, no randomness.
 const START = Date.parse("2026-10-21T01:00:00.000Z");
 
@@ -248,10 +240,10 @@ export const SESSION: SessionSummary = {
     permission_mode: "default",
   },
   model: "claude-sonnet-4-5",
-  repository_id: "agent-platform",
+  repository_id: "werft",
   repository: {
-    id: "agent-platform",
-    full_name: "werft-ai/agent-platform",
+    id: "werft",
+    full_name: "werft-ai/werft",
     branch: "main",
   },
   current_turn_id: "turn_01",

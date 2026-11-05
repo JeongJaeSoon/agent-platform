@@ -115,7 +115,7 @@ export function schedulerConfigFromEnv(
       memoryBytes:
         // A resumed engine holds about twice a transcript with no
         // compaction in it; this keeps one at MAX_TRANSCRIPT_BYTES under
-        // half the limit (docs/operator/capacity.md).
+        // half the limit (apps/docs/content/docs/run-server/self-hosting/operate/capacity.mdx).
         integerSetting(environment, "WORKER_MEMORY_MB", {
           min: 1,
           default: 4608,

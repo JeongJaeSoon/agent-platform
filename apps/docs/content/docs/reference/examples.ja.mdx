@@ -1,0 +1,72 @@
+---
+title: SDK サンプル
+description: ユースケースごとに SDK を実際に呼ぶ小さな CLI サンプルと、どのサンプルがどの API を使うか
+---
+
+`@werft-ai/sdk`([TypeScript SDK](/sdk))をユースケースごとに実際に呼ぶ、小さな CLI の集まりです。各サンプルには `src/` の実行ファイルと、偽の API で動く単体テストがあり、サンプルディレクトリの README に必要な key と scope、実行コマンド、実際のスタックで確認した出力が載っています。このディレクトリは SDK と同じ [Apache License 2.0](https://github.com/JeongJaeSoon/werft/blob/main/examples/LICENSE) に従います。
+
+| サンプル | 何を示すか | key |
+| --- | --- | --- |
+| [sdk-discovery](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-discovery) | client の作成と作成時の拒否、key の scope、profile カタログ、バージョン定数 | 任意の key(`sessions:read`) |
+| [sdk-inventory](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-inventory) | セッション一覧の検索・フィルタ・ページ、詳細・使用量・共有範囲 | 個人 key(`read`・`write`・`control`) |
+| [sdk-events](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-events) | イベントストリーム、保存した cursor からの再開、turn 一覧のページ | エージェント key(`read`・`write`・`control`) |
+| [sdk-reliability](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-reliability) | Idempotency-Key の再生、失われた応答の再試行、エラークラス | 個人 key(`read`・`write`・`control`) |
+| [sdk-questions](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-questions) | 質問への回答、権限の拒否・許可、開いたリクエストを一度だけ処理、同じリクエストへの別の回答 | 個人 key(`read`・`write`・`approve`・`control`) |
+| [sdk-control](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-control) | interrupt、pause・resume、profile の変更、terminate 後の復旧判断 | 個人 key(`read`・`write`・`control`・`recover`) |
+| [sdk-close](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-close) | 開いた質問で止まる close と `CLOSE_BLOCKED`、待機中の入力のキャンセル | 個人 key(`read`・`write`・`approve`・`control`) |
+| [sdk-push](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-push) | push の要求・拒否・承認、push の結果、PR の作成とコメント | エージェント key + 承認者の個人 key(`approve`) |
+| [sdk-approver](https://github.com/JeongJaeSoon/werft/tree/main/examples/sdk-approver) | エージェント key でセッションを動かし、別の承認者が権限リクエストに答えてから close | エージェント key + 承認者の個人 key(`approve`) |
+
+## 準備
+
+リポジトリのルートで `bun install --frozen-lockfile` を実行します。サンプルは workspace の `@werft-ai/sdk` を使い、ルートの `tsconfig.json` が型検査します。リポジトリの外では [`npm install @werft-ai/sdk`](/getting-started/install) でインストールし、同じファイルを Node 22.18 以上(`node discover.ts`)か Bun で動かします。実行ファイルが使うのは `@werft-ai/sdk` と Node の標準モジュールだけです。SDK はサーバーやスクリプトで使い、ブラウザーに API key を入れないでください。
+
+1. 自分のスタックを `scripts/local.sh up --fake-model` で起動します([開発用サーバーの実行](/run-server/dev-server))。実際のモデル key は要りません。メッセージ中の `GATE-SPEC` は FAKE モデルが再生する台本なので、実際のモデルでは使いません。
+2. Web コンソールに owner でログインします。
+3. 個人 key は、コンソールの設定 → API key で、そのサンプルの scope を付けて発行します。owner は 5 つの scope をすべて付けられます。
+4. エージェント key が必要なサンプル(`sdk-events`、`sdk-push`、`sdk-approver`)は、コンソールでエージェントを作り、`claude-coding-local` プロファイルと `sample-app` リポジトリでリリースを作って有効にしてから、そのエージェントの key を `sessions:read`、`sessions:write`、`sessions:control` で発行します。エージェント key には `sessions:approve` を付けられないので、承認は別の個人 key が行います。
+
+環境変数はサンプルごとの README にあります。すべてのサンプルが使うのは次の 2 つです。key をソース・README・出力に貼り付けないでください。
+
+| 環境変数 | 値 |
+| --- | --- |
+| `WERFT_BASE_URL` | 自分のスタックの API URL(例: `http://127.0.0.1:3000`) |
+| `WERFT_API_KEY` | そのサンプルの key |
+
+```sh
+export WERFT_BASE_URL=http://127.0.0.1:3000
+read -rs WERFT_API_KEY && export WERFT_API_KEY
+bun examples/sdk-discovery/src/discover.ts
+```
+
+各サンプルは失敗すると終了コード 1 になり、API エラーなら code・message・request ID を stderr に書きます。作ったセッションは最後に close して worker を返します。失敗した実行はセッションをそのまま残すので、出力された session ID でコンソールから確認して閉じます。
+
+単体テストは `bun test examples` です。サンプルの CLI をそのまま起動し、[testing/sample-server.ts](https://github.com/JeongJaeSoon/werft/blob/main/examples/testing/sample-server.ts) の偽の `/v1` に対して動かし、出力と送ったリクエストを確認します。CI はこのテストと型検査を実行し、`sdk-release` workflow は npm の配布物を空のプロジェクトにインストールして、すべてのサンプルの実行ファイルを `skipLibCheck` なしで型検査します。実際のスタックに対する実行は CI にありません。サンプル 1 つが worker の起動を含めて数十秒から数分かかり、`sdk-close` は drain の 60 秒を待ち、セッション経路の全体は `e2e` job(`tests/e2e`)が同じスタックですでに確認しているためです。
+
+## どのサンプルがどの API を使うか
+
+| SDK の公開 API | サンプル |
+| --- | --- |
+| `new Werft(options)`: `baseUrl`・`apiKey`・`maxRetries`・`timeoutMs`・`defaultHeaders`・`fetch`、作成時の拒否 | discovery、reliability |
+| `withOptions` | discovery、reliability、push、approver |
+| `root.get`、`auth.me`、`profiles.list`、`limits.get` | discovery |
+| `SDK_VERSION`、`API_SPEC_VERSION`、`SUPPORTED_SSE_SCHEMA_VERSIONS` | discovery |
+| `sessions.create` | すべてのセッションサンプル(`agent_release_id`: events、push、approver / `title`: inventory / リポジトリのない profile: questions) |
+| `sessions.get`、`sessions.list`(`q`・`relation`・`status`・`limit`、`nextPage`、`for await`) | inventory(一覧)、すべてのセッションサンプル(詳細) |
+| `sessions.usage`、`sessions.share` | inventory |
+| `sessions.messages.send` | events、reliability、questions、control、close、approver |
+| `sessions.turns.get`、`sessions.turns.list` | events、reliability、control、close |
+| `sessions.events.stream`(`lastEventId`、`close()`、`signal`) | events、approver(`waitForTurn` の `events`) |
+| `sessions.requests.list`、`sessions.requests.answer` | questions、close |
+| `sessions.interrupt`、`pause`、`resume`、`terminate`、`changeProfile`、`recoveryDecisions.create` | control |
+| `sessions.close` | すべてのセッションサンプル |
+| `sessions.pushRequests.create`・`list`・`get`・`approve`・`reject`・`openPullRequest`・`commentPullRequest` | push |
+| `receipts.get` | questions・control・close・push(`waitForReceipt` 経由) |
+| `waitForTurn`(`onRequest`・`onAnswer`・`events`)、`answerPending` | questions、close、push、approver |
+| `waitForReceipt`、`waitForPushRequest` | `waitForReceipt`: すべてのセッションサンプル / `waitForPushRequest`: push |
+| `closeResult`、`closeBlocked`、`isClosing`、`CLOSE_BLOCKED`、`SESSION_ADMISSION_CLOSING`、`SESSION_CLOSING` | close(`closeResult`: approver も) |
+| `isApiError`、`APIError` のフィールド(`status`・`code`・`retryable`・`requestId`・`details`) | すべてのサンプル |
+| `WerftError`、`ConnectionError`、`TimeoutError`、`AbortedError`、`idempotencyKey`・`attempts` | reliability |
+| `TurnBlockedError` | control |
+
+型(`ClientOptions`、`Page`、`EventStream`、`StreamOptions`、`RequestOptions`、`MutationOptions`、`PendingRequestHandlers`、`WaitForTurnOptions`、`AnswerOutcome`、`CloseParams`、`CloseReceiptResult`、`CloseBlockedAttention`、`ClientErrorCode`)は、上のサンプルが値と一緒に使っています。

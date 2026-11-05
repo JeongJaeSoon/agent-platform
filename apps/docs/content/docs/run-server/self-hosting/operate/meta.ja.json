@@ -1,0 +1,12 @@
+{
+  "title": "運用リファレンス",
+  "pages": [
+    "configuration",
+    "capacity",
+    "database",
+    "kubernetes-backend",
+    "metrics",
+    "session-data-flow",
+    "sdk-sample"
+  ]
+}

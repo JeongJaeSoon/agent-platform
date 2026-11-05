@@ -2,9 +2,12 @@ import {
   type CommentPullRequestRequest,
   type CommentPullRequestResponse,
   DEFAULT_PULL_REQUEST_COMMENT_MARKER,
+  DEFAULT_USER_LOCALE,
+  hasStructuredFields,
   isSessionPushBranch,
   type OpenPullRequestRequest,
   type OpenPullRequestResponse,
+  type PullRequestBodySource,
   type PullRequestReceiptResult,
   type PullRequestRefusal,
   type PullRequestState,
@@ -36,7 +39,12 @@ import {
   sessionUrlOf,
   withPullRequestTail,
 } from "./git-attribution.ts";
-import { cleanBody, cleanTitle } from "./pull-request-text.ts";
+import { renderPullRequestBody } from "./pull-request-body.ts";
+import {
+  cleanBody,
+  cleanTitle,
+  stripEngineSignatures,
+} from "./pull-request-text.ts";
 import {
   mayDecidePush,
   type PushActor,
@@ -59,7 +67,7 @@ const EMPTY_RESULT: PullRequestReceiptResult = {
 
 /** The hidden line that tells the platform's comment apart on the forge. */
 export function commentMarker(sessionId: string, marker: string): string {
-  return `<!-- agent-platform:${sessionId}:${marker} -->`;
+  return `<!-- werft:${sessionId}:${marker} -->`;
 }
 
 /**
@@ -97,6 +105,61 @@ export function createPullRequestService(deps: {
       pushRequestId: source.id,
       record: await deps.attribution.attribution(source.sessionId),
     });
+  }
+
+  /**
+   * The body to send, tail included, from what the agent gave. Structured
+   * fields are laid out on the platform's default template; a legacy `body`
+   * is kept as written (cleaned, engine signature lines removed) and none
+   * leaves the tail alone. Both entries that write a body come through here.
+   */
+  function bodyFor(
+    content: {
+      body?: string | undefined;
+      summary?: string | undefined;
+      changes?: string[] | undefined;
+      rationale?: string | undefined;
+      testing?: string | undefined;
+      notes?: string | undefined;
+      related?: Parameters<
+        typeof renderPullRequestBody
+      >[0]["fields"]["related"];
+    },
+    where: { repositoryId: string; maxLength: number; tail: string },
+  ): { body: string; source: PullRequestBodySource } {
+    if (hasStructuredFields(content)) {
+      const rendered = renderPullRequestBody({
+        fields: content,
+        locale: DEFAULT_USER_LOCALE,
+        tail: where.tail,
+        maxLength: where.maxLength,
+        redact,
+        repository: {
+          id: where.repositoryId,
+          repositories: catalog.repositories,
+        },
+      });
+      return {
+        body: rendered.body,
+        source: {
+          kind: "platform",
+          ...(rendered.relatedDropped === 0
+            ? {}
+            : { related_dropped: rendered.relatedDropped }),
+        },
+      };
+    }
+    return {
+      body: withPullRequestTail(
+        cleanBody(
+          stripEngineSignatures(content.body ?? ""),
+          where.maxLength - 2_000,
+          redact,
+        ),
+        where.tail,
+      ),
+      source: { kind: content.body === undefined ? "platform" : "agent" },
+    };
   }
 
   async function begin(
@@ -300,6 +363,7 @@ export function createPullRequestService(deps: {
         return {
           pull_request: recorded,
           created: false,
+          body_source: null,
           receipt_id: receiptId,
         };
       }
@@ -323,6 +387,11 @@ export function createPullRequestService(deps: {
         body.title ?? `Agent session ${source.sessionId}`,
         redact,
       );
+      const written = bodyFor(body, {
+        repositoryId: source.repositoryId,
+        maxLength: forge.maxBodyLength,
+        tail,
+      });
       try {
         const found = await forge.findPullRequestForBranch(head);
         // An open one found, or GitHub answering a racing one with 422, is
@@ -334,14 +403,7 @@ export function createPullRequestService(deps: {
                 head,
                 base,
                 title,
-                body: withPullRequestTail(
-                  cleanBody(
-                    body.body ?? "",
-                    forge.maxBodyLength - 2_000,
-                    redact,
-                  ),
-                  tail,
-                ),
+                body: written.body,
               });
       } catch (error) {
         if (error instanceof ForgeCredentialError) {
@@ -381,6 +443,8 @@ export function createPullRequestService(deps: {
       return {
         pull_request: saved.pullRequest,
         created: saved.created,
+        // An adopted pull request keeps the body it has; only its tail moves.
+        body_source: created ? written.source : null,
         receipt_id: saved.receiptId,
       };
     },
@@ -428,18 +492,19 @@ export function createPullRequestService(deps: {
       if (open?.state !== "open" || open.number !== pullRequest.number) {
         return await refuse("no_pull_request", fields);
       }
-      const tail = body.body === undefined ? null : await tailFor(source);
-      const text =
-        body.body === undefined
-          ? null
-          : cleanBody(body.body, forge.maxBodyLength - 2_000, redact);
+      // A title alone leaves the body; anything else writes it again whole.
+      const rewrites = body.body !== undefined || hasStructuredFields(body);
+      const written = rewrites
+        ? bodyFor(body, {
+            repositoryId: source.repositoryId,
+            maxLength: forge.maxBodyLength,
+            tail: await tailFor(source),
+          })
+        : null;
       try {
         await forge.updatePullRequestBody(
           pullRequest.number,
-          (current) =>
-            text === null || tail === null
-              ? current
-              : withPullRequestTail(text, tail),
+          (current) => written?.body ?? current,
           body.title === undefined ? undefined : cleanTitle(body.title, redact),
         );
       } catch (error) {
@@ -459,7 +524,11 @@ export function createPullRequestService(deps: {
           created: false,
         },
       });
-      return { pull_request: pullRequest, receipt_id: receiptId };
+      return {
+        pull_request: pullRequest,
+        body_source: written?.source ?? null,
+        receipt_id: receiptId,
+      };
     },
 
     /**
@@ -598,7 +667,11 @@ export function createPullRequestService(deps: {
         comment = await forge.upsertComment(
           pullRequest.number,
           hidden,
-          cleanBody(body.body, forge.maxBodyLength - hidden.length - 2, redact),
+          cleanBody(
+            stripEngineSignatures(body.body),
+            forge.maxBodyLength - hidden.length - 2,
+            redact,
+          ),
         );
       } catch (error) {
         if (error instanceof ForgeCredentialError) {

@@ -79,7 +79,7 @@ export function PageHeader({
     <header
       data-slot="page-header"
       className={cn(
-        "mb-[var(--ap-space-page-head)] flex flex-col gap-3",
+        "mb-[var(--werft-space-page-head)] flex flex-col gap-3",
         STACK[stackBelow].head,
         className,
       )}

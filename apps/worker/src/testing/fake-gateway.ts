@@ -97,6 +97,8 @@ type Queued = { inputId: string; message: string; turnId: string };
 export class FakeWorkerGateway implements WorkerGatewaySession {
   readonly batches: AppendEventsRequest[] = [];
   readonly calls: string[] = [];
+  /** Every pending-control poll, as sent. */
+  readonly pollRequests: PendingControlRequest[] = [];
   readonly events: WorkerEvent[] = [];
   readonly finalized: FinalizeRequest[] = [];
   readonly heartbeats: HeartbeatRequest[] = [];
@@ -438,6 +440,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
     request: PendingControlRequest,
   ): Promise<PendingControlResponse> {
     this.calls.push("pendingControl");
+    this.pollRequests.push(request);
     for (const item of request.delivered ?? []) {
       if (
         !this.delivered.some(

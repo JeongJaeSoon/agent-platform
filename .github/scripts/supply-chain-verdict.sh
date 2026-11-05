@@ -2,7 +2,7 @@
 # The release policy over the scans' result files
 # `supply-chain-verdict.sh <result dir> <no-verdict: warn|fail>`.
 #
-# Reads control-host, worker, egress-proxy (image-scan.sh) and npm
+# Reads each app on each arch, <app>-<arch> (image-scan.sh), and npm
 # (npm-audit.ts) from <result dir>/<name>.txt. `found <n>`, a high or
 # critical finding with a fix available, always fails, and so does a missing
 # file: the image was never built or never reached its scan. `error` means
@@ -42,7 +42,7 @@ missing=0
   echo "| scan | result |"
   echo "| --- | --- |"
 } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
-for scan in control-host worker egress-proxy npm; do
+for scan in {control-host,worker,egress-proxy}-{amd64,arm64} npm; do
   result="$(cat "${results}/${scan}.txt" 2>/dev/null || echo "no result")"
   echo "${scan}: ${result}"
   echo "| ${scan} | ${result} |" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"

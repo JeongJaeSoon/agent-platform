@@ -9,11 +9,7 @@ import {
 import type { ApiClient } from "@werft-ai/client";
 import { type QueryScope, queryKeysOf } from "@werft-ai/core";
 import { setupDom } from "@werft-ai/ui/test-support/dom";
-import {
-  AgentPlatformProvider,
-  QueryScopeProvider,
-  useAgentPlatform,
-} from "./index.ts";
+import { QueryScopeProvider, useWerft, WerftProvider } from "./index.ts";
 
 const { render, waitFor } = await setupDom();
 
@@ -24,12 +20,12 @@ test("the client below caches under the scope, and a new scope drops the old one
   const queryClient = new QueryClient();
   const seen: ApiClient[] = [];
   function Probe() {
-    seen.push(useAgentPlatform().client);
+    seen.push(useWerft().client);
     return null;
   }
   const tree = (scope: QueryScope) => (
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={{} as ApiClient}
         locale="en"
         renderLink={() => null}
@@ -37,7 +33,7 @@ test("the client below caches under the scope, and a new scope drops the old one
         <QueryScopeProvider scope={scope}>
           <Probe />
         </QueryScopeProvider>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   );
   const view = render(tree(OWNER));
@@ -61,7 +57,7 @@ test("the client below caches under the scope, and a new scope drops the old one
 test("a screen that keeps its previous data shows none of the old scope's while the new one loads", async () => {
   const queryClient = new QueryClient();
   function Agents() {
-    const { client } = useAgentPlatform();
+    const { client } = useWerft();
     const key = queryKeysOf(client).agents;
     const agents = useQuery({
       queryKey: key,
@@ -76,7 +72,7 @@ test("a screen that keeps its previous data shows none of the old scope's while 
   }
   const tree = (scope: QueryScope) => (
     <QueryClientProvider client={queryClient}>
-      <AgentPlatformProvider
+      <WerftProvider
         client={{} as ApiClient}
         locale="en"
         renderLink={() => null}
@@ -84,7 +80,7 @@ test("a screen that keeps its previous data shows none of the old scope's while 
         <QueryScopeProvider scope={scope}>
           <Agents />
         </QueryScopeProvider>
-      </AgentPlatformProvider>
+      </WerftProvider>
     </QueryClientProvider>
   );
   const view = render(tree(OWNER));

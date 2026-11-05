@@ -5,7 +5,7 @@ import type {
   ProfileSummary,
   SettingsConnection,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertDescription,
@@ -14,6 +14,7 @@ import {
   EmptyState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   GridTable,
   GridTableCell,
@@ -67,7 +68,7 @@ export function ModelConnections({
   readonly profiles: readonly ProfileSummary[];
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const owns = useHasPermission("installation.settings.manage");
   const connections = useQuery(settingsConnectionsQuery(client, owns));
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -98,7 +99,7 @@ export function ModelConnections({
         ) : null
       }
     >
-      <div className="flex flex-col gap-[var(--ap-space-block)]">
+      <div className="flex flex-col gap-[var(--werft-space-block)]">
         {!owns ? (
           <Text variant="meta" className="flex items-center gap-1">
             <Lock aria-hidden="true" className="size-3.5 shrink-0" />
@@ -187,7 +188,7 @@ function ConnectionRow({
   return (
     <GridTableRow>
       <GridTableCell>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.id}</Code>
           <div className="flex flex-wrap items-center gap-1">
             <NarrowState state={item.state} />
@@ -198,7 +199,7 @@ function ConnectionRow({
         </div>
       </GridTableCell>
       <GridTableCell hideNarrow>
-        <div className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+        <div className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
           <Code className="wrap-anywhere">{item.endpoint}</Code>
           <Text as="span" variant="meta">
             {item.kind} · {t(`settings.connections.billing.${item.billing}`)}
@@ -282,6 +283,8 @@ function AddConnection({
   const fallback = defaults[kind];
   const endpoint = edited ?? fallback ?? "";
   const [error, setError] = useState<string | null>(null);
+  // Set when a kind with no default address is submitted without one.
+  const [endpointMissing, setEndpointMissing] = useState(false);
   const create = useSettingsWrite(
     "connection",
     (
@@ -310,6 +313,7 @@ function AddConnection({
       open={open}
       onOpenChange={(next) => {
         setError(null);
+        setEndpointMissing(false);
         if (!next) {
           setKind("anthropic");
           setEdited(null);
@@ -328,6 +332,10 @@ function AddConnection({
         // Only what the person typed goes out; the shown default stays the
         // server's to fill, so its billing check still runs.
         const named = (edited ?? "").trim();
+        if (named === "" && fallback === undefined) {
+          setEndpointMissing(true);
+          return;
+        }
         create.mutate({
           id: String(form.get("id")).trim(),
           kind,
@@ -361,6 +369,7 @@ function AddConnection({
           onChange={(event) => {
             // A cleared field hands the new kind's default back.
             if (edited === "") setEdited(null);
+            setEndpointMissing(false);
             setKind(event.target.value === "litellm" ? "litellm" : "anthropic");
           }}
         >
@@ -373,12 +382,19 @@ function AddConnection({
         <Input
           name="endpoint"
           type="url"
-          required={fallback === undefined}
+          aria-required={fallback === undefined || undefined}
+          aria-invalid={endpointMissing || undefined}
           autoComplete="off"
           spellCheck={false}
           value={endpoint}
-          onChange={(event) => setEdited(event.target.value)}
+          onChange={(event) => {
+            setEndpointMissing(false);
+            setEdited(event.target.value);
+          }}
         />
+        {endpointMissing ? (
+          <FieldError>{t("settings.connections.endpointRequired")}</FieldError>
+        ) : null}
         {fallback === undefined ? null : (
           <FieldDescription>
             {t("settings.connections.endpointDefault")}

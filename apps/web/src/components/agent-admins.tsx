@@ -10,7 +10,7 @@ import type {
   AgentAdminChangeResponse,
   AgentAdminKind,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Avatar,
   avatarInitials,
@@ -54,7 +54,7 @@ import { SECTION_BODY } from "./section-body.ts";
 import { StatusScreen } from "./status-screen.tsx";
 
 // Lines that wrap on a narrow screen sit a line gap apart, not RowListItem's 8px.
-const ADMIN_ROW = "gap-y-[var(--ap-row-line-gap)]";
+const ADMIN_ROW = "gap-y-[var(--werft-row-line-gap)]";
 
 // Month/day in the product's zone, the way the console shows a short date.
 const DAY = new Intl.DateTimeFormat("en-US", {
@@ -102,7 +102,7 @@ function AdminList({
 }) {
   const manages = useManagesAgent();
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const admins = useQuery(agentAdminsQuery(client, agentId));
@@ -361,7 +361,7 @@ function AdminList({
       )}
       {manages ? (
         <form
-          className="flex flex-wrap items-center gap-2 border-t px-[var(--ap-row-padding-x)] py-[var(--ap-row-padding-y)]"
+          className="flex flex-wrap items-center gap-2 border-t px-[var(--werft-row-padding-x)] py-[var(--werft-row-padding-y)]"
           onPointerEnter={() => setPicking(true)}
           onFocus={() => setPicking(true)}
           onSubmit={(event) => {
@@ -461,7 +461,7 @@ export function AdministeredAgents({
   readonly showEmpty: boolean;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const everywhere = useHasPermission("agent.admin.manage");
   const administered = useQuery({
     ...administeredAgentsQuery(client),

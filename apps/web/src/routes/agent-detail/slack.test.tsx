@@ -167,7 +167,7 @@ describe("Slack management", () => {
     expect(within(basic).getAllByRole("alert")).toHaveLength(1);
     // Nothing was read yet, so the full failure state, not the kept alert.
     expect(alert?.getAttribute("data-variant") === "red").toBe(false);
-    expect(basic.querySelector(".ap-state__code")?.textContent).toBe(
+    expect(basic.querySelector(".werft-state__code")?.textContent).toBe(
       "INTERNAL_ERROR",
     );
     down = false;

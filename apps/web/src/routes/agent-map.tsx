@@ -12,7 +12,7 @@ import {
   queryKeysOf,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   AgentMapPage,
   type Lane,
@@ -35,7 +35,7 @@ export const BOARD_POLL_MS = 5_000;
  * screen. Under the sessions key, so what refreshes the list refreshes this.
  */
 function useBoardList() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   return useQuery({
     queryKey: [...queryKeysOf(client).sessions, { view: "agent-map" }],
     queryFn: () =>
@@ -64,7 +64,7 @@ function firstCard(sessions: readonly MapSession[]) {
  * read every BOARD_POLL_MS, wins: a response that lands late may be older.
  */
 function useBoardSessions() {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const list = useBoardList();
   const waiting = useQuery(waitingSessionsQuery(client));
   // When the newest page last read each session not waiting. A session it
@@ -113,7 +113,7 @@ function useBoardSessions() {
  * fail, its card still stands on the strip as an open request.
  */
 function useUnseenRequests(list: ListSessionsResponse | undefined) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const unseen = useMemo(
     () =>
       (list?.items ?? []).filter(

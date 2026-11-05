@@ -104,11 +104,11 @@ export type PlatformMcpServer = {
 export type RuntimeBundle = {
   instructions: readonly InstructionPart[];
   /**
-   * The repository's own instructions file as committed, let in by the
-   * profile; `text` is null when the repository has none. Null when the
-   * profile keeps it out.
+   * The repository's own instructions file as committed (the first of
+   * `files` it has), let in by the profile; `text` is null when the
+   * repository has none. Null when the profile keeps it out.
    */
-  repoInstructions: { file: string; text: string | null } | null;
+  repoInstructions: { files: readonly string[]; text: string | null } | null;
   mcpServers: readonly PlatformMcpServer[];
 };
 

@@ -6,7 +6,7 @@ import { parseTokens, type Tokens, themeStyle } from "./tokens.ts";
 
 const { light, dark } = parseTokens(tokensCss);
 
-// Every utility reads `--ap-*` at runtime (theme.css `@theme inline`), so a
+// Every utility reads `--werft-*` at runtime (theme.css `@theme inline`), so a
 // subtree that redefines the tokens draws in that theme.
 function Themed({
   title,

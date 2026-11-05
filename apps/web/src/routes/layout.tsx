@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { ApiError, isApiError, unwrap } from "@werft-ai/client";
 import { queryScopeOf, sessionQuery } from "@werft-ai/core";
-import { QueryScopeProvider, useAgentPlatform } from "@werft-ai/react";
+import { QueryScopeProvider, useWerft } from "@werft-ai/react";
 import {
   Button,
   Field,
@@ -195,7 +195,7 @@ function AuthedShell() {
   const me = useMe();
   useSavedLocale();
   const groups = useNavGroups();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const sidebarId = useId();
@@ -220,8 +220,8 @@ function AuthedShell() {
   return (
     // Header, sidebar, main in reading order: below md the open menu unfolds
     // under its button; from md on the grid puts the sidebar on the left.
-    <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--ap-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
-      <header className="flex min-h-[var(--ap-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
+    <div className="flex flex-1 flex-col md:grid md:grid-cols-[var(--werft-layout-sidebar-width)_minmax(0,1fr)] md:grid-rows-[auto_1fr]">
+      <header className="flex min-h-[var(--werft-topbar-h)] items-center gap-3 border-b bg-surface px-4 md:col-start-2 md:row-start-1 md:px-6">
         <Button
           type="button"
           variant="outline"
@@ -273,7 +273,7 @@ function usePathname() {
  */
 function useLeafTitle(pathname: string): string | undefined {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const sessionId = SESSION_PATH.exec(pathname)?.[1];
   const agentId = AGENT_PATH.exec(pathname)?.[1];
   const sessionRead = useQuery({

@@ -13,7 +13,7 @@ import {
   sessionsQuery,
   waitingSessionsQuery,
 } from "@werft-ai/core";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { guidanceFor } from "@werft-ai/react/components";
 import {
   Button,
@@ -82,7 +82,7 @@ function useScopeReason(): string | undefined {
 
 export function useNewSessionReason(detail: AgentDetail): string | undefined {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const scopeReason = useScopeReason();
   const release = detail.active_release;
   const profiles = useQuery({
@@ -147,7 +147,7 @@ export function NewSessionButton({
   readonly reason: string | undefined;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const fieldId = useId();

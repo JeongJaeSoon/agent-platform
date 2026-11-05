@@ -8,7 +8,7 @@ import type {
   GitHubSettingsResponse,
 } from "@werft-ai/contracts";
 import { githubAppWarnings } from "@werft-ai/core/forms";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Badge,
   Button,
@@ -165,7 +165,7 @@ function useSetupReturn(onOutcome: OnOutcome) {
   const [sent] = useState(() => search);
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const workspaceId = useMe()?.workspace?.id;
   const started = useRef(false);
@@ -204,7 +204,7 @@ function useSetupReturn(onOutcome: OnOutcome) {
 
 /** The keys' dates and who saved them; only owners and admins read these. */
 function useKeyLines(enabled: boolean) {
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const workspaceId = useMe()?.workspace?.id ?? "";
   return useQuery({
     queryKey: appsKey(client, workspaceId),
@@ -226,7 +226,7 @@ function GitHubCard({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const canManage = useHasPermission("workspace.manage");
@@ -283,7 +283,7 @@ function GitHubCard({
         </div>
         {canManage && !empty ? (
           // Under 640px it drops to its own line, where the text starts.
-          <div className="max-sm:basis-full max-sm:pl-[calc(var(--ap-size-tile-two-line)+0.75rem)]">
+          <div className="max-sm:basis-full max-sm:pl-[calc(var(--werft-size-tile-two-line)+0.75rem)]">
             <AddAccount connections={connections} onOutcome={onOutcome} />
           </div>
         ) : null}
@@ -361,7 +361,7 @@ function GitHubCard({
 function TileMark({ className }: { readonly className?: string }) {
   return (
     <GitHubMark
-      className={cn(className, "text-(--ap-color-tile-foreground)")}
+      className={cn(className, "text-(--werft-color-tile-foreground)")}
     />
   );
 }
@@ -379,7 +379,7 @@ function AddAccount({
   readonly onOutcome: OnOutcome;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const start = useMutation<{ install_url: string }, ApiError, string>({
@@ -611,7 +611,7 @@ function AppRow({
         ) : null}
       </div>
       {state === "rejected" ? (
-        <Text className="text-(color:--ap-tone-danger-fg)">
+        <Text className="text-(color:--werft-tone-danger-fg)">
           {t("github.apps.rejected")}
         </Text>
       ) : (
@@ -715,7 +715,7 @@ function NeedBlock({
   });
   return (
     <div className="flex flex-col gap-2">
-      <Text className="text-(color:--ap-tone-caution-fg)">
+      <Text className="text-(color:--werft-tone-caution-fg)">
         {t("github.apps.need", {
           features: features.join(", "),
           permissions: need,
@@ -777,7 +777,7 @@ function PendingBlock({
   });
   return (
     <div className="flex flex-col gap-2">
-      <Text className="text-(color:--ap-tone-caution-fg)">
+      <Text className="text-(color:--werft-tone-caution-fg)">
         {t("github.apps.pendingLine", {
           accounts: accounts.join(", "),
           permissions,
@@ -846,7 +846,7 @@ function RemoveApp({
   readonly onRemoved: () => Promise<void>;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const workspaceId = useMe()?.workspace?.id ?? "";
   const id = connection?.connection_id ?? "";

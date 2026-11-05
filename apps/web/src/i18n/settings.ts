@@ -64,6 +64,8 @@ export const settingsKo = {
   "settings.connections.endpoint": "엔드포인트",
   "settings.connections.endpointDefault":
     "공식 주소가 채워져 있습니다. 비우면 같은 주소로 저장되고, 프록시나 호환 서버를 쓸 때만 바꿉니다.",
+  "settings.connections.endpointRequired":
+    "litellm에는 기본 주소가 없습니다. 엔드포인트를 입력하세요.",
   "settings.connections.billing": "비용 집계",
   "settings.connections.billing.per_token": "토큰당 비용 집계",
   "settings.connections.billing.none": "비용 집계 안 함",
@@ -187,6 +189,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   "settings.connections.endpoint": "Endpoint",
   "settings.connections.endpointDefault":
     "The official address is filled in. Leave it empty to store the same address; change it only for a proxy or a compatible server.",
+  "settings.connections.endpointRequired":
+    "litellm has no default address. Enter an endpoint.",
   "settings.connections.billing": "Cost tracking",
   "settings.connections.billing.per_token": "Per-token cost tracking",
   "settings.connections.billing.none": "No cost tracking",
@@ -311,6 +315,8 @@ export const settingsJa: Record<keyof typeof settingsKo, string> = {
   "settings.connections.endpoint": "エンドポイント",
   "settings.connections.endpointDefault":
     "公式アドレスが入力済みです。空にすると同じアドレスで保存されます。プロキシや互換サーバーを使うときだけ変更します。",
+  "settings.connections.endpointRequired":
+    "litellm には既定のアドレスがありません。エンドポイントを入力してください。",
   "settings.connections.billing": "コスト集計",
   "settings.connections.billing.per_token": "トークン単位で集計",
   "settings.connections.billing.none": "集計しない",

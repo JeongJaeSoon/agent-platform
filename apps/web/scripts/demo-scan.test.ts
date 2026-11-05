@@ -4,6 +4,7 @@ import {
   checkIgnores,
   describeFinding,
   FIXTURES_PATH,
+  type Finding,
   scanFixtures,
   withFixtureIgnores,
 } from "./demo-scan.ts";
@@ -29,7 +30,7 @@ describe("demo fixture scan", () => {
     expect(
       scan({
         email: "someone@gmail.com",
-        url: "https://box.tail015a0d.ts.net:4620/",
+        url: "https://box.tailnet-example.ts.net:4620/",
         api: "http://127.0.0.1:4611",
         path: "/Users/someone/work",
       }),
@@ -39,6 +40,116 @@ describe("demo fixture scan", () => {
       "private address",
       "home path",
     ]);
+  });
+
+  test("the former product name is caught in any spelling and position, and reported by position only", () => {
+    const old = [
+      "agent-platform",
+      "agent_platform",
+      "agentplatform",
+      "agent platform",
+      "Agent Platform",
+    ];
+    const cased = old.flatMap((name) => [name, name.toUpperCase()]);
+    for (const name of cased) {
+      expect(scan({ secret_id: `${name}/default` }), name).toEqual([
+        "former product name",
+      ]);
+      expect(scan({ [`${name}_key`]: 1 }), name).toEqual([
+        "former product name",
+      ]);
+      expect(scan({ v: `x%2F${encodeURIComponent(name)}` }), name).toEqual([
+        "former product name",
+      ]);
+    }
+    const [finding] = scanFixtures({
+      responses: { "/v1/x": { json: { secret_id: "agent-platform/default" } } },
+    });
+    expect(describeFinding(finding as Finding)).toBe(
+      "former product name: 14 chars (answer 0)",
+    );
+    for (const value of [
+      "agent.platform",
+      "agent  platform",
+      "agent%20%20platform",
+      "Agent - Platform",
+      "agent\nplatform",
+      "?q=agent+platform",
+      "agent platform",
+      encodeURIComponent("agent platform"),
+      "agent%C2%A0platform",
+      "agent%E2%80%83platform%zz",
+    ])
+      expect(scan({ value }), value).toEqual(["former product name"]);
+    expect(scan({ title: "Werft", note: "a platform for agents" })).toEqual([]);
+    // Decoded, this reads "platform agent": no stage holds the name.
+    expect(scan({ value: "\\u0070latform agent" })).toEqual([]);
+  });
+
+  const catalog = (json: unknown) =>
+    scanFixtures({
+      responses: { "/v1/installation-profiles/options": { status: 200, json } },
+    }).map((finding) => finding.rule);
+
+  test("a catalog id made only of name@x.y.z pins is clean in the answer that carries it", () => {
+    expect(
+      catalog({
+        tool_catalogs: [
+          { id: "tool_set_a@0.3.270+tool-set@2.1.270" },
+          { id: "tool@1.256.3" },
+          { id: "tool@1.2.999999" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  test("in that answer only the catalog ids are exempt, other pin-shaped fields are not", () => {
+    for (const value of [
+      "user@127.0.1",
+      "build-agent@1.2.3",
+      "user@127.0.1+tool@0.3.270",
+    ])
+      expect(
+        catalog({
+          tool_catalogs: [{ id: "tool_set_a@0.3.270" }],
+          connections: [{ id: value }],
+          nested: { tool_catalogs: [{ id: value }] },
+        }),
+        value,
+      ).toContain("email outside example.test");
+  });
+
+  test("a pin-shaped string is caught in any other answer and with anything around it", () => {
+    for (const value of [
+      "tool_set_a@0.3.270+tool-set@2.1.270",
+      "build-agent@1.2.3",
+      "user@8.8.8",
+      "user@0.0.1",
+      "tool@1.256.3",
+      "someone@gmail.com",
+      "x@8.8.8.8",
+      "user@1.2",
+      "build-agent@10.42",
+      "http://user@127.1/",
+      "http://user@192.168.1/",
+      "user@1.2。corp.example.com",
+      "user@1.2é.corp.example.com",
+      "user@127.0.1",
+      "user@0177.0.1",
+      "user@192.168.1",
+      "user@10.1.2",
+      "user@127.0.1+tool@0.3.270",
+      "user%401.2.3 and more",
+      "profile_x@1.2.3 user@gmail.com",
+    ])
+      expect(scan({ value }), value).toContain("email outside example.test");
+    for (const value of [
+      "someone@gmail.com",
+      "profile_x@1.2.3 user@gmail.com",
+      "x@8.8.8.8",
+      "http://user@127.1/",
+    ])
+      expect(catalog({ value }), value).toContain("email outside example.test");
   });
 
   test("the fixture key itself is scanned", () => {

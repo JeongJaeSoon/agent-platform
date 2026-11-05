@@ -51,7 +51,7 @@ export function Meter({
         className={cn(
           "block h-full w-(--meter-share) rounded-full",
           tone === "caution"
-            ? "bg-(color:--ap-tone-caution-fg)"
+            ? "bg-(color:--werft-tone-caution-fg)"
             : "bg-chart-mark",
         )}
         style={

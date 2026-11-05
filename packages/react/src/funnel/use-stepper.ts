@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useAgentPlatform } from "../provider.tsx";
+import { useWerft } from "../provider.tsx";
 
 export interface StepInput {
   readonly id: string;
@@ -31,7 +31,7 @@ export function useStepper({
   currentStepId,
   onStepSelect,
 }: StepperOptions): StepperState {
-  const { messages } = useAgentPlatform();
+  const { messages } = useWerft();
   const currentIndex = steps.findIndex((step) => step.id === currentStepId);
   return {
     steps: steps.map((step, index) => ({

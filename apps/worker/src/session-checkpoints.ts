@@ -137,8 +137,8 @@ export type SessionCheckpointsOptions = {
   claudeConfigDir?: string;
   /** The engine whose checkpoints these are: its manifest codec and transcript store. */
   runtime: Pick<RuntimeModule, "checkpointCodec" | "openTranscriptStore">;
-  /** The engine's instruction file a restore reads at the pinned commit; null for none. */
-  instructionsFile: string | null;
+  /** The engine's instruction files, in order of preference, a restore reads at the pinned commit. */
+  instructionFiles: readonly string[];
   /**
    * The commit the workspace preparer read the instruction file from, for a
    * session with nothing to restore; a restore takes the checkpoint's instead.
@@ -530,7 +530,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       });
       const instructions = await stagedInstructions(
         staged,
-        this.#options.instructionsFile,
+        this.#options.instructionFiles,
         signal,
       );
       // Staged, so their disk is free before the workspace fetches a copy.

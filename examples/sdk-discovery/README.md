@@ -1,6 +1,6 @@
 # key와 카탈로그 확인
 
-`src/discover.ts`는 세션을 만들기 전에 할 일을 한다. key가 새는 설정을 client가 생성 시점에 거절하는지 보고, key의 주인과 scope(`auth.me`), 서버 응답(`root.get`), 고를 수 있는 profile(`profiles.list`), 설치 상한(`limits.get`)을 읽는다. 공통 준비는 [examples/README.md](../README.md)에 있다.
+`src/discover.ts`는 세션을 만들기 전에 할 일을 한다. key가 새는 설정을 client가 생성 시점에 거절하는지 보고, key의 주인과 scope(`auth.me`), 서버 응답(`root.get`), 고를 수 있는 profile(`profiles.list`), 설치 상한(`limits.get`)을 읽는다. 공통 준비는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/)에 있다.
 
 ## key와 실행
 

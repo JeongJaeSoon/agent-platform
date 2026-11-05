@@ -12,14 +12,19 @@
 // `bun deploy/helm/render-check.ts` (CI's helm-chart job).
 
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { packageChart } from "../../.github/scripts/chart-package.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
 const chart = join(dir, "agent-platform");
 const ciDigests = join(dir, "ci-digests.yaml");
 const awsExample = join(chart, "values-aws.example.yaml");
+
+type ImageDefault = { repository: string; digest: string };
 
 type Manifest = {
   kind: string;
@@ -34,16 +39,19 @@ type Manifest = {
   rules?: any[];
 };
 
-function helmTemplate(args: string[]): { ok: boolean; out: string } {
-  const result = spawnSync("helm", ["template", "ap", chart, ...args], {
+function helmTemplate(
+  args: string[],
+  source = chart,
+): { ok: boolean; out: string } {
+  const result = spawnSync("helm", ["template", "ap", source, ...args], {
     encoding: "utf8",
   });
   if (result.error) throw result.error;
   return { ok: result.status === 0, out: result.stdout + result.stderr };
 }
 
-function render(args: string[]): Manifest[] {
-  const { ok, out } = helmTemplate(args);
+function render(args: string[], source = chart): Manifest[] {
+  const { ok, out } = helmTemplate(args, source);
   if (!ok) throw new Error(`helm template ${args.join(" ")} failed:\n${out}`);
   return (Bun.YAML.parse(out) as (Manifest | null)[]).filter(
     (doc): doc is Manifest => doc !== null,
@@ -769,6 +777,11 @@ function checkUpgradeHook(
   if (value("UPGRADE_DEPLOYED_WORKER_IMAGE") !== "") {
     fail("UPGRADE_DEPLOYED_WORKER_IMAGE is not empty without a cluster");
   }
+  if (value("UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS") !== "") {
+    fail(
+      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not empty without a cluster",
+    );
+  }
   // Either value of it opens a path that skips a comparison.
   if (value("UPGRADE_DEPLOYED_STATE") !== "") {
     fail("UPGRADE_DEPLOYED_STATE is not empty without a cluster");
@@ -873,7 +886,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       "--set",
       `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
     ],
@@ -885,9 +898,9 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       "--set-json",
-      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+      'images.workerPrevious.runtime={"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
     ],
     /images\.workerPrevious\.digest is required/,
   ],
@@ -899,7 +912,7 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "--set",
       `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
       "--set-json",
-      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
+      'images.workerPrevious.runtime={"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":1}',
     ],
     /images\.workerPrevious needs images\.worker\.runtime/,
   ],
@@ -909,9 +922,19 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","profileDigestScheme":1}',
     ],
     /images\.worker\.runtime\.cliVersion must be a non-empty string/,
+  ],
+  [
+    "a worker runtime naming an engine the platform does not have",
+    [
+      "-f",
+      ciDigests,
+      "--set-json",
+      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+    ],
+    /images\.worker\.runtime\.engine must be one of: claude/,
   ],
   [
     "a previous worker runtime with a scheme of zero",
@@ -919,11 +942,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
       "-f",
       ciDigests,
       "--set-json",
-      'images.worker.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
+      'images.worker.runtime={"engine":"claude","sdkVersion":"0.3.280","cliVersion":"2.1.280","profileDigestScheme":1}',
       "--set",
       `images.workerPrevious.digest=sha256:${"4".repeat(64)}`,
       "--set-json",
-      'images.workerPrevious.runtime={"engine":"claude-agent-sdk","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":0}',
+      'images.workerPrevious.runtime={"engine":"claude","sdkVersion":"0.3.270","cliVersion":"2.1.270","profileDigestScheme":0}',
     ],
     /images\.workerPrevious\.runtime\.profileDigestScheme must be a positive integer/,
   ],
@@ -1200,7 +1223,7 @@ errors.push(
   ...checkMetrics("aws example, metrics on", metricsOnAws, true, true),
 );
 const CURRENT_RUNTIME = {
-  engine: "claude-agent-sdk",
+  engine: "claude",
   sdkVersion: "0.3.280",
   cliVersion: "2.1.280",
   profileDigestScheme: 1,
@@ -1250,6 +1273,45 @@ errors.push(
     [],
   ),
 );
+
+// What a publishing run makes: a package that renders with no values at all,
+// holding every promise above. Only the main and tag runs package for real, so
+// this is the pull request's one look at helm's side of it.
+const packaged = (() => {
+  const defaults = Bun.YAML.parse(
+    readFileSync(join(chart, "values.yaml"), "utf8"),
+  ) as {
+    images: Record<"controlHost" | "egressProxy" | "worker", ImageDefault>;
+  };
+  const digests = Bun.YAML.parse(readFileSync(ciDigests, "utf8")) as {
+    images: Record<"controlHost" | "egressProxy" | "worker", ImageDefault>;
+  };
+  const image = (key: "controlHost" | "egressProxy" | "worker") => ({
+    repository: defaults.images[key].repository,
+    digest: digests.images[key].digest,
+  });
+  const out = join(mkdtempSync(join(tmpdir(), "render-check-")), "chart");
+  const { chart: tgz } = packageChart({
+    chartDir: chart,
+    outDir: out,
+    version: "0.0.0-main-0123456789ab",
+    appVersion: "main-0123456789ab",
+    images: {
+      controlHost: image("controlHost"),
+      egressProxy: image("egressProxy"),
+      worker: { ...image("worker"), runtime: CURRENT_RUNTIME },
+    },
+  });
+  return tgz;
+})();
+const packagedManifests = render([], packaged);
+errors.push(
+  ...check("package", packagedManifests, true),
+  ...checkWorkerImages("package", packagedManifests, {
+    runtime: asRendered(CURRENT_RUNTIME),
+  }),
+  ...checkUpgradeHook("package", packagedManifests, true, []),
+);
 for (const [label, args, message] of MUST_FAIL) {
   const { ok, out } = helmTemplate(args);
   if (ok || !message.test(out)) {
@@ -1258,18 +1320,20 @@ for (const [label, args, message] of MUST_FAIL) {
 }
 
 // The chart takes a runtime value exactly when the readers do: one it lets
-// through and they refuse stops api, slack and the scheduler at startup.
+// through and they refuse stops api, slack and the scheduler at startup. The
+// engine name is the one rule the chart keeps beyond them (see MUST_FAIL), so
+// these values all name the supported engine.
 const RUNTIME_EDGES = [
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c"}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":3}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1e21}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profiles":{}}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":"1"}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":0}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1.5}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c"}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":3}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1e21}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profiles":{}}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":"1"}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":0}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","profileDigestScheme":1.5}',
   '{"engine":"","sdkVersion":"s","cliVersion":"c"}',
-  '{"engine":"e","sdkVersion":"s"}',
-  '{"engine":"e","sdkVersion":"s","cliVersion":"c","typo":1}',
+  '{"engine":"claude","sdkVersion":"s"}',
+  '{"engine":"claude","sdkVersion":"s","cliVersion":"c","typo":1}',
 ];
 for (const runtime of RUNTIME_EDGES) {
   let readers = true;
@@ -1296,5 +1360,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.log(
-  `render-check: default and aws example renders pass, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
+  `render-check: default and aws example renders pass, a package renders with its own values, scheduler off and on, slack off, preview on, metrics on, worker images (one, current runtime, two) alike on api, slack and scheduler, the upgrade check ahead of migrate; ${MUST_FAIL.length} bad inputs, an internet-facing ALB, ${CONSOLE_BREAKS.length} broken console Ingresses and a preview aws example refused; the console Ingress on and off`,
 );

@@ -65,7 +65,7 @@ export function SettingsSection({
           // reading line.
           <p
             id={descriptionId}
-            className="m-0 max-w-[var(--ap-layout-reading-width)] text-control text-muted-foreground"
+            className="m-0 max-w-[var(--werft-layout-reading-width)] text-control text-muted-foreground"
           >
             {description}
           </p>

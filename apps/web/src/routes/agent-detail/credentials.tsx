@@ -17,7 +17,7 @@ import type {
   CredentialBindingView,
   RevokeCredentialBindingResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import {
   Alert,
   AlertActions,
@@ -86,7 +86,7 @@ export function Credentials({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const manages = useManagesAgent();
@@ -197,7 +197,7 @@ export function Credentials({
                     key={ref}
                     className={cn(
                       missing.includes(ref) &&
-                        "border-[var(--ap-tone-attention-border)]",
+                        "border-[var(--werft-tone-attention-border)]",
                     )}
                     data-missing={missing.includes(ref)}
                   >

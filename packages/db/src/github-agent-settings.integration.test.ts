@@ -87,7 +87,7 @@ integration("GitHub agent settings, expand", () => {
          VALUES ($1, $2, $3, 'werft', 'Werft', 'https://github.com/apps/werft', 'https://api.github.com')`,
         [id, workspaceId, appId],
       );
-    await insertApp(appRow, 5513262);
+    await insertApp(appRow, 234570);
     const agentId = randomUUID();
     await pool.query(
       "INSERT INTO agents (id, workspace_id, slug, name) VALUES ($1, $2, 'a', 'a')",
@@ -127,7 +127,7 @@ integration("GitHub agent settings, expand", () => {
     );
     const store = createPostgresGitHubAppStore(db, key);
     expect(await store.ofRole(workspaceId, "author")).toMatchObject([
-      { id: appRow, appId: 5513262 },
+      { id: appRow, appId: 234570 },
     ]);
     expect(await store.ofRole(workspaceId, "reviewer")).toEqual([]);
     expect((await store.credentials("author")).map(({ id }) => id)).toEqual([

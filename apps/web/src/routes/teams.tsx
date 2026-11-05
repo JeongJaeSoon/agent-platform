@@ -12,7 +12,7 @@ import type {
   TeamDetail,
   TeamMemberRole,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
   Alert,
@@ -140,7 +140,7 @@ function TeamNameField({
 /** Teams: groups of people an owner or admin manages (design 4.7). */
 export function TeamsScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const manages = useHasPermission("team.manage");
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
@@ -250,7 +250,7 @@ export function TeamsScreen() {
 function TeamsTab({ children }: { readonly children: ReactNode }) {
   const { t } = useI18n();
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
+    <div className="flex flex-col gap-[var(--werft-space-section)]">
       <Text variant="sub">{t("teams.intro")}</Text>
       {children}
     </div>
@@ -264,7 +264,7 @@ export function TeamDetailScreen() {
 
 function TeamPage({ id }: { readonly id: string }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const team = useQuery(teamQuery(client, id));
   // A team's own members read it; only managers see what changes it.
   const manages = useHasPermission("team.manage");
@@ -283,7 +283,7 @@ function TeamPage({ id }: { readonly id: string }) {
   // Inside the 팀 tab (v3 M-03): the page head stays 구성원, the team's name
   // heads the tab with the way back beside it.
   return (
-    <div className="flex flex-col gap-[var(--ap-space-section)]">
+    <div className="flex flex-col gap-[var(--werft-space-section)]">
       <div className="flex items-start justify-between gap-4">
         <Heading className="min-w-0 [overflow-wrap:anywhere]">
           {team.error ? t("teams.title") : team.data.name}
@@ -318,7 +318,7 @@ function TeamSettings({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [name, setName] = useState(team.name);
@@ -384,7 +384,7 @@ function TeamDangerZone({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const role = useRole();
@@ -465,7 +465,7 @@ function managedAgentIds(error: ApiError): readonly string[] | null {
 /** Why the team stayed: the agents it manages, each a way to move it. */
 function ManagedAgents({ ids }: { readonly ids: readonly string[] }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const agents = useQuery({
     ...agentSummariesQuery(client, ids),
     enabled: ids.length > 0,
@@ -517,7 +517,7 @@ function TeamMembers({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t, locale } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   // Managers read the roles of this team's people only; the picker searches
@@ -673,7 +673,7 @@ function TeamMembers({
                         initials={avatarInitials(name)}
                         tone={avatarTone(member.user_id)}
                       />
-                      <span className="flex min-w-0 flex-col gap-[var(--ap-row-line-gap)]">
+                      <span className="flex min-w-0 flex-col gap-[var(--werft-row-line-gap)]">
                         <Text as="span" weight="medium" truncate>
                           {name}
                         </Text>
@@ -780,7 +780,7 @@ function TeamRoleDialog({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [open, setOpen] = useState(false);
@@ -885,7 +885,7 @@ function TeamRoleDialog({
 
 function refreshTeam(
   queryClient: ReturnType<typeof useQueryClient>,
-  client: ReturnType<typeof useAgentPlatform>["client"],
+  client: ReturnType<typeof useWerft>["client"],
   teamId: string,
 ) {
   return Promise.all([
@@ -912,7 +912,7 @@ function AddMembersDialog({
   readonly onOutcome: (outcome: Outcome | null) => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const queryClient = useQueryClient();
   const role = useRole();
   const [open, setOpen] = useState(false);
@@ -1028,7 +1028,7 @@ function AddMembersForm({
   readonly onSubmit: () => void;
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const role = useRole();
   const pickerId = useId();
   const [term, setTerm] = useState("");

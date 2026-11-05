@@ -6,7 +6,7 @@ import type {
   AgentListItem,
   CountAgentsResponse,
 } from "@werft-ai/contracts";
-import { useAgentPlatform } from "@werft-ai/react";
+import { useWerft } from "@werft-ai/react";
 import { ListToolbar, ListViewSwitch } from "@werft-ai/react/components";
 import {
   Button,
@@ -109,7 +109,7 @@ export function agentRefusal(
 
 export function AgentsScreen() {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const navigate = useNavigate();
   const role = useRole();
   // The counts answer the same callers as the list, so they also say
@@ -167,7 +167,7 @@ function AgentList({
   readonly counts: CountAgentsResponse["counts"];
 }) {
   const { t } = useI18n();
-  const { client } = useAgentPlatform();
+  const { client } = useWerft();
   const principal = useMe()?.principal;
   const [view, setView] = useAgentView(
     principal?.kind === "user" ? principal.id : undefined,

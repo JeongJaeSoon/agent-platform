@@ -66,17 +66,17 @@ export function DestructiveActionDialog({
       tone="danger"
       className={className}
     >
-      <div className="ap-dialog__match">
+      <div className="werft-dialog__match">
         {/* The name sits on its own line instead of inside the sentence:
             Korean particles change with the last letter, and "을(를)" is how
             that leaks into the copy. */}
-        <label className="ap-dialog__match-label" htmlFor={inputId}>
+        <label className="werft-dialog__match-label" htmlFor={inputId}>
           계속하려면 아래 이름을 그대로 입력하세요
         </label>
-        <code className="ap-dialog__match-target">{expected}</code>
+        <code className="werft-dialog__match-target">{expected}</code>
         <input
           id={inputId}
-          className="ap-input"
+          className="werft-input"
           type="text"
           value={typed}
           autoComplete="off"

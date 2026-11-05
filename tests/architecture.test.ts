@@ -205,6 +205,10 @@ const engineMentions = (cwd: string) =>
     "@werft-ai/runtime-claude|@anthropic-ai/claude-agent-sdk|adapters/runtimes/claude",
   ]);
 
+// The docs site describes the engine package paths and event fields the
+// operator pages cite as evidence; prose is not a code dependency.
+const isSiteDoc = (path: string) => /^apps\/docs\/content\/.*\.mdx$/.test(path);
+
 const kindMentions = (cwd: string) =>
   grepOutsideAdapters(cwd, ["-w", "claude_agent_sdk"]);
 
@@ -269,6 +273,8 @@ function engineShapeReadAllowed(hit: string): boolean {
     path === "packages/testkit/src/scripted-messages.ts" ||
     (path === "apps/egress-proxy/src/usage.ts" &&
       text.includes("SDK's `total_cost_usd`")) ||
+    // Operator pages explain the cost and event fields they cite.
+    isSiteDoc(path) ||
     // The usage reader's name for the platform's own cost sum.
     (path === "packages/db/src/usage-reader.ts" &&
       /\btotal_cost_usd\b/.test(text) &&
@@ -646,7 +652,7 @@ const webUiRules = {
   "shadow-component":
     "a component named like a @werft-ai/ui or @werft-ai/react export: import that export instead of defining a second one; if it lacks what you need, ask ui-kit to extend it",
   "legacy-class":
-    "legacy web-* / ap-input class: use the @werft-ai/ui component that draws it (Field, Input, PageHeader, EmptyState, ...); if none fits, ask ui-kit for one",
+    "legacy web-* / werft-input class: use the @werft-ai/ui component that draws it (Field, Input, PageHeader, EmptyState, ...); if none fits, ask ui-kit for one",
   "link-constant":
     "link className constant: use a link component from @werft-ai/ui; if none fits, ask ui-kit for one",
   "raw-destructive":
@@ -655,7 +661,7 @@ const webUiRules = {
 
 export type WebUiRule = keyof typeof webUiRules;
 
-const legacyClass = /(?<![\w-])(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)/g;
+const legacyClass = /(?<![\w-])(?:web-[a-z0-9_-]+|werft-input[a-z0-9_-]*)/g;
 
 /**
  * Where apps/web draws its own UI instead of composing packages/ui and
@@ -721,7 +727,7 @@ export async function webUiViolations(
         add(
           name,
           "legacy-class",
-          classes(/(?:^|:)!?(?:web-[a-z0-9_-]+|ap-input[a-z0-9_-]*)!?$/),
+          classes(/(?:^|:)!?(?:web-[a-z0-9_-]+|werft-input[a-z0-9_-]*)!?$/),
         );
         add(
           name,
@@ -1246,7 +1252,9 @@ describe("architecture", () => {
   // G1: outside the runtime adapters nothing names an engine package or path,
   // in sources, tests, manifests and Dockerfiles alike.
   test("nothing outside the runtime adapters names an engine package (G1)", () => {
-    expect(engineMentions(root)).toEqual([]);
+    expect(
+      engineMentions(root).filter((hit) => !isSiteDoc(hit.split(":")[0] ?? "")),
+    ).toEqual([]);
   });
 
   // G2: the runtime kind is data. Code outside the adapters never spells one
@@ -1739,7 +1747,7 @@ describe("architecture", () => {
           "export function Card() {",
           "  return (",
           '    <table className="web-table">',
-          '      <a href="/x" className="ap-input web-field__hint">x</a>',
+          '      <a href="/x" className="werft-input web-field__hint">x</a>',
           '      <p className="text-destructive">no</p>',
           "    </table>",
           "  );",
@@ -1753,7 +1761,7 @@ describe("architecture", () => {
       );
       await writeFile(
         join(web, "styles.css"),
-        ".web-field .ap-input { color: red; }\n.ap-button {}",
+        ".web-field .werft-input { color: red; }\n.werft-button {}",
       );
       const counts = await webUiViolations(web, components);
       expect(counts).toEqual({
