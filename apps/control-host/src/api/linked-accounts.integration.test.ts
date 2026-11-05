@@ -166,7 +166,7 @@ integration("Sign in with Slack over HTTP on PostgreSQL", () => {
       { [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
     );
     expect(response.status).toBe(200);
-    return cookieOf(response, "__Host-ap_session");
+    return cookieOf(response, "__Host-werft_session");
   }
 
   /** The whole browser round trip, as the account `mock` names. */

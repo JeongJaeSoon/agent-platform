@@ -266,7 +266,7 @@ API가 App의 private key로 JWT를 서명해 설치 토큰을 받고, 그 토�
 github.com의 비공개 저장소로 확인하는 절차다. `scripts/local.sh up --fake-model`로 띄운 스택에 저장소 예시 overlay를 겹친다.
 
 1. 콘솔에서 GitHub App을 등록하고 대상 저장소에 설치한다(위 App 절).
-2. `.claude/skills/verify-agent-platform/github-sandbox/overlay.yml`을 `COMPOSE_FILE="compose.yaml:<그 파일>"`로 겹친다. 이 overlay는 `github.com:443`을 `EGRESS_CREDENTIAL_ALLOWLIST`에 더하고, 같은 폴더의 `settings.json`을 migrate에 준다. 다른 저장소를 쓰려면 그 파일을 복사해 `repositories`의 URL을 바꾼다. 저장소의 `profiles` 배열은 빈 표를 시드할 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다.
+2. `.claude/skills/verify-werft/github-sandbox/overlay.yml`을 `COMPOSE_FILE="compose.yaml:<그 파일>"`로 겹친다. 이 overlay는 `github.com:443`을 `EGRESS_CREDENTIAL_ALLOWLIST`에 더하고, 같은 폴더의 `settings.json`을 migrate에 준다. 다른 저장소를 쓰려면 그 파일을 복사해 `repositories`의 URL을 바꾼다. 저장소의 `profiles` 배열은 빈 표를 시드할 때만 읽으므로 새 스택(볼륨 없음)으로 띄운다.
 3. `scripts/local.sh up --fake-model`.
 4. API 기동 로그 `Session catalog loaded`의 `repositories` 수를 보고, quickstart 2·3장처럼 `repository_id`를 그 저장소로 바꿔 세션을 만든다.
 5. 세션이 `needs_input`이나 `completed`에 닿으면 `docker compose logs egress-proxy | grep '"purpose":"repository"'`에서 `status: 200`을 확인한다. `STARTUP_FAILED`면 위의 401·redirect 항목을 본다.

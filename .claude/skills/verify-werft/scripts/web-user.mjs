@@ -37,7 +37,7 @@ if (!runArg || !cmd || !who) {
 }
 const root =
   process.env.VERIFY_AP_ROOT ??
-  join(process.env.TMPDIR ?? tmpdir(), "verify-agent-platform");
+  join(process.env.TMPDIR ?? tmpdir(), "verify-werft");
 const run = runArg.includes("/")
   ? runArg
   : join(root, runArg.replace(/^verify-ap-/, ""));
@@ -81,7 +81,7 @@ const displayName = (name) => `Verify ${name[0].toUpperCase()}${name.slice(1)}`;
 
 async function call(method, route, body, { cookie, csrf = true } = {}) {
   const headers = { "content-type": "application/json" };
-  if (csrf) headers["x-requested-with"] = "agent-platform-web";
+  if (csrf) headers["x-requested-with"] = "werft-web";
   if (cookie) headers.cookie = cookie;
   const res = await fetch(api + route, {
     method,
@@ -97,7 +97,7 @@ async function call(method, route, body, { cookie, csrf = true } = {}) {
   }
   const session = res.headers
     .getSetCookie()
-    .find((c) => c.startsWith("__Host-ap_session="));
+    .find((c) => c.startsWith("__Host-werft_session="));
   return { status: res.status, json, text, session: session?.split(";")[0] };
 }
 function keepSession(name, r) {
