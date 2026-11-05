@@ -17,6 +17,7 @@ const previous = { ...current, cliVersion: "2.1.270", sdkVersion: "0.3.270" };
 const environment: UpgradeCheckEnvironment = {
   DATABASE_URL: "postgres://upgrade-check.invalid/db",
   UPGRADE_DEPLOYED_WORKER_IMAGE: "worker@sha256:n",
+  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: "",
   WORKER_IMAGE: "worker@sha256:n1",
   WORKER_IMAGE_RUNTIME: JSON.stringify(current),
   WORKER_IMAGE_PREVIOUS: "worker@sha256:n",
@@ -141,6 +142,23 @@ describe("runUpgradeCheck", () => {
         async () => [sealedOnPrevious],
       );
       expect(kept.code).toBe(0);
+    });
+
+    test("is check_failed, never proceed, when the deployed previous image is not said", async () => {
+      let read = false;
+      const { code, output } = await run(
+        { ...dropped, UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS: undefined },
+        async () => {
+          read = true;
+          return [sealedOnPrevious];
+        },
+      );
+      expect(code).toBe(1);
+      expect(output.verdict).toBe("check_failed");
+      expect(output.reason).toContain(
+        "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not set",
+      );
+      expect(read).toBe(false);
     });
 
     test("is check_failed when the target also drops its runtime", async () => {

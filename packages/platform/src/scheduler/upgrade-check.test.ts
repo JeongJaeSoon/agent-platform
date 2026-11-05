@@ -156,6 +156,32 @@ describe("assessUpgrade", () => {
       ).toBe("proceed");
     });
 
+    test("a replaced previous image refuses sessions its runtime does not cover, and keeps those it does", () => {
+      const replaced = {
+        ...kept,
+        targetPreviousWorker: "worker@sha256:other",
+      };
+      const sessions = [on("s-previous", previous)];
+      const incompatible = assessUpgrade({
+        ...replaced,
+        runtimes: { current, previous: older },
+        sessions,
+        approved: [],
+      });
+      expect(incompatible.verdict).toBe("refused");
+      expect(incompatible.affected).toEqual([
+        { sessionId: "s-previous", reason: "no_image" },
+      ]);
+      expect(
+        assessUpgrade({
+          ...replaced,
+          runtimes: { current, previous },
+          sessions,
+          approved: [],
+        }).verdict,
+      ).toBe("proceed");
+    });
+
     test("proceeds when no session was sealed on it", () => {
       expect(
         assessUpgrade({

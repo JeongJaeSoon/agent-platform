@@ -158,6 +158,16 @@ function readSettings(environment: UpgradeCheckEnvironment) {
       "UPGRADE_DEPLOYED_WORKER_IMAGE is empty: the deployed worker image could not be read (a dry run or `helm template` reads no cluster)",
     );
   }
+  // Empty means the deployed release has no previous image; unset means the
+  // caller never said, which must not read as "none".
+  if (
+    deployedWorker !== null &&
+    environment.UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS === undefined
+  ) {
+    throw new Error(
+      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not set (empty when the deployed release has no previous image)",
+    );
+  }
   const runtimes = workerImageRuntimesFromEnv(environment);
   const targetPreviousWorker = environment.WORKER_IMAGE_PREVIOUS || null;
   // Nothing compares runtimes when nothing is replaced, but dropping one a
