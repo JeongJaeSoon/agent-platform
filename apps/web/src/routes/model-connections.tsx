@@ -14,6 +14,7 @@ import {
   EmptyState,
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
   GridTable,
   GridTableCell,
@@ -282,6 +283,8 @@ function AddConnection({
   const fallback = defaults[kind];
   const endpoint = edited ?? fallback ?? "";
   const [error, setError] = useState<string | null>(null);
+  // Set when a kind with no default address is submitted without one.
+  const [endpointMissing, setEndpointMissing] = useState(false);
   const create = useSettingsWrite(
     "connection",
     (
@@ -310,6 +313,7 @@ function AddConnection({
       open={open}
       onOpenChange={(next) => {
         setError(null);
+        setEndpointMissing(false);
         if (!next) {
           setKind("anthropic");
           setEdited(null);
@@ -328,6 +332,10 @@ function AddConnection({
         // Only what the person typed goes out; the shown default stays the
         // server's to fill, so its billing check still runs.
         const named = (edited ?? "").trim();
+        if (named === "" && fallback === undefined) {
+          setEndpointMissing(true);
+          return;
+        }
         create.mutate({
           id: String(form.get("id")).trim(),
           kind,
@@ -361,6 +369,7 @@ function AddConnection({
           onChange={(event) => {
             // A cleared field hands the new kind's default back.
             if (edited === "") setEdited(null);
+            setEndpointMissing(false);
             setKind(event.target.value === "litellm" ? "litellm" : "anthropic");
           }}
         >
@@ -373,12 +382,19 @@ function AddConnection({
         <Input
           name="endpoint"
           type="url"
-          required={fallback === undefined}
+          aria-required={fallback === undefined || undefined}
+          aria-invalid={endpointMissing || undefined}
           autoComplete="off"
           spellCheck={false}
           value={endpoint}
-          onChange={(event) => setEdited(event.target.value)}
+          onChange={(event) => {
+            setEndpointMissing(false);
+            setEdited(event.target.value);
+          }}
         />
+        {endpointMissing ? (
+          <FieldError>{t("settings.connections.endpointRequired")}</FieldError>
+        ) : null}
         {fallback === undefined ? null : (
           <FieldDescription>
             {t("settings.connections.endpointDefault")}

@@ -160,6 +160,34 @@ describe("모델 연결", () => {
     ]);
   });
 
+  test("a kind with no default address refuses an empty endpoint at the field, without a request", async () => {
+    const { api } = renderAt("/profiles", {
+      ...routes(me(), null, { anthropic: "https://api.anthropic.com" }),
+      [`POST ${CONNECTIONS}`]: () => json(201, CHANGE("proxy")),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "연결 추가" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.selectOptions(within(dialog).getByLabelText("종류"), "litellm");
+    await user.type(within(dialog).getByLabelText("id"), "proxy");
+    await user.type(within(dialog).getByLabelText("키 값"), "example-key");
+    const endpoint =
+      within(dialog).getByLabelText<HTMLInputElement>("엔드포인트");
+    expect(endpoint.getAttribute("aria-invalid")).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "만들기" }));
+    expect(
+      await within(dialog).findByText(
+        "litellm에는 기본 주소가 없습니다. 엔드포인트를 입력하세요.",
+      ),
+    ).toBeTruthy();
+    expect(endpoint.getAttribute("aria-invalid")).toBe("true");
+    expect(writes(api.calls)).toEqual([]);
+
+    // Typing clears the message.
+    await user.type(endpoint, "https://llm.internal:8443/v1");
+    expect(endpoint.getAttribute("aria-invalid")).toBeNull();
+  });
+
   test("a kind with an official address starts with it filled in; what the person typed survives a kind change", async () => {
     const OFFICIAL = "https://api.anthropic.com";
     const { api } = renderAt("/profiles", {
@@ -178,7 +206,6 @@ describe("모델 연결", () => {
     // The default is not the person's: a kind without one empties the field.
     await user.selectOptions(kind, "litellm");
     expect(endpoint.value).toBe("");
-    expect(endpoint.required).toBe(true);
     await user.selectOptions(kind, "anthropic");
     expect(endpoint.value).toBe(OFFICIAL);
 
