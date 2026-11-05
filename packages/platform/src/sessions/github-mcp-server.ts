@@ -331,7 +331,14 @@ export function createGitHubMcpServer(deps: {
     let turnAtCall: number | null = null;
     try {
       if (tool === "list_repositories") {
-        return done(await services.attachments.list(sessionId));
+        return done(
+          await services.attachments.list(
+            sessionId,
+            parsed.data as z.infer<
+              (typeof GITHUB_MCP_TOOL_ARGUMENTS)["list_repositories"]
+            >,
+          ),
+        );
       }
       if (tool === "attach_repository") {
         const { repository_id, wait_seconds } = parsed.data as z.infer<
