@@ -139,6 +139,27 @@ integration("pull request settings on PostgreSQL", () => {
     expect(await ceilings.get(workspaceId)).toEqual({ ceiling, revision: 1 });
   });
 
+  test("the defaults saved at revision 0 beside a saved ceiling are a first save, revision 1", async () => {
+    const { workspaceId, userId } = await workspace();
+    const store = createPostgresPullRequestSettingsStore(db);
+    await createPostgresGitHubSettingsStore(db).putCeiling({
+      workspaceId,
+      ceiling: { ...GITHUB_CEILING_NONE, review: true },
+      revision: 0,
+      updatedBy: userId,
+      actor: ownerActor(userId),
+    });
+    expect(
+      await store.put({
+        workspaceId,
+        settings: DEFAULT_PULL_REQUEST_SETTINGS,
+        revision: 0,
+        updatedBy: userId,
+        actor: ownerActor(userId),
+      }),
+    ).toMatchObject({ outcome: "stored", revision: 1 });
+  });
+
   test("a stale revision conflicts; the same values at the revision held write nothing", async () => {
     const { workspaceId, userId } = await workspace();
     const store = createPostgresPullRequestSettingsStore(db);

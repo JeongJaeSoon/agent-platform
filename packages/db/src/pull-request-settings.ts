@@ -235,8 +235,11 @@ export function createPostgresPullRequestSettingsStore(
         }
         const before =
           held === undefined ? null : pullRequestSettingsOf(held.pullRequest);
+        // Revision 0 is "never saved": the defaults sent back still count as
+        // the first save, which the response contract numbers 1.
         if (
           held !== undefined &&
+          held.revision > 0 &&
           JSON.stringify(before) === JSON.stringify(input.settings)
         ) {
           return {
