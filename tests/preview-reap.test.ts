@@ -23,6 +23,15 @@ const hoursAgo = (hours: number) =>
     .toISOString()
     .replace(/\.\d+Z$/, "Z");
 
+type Namespace = {
+  name: string;
+  upAt?: string;
+  labels?: Record<string, string>;
+};
+
+const OLD_LABEL = { "agent-platform.dev/preview": "true" };
+const NEW_LABEL = { "werft.dev/preview": "true" };
+
 describe("deploy/preview/preview.sh reap", () => {
   let dir: string;
 
@@ -35,15 +44,15 @@ describe("deploy/preview/preview.sh reap", () => {
 echo "$*" >> "${dir}/kubectl-calls"
 case "$*" in
   "config view "*) echo "apiVersion: v1" ;;
-  "get namespaces -l agent-platform.dev/preview=true -o json") cat "${dir}/namespaces.json" ;;
-  "get namespace "*"preview-up-at}")
+  "get namespaces -o json") cat "${dir}/namespaces.json" ;;
+  "get namespace "*" -o json")
+    # STUB_CURRENT_UP_AT is an \`up\` that ran after reap read the list.
     if [ -n "\${STUB_CURRENT_UP_AT+set}" ]; then
-      echo "$STUB_CURRENT_UP_AT"
+      jq --arg ns "$3" --arg at "$STUB_CURRENT_UP_AT" '.items[] | select(.metadata.name == $ns)
+        | .metadata.annotations["agent-platform.dev/preview-up-at"] = $at' "${dir}/namespaces.json"
     else
-      jq -r --arg ns "$3" '.items[] | select(.metadata.name == $ns)
-        | .metadata.annotations["agent-platform.dev/preview-up-at"] // ""' "${dir}/namespaces.json"
+      jq --arg ns "$3" '.items[] | select(.metadata.name == $ns)' "${dir}/namespaces.json"
     fi ;;
-  "get namespace "*" -o jsonpath="*) echo true ;;
   "get namespace "*) ;;
   "delete namespace "*) exit "\${STUB_DELETE_EXIT:-0}" ;;
   *) exit 1 ;;
@@ -101,15 +110,16 @@ exit 1
   });
 
   async function reap(
-    namespaces: { name: string; upAt?: string }[],
+    namespaces: Namespace[],
     env: Record<string, string> = {},
   ) {
     await writeFile(
       join(dir, "namespaces.json"),
       JSON.stringify({
-        items: namespaces.map(({ name, upAt }) => ({
+        items: namespaces.map(({ name, upAt, labels = OLD_LABEL }) => ({
           metadata: {
             name,
+            labels,
             annotations:
               upAt === undefined
                 ? {}
@@ -169,11 +179,111 @@ exit 1
     ]);
   });
 
-  test("asks Kubernetes only for namespaces with the preview label", async () => {
-    await reap([]);
-    expect(await calls("kubectl-calls")).toContain(
-      "get namespaces -l agent-platform.dev/preview=true -o json",
+  // Namespaces named pr-<N> in every case, so only the labels keep them.
+  test("downs a PR-closed preview labeled with the old key, the new key, or both", async () => {
+    const result = await reap(
+      [
+        { name: "pr-20", upAt: hoursAgo(1), labels: OLD_LABEL },
+        { name: "pr-21", upAt: hoursAgo(1), labels: NEW_LABEL },
+        { name: "pr-22", upAt: hoursAgo(1), labels: { ...OLD_LABEL, ...NEW_LABEL } },
+      ],
+      { STUB_STATES: "20=CLOSED 21=CLOSED 22=CLOSED" },
     );
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual(["pr-20", "pr-21", "pr-22"]);
+  });
+
+  test("never touches a namespace with no preview label or a conflicting one", async () => {
+    const states = "23=CLOSED 24=CLOSED 25=CLOSED 26=CLOSED 27=CLOSED";
+    const result = await reap(
+      [
+        { name: "pr-23", upAt: hoursAgo(100), labels: {} },
+        {
+          name: "pr-24",
+          upAt: hoursAgo(100),
+          labels: { "agent-platform.dev/preview": "true", "werft.dev/preview": "false" },
+        },
+        {
+          name: "pr-25",
+          upAt: hoursAgo(100),
+          labels: { "agent-platform.dev/preview": "false", "werft.dev/preview": "true" },
+        },
+        { name: "pr-26", upAt: hoursAgo(100), labels: { "werft.dev/preview": "yes" } },
+        { name: "pr-27", upAt: hoursAgo(100), labels: { "app.kubernetes.io/name": "x" } },
+      ],
+      { STUB_STATES: states },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual([]);
+    expect(await calls("gh-calls")).toEqual([]);
+    expect(result.stdout).toContain("reap deleted: none\n");
+  });
+
+  test("down refuses a conflicting namespace even when reap is not the caller", async () => {
+    await writeFile(
+      join(dir, "namespaces.json"),
+      JSON.stringify({
+        items: [
+          {
+            metadata: {
+              name: "pr-28",
+              labels: { "agent-platform.dev/preview": "true", "werft.dev/preview": "false" },
+            },
+          },
+        ],
+      }),
+    );
+    const handle = Bun.spawn(["bash", script, "down", "28"], {
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        PREVIEW_HOME: join(dir, "home"),
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stderr] = await Promise.all([
+      handle.exited,
+      new Response(handle.stderr).text(),
+    ]);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("pr-28 exists without a consistent");
+    expect(await deleted()).toEqual([]);
+  });
+
+  test("the later of two up-at annotations counts", async () => {
+    await writeFile(
+      join(dir, "namespaces.json"),
+      JSON.stringify({
+        items: [
+          {
+            metadata: {
+              name: "pr-29",
+              labels: NEW_LABEL,
+              annotations: {
+                "agent-platform.dev/preview-up-at": hoursAgo(100),
+                "werft.dev/preview-up-at": hoursAgo(1),
+              },
+            },
+          },
+        ],
+      }),
+    );
+    const handle = Bun.spawn(["bash", script, "reap"], {
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        PREVIEW_HOME: join(dir, "home"),
+        PREVIEW_TTL_HOURS: "",
+        STUB_STATES: "29=OPEN",
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const stdout = await new Response(handle.stdout).text();
+    await handle.exited;
+    expect(stdout).toContain("pr-29: kept, PR OPEN, last up 1h ago");
+    expect(await deleted()).toEqual([]);
   });
 
   test("keeps a labeled namespace not named pr-<N>", async () => {
@@ -247,7 +357,7 @@ exit 1
     expect(result.exitCode).toBe(0);
     expect(await deleted()).toEqual([]);
     expect(result.stdout).toContain(
-      "pr-9: no readable agent-platform.dev/preview-up-at, TTL not applied",
+      "pr-9: no readable preview-up-at annotation, TTL not applied",
     );
     expect(result.stdout).toContain("pr-10: kept, PR OPEN\n");
   });
@@ -346,6 +456,12 @@ exit 1
   });
 
   const up = async (releases: string) => {
+    await writeFile(
+      join(dir, "namespaces.json"),
+      JSON.stringify({
+        items: [{ metadata: { name: "pr-18", labels: NEW_LABEL } }],
+      }),
+    );
     const handle = Bun.spawn(["bash", script, "up", "18"], {
       env: {
         ...process.env,

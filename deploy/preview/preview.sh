@@ -21,6 +21,8 @@
 # Each preview namespace carries the label agent-platform.dev/preview=true
 # and the annotations agent-platform.dev/preview-head (the installed head)
 # and agent-platform.dev/preview-up-at (when `up` last started).
+# Reading also accepts the werft.dev/ spelling of the same three keys; writing
+# stays on agent-platform.dev/ until the label rename lands.
 #
 #   PREVIEW_HOME       checkouts and up.sh state, outside any git worktree
 #                      (default ~/.cache/agent-platform/preview)
@@ -45,6 +47,24 @@ TRAEFIK_VERSION=42.1.3
 HTTP_PORT=18180
 HTTPS_PORT=18543
 APPS=(control-host egress-proxy worker)
+
+# A namespace is a preview when at least one of the old and new preview labels
+# is "true" and neither holds another value; a conflict is not a preview, so
+# nothing outside this script's namespaces is ever deleted. Of two up-at
+# annotations the later one counts, so a conflict keeps a preview longer.
+PREVIEW_JQ='
+  def is_preview:
+    [.metadata.labels["agent-platform.dev/preview"], .metadata.labels["werft.dev/preview"]]
+    | any(. == "true") and all(. == null or . == "true");
+  def up_at:
+    [.metadata.annotations["agent-platform.dev/preview-up-at"],
+     .metadata.annotations["werft.dev/preview-up-at"]]
+    | map(select(. != null and . != "")) | max // "";
+  def head:
+    [.metadata.annotations["agent-platform.dev/preview-head"],
+     .metadata.annotations["werft.dev/preview-head"]]
+    | map(select(. != null and . != "")) | first // "-";
+'
 
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
@@ -258,10 +278,9 @@ EOF
 
 # Refuses a namespace this script did not make.
 require_preview() {
-  local label
-  label="$(kubectl get namespace "$1" -o jsonpath='{.metadata.labels.agent-platform\.dev/preview}')"
-  if [ "$label" != true ]; then
-    echo "namespace $1 exists without the label agent-platform.dev/preview=true: not a preview" >&2
+  # Unreadable or conflicting labels refuse too.
+  if ! kubectl get namespace "$1" -o json | jq -e "${PREVIEW_JQ} is_preview" >/dev/null; then
+    echo "namespace $1 exists without a consistent agent-platform.dev/preview=true or werft.dev/preview=true label: not a preview" >&2
     exit 1
   fi
 }
@@ -278,8 +297,7 @@ down() {
   if kubectl get namespace "$namespace" >/dev/null 2>&1; then
     require_preview "$namespace"
     if [ -n "${PREVIEW_REAP_UP_AT+set}" ]; then
-      up_at="$(kubectl get namespace "$namespace" \
-        -o jsonpath='{.metadata.annotations.agent-platform\.dev/preview-up-at}')"
+      up_at="$(kubectl get namespace "$namespace" -o json | jq -r "${PREVIEW_JQ} up_at")"
       if [ "$up_at" != "$PREVIEW_REAP_UP_AT" ]; then
         echo "${namespace}: up again at ${up_at} after reap read ${PREVIEW_REAP_UP_AT:-none}" >&2
         exit 75
@@ -324,10 +342,8 @@ memory_used_mi() {
 list() {
   local namespace head up_at memory
   printf '%-10s %-44s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
-  kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
-    | [.metadata.name,
-       (.metadata.annotations["agent-platform.dev/preview-head"] // "-"),
-       (.metadata.annotations["agent-platform.dev/preview-up-at"] // "-")] | @tsv' \
+  kubectl get namespaces -o json | jq -r "${PREVIEW_JQ}"'.items[] | select(is_preview)
+    | [.metadata.name, head, (up_at | if . == "" then "-" else . end)] | @tsv' \
     | while IFS=$'\t' read -r namespace head up_at; do
       memory="$(memory_used_mi "$namespace")Mi used"
       printf '%-10s %-44s %-12s %-20s %-14s %s\n' "$namespace" \
@@ -343,8 +359,8 @@ reap() {
   local rows namespace up_at age n reason state code deleted=() failed=()
   echo "reap $(date -u +%Y-%m-%dT%H:%M:%SZ): TTL ${PREVIEW_TTL_HOURS}h"
   # \x1f, not a tab: read collapses empty fields between whitespace separators.
-  rows="$(kubectl get namespaces -l agent-platform.dev/preview=true -o json | jq -r '.items[]
-    | (.metadata.annotations["agent-platform.dev/preview-up-at"] // "") as $at
+  rows="$(kubectl get namespaces -o json | jq -r "${PREVIEW_JQ}"'.items[] | select(is_preview)
+    | up_at as $at
     | [.metadata.name, $at, ($at | try (now - fromdateiso8601 | floor | tostring) catch "")]
     | join("\u001f")')"
   while IFS=$'\x1f' read -r namespace up_at age; do
@@ -356,7 +372,7 @@ reap() {
     n="${BASH_REMATCH[1]}"
     reason=""
     if [ -z "$age" ]; then
-      echo "${namespace}: no readable agent-platform.dev/preview-up-at, TTL not applied"
+      echo "${namespace}: no readable preview-up-at annotation, TTL not applied"
     elif [ "$age" -gt $((PREVIEW_TTL_HOURS * 3600)) ]; then
       reason="last up $((age / 3600))h ago"
     fi
