@@ -101,6 +101,7 @@ import {
   putAgentGitHubSettingsResponseSchema,
   putGitHubAppResponseSchema,
   putGitHubOAuthClientSecretResponseSchema,
+  putGitHubPullRequestSettingsResponseSchema,
   putGitHubRepositoryAppPinResponseSchema,
   putGitHubUserLinkAppResponseSchema,
   putSlackBindingResponseSchema,
@@ -207,6 +208,8 @@ export const responseSchemas = {
   "GET /v1/workspaces/{id}/slack/apps": listWorkspaceSlackAppsResponseSchema,
   "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret":
     putGitHubOAuthClientSecretResponseSchema,
+  "PUT /v1/workspaces/{id}/github-settings/pull-request":
+    putGitHubPullRequestSettingsResponseSchema,
   "GET /v1/workspaces/{id}/github-packages":
     githubPackagesSettingsResponseSchema,
   "PUT /v1/workspaces/{id}/github-packages/token":

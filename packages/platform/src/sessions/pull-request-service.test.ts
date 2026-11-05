@@ -1832,9 +1832,7 @@ describe("the workspace's pull request settings", () => {
     expect(body).toContain("## Testing\n\nbun test");
     expect(body).not.toContain("repository's");
     expect(repository.calls).toEqual([]);
-    expect(receipts.at(-1)?.result).toMatchObject({
-      template: { commit: null },
-    });
+    expect(receipts.at(-1)).toMatchObject({ template: { commit: null } });
   });
 
   test("with `override` and no template of its own, the platform's default is laid out", async () => {
@@ -1930,7 +1928,7 @@ describe("the workspace's pull request settings", () => {
       });
       expect(opened.body_source).toEqual({ kind: "platform", skipped });
       expect(body.startsWith("## 요약\nAdds the login form.")).toBe(true);
-      expect(receipts.at(-1)?.result).toMatchObject({
+      expect(receipts.at(-1)).toMatchObject({
         template: { commit: null, skipped },
       });
     }

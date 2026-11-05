@@ -388,6 +388,7 @@ describe("OpenAPI document", () => {
         "/v1/workspaces/{id}/github-repositories/{repositoryId}/app-pins/{role}",
         "/v1/workspaces/{id}/github-settings",
         "/v1/workspaces/{id}/github-settings/oauth-client-secret",
+        "/v1/workspaces/{id}/github-settings/pull-request",
         "/v1/workspaces/{id}/github-settings/user-link-app",
         "/v1/workspaces/{id}/github-packages",
         "/v1/workspaces/{id}/github-packages/token",

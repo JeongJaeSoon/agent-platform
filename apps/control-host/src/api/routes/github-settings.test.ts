@@ -485,6 +485,16 @@ describe("PUT the pull request settings", () => {
   } as const;
   const path = "/pull-request";
 
+  test("a body past the request limit is 413", async () => {
+    const { call } = appWith();
+    const response = await call("PUT", {
+      cookie: cookieFor("owner"),
+      path,
+      body: { pad: "a".repeat(REQUEST_BODY_MAX_BYTES) },
+    });
+    expect(response.status).toBe(413);
+  });
+
   test("an owner saves them at their own revision; the ceiling's does not move", async () => {
     const { call, memory } = appWith();
     const owner = cookieFor("owner");

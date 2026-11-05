@@ -183,6 +183,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings",
     "PUT /v1/workspaces/{id}/github-settings/oauth-client-secret",
+    "PUT /v1/workspaces/{id}/github-settings/pull-request",
     "PUT /v1/workspaces/{id}/github-settings/user-link-app",
   ],
   "routes/github-packages.test.ts": [
