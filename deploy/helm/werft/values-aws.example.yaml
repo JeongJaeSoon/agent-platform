@@ -23,7 +23,7 @@ secrets:
       kind: ClusterSecretStore
       name: aws-secrets-manager
     # Holds every key values.yaml lists under `secrets` but the two AWS keys.
-    remoteKey: agent-platform/prod/control-plane
+    remoteKey: werft/prod/control-plane
 
 # IRSA: the api and the checkpoint GC reach the checkpoint bucket and Secrets
 # Manager as this role. The scheduler and the workers get no S3 rights.

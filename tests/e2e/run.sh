@@ -136,7 +136,8 @@ export EGRESS_PROXY_IMAGE="werft-egress-proxy:${project}"
 # The first owner's, for firstOwnerCookie in tests/e2e/client.ts:
 # infra/compose.core.yml passes it to the API.
 export BOOTSTRAP_TOKEN="$(openssl rand -hex 24)"
-label="agent-platform.installation=${EXECUTION_INSTALLATION_ID}"
+label="werft.installation=${EXECUTION_INSTALLATION_ID}"
+volume_label="${EXECUTION_VOLUME_LABEL_NAMESPACE:-werft}.installation=${EXECUTION_INSTALLATION_ID}"
 # E2E_COMPOSE_OVERRIDE: one more overlay after ours; CI passes
 # tests/e2e/compose.ci-mirror.yml to pull from its image mirror.
 dc() {
@@ -158,7 +159,7 @@ cleanup() {
     [ -z "$ids" ] || docker rm -f $ids >/dev/null 2>&1 || true
     ids="$(docker network ls -q --filter "label=${label}")"
     [ -z "$ids" ] || docker network rm $ids >/dev/null 2>&1 || true
-    ids="$(docker volume ls -q --filter "label=${label}")"
+    ids="$(docker volume ls -q --filter "label=${volume_label}")"
     [ -z "$ids" ] || docker volume rm -f $ids >/dev/null 2>&1 || true
     docker image rm "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE" >/dev/null 2>&1 || true
   fi
@@ -243,7 +244,7 @@ if [ -z "$real_model$local_model" ]; then
   export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
   E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T secrets awslocal secretsmanager get-secret-value \
-    --secret-id agent-platform/local/fake-mcp --query SecretString --output text |
+    --secret-id werft/local/fake-mcp --query SecretString --output text |
     tr -d '\r\n' | shasum -a 256 | cut -d' ' -f1)"
   export E2E_FAKE_MCP_BEARER_HASH
 fi

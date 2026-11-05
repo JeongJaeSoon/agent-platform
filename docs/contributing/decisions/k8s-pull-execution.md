@@ -260,7 +260,7 @@ workspace는 Job 템플릿의 `ephemeral.volumeClaimTemplate`이다. Pod가 생�
 잃는 것은 다음과 같다.
 
 - 복구 보장은 **마지막으로 commit된 checkpoint까지**다. restore가 있으면 worker는 workspace를 통째로 교체하므로(`apps/worker/src/workspace.ts:180-189`) 여기까지는 지금과 같다.
-- checkpoint가 아직 없는 세션은 지금 PVC 덕분에 건강한 checkout과 로컬에만 있는 작업을 다음 worker가 이어받는다. pull에서는 Pod가 끝나면 사라진다. 지금 운영자가 TTL 안에 볼륨에서 직접 꺼내는 구출 경로([실행 기반](../../operator/execution.md) "`stopped` 세션의 workspace는 만료된다")도 없어진다.
+- checkpoint가 아직 없는 세션은 지금 PVC 덕분에 건강한 checkout과 로컬에만 있는 작업을 다음 worker가 이어받는다. pull에서는 Pod가 끝나면 사라진다. 지금 운영자가 TTL 안에 볼륨에서 직접 꺼내는 구출 경로([실행 기반](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/execution/) "`stopped` 세션의 workspace는 만료된다")도 없어진다.
 - turn 도중 worker가 죽으면 그 turn은 지금처럼 `outcome_unknown`이 되거나 `recovery_required`로 멈출 수 있다. 다음 worker는 마지막 checkpoint에서 시작한다.
 
 workspace GC(`listWorkspaces`·`removeWorkspace`)는 이 모드에서 할 일이 없다.

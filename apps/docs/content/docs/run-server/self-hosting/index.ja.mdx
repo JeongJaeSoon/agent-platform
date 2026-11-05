@@ -3,7 +3,7 @@ title: "セルフホスティング"
 description: 複数人で使う Werft サーバーの設置方法を選ぶ
 ---
 
-Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックと Kubernetes のアップグレード手順は実行していません。単一サーバーのページは最初から最後まで実行して確認していません。
+Werft サーバーを自分で設置し、チームで共有する方法です。ひとりで試すだけなら [開発用サーバーの実行](/run-server/dev-server) で足ります。設置方法は2つあります。自分の方法のページが、`/readyz` が 200 を返すところまでの設置手順を案内します。Kubernetes の設置は公開 chart を使って kind で確認しましたが、DB Secret の手順はドキュメントのブロックそのままではなく、修正した kind の Secret ブロックは実行していません。Kubernetes のアップグレードは kind でセッションがない状態で一度、手順1〜4を実行し、`proceed` の判定だけを確認しました。単一サーバーのページは、LocalStack の設置で手順1〜6と `key create` まで実行して確認しました。
 
 ## 設置方法を選ぶ
 
@@ -29,7 +29,7 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭12文字です。
 
 <Callout type="warn">
-`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、イメージのタグは `v<バージョン>`、chart のバージョンは `v` を除いた `<バージョン>` になります。設置ページのコマンドは同じままで、単一サーバーでは同じタグを checkout します。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#이미지를-직접-빌드한다)します。
+`v` タグはまだありません。`main-<12>` はリリースではなく、対応するソースの保管を一部確認できないまま公開されることがあります。最初の `v` タグができると、イメージのタグは `v<バージョン>`、chart のバージョンは `v` を除いた `<バージョン>` になります。設置ページのコマンドは同じままで、単一サーバーでは同じタグを checkout します。公開イメージを取得できない場合は、リポジトリを checkout して[3つのイメージを自分でビルド](/run-server/self-hosting/single-server#イメージを自分でビルドするとき)します。
 </Callout>
 
 ## リリース manifest を読む
@@ -37,11 +37,11 @@ Werft サーバーを自分で設置し、チームで共有する方法です�
 リリース(`v*` タグ)ごとに GitHub Release ができ、`release-manifest.json` が付く。3 つのイメージの digest、worker runtime、chart バージョンがこの 1 ファイルにある。リポジトリを checkout せず、`gh` と `jq` で読む。以下は最初のリリースができた後のコマンドである。
 
 ```bash
-TAG=v0.1.0   # 読むリリースのタグ
-gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # タグごとに 1 ディレクトリ
-jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # デプロイに使う 3 つの digest
+TAG=v0.1.0   # the release tag to read
+gh release download "$TAG" -R JeongJaeSoon/werft -p release-manifest.json -D "$TAG"   # one directory per tag
+jq -r '.images[] | "\(.image)@\(.digest)"' "$TAG/release-manifest.json"   # the three digests to deploy
 jq -c .workerRuntime "$TAG/release-manifest.json"                          # worker runtime
-jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart の場所とバージョン
+jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 ```
 
 digest は 2 つのアーキテクチャを含む index の digest で、デプロイはこの値で固定する。一度付いた manifest は変わらない。フィールドと確認方法は[リリース manifest を読む](/run-server/self-hosting/operate/images-and-supply-chain#リリースmanifestを読む)を見る。
@@ -52,11 +52,12 @@ SDK と HTTP API は、サーバーのアドレスと API key で接続します
 
 ## 設置後の運用
 
-次の10件のドキュメントは、このサイトの中にあります。
+次の11件のドキュメントは、このサイトの中にあります。
 
 - [設定リファレンス](/run-server/self-hosting/operate/configuration)
 - [容量管理: transcript の上限、worker のメモリ、ノードあたりのセッション数](/run-server/self-hosting/operate/capacity)
 - [データベース接続と遅いクエリ](/run-server/self-hosting/operate/database)
+- [実行基盤と worker の分離](/run-server/self-hosting/operate/execution)
 - [Kubernetesインストール(Helm chart)](/run-server/self-hosting/operate/kubernetes-deployment)
 - [Kubernetes 実行 backend](/run-server/self-hosting/operate/kubernetes-backend)
 - [プラットフォームのメトリクス(Kubernetes)](/run-server/self-hosting/operate/metrics)
@@ -68,6 +69,5 @@ SDK と HTTP API は、サーバーのアドレスと API key で接続します
 そのほかの運用ドキュメントは、リポジトリの `docs/operator/` にあり、韓国語だけで書かれています。
 
 - [API サーバー: カタログ、認証情報、checkpoint ストア、認証と権限](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
-- [実行基盤と worker の分離](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
 - [プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
 - [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)

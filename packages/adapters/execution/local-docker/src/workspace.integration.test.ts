@@ -7,6 +7,7 @@ import {
 import {
   LABELS,
   LocalDockerBackend,
+  volumeLabelsOf,
   workspaceVolumePrefixFor,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
@@ -52,7 +53,7 @@ async function runScript(
   volume: string,
   script: string,
 ): Promise<number> {
-  const container = `ap-ws-dd-${crypto.randomUUID().slice(0, 8)}`;
+  const container = `werft-ws-dd-${crypto.randomUUID().slice(0, 8)}`;
   await client.createContainer(container, {
     Cmd: ["sh", "-c", script],
     Env: [],
@@ -149,6 +150,8 @@ integration("workspace volumes against a real daemon", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
     workspaceGcMinAgeMs: 0,
     workspaceQuota: quota(),
   });
@@ -228,7 +231,7 @@ integration("workspace volumes against a real daemon", () => {
 
   /** The same question the preflight asks, asked here without an opinion. */
   async function probeQuotaSupport(): Promise<boolean> {
-    const name = `ap-ws-probe-${installationId}`;
+    const name = `werft-ws-probe-${installationId}`;
     strayVolumes.push(name);
     try {
       const volume = await client.createVolume({
@@ -256,7 +259,7 @@ integration("workspace volumes against a real daemon", () => {
       [LABELS.installation]: installationId,
       [LABELS.managed]: "true",
       [LABELS.sessionId]: intent.sessionId,
-      [LABELS.workspaceQuota]: supportsQuota
+      [volumeLabelsOf(backendConfig()).workspaceQuota]: supportsQuota
         ? `enforced:${QUOTA_BYTES}`
         : "off",
     });
@@ -341,7 +344,7 @@ integration("workspace volumes against a real daemon", () => {
     const intent = intentFor();
     // Made the way made them: bounded by bytes, labelled, and never
     // shown to the helper.
-    const volume = `${workspaceVolumePrefixFor(intent.sessionId, installationId)}pre22400`;
+    const volume = `${workspaceVolumePrefixFor(intent.sessionId, backendConfig())}pre22400`;
     await client.createVolume({
       Driver: "local",
       DriverOpts: { size: String(QUOTA_BYTES) },
@@ -349,7 +352,8 @@ integration("workspace volumes against a real daemon", () => {
         [LABELS.installation]: installationId,
         [LABELS.managed]: "true",
         [LABELS.sessionId]: intent.sessionId,
-        [LABELS.workspaceQuota]: `enforced:${QUOTA_BYTES}`,
+        [volumeLabelsOf(backendConfig()).workspaceQuota]:
+          `enforced:${QUOTA_BYTES}`,
       },
       Name: volume,
     });
@@ -379,7 +383,7 @@ integration("workspace volumes against a real daemon", () => {
     await backend.ensureExecution(intent);
     const first = (await workspaceOf(intent.sessionId))?.Name ?? "";
     expect(first).toStartWith(
-      workspaceVolumePrefixFor(intent.sessionId, installationId),
+      workspaceVolumePrefixFor(intent.sessionId, backendConfig()),
     );
 
     await backend.terminate(intent);
@@ -390,7 +394,7 @@ integration("workspace volumes against a real daemon", () => {
     await backend.ensureExecution(intent);
     const second = (await workspaceOf(intent.sessionId))?.Name ?? "";
     expect(second).toStartWith(
-      workspaceVolumePrefixFor(intent.sessionId, installationId),
+      workspaceVolumePrefixFor(intent.sessionId, backendConfig()),
     );
     expect(second).not.toBe(first);
   }, 120_000);
@@ -420,7 +424,7 @@ integration("workspace volumes against a real daemon", () => {
   }, 120_000);
 
   test("another installation's volume is not this one's to remove", async () => {
-    const name = `ap-ws-other-${crypto.randomUUID().slice(0, 8)}`;
+    const name = `werft-ws-other-${crypto.randomUUID().slice(0, 8)}`;
     strayVolumes.push(name);
     await client.createVolume({
       Driver: "local",
@@ -450,7 +454,7 @@ integration("workspace volumes against a real daemon", () => {
  */
 integration("workspace disk pressure", () => {
   const client = new DockerClient(dockerHost);
-  const name = `ap-ws-quota-${crypto.randomUUID().slice(0, 8)}`;
+  const name = `werft-ws-quota-${crypto.randomUUID().slice(0, 8)}`;
   const strayNames: string[] = [];
   let capable = false;
 

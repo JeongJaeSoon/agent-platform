@@ -21,6 +21,10 @@ import { TEST_PROXY_ADDRESS, testConfig, testResolver } from "./testing.ts";
 
 const NS = "agents";
 const INSTALLATION = "test";
+const CLAIM_NAMING = {
+  installationId: INSTALLATION,
+  volumeNamePrefix: "werft-ws-",
+};
 const IMAGE = `registry.local:5000/worker@sha256:${"a".repeat(64)}`;
 const RESOURCES = { cpus: 1, memoryBytes: 512 * 1024 * 1024, pidsLimit: 256 };
 
@@ -264,7 +268,7 @@ describe("ensureExecution", () => {
     api.removeRaw(
       NS,
       "persistentvolumeclaims",
-      workspaceClaimNameFor(intent.sessionId, INSTALLATION),
+      workspaceClaimNameFor(intent.sessionId, CLAIM_NAMING),
     );
     await expect(
       backend.ensureExecution({ ...intent, generation: 2 }),
@@ -279,7 +283,7 @@ describe("ensureExecution", () => {
     api.replace(
       NS,
       "persistentvolumeclaims",
-      workspaceClaimNameFor(intent.sessionId, INSTALLATION),
+      workspaceClaimNameFor(intent.sessionId, CLAIM_NAMING),
     );
     await expect(
       backend.ensureExecution({ ...intent, generation: 2 }),
@@ -631,7 +635,7 @@ describe("workspaces", () => {
     await backend.ensureExecution(intent);
     const [workspace] = await backend.listWorkspaces();
     expect(workspace).toMatchObject({
-      id: workspaceClaimNameFor(intent.sessionId, INSTALLATION),
+      id: workspaceClaimNameFor(intent.sessionId, CLAIM_NAMING),
       sessionId: intent.sessionId,
     });
     const id = workspace?.id as string;
@@ -643,6 +647,50 @@ describe("workspaces", () => {
     expect(await backend.removeWorkspace(id)).toEqual({ outcome: "removed" });
     expect(await backend.removeWorkspace(id)).toEqual({ outcome: "absent" });
     expect(await api.list(NS, "persistentvolumeclaims")).toEqual([]);
+  });
+
+  test("an existing claim is found by the configured prefix, and only by it", async () => {
+    const api = new FakeKubernetes();
+    const backendFor = (volumeNamePrefix: string) =>
+      new KubernetesBackend(
+        { ...testConfig(NS, INSTALLATION), volumeNamePrefix },
+        api.asClient(),
+        testResolver,
+      );
+    const { intent } = intentFor();
+    const names = async () =>
+      (await api.list(NS, "persistentvolumeclaims"))
+        .map((claim) => claim.metadata.name)
+        .sort();
+    const other = `other-ws-${INSTALLATION}-${intent.sessionId}`;
+    const own = `werft-ws-${INSTALLATION}-${intent.sessionId}`;
+
+    await backendFor("other-ws-").ensureExecution(intent);
+    expect(await names()).toEqual([other]);
+
+    await backendFor("werft-ws-").ensureExecution({
+      ...intent,
+      executionId: "exec-2",
+    });
+    expect(await names()).toEqual([other, own].sort());
+
+    await backendFor("other-ws-").ensureExecution({
+      ...intent,
+      executionId: "exec-3",
+    });
+    expect(await names()).toEqual([other, own].sort());
+    const pods = await api.list(NS, "pods");
+    const mounted = pods.map(
+      (pod) =>
+        (
+          pod as unknown as {
+            spec: {
+              volumes: Array<{ persistentVolumeClaim?: { claimName: string } }>;
+            };
+          }
+        ).spec.volumes[0]?.persistentVolumeClaim?.claimName,
+    );
+    expect(mounted.sort()).toEqual([other, own, other].sort());
   });
 
   test("a young claim is not listed while the age gate is on", async () => {
