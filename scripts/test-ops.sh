@@ -8,6 +8,9 @@
 #                                              preflight, then move to another release. A worker image
 #                                              change is refused while any checkpoint is uncollected,
 #                                              unless <file> lists exactly the affected sessions
+#   scripts/test-ops.sh stop                    take the deployed release down; the volumes stay (never -v)
+#   scripts/test-ops.sh start                   bring the deployed release back on the same volumes, after a
+#                                              stop, a compose down, or a host restart that left it down
 #   scripts/test-ops.sh status                  containers, release, /readyz, scheduler and reconciler health, disk
 #   scripts/test-ops.sh key create <owner> --scopes <scope>[,<scope>...] | key revoke <key_id>
 #   scripts/test-ops.sh backup [--stop]         stop admissions and writers, scripts/backup.sh, reopen
@@ -61,7 +64,7 @@ WAIT_TIMEOUT_SEC=600
 EXIT_REFUSED=3
 
 usage() {
-  sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit "$EXIT_USAGE"
 }
 
@@ -96,7 +99,7 @@ case "$VERB" in
       esac
     done
     ;;
-  status)
+  status|start|stop)
     [ $# -eq 0 ] || usage
     ;;
   backup)
@@ -323,8 +326,15 @@ preflight() {
   local head engine compose_version running_port=""
   require_tools docker jq bun git curl
   head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
-  [ "$head" = "$SOURCE_COMMIT" ] \
-    || die "the checkout is at $head, the manifest's source_commit is $SOURCE_COMMIT; check that commit out first"
+  if [ "$VERB" = start ]; then
+    # Start recreates containers from the compose files, and those live in
+    # infra/: another commit is fine while they are the release's own.
+    [ "$head" = "$SOURCE_COMMIT" ] || git -C "$REPO_ROOT" diff --quiet "$SOURCE_COMMIT" "$head" -- infra 2>/dev/null \
+      || die "the checkout is at $head and its infra/ differs from the manifest's source_commit $SOURCE_COMMIT (or that commit is not in this checkout); check that commit out first"
+  else
+    [ "$head" = "$SOURCE_COMMIT" ] \
+      || die "the checkout is at $head, the manifest's source_commit is $SOURCE_COMMIT; check that commit out first"
+  fi
   [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] \
     || die "the checkout has local changes; the compose files must be the release's"
   engine="$(docker version --format '{{.Server.Version}}' 2>/dev/null)" || die "cannot reach the Docker daemon"
@@ -587,6 +597,38 @@ upgrade() {
   log "upgrade: done"
 }
 
+# The deployed release up again on the volumes it left. Refused where nothing
+# was deployed and while an upgrade is unfinished (load_current): both need
+# deploy or upgrade, not this.
+start() {
+  [ -r "$CURRENT" ] || die "no release is deployed ($CURRENT); deploy one first"
+  take_lock
+  load_current
+  [ -r "$IDENTITY" ] || die "$IDENTITY is missing; it is written by deploy"
+  preflight
+  if [ "$STORE" = localstack ] && [ -z "$(ops_compose ps -q localstack)" ]; then
+    log "start: LocalStack was down, so its in-memory bucket is empty; if the API refuses to start, restore the objects with reseed (docs/operator/test-ops.md)"
+  fi
+  start_apps
+  printf '%s start by %s: source %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" "$SOURCE_COMMIT" \
+    >> "${STATE_DIR}/history.log"
+  log "start: done"
+}
+
+# Containers and networks go, volumes stay: the compose down of the
+# single-server page, without the env file and image variables typed by hand.
+stop() {
+  [ -r "$CURRENT" ] || die "no release is deployed ($CURRENT); there is nothing to stop"
+  take_lock
+  load_current
+  render
+  check_identity
+  stop_writers
+  ops_compose down --remove-orphans
+  printf '%s stop by %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(id -un)" >> "${STATE_DIR}/history.log"
+  log "stop: done; the volumes stay — bring it back with scripts/test-ops.sh start"
+}
+
 status_report() {
   local role root
   load_current
@@ -798,6 +840,8 @@ case "$VERB" in
     ;;
   deploy) deploy ;;
   upgrade) upgrade ;;
+  start) start ;;
+  stop) stop ;;
   status) status_report ;;
   key) key "$@" ;;
   backup) backup ;;

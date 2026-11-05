@@ -226,20 +226,18 @@ scripts/test-ops.sh reset --yes
 
 `reset` は、この設置のコンテナと volume(DB、LocalStack)、セッションが作った worker コンテナと workspace volume を削除します。セッション、checkpoint、API key も一緒に消えるので、削除前に[バックアップ](#バックアップと復元)を取ります。
 
-`reset` は volume まで消します。volume を残してコンテナだけを止めるには、設置したときと同じ compose 構成で `-v` なしの `down` を使います。構成を省いて `docker compose -p agent-platform-test-ops down` だけにすると、リポジトリ直下の開発用構成を読み、api、scheduler、reconciler がサービス一覧に出ません(読み取り専用の `docker compose config --services` で確認したもので、止めるコマンド自体は実行していません)。最後の `-f` は object store に合わせ、LocalStack なら `infra/compose.test-ops.localstack.yml`、S3 なら `infra/compose.test-ops.s3.yml` です。
+`reset` は volume まで消します。volume を残して止めるには `stop`、止まった設置を同じ volume で起動し直すには `start` を使います。
 
 ```bash
-# Compose needs the release's images to render the files, even for down.
-API_IMAGE="$(jq -r .images.control_host release.json)" \
-WORKER_IMAGE="$(jq -r .images.worker release.json)" \
-EGRESS_PROXY_IMAGE="$(jq -r .images.egress_proxy release.json)" \
-docker compose --project-name agent-platform-test-ops \
-  --env-file /etc/agent-platform/test-ops.env --profile apps \
-  -f infra/compose.core.yml -f infra/compose.test-ops.yml \
-  -f infra/compose.test-ops.localstack.yml down
+scripts/test-ops.sh stop
+scripts/test-ops.sh start
 ```
 
-残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。その状態で再び起動すると、DB には checkpoint が残っているのに bucket が空なので、API は起動を拒否します(compose ファイルとコードを読んだ結果で、実行はしていません)。LocalStack の設置では、これを承知のうえで止めます。データを守るなら S3 で設置します。この compose 構成そのままのコマンドは実行して確認していません。同じ project を `-v` なしで止めたとき、コンテナと network が削除され postgres の volume が残ることは、セッションがない設置で確認しました。残った volume に対して再度 `deploy` する動作は確認していません。
+`stop` は api、scheduler、reconciler とスケジューラが起動した worker を止め、コンテナと network を削除しますが、volume は残します。`start` は状態ディレクトリの `current.json` が指す release をそのまま起動し、healthcheck を待ちます。`stop`、`compose down`、ホストの再起動のどれで止まっていても同じです。`deploy` は使いません。release が記録済みだと `deploy` は `use upgrade` で拒否し、止まった設置での `upgrade` は postgres が動いていないため失敗します。デプロイしたことのないホストと、終わっていないアップグレード(`pending.json`)がある設置では `start` も拒否します。後者は同じ release ファイルで `upgrade` を呼び直して解きます。
+
+`start` は、checkout が release の source commit でなくても、`infra/` がその commit のものと同じなら起動します。checkout から読むのは compose ファイルだけだからです。
+
+残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。DB に未回収の checkpoint が残っているのに bucket が空だと API は起動を拒否します。その場合は[再起動](#再起動)の `reseed` か `reset` です。データを守るなら S3 で設置します。これらのコマンドは、唯一のセッションが失敗で終わった(未回収の checkpoint がない)LocalStack の設置で確認しました。手で実行した `compose down` で止まった設置を `start` で戻すこと、再起動の後に `start` で戻すことは、どちらも実行し、`/readyz` が 200 を返し owner でログインできました。未回収の checkpoint がある LocalStack の設置での `start` は確認していません。
 
 ## 運用する
 
@@ -291,7 +289,7 @@ scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backu
 
 ### 再起動
 
-LocalStack の設置は再起動すると object を失います。あらかじめ分かっている再起動では、バックアップを残して復元します。この再起動の手順は実行して確認していません。
+LocalStack の設置は再起動すると object を失います。あらかじめ分かっている再起動では、バックアップを残して復元します。下の `backup --stop` と `reseed` の手順は実行して確認していません。
 
 ```bash
 # Back up, leave the writers stopped, restart the host, then restore the objects
@@ -302,7 +300,7 @@ scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<time
 
 `reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。
 
-S3 の設置は再起動しても object が残ります。再起動の後は、現在の release ファイル(状態ディレクトリの `current.json`)で `scripts/test-ops.sh upgrade` を呼び、止まったサービスを起動し直します。
+再起動の後、スタックは自動では戻りません。検証マシン(OrbStack、Docker は起動時に自動開始)で再起動した後にコンテナを見ると、egress-proxy、reconciler、scheduler(`restart: unless-stopped`)だけが起動しており、postgres、api、localstack(restart ポリシーなし)は `Exited` でした。再起動の後は `scripts/test-ops.sh start` を自分で呼びます。このマシンでは `start` が exit 0 で終わり、`/readyz` が 200 を返し、再起動前の owner でログインでき、セッションの記録も残っていました。S3 の設置は再起動しても object が残るので、`start` だけで済みます。
 
 再起動の前に、進行中のターンがないこと、`status` が正常であること、最新のバックアップがホストの外に複製されていることを確認します。再起動の後は、NTP、XFS `prjquota`、Docker の自動起動、ディスクと inode の余裕をもう一度確認します。続けて、`status` と `/readyz` が正常であること、再起動前のセッションを再開すると新しい worker が以前の workspace を引き継ぐことを確認します。API は選んだ経路からだけ届き、PostgreSQL と Docker socket は外から閉じている必要があります。
 
