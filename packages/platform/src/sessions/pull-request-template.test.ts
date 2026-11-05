@@ -693,6 +693,12 @@ describe("markup the scan and a renderer could read differently", () => {
     ).toEqual({ ok: false, reason: "unsupported" });
   });
 
+  test("a backslash-escaped slash inside a fence is kept, not an error", () => {
+    for (const text of ["```\nexample\\/path\n```\n", "~~~\na\\/b\n~~~\n"]) {
+      expect(prepareTemplateText(text).ok).toBe(true);
+    }
+  });
+
   test("a fence inside a list item or a quote makes the template unsupported", () => {
     for (const text of [
       "- ~~~\n  example\n  ~~~\n## Summary\n",

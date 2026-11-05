@@ -25,17 +25,13 @@ const ASCII_ENTITY =
   /&(?=#(?:x[0-9a-f]+|\d+);|(?:sol|bsol|num|colon|commat|period);)/gi;
 
 function breakLinks(text: string): string {
-  return (
-    text
-      .replace(ASCII_ENTITY, `&${ZWSP}`)
-      // Markdown reads `\/` as `/`.
-      .replace(/\\\//g, "/")
-      .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
-      .replace(NUMBERED_PATH, `$1${ZWSP}`)
-      .replace(COMMIT_PATH, `$1${ZWSP}`)
-      .replace(COMMIT_REFERENCE, `$1$2${ZWSP}`)
-      .replace(COMMIT_HASH, `$1${ZWSP}`)
-  );
+  return text
+    .replace(ASCII_ENTITY, `&${ZWSP}`)
+    .replace(LOCAL_REFERENCE, `$1$2${ZWSP}`)
+    .replace(NUMBERED_PATH, `$1${ZWSP}`)
+    .replace(COMMIT_PATH, `$1${ZWSP}`)
+    .replace(COMMIT_REFERENCE, `$1$2${ZWSP}`)
+    .replace(COMMIT_HASH, `$1${ZWSP}`);
 }
 
 export const SECTION_NAMES = [
