@@ -787,6 +787,29 @@ describe("a release's GitHub settings", () => {
       expect(await attempt(memoryStore(["Read"], true).store, {})).toBeNull();
       expect(await attempt(memoryStore().store, { github })).toBeNull();
     });
+
+    test("a card-edit release does not inherit or re-check the old release's pins", async () => {
+      const held = memoryStore(["Read"], true);
+      const old: AgentGitHub = {
+        ...github,
+        features: { ...github.features, actions: true },
+      };
+      const withPins = {
+        ...held.store,
+        get: async () => ({
+          ...detail,
+          active_release: {
+            policy_pins: { github: old },
+          } as unknown as AgentRelease,
+        }),
+      };
+      const made = await serviceOver(withPins).createRelease(
+        owner,
+        AGENT,
+        release,
+      );
+      expect(made.release.policy_pins.github).toBeUndefined();
+    });
   });
 
   test("an optional release with no repository keeps settings for the repositories it attaches", async () => {

@@ -519,11 +519,14 @@ export function createAgentService(deps: {
       }
       // A release made from a card edit keeps the GitHub settings of the
       // active one, so the edit cannot drop them. One on a `none` profile has
-      // nothing for them to act on. Kept settings are checked as sent ones
-      // are: the edit may move the release to another repository.
+      // nothing for them to act on, and an agent with its own settings row
+      // has no release pins to keep: the row decides. Kept settings are
+      // checked as sent ones are: the edit may move the release to another
+      // repository.
       const github =
         request.github ??
-        (repositoryModeOf(profile) === "none"
+        (repositoryModeOf(profile) === "none" ||
+        (await store.hasGitHubSettings(agentId))
           ? undefined
           : (await store.get(caller.ownerId, agentId))?.active_release
               ?.policy_pins.github);

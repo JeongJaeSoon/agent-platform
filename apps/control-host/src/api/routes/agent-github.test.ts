@@ -9,6 +9,7 @@ import {
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   putAgentGitHubEnabledResponseSchema,
+  putAgentGitHubSettingsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
@@ -57,6 +58,7 @@ const identity = {
   },
 } as unknown as IdentityStore;
 
+const STALE_REVISION = 99;
 const KEY = { plaintext: `csp_${crypto.randomUUID()}` };
 const keyStore = {
   async find(candidate: Uint8Array) {
@@ -112,7 +114,13 @@ function appWith(
         receiptId: changed ? crypto.randomUUID() : null,
       };
     },
-    async putSettings() {
+    async putSettings(input) {
+      if (input.agentId !== AGENT) return { outcome: "not_found" };
+      // The real store runs the service's check under its lock, on the held row.
+      input.check(null);
+      if (input.expectedRevision === STALE_REVISION) {
+        return { outcome: "conflict", revision: 1 };
+      }
       return { outcome: "saved", revision: 1, receiptId: null };
     },
     async activity() {
@@ -301,5 +309,98 @@ describe("the agent GitHub API", () => {
     });
     expect(huge.status).toBe(413);
     expect(writes).toEqual([]);
+  });
+
+  describe("saving the settings", () => {
+    const settings = {
+      repositories: [],
+      push_approval: false,
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+    };
+    const body = (expected_revision: number | null = null) => ({
+      expected_revision,
+      settings,
+      start_repository_id: null,
+    });
+    const put = `${github()}/settings`;
+
+    test("an admin saves and gets the revision back", async () => {
+      const { call } = appWith();
+      const saved = await call("PUT", put, {
+        cookie: cookieFor("admin"),
+        body: body(),
+      });
+      expect(saved.status).toBe(200);
+      expect(putAgentGitHubSettingsResponseSchema.parse(saved.json)).toEqual({
+        settings_revision: 1,
+        receipt_id: null,
+      });
+    });
+
+    test("a stale revision is a 409 conflict", async () => {
+      const { call } = appWith();
+      const stale = await call("PUT", put, {
+        cookie: cookieFor("admin"),
+        body: body(STALE_REVISION),
+      });
+      expect(stale.status).toBe(409);
+      expect(code(stale.json)).toBe("REVISION_CONFLICT");
+    });
+
+    test("a member and an API key are refused", async () => {
+      const { call } = appWith();
+      const member = await call("PUT", put, {
+        cookie: cookieFor("member"),
+        body: body(),
+      });
+      expect(member.status).toBe(403);
+      const byKey = await call("PUT", put, { key: true, body: body() });
+      expect(byKey.status).toBe(403);
+      expect(code(byKey.json)).toBe("FORBIDDEN");
+    });
+
+    test("an unknown agent is not found; a malformed or huge body is refused", async () => {
+      const { call } = appWith();
+      const owner = cookieFor("owner");
+      expect(
+        (
+          await call("PUT", `${github(MISSING)}/settings`, {
+            cookie: owner,
+            body: body(),
+          })
+        ).status,
+      ).toBe(404);
+      for (const bad of [
+        {},
+        { ...body(), expected_revision: "1" },
+        { ...body(), extra: 1 },
+        { ...body(), settings: { ...settings, push_approval: "yes" } },
+      ]) {
+        expect(
+          (await call("PUT", put, { cookie: owner, body: bad })).status,
+        ).toBe(400);
+      }
+      const huge = await call("PUT", put, {
+        cookie: owner,
+        body: { ...body(), pad: "x".repeat(REQUEST_BODY_MAX_BYTES) },
+      });
+      expect(huge.status).toBe(413);
+    });
+
+    test("a start repository outside the list is a 400 before the store", async () => {
+      const { call } = appWith();
+      const refused = await call("PUT", put, {
+        cookie: cookieFor("owner"),
+        body: { ...body(), start_repository_id: "elsewhere" },
+      });
+      expect(refused.status).toBe(400);
+    });
   });
 });
