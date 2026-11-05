@@ -3,7 +3,7 @@ title: "Kubernetes install (Helm chart)"
 description: Install on Kubernetes with the Helm chart, check health, and upgrade, roll back or remove it
 ---
 
-This is the procedure for putting main on Kubernetes. The chart source is in `deploy/helm/agent-platform`, and every `main` merge and every `v*` tag publishes it to `oci://ghcr.io/jeongjaesoon/werft`. The defaults run on any Kubernetes (kind included). The AWS-only values (ALB Ingress, IRSA, ECR, External Secrets) are only in the chart's `values-aws.example.yaml`. How each component behaves and its environment variables are in [Kubernetes execution backend](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/kubernetes-backend/), and backup is in [backup-restore.md § Kubernetes install](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).
+This is the procedure for putting main on Kubernetes. The chart source is in `deploy/helm/werft`, and every `main` merge and every `v*` tag publishes it to `oci://ghcr.io/jeongjaesoon/werft`. The defaults run on any Kubernetes (kind included). The AWS-only values (ALB Ingress, IRSA, ECR, External Secrets) are only in the chart's `values-aws.example.yaml`. How each component behaves and its environment variables are in [Kubernetes execution backend](https://jeongjaesoon.github.io/werft/en/run-server/self-hosting/operate/kubernetes-backend/), and backup is in [backup-restore.md § Kubernetes install](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치).
 
 **Current status:** there is no official release (`v*` tag) yet. The chart published on every `main` merge carries that run's image digests and worker runtime, so you [install from the published chart](#install-from-the-published-chart) without a repository checkout. The repository's `values.yaml` has empty digests, so when you install from a checkout path you must supply the digests yourself. Rendered as is, it fails.
 
@@ -102,7 +102,7 @@ kubectl -n werft create secret generic werft --from-file=<secret-dir>
 Keep the per-installation values in one values file. At minimum it holds the digests of the three images and the checkpoint bucket. Connections, repositories, MCP servers and limits are not in values. Add them from the console after installing, or import them with `bun run settings:k8s import --document - < settings.json` ([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기)). Defaults and descriptions are in `values.yaml`. The same command does both the first install and upgrades. **kind** (`-f deploy/kind/values.yaml -f <a file holding only the digests>`)
 
 ```bash
-helm upgrade --install werft deploy/helm/agent-platform \
+helm upgrade --install werft deploy/helm/werft \
   --namespace werft -f values-<installation>.yaml --timeout 10m
 kubectl -n werft get job werft-migrate
 for d in api egress-proxy reconciler scheduler; do
@@ -150,10 +150,10 @@ ingress:
 After applying, check from the internal network (**AWS only**). `curl -s -o /dev/null -w '%{http_code}\n' https://<host>/` gives 200. `curl -si -X POST https://<host>/internal/worker/x` gives 404, and the response header must be `content-type: text/plain` without the `x-request-id` the api adds. The api's 404 is `application/json` with an `x-request-id`, so the status code alone does not tell you whether the ALB blocked it.
 
 ```bash
-helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
-helm template werft deploy/helm/agent-platform \
-  -f deploy/helm/agent-platform/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
-helm upgrade --install werft deploy/helm/agent-platform \
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # kind 머신에서 확인
+helm template werft deploy/helm/werft \
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
+helm upgrade --install werft deploy/helm/werft \
   --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
 ```
 

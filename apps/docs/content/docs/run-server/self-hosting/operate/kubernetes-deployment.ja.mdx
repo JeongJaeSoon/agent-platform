@@ -3,7 +3,7 @@ title: "Kubernetesインストール(Helm chart)"
 description: Helm chartでKubernetesにインストールし、healthを確認し、アップグレード・ロールバック・削除する手順
 ---
 
-mainをKubernetesに載せる手順です。chartのソースは`deploy/helm/agent-platform`にあり、`main`のマージと`v*`タグのたびに`oci://ghcr.io/jeongjaesoon/werft`へ公開されます。既定値は一般的なKubernetes(kind含む)で動きます。AWS専用の値(ALB Ingress、IRSA、ECR、External Secrets)はchartの`values-aws.example.yaml`にだけあります。各コンポーネントの動作と環境変数は[Kubernetes実行backend](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/kubernetes-backend/)、バックアップは[backup-restore.md § Kubernetesインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)にあります。
+mainをKubernetesに載せる手順です。chartのソースは`deploy/helm/werft`にあり、`main`のマージと`v*`タグのたびに`oci://ghcr.io/jeongjaesoon/werft`へ公開されます。既定値は一般的なKubernetes(kind含む)で動きます。AWS専用の値(ALB Ingress、IRSA、ECR、External Secrets)はchartの`values-aws.example.yaml`にだけあります。各コンポーネントの動作と環境変数は[Kubernetes実行backend](https://jeongjaesoon.github.io/werft/ja/run-server/self-hosting/operate/kubernetes-backend/)、バックアップは[backup-restore.md § Kubernetesインストール](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md#kubernetes-설치)にあります。
 
 **現在の状態:** 公式リリース(`v*`タグ)はまだありません。`main`のマージごとに公開されるchartには、そのrunのイメージdigestとworker runtimeが入っているので、リポジトリのcheckoutなしで[公開chartでインストール](#公開chartでインストール)します。リポジトリの`values.yaml`はdigestが空なので、checkoutのパスでインストールするときはdigestを自分で入れます。そのままではrenderが失敗します。
 
@@ -102,7 +102,7 @@ kubectl -n werft create secret generic werft --from-file=<secret-dir>
 インストールごとの値はvaluesファイル1つにまとめます。最低限、3つのイメージのdigestとcheckpoint bucketが入ります。接続・リポジトリ・MCPサーバー・上限はvaluesにありません。インストールの後でコンソールから加えるか、`bun run settings:k8s import --document - < settings.json`で取り込みます([api-server.md](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md#설정-문서-가져오기내보내기))。既定値と説明は`values.yaml`にあります。同じコマンドが最初のインストールとアップグレードの両方を行います。**kind**(`-f deploy/kind/values.yaml -f <digestだけを入れたファイル>`)
 
 ```bash
-helm upgrade --install werft deploy/helm/agent-platform \
+helm upgrade --install werft deploy/helm/werft \
   --namespace werft -f values-<installation>.yaml --timeout 10m
 kubectl -n werft get job werft-migrate
 for d in api egress-proxy reconciler scheduler; do
@@ -150,10 +150,10 @@ ingress:
 適用の後、内部網から確認します(**AWS専用**)。`curl -s -o /dev/null -w '%{http_code}\n' https://<host>/`は200です。`curl -si -X POST https://<host>/internal/worker/x`は404で、応答ヘッダーが`content-type: text/plain`で、apiが付ける`x-request-id`がないことが必要です。apiの404は`application/json`で`x-request-id`が付くので、ステータスコードだけではALBが止めたかどうかは分かりません。
 
 ```bash
-helm lint deploy/helm/agent-platform -f deploy/helm/agent-platform/values-aws.example.yaml   # kind 머신에서 확인
-helm template werft deploy/helm/agent-platform \
-  -f deploy/helm/agent-platform/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
-helm upgrade --install werft deploy/helm/agent-platform \
+helm lint deploy/helm/werft -f deploy/helm/werft/values-aws.example.yaml   # kind 머신에서 확인
+helm template werft deploy/helm/werft \
+  -f deploy/helm/werft/values-aws.example.yaml >/dev/null                          # kind 머신에서 확인
+helm upgrade --install werft deploy/helm/werft \
   --namespace werft -f values-aws-<installation>.yaml --timeout 10m               # AWS 전용
 ```
 

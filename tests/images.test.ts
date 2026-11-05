@@ -414,11 +414,11 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow text
       "IMAGE_PREFIX: ${{ github.repository_owner }}/werft\n",
     );
-    expect(
-      Bun.YAML.parse(read("deploy/helm/agent-platform/Chart.yaml")),
-    ).toMatchObject({ name: "werft" });
+    expect(Bun.YAML.parse(read("deploy/helm/werft/Chart.yaml"))).toMatchObject({
+      name: "werft",
+    });
     const { images } = Bun.YAML.parse(
-      read("deploy/helm/agent-platform/values.yaml"),
+      read("deploy/helm/werft/values.yaml"),
     ) as {
       images: Record<
         "controlHost" | "egressProxy" | "worker" | "workerPrevious",
@@ -657,7 +657,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     expect(gitHost?.image).toBe("CONTROL_HOST_IMAGE");
     expect(gitHost?.imagePullPolicy).toBe(
       (
-        Bun.YAML.parse(read("deploy/helm/agent-platform/values.yaml")) as {
+        Bun.YAML.parse(read("deploy/helm/werft/values.yaml")) as {
           images: { pullPolicy: string };
         }
       ).images.pullPolicy,
@@ -1282,7 +1282,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       );
     });
 
-    const chartValues = read("deploy/helm/agent-platform/values.yaml");
+    const chartValues = read("deploy/helm/werft/values.yaml");
 
     test("bakes the digests and runtime and changes nothing else", () => {
       const images = publishedImages(records(), sha);
@@ -3098,8 +3098,7 @@ describe("a connection kind's default endpoint", () => {
     "infra/compose.core.yml":
       /EGRESS_CREDENTIAL_ALLOWLIST:\s*\$\{[^:}]+:-([^}]+)\}/g,
     ".env.example": /^EGRESS_CREDENTIAL_ALLOWLIST=(.+)$/gm,
-    "deploy/helm/agent-platform/values.yaml":
-      /credentialAllowlist:\s*"([^"]+)"/g,
+    "deploy/helm/werft/values.yaml": /credentialAllowlist:\s*"([^"]+)"/g,
   };
 
   for (const [file, pattern] of Object.entries(DEFAULTS)) {

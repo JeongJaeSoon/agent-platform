@@ -20,7 +20,7 @@ import { packageChart } from "../../.github/scripts/chart-package.ts";
 import { parseImageRuntime } from "../../packages/runtime-core/src/image-runtime.ts";
 
 const dir = import.meta.dir;
-const chart = join(dir, "agent-platform");
+const chart = join(dir, "werft");
 const ciDigests = join(dir, "ci-digests.yaml");
 const awsExample = join(chart, "values-aws.example.yaml");
 

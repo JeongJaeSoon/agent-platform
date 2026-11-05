@@ -12,8 +12,8 @@ description: transcript上限、workerメモリ、ノードあたりのセッシ
 | transcript合計の上限 `MAX_TRANSCRIPT_BYTES` | 512 MiB | `packages/runtime-core/src/checkpoint-manifest.ts` |
 | transcript partの上限 `MAX_TRANSCRIPT_PART_BYTES` | 16 MiB | 同じファイル |
 | 警告のしきい値 `transcriptWarnBytes` | 上限の80%、409.6 MiB | 同じファイル。下の「80%の警告」 |
-| workerメモリ `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608 MiB | `apps/control-host/src/scheduler/config.ts`、`deploy/helm/agent-platform/values.yaml`、`infra/compose.core.yml` |
-| workspaceの上限 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096 MiB(最小1024) | `packages/adapters/execution/kubernetes/src/config.ts`、`packages/adapters/execution/local-docker/src/config.ts`、`deploy/helm/agent-platform/values.yaml` |
+| workerメモリ `WORKER_MEMORY_MB` / helm `worker.memoryMb` | 4608 MiB | `apps/control-host/src/scheduler/config.ts`、`deploy/helm/werft/values.yaml`、`infra/compose.core.yml` |
+| workspaceの上限 `EXECUTION_WORKSPACE_QUOTA_MB` / helm `worker.workspace.quotaMb` | 4096 MiB(最小1024) | `packages/adapters/execution/kubernetes/src/config.ts`、`packages/adapters/execution/local-docker/src/config.ts`、`deploy/helm/werft/values.yaml` |
 
 `.env.example`は、ローカル開発用に`WORKER_MEMORY_MB=2048`を置いています。この値のままだと、下の「半分」の基準が守られません。大きなtranscriptをresumeするローカルのテストでは、この行を消すか、4608に変えてください。
 
