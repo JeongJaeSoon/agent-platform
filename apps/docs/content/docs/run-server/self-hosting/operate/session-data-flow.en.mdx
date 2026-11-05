@@ -67,7 +67,7 @@ Session events are read only when a principal with the `sessions:read` scope can
 
 ## Retention
 
-The `events` table is not trimmed (see the 410 `CURSOR_EXPIRED` description in the [API use-case guide](/reference/api-guide)). There is no retention policy yet. Where all the data the platform keeps beyond events lives, how long it stays, when it is deleted, and the steps to follow one session through it are in [Data the platform keeps](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md).
+The content of `events` is never deleted. The rows of a session that has been idle for a long time move to the object store, and the API reads the same response from that object (see the 410 `CURSOR_EXPIRED` description in the [API use-case guide](/reference/api-guide)). There is no retention policy yet. Where all the data the platform keeps beyond events lives, how long it stays, when it is deleted, and the steps to follow one session through it are in [Data the platform keeps](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md).
 
 ## Starting the Langfuse example collector
 

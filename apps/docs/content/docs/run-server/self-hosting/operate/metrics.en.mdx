@@ -54,7 +54,7 @@ The platform does not push metrics over OTLP. One pull endpoint lets any kind of
 - **Concurrent scrapes share one read.** Requests that arrive while a read is in progress get the same result. If the read fails, it returns 503 and does not serve the previous values (the collector sees a failed scrape; `up` = 0 in Prometheus).
 - **`/healthz`** only checks that the process responds. The probe does not read the database.
 
-Each scrape aggregates the large tables (`tool_calls`, `provider_usage`, `turns`) in full. The shorter the scrape interval, the more load on the database. When the collection time passes half of the scrape interval, consider keeping a separate aggregate table.
+Each scrape reads the database and aggregates the values. The shorter the scrape interval, the more load on the database. When the collection time passes half of the scrape interval, consider a longer scrape interval.
 
 ## Metrics
 

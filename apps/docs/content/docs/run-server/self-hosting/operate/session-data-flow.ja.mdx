@@ -67,7 +67,7 @@ workerの`EventPublisher`(`apps/worker/src/event-publisher.ts`)が、イベン�
 
 ## 保存期間
 
-`events`テーブルはtrimしません([APIユースケースガイド](/reference/api-guide)の410 `CURSOR_EXPIRED`の説明)。保存期間のポリシーはまだありません。イベント以外にプラットフォームが残すデータ全体の場所・保存期間・削除条件と、セッション1つを追って確認する手順は、[プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)にあります。
+`events`の内容は削除しません。長く止まっているセッションの行はobject storeに移り、APIはそのobjectから同じレスポンスを読みます([APIユースケースガイド](/reference/api-guide)の410 `CURSOR_EXPIRED`の説明)。保存期間のポリシーはまだありません。イベント以外にプラットフォームが残すデータ全体の場所・保存期間・削除条件と、セッション1つを追って確認する手順は、[プラットフォームが保持するデータ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)にあります。
 
 ## Langfuseのサンプルコレクターを起動する
 

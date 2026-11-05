@@ -54,7 +54,7 @@ curl -s localhost:9464/metrics
 - **동시 scrape는 한 번 읽는다.** 읽는 동안 들어온 요청은 같은 결과를 받는다. 읽기가 실패하면 503을 돌려주고 이전 값을 내지 않는다(수집기에서는 scrape 실패, Prometheus의 `up` = 0).
 - **`/healthz`** 는 프로세스가 응답하는지만 본다. probe는 DB를 읽지 않는다.
 
-큰 표(`tool_calls`, `provider_usage`, `turns`)를 scrape마다 전체 집계한다. scrape 간격을 짧게 잡을수록 DB 부하가 는다. 수집 시간이 scrape 간격의 절반을 넘으면 집계 표를 따로 두는 쪽을 검토한다.
+scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수록 DB 부하가 는다. 수집 시간이 scrape 간격의 절반을 넘으면 scrape 간격을 늘리는 쪽을 검토한다.
 
 ## 지표
 
