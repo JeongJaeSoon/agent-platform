@@ -267,8 +267,8 @@ for dep in "${deps[@]}"; do
 done
 
 # preview.sh runs this copy over older heads, whose chart has another name
-# and another default Secret.
-chart="$root/deploy/helm/werft"
+# and another default Secret, and may keep the chart in another directory.
+chart="$(dirname "$(printf '%s\n' "$root"/deploy/helm/*/Chart.yaml | head -n 1)")"
 chart_name="$(sed -n 's/^name: //p' "$chart/Chart.yaml")"
 
 # Helm waits for the migrate hook, and the rollouts below for the rest.
