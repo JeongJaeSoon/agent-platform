@@ -213,6 +213,7 @@ function harness(
           url: "https://github.com/acme/app/pull/9",
           state: "open",
           head: input.head,
+          headSha: "a".repeat(40),
           base: input.base,
           mergedAt: null,
           closedAt: null,
@@ -226,6 +227,7 @@ function harness(
         url: "https://github.com/acme/app/pull/7",
         state: "open",
         head: input.head,
+        headSha: "a".repeat(40),
         base: input.base,
         mergedAt: null,
         closedAt: null,
@@ -341,8 +343,15 @@ function harness(
     works,
     created,
     comments,
-    setOpen: (pull: Omit<ForgePullRequest, "mergedAt" | "closedAt">) => {
-      open = { ...pull, mergedAt: null, closedAt: null };
+    setOpen: (
+      pull: Omit<ForgePullRequest, "mergedAt" | "closedAt" | "headSha">,
+    ) => {
+      open = {
+        ...pull,
+        headSha: "a".repeat(40),
+        mergedAt: null,
+        closedAt: null,
+      };
     },
     dueAgain,
     forgePullRequest: () => open,
