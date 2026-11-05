@@ -418,6 +418,21 @@ describe("성과 규칙", () => {
     ]);
   });
 
+  test("판정 설정: 행은 폼의 gap-4를 받지 않는 한 블록 안에 있다", async () => {
+    await opened();
+    const card = section("판정 설정") as HTMLElement;
+    const form = card.querySelector("form") as HTMLFormElement;
+    const rows = [...form.querySelectorAll("div.border-b")].filter((row) =>
+      row.className.includes("py-3.5"),
+    );
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      // A row that is a direct child of the form gets 16px added to its rule.
+      expect(row.parentElement === form).toBe(false);
+    }
+    expect(new Set(rows.map((row) => row.parentElement)).size).toBe(1);
+  });
+
   test("판정 설정을 저장하면 바꾼 값과 연결·문턱을 그대로 PUT 한다", async () => {
     const saved = { ...SETTINGS };
     const { api } = await opened({
