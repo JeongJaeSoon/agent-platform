@@ -10,7 +10,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { loadSecretKey } from "./apps/control-host/src/api/catalog-config.ts";
 
-const [agentId, mode, channel = "C0VERIFY", seq = "1", parent] =
+const [agentId, mode, channel = "C0VERIFY", seq = "1", parent, text] =
   process.argv.slice(1);
 // `mention` and `plain` are top-level posts by U0MOCK in `channel`, with
 // or without a mention; each sequence number is its own event and thread.
@@ -61,7 +61,7 @@ try {
                   user: "U0MOCK",
                   channel,
                   ts,
-                  text: "verify plain post",
+                  text: text || "verify plain post",
                   ...(mode === "reply"
                     ? { thread_ts: `${1792800000 + Number(parent)}.000001` }
                     : {}),
@@ -71,7 +71,7 @@ try {
                   user: "U0MOCK",
                   channel: posted ? channel : "C0VERIFY",
                   ts,
-                  text: "verify inbox",
+                  text: text || "verify inbox",
                   ...(mode === "bot" ? { bot_id: "B0VERIFY" } : {}),
                 },
         };
