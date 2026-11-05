@@ -563,19 +563,21 @@ describe("설정의 모델 연결", () => {
     expect(screen.getByRole("button", { name: "연결 추가" })).toBeDefined();
   });
 
-  test("an admin gets no menu item, and a direct visit is refused without a request", async () => {
-    const { api } = renderAt(
-      "/settings/workspace/connections",
-      routes(me(undefined, "admin")),
-    );
-    await screen.findByText("이 화면을 볼 권한이 없습니다");
-    const nav = screen.getByRole("navigation", { name: "설정" });
-    expect(within(nav).queryByRole("link", { name: "모델 연결" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
-    expect(
-      api.calls.some(
-        (call) => call.path === CONNECTIONS || call.path === "/v1/profiles",
-      ),
-    ).toBe(false);
-  });
+  for (const role of ["admin", "member"] as const) {
+    test(`a ${role} gets no menu item, and a direct visit is refused without a request`, async () => {
+      const { api } = renderAt(
+        "/settings/workspace/connections",
+        routes(me(undefined, role)),
+      );
+      await screen.findByText("이 화면을 볼 권한이 없습니다");
+      const nav = screen.getByRole("navigation", { name: "설정" });
+      expect(within(nav).queryByRole("link", { name: "모델 연결" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "연결 추가" })).toBeNull();
+      expect(
+        api.calls.some(
+          (call) => call.path === CONNECTIONS || call.path === "/v1/profiles",
+        ),
+      ).toBe(false);
+    });
+  }
 });
