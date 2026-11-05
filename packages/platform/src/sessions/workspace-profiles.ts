@@ -209,13 +209,22 @@ export function operatorSummary(
       : written?.record.retired_at
         ? "retired"
         : "usable";
-  const summary = summaryOf(catalog, id, id, profile, record);
+  const { repository_mode, repository_ids, ...summary } = summaryOf(
+    catalog,
+    id,
+    id,
+    profile,
+    record,
+  );
+  // A row with no repository scope says nothing about repositories, so the
+  // answer carries neither field (in memory it reads `optional`).
+  const namesNoRepository = record?.repository_scope === null;
   const repositoryIds =
-    current || !written || summary.repository_mode === "none"
-      ? summary.repository_ids
+    current || !written || repository_mode === "none"
+      ? repository_ids
       : [
           ...new Set([
-            ...summary.repository_ids,
+            ...repository_ids,
             ...(written.record.repository_ids ?? []).filter((repositoryId) =>
               Object.hasOwn(catalog.repositories, repositoryId),
             ),
@@ -223,12 +232,14 @@ export function operatorSummary(
         ].sort();
   return {
     ...summary,
-    repository_ids: repositoryIds,
+    ...(namesNoRepository
+      ? {}
+      : { repository_mode, repository_ids: repositoryIds }),
     source: "operator",
     ...((entry || written) && record
       ? {
           installation: {
-            name: record.name,
+            name: record.display_name ?? record.name,
             version: record.version,
             origin: record.origin,
             state,
@@ -265,6 +276,9 @@ export function listCatalogProfiles(
       ...(catalog.installation?.keys() ?? []),
     ]),
   ].flatMap((id) => {
+    // A version an admin made belongs to that workspace alone.
+    const owner = catalog.installation?.get(id)?.record?.workspace_id;
+    if (owner != null && owner !== workspaceId) return [];
     const summary = operatorSummary(catalog, id);
     return summary ? [summary] : [];
   });
@@ -358,7 +372,13 @@ export function createWorkspaceProfileService(deps: {
           { reason_code: baseState, field: "base_profile_id" },
         );
       }
-      if (!base) {
+      // Another workspace's version reads as unknown, as it does everywhere.
+      const baseWorkspace = catalog.installation?.get(request.base_profile_id)
+        ?.record?.workspace_id;
+      if (
+        !base ||
+        (baseWorkspace != null && baseWorkspace !== actor.workspaceId)
+      ) {
         throw new SessionServiceError(
           "BAD_REQUEST",
           `Unknown operator profile ${request.base_profile_id}`,

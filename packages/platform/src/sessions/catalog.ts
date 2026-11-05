@@ -252,7 +252,9 @@ export const catalogProfileConfigSchema = z
     // Off unless the operator turns it on: a profile written before this
     // field existed keeps the run it was reviewed for.
     project_settings: projectSettingsSchema.default({ claude_md: false }),
-    repository: repositoryModeSchema.default("required"),
+    // Absent reads as `required` (`repositoryModeOf`), except on a stored
+    // row with no repository scope, which `parsedDefinition` marks `optional`.
+    repository: repositoryModeSchema.optional(),
   })
   .strict()
   .refine(
@@ -419,7 +421,7 @@ export const sessionCatalogConfigSchema = z
       Object.keys(config.repositories).length === 0 &&
       Object.keys(config.profiles).length > 0 &&
       Object.values(config.profiles).every(
-        (profile) => profile.repository === "required",
+        (profile) => repositoryModeOf(profile) === "required",
       )
     ) {
       ctx.addIssue({
@@ -433,7 +435,7 @@ export const sessionCatalogConfigSchema = z
       repository.profiles?.forEach((profileId, index) => {
         if (
           Object.hasOwn(config.profiles, profileId) &&
-          config.profiles[profileId]?.repository === "none"
+          repositoryModeOf(config.profiles[profileId] ?? {}) === "none"
         ) {
           ctx.addIssue({
             code: "custom",
@@ -564,8 +566,13 @@ export type InstallationProfileEntry = {
   repository_ids: readonly string[];
   /** `installed` also runs every resolved GitHub App repository; absent is `listed`. */
   github_app_repositories?: GitHubAppRepositories | undefined;
-  /** Absent reads as `profile`: only a stored row can say `workspace`. */
-  repository_scope?: RepositoryScope | undefined;
+  /**
+   * Absent reads as `profile`: only a stored row can say `workspace`. Null:
+   * the row names no repository, so the workspace's ceiling judges them.
+   */
+  repository_scope?: RepositoryScope | null | undefined;
+  /** For a ceiling stopped only because a version it derives from is blocked: that version. */
+  blocked_source?: string | undefined;
   /** The row as stored, for listing; absent in a snapshot built without rows. */
   record?: InstallationProfileRecord | undefined;
   /** The row's definition when it still parses, whatever the state. */
@@ -853,7 +860,10 @@ export type EgressUpstream = {
   headers: Array<[string, string]>;
 };
 
-export function repositoryModeOf(profile: CatalogProfileView): RepositoryMode {
+/** A profile that does not say is `required`: that is what older rows meant. */
+export function repositoryModeOf(profile: {
+  repository?: RepositoryMode | undefined;
+}): RepositoryMode {
   return profile.repository ?? "required";
 }
 
@@ -984,6 +994,10 @@ export function workspaceProfileRefusal(
   message: string;
 } | null {
   if (!profileId.startsWith(WORKSPACE_PROFILE_PREFIX)) {
+    const owner = catalog.installation?.get(profileId)?.record?.workspace_id;
+    if (owner != null && owner !== workspaceId) {
+      return { state: "unknown", message: `Unknown profile ${profileId}` };
+    }
     const state = catalog.installation?.get(profileId)?.state;
     if (state === "blocked") {
       return {
@@ -1123,12 +1137,12 @@ export function usesWorkspaceCeiling(
   profileId: string | null,
   source: GitHubPolicySource,
 ): boolean {
-  return (
-    source !== "release" ||
-    (profileId !== null &&
-      catalog.installation?.get(trustedProfileId(catalog, profileId))
-        ?.repository_scope === "workspace")
-  );
+  if (source !== "release") return true;
+  if (profileId === null) return false;
+  const scope = catalog.installation?.get(
+    trustedProfileId(catalog, profileId),
+  )?.repository_scope;
+  return scope === "workspace" || scope === null;
 }
 
 /** The ceiling's `github_app_repositories`; null for a profile with no ceiling. */
@@ -1628,7 +1642,9 @@ export function sessionCatalogView(
         auth: { kind, ref: credentialRefOf(refFields) },
         ...(billing === "none" ? { billing } : {}),
       },
-      ...(repository === "required" ? {} : { repository }),
+      ...(repository === undefined || repository === "required"
+        ? {}
+        : { repository }),
     } as CatalogProfileView;
   }
   const repositories: Record<string, CatalogRepositoryView> = {};

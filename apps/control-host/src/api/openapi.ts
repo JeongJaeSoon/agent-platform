@@ -2730,6 +2730,7 @@ export const API_ROUTE_DECLARATIONS = [
           "usage.installation_read",
           "usage.agent_read",
           "profile.installation.manage",
+          "profile.define",
           "installation.settings.manage",
         ],
       },

@@ -170,7 +170,7 @@ function draftOf(
     repository_mode: template?.repository_mode ?? "required",
     // An id this installation no longer has would only be refused.
     repository_ids: (template?.repository_ids ?? []).filter((id) =>
-      options.repositories.some((item) => item.id === id),
+      (options.repositories ?? []).some((item) => item.id === id),
     ),
     // A console ceiling starts on every App repository; a next version
     // keeps what the one before had.
@@ -675,7 +675,7 @@ export function CeilingForm({
           {/* With no repository listed this is the second-last child, whose
               pull-up would undo the legend's margin. */}
           <FieldDescription className="nth-last-2:mt-0">
-            {options.repositories.length === 0
+            {(options.repositories ?? []).length === 0
               ? t("profiles.ceiling.noRepositories")
               : t("profiles.ceiling.repositoriesHint")}
           </FieldDescription>
@@ -697,7 +697,7 @@ export function CeilingForm({
               </FieldDescription>
             </FieldContent>
           </Field>
-          {options.repositories.map((repository) => (
+          {(options.repositories ?? []).map((repository) => (
             <Field key={repository.id} orientation="horizontal">
               <Checkbox
                 checked={draft.repository_ids.includes(repository.id)}

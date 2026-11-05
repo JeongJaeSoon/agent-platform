@@ -661,7 +661,7 @@ function Settings({ profile }: { readonly profile: ProfileSummary }) {
           item(
             "repository-mode",
             t("profiles.ceiling.repositoryMode"),
-            t(`profiles.repository.${profile.repository_mode}`),
+            t(`profiles.repository.${profile.repository_mode ?? "required"}`),
           ),
           ...(profile.repository_ids === undefined
             ? []
