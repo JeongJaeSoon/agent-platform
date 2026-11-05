@@ -288,9 +288,11 @@ function GitHubCard({
           </div>
         ) : null}
       </div>
-      <Text variant="sub">{t("github.card.hint")}</Text>
+      <Text variant="sub" className="border-b pb-2">
+        {t("github.card.hint")}
+      </Text>
       {empty ? (
-        <div className="flex flex-col items-start gap-3 rounded-card border border-dashed p-4">
+        <div className="flex flex-col items-start gap-3">
           <Text weight="medium">{t("github.empty.title")}</Text>
           <Text variant="sub">{t("github.empty.hint")}</Text>
           {canManage ? (
@@ -492,7 +494,7 @@ function AppList({
       >
         {t("github.apps.title")}
       </Heading>
-      <RowList variant="joined" aria-labelledby={titleId}>
+      <RowList variant="joined" framed={false} aria-labelledby={titleId}>
         {settings.connections.map((connection) => (
           <AppRow
             key={connection.connection_id}
@@ -961,11 +963,7 @@ function Installations({
     .filter((at): at is string => at !== null)
     .sort()[0];
   if (rows.length === 0) {
-    return (
-      <Text variant="sub" className="rounded-card border border-dashed p-4">
-        {t("github.table.empty")}
-      </Text>
-    );
+    return <Text variant="sub">{t("github.table.empty")}</Text>;
   }
 
   const type = (installation: GitHubSettingsInstallation) =>
@@ -1001,7 +999,7 @@ function Installations({
         columns={canManage ? MANAGER_COLUMNS : MEMBER_COLUMNS}
         narrowAt={760}
         narrowColumns={canManage ? MANAGER_NARROW : MEMBER_NARROW}
-        framed
+        framed={false}
       >
         <GridTableHeader>
           <GridTableColumnHeader>
@@ -1186,7 +1184,7 @@ function FeaturesCard({
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className={CARD}>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 border-b pb-2">
         <Heading id={titleId} level={2}>
           {t("github.ceiling.title")}
         </Heading>

@@ -198,7 +198,7 @@ export function ProfilesScreen() {
       ) : (
         <div className="flex flex-col gap-[var(--werft-space-block)]">
           {stranded.map((item) => (
-            <Alert key={item.id} variant="red">
+            <Alert key={item.id} variant="red" className="border-0">
               <AlertTitle>
                 {t(
                   item.workspace?.state === "base_missing"
@@ -231,11 +231,12 @@ export function ProfilesScreen() {
             <EmptyState title={t("profiles.empty")} />
           ) : (
             <GridTable
+              className="[--werft-row-padding-x:0px]"
               aria-label={t("profiles.title")}
               columns={COLUMNS[0]}
               narrowAt={860}
               narrowColumns={COLUMNS[1]}
-              framed={true}
+              framed={false}
             >
               <GridTableHeader>
                 <GridTableColumnHeader>
@@ -286,9 +287,7 @@ export function ProfilesScreen() {
           )}
         </div>
       )}
-      <div className="mt-[var(--werft-space-section)]">
-        <ModelConnections profiles={ceilings} />
-      </div>
+      <ModelConnections profiles={ceilings} />
     </Page>
   );
 }
