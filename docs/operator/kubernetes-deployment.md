@@ -8,7 +8,7 @@ Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 
 
 worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](capacity.md)를 본다.
 
-명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 그대로 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다.
+명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다. **kind** 표시는 아래 두 경우에 한해 문서 블록 그대로의 실행을 뜻하지 않는다. 직접 설치의 Secret 블록은 `up.sh`가 만드는 형태와 다르고 문서 블록 그대로는 실행하지 않았다. "게시 chart를 올리기"의 명령은 게시된 chart가 아니라 fixture chart로 돌렸다.
 
 ## chart가 만드는 것
 
