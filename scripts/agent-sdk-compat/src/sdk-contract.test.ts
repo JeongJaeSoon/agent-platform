@@ -579,6 +579,50 @@ describe.serial("Agent SDK 0.3.270 and Claude Code 2.1.270", () => {
     );
   }, 60_000);
 
+  test("a session rule lives in the engine process: a new engine asks about the same call again", async () => {
+    context = await createProbeContext();
+    const command = "touch session-rule.txt";
+    const askedByRun: string[][] = [];
+    for (const run of [0, 1]) {
+      server = startFakeAnthropicServer((_request, index) =>
+        index < 2
+          ? toolReply(
+              "Bash",
+              { command },
+              `toolu_sdkcompat_restart_${run}_${index}`,
+            )
+          : textReply("restart complete"),
+      );
+      const asked: string[] = [];
+      await runSdkQuery(context, server.url, "Run the command.", {
+        canUseTool: async (_name, input, options) => {
+          asked.push(options.toolUseID);
+          return {
+            behavior: "allow",
+            updatedInput: input,
+            updatedPermissions: [
+              {
+                type: "addRules",
+                behavior: "allow",
+                destination: "session",
+                rules: [{ toolName: "Bash", ruleContent: command }],
+              },
+            ],
+          };
+        },
+        permissionMode: "default",
+        tools: ["Bash"],
+      });
+      askedByRun.push(asked);
+      server.stop();
+    }
+    // Each engine asks once for the first call and not for the second.
+    expect(askedByRun).toEqual([
+      ["toolu_sdkcompat_restart_0_0"],
+      ["toolu_sdkcompat_restart_1_0"],
+    ]);
+  }, 90_000);
+
   test("a PreToolUse deny binds a call that a session rule would let through", async () => {
     context = await createProbeContext();
     const outputPath = join(context.workspace, "session-rule-denied.txt");

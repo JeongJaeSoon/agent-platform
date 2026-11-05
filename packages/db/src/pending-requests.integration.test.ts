@@ -36,6 +36,7 @@ import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,
 } from "./postgres-unit-of-work.ts";
+import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
   attempts,
@@ -756,6 +757,56 @@ integration("pending requests and answers on PostgreSQL", () => {
       expect(
         await store.requestOutcome(owner.ownerId, sessionId, kept.requestId),
       ).toMatchObject({ decision: "allow", remember: "session" });
+    });
+
+    // The engine's rule only lets the tool call start. Whether the push runs
+    // is the push request's own state, which a person decides.
+    test("allowing request_push for the session leaves its push request waiting for a person", async () => {
+      const { owner, sessionId, worker } = await runningSession();
+      const { requestId } = await register(worker, {
+        kind: "permission",
+        tool: "mcp__github__request_push",
+        input: {},
+        remember_offer: [{ tool_name: "mcp__github__request_push" }],
+      } as RegisterPendingRequest["request"]);
+      await answer(owner, sessionId, remembering(requestId));
+      expect(
+        await createPostgresPendingRequests(db).displayOf(
+          owner.ownerId,
+          sessionId,
+          requestId,
+        ),
+      ).toMatchObject({ decision: "allow", remember: "session" });
+
+      await db
+        .update(sessions)
+        .set({ checkpointRevision: 2, repositoryId: "sample-app" })
+        .where(eq(sessions.id, sessionId));
+      const pushes = createPostgresPushRequests(db);
+      const created = await pushes.create({
+        ownerId: owner.ownerId,
+        sessionId,
+        actor: {
+          principal: { kind: "api_key", id: "key-writer" },
+          actor_user_id: null,
+          agent_id: null,
+        },
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: "h-push",
+        repositoryId: "sample-app",
+        repositoryBinding: "sha256:binding",
+        checkpointRevision: 2,
+        gitCommit: "b".repeat(40),
+        policyApproval: null,
+        policyFields: {},
+      });
+      if (created.outcome !== "written") throw new Error(created.outcome);
+      expect(created.request).toMatchObject({
+        state: "requested",
+        resolved_by: null,
+      });
+      // Nothing is approved, so the pusher has nothing to claim.
+      expect(await pushes.claimNextApproved(60_000)).toBeNull();
     });
   });
 
