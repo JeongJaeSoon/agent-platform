@@ -20,6 +20,7 @@ import { SessionServiceError } from "./session-service.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const SECRET_INPUT = "s3cret-input-value";
+const HEAD = "0123456789abcdef0123456789abcdef01234567";
 const principal: Principal = {
   kind: "api_key",
   id: "owner-a",
@@ -43,6 +44,10 @@ function harness(
     statuses?: string[];
     /** Which call never answers: the grant, the first read or a later one. */
     hang?: "grant" | "read" | "later-read";
+    /** Fails the pull request read only; `fail` fails the writes. */
+    failRead?: GitHubCallError;
+    /** The head the forge reports; the reviewed commit by default. */
+    head?: string;
   } = {},
 ) {
   let clock = 0;
@@ -65,8 +70,28 @@ function harness(
     createPullRequest: async () => {
       throw new Error("not used");
     },
-    getPullRequest: async () => {
-      throw new Error("not used");
+    getPullRequest: async (number) => {
+      calls.push(`pull ${number}`);
+      if (options.failRead) throw options.failRead;
+      return {
+        pullRequest: {
+          number,
+          url: `https://github.com/acme/app/pull/${number}`,
+          state: "open",
+          head: "agent/x",
+          headSha: ("head" in options ? options.head : HEAD) as string,
+          base: "main",
+          mergedAt: null,
+          closedAt: null,
+          title: "t",
+          mergeCommitSha: null,
+          additions: null,
+          deletions: null,
+          changedFiles: null,
+          commits: null,
+        },
+        rateLimit: {} as never,
+      };
     },
     updatePullRequestBody: async () => {
       throw new Error("not used");
@@ -181,6 +206,7 @@ function harness(
     authorization: createAuthorizationPolicy(),
     gate,
     store,
+    redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
     pollMs: 1_000,
     sleep: async (ms) => {
       clock += ms;
@@ -519,6 +545,7 @@ describe("reviewing a pull request", () => {
     ]);
     expect(calls).toEqual([
       "opener owner-a app 12",
+      "pull 12",
       `review 12 REQUEST_CHANGES ${COMMIT} ${REVIEW_BODY}`,
     ]);
     expect(receipts).toEqual([
@@ -567,6 +594,105 @@ describe("reviewing a pull request", () => {
       opened_by_session_id: "33333333-3333-4333-8333-333333333333",
     });
     expect(JSON.stringify(reviews)).not.toContain(REVIEW_BODY);
+  });
+
+  test("a head that is not the commit ends as stale_commit: no review is submitted, a failed receipt keeps no body", async () => {
+    const moved = "f".repeat(40);
+    const { service, calls, receipts, reviews } = harness({ head: moved });
+    expect(
+      await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "APPROVE",
+          commit_id: COMMIT,
+          body: REVIEW_BODY,
+        }),
+      ),
+    ).toEqual({
+      code: "GITHUB_REFUSED",
+      details: {
+        reason_code: "stale_commit",
+        receipt_id: "receipt-1",
+        head_sha: moved,
+      },
+    });
+    console.log("forge calls on a moved head:", calls);
+    expect(calls.some((call) => call.startsWith("review "))).toBe(false);
+    expect(calls).toContain("pull 12");
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      operation: "review_pull_request",
+      status: "failed",
+      result: { number: 12, commit_id: COMMIT, reason_code: "stale_commit" },
+    });
+    expect(reviews).toEqual([]);
+    expect(JSON.stringify(receipts)).not.toContain(REVIEW_BODY);
+  });
+
+  test("a failing pull request read is BACKEND_UNAVAILABLE and nothing is submitted", async () => {
+    const { service, calls } = harness({
+      failRead: new GitHubCallError("pull request read", 502, "req-3"),
+    });
+    expect(
+      (
+        await refusal(
+          service.review(actor, SESSION, 12, {
+            event: "APPROVE",
+            commit_id: COMMIT,
+          }),
+        )
+      ).code,
+    ).toBe("BACKEND_UNAVAILABLE");
+    expect(calls.some((call) => call.startsWith("review "))).toBe(false);
+  });
+
+  // A wrong head check may only fail toward not submitting.
+  const badHeads: Array<[string, string | undefined]> = [
+    ["an empty head sha", ""],
+    ["a missing head sha", undefined],
+    ["an upper-case head sha", COMMIT.toUpperCase()],
+    ["an abbreviated head sha", COMMIT.slice(0, 7)],
+    ["a head sha with trailing whitespace", `${COMMIT} `],
+  ];
+  for (const [name, head] of badHeads) {
+    test(`${name} is stale_commit and nothing is submitted`, async () => {
+      const { service, calls, reviews } = harness({ head: head as string });
+      const failure = await refusal(
+        service.review(actor, SESSION, 12, {
+          event: "APPROVE",
+          commit_id: COMMIT,
+        }),
+      );
+      expect(failure.code).toBe("GITHUB_REFUSED");
+      expect(failure.details).toMatchObject({ reason_code: "stale_commit" });
+      expect(calls.filter((call) => call.startsWith("review "))).toEqual([]);
+      expect(reviews).toEqual([]);
+    });
+  }
+
+  test("an unexpected error from the pull request read propagates and nothing is submitted", async () => {
+    const { service, calls, reviews } = harness({
+      failRead: new TypeError("boom") as never,
+    });
+    await expect(
+      service.review(actor, SESSION, 12, {
+        event: "APPROVE",
+        commit_id: COMMIT,
+      }),
+    ).rejects.toThrow("boom");
+    expect(calls.filter((call) => call.startsWith("review "))).toEqual([]);
+    expect(reviews).toEqual([]);
+  });
+
+  test("the body goes out with mentions neutralized and a secret-shaped line redacted", async () => {
+    const { service, calls } = harness();
+    await service.review(actor, SESSION, 12, {
+      event: "COMMENT",
+      commit_id: COMMIT,
+      body: "cc @octocat, fixes acme/other#4\nghp_leaked\nplain",
+    });
+    expect(calls.at(-1)).toBe(
+      `review 12 COMMENT ${COMMIT} cc @​octocat, f​ixes acme/other#​4\n[REDACTED]\nplain`,
+    );
   });
 
   test("a pull request the platform did not open names no opener", async () => {

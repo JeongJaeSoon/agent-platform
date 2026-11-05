@@ -107,4 +107,4 @@ scripts/test-ops.sh upgrade release-new.json
 
 ## Renamed names and what operators do
 
-The metric names and the CSS names changed, and there are no aliases for the old names. An installation that already runs applies the Datadog definitions again and changes the queries of its Prometheus rules, and renames any CSS names it overrode, as the section "운영자가 할 일" (what operators must do) in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) says.
+The metric names and the CSS names changed, and there are no aliases for the old names. An installation that already runs applies the Datadog definitions for the first time, or, if it already applied them, updates their names, queries and filters to match the new definitions, and changes the queries of its Prometheus rules, and renames any CSS names it overrode, as the section "운영자가 할 일" (what operators must do) in the [changelog](https://github.com/JeongJaeSoon/werft/blob/main/CHANGELOG.md) says.

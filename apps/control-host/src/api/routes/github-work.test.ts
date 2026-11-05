@@ -16,7 +16,11 @@ import {
   sessionGitHubAttributionSchema,
   submitPullRequestReviewResponseSchema,
 } from "@werft-ai/contracts";
-import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
+import {
+  MemoryLogSink,
+  StructuredLogger,
+  sanitizeText,
+} from "@werft-ai/observability";
 import {
   createAuthorizationPolicy,
   createGitHubGate,
@@ -94,6 +98,7 @@ beforeAll(async () => {
     github.pullRequests("acme", "app").push({
       number,
       head: `agent/${number}`,
+      head_sha: COMMIT,
       base: "main",
       title: "",
       body: "",
@@ -239,6 +244,7 @@ function app(
       },
     }),
     gate,
+    redact: sanitizeText,
     store: {
       recordReceipt: async (receipt) => {
         receipts.push(receipt);
@@ -1000,6 +1006,50 @@ describe("reviewing a pull request", () => {
     for (const text of target.seen()) {
       expect(text).not.toContain("review-body-value-5d2b");
     }
+  });
+
+  test("a body with a mention and a secret-shaped line reaches GitHub cleaned", async () => {
+    const target = app();
+    const sent = await review(target, {
+      event: "COMMENT",
+      commit_id: COMMIT,
+      body: "ping @octocat please\ntoken ghp_abc123\nfine line",
+    });
+    expect(sent.status).toBe(201);
+    const posted = github.reviews("acme", "app", OPENED).at(-1)?.body;
+    expect(posted).toBe("ping @​octocat please\n[REDACTED]\nfine line");
+  });
+
+  test("a head that is not the commit is a 409 stale_commit and no review goes to GitHub", async () => {
+    const before = github.reviews("acme", "app", OPENED).length;
+    const target = app();
+    // Token mints are not in this log; only the calls made for the review are.
+    const requestsBefore = github.apiRequests.length;
+    const stale = await review(target, {
+      event: "APPROVE",
+      commit_id: "b".repeat(40),
+    });
+    expect(stale.status).toBe(409);
+    expect(errorOf(stale.json)).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: {
+        reason_code: "stale_commit",
+        head_sha: COMMIT,
+        receipt_id: expect.any(String),
+      },
+    });
+    expect(target.receipts.at(-1)).toMatchObject({
+      operation: "review_pull_request",
+      status: "failed",
+      result: { number: OPENED, reason_code: "stale_commit" },
+    });
+    expect(github.reviews("acme", "app", OPENED).length).toBe(before);
+    // The forge call record: the pull request was read, no review was posted.
+    const calls = github.apiRequests
+      .slice(requestsBefore)
+      .map((call) => `${call.method} ${call.path}`);
+    console.log("forge calls during the stale review:", calls);
+    expect(calls).toEqual([`GET /repos/acme/app/pulls/${OPENED}`]);
   });
 
   test("GitHub refusing the review is a 503 with a failed receipt", async () => {

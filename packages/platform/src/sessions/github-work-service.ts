@@ -21,6 +21,7 @@ import {
   type GitHubWork,
   type GitHubWorkContext,
 } from "../ports/github-gate.ts";
+import { cleanBody } from "./pull-request-text.ts";
 import {
   type PushActor,
   pushReceiptActor,
@@ -74,12 +75,14 @@ export function createGitHubWorkService(deps: {
   authorization: AuthorizationPolicy;
   gate: GitHubGate;
   store: GitHubWorkStore;
+  /** Redacts one line of a review body, as for a pull request body. */
+  redact: (line: string) => string;
   pollMs?: number;
   sleep?: (ms: number) => Promise<void>;
   /** A monotonic clock in milliseconds. */
   now?: () => number;
 }) {
-  const { authorization, gate, store } = deps;
+  const { authorization, gate, store, redact } = deps;
   const pollMs = deps.pollMs ?? 1_000;
   const sleep =
     deps.sleep ??
@@ -353,11 +356,38 @@ export function createGitHubWorkService(deps: {
       };
       let review: { id: number; html_url: string };
       try {
+        const { pullRequest } = await grant.api.getPullRequest(number);
+        // GitHub also pins the review to `commit_id`, so a head that moves
+        // after this read cannot land the review on another commit; this
+        // check refuses the review of a commit that is no longer the head.
+        if (pullRequest.headSha !== body.commit_id) {
+          const receiptId = await store.recordReceipt({
+            ownerId: grant.context.ownerId,
+            sessionId: grant.context.sessionId,
+            actor: pushReceiptActor(actor),
+            operation: "review_pull_request",
+            status: "failed",
+            result: { ...result, reason_code: "stale_commit" },
+            error: null,
+          });
+          throw new SessionServiceError(
+            "GITHUB_REFUSED",
+            "The pull request head is not the commit to review",
+            undefined,
+            {
+              reason_code: "stale_commit",
+              receipt_id: receiptId,
+              head_sha: pullRequest.headSha,
+            },
+          );
+        }
         review = await grant.api.submitReview({
           number,
           commitId: body.commit_id,
           event: body.event,
-          ...(body.body === undefined ? {} : { body: body.body }),
+          ...(body.body === undefined
+            ? {}
+            : { body: cleanBody(body.body, grant.api.maxBodyLength, redact) }),
         });
       } catch (error) {
         if (error instanceof GitHubCallError) {

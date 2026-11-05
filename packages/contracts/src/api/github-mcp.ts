@@ -393,7 +393,7 @@ export const GITHUB_MCP_TOOL_REFUSALS: Record<
   dispatch_workflow: GITHUB_WORK_REFUSALS,
   get_workflow_run: GITHUB_WORK_REFUSALS,
   rerun_workflow: GITHUB_WORK_REFUSALS,
-  submit_review: GITHUB_WORK_REFUSALS,
+  submit_review: [...GITHUB_WORK_REFUSALS, "stale_commit"],
   list_repositories: GITHUB_WORK_REFUSALS,
   attach_repository: [
     ...GITHUB_WORK_REFUSALS,

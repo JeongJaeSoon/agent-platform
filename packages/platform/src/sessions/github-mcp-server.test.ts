@@ -111,12 +111,35 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     marks: [],
     marked: true,
   };
+  // What the forge says the head is, and the reviews it was sent.
+  const forge = {
+    head: "a".repeat(40),
+    reviews: [] as Array<{ commitId: string; body: string | undefined }>,
+  };
   const api: GitHubApi = {
     maxBodyLength: 65_536,
     getRepository: unused,
     findPullRequestForBranch: unused,
     createPullRequest: unused,
-    getPullRequest: unused,
+    getPullRequest: async (number) => ({
+      pullRequest: {
+        number,
+        url: `https://github.com/acme/app/pull/${number}`,
+        state: "open",
+        head: "agent/x",
+        headSha: forge.head,
+        base: "main",
+        mergedAt: null,
+        closedAt: null,
+        title: "t",
+        mergeCommitSha: null,
+        additions: null,
+        deletions: null,
+        changedFiles: null,
+        commits: null,
+      },
+      rateLimit: {} as never,
+    }),
     updatePullRequestBody: unused,
     setPullRequestState: unused,
     upsertComment: unused,
@@ -136,7 +159,10 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
       };
     },
     rerunWorkflow: unused,
-    submitReview: unused,
+    submitReview: async (input) => {
+      forge.reviews.push({ commitId: input.commitId, body: input.body });
+      return { id: 77, html_url: "https://github.com/acme/app/pull/1#r77" };
+    },
   };
   const gate: GitHubGate = {
     grant: async (work) => {
@@ -220,6 +246,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         authorization,
         gate,
         store: workStore,
+        redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
         pollMs: 10,
       }),
       attachments: createRepositoryAttachmentService({
@@ -280,6 +307,7 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     workStore,
     attachmentStore,
     control,
+    forge,
   };
 }
 
@@ -488,6 +516,41 @@ describe("a session under the agent's settings", () => {
     });
   });
 
+  test("submit_review cleans the body, and a moved head is a stale_commit refusal with no review sent", async () => {
+    const h = under({ github: github({ review: true }) });
+    const ok = payload(
+      await h.call("submit_review", {
+        number: 1,
+        event: "COMMENT",
+        commit_id: "a".repeat(40),
+        body: "cc @octocat\nghp_leak",
+      }),
+    );
+    expect(ok.body.ok).toBe(true);
+    expect(h.forge.reviews).toEqual([
+      { commitId: "a".repeat(40), body: "cc @​octocat\n[REDACTED]" },
+    ]);
+
+    h.forge.head = "b".repeat(40);
+    const stale = payload(
+      await h.call("submit_review", {
+        number: 1,
+        event: "APPROVE",
+        commit_id: "a".repeat(40),
+      }),
+    );
+    expect(stale.body).toMatchObject({
+      ok: false,
+      refusal: {
+        code: "stale_commit",
+        by: "github",
+        retryable: false,
+        details: { head_sha: "b".repeat(40) },
+      },
+    });
+    expect(h.forge.reviews).toHaveLength(1);
+  });
+
   test("a row that cannot be read gets no tools", async () => {
     const answer = await under({ github: null }).handle(
       grant,
@@ -580,6 +643,7 @@ describe("tools/call", () => {
       authorization: createAuthorizationPolicy(),
       gate: h.gate,
       store: h.workStore,
+      redact: (line) => line,
     });
     await viaApi.dispatch(
       {
