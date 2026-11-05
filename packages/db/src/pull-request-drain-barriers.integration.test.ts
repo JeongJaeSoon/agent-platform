@@ -217,7 +217,23 @@ integration("pull request drain, writers overlapped by a barrier", () => {
     expect(rows.map((entry) => entry.number)).toEqual([5]);
   });
 
-  test("a claim whose lease lapsed while its settle waited behind the barrier is fenced, and its successor settles", async () => {
+  test("a claim passes over a session someone else holds instead of waiting for it", async () => {
+    const { id, sessionId } = await due();
+    const barrier = holdSession(sessionId, async () => {});
+    await barrier.held;
+
+    // Settled well inside the pause `stillWaiting` allows a blocked call.
+    const claiming = drain.claimNextDue(60_000);
+    expect(await stillWaiting(claiming)).toBe(false);
+    expect(await claiming).toBeNull();
+    expect(await row(id)).toMatchObject({ prState: "due", prAttempts: 0 });
+
+    barrier.release();
+    await barrier.done;
+    expect((await drain.claimNextDue(60_000))?.id).toBe(id);
+  });
+
+  test("a claim whose lease lapsed and was taken over is fenced, and its successor settles", async () => {
     const { id, sessionId } = await due();
     const first = await drain.claimNextDue(60_000);
     if (first?.id !== id) throw new Error("claimed another request");
@@ -226,6 +242,12 @@ integration("pull request drain, writers overlapped by a barrier", () => {
       .set({ prLeaseExpiresAt: sql`now() - interval '1 second'` })
       .where(eq(pushRequests.id, id));
 
+    // A second replica takes the lapsed claim before the first settles.
+    const second = await drain.claimNextDue(60_000);
+    expect(second?.id).toBe(id);
+    expect(second?.claimToken).not.toBe(first.claimToken);
+
+    // The first settle waits for the session, then finds the claim is gone.
     const barrier = holdSession(sessionId, async () => {});
     await barrier.held;
     const stale = drain.settle(first, {
@@ -233,11 +255,6 @@ integration("pull request drain, writers overlapped by a barrier", () => {
       ...opened(sessionId, 7),
     });
     expect(await stillWaiting(stale)).toBe(true);
-
-    // A second replica takes the lapsed claim while the first waits.
-    const second = await drain.claimNextDue(60_000);
-    expect(second?.id).toBe(id);
-    expect(second?.claimToken).not.toBe(first.claimToken);
 
     barrier.release();
     await barrier.done;

@@ -47,8 +47,10 @@ function gate() {
 /**
  * The two orders of "reserve the pull request" and "the push finishes", each
  * fixed by a transaction that holds the push request's row: the first writer
- * is started and shown to wait, then the second, and the row is let go. The
- * row lock queues in that order, so neither order depends on timing luck.
+ * is started and shown to wait, then the second, and the row is let go. Both
+ * writers lock the session and then the row, so the first holds the session
+ * while it waits for the row and the second queues behind it on the session:
+ * neither order depends on timing luck.
  */
 integration("scheduling and the push finishing, in each order", () => {
   let database: TempDatabase;
