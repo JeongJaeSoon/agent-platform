@@ -1445,3 +1445,136 @@ describe("a caller that may submit to the session", () => {
     expect(calls).toEqual([]);
   });
 });
+
+const SIGNATURE =
+  "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
+
+describe("structured fields", () => {
+  test("open writes the default template, in Korean, then the tail", async () => {
+    const { service, created } = harness();
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({
+        title: "Add login",
+        summary: "Adds the login form.",
+        changes: ["Form", "Route"],
+        testing: "bun test",
+        related: [{ number: 12, closes: true }],
+      }),
+    });
+    expect(opened.body_source).toEqual({ kind: "platform" });
+    expect(created[0]?.body).toBe(
+      [
+        "## 요약",
+        "Adds the login form.",
+        "",
+        "## 변경 사항",
+        "- Form",
+        "- Route",
+        "",
+        "## 테스트",
+        "bun test",
+        "",
+        "## 관련 이슈",
+        "- Closes #12",
+        "",
+        TAIL,
+      ].join("\n"),
+    );
+  });
+
+  test("a related repository outside the catalog is dropped and reported", async () => {
+    const { service, created } = harness();
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({
+        summary: "x",
+        related: [
+          { number: 1, repository_id: "ghost", closes: true },
+          { number: 2, repository_id: "app", closes: false },
+        ],
+      }),
+    });
+    expect(opened.body_source).toEqual({
+      kind: "platform",
+      related_dropped: 1,
+    });
+    expect(created[0]?.body).toContain("- Refs #2");
+    expect(created[0]?.body).not.toContain("#1");
+  });
+
+  test("update writes the whole body again from the fields; a field left out is empty", async () => {
+    const { service, bodies } = harness();
+    await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ summary: "First", notes: "Old note" }),
+    });
+    expect(bodies.get(7)).toContain("Old note");
+    const updated = await service.update(actor, SESSION, PUSH, {
+      readBody: async () => ({ summary: "Second" }),
+    });
+    expect(updated.body_source).toEqual({ kind: "platform" });
+    expect(bodies.get(7)).toBe(`## 요약\nSecond\n\n${TAIL}`);
+  });
+
+  test("update with a legacy body or a title alone reports where the body came from", async () => {
+    const { service } = harness();
+    await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ summary: "First" }),
+    });
+    expect(
+      (
+        await service.update(actor, SESSION, PUSH, {
+          readBody: async () => ({ body: "Plain" }),
+        })
+      ).body_source,
+    ).toEqual({ kind: "agent" });
+    expect(
+      (
+        await service.update(actor, SESSION, PUSH, {
+          readBody: async () => ({ title: "Only" }),
+        })
+      ).body_source,
+    ).toBeNull();
+  });
+
+  test("a pull request that was already open keeps its body and reports none written", async () => {
+    const h = harness();
+    await h.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ summary: "First" }),
+    });
+    const again = await h.service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ summary: "Second" }),
+    });
+    expect(again).toMatchObject({ created: false, body_source: null });
+  });
+});
+
+describe("a session that still sends the legacy body", () => {
+  test("opens with the body as written, cleaned, and the tail below it", async () => {
+    const { service, created } = harness();
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ title: "Old way", body: "## Summary\n- one" }),
+    });
+    expect(opened.body_source).toEqual({ kind: "agent" });
+    expect(created[0]?.body).toBe(`## Summary\n- one\n\n${TAIL}`);
+  });
+
+  test("the engine's own signature line is removed from the body and from a comment", async () => {
+    const { service, created, comments } = harness();
+    await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: `Work done\n\n${SIGNATURE}` }),
+    });
+    expect(created[0]?.body).toBe(`Work done\n\n${TAIL}`);
+    await service.comment(actor, SESSION, PUSH, {
+      readBody: async () => ({ body: `Looks fine\n\n${SIGNATURE}` }),
+    });
+    expect(comments[0]?.body).toBe("Looks fine");
+  });
+
+  test("no content at all opens with the tail alone, as before", async () => {
+    const { service, created } = harness();
+    const opened = await service.open(actor, SESSION, PUSH, {
+      readBody: async () => ({}),
+    });
+    expect(opened.body_source).toEqual({ kind: "platform" });
+    expect(created[0]?.body).toBe(TAIL);
+  });
+});

@@ -31,7 +31,26 @@ export function neutralizeReferences(text: string): string {
     .replaceAll("<!--", `<!${ZWSP}--`);
 }
 
-function cut(text: string, max: number, suffix: string): string {
+// Lines an engine appends to a pull request body on its own (Claude Code's
+// default). Removed only when the whole line matches.
+const ENGINE_SIGNATURE_LINES: ReadonlySet<string> = new Set([
+  "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+  "🤖 Generated with [Claude Code](https://claude.ai/code)",
+  "Generated with [Claude Code](https://claude.com/claude-code)",
+  "Generated with [Claude Code](https://claude.ai/code)",
+]);
+
+/** `text` without the engine's own signature lines, and the blank run they leave at the end. */
+export function stripEngineSignatures(text: string): string {
+  const lines = text.split("\n");
+  const kept = lines.filter(
+    (line) => !ENGINE_SIGNATURE_LINES.has(line.trimEnd().replace(/\r$/, "")),
+  );
+  if (kept.length === lines.length) return text;
+  return kept.join("\n").trimEnd();
+}
+
+export function cut(text: string, max: number, suffix: string): string {
   if (text.length <= max) return text;
   let kept = text.slice(0, Math.max(0, max - suffix.length));
   // Never leave half of a surrogate pair at the cut.

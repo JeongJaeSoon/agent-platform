@@ -48,7 +48,7 @@ const runIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
  */
 export const GITHUB_MCP_TOOL_ARGUMENTS = {
   request_push: createPushRequestRequestSchema,
-  open_pull_request: openPullRequestRequestSchema.extend({
+  open_pull_request: openPullRequestRequestSchema.safeExtend({
     push_request_id: pushRequestIdSchema,
   }),
   update_pull_request: updatePullRequestRequestSchema.safeExtend({
@@ -231,9 +231,9 @@ export const GITHUB_MCP_TOOL_DESCRIPTIONS: Record<GitHubMcpTool, string> = {
   request_push:
     "Request a push of the session's last checkpoint (the state at the end of the previous turn) to branch agent/<session-id>, or agent/<session-id>-<branch> when `branch` is given. `repository_id` names an attached repository; omitted, the session's own. Returns the push request, which waits for a person when the release requires approval, or `deferred` when no checkpoint exists yet.",
   open_pull_request:
-    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`).",
+    "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`). Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
   update_pull_request:
-    "Set the title, the body or both of the pull request that the push request's branch has open. The platform's closing lines stay, naming the push request's commit.",
+    "Set the title or the content of the pull request that the push request's branch has open. Given any of `summary`, `changes`, `rationale`, `testing`, `notes` or `related`, the body is written again from those fields (a field left out is empty); `body` (legacy) replaces the body as text; `title` alone leaves the body. The platform's closing lines stay, naming the push request's commit.",
   comment_pull_request:
     "Add a comment to the pull request of a pushed push request. The same `marker` edits the same comment.",
   close_pull_request:

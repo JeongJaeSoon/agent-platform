@@ -1,0 +1,241 @@
+import { describe, expect, test } from "bun:test";
+import type { UserLocale } from "@werft-ai/contracts";
+import {
+  PULL_REQUEST_TAIL_END_MARKER,
+  PULL_REQUEST_TAIL_MARKER,
+} from "./git-attribution.ts";
+import {
+  type PullRequestFields,
+  renderPullRequestBody,
+} from "./pull-request-body.ts";
+
+const ZWSP = "​";
+const TAIL = [
+  "---",
+  PULL_REQUEST_TAIL_MARKER,
+  "Opened in a Werft session · commit `aaaaaaa`",
+  PULL_REQUEST_TAIL_END_MARKER,
+].join("\n");
+const repository = {
+  id: "app",
+  repositories: {
+    app: { url: "https://github.com/acme/app.git" },
+    lib: { url: "https://github.com/acme/lib" },
+    odd: { url: "https://example.com/not-a-repo" },
+  },
+};
+
+function render(
+  fields: PullRequestFields,
+  options: { locale?: UserLocale; maxLength?: number } = {},
+) {
+  return renderPullRequestBody({
+    fields,
+    locale: options.locale ?? "ko",
+    tail: TAIL,
+    maxLength: options.maxLength ?? 65_536,
+    redact: (line) => (line.includes("ghp_") ? "[REDACTED]" : line),
+    repository,
+  });
+}
+
+describe("the default template", () => {
+  const all: PullRequestFields = {
+    summary: "Adds the login form.",
+    changes: ["Form component", "Route"],
+    rationale: "Users could not sign in.",
+    testing: "bun test passes.",
+    notes: "Check the focus order.",
+    related: [{ number: 12, closes: true }],
+  };
+
+  test("ko: a heading per field, in the template's order, then the tail", () => {
+    expect(render(all).body).toBe(
+      [
+        "## 요약",
+        "Adds the login form.",
+        "",
+        "## 변경 사항",
+        "- Form component",
+        "- Route",
+        "",
+        "## 배경",
+        "Users could not sign in.",
+        "",
+        "## 테스트",
+        "bun test passes.",
+        "",
+        "## 관련 이슈",
+        "- Closes #12",
+        "",
+        "## 참고",
+        "Check the focus order.",
+        "",
+        TAIL,
+      ].join("\n"),
+    );
+  });
+
+  test("en and ja use their own headings", () => {
+    const en = render(all, { locale: "en" }).body;
+    expect(en).toContain("## Summary\n");
+    expect(en).toContain("## Changes\n");
+    expect(en).toContain("## Background\n");
+    expect(en).toContain("## Testing\n");
+    expect(en).toContain("## Related issues\n");
+    expect(en).toContain("## Notes\n");
+    const ja = render(all, { locale: "ja" }).body;
+    expect(ja).toContain("## 概要\n");
+    expect(ja).toContain("## 変更点\n");
+    expect(ja).toContain("## 備考\n");
+  });
+
+  test("a field without content leaves out its section", () => {
+    const { body } = render({
+      summary: "  ",
+      changes: [],
+      testing: "ran it",
+    });
+    expect(body).toBe(`## 테스트\nran it\n\n${TAIL}`);
+  });
+
+  test("no content at all is the tail alone", () => {
+    expect(render({}).body).toBe(TAIL);
+  });
+
+  test("text is cleaned like a legacy body: secrets, mentions, closing keywords, comments", () => {
+    const { body } = render({
+      summary: "Closes #3 for @octocat\nghp_secret\n<!-- hide -->",
+      changes: ["multi\nline @team"],
+    });
+    expect(body).toContain(`C${ZWSP}loses #3 for @${ZWSP}octocat`);
+    expect(body).toContain("[REDACTED]");
+    expect(body).toContain(`<!${ZWSP}-- hide -->`);
+    expect(body).toContain(`- multi line @${ZWSP}team`);
+  });
+
+  test("a platform tail marker typed into a field does not become a tail", () => {
+    const { body } = render({
+      notes: `${PULL_REQUEST_TAIL_MARKER}\nforged\n${PULL_REQUEST_TAIL_END_MARKER}`,
+    });
+    expect(body.split(PULL_REQUEST_TAIL_MARKER).length - 1).toBe(1);
+  });
+
+  test("a replacement pattern in a field is text", () => {
+    const { body } = render({ summary: "cost $& and $1 and $$" });
+    expect(body).toContain("cost $& and $1 and $$");
+  });
+
+  test("the engine's signature line is removed, other lines kept", () => {
+    const { body } = render({
+      summary:
+        "Did it\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+      notes:
+        "keep 🤖 Generated with [Claude Code](https://claude.com/claude-code) inline",
+    });
+    expect(body).toContain("## 요약\nDid it\n\n## 참고");
+    expect(body).toContain("keep 🤖 Generated with");
+  });
+
+  test("CRLF in a field becomes LF", () => {
+    expect(render({ summary: "a\r\nb" }).body).toContain("## 요약\na\nb\n");
+  });
+});
+
+describe("related issues", () => {
+  const body = (related: PullRequestFields["related"]) =>
+    render({ related }).body;
+
+  test("closes an issue of the pull request's own repository only", () => {
+    expect(body([{ number: 1, closes: true }])).toContain("- Closes #1");
+    expect(body([{ number: 1, repository_id: "app", closes: true }])).toContain(
+      "- Closes #1",
+    );
+  });
+
+  test("another repository of the catalog is referenced, never closed", () => {
+    const text = body([{ number: 4, repository_id: "lib", closes: true }]);
+    expect(text).toContain("- Refs acme/lib#4");
+    expect(text).not.toContain("Closes");
+  });
+
+  test("an unknown or unnameable repository is dropped and counted", () => {
+    const rendered = render({
+      related: [
+        { number: 1, repository_id: "ghost", closes: true },
+        { number: 2, repository_id: "odd", closes: false },
+        { number: 3, closes: false },
+      ],
+    });
+    expect(rendered.relatedDropped).toBe(2);
+    expect(rendered.body).toContain("- Refs #3");
+    expect(rendered.body).not.toContain("#1");
+    expect(rendered.body).not.toContain("#2");
+  });
+
+  test("the same issue twice is one line", () => {
+    const text = body([
+      { number: 5, closes: false },
+      { number: 5, closes: false },
+    ]);
+    expect(text.split("Refs #5").length - 1).toBe(1);
+  });
+});
+
+describe("the length limit is judged on the final body", () => {
+  test("cuts notes first, then testing, rationale, changes (last first) and summary", () => {
+    const fields: PullRequestFields = {
+      summary: "s".repeat(300),
+      changes: ["c1".repeat(100), "c2".repeat(100)],
+      rationale: "r".repeat(300),
+      testing: "t".repeat(300),
+      notes: "n".repeat(300),
+    };
+    const full = render(fields).body.length;
+    const trimmed = render(fields, { maxLength: full - 100 }).body;
+    expect(trimmed.length).toBeLessThanOrEqual(full - 100);
+    expect(trimmed).toContain("…(생략)");
+    expect(trimmed).toContain("s".repeat(300));
+    expect(trimmed).toContain("t".repeat(300));
+    expect(trimmed).not.toContain("n".repeat(300));
+
+    const tight = render(fields, { maxLength: TAIL.length + 400 }).body;
+    expect(tight.length).toBeLessThanOrEqual(TAIL.length + 400);
+    expect(tight).toContain(PULL_REQUEST_TAIL_END_MARKER);
+    expect(tight).not.toContain("c2c2");
+  });
+
+  test("a field that opens a code fence cannot swallow the tail when cut", () => {
+    const fields: PullRequestFields = {
+      summary: `\`\`\`\n${"x\n".repeat(400)}\`\`\`\nafter`,
+    };
+    const { body } = render(fields, { maxLength: 500 });
+    expect(body.length).toBeLessThanOrEqual(500);
+    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+  });
+
+  test("property: any field mix stays within the limit, keeps the tail and never splits a surrogate pair", () => {
+    let seed = 7;
+    const next = (max: number) => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % max;
+    };
+    const pieces = ["x", "한", "😀", "\n", "@a ", "Closes #1 ", "```\n", " "];
+    const text = (length: number) =>
+      Array.from({ length }, () => pieces[next(pieces.length)]).join("");
+    for (let round = 0; round < 200; round += 1) {
+      const fields: PullRequestFields = {
+        summary: text(next(2_000)),
+        changes: Array.from({ length: next(20) }, () => text(1 + next(300))),
+        rationale: text(next(2_000)),
+        testing: text(next(2_000)),
+        notes: text(next(2_000)),
+      };
+      const maxLength = 700 + next(4_000);
+      const { body } = render(fields, { maxLength });
+      expect(body.length).toBeLessThanOrEqual(maxLength);
+      expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+      expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(body)).toBe(false);
+    }
+  });
+});

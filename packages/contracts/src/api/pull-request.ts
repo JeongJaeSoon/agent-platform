@@ -24,34 +24,145 @@ export const pullRequestSchema = z.object({
 export const PULL_REQUEST_TITLE_REQUEST_MAX = 1000;
 export const PULL_REQUEST_TEXT_REQUEST_MAX = 60_000;
 
-export const openPullRequestRequestSchema = z
+export const PULL_REQUEST_FIELD_TEXT_MAX = 8000;
+export const PULL_REQUEST_CHANGES_MAX = 50;
+export const PULL_REQUEST_CHANGE_TEXT_MAX = 1000;
+export const PULL_REQUEST_RELATED_MAX = 20;
+
+/** One issue the pull request relates to; the platform writes the reference. */
+export const relatedIssueSchema = z
   .object({
-    title: z
-      .string()
-      .trim()
-      .min(1)
-      .max(PULL_REQUEST_TITLE_REQUEST_MAX)
-      .optional(),
-    body: z.string().max(PULL_REQUEST_TEXT_REQUEST_MAX).optional(),
+    number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    // Omitted: the pull request's own repository.
+    repository_id: z.string().min(1).max(128).optional(),
+    // Only an issue of the pull request's own repository is closed on merge.
+    closes: z.boolean().default(false),
   })
   .strict();
+export type RelatedIssue = z.infer<typeof relatedIssueSchema>;
+
+/**
+ * The content the agent gives; the platform lays it out. `body` is the
+ * legacy free-text form and excludes the structured fields.
+ */
+export const PULL_REQUEST_STRUCTURED_FIELDS = [
+  "summary",
+  "changes",
+  "rationale",
+  "testing",
+  "notes",
+  "related",
+] as const;
+export type PullRequestStructuredField =
+  (typeof PULL_REQUEST_STRUCTURED_FIELDS)[number];
+
+const pullRequestContentShape = {
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(PULL_REQUEST_TITLE_REQUEST_MAX)
+    .optional(),
+  summary: z.string().max(PULL_REQUEST_FIELD_TEXT_MAX).optional(),
+  changes: z
+    .array(z.string().min(1).max(PULL_REQUEST_CHANGE_TEXT_MAX))
+    .max(PULL_REQUEST_CHANGES_MAX)
+    .optional(),
+  rationale: z.string().max(PULL_REQUEST_FIELD_TEXT_MAX).optional(),
+  testing: z.string().max(PULL_REQUEST_FIELD_TEXT_MAX).optional(),
+  notes: z.string().max(PULL_REQUEST_FIELD_TEXT_MAX).optional(),
+  related: z.array(relatedIssueSchema).max(PULL_REQUEST_RELATED_MAX).optional(),
+  // Legacy: the whole body as text.
+  body: z.string().max(PULL_REQUEST_TEXT_REQUEST_MAX).optional(),
+};
+
+type PullRequestContentInput = {
+  body?: string | undefined;
+  summary?: string | undefined;
+  changes?: readonly string[] | undefined;
+  rationale?: string | undefined;
+  testing?: string | undefined;
+  notes?: string | undefined;
+  related?: readonly RelatedIssue[] | undefined;
+};
+
+/** Whether any structured field is present. */
+export function hasStructuredFields(value: PullRequestContentInput): boolean {
+  return PULL_REQUEST_STRUCTURED_FIELDS.some(
+    (field) => value[field] !== undefined,
+  );
+}
+
+/** Field strings add up to at most the legacy body's limit (GitHub's is 65,536). */
+export function structuredFieldsLength(value: PullRequestContentInput): number {
+  return (
+    (value.summary?.length ?? 0) +
+    (value.rationale?.length ?? 0) +
+    (value.testing?.length ?? 0) +
+    (value.notes?.length ?? 0) +
+    (value.changes?.reduce((sum, change) => sum + change.length, 0) ?? 0)
+  );
+}
+
+function checkContent(value: PullRequestContentInput, ctx: z.RefinementCtx) {
+  if (value.body !== undefined && hasStructuredFields(value)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Give body or the structured fields, not both",
+      path: ["body"],
+    });
+  }
+  if (structuredFieldsLength(value) > PULL_REQUEST_TEXT_REQUEST_MAX) {
+    ctx.addIssue({
+      code: "custom",
+      message: `The fields add up to more than ${PULL_REQUEST_TEXT_REQUEST_MAX} characters`,
+    });
+  }
+}
+
+export const pullRequestContentSchema = z
+  .object(pullRequestContentShape)
+  .strict()
+  .superRefine(checkContent);
+
+export const openPullRequestRequestSchema = pullRequestContentSchema;
 
 // What the session's agent may change on a pull request it opened: the
-// platform's tail stays in the body either way.
+// platform's tail stays in the body either way. Structured fields replace the
+// whole body (a field left out is empty); a title alone leaves the body.
 export const updatePullRequestRequestSchema = z
-  .object({
-    title: z
-      .string()
-      .trim()
-      .min(1)
-      .max(PULL_REQUEST_TITLE_REQUEST_MAX)
-      .optional(),
-    body: z.string().max(PULL_REQUEST_TEXT_REQUEST_MAX).optional(),
-  })
+  .object(pullRequestContentShape)
   .strict()
-  .refine((value) => value.title !== undefined || value.body !== undefined, {
-    message: "Give a title, a body or both",
-  });
+  .superRefine(checkContent)
+  .refine(
+    (value) =>
+      value.title !== undefined ||
+      value.body !== undefined ||
+      hasStructuredFields(value),
+    { message: "Give a title, a body, structured fields or a mix" },
+  );
+
+/**
+ * Where the body the platform wrote came from: `agent` is the legacy `body`
+ * as written, `platform` the default template. `repository` and `workspace`
+ * name a template from the repository or workspace settings, with its path
+ * (`skipped` says why one was passed over).
+ */
+export const PULL_REQUEST_BODY_SOURCE_KINDS = [
+  "repository",
+  "workspace",
+  "agent",
+  "platform",
+] as const;
+export const pullRequestBodySourceSchema = z.object({
+  kind: z.enum(PULL_REQUEST_BODY_SOURCE_KINDS),
+  path: z.string().optional(),
+  skipped: z.string().optional(),
+  // `related` items the platform left out: another repository the session
+  // does not have, or one it cannot name.
+  related_dropped: z.number().int().nonnegative().optional(),
+});
+export type PullRequestBodySource = z.infer<typeof pullRequestBodySourceSchema>;
 
 export const PULL_REQUEST_COMMENT_MARKER_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const DEFAULT_PULL_REQUEST_COMMENT_MARKER = "status";
@@ -80,6 +191,8 @@ export const openPullRequestResponseSchema = z.object({
   // False when the pull request was already open (or recorded) and this
   // call only answered it.
   created: z.boolean(),
+  // Null when this call wrote no body (the pull request was already open).
+  body_source: pullRequestBodySourceSchema.nullable(),
   receipt_id: receiptIdSchema,
 });
 
@@ -92,6 +205,8 @@ export const pullRequestCommentSchema = z.object({
 
 export const updatePullRequestResponseSchema = z.object({
   pull_request: pullRequestSchema,
+  // Null when the call left the body as it was (a title only).
+  body_source: pullRequestBodySourceSchema.nullable(),
   receipt_id: receiptIdSchema,
 });
 
