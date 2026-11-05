@@ -15,6 +15,7 @@ import {
   IMAGE_GIT_AUTHOR,
   type WorkerScope,
 } from "@werft-ai/contracts";
+import { ATTRIBUTION_PROBLEMS } from "@werft-ai/runtime-core";
 import {
   claimExpectation,
   repairAttribution,
@@ -369,7 +370,7 @@ describe("workspaceMismatches", () => {
     ).toEqual([]);
   });
 
-  test("no expectation, or a repository git cannot read, reports nothing", async () => {
+  test("with no expectation there is nothing to judge", async () => {
     commit("wrong");
     expect(
       await workspaceMismatches({
@@ -380,14 +381,18 @@ describe("workspaceMismatches", () => {
         protectedCommits: [],
       }),
     ).toEqual([]);
+  });
+
+  test("a repository git cannot read is unverified, never clean", async () => {
+    const tip = "d".repeat(40);
     expect(
       await workspaceMismatches({
         root: join(root, "missing"),
-        tip: "HEAD",
+        tip,
         expectation,
         stripEmails: [],
         protectedCommits: [],
       }),
-    ).toEqual([]);
+    ).toEqual([{ commit: tip, problems: [...ATTRIBUTION_PROBLEMS] }]);
   });
 });

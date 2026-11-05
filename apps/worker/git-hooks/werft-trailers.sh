@@ -7,34 +7,67 @@
 # co-author lines go (the claim's git_strip, one email per line).
 
 # Removes every Co-authored-by line (key in any case) whose email git-strip
-# lists. Other lines, other co-authors included, are kept as written.
+# lists, a line folded over several lines included. When the session asks for
+# an Agent-Session trailer, every Agent-Session line but one exact copy of it
+# goes too, so the line added next is the only one. Other lines, other
+# co-authors included, are kept as written.
 werft_strip_engine_coauthors() {
   _werft_file=$1
   _werft_strip=${HOME:-/nonexistent}/.werft/git-strip
-  [ -n "$_werft_file" ] && [ -f "$_werft_file" ] && [ -f "$_werft_strip" ] ||
-    return 0
-  WERFT_STRIP_EMAILS=$(cat "$_werft_strip") awk '
+  _werft_session=
+  if [ -f "${HOME:-/nonexistent}/.werft/git-trailers" ]; then
+    _werft_session=$(grep -m1 '^Agent-Session: ' "${HOME:-/nonexistent}/.werft/git-trailers")
+  fi
+  [ -n "$_werft_file" ] && [ -f "$_werft_file" ] || return 0
+  [ -f "$_werft_strip" ] || [ -n "$_werft_session" ] || return 0
+  WERFT_STRIP_EMAILS=$( [ -f "$_werft_strip" ] && cat "$_werft_strip") \
+    WERFT_SESSION_LINE=$_werft_session awk '
     BEGIN {
       n = split(ENVIRON["WERFT_STRIP_EMAILS"], list, "\n")
       for (i = 1; i <= n; i++) {
         email = tolower(list[i])
         if (email != "" && email !~ /[ \t\r<>]/) engine[email] = 1
       }
+      sessionLine = ENVIRON["WERFT_SESSION_LINE"]
     }
-    {
-      line = tolower($0)
+    # One record is a line with the lines folded under it (git joins a line
+    # that starts with a space or tab to the one before).
+    function flush(   line, email) {
+      if (!have) return
+      have = 0
+      line = unfolded
       sub(/\r$/, "", line)
       if (line ~ /^co-authored-by:/ && match(line, /<[^<>]*>[ \t]*$/)) {
         email = substr(line, RSTART + 1, RLENGTH - 1)
         sub(/>[ \t]*$/, "", email)
-        if (email in engine) next
+        if (email in engine) return
+      }
+      # The session line the claim asks for stays once, where it is; any other
+      # Agent-Session line (another value, another case, a repeat) goes.
+      if (sessionLine != "" && line ~ /^agent-session:/) {
+        if (record == sessionLine && !keptSession) keptSession = 1
+        else return
       }
       # Blank lines are held until a line follows, so a removed last line
       # leaves no blank tail for a verbatim commit-tree -F.
-      if ($0 ~ /^[ \t\r]*$/) { held = held $0 "\n"; next }
-      printf "%s%s\n", held, $0
+      if (record ~ /^[ \t\r]*$/) { held = held record "\n"; return }
+      printf "%s%s\n", held, record
       held = ""
     }
+    {
+      if (have && $0 ~ /^[ \t]+[^ \t\r]/) {
+        text = $0
+        sub(/^[ \t]+/, "", text)
+        record = record "\n" $0
+        unfolded = unfolded " " tolower(text)
+        next
+      }
+      flush()
+      have = 1
+      record = $0
+      unfolded = tolower($0)
+    }
+    END { flush() }
   ' "$_werft_file" >"$_werft_file.werft-strip" || {
     rm -f "$_werft_file.werft-strip"
     return 1

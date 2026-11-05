@@ -7,6 +7,7 @@ import {
   type WorkerScope,
 } from "@werft-ai/contracts";
 import {
+  ATTRIBUTION_PROBLEMS,
   type AttributionExpectation,
   type AttributionMismatch,
   rangeAttribution,
@@ -127,7 +128,8 @@ export async function repairAttribution(input: {
  * The commits this workspace holds that no remote-tracking ref does, judged
  * against the claim's values. Advice for request_push: the worker shares a
  * container with the agent, and the push re-checks from what the server
- * issued. Empty when nothing is wrong or the check could not run.
+ * issued. Empty when nothing is wrong, or when there is nothing to judge
+ * against; a check that fails to run reports every problem on the tip.
  */
 export async function workspaceMismatches(input: {
   root: string;
@@ -201,8 +203,17 @@ export async function workspaceMismatches(input: {
       expectations: [input.expectation],
       stripEmails: input.stripEmails,
     });
-    return judged.status === "ok" ? judged.mismatches : [];
+    return judged.status === "ok" ? judged.mismatches : unverified(input.tip);
   } catch {
-    return [];
+    return unverified(input.tip);
   }
+}
+
+/**
+ * A check that could not run is not a pass. The entry keeps the checkpoint
+ * out of the protected list (see checkpoint-service protectedCommits), so the
+ * next turn looks again, and request_push refuses until a check has run.
+ */
+function unverified(tip: string): AttributionMismatch[] {
+  return [{ commit: tip, problems: [...ATTRIBUTION_PROBLEMS] }];
 }

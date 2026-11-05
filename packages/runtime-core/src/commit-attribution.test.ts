@@ -218,6 +218,15 @@ describe("attributionProblems", () => {
     ]);
   });
 
+  test("an engine co-author stays refused when a repository trailer setting renames what git parses", () => {
+    const message = `${commit().message}Co-authored-by: Claude <noreply@anthropic.com>\n`;
+    // What git prints under trailer.Co-authored-by.key = Other.
+    const trailers = `${commit().trailers}Other: Claude <noreply@anthropic.com>\n`;
+    expect(
+      attributionProblems(commit({ message, trailers }), expected, strip),
+    ).toEqual(["engine_co_author"]);
+  });
+
   test("a second, different Agent-Session line is refused", () => {
     const message = `${commit().message}Agent-Session: other\n`;
     expect(attributionProblems(commit({ message }), expected, strip)).toEqual([
@@ -263,7 +272,7 @@ describe("attributionMismatches", () => {
 
 describe("parseCommitFacts", () => {
   test("reads git log records", () => {
-    const record = `${sha}\x1fa\x1fa@x\x1fc\x1fc@x\x1fK: v\n\x1e\n`;
+    const record = `${sha}\x1fa\x1fa@x\x1fc\x1fc@x\x1fsubject\n\nbody\n\x1fK: v\n\x1e\n`;
     expect(parseCommitFacts(record)).toEqual([
       {
         sha,
@@ -271,6 +280,7 @@ describe("parseCommitFacts", () => {
         authorEmail: "a@x",
         committerName: "c",
         committerEmail: "c@x",
+        message: "subject\n\nbody\n",
         trailers: "K: v\n",
       },
     ]);
@@ -283,7 +293,7 @@ describe("parseCommitFacts", () => {
 
 describe("rangeAttribution", () => {
   const record = (c: CommitFacts) =>
-    `${[c.sha, c.authorName, c.authorEmail, c.committerName, c.committerEmail, c.trailers].join("\x1f")}\x1e`;
+    `${[c.sha, c.authorName, c.authorEmail, c.committerName, c.committerEmail, c.message, c.trailers].join("\x1f")}\x1e`;
   const run = (commits: CommitFacts[], exitCode = 0) =>
     rangeAttribution(
       async () => ({ exitCode, stdout: commits.map(record).join("\n") }),
@@ -355,6 +365,7 @@ describe("working-tree snapshot marker", () => {
       authorEmail: "x@x",
       committerName: "x",
       committerEmail: "x@x",
+      message: "m\n",
       trailers: "",
     };
     for (const found of attributionMismatches([facts], [expected], strip)) {

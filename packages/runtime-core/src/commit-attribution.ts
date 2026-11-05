@@ -30,9 +30,11 @@ export type CommitFacts = {
    * `Key: value` line each (`git interpret-trailers --parse --no-divider`).
    * Only these lines are attribution: GitHub and git read a `Co-authored-by`
    * or `Agent-Session` line from anywhere else in the body as plain text. The
-   * message itself is not read, which also keeps a long range's log small.
+   * message is read only to refuse an engine line, which no trailer setting of
+   * the repository judged in may hide.
    */
   trailers: string;
+  message: string;
 };
 
 export const ATTRIBUTION_PROBLEMS = [
@@ -85,14 +87,14 @@ export const MAX_REPORTED_MISMATCHES = 20;
  * own parser (`%(trailers)`), so this judgment cannot drift from git's.
  */
 export const COMMIT_FACTS_FORMAT =
-  "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%(trailers:only,unfold)%x1e";
+  "%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1f%(trailers:only,unfold)%x1e";
 
 export function parseCommitFacts(stdout: string): CommitFacts[] | null {
   const facts: CommitFacts[] = [];
   for (const record of stdout.split("\x1e")) {
     if (record.trim() === "") continue;
     const fields = record.replace(/^\n/, "").split("\x1f");
-    if (fields.length !== 6) return null;
+    if (fields.length !== 7) return null;
     const [sha, authorName, authorEmail, committerName, committerEmail] =
       fields as [string, string, string, string, string, string];
     if (!/^[0-9a-f]{40}$/.test(sha)) return null;
@@ -102,7 +104,8 @@ export function parseCommitFacts(stdout: string): CommitFacts[] | null {
       authorEmail,
       committerName,
       committerEmail,
-      trailers: fields[5] as string,
+      message: fields[5] as string,
+      trailers: fields[6] as string,
     });
   }
   return facts;
@@ -140,10 +143,13 @@ export function attributionProblems(
         const match = COAUTHOR_LINE.exec(line);
         return match === null ? [] : [match[1] as string];
       });
-  // Everything is judged on git's unfolded trailer block: a folded engine
-  // line is one line there, and a line outside it is plain text to GitHub.
+  // A required line counts only in git's unfolded trailer block (a line
+  // outside it is plain text to GitHub). An engine line is refused anywhere:
+  // in the block, and in the message with folded lines joined, so a repository
+  // trailer.* setting that renames what git parses cannot hide it.
+  const unfolded = commit.message.replace(/\r?\n[ \t]+/g, " ");
   if (
-    coAuthors(commit.trailers).some((value) => {
+    [...coAuthors(commit.trailers), ...coAuthors(unfolded)].some((value) => {
       const email = emailOf(value);
       return email !== null && strip.has(email);
     })
