@@ -1,6 +1,6 @@
 # Werft
 
-Werft는 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다루는 세션 런타임이다. provider key와 저장소·object store credential은 worker에 직접 전달하지 않는다.
+Werft는 공식 TypeScript Claude Agent SDK 세션을 격리된 worker에서 실행하고, HTTP API·이벤트·승인·제어·checkpoint 복구로 다루는 세션 런타임이다. provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
 
 ## 문서
 

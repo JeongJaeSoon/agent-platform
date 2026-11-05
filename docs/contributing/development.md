@@ -86,8 +86,8 @@ verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 �
 ```bash
 bun install
 bun run --filter @werft-ai/storybook dev     # http://localhost:6006
-bun run --filter @werft-ai/storybook build   # 정적 빌드: apps/storybook/dist
-bun run --filter @werft-ai/storybook test:stories  # 모든 스토리를 Chrome에서 그리고 a11y(axe) 위반이 있으면 실패
+bun run --filter @werft-ai/storybook build   # static build: apps/storybook/dist
+bun run --filter @werft-ai/storybook test:stories  # renders every story in Chrome; fails on an a11y (axe) violation
 ```
 
 Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다. 읽는 쪽 설명은 문서 사이트의 [Storybook](https://jeongjaesoon.github.io/werft/ko/ui/storybook/) 페이지에 있다.

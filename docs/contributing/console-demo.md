@@ -15,13 +15,13 @@
 `example.test` 계정으로 채운 스택(로컬에서 띄운 스택)을 상대로, 이 저장소 루트에서 돌린다. `<demo>`(데모 저장소 checkout)와 `<리포트.json>`은 절대 경로로 쓴다. 리포트는 데모 저장소 밖에 둔다.
 
 ```bash
-bun run --cwd apps/web build                      # 녹화에 쓰는 일반 빌드
+bun run --cwd apps/web build                      # plain build used for recording
 bun apps/web/scripts/demo-record.ts --api http://127.0.0.1:<API 포트> \
   --accounts <계정 표 파일> --out <demo>/fixtures.json
 (cd <demo> && gitleaks dir fixtures.json --redact=100 -f json -r <리포트.json>)
 bun apps/web/scripts/demo-scan.ts --fixtures <demo>/fixtures.json --root <demo> --write-ignores <리포트.json>
 bun apps/web/scripts/demo-scan.ts --fixtures <demo>/fixtures.json --root <demo>
-DEMO_FIXTURES=<demo>/fixtures.json bun run --cwd apps/web build:demo   # 로컬 확인: apps/web/dist-demo
+DEMO_FIXTURES=<demo>/fixtures.json bun run --cwd apps/web build:demo   # local check: apps/web/dist-demo
 ```
 
 gitleaks의 `generic-api-key` 규칙은 사용량 breakdown 응답의 `"key": "<에이전트 id>"` 줄을 비밀값으로 읽는다. 그 줄만 데모 저장소의 `.gitleaksignore`에 fingerprint로 넣는다. 줄 번호가 녹화마다 바뀌므로 다시 녹화하면 fingerprint도 다시 만든다. `--write-ignores`는 모든 발견이 breakdown 응답 안에 있고, UUID이며, 녹화된 에이전트 목록의 id일 때만 항목을 바꿔 쓴다. 하나라도 어긋나면 아무것도 쓰지 않는다. 기본 실행은 남은 항목을 같은 기준으로 다시 확인하고, 실제 줄과 맞지 않는 항목이 있으면 실패한다.

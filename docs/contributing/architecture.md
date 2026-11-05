@@ -8,6 +8,10 @@
 
 Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서만 쓰고, API나 SDK처럼 바깥에 보이는 곳에는 내놓지 않는다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. `/v1` API는 control host가 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
 
+credential 경계: provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
+
+`docs/openapi.json`과 `docs/api/` 아래 생성물은 손으로 고치지 않는다. `bun run --cwd apps/control-host openapi:generate`로 함께 다시 만든다.
+
 이름 범위: 바깥에 내놓는 이름은 Werft다. TypeScript SDK는 `packages/sdk`에 있고 npm 패키지 이름은 `@werft-ai/sdk`, 클래스는 `Werft`, 환경 변수는 `WERFT_API_KEY`·`WERFT_BASE_URL`이다. 내부 패키지는 `@werft-ai/*` 스코프를 쓴다. 바꾸면 이미 설치된 곳이 깨지는 이름, 곧 compose project, 런타임 라벨, 설치 경로에는 옛 이름이 남아 있다.
 
 아래는 모듈마다 코드가 어디 있는지다. 아래 control host·worker·egress proxy가 Kiel(세션 런타임)의 구성요소이고, 공개 `/v1` API는 control host의 api role이 서빙한다.
