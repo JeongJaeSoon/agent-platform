@@ -95,10 +95,12 @@ kill "$PF"
 ## Single server (Docker Compose)
 
 <Callout type="warn">
-The single-server upgrade has not been run with the published images. What follows is the order from the operations runbook; it does not promise that it runs. If it differs, follow the [test-ops runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드).
+The single-server upgrade has not been run with the published images. What follows is the order read from `scripts/test-ops.sh` and the code; it does not promise that it runs. If it differs, the script is the reference.
 </Callout>
 
-Rebuild `release.json` from the digests of the new tag, check out the new source commit, then call `upgrade`. If the worker image changed, it checks the current checkpoints against the new image and refuses with exit code 3 if any session is incompatible. Follow the runbook for the approval steps.
+Rebuild `release.json` from the digests of the new tag, check out the new source commit, then call `upgrade`. If the worker image changed, it checks the current checkpoints against the new image and refuses with exit code 3 if any session is incompatible. The ids of the affected sessions are written to `$TEST_OPS_STATE_DIR/upgrade-<timestamp>.sessions`. Review the list, tell the users, then call `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt` again with a file that holds exactly those ids. It refuses if the list differs by even one id, and when it proceeds it leaves an approval record in the state directory. Recovering an incompatible session with `start_fresh` loses the context of its earlier checkpoint. With no affected sessions it proceeds without approval.
+
+Take a [backup](/run-server/self-hosting/single-server#backup-and-restore) right before upgrading. Rolling back means calling `upgrade` again with the previous release file; the worker image changes again, so the same rules apply.
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

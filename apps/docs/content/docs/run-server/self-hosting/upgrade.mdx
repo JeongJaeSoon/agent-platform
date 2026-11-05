@@ -95,10 +95,12 @@ kill "$PF"
 ## 단일 서버 (Docker Compose)
 
 <Callout type="warn">
-단일 서버의 업그레이드는 게시 이미지로 실행해 확인하지 않았다. 아래는 운영 runbook의 순서일 뿐 실행을 보장하지 않으며, 내용이 다르면 [test-ops 운영 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드)을 따른다.
+단일 서버의 업그레이드는 게시 이미지로 실행해 확인하지 않았다. 아래는 `scripts/test-ops.sh`와 코드를 읽어 쓴 순서일 뿐 실행을 보장하지 않으며, 내용이 다르면 스크립트가 기준이다.
 </Callout>
 
-새 태그의 digest로 `release.json`을 다시 만든 뒤, 새 source commit을 checkout하고 `upgrade`를 부른다. worker 이미지가 바뀌었으면 새 이미지로 현재 checkpoint를 검사하고, 호환되지 않는 세션이 있으면 종료 코드 3으로 거부한다. 승인 절차는 runbook을 따른다.
+새 태그의 digest로 `release.json`을 다시 만든 뒤, 새 source commit을 checkout하고 `upgrade`를 부른다. worker 이미지가 바뀌었으면 새 이미지로 현재 checkpoint를 검사하고, 호환되지 않는 세션이 있으면 종료 코드 3으로 거부한다. 이때 영향을 받는 세션 id가 `$TEST_OPS_STATE_DIR/upgrade-<시각>.sessions`에 적힌다. 목록을 검토하고 사용자에게 알린 뒤, 정확히 그 id를 담은 파일로 `scripts/test-ops.sh upgrade release-new.json --approve-sessions approved.txt`를 다시 부른다. 목록이 하나라도 다르면 거부하고, 진행하면 승인 기록을 상태 디렉터리에 남긴다. 호환되지 않는 세션을 `start_fresh`로 복구하면 이전 checkpoint의 context를 잃는다. 영향받는 세션이 없으면 승인 없이 진행한다.
+
+업그레이드 직전에 [백업](/run-server/self-hosting/single-server#백업과-복원)을 한 번 받는다. 되돌리기는 이전 release 파일로 `upgrade`를 다시 부르는 것이고, worker 이미지가 다시 바뀌므로 같은 규칙이 적용된다.
 
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile

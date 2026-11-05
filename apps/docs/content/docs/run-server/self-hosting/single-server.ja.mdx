@@ -6,12 +6,19 @@ description: 公開イメージで Linux サーバー1台に Werft を設置す�
 Linux サーバー1台に Docker Compose で Werft を設置します。イメージはビルドせず、公開されたものを digest で固定して取得します。このページは、`/readyz` が 200 を返すところまでの手順を書いています。Kubernetes に設置する場合は [Kubernetes の設置](/run-server/self-hosting/kubernetes) を読んでください。
 
 <Callout type="warn">
-この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成と実際のモデル呼び出しは確認していません。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md)(韓国語)に従ってください。
+この手順は、OrbStack の Ubuntu(arm64)マシンで公開イメージを使い、手順1〜6と手順7の `key create` まで実行して確認しました。手順7の `/bootstrap` 画面での最初の owner の作成と実際のモデル呼び出しは確認していません。`reset` は、セッションがない設置でコンテナを `-v` なしで止めた後に一度実行し、exit 0 と postgres の volume の削除を確認しました。内容が違う場合は、リポジトリの `scripts/test-ops.sh` と `infra/` のファイルが基準です。
 </Callout>
 
 <Callout type="warn">
 `v` タグはまだありません。今は `main` にマージされるたびに公開される `main-<12>` タグを使います。これはリリースではなく、タグが指すイメージは digest で固定して使います。最初の `v` タグができたら、下の `TAG` を `v<バージョン>` に変え、手順2で同じタグを checkout します。ほかのコマンドは同じです。
 </Callout>
+
+## 配備の判断
+
+- 対象はサーバー1台と `local-docker` 実行基盤です。この設置では高可用性を扱いません。複数ノードが必要なら [Kubernetes の設置](/run-server/self-hosting/kubernetes)を使います。
+- provider key は運用者の key 1つをすべてのセッションで共有します。利用者ごとに owner と API key を別々に発行し、共有しません。
+- 実サーバーのオブジェクトストアは専用の AWS S3 bucket です。同じホストの LocalStack はホストや Docker が再起動すると checkpoint を失うので、試用だけに使います。
+- アクセスは loopback bind と SSH tunnel が基本です。reverse proxy は TLS と VPN または IP allowlist の両方がそろったときだけ使います。
 
 ## 必要なもの
 
@@ -20,7 +27,7 @@ Linux サーバー1台に Docker Compose で Werft を設置します。イメ�
 | OS | Linux。`x86_64` と `arm64` のどちらも使える |
 | Docker Engine | 28 以上 |
 | Docker Compose | 2.24.6 以上 |
-| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。Docker Desktop では使えない。OrbStack の既定のマシンは btrfs なのでこの条件を満たさない。マシン内で sparse イメージファイル(60G)に `mkfs.xfs` で XFS を作り、`loop,prjquota` で mount して Docker の `data-root` に指定すると、mount オプションに `prjquota` が現れ、`deploy` の quota 検査が通る(OrbStack マシン1台で1回試した。コマンド全体はこのページには書かない) |
+| ディスク | Docker のデータルートが XFS で、`prjquota` 付きで mount されている。`preflight` はこれを検査しない。そうでないと `deploy` で scheduler の quota 検査が失敗し、設置が止まる。Docker Desktop では使えない。OrbStack の既定のマシンは btrfs なのでこの条件を満たさない。マシン内で sparse イメージファイル(60G)に `mkfs.xfs` で XFS を作り、`loop,prjquota` で mount して Docker の `data-root` に指定すると、mount オプションに `prjquota` が現れ、`deploy` の quota 検査が通る(OrbStack マシン1台で1回確認した) |
 | 時刻 | NTP で同期している。再起動後に Docker が自動で起動する |
 | ツール | `git`、`jq`、`curl`、`openssl`、Bun 1.3.14、Docker Buildx プラグイン。Docker daemon に接続できるアカウント |
 | ネットワーク | ホストが `ghcr.io` と Docker Hub からイメージを取得できる。パッケージはログイン不要。セッションは `api.anthropic.com` と `github.com` に接続する |
@@ -41,6 +48,21 @@ done
 ```
 
 3行とも `sha256:` で始まる digest が出れば正常です。`TAG` は digest を探すためだけに使い、設置は digest で行います。
+
+### イメージを自分でビルドするとき
+
+公開イメージを取得できないとき(`amd64`、`arm64` 以外のホスト、公開されていない commit)の経路です。設置する commit の checkout から3つのイメージをビルドし、ホストが取得できる registry に push して、push が返す digest を手順4の release ファイルに書きます。イメージはビルドしたマシンのアーキテクチャで作られるので、ホストと同じアーキテクチャでビルドします。この経路はスクリプトと compose ファイルを読んで移したもので、上の検証では実行していません。
+
+```bash
+R=<registry>   # for example 127.0.0.1:5000
+export API_IMAGE=$R/werft-control-host:rc WORKER_IMAGE=$R/werft-worker:rc \
+  EGRESS_PROXY_IMAGE=$R/werft-egress-proxy:rc
+docker compose -f infra/compose.yml --profile apps --profile worker build api worker egress-proxy
+for i in "$API_IMAGE" "$WORKER_IMAGE" "$EGRESS_PROXY_IMAGE"; do
+  docker push -q "$i" && docker inspect --format '{{index .RepoDigests 0}}' "$i"
+done
+unset API_IMAGE WORKER_IMAGE EGRESS_PROXY_IMAGE
+```
 
 ## 2. checkout を取得する
 
@@ -77,7 +99,7 @@ sudo install -d -m 700 -o "$USER" /var/lib/agent-platform/test-ops
 
 値をターミナルに出力したり、コマンド引数で渡したりしません。ランダムな値は `openssl rand -hex 32` で作り、エディタに貼り付けます。
 
-設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちるため `preflight` が設置を止め、この値を足すと通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
+設定ドキュメントは `/etc/agent-platform/settings.json` に置きます。セッションが使うモデル接続、GitHub リポジトリ、profile を書きます。値ではなく環境変数の名前だけを書くので、秘密は含みません。リポジトリの URL だけを実際の値に変えます。例は公開リポジトリを前提にしています。リポジトリの項目には `"auth": { "kind": "github_app" }` が必要です。ないと取り込みでそのリポジトリが落ちて `preflight` が設置を止めます。この値を入れると通ることを確認しました。非公開リポジトリの認証は [API サーバーのページ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)(韓国語)に従います。
 
 migrate コンテナが読むため、ファイルは `0644` にします。先に空のファイルを作り、エディタで次の内容を書き込みます。
 
@@ -148,7 +170,7 @@ jq -n \
 
 ## 5. 設置する
 
-オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備とこれらの値は [test-ops 運用 runbook](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#aws-준비s3에서만) に従います。
+オブジェクトストアは最初の `deploy` で決まり、その後は変更できません。既定は同じホストの LocalStack です。実サーバーでは、下の2つのコマンドの前に `TEST_OPS_OBJECT_STORE=s3` を付け、専用の AWS S3 bucket を用意して、env ファイルに `AWS_REGION`、`S3_BUCKET`、`AWS_ACCESS_KEY_ID`、`AWS_SECRET_ACCESS_KEY` を入れます。`EGRESS_CREDENTIAL_ALLOWLIST` に `<bucket>.s3.ap-northeast-1.amazonaws.com:443` を足し、`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` は値を空にします(`localstack:4566` が残っていると `preflight` が拒否します)。bucket の準備は[専用の S3 bucket](#専用の-s3-bucket)に従います。
 
 `preflight` が、Docker のバージョン、checkout、env ファイル、release ファイルを先に検査します。ディスクの quota は `deploy` で scheduler が検査します。通れば、`deploy` が同じファイルで設置します。
 
@@ -157,7 +179,7 @@ scripts/test-ops.sh preflight release.json
 scripts/test-ops.sh deploy release.json
 ```
 
-`deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。LocalStack はホストや Docker が再起動すると checkpoint を失い、再起動後に API が起動を拒否することがあります(復旧は runbook の `reseed` または `reset`)。試用だけに使います。
+`deploy` は migrate を実行し、API、scheduler、reconciler を起動して、healthcheck を待ちます。LocalStack はホストや Docker が再起動すると checkpoint を失い、再起動後に API が起動を拒否することがあります(復旧は[再起動](#再起動)の `reseed` または `reset`)。試用だけに使います。
 
 最初の `deploy` が失敗した場合、`reset` では消せません。原因を直してから、この project(`agent-platform-test-ops`)のコンテナ、volume、network を手で削除し、もう一度 `deploy` します。
 
@@ -181,7 +203,7 @@ ssh -N -L 3000:127.0.0.1:3000 <user>@<server>
 
 ## 7. 最初の owner と API key
 
-ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、[最初の owner の手順](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#첫-owner)どおり API のログから探します。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。
+ブラウザで `http://127.0.0.1:3000/bootstrap` を開き、env ファイルの `BOOTSTRAP_TOKEN`、owner の情報、workspace 名を入力します。env ファイルに入れていない場合は、API コンテナのログから `BOOTSTRAP_TOKEN` で始まる行を探し、その値を使います。このログを読める人は最初の owner ができるまで bootstrap できるので、閲覧権限を運用者に限ります。同じトークンをもう一度送ると `409 BOOTSTRAP_DONE` になります。続けて `/login` でログインします。
 
 利用者ごとに owner と API key を別々に発行します。平文の key は一度しか出力されないので、変数に受けて直接渡します。
 
@@ -202,9 +224,9 @@ SDK と HTTP API は、このサーバーのアドレスと key で接続しま�
 scripts/test-ops.sh reset --yes
 ```
 
-`reset` は、この設置のコンテナと volume(DB、LocalStack)、セッションが作った worker コンテナと workspace volume を削除します。セッション、checkpoint、API key も一緒に消えるので、削除前に[バックアップ](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)を取ります。
+`reset` は、この設置のコンテナと volume(DB、LocalStack)、セッションが作った worker コンテナと workspace volume を削除します。セッション、checkpoint、API key も一緒に消えるので、削除前に[バックアップ](#バックアップと復元)を取ります。
 
-`reset` は volume まで消します。volume を残してコンテナだけを止めるには、設置したときと同じ compose 構成で `-v` なしの `down` を使います。構成を省いて `docker compose -p agent-platform-test-ops down` だけにすると、リポジトリ直下の開発用構成を読み、この設置のサービスが見つかりません。最後の `-f` は object store に合わせ、LocalStack なら `infra/compose.test-ops.localstack.yml`、S3 なら `infra/compose.test-ops.s3.yml` です。
+`reset` は volume まで消します。volume を残してコンテナだけを止めるには、設置したときと同じ compose 構成で `-v` なしの `down` を使います。構成を省いて `docker compose -p agent-platform-test-ops down` だけにすると、リポジトリ直下の開発用構成を読み、api、scheduler、reconciler がサービス一覧に出ません(読み取り専用の `docker compose config --services` で確認したもので、止めるコマンド自体は実行していません)。最後の `-f` は object store に合わせ、LocalStack なら `infra/compose.test-ops.localstack.yml`、S3 なら `infra/compose.test-ops.s3.yml` です。
 
 ```bash
 # Compose needs the release's images to render the files, even for down.
@@ -217,13 +239,84 @@ docker compose --project-name agent-platform-test-ops \
   -f infra/compose.test-ops.localstack.yml down
 ```
 
-残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。その状態で再び起動すると、DB には checkpoint が残っているのに bucket が空なので、API は起動を拒否します。LocalStack の設置では、コンテナを止める前にこの点を考慮してください。データを守るなら S3 の設置を使います。この compose 構成そのままのコマンドは実行して確認していません。同じ project を `-v` なしで止めたとき、コンテナと network が削除され postgres の volume が残ることは、セッションがない設置で確認しました。残った volume に対して再度 `deploy` する動作は確認していません。
+残るのは DB の volume です。LocalStack は volume を持たずメモリに保存するので、コンテナを止めると `-v` がなくても checkpoint object は消えます。その状態で再び起動すると、DB には checkpoint が残っているのに bucket が空なので、API は起動を拒否します(compose ファイルとコードを読んだ結果で、実行はしていません)。LocalStack の設置では、これを承知のうえで止めます。データを守るなら S3 で設置します。この compose 構成そのままのコマンドは実行して確認していません。同じ project を `-v` なしで止めたとき、コンテナと network が削除され postgres の volume が残ることは、セッションがない設置で確認しました。残った volume に対して再度 `deploy` する動作は確認していません。
+
+## 運用する
+
+<Callout type="warn">
+この節は `scripts/test-ops.sh` とコードを読んで書きました。検証マシンでは `backup`、`reseed`、`restore-drill`、再起動、S3 オブジェクトストアの設置、TLS の reverse proxy は実行していません。以下のコマンドの引数と動作は、スクリプトの引数処理とコードで確認したもので、実サーバーで最後まで実行して確認したものではありません。
+</Callout>
+
+### アクセス経路
+
+API(既定 3000)と PostgreSQL(既定 5432)はホストの loopback だけで待ち受けます。利用者は SSH tunnel で入り、PostgreSQL は運用者がサーバーの中でだけ使います。ファイアウォールは SSH と選んだ TLS endpoint だけを許可します。
+
+API を内部 DNS 名で公開するには、前に reverse proxy を置きます。upstream は引き続き `127.0.0.1:3000` です。接続元は VPN の範囲か IP allowlist で絞り、TLS はそこで終わらせます。イベントストリーム(SSE)は接続を長く保つので、`proxy_buffering` とリクエストの buffering を切り、read と send の timeout を1時間のように長くします。どの経路を選んでも、PostgreSQL と Docker socket は proxy やファイアウォールの外に開きません。Docker socket は scheduler が worker を管理するときだけ使い、ホストの TCP socket は有効にしません。
+
+### 専用の S3 bucket
+
+実サーバーでは、設置1つにつき bucket を1つ使います。この作業は AWS の権限と費用が発生するので、設置の担当者が自分で行います。
+
+- region は `ap-northeast-1` です。既定の暗号化は SSE-S3(`AES256`)で、public access はすべて遮断します。
+- versioning と Object Lock を有効にします。既定の retention は設定しません。checkpoint は legal hold だけで保護しており、既定の retention があると checkpoint の整理と `preflight` の削除が失敗します。
+- API 用の IAM ユーザーには、この bucket に限って `s3:PutObject`、`s3:GetObject`、`s3:GetObjectVersion`、`s3:GetObjectLegalHold`、`s3:PutObjectLegalHold`、`s3:DeleteObjectVersion`、そして bucket の設定を読む `s3:ListBucket`、`s3:ListBucketVersions`、`s3:GetBucketVersioning`、`s3:GetBucketObjectLockConfiguration`、`s3:GetEncryptionConfiguration` だけを与えます。bucket を作る権限は与えません。
+- object version を失効させる lifecycle rule は置きません。組織のポリシーにある場合は、この bucket を除外します。
+- 復元訓練は同じ認証情報で訓練用 bucket に書き込みます。訓練用 bucket の名前を `<bucket>-drill-*` とし、その名前に同じ権限を与えます。訓練用 bucket は運用者が自分の権限で作ります。
+
+認証情報は API コンテナにだけ渡ります。worker は egress proxy を通り、そのリクエストは API がセッションの範囲で署名します。手順5の `TEST_OPS_OBJECT_STORE=s3 preflight` が、アップロード、legal hold、version の読み取り、hold の解除、scratch version の削除の往復を通ってから設置します。
+
+### バックアップと復元
+
+```bash
+scripts/test-ops.sh backup
+```
+
+`backup` は api、scheduler、reconciler、worker のコンテナを止め、DB と checkpoint object を `$TEST_OPS_STATE_DIR/backups/backup-<時刻>` にまとめ、止めたサービスをもう一度起動します。進行中のターンは切れ、reconciler が後で回収します。失敗したバックアップは `.failed` として残り、成功分には数えません。サービスを再起動できないと、バックアップが成功してもコマンドは失敗で終わるので、`status` で確認します。
+
+- 頻度: 利用の少ない時間に1日1回、そしてすべてのアップグレードの直前に取ります。
+- 保管: ホストには直近14日、暗号化したホスト外の保管先には直近90日の成功分を置きます。バックアップには DB 全体と API key の hash が入っています。ディレクトリは `0700` にし、転送と保管を暗号化し、アクセスを最小にします。
+- 通知: コマンドが 0 以外で終わったとき、サービスを再起動できなかったとき、26時間新しい成功分がないときを失敗として扱います。
+- 復元訓練: 月に1回、そしてアップグレード後の最初のバックアップごとに行います。
+
+復元訓練は、バックアップを新しい project とそのオブジェクトストアに復元し、すべての checkpoint pointer を version 単位で照合します。LocalStack の設置では bucket なしで呼びます。S3 の設置では、訓練のたびに新しく作った空の bucket を `--bucket` で渡します。復元先が元の bucket であるか、空でない場合は拒否します。
+
+```bash
+# Restore a backup into a throwaway project and a new, empty bucket, then verify it
+scripts/test-ops.sh restore-drill /var/lib/agent-platform/test-ops/backups/backup-<timestamp> --bucket <drill-bucket>
+```
+
+出力は状態ディレクトリの `restore-drills/` に残り、判定は `history.log` に1行残ります。訓練の project は終わると削除されます。訓練用 bucket の object には legal hold が掛かっているので、bucket を削除するには version ごとに hold を解除し、version を削除してから bucket を削除します。
+
+復元訓練は PostgreSQL とオブジェクトストアまでを復元し、API は起動しません。復元したデータで実際のセッションが続くかはこの訓練では確認できないので、確認していないこととして記録します。
+
+### 再起動
+
+LocalStack の設置は再起動すると object を失います。あらかじめ分かっている再起動では、バックアップを残して復元します。
+
+```bash
+# Back up, leave the writers stopped, restart the host, then restore the objects
+scripts/test-ops.sh backup --stop
+sudo reboot
+scripts/test-ops.sh reseed /var/lib/agent-platform/test-ops/backups/backup-<timestamp>
+```
+
+`reseed` は、バックアップの manifest、project、bucket、checksum を確認し、空の LocalStack に object をアップロードして、未回収の checkpoint をすべて固定し直し、設置を起動し直します。最後のバックアップの後に新しい checkpoint ができていたら拒否し、その場合は `reset` しかありません。予期しない再起動の後に API が起動を拒否するのも同じ状態で、同じ方法で解消します。
+
+S3 の設置は再起動しても object が残ります。再起動の後は、現在の release ファイル(状態ディレクトリの `current.json`)で `scripts/test-ops.sh upgrade` を呼び、止まったサービスを起動し直します。
+
+再起動の前に、進行中のターンがないこと、`status` が正常であること、最新のバックアップがホストの外に複製されていることを確認します。再起動の後は、NTP、XFS `prjquota`、Docker の自動起動、ディスクと inode の余裕をもう一度確認します。続けて、`status` と `/readyz` が正常であること、再起動前のセッションを再開すると新しい worker が以前の workspace を引き継ぐことを確認します。API は選んだ経路からだけ届き、PostgreSQL と Docker socket は外から閉じている必要があります。
+
+### 初日の運用
+
+- 開始時、1時間後、業務終了前に `scripts/test-ops.sh status` を見ます。コンテナ、配備した release、オブジェクトストア、`/readyz`、scheduler と reconciler の health、ディスク使用量が一度に出ます。
+- api、scheduler、reconciler のログと、Docker データルートのディスク、inode、quota を見ます。空きが 20% を下回る前に対応します。
+- checkpoint の整理は週1回、バックアップと重ならない時間に行います。先に `CHECKPOINT_GC_DRY_RUN=1` で確認します。
+- 自動バックアップと失敗時の通知を試します。運用のバックアップを削除して試すことはしません。
+- 利用者ごとの API key を渡す方法と、失効させる連絡経路を決めておきます。
+- Anthropic コンソールに月間の上限を設定し、セッションごとの上限(`SESSION_COST_LIMIT_USD`、既定 25)と実際の費用を合わせて見ます。
+- 監視の定義には [Datadog 監視基準](/run-server/self-hosting/operate/monitoring-datadog)を使います。
 
 ## 次のステップ
 
-これらのページは韓国語で書かれています。
-
-- [アップグレードとロールバック](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/test-ops.md#업그레이드): 新しいタグの digest で `release.json` を作り直し、`upgrade` する
-- [バックアップと復元](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
-- [単一サーバーの手順表](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/server-deployment.md): 再起動、初日の運用、証跡の記録まで
+- [アップグレードとロールバック](/run-server/self-hosting/upgrade): 新しいタグの digest で `release.json` を作り直し、`upgrade` する
 - [設定リファレンス](/run-server/self-hosting/operate/configuration)
