@@ -356,6 +356,44 @@ describe("Claude checkpoint codec", () => {
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 
+  test("round-trips the worker's attribution findings, and leaves the field out when there are none", () => {
+    const found = {
+      attribution: {
+        mismatches: [{ commit: "a".repeat(40), problems: ["author" as const] }],
+      },
+    };
+    const original = { ...manifest(), ...found };
+    expect(
+      decodeCheckpointManifest(encodeCheckpointManifest(original).bytes),
+    ).toEqual(original);
+    const clean = new TextDecoder().decode(
+      encodeCheckpointManifest(manifest()).bytes,
+    );
+    expect(clean).not.toContain("attribution");
+  });
+
+  test.each([
+    ["an empty list", { mismatches: [] }],
+    [
+      "an unknown problem",
+      { mismatches: [{ commit: "a".repeat(40), problems: ["mood"] }] },
+    ],
+    [
+      "a commit that is not a full sha",
+      { mismatches: [{ commit: "abc", problems: ["author"] }] },
+    ],
+  ])("refuses attribution findings with %s", (_, attribution) => {
+    const body = {
+      ...JSON.parse(
+        new TextDecoder().decode(encodeCheckpointManifest(manifest()).bytes),
+      ),
+      attribution,
+    };
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
   test("refuses bytes that are not a manifest", () => {
     expect(() =>
       decodeCheckpointManifest(new TextEncoder().encode("not json")),

@@ -25,8 +25,11 @@ import {
   type ParkDeclinedResponse,
   type PendingControlRequest,
   type PendingControlResponse,
+  type ProtectedCommitsRequest,
+  type ProtectedCommitsResponse,
   parkDeclinedResponseSchema,
   pendingControlResponseSchema,
+  protectedCommitsResponseSchema,
   type RegisterPendingRequest,
   type RegisterPendingResponse,
   type ReleaseRequest,
@@ -140,6 +143,16 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       "/checkpoint-request",
       request,
       checkpointRequestResponseSchema,
+    );
+  }
+
+  protectedCommits(
+    request: ProtectedCommitsRequest,
+  ): Promise<ProtectedCommitsResponse> {
+    return this.post(
+      "/protected-commits",
+      request,
+      protectedCommitsResponseSchema,
     );
   }
 

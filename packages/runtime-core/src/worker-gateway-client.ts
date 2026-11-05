@@ -18,6 +18,8 @@ import type {
   ParkDeclinedResponse,
   PendingControlRequest,
   PendingControlResponse,
+  ProtectedCommitsRequest,
+  ProtectedCommitsResponse,
   RegisterPendingRequest,
   RegisterPendingResponse,
   ReleaseRequest,
@@ -84,6 +86,14 @@ export interface WorkerGatewayClient {
   requestCheckpoint(
     request: CheckpointRequest,
   ): Promise<CheckpointRequestResponse>;
+  /**
+   * The commits the worker's attribution repair must leave as they are,
+   * asked at a turn's end before the checkpoint. Optional: an older server
+   * has no such route, and a worker without the answer skips the repair.
+   */
+  protectedCommits?(
+    request: ProtectedCommitsRequest,
+  ): Promise<ProtectedCommitsResponse>;
   /**
    * The committed checkpoint judged against what this worker runs. Asked
    * after the claim, before the engine starts.

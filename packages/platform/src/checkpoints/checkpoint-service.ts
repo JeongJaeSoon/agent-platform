@@ -2,8 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CheckpointRef } from "@werft-ai/contracts";
+import { type CheckpointRef, MAX_PROTECTED_COMMITS } from "@werft-ai/contracts";
 import type {
+  AttributionMismatch,
   CheckpointBlockReason,
   CheckpointCodec,
   CheckpointManifest,
@@ -183,7 +184,13 @@ export type RestorePlanResult =
     };
 
 export type PushSourceResult =
-  | { gitCommit: string; revision: number; status: "ready" }
+  | {
+      gitCommit: string;
+      revision: number;
+      status: "ready";
+      /** What the worker found wrong with the commits; absent when nothing. */
+      mismatches?: AttributionMismatch[];
+    }
   | { status: "none" }
   | { reason: string; status: "unavailable" };
 
@@ -1473,6 +1480,40 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     verifyAttemptManifest,
 
     /**
+     * The workspace commit of the pointer's checkpoint and of up to
+     * MAX_PROTECTED_COMMITS - 1 earlier ones, newest first. A checkpoint whose
+     * manifest does not verify makes the list incomplete, and an incomplete
+     * list could let the repair remake a commit that was pushed: it throws, and
+     * the worker then skips the repair.
+     */
+    async protectedCommits(input: {
+      sessionId: string;
+      pointer: CheckpointPointer | null;
+    }): Promise<string[]> {
+      if (input.pointer === null) return [];
+      const earlier = await store.listCheckpoints(input.sessionId, {
+        belowRevision: input.pointer.revision,
+        limit: MAX_PROTECTED_COMMITS - 1,
+      });
+      const verified = await verifiedRefs(input.sessionId);
+      const commits: string[] = [];
+      for (const pointer of [input.pointer, ...earlier]) {
+        const verdict = await judgeManifest({
+          checkpoint: checkpointRefOf(pointer),
+          sessionId: input.sessionId,
+          verified,
+        });
+        if (verdict.status !== "verified") {
+          throw new Error(
+            `checkpoint revision ${pointer.revision} does not verify (${verdict.reason}); the protected commits would be incomplete`,
+          );
+        }
+        commits.push(verdict.manifest.workspace.gitCommit);
+      }
+      return [...new Set(commits)];
+    },
+
+    /**
      * The commit a push of the session's latest checkpoint would carry. Only
      * the pointer's own checkpoint counts: a push never falls back to an
      * older revision the way a restore may.
@@ -1492,6 +1533,9 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         status: "ready",
         revision: pointer.revision,
         gitCommit: verdict.manifest.workspace.gitCommit,
+        ...(verdict.manifest.attribution === undefined
+          ? {}
+          : { mismatches: [...verdict.manifest.attribution.mismatches] }),
       };
     },
 
