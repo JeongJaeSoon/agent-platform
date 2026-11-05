@@ -5,7 +5,7 @@ import type { DockerClient } from "./docker-client.ts";
  * helper that was never cleaned up this host's to remove. Not `managed`, so
  * the scheduler never takes it for a worker.
  */
-export const INODE_HELPER_LABEL = "agent-platform.workspace-inode-helper";
+export const INODE_HELPER_LABEL = "werft.workspace-inode-helper";
 
 /**
  * Puts an inode ceiling on the xfs project Docker made for a `size`-bounded

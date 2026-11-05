@@ -17,6 +17,7 @@ import {
   LocalDockerBackend,
   localDockerConfigFromEnv,
   networkNameFor,
+  volumeLabelsOf,
   workspaceVolumePrefixFor,
 } from "@werft-ai/execution-local-docker";
 import {
@@ -409,14 +410,20 @@ integration("scheduler pass against Docker and PostgreSQL", () => {
       branch: `session/${closedSession}`,
       admissionState: "closed",
     });
-    const name = `${workspaceVolumePrefixFor(closedSession, runLabel)}7a6b5c4d`;
+    const naming = {
+      installationId: runLabel,
+      volumeLabelNamespace: "werft",
+      volumeNamePrefix: "werft-ws-",
+    };
+    const volumeKeys = volumeLabelsOf(naming);
+    const name = `${workspaceVolumePrefixFor(closedSession, naming)}7a6b5c4d`;
     await client.createVolume({
       Driver: "local",
       Labels: {
-        [LABELS.installation]: runLabel,
-        [LABELS.managed]: "true",
-        [LABELS.sessionId]: closedSession,
-        [LABELS.workspaceQuota]: "off",
+        [volumeKeys.installation]: runLabel,
+        [volumeKeys.managed]: "true",
+        [volumeKeys.sessionId]: closedSession,
+        [volumeKeys.workspaceQuota]: "off",
       },
       Name: name,
     });

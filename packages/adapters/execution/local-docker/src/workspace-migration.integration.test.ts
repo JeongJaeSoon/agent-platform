@@ -8,6 +8,7 @@ import {
   LABELS,
   LocalDockerBackend,
   legacyWorkspaceVolumeName,
+  volumeLabelsOf,
 } from "./backend.ts";
 import type { LocalDockerBackendConfig, WorkspaceQuota } from "./config.ts";
 import { DockerApiError, DockerClient } from "./docker-client.ts";
@@ -101,6 +102,8 @@ integration("workspace migration against a real daemon", () => {
     tmpfsSizeBytes: 16 * 1024 * 1024,
     user: "1000:1000",
     workspaceDir: "/workspace",
+    volumeLabelNamespace: "werft",
+    volumeNamePrefix: "werft-ws-",
     workspaceGcMinAgeMs: 0,
     workspaceQuota: quota(),
   });
@@ -131,7 +134,7 @@ integration("workspace migration against a real daemon", () => {
   }> {
     const sessionId = crypto.randomUUID();
     sessionIds.push(sessionId);
-    const legacy = legacyWorkspaceVolumeName(sessionId, installationId);
+    const legacy = legacyWorkspaceVolumeName(sessionId, config());
     // Exactly what a mount spec used to conjure: a volume with no labels.
     await client.createVolume({ Driver: "local", Labels: {}, Name: legacy });
     expect(await run(SEED, legacy)).toBe(0);
@@ -250,7 +253,7 @@ integration("workspace migration against a real daemon", () => {
         await client.removeVolume(volume.Name).catch(() => {});
       }
       await client
-        .removeVolume(legacyWorkspaceVolumeName(sessionId, installationId))
+        .removeVolume(legacyWorkspaceVolumeName(sessionId, config()))
         .catch(() => {});
     }
     if (proxy) await client.stopAndRemoveContainer(proxy, 1).catch(() => {});
@@ -276,9 +279,9 @@ integration("workspace migration against a real daemon", () => {
     expect(copy?.Labels).toMatchObject({
       [LABELS.installation]: installationId,
       [LABELS.managed]: "true",
-      [LABELS.migratedFrom]: legacy,
+      [volumeLabelsOf(config()).migratedFrom]: legacy,
       [LABELS.sessionId]: sessionId,
-      [LABELS.workspaceQuota]: supportsQuota
+      [volumeLabelsOf(config()).workspaceQuota]: supportsQuota
         ? `enforced:${QUOTA_BYTES}`
         : "off",
     });
@@ -320,7 +323,9 @@ integration("workspace migration against a real daemon", () => {
     expect(await run(VERIFY, legacy)).toBe(0);
     const leftovers = await workspacesOf(sessionId);
     expect(
-      leftovers.map((volume) => volume.Labels?.[LABELS.migratedFrom]),
+      leftovers.map(
+        (volume) => volume.Labels?.[volumeLabelsOf(config()).migratedFrom],
+      ),
     ).toEqual([legacy]);
     // The unfinished copy is not something the session can launch onto.
     await expect(
@@ -448,7 +453,8 @@ integration("workspace migration against a real daemon", () => {
         ...args: Parameters<DockerClient["createContainer"]>
       ) {
         const created = await super.createContainer(...args);
-        if (args[0].startsWith("ap-ws-migrate-pin-")) pinsOfA.add(created.Id);
+        if (args[0].startsWith("werft-ws-migrate-pin-"))
+          pinsOfA.add(created.Id);
         return created;
       }
       override async stopAndRemoveContainer(id: string, timeout: number) {
@@ -518,7 +524,7 @@ integration("workspace migration against a real daemon", () => {
         ...args: Parameters<DockerClient["createContainer"]>
       ) {
         const created = await super.createContainer(...args);
-        if (args[0].startsWith("ap-ws-migrate-pin-") && runB === undefined) {
+        if (args[0].startsWith("werft-ws-migrate-pin-") && runB === undefined) {
           runB = new WorkspaceMigrator(config(), clientB)
             .migrate({
               deadlineMs: 60_000,
@@ -571,7 +577,7 @@ integration("workspace migration against a real daemon", () => {
       override async createContainer(
         ...args: Parameters<DockerClient["createContainer"]>
       ) {
-        if (args[0].startsWith("ap-ws-migrate-pin-") && !finishedB) {
+        if (args[0].startsWith("werft-ws-migrate-pin-") && !finishedB) {
           finishedB = await migrate(sessionId);
         }
         return super.createContainer(...args);

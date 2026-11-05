@@ -61,14 +61,16 @@ async function docker(...args: string[]) {
 
 /** The session's workspace volumes, found by the labels the backend sets. */
 async function workspaceVolumes(sessionId: string): Promise<string[]> {
+  const volumeLabelNamespace =
+    process.env.EXECUTION_VOLUME_LABEL_NAMESPACE || "werft";
   const listed = await docker(
     "volume",
     "ls",
     "-q",
     "--filter",
-    `label=agent-platform.installation=${installation}`,
+    `label=${volumeLabelNamespace}.installation=${installation}`,
     "--filter",
-    `label=agent-platform.session-id=${sessionId}`,
+    `label=${volumeLabelNamespace}.session-id=${sessionId}`,
   );
   if (listed.status !== 0)
     throw new Error(`docker volume ls: ${listed.stderr}`);
