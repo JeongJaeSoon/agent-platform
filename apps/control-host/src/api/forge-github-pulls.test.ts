@@ -351,7 +351,7 @@ describe("GitHub pull requests", () => {
       },
     });
     try {
-      const forge = await patForge(stub.port);
+      const forge = await appForgeAt(stub.port);
       expect(await forge.getBranchHead("main")).toEqual({
         commitSha: "c".repeat(40),
         treeSha: "t".repeat(40),
@@ -413,9 +413,16 @@ describe("GitHub pull requests", () => {
         Response.json({ message: "private-response-content" }, { status: 500 }),
     });
     try {
+      const { connection: issuer } = await appForge();
+      const { credential } = await issuer.credential(repo, PULLS);
       const connection = createGitHubConnection({
         apiBase: `http://127.0.0.1:${stub.port}`,
-        credentials: { kind: "token", username: "x", password: "[REDACTED]" },
+        credentials: {
+          kind: "app",
+          appId: 101,
+          installationId: 202,
+          privateKey,
+        },
         logger: {
           warn: (message: string, fields?: Record<string, unknown>) =>
             warnings.push({ message, ...fields }),
@@ -423,7 +430,6 @@ describe("GitHub pull requests", () => {
         retryAfterBaseMs: 1,
         paced: false,
       });
-      const { credential } = await connection.credential(repo, PULLS);
       const failed = await connection
         .api(repo, credential)
         .getRepository()
