@@ -79,6 +79,19 @@ scripts/local.sh web                # 웹을 고칠 때만: Vite dev 서버(첫 
 
 verify 스택은 `up.sh infra/compose.dev.yml`로 띄운다. 이 스택에서 소스를 바꾸면 `doctor.sh`는 "built from"이 달라졌다며 exit 1을 낸다. 개발 모드에서는 정상이다.
 
+## UI 컴포넌트 보기 (Storybook)
+
+`packages/ui`의 primitive·pattern과 화면 상태(로딩·빈·오류)는 [apps/storybook](../../apps/storybook)에서 스토리로 본다. 툴바의 Theme으로 라이트·다크를, Viewport로 390px(Mobile 390)·360px·768px·1440px를 바꾼다.
+
+```bash
+bun install
+bun run --filter @werft-ai/storybook dev     # http://localhost:6006
+bun run --filter @werft-ai/storybook build   # 정적 빌드: apps/storybook/dist
+bun run --filter @werft-ai/storybook test:stories  # 모든 스토리를 Chrome에서 그리고 a11y(axe) 위반이 있으면 실패
+```
+
+Storybook과 Vitest CLI는 Node 20.19 이상에서 돈다. `test:stories`는 설치된 Chrome을 쓴다. CI의 `storybook` job이 빌드와 a11y 검사를 하고, `pages` job이 [apps/docs](../../apps/docs) 문서 사이트를 루트에, Storybook을 `/storybook/`에, API 레퍼런스를 `/api/`에 모은다. main push에서만 `storybook-pages` job이 GitHub Pages에 배포한다. 읽는 쪽 설명은 문서 사이트의 [Storybook](https://jeongjaesoon.github.io/werft/ko/ui/storybook/) 페이지에 있다.
+
 ## e2e·gate·soak 도구 진입점
 
 `quickstart.sh`를 빼면 자기 compose project로 떠서 기본 스택(`agent-platform`)과 겹치지 않는다. `quickstart.sh`는 문서 그대로 기본 project와 기본 포트를 쓴다. 무거우므로 하나씩 돌린다. 각 스크립트의 머리 주석에 knob과 기록 위치가 있다.
