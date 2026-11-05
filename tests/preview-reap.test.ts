@@ -462,24 +462,33 @@ exit 1
     expect(await deleted()).toEqual([]);
   });
 
-  // Names that differ only in case, or that end like another run's temporary
-  // file (kubeconfig-<x>.<pid>), must not share or shadow a file; macOS folds
-  // case, so the files are told apart by a lowercase digest.
-  test("each context gets its own kubeconfig file and leaves no temporary one", async () => {
+  // The directory is named by a lowercase digest: contexts that differ only in
+  // case would share one on macOS, and a name ending like a temporary file
+  // (kubeconfig.<pid>) must not shadow another's.
+  const contextDir = (name: string) =>
+    `context-${createHash("sha256").update(name).digest("hex").slice(0, 16)}`;
+
+  test("each context keeps its state in a directory of its own", async () => {
     const contexts = ["kind-dev", "KIND-DEV", "kind-dev.1234"];
     await reap([]);
     for (const name of contexts) {
       await reap([], { PREVIEW_KUBE_CONTEXT: name, STUB_CONTEXTS: name });
     }
-    const digest = (name: string) =>
-      `kubeconfig-${createHash("sha256").update(name).digest("hex").slice(0, 16)}`;
-    const files = (await readdir(join(dir, "home"))).sort();
-    expect(files).toEqual(["kubeconfig", ...contexts.map(digest)].sort());
-    expect(new Set(files.map((file) => file.toLowerCase())).size).toBe(4);
+    const home = join(dir, "home");
+    const entries = (await readdir(home)).sort();
+    expect(entries).toEqual(["kubeconfig", ...contexts.map(contextDir)].sort());
+    expect(new Set(entries.map((entry) => entry.toLowerCase())).size).toBe(4);
+    for (const name of contexts) {
+      // No temporary kubeconfig.<pid> is left behind.
+      expect(await readdir(join(home, contextDir(name)))).toEqual([
+        "kubeconfig",
+      ]);
+    }
   });
 
   test("down on another context leaves the local images, checkout and refs alone", async () => {
-    await mkdir(join(dir, "home", "pr-32"), { recursive: true });
+    const checkout = join(dir, "home", contextDir("kind-scratch"), "pr-32");
+    await mkdir(checkout, { recursive: true });
     const result = await reap([{ name: "pr-32", upAt: hoursAgo(100) }], {
       PREVIEW_KUBE_CONTEXT: "kind-scratch",
       STUB_CONTEXTS: "kind-scratch",
@@ -489,7 +498,68 @@ exit 1
     expect(result.stdout).toContain("pr-32: local images and checkout kept");
     expect(await calls("docker-calls")).toEqual([]);
     expect(await calls("git-calls")).toEqual([]);
-    expect(await readdir(join(dir, "home", "pr-32"))).toEqual([]);
+    expect(await readdir(checkout)).toEqual([]);
+  });
+
+  test("another context neither waits on nor touches orbstack's lock", async () => {
+    await mkdir(join(dir, "home"));
+    await symlink(String(process.pid), join(dir, "home", "pr-33.lock"));
+    const result = await reap([{ name: "pr-33", upAt: hoursAgo(100) }], {
+      PREVIEW_KUBE_CONTEXT: "kind-scratch",
+      STUB_CONTEXTS: "kind-scratch",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await deleted()).toEqual(["pr-33"]);
+    expect(await readlink(join(dir, "home", "pr-33.lock"))).toBe(
+      String(process.pid),
+    );
+  });
+
+  test("another context writes its gh error file in its own directory", async () => {
+    await reap([{ name: "pr-34", upAt: hoursAgo(1) }], {
+      PREVIEW_KUBE_CONTEXT: "kind-scratch",
+      STUB_CONTEXTS: "kind-scratch",
+      STUB_STATES: "34=fail",
+    });
+    expect(await readdir(join(dir, "home"))).toEqual([
+      contextDir("kind-scratch"),
+    ]);
+    expect(
+      await readFile(
+        join(dir, "home", contextDir("kind-scratch"), "gh-error"),
+        "utf8",
+      ),
+    ).toContain("error connecting");
+  });
+
+  test("list on another context shows no value of this Mac's Docker or Traefik", async () => {
+    await writeFile(
+      join(dir, "namespaces.json"),
+      JSON.stringify({
+        items: [{ metadata: { name: "pr-35", labels: NEW_LABEL } }],
+      }),
+    );
+    const handle = Bun.spawn(["bash", script, "list"], {
+      env: {
+        ...process.env,
+        PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
+        PREVIEW_HOME: join(dir, "home"),
+        PREVIEW_KUBE_CONTEXT: "kind-scratch",
+        STUB_CONTEXTS: "kind-scratch",
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stdout] = await Promise.all([
+      handle.exited,
+      new Response(handle.stdout).text(),
+    ]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("pr-35");
+    expect(stdout).toContain("n/a");
+    expect(stdout).not.toContain("Mi used");
+    expect(stdout).not.toContain("on this Mac");
+    expect(await calls("docker-calls")).toEqual([]);
   });
 
   test("refuses a context name that is not plain", async () => {

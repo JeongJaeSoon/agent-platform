@@ -35,7 +35,9 @@
 #                      its allocatable memory
 #   PREVIEW_KUBE_CONTEXT  the only kubeconfig context used (default orbstack);
 #                      list, reap and down accept another, for a disposable
-#                      cluster in tests; up refuses it
+#                      cluster in tests; up refuses it. Another context keeps
+#                      its state in $PREVIEW_HOME/context-<digest>/, and its
+#                      down leaves this Mac's images and checkouts alone
 #   PREVIEW_TTL_HOURS  how long after its last `up` reap deletes a preview
 #                      (default 24)
 set -euo pipefail
@@ -102,23 +104,27 @@ pr_number() {
   printf '%s' "$1"
 }
 
-mkdir -p "$PREVIEW_HOME"
-chmod 700 "$PREVIEW_HOME"
-# Only this one context, whatever the shell's current context is. A missing
-# context stops here; kubectl never falls back to another cluster.
-# Each context has its own file, so runs on different clusters never swap the
-# cluster under one another; the write is atomic for runs on the same one.
-# The name is a lowercase hex digest: the context name itself could hold a
-# ':' (KUBECONFIG splits on it), differ only in case (macOS folds case), or
-# end in ".<pid>" and so collide with another run's temporary file.
 if ! [[ "$PREVIEW_KUBE_CONTEXT" =~ ^[A-Za-z0-9][A-Za-z0-9._@-]*$ ]]; then
   echo "PREVIEW_KUBE_CONTEXT must be a plain context name, not '${PREVIEW_KUBE_CONTEXT}'" >&2
   exit 1
 fi
-KUBECONFIG_FILE="${PREVIEW_HOME}/kubeconfig"
+# Another context keeps all its state (kubeconfig, locks, checkouts, the gh
+# error file) in a directory of its own, so a run on that cluster never swaps
+# the cluster under, locks out, or cleans up after a run on OrbStack's. The
+# directory is named by a lowercase hex digest: the context name itself could
+# differ only in case (macOS folds case) or hold characters a path should not.
+PREVIEW_HOME_ROOT="$PREVIEW_HOME"
 if [ "$PREVIEW_KUBE_CONTEXT" != orbstack ]; then
-  KUBECONFIG_FILE="${KUBECONFIG_FILE}-$(printf '%s' "$PREVIEW_KUBE_CONTEXT" | shasum -a 256 | cut -c1-16)"
+  mkdir -p "$PREVIEW_HOME"
+  chmod 700 "$PREVIEW_HOME"
+  PREVIEW_HOME="${PREVIEW_HOME}/context-$(printf '%s' "$PREVIEW_KUBE_CONTEXT" | shasum -a 256 | cut -c1-16)"
 fi
+mkdir -p "$PREVIEW_HOME"
+chmod 700 "$PREVIEW_HOME"
+# Only this one context, whatever the shell's current context is. A missing
+# context stops here; kubectl never falls back to another cluster. The write
+# is atomic for runs on the same cluster.
+KUBECONFIG_FILE="${PREVIEW_HOME}/kubeconfig"
 export KUBECONFIG="$KUBECONFIG_FILE"
 if ! env -u KUBECONFIG kubectl config view --raw --minify --context "$PREVIEW_KUBE_CONTEXT" >"${KUBECONFIG_FILE}.$$" 2>/dev/null; then
   rm -f -- "${KUBECONFIG_FILE:?}.$$"
@@ -371,17 +377,26 @@ memory_used_mi() {
 }
 
 list() {
-  local namespace head up_at memory
+  local namespace head up_at memory ready
   printf '%-10s %-44s %-12s %-20s %-14s %s\n' NAMESPACE URL HEAD UP_AT MEMORY READYZ
   kubectl get namespaces -o json | jq -r "${PREVIEW_JQ}"'.items[] | select(is_preview)
     | [.metadata.name, head, (up_at | if . == "" then "-" else . end)] | @tsv' \
     | while IFS=$'\t' read -r namespace head up_at; do
-      memory="$(memory_used_mi "$namespace")Mi used"
+      # Memory and /readyz come from this Mac's Docker engine and Traefik,
+      # which serve OrbStack's previews only.
+      if [ "$PREVIEW_KUBE_CONTEXT" = orbstack ]; then
+        memory="$(memory_used_mi "$namespace")Mi used"
+        ready="$(readyz "${namespace}.${PREVIEW_DOMAIN}")"
+      else
+        memory="n/a"
+        ready="n/a"
+      fi
       printf '%-10s %-44s %-12s %-20s %-14s %s\n' "$namespace" \
-        "https://${namespace}.${PREVIEW_DOMAIN}/" "${head:0:12}" "$up_at" "$memory" \
-        "$(readyz "${namespace}.${PREVIEW_DOMAIN}")"
+        "https://${namespace}.${PREVIEW_DOMAIN}/" "${head:0:12}" "$up_at" "$memory" "$ready"
     done
-  local_hint "pr-<N>.${PREVIEW_DOMAIN}"
+  if [ "$PREVIEW_KUBE_CONTEXT" = orbstack ]; then
+    local_hint "pr-<N>.${PREVIEW_DOMAIN}"
+  fi
 }
 
 # Only labeled pr-<N> namespaces. The TTL needs no GitHub; a PR state that
@@ -427,7 +442,8 @@ reap() {
     fi
     echo "${namespace}: deleting, ${reason}"
     code=0
-    PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
+    # The child works out its own context directory from the root.
+    PREVIEW_HOME="$PREVIEW_HOME_ROOT" PREVIEW_REAP_UP_AT="$up_at" "$here/preview.sh" down "$n" </dev/null || code=$?
     case "$code" in
       0) deleted+=("$namespace") ;;
       75) echo "${namespace}: kept, see above" ;;
