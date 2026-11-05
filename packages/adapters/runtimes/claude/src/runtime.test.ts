@@ -389,7 +389,7 @@ describe("Claude SDK adapter options", () => {
         callback(
           {
             hook_event_name: event,
-            tool_name: "Bash",
+            tool_name: "Read",
             tool_input: {},
             tool_use_id: toolUseId,
           } as never,
@@ -568,6 +568,41 @@ describe("Claude SDK adapter options", () => {
     ).toMatchObject({
       hookSpecificOutput: { permissionDecision: "deny" },
     });
+  });
+
+  // A session rule lets the engine pass a call without asking canUseTool, so
+  // the hook is the only place the allowlist can still bind in these modes.
+  test("default, acceptEdits and plan keep the allowlist in the hook", async () => {
+    for (const permissionMode of ["default", "acceptEdits", "plan"] as const) {
+      const ledger = new TurnLedger("s1");
+      const options = buildSdkOptions(
+        { ...config, permissionMode },
+        { onPermission: async () => ({ behavior: "allow" }) },
+        ledger,
+      );
+      const pre = options.hooks?.PreToolUse?.[0]?.hooks[0];
+      if (pre === undefined) throw new Error("PreToolUse hook is required");
+      const call = (tool: string, toolUseId: string) =>
+        pre(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: tool,
+            tool_input: {},
+            tool_use_id: toolUseId,
+          } as never,
+          toolUseId,
+          { signal: new AbortController().signal },
+        );
+      expect(await call("Bash", "toolu_1")).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: "Tool is outside the server allowlist",
+        },
+      });
+      expect(ledger.prepareCheckpoint().status).toBe("ready");
+      expect(await call("Read", "toolu_2")).toEqual({});
+    }
   });
 
   test("other modes leave the skip off", () => {

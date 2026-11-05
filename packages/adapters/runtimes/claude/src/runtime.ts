@@ -186,10 +186,11 @@ export function buildSdkOptions(
                   permissionDecisionReason: reason,
                 },
               });
-              // The allowlist canUseTool enforces has to hold here too; a
-              // hook deny binds in every mode.
+              // The allowlist canUseTool enforces has to hold here too, in
+              // every mode: a session rule lets the engine pass a call
+              // without asking canUseTool at all, and a hook deny binds
+              // whatever the mode or the rules say.
               if (
-                unattended &&
                 "tool_name" in input &&
                 !permittedTools.has(input.tool_name)
               ) {
