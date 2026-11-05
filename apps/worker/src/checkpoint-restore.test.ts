@@ -25,6 +25,7 @@ import {
   stageCheckpointBundle,
   stagedInstructions,
 } from "./checkpoint-restore.ts";
+import { placeInstructionFiles } from "./instruction-files.ts";
 import { GitResourceLimitError, GitWorkspace } from "./workspace.ts";
 import {
   type BundleBase,
@@ -287,7 +288,7 @@ describe("restoring a captured checkout", () => {
     const capture = await captured(root, { commit: pinned });
     const later = (await git(root, "rev-parse", "HEAD:later.txt")).trim();
     const target = await staleRoot();
-    const keep = join(target, ".agent-platform-restore-test");
+    const keep = join(target, ".werft-restore-test");
     await mkdir(keep);
     const signal = new AbortController().signal;
 
@@ -307,7 +308,7 @@ describe("restoring a captured checkout", () => {
     const repository = join(
       target,
       ".git",
-      "agent-platform-checkpoint",
+      "werft-checkpoint",
       "checkpoint.git",
     );
     expect(staged.repository).toBe(repository);
@@ -994,4 +995,53 @@ describe("a session without a repository, from init through a lost volume", () =
       " A new.txt\n",
     );
   });
+});
+
+describe("a workspace made before the markers were renamed", () => {
+  const OLD_MARKER = "# agent-platform: instruction files";
+
+  /** What the previous worker left: its exclude marker, instruction files and scratch. */
+  async function legacyWorkspace(): Promise<void> {
+    await commitFiles({ "a.txt": "a\n" });
+    await mkdir(join(root, ".git", "info"), { recursive: true });
+    await writeFile(
+      join(root, ".git", "info", "exclude"),
+      `${OLD_MARKER}\n/AGENTS.md\n/CLAUDE.md\n`,
+    );
+    await writeFile(join(root, "AGENTS.md"), "stale platform rules\n");
+    await symlink("AGENTS.md", join(root, "CLAUDE.md"));
+    await mkdir(join(root, ".git", "agent-platform-checkpoint"));
+    await mkdir(join(root, ".git", "agent-platform-fetch-Ab3xYz"));
+    await writeFile(join(root, "a.txt"), "edited\n");
+    await writeFile(join(root, "notes.txt"), "only here\n");
+  }
+
+  test("keeps its instruction files out of a capture, and the work through a restore and the next capture", async () => {
+    await legacyWorkspace();
+    const signal = new AbortController().signal;
+
+    // The old marker is not ours any more, so the files are left alone...
+    expect(await placeInstructionFiles({ root, text: "new\n", signal })).toBe(
+      "kept",
+    );
+    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(
+      "stale platform rules\n",
+    );
+    // ...and the exclude lines they came with still keep them out.
+    const first = await captured();
+    expect(first.untracked.map(({ path }) => path)).toEqual(["notes.txt"]);
+
+    const target = await restore(first);
+    // Untracked files travel beside the bundle; the worker writes them back.
+    expect((await readdir(target)).sort()).toEqual([".git", "a.txt"]);
+    expect(await readFile(join(target, "a.txt"), "utf8")).toBe("edited\n");
+    for (const file of first.untracked) {
+      await writeFile(join(target, file.path), file.bytes);
+    }
+    expect(await readFile(join(target, "notes.txt"), "utf8")).toBe(
+      "only here\n",
+    );
+    const again = await captured(target);
+    expect(again.untracked.map(({ path }) => path)).toEqual(["notes.txt"]);
+  }, 30_000);
 });

@@ -15,7 +15,10 @@ import { runGit } from "./workspace.ts";
 
 const CANONICAL = "AGENTS.md";
 const LINK = "CLAUDE.md";
-const EXCLUDE_MARKER = "# agent-platform: instruction files";
+// An exclude file carrying the pre-rename marker is not recognised: its
+// AGENTS.md is "kept" as foreign, and the exclude lines it came with still
+// keep both names out of captures.
+const EXCLUDE_MARKER = "# werft: instruction files";
 
 export type InstructionPlacement =
   | "placed"
@@ -119,7 +122,7 @@ function ensureNewline(text: string): string {
 function scratchPath(gitDir: string): string {
   return join(
     gitDir,
-    `agent-platform-place-${randomBytes(4).toString("hex").slice(0, 6)}`,
+    `werft-place-${randomBytes(4).toString("hex").slice(0, 6)}`,
   );
 }
 

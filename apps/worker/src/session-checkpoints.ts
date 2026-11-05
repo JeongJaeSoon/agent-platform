@@ -489,7 +489,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
     signal.throwIfAborted();
     await clearWorkspace(workspaceRoot, signal);
     signal.throwIfAborted();
-    let spool = await mkdtemp(join(workspaceRoot, ".agent-platform-restore-"));
+    let spool = await mkdtemp(join(workspaceRoot, ".werft-restore-"));
     const spooled = new Map<string, string>();
     const bases = manifest.workspace.baseBundles ?? [];
     const artifacts = [
