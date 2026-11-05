@@ -44,7 +44,7 @@ jq -c .workerRuntime "$TAG/release-manifest.json"                          # wor
 jq -r '"\(.chart.ref) \(.chart.version)"' "$TAG/release-manifest.json"     # chart location and version
 ```
 
-Each digest is that of the index holding both architectures, and a deployment pins it. An attached manifest never changes. For the fields and how to check them, see [Read the release manifest](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#릴리스-manifest-읽기).
+Each digest is that of the index holding both architectures, and a deployment pins it. An attached manifest never changes. For the fields and how to check them, see [Read the release manifest](/run-server/self-hosting/operate/images-and-supply-chain#reading-the-release-manifest).
 
 ## Connect to the server
 
@@ -52,7 +52,7 @@ The SDK and the HTTP API connect with a server address and an API key. The TypeS
 
 ## Operating after the install
 
-These seven documents are on this site.
+These ten documents are on this site.
 
 - [Configuration reference](/run-server/self-hosting/operate/configuration)
 - [Capacity: transcript limit, worker memory, sessions per node](/run-server/self-hosting/operate/capacity)
@@ -61,13 +61,13 @@ These seven documents are on this site.
 - [Kubernetes execution backend](/run-server/self-hosting/operate/kubernetes-backend)
 - [Platform metrics (Kubernetes)](/run-server/self-hosting/operate/metrics)
 - [Where session data flows](/run-server/self-hosting/operate/session-data-flow)
+- [Images and supply chain](/run-server/self-hosting/operate/images-and-supply-chain)
+- [Datadog monitoring baseline](/run-server/self-hosting/operate/monitoring-datadog)
 - [SDK sample settings](/run-server/self-hosting/operate/sdk-sample)
 
 The other operations documents are in the repository's `docs/operator/` and are written in Korean only.
 
 - [API server: catalog, credentials, checkpoint store, authentication and permissions](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/api-server.md)
-- [Images and supply chain](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md)
 - [Execution backends and worker isolation](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/execution.md)
 - [Data the platform retains](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/data-retention.md)
 - [Backup and restore](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/backup-restore.md)
-- [Datadog monitoring baseline](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/monitoring-datadog.md)

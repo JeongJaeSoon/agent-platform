@@ -238,6 +238,8 @@ describe("POST /v1/linked-accounts/slack/start", () => {
     expect(url.searchParams.get("redirect_uri")).toBe(REDIRECT_URI);
     const cookie = response.headers.get("Set-Cookie") ?? "";
     expect(cookie).toContain(`${SLACK_LINK_COOKIE_NAME}=`);
+    expect(SLACK_LINK_COOKIE_NAME).toBe("werft_slack_link");
+    expect(SLACK_LINK_COOKIE_NAME).not.toBe("ap_slack_link");
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("Path=/v1/linked-accounts/slack");
   });
@@ -768,6 +770,7 @@ function githubCookie(response: Response): string {
   const header = response.headers.get("Set-Cookie") ?? "";
   const match = new RegExp(`${GITHUB_LINK_COOKIE_NAME}=([^;]+)`).exec(header);
   if (!match?.[1]) throw new Error("no state cookie");
+  expect(header).toStartWith("werft_github_link=");
   return match[1];
 }
 

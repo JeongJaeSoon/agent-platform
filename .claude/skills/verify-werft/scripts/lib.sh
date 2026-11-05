@@ -1,5 +1,5 @@
 # Source this in every Bash call that drives the stack:
-#   . .claude/skills/verify-agent-platform/scripts/lib.sh <run id | run dir>
+#   . .claude/skills/verify-werft/scripts/lib.sh <run id | run dir>
 # It loads the run's state (project, ports, bootstrap token) and defines the
 # drive helpers. Each Bash call is a fresh shell, so source it every time.
 
@@ -45,7 +45,7 @@ ap_curl() {
   shift
   case $auth in
     key) curl -sS -H @<(printf 'Authorization: Bearer %s\n' "$KEY") "$@" ;;
-    cookie) curl -sS -H 'x-requested-with: agent-platform-web' -H @<(_ap_cookie_header) "$@" ;;
+    cookie) curl -sS -H 'x-requested-with: werft-web' -H @<(_ap_cookie_header) "$@" ;;
     *) echo "ap_curl: first argument is key or cookie" >&2; return 2 ;;
   esac
 }
@@ -71,7 +71,7 @@ ap_web() {
     ap_curl cookie -X "$method" "$API$route" "${extra[@]}"
   fi
   local curl_rc=$?
-  sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-ap_session=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" |
+  sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-werft_session=[^;]*\).*/\1/p' "$VERIFY_RUN/headers" |
     tr -d '\r' | while read -r c; do printf '%s' "$c" >"$VERIFY_RUN/cookie"; done
   return "$curl_rc"
 }

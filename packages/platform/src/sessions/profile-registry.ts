@@ -124,16 +124,20 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
   }
   const profiles: Record<string, P> = {};
   const installation = new Map<string, InstallationProfileEntry>();
+  const byId = new Map(rows.map((row) => [row.id, row]));
   for (const stored of rows) {
     const row = { ...stored, repository_ids: stored.repository_ids ?? [] };
     const { id } = row;
     const parsed = parsedDefinition(row);
     const definition = storedDefinition(id, row, parsed);
-    const entry = (state: InstallationProfileState) => {
+    const entry = (state: InstallationProfileState, blockedSource?: string) => {
       installation.set(id, {
         id,
         origin: row.origin,
         state,
+        ...(blockedSource === undefined
+          ? {}
+          : { blocked_source: blockedSource }),
         repository_ids: [...row.repository_ids],
         github_app_repositories: row.github_app_repositories,
         repository_scope: row.repository_scope,
@@ -149,6 +153,13 @@ export function installationProfileSnapshot<P extends CatalogProfileView>(
     // everywhere, so a claim may fail what it stops.
     if (row.blocked_at !== null) {
       entry("blocked");
+      continue;
+    }
+    // A version stops with the one it derives from, and is left out of
+    // `profiles` like any blocked row, so no path can still resolve it.
+    const blockedSource = blockedSourceOf(row, byId);
+    if (blockedSource !== undefined) {
+      entry("blocked", blockedSource);
       continue;
     }
     if (definition === null) {
@@ -189,7 +200,36 @@ function parsedDefinition(
   row: InstallationProfileRecord,
 ): CatalogProfileConfig | null {
   const parsed = catalogProfileConfigSchema.safeParse(row.definition);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  // A row with no repository scope names no repository: `optional` neither
+  // asks for one nor refuses one, and keeps `sessionCatalogView` from
+  // reading the missing key as `required`. Only in memory; the stored
+  // definition and its fingerprint are untouched.
+  return row.repository_scope === null
+    ? { ...parsed.data, repository: parsed.data.repository ?? "optional" }
+    : parsed.data;
+}
+
+/**
+ * The version up the `derived_from` chain that is blocked, or the one the
+ * chain breaks at (a missing version or a loop), which stops it as well.
+ * Retiring a version does not stop what derives from it.
+ */
+function blockedSourceOf(
+  row: InstallationProfileRecord,
+  byId: ReadonlyMap<string, InstallationProfileRecord>,
+): string | undefined {
+  const seen = new Set([row.id]);
+  let next = row.derived_from ?? null;
+  while (next !== null) {
+    const source = byId.get(next);
+    if (source === undefined || seen.has(next) || source.blocked_at !== null) {
+      return next;
+    }
+    seen.add(next);
+    next = source.derived_from ?? null;
+  }
+  return undefined;
 }
 
 // A row runs only while it parses as written and hashes as it did then.

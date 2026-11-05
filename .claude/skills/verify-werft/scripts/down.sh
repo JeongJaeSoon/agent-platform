@@ -32,7 +32,7 @@ cd "$VERIFY_REPO" || exit 1
 
 failed=0
 if [ -f "$run/browser/pid" ]; then
-  node "$VERIFY_REPO/.claude/skills/verify-agent-platform/scripts/browser.mjs" "$run" stop >&2 || failed=1
+  node "$VERIFY_REPO/.claude/skills/verify-werft/scripts/browser.mjs" "$run" stop >&2 || failed=1
 fi
 # shellcheck disable=SC2086 # no argument when volumes go
 "$VERIFY_REPO/scripts/local.sh" down $keep 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1

@@ -228,14 +228,14 @@ helm -n werft history werft
 helm -n werft rollback werft <revision> --wait --timeout 10m
 ```
 
-ロールバックはmigrate hookを実行しません(`pre-rollback`ではありません)。DBは新しいschemaのまま残り、古いビルドは自分より先のschemaでもreadyになります(`/readyz`のschema検査は、自分のmigration一覧が適用済み一覧の先頭部分と同じかどうかだけを見ます)。そのため、ロールバックできないmigrationはデプロイしません。workerイメージを戻すときのcheckpoint互換は、先に[images-and-supply-chain.md § worker・control-hostのロールバックとincremental checkpoint](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#workercontrol-host-롤백과-incremental-checkpoint)を読みます。
+ロールバックはmigrate hookを実行しません(`pre-rollback`ではありません)。DBは新しいschemaのまま残り、古いビルドは自分より先のschemaでもreadyになります(`/readyz`のschema検査は、自分のmigration一覧が適用済み一覧の先頭部分と同じかどうかだけを見ます)。そのため、ロールバックできないmigrationはデプロイしません。workerイメージを戻すときのcheckpoint互換は、先に[イメージとサプライチェーン § worker・control-hostのロールバックとincremental checkpoint](/run-server/self-hosting/operate/images-and-supply-chain#workercontrol-hostのロールバックとincremental-checkpoint)を読みます。
 
 ### デプロイ順序
 
 worker Podのイメージは、schedulerがlaunchするときに決まります。イメージは隔離stampに入らないので、upgradeが`images.worker`を変えても、すでに動いているworker Podは入れ替わらず、終わるまで古いイメージで動きます。入力のないworkerも`WORKER_IDLE_TIMEOUT_SEC`(既定1800秒)の間は残ります。新しいイメージはその後のlaunchから使われます。
 
-- workerが送るprotocolフィールドを加えるリリースや、checkpoint manifestにフィールドを加えるリリースは、`images.controlHost`だけを変えたupgradeを先に行い、`images.worker`は次のupgradeで変えます。1回のupgradeでは、新しいworkerが古いapiより先に立ち上がらない保証がありません。フィールドごとの順序は[images-and-supply-chain.md § worker protocolフィールドを取り除く順序](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#worker-protocol-필드를-걷어내는-순서)にあります。
-- DBの変更は[images-and-supply-chain.md § DBスキーマを変える順序](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/images-and-supply-chain.md#db-스키마를-바꾸는-순서)の拡張→切り替え→整理に従います。migrate hookがrolloutより先に走るので、古いapiと古いworkerが新しいschemaの上で動きます。
+- workerが送るprotocolフィールドを加えるリリースや、checkpoint manifestにフィールドを加えるリリースは、`images.controlHost`だけを変えたupgradeを先に行い、`images.worker`は次のupgradeで変えます。1回のupgradeでは、新しいworkerが古いapiより先に立ち上がらない保証がありません。フィールドごとの順序は[イメージとサプライチェーン § worker protocolフィールドを取り除く順序](/run-server/self-hosting/operate/images-and-supply-chain#worker-protocolのフィールドを取り除く順序)にあります。
+- DBの変更は[イメージとサプライチェーン § DBスキーマを変える順序](/run-server/self-hosting/operate/images-and-supply-chain#dbスキーマを変える順序)の拡張→切り替え→整理に従います。migrate hookがrolloutより先に走るので、古いapiと古いworkerが新しいschemaの上で動きます。
 - 新しいcontrol-hostと直前リリースのworkerイメージの組み合わせは、CIがまだ検査していません。リリースの前に、kindや試用インストールで自分で確認します。`images.controlHost`だけを新しいdigestに、`images.worker`は直前リリースのdigestにしたvaluesでupgradeし、セッション1つがturn 1を終えるかを見ます。そのセッションのworker Podを`kubectl delete pod`で消した後、入力をもう1つ送り、新しいPodがcheckpointから続けてturn 2を終えるかを見ます。apiログにworkerリクエストの400 `BAD_REQUEST`がないことが必要です。`deploy/kind/up.sh`は`images.worker`を`--set`で上書きするので、`EXTRA_VALUES`ではworkerイメージを変えられません。直接`helm upgrade`します。
 
 ### 公開chartのアップグレード

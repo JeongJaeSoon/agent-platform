@@ -248,7 +248,7 @@ integration("invites and roles over HTTP on PostgreSQL", () => {
     const accepted = await accept(second.invite_token, PASSWORD, "Member");
     expect(accepted.status).toBe(200);
     memberCookie = cookieOf(accepted);
-    expect(memberCookie).toStartWith("__Host-ap_session=");
+    expect(memberCookie).toStartWith("__Host-werft_session=");
     const body = acceptInviteResponseSchema.parse(await accepted.json());
     expect(body).toMatchObject({
       role: "member",

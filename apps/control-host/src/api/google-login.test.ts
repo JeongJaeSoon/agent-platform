@@ -345,6 +345,7 @@ describe("Google sign-in routes", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     const cookie = response.headers.get("Set-Cookie") ?? "";
     expect(cookie).toStartWith(`${GOOGLE_LOGIN_COOKIE_NAME}=`);
+    expect(cookie).toStartWith("__Host-werft_google_login=");
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("Secure");
     expect(cookie).toContain("SameSite=Lax");
