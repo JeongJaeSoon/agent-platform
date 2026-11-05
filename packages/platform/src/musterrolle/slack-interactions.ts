@@ -455,6 +455,24 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       );
       return "failed";
     }
+    // An `actions` request is finished by the platform (the push, the pull
+    // request when one was asked for, and the notice), and the stored flow
+    // decides, not today's install setting. Its follow-up turn would tell the
+    // model to open a pull request even for a push that asked for none. When
+    // the flow cannot be read the request is treated as `legacy`, as before.
+    const flow = await deps.followUps
+      .flowOf({ sessionId: value.s, pushRequestId: request.id })
+      .catch((error: unknown) => {
+        deps.logger.warn("Slack push flow not read", {
+          agent_id: pressed.agentId,
+          code: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+    if (flow === "actions") {
+      await card();
+      return decision === "approve" ? "approved" : "rejected";
+    }
     // The decision stands; the session only learns of it from this turn.
     // The key makes a retry a no-op once one attempt has landed.
     const followUp = {

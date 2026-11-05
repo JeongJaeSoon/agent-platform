@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresPullRequests } from "./pull-requests.ts";
+import { createPostgresPushFollowUpStore } from "./push-follow-ups.ts";
 import { createPostgresPushRequests } from "./push-requests.ts";
 import * as schema from "./schema.ts";
 import {
@@ -421,6 +422,24 @@ integration("scheduling a pull request on PostgreSQL", () => {
       await pushes.snapshot("someone-else", sessionId, {
         pushRequestId: made.id,
       }),
+    ).toBeNull();
+  });
+
+  test("the follow-up store reads the flow the request was made under, from its row", async () => {
+    const sessionId = await newSession();
+    const legacy = await request(sessionId, "legacy");
+    const follow = createPostgresPushFollowUpStore(db);
+    expect(
+      await follow.flowOf({ sessionId, pushRequestId: legacy.id }),
+    ).toBe("legacy");
+    const other = await newSession();
+    const actions = await request(other, "actions");
+    expect(
+      await follow.flowOf({ sessionId: other, pushRequestId: actions.id }),
+    ).toBe("actions");
+    // The request belongs to the session it names, and a missing one is null.
+    expect(
+      await follow.flowOf({ sessionId: other, pushRequestId: legacy.id }),
     ).toBeNull();
   });
 

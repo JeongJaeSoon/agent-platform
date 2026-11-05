@@ -59,6 +59,8 @@ let deferred: Promise<void>[];
 let results: string[];
 let userDelayMs: number;
 let hold: "now" | "held" | "pull_request" | Error;
+// The flow the stored push request was made under; an Error: it cannot be read.
+let flow: "legacy" | "actions" | Error | null;
 let viewUpdateError: Error | null;
 // null: derived from the request id; undefined: no card row found.
 let posted: SlackPromptCard["display"] | null | undefined;
@@ -77,6 +79,7 @@ beforeEach(() => {
   results = [];
   userDelayMs = 0;
   hold = "now";
+  flow = "legacy";
   posted = null;
 });
 
@@ -289,6 +292,10 @@ function deps(): SlackInteractionDeps {
         calls.push({ method: "hold", args: [input] });
         if (hold instanceof Error) throw hold;
         return hold;
+      },
+      async flowOf() {
+        if (flow instanceof Error) throw flow;
+        return flow;
       },
     },
     slack: {
@@ -1015,6 +1022,41 @@ describe("Slack interactions", () => {
       });
       expect(called("append")).toEqual([]);
       expect(settledText()).toContain(`<@${LINKED}>`);
+    }
+  });
+
+  test("an actions request queues and holds no turn, on approval or rejection, and still settles the card", async () => {
+    flow = "actions";
+    for (const action of [
+      SLACK_INTERACTION_ACTIONS.pushApprove,
+      SLACK_INTERACTION_ACTIONS.pushReject,
+    ]) {
+      calls = [];
+      const result = await send(press(action, { s: SESSION, r: "push-1" }));
+      expect(result).toMatchObject({
+        result:
+          action === SLACK_INTERACTION_ACTIONS.pushApprove
+            ? "approved"
+            : "rejected",
+      });
+      expect(called("decide")).toHaveLength(1);
+      expect(called("hold")).toEqual([]);
+      expect(called("append")).toEqual([]);
+      expect(settledText()).toContain(`<@${LINKED}>`);
+    }
+  });
+
+  test("a flow that cannot be read is treated as legacy, as before", async () => {
+    for (const unreadable of [new Error("db down"), null] as const) {
+      calls = [];
+      flow = unreadable;
+      await send(
+        press(SLACK_INTERACTION_ACTIONS.pushApprove, {
+          s: SESSION,
+          r: "push-1",
+        }),
+      );
+      expect(called("append")).toHaveLength(1);
     }
   });
 
