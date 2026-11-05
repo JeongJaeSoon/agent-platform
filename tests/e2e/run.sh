@@ -244,7 +244,7 @@ if [ -z "$real_model$local_model" ]; then
   export E2E_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
   export E2E_FAKE_MCP_URL="http://127.0.0.1:$(dc port fake-mcp 4021 | sed 's/.*://')"
   E2E_FAKE_MCP_BEARER_HASH="$(dc exec -T secrets awslocal secretsmanager get-secret-value \
-    --secret-id agent-platform/local/fake-mcp --query SecretString --output text |
+    --secret-id werft/local/fake-mcp --query SecretString --output text |
     tr -d '\r\n' | shasum -a 256 | cut -d' ' -f1)"
   export E2E_FAKE_MCP_BEARER_HASH
 fi
