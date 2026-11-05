@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   type AgentAdminsView,
   agentAdminChangeResponseSchema,
-  apiErrorResponseSchema,
   REQUEST_BODY_MAX_BYTES,
   type TeamView,
   teamChangeResponseSchema,
@@ -13,6 +12,7 @@ import {
   SessionServiceError,
   type TeamService,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerTeamRoutes } from "./teams.ts";
 
@@ -78,10 +78,6 @@ function call(
     headers: owner,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-}
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
 }
 
 const PAD = "x".repeat(REQUEST_BODY_MAX_BYTES);

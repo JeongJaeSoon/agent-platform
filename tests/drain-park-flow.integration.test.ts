@@ -60,6 +60,7 @@ import {
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
+import { until } from "./until.ts";
 
 /**
  * A drain park end to end in one process: the public API opens a session,
@@ -134,20 +135,6 @@ function capturing(
       };
     },
   };
-}
-
-async function until<T>(
-  read: () => Promise<T | undefined>,
-  label: string,
-  timeoutMs = 10_000,
-): Promise<T> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    const value = await read();
-    if (value !== undefined) return value;
-    await Bun.sleep(20);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }
 
 integration("a drain parks a turn waiting on a person, end to end", () => {

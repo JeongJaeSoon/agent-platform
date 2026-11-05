@@ -4,7 +4,7 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import { SessionServiceError } from "../sessions/session-service.ts";
+import { refusal } from "../testing/refusal.ts";
 import {
   createFakeSlackConfigApi,
   createMemoryConfigTokenStore,
@@ -79,18 +79,6 @@ function serviceWith(
     appKind: async () => options.appKind ?? null,
   });
   return { service, secrets, slack, tokenStore };
-}
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal");
 }
 
 describe("Slack secret service", () => {

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  apiErrorResponseSchema,
   CREDENTIAL_REVOKE_NOTICE,
   type CredentialBindingView,
   createCredentialBindingResponseSchema,
@@ -12,6 +11,7 @@ import {
   type CredentialBindingService,
   SessionServiceError,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerCredentialBindingRoutes } from "./credential-bindings.ts";
 
@@ -56,10 +56,6 @@ function app(service: Partial<CredentialBindingService>) {
         service as CredentialBindingService,
       ),
   });
-}
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
 }
 
 describe("GET /v1/agents/{id}/credential-bindings", () => {

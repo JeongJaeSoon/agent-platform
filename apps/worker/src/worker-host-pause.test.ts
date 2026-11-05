@@ -14,6 +14,7 @@ import type { WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { waitFor } from "./testing/wait-for.ts";
 import {
   inputUuid,
   type RuntimeRegistry,
@@ -105,14 +106,6 @@ function harness(
     workspace: noWorkspace,
   });
   return { gateway, host, log, runtime };
-}
-
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 2_000; waited += 5) {
-    if (condition()) return;
-    await Bun.sleep(5);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }
 
 describe("WorkerHost pause", () => {

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AdminSession,
-  apiErrorResponseSchema,
   auditReadResponseSchema,
   listAdminSessionsResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -15,6 +14,7 @@ import {
   SessionServiceError,
   type SessionShareService,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSessionShareRoutes } from "./session-shares.ts";
 
@@ -110,10 +110,6 @@ function call(
     headers: { ...owner, ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-}
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
 }
 
 describe("GET /v1/sessions/{id}/share", () => {

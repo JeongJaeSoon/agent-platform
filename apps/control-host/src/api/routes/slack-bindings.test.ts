@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  apiErrorResponseSchema,
   DEFAULT_SURFACE_CEILING,
   listSlackBindingsResponseSchema,
   putSlackBindingResponseSchema,
@@ -11,6 +10,7 @@ import {
   SessionServiceError,
   type SurfaceBindingService,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSlackBindingRoutes } from "./slack-bindings.ts";
 
@@ -63,10 +63,6 @@ function app(service: Partial<SurfaceBindingService>) {
         service: service as SurfaceBindingService,
       }),
   });
-}
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
 }
 
 function put(api: ReturnType<typeof app>, body: unknown, agent = AGENT) {

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
-  apiErrorResponseSchema,
   githubLinkCallbackResponseSchema,
   LINK_MESSAGES,
   listLinkedAccountsResponseSchema,
@@ -24,6 +23,7 @@ import {
   type MockSlackOidc,
   startMockSlackOidc,
 } from "@werft-ai/testkit/mock-slack-oidc";
+import { errorOf } from "../../test-support/api-error.ts";
 import { GITHUB_LINK_COOKIE_NAME } from "../github-link.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { SLACK_LINK_COOKIE_NAME, type SlackOidcConfig } from "../slack-link.ts";
@@ -189,10 +189,6 @@ function app(
 }
 
 const owner = { "X-Owner-Id": "owner-a" };
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
-}
 
 function stateCookie(response: Response): string {
   const header = response.headers.get("Set-Cookie") ?? "";

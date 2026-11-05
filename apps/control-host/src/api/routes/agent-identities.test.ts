@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentIdentity,
-  apiErrorResponseSchema,
   linkAgentIdentityResponseSchema,
   listAgentIdentitiesResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -11,6 +10,7 @@ import {
   type AgentIdentityService,
   SessionServiceError,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerAgentIdentityRoutes } from "./agent-identities.ts";
 
@@ -57,10 +57,6 @@ function app(service: Partial<AgentIdentityService>) {
         service: service as AgentIdentityService,
       }),
   });
-}
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
 }
 
 function link(api: ReturnType<typeof app>, body: unknown, agent = AGENT) {
