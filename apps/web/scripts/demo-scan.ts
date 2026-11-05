@@ -44,9 +44,10 @@ const RULES: readonly (readonly [string, RegExp])[] = [
 
 const EMAIL = /(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const ALLOWED_EMAIL = /@example\.test$/i;
-// `<id>@1.2` or `<id>@1.2.3` is a version pin (profile version ids), not a
-// mailbox. Four dotted parts stay a finding: that is an IPv4 literal.
-const VERSION_PIN = /@\d+(?:\.\d+){1,2}$/;
+// A tool catalog id is `<name>@<x.y.z>` joined by `+`, not a mailbox. Only a
+// string that is nothing else qualifies: a pin inside a URL or after other
+// text could name a host, and a truncated match could hide a longer domain.
+const VERSION_PINS = /^[\w-]+@\d+\.\d+\.\d+(?:\+[\w-]+@\d+\.\d+\.\d+)*$/;
 
 /**
  * Addresses of the recording stack that a visitor's copy should not carry:
@@ -82,9 +83,11 @@ export function scanFixtures(fixtures: {
       const text = stages.join("\n");
       for (const [rule, pattern] of RULES)
         for (const [match] of text.matchAll(pattern)) found(rule, match);
-      for (const [match] of text.matchAll(EMAIL))
-        if (!ALLOWED_EMAIL.test(match) && !VERSION_PIN.test(match))
-          found("email outside example.test", match);
+      const pinsOnly = stages.every((stage) => VERSION_PINS.test(stage));
+      if (!pinsOnly)
+        for (const [match] of text.matchAll(EMAIL))
+          if (!ALLOWED_EMAIL.test(match))
+            found("email outside example.test", match);
       for (const [match] of text.matchAll(IPV6_CANDIDATE))
         if (isPrivateIpv6(match)) found("private address", match);
     }

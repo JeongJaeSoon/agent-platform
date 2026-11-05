@@ -41,17 +41,29 @@ describe("demo fixture scan", () => {
     ]);
   });
 
-  test("version pins are not addresses, real domains and IP literals are", () => {
-    expect(scan({ id: "readonly-review@2", also: "profile_x@1.2.3" })).toEqual(
-      [],
-    );
+  test("a catalog id made only of name@x.y.z pins is not an address", () => {
     expect(
-      scan({ a: "someone@gmail.com", b: "x@corp.example.com", c: "x@8.8.8.8" }),
-    ).toEqual([
-      "email outside example.test",
-      "email outside example.test",
-      "email outside example.test",
-    ]);
+      scan({
+        id: "tool_set_a@0.3.270+tool-set@2.1.270",
+        one: "profile_x@1.2.3",
+      }),
+    ).toEqual([]);
+  });
+
+  test("a pin-shaped address with anything else around it is still caught", () => {
+    for (const value of [
+      "someone@gmail.com",
+      "x@8.8.8.8",
+      "user@1.2",
+      "build-agent@10.42",
+      "http://user@127.1/",
+      "http://user@192.168.1/",
+      "user@1.2。corp.example.com",
+      "user@1.2é.corp.example.com",
+      "user%401.2.3 and more",
+      "profile_x@1.2.3 user@gmail.com",
+    ])
+      expect(scan({ value }), value).toContain("email outside example.test");
   });
 
   test("the fixture key itself is scanned", () => {
