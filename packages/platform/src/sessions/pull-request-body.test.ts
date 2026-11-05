@@ -111,7 +111,26 @@ describe("the default template", () => {
     expect(body).toContain(`C${ZWSP}loses #3 for @${ZWSP}octocat`);
     expect(body).toContain("[REDACTED]");
     expect(body).toContain(`<!${ZWSP}-- hide -->`);
-    expect(body).toContain(`- multi line @${ZWSP}team`);
+    expect(body).toContain(`- multi\n  line @${ZWSP}team`);
+  });
+
+  test("an open code fence in one field does not swallow the next section or the references", () => {
+    const { body } = render({
+      summary: "```text\nexample",
+      related: [{ number: 12, closes: true }],
+    });
+    const closes = body.indexOf("- Closes #12");
+    const fences = [...body.slice(0, closes).matchAll(/^```/gm)].length;
+    expect(fences % 2).toBe(0);
+    expect(body.endsWith(PULL_REQUEST_TAIL_END_MARKER)).toBe(true);
+  });
+
+  test("a signature line with anything added is kept", () => {
+    const { body } = render({
+      summary:
+        "Keep\nGenerated with [Claude Code](https://claude.com/claude-code)  \nNext",
+    });
+    expect(body).toContain("Generated with [Claude Code]");
   });
 
   test("a platform tail marker typed into a field does not become a tail", () => {

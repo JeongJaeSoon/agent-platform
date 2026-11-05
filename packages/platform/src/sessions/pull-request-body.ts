@@ -1,7 +1,11 @@
 import type { RelatedIssue, UserLocale } from "@werft-ai/contracts";
 import { repoRefOf } from "../ports/forge.ts";
-import { withPullRequestTail } from "./git-attribution.ts";
-import { cleanBody, cut, stripEngineSignatures } from "./pull-request-text.ts";
+import { closeOpenBlocks, withPullRequestTail } from "./git-attribution.ts";
+import {
+  cleanBodies,
+  cut,
+  stripEngineSignatures,
+} from "./pull-request-text.ts";
 
 /** The fields the agent gives, before the platform lays them out. */
 export type PullRequestFields = {
@@ -113,7 +117,8 @@ function assemble(fields: Cleaned, locale: UserLocale): string {
   text("summary", fields.summary);
   if (fields.changes.length > 0) {
     sections.push(
-      `## ${headings.changes}\n${fields.changes.map((change) => `- ${change}`).join("\n")}`,
+      // Later lines of an item stay inside its bullet.
+      `## ${headings.changes}\n${fields.changes.map((change) => `- ${change.replaceAll("\n", "\n  ")}`).join("\n")}`,
     );
   }
   text("rationale", fields.rationale);
@@ -127,16 +132,21 @@ function assemble(fields: Cleaned, locale: UserLocale): string {
   return sections.join("\n\n");
 }
 
-function clean(
-  value: string | undefined,
+// Slack for the closing text a cut may add, so each cut makes progress.
+const CLOSING_ROOM = 16;
+
+/** Each text cleaned in order (a private key block carries over), each one closed. */
+function cleanAll(
+  values: readonly string[],
   redact: (line: string) => string,
-): string {
-  if (value === undefined) return "";
-  return cleanBody(
-    stripEngineSignatures(value.replaceAll("\r\n", "\n")),
+): string[] {
+  return cleanBodies(
+    values.map((value) =>
+      stripEngineSignatures(value.replaceAll("\r\n", "\n")),
+    ),
     Number.MAX_SAFE_INTEGER,
     redact,
-  ).trim();
+  ).map((text) => closeOpenBlocks(text.trim()));
 }
 
 /**
@@ -166,14 +176,24 @@ export function renderPullRequestBody(input: {
     if (line === null) relatedDropped += 1;
     else if (!related.includes(line)) related.push(line);
   }
+  // In the order they appear in the body.
+  const changeCount = fields.changes?.length ?? 0;
+  const texts = cleanAll(
+    [
+      fields.summary ?? "",
+      ...(fields.changes ?? []),
+      fields.rationale ?? "",
+      fields.testing ?? "",
+      fields.notes ?? "",
+    ],
+    redact,
+  );
   const cleaned: Cleaned = {
-    summary: clean(fields.summary, redact),
-    changes: (fields.changes ?? [])
-      .map((change) => clean(change, redact).replace(/\s*\n\s*/g, " "))
-      .filter((change) => change !== ""),
-    rationale: clean(fields.rationale, redact),
-    testing: clean(fields.testing, redact),
-    notes: clean(fields.notes, redact),
+    summary: texts[0] ?? "",
+    changes: texts.slice(1, 1 + changeCount).filter((change) => change !== ""),
+    rationale: texts[1 + changeCount] ?? "",
+    testing: texts[2 + changeCount] ?? "",
+    notes: texts[3 + changeCount] ?? "",
     related,
   };
   const marker = OMITTED[locale];
@@ -190,20 +210,20 @@ export function renderPullRequestBody(input: {
     const overflow = body.length - maxLength;
     if (field === "changes") {
       const last = cleaned.changes.at(-1) ?? "";
-      const room = last.length - overflow - marker.length - 1;
-      if (room > 0) {
-        cleaned.changes[cleaned.changes.length - 1] = cut(
-          last,
-          room + marker.length,
-          marker,
+      const room = last.length - overflow - CLOSING_ROOM;
+      if (room > marker.length) {
+        // A cut may leave a fence or element open; close it again.
+        cleaned.changes[cleaned.changes.length - 1] = closeOpenBlocks(
+          cut(last, room, marker),
         );
       } else {
         cleaned.changes.pop();
       }
     } else {
       const value = cleaned[field];
-      const room = value.length - overflow;
-      cleaned[field] = room > marker.length ? cut(value, room, marker) : "";
+      const room = value.length - overflow - CLOSING_ROOM;
+      cleaned[field] =
+        room > marker.length ? closeOpenBlocks(cut(value, room, marker)) : "";
     }
     body = render();
   }

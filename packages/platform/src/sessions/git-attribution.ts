@@ -416,3 +416,15 @@ export function withPullRequestTail(body: string, tail: string): string {
   const rest = next < lines.length ? body.slice(starts[next]) : "";
   return [head, tail, rest].filter((part) => part !== "").join("\n\n");
 }
+
+const NO_TAIL = "\u0000";
+
+/**
+ * `text` with any code fence or HTML element it leaves open closed, so text
+ * placed after it is not swallowed. Uses the scan `withPullRequestTail` runs
+ * on a body that has no tail, with a placeholder in the tail's place.
+ */
+export function closeOpenBlocks(text: string): string {
+  const closed = withPullRequestTail(text, NO_TAIL);
+  return closed === NO_TAIL ? "" : closed.slice(0, -(NO_TAIL.length + 2));
+}
