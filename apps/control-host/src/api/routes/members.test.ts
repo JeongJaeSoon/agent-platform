@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  apiErrorResponseSchema,
   type ListMembersQuery,
   listMembersResponseSchema,
   listTakeoversResponseSchema,
@@ -23,6 +22,7 @@ import {
   type MemberService,
   type MemberStore,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerMemberRoutes } from "./members.ts";
 
@@ -173,10 +173,6 @@ function app(
 }
 
 const owner = { "X-Owner-Id": "owner-a" };
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
-}
 
 describe("GET /v1/takeovers", () => {
   test("lists the workspace's sessions awaiting takeover", async () => {

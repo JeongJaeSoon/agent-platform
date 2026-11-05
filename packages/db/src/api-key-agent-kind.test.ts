@@ -1,19 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { applyMigrationFile } from "./testing/migrations.ts";
 
 const migrations = join(import.meta.dir, "../migrations");
 
 let client: PGlite;
 let target: string;
 
-async function apply(file: string): Promise<void> {
-  const sql = await readFile(join(migrations, file), "utf8");
-  for (const statement of sql.split("--> statement-breakpoint")) {
-    if (statement.trim().length > 0) await client.exec(statement);
-  }
-}
+const apply = (file: string) => applyMigrationFile(client, file);
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
 const USER = "019a0000-0000-7000-8000-0000000000c1";

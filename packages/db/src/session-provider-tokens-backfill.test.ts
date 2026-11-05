@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { applyMigrationFile } from "./testing/migrations.ts";
 
 /**
  * The provider token backfill, run against the schema just before it with
@@ -13,12 +14,7 @@ const migrations = join(import.meta.dir, "../migrations");
 let client: PGlite;
 let backfill: string;
 
-async function apply(file: string): Promise<void> {
-  const sql = await readFile(join(migrations, file), "utf8");
-  for (const statement of sql.split("--> statement-breakpoint")) {
-    if (statement.trim().length > 0) await client.exec(statement);
-  }
-}
+const apply = (file: string) => applyMigrationFile(client, file);
 
 async function seedAttempt(): Promise<{
   sessionId: string;
