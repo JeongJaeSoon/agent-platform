@@ -36,7 +36,7 @@ Werft의 사용자와 운영자에게 보이는 변경을 적는다. 게시 패�
 3. **chart와 이미지 이름이 `werft`다**(JeongJaeSoon/werft#1166). chart 이름이 `agent-platform`이던 release는 지우고 새로 설치한다. 그 전에 파일 카탈로그의 ConfigMap을 새 이름으로 저장한다. 절차는 [Kubernetes 설치 (Helm chart)](docs/operator/kubernetes-deployment.md#파일-카탈로그에서-올리기)에 있다.
 4. **설정 파일 카탈로그가 없어지고 DB 설정만 쓴다**(JeongJaeSoon/werft#1167). 파일 카탈로그로 돌던 설치는 올리기 전에 같은 문서의 "파일 카탈로그에서 올리기"를 따른다.
 5. **worker 이미지가 같아도 직전 이미지(`images.workerPrevious`)를 빼거나 바꾸면 업그레이드 전 검사가 `refused`로 멈출 수 있다**(JeongJaeSoon/werft#1204). 대상 이미지(현재 이미지와, 있으면 직전 이미지) 어느 쪽과도 맞지 않거나 조합이 기록되지 않은 세션이 있을 때다. 이전에는 그대로 통과했고, 맞지 않는 세션은 재개 때 멈췄다. 보관한 `worker-previous.json`을 계속 넘긴다. 이 검사의 직전 이미지 경로는 클러스터에서 실행해 확인하지 않았다.
-6. **worker가 workspace에 남기는 이름이 `werft`로 바뀌었다**(JeongJaeSoon/werft#1226). 지침 파일 제외 마커는 `# werft: instruction files`, 복원 디렉터리는 `.git/werft-checkpoint`, 임시 이름은 `.git/werft-<용도>-*`다. 이미 있는 workspace의 `AGENTS.md`는 옛 마커라 갱신되지 않고 그대로 남으며 작업 트리는 잃지 않는다. 옛 이름 임시 디렉터리 `.git/agent-platform-{fetch,attach,capture,mark,marker,publish,place,transcripts}-*`는 지워지지 않고 quota를 차지한다. quota가 찬 세션의 재개가 ENOSPC로 실패하면 이 디렉터리만 지운다. `.git/agent-platform-checkpoint`는 남긴다.
+6. **worker가 workspace에 남기는 이름이 `werft`로 바뀌었다**(JeongJaeSoon/werft#1226). 지침 파일 제외 마커는 `# werft: instruction files`, 복원 디렉터리는 `.git/werft-checkpoint`, 임시 이름은 `.git/werft-<용도>-*`다. 이미 있는 workspace의 `AGENTS.md`는 옛 마커라 갱신되지 않고 그대로 남으며 작업 트리는 잃지 않는다. 옛 이름 임시 디렉터리 `.git/agent-platform-{fetch,attach,capture,mark,marker,publish,place,transcripts}-*`는 지워지지 않고 quota를 차지한다. quota가 찬 세션의 재개가 ENOSPC로 실패하면, 그 세션의 worker가 없는 동안 이 디렉터리만 지운다. `.git/objects/info/alternates`나 `.git/commondir`가 있거나 `.git/objects`가 링크이면 그 디렉터리의 객체를 빌려 쓰는 것일 수 있으므로 지우지 않는다. `.git/agent-platform-checkpoint`도 남긴다.
 
 ### 게시 패키지
 
