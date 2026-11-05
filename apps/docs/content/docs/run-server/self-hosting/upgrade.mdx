@@ -104,6 +104,8 @@ kill "$PF"
 
 업그레이드가 새 release가 뜨기 전에(예: scheduler의 quota 검사 실패) 멈추면 설치가 멈춘 채로 남고, 상태 디렉터리의 `pending.json`이 남는다. 이 상태에서는 `status`, `reset`, `pending.json`과 내용이 같은 release 파일을 쓰는 `upgrade`만 허용하고, 이전 release로 되돌리는 `upgrade`를 포함한 다른 명령은 거부한다. 원인을 고친 뒤 같은 대상 release 파일로 `upgrade`를 다시 부르면 풀린다.
 
+업그레이드가 아니라 `compose down`이나 호스트 재부팅으로 설치가 내려갔을 뿐이면 `upgrade`나 `deploy`가 아니라 `scripts/test-ops.sh start`로 같은 volume 그대로 다시 올린다([내리기](/run-server/self-hosting/single-server#내리기)). `pending.json`이 있으면 `start`는 거부한다.
+
 ```bash
 git fetch && git checkout <new source_commit> && bun install --frozen-lockfile
 scripts/test-ops.sh upgrade release-new.json
