@@ -202,10 +202,42 @@ export async function workspaceMismatches(input: {
       not: ["--remotes", ...held],
       expectations: [input.expectation],
       stripEmails: input.stripEmails,
+      trailersOf: isolatedTrailers,
     });
     return judged.status === "ok" ? judged.mismatches : unverified(input.tip);
   } catch {
     return unverified(input.tip);
+  }
+}
+
+/**
+ * The trailer block git reads in `message`, parsed outside any repository and
+ * with no config, as the commit hook does: the workspace's own `trailer.*`
+ * settings cannot rename a key and hide a line. Null when git fails.
+ */
+async function isolatedTrailers(message: string): Promise<string | null> {
+  try {
+    const pending = run(
+      "git",
+      ["interpret-trailers", "--parse", "--no-divider"],
+      {
+        cwd: "/",
+        env: {
+          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_COUNT: "0",
+          GIT_TERMINAL_PROMPT: "0",
+          LC_ALL: "C",
+        },
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: GIT_TIMEOUT_MS,
+      },
+    );
+    pending.child.stdin?.end(message);
+    return (await pending).stdout;
+  } catch {
+    return null;
   }
 }
 

@@ -370,6 +370,28 @@ describe("workspaceMismatches", () => {
     ).toEqual([]);
   });
 
+  test("a folded engine co-author is found though the workspace's trailer.* setting renames the key", async () => {
+    git(["update-ref", "refs/remotes/origin/main", commit("base", "good")]);
+    git(["config", "trailer.Co-authored-by.key", "Other"]);
+    const sneaky = commit(
+      "Subject\n\nAgent-Session: s1\nCo-authored-by: Claude\n <noreply@anthropic.com>",
+      "good",
+    );
+    expect(
+      await workspaceMismatches({
+        root: repo,
+        tip: "HEAD",
+        expectation: {
+          author: { name: "good", email: "a@b.c" },
+          coAuthor: null,
+          agentSession: "s1",
+        },
+        stripEmails: ["noreply@anthropic.com"],
+        protectedCommits: [],
+      }),
+    ).toEqual([{ commit: sneaky, problems: ["engine_co_author"] }]);
+  });
+
   test("with no expectation there is nothing to judge", async () => {
     commit("wrong");
     expect(

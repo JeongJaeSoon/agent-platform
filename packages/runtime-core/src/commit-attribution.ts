@@ -228,6 +228,15 @@ export async function rangeAttribution(
     not: readonly string[];
     expectations: readonly AttributionExpectation[];
     stripEmails: readonly string[];
+    /**
+     * Reads a message's trailer block (what `git interpret-trailers --parse
+     * --no-divider` prints), null when it cannot. A caller whose repository
+     * has config of its own (the worker's workspace: `trailer.*` can rename
+     * keys) passes one that runs git outside any repository, so the log's own
+     * `%(trailers)` is not trusted. The control host's bare repository has
+     * none and omits it.
+     */
+    trailersOf?: (message: string) => Promise<string | null>;
   },
 ): Promise<RangeAttribution> {
   const log = await git([
@@ -242,6 +251,13 @@ export async function rangeAttribution(
   }
   const facts = parseCommitFacts(log.stdout);
   if (facts === null) return { status: "unreadable" };
+  if (input.trailersOf !== undefined) {
+    for (const fact of facts) {
+      const trailers = await input.trailersOf(fact.message);
+      if (trailers === null) return { status: "unreadable" };
+      fact.trailers = trailers;
+    }
+  }
   const all = attributionMismatches(
     facts,
     input.expectations,
