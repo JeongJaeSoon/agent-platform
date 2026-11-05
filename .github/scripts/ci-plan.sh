@@ -8,7 +8,7 @@ quickstart=true
 docs_only=false
 count=0
 
-if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
+if [ "${GITHUB_EVENT_NAME:-}" = pull_request ] && [ "${BASE_REF:-}" = main ]; then
   base="${BASE_SHA:?BASE_SHA is required for a pull request}"
   if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
     echo "::error::invalid pull request base SHA" >&2
@@ -55,4 +55,3 @@ printf '%s\n' \
   "quickstart=$quickstart" \
   "docs_only=$docs_only" >>"${GITHUB_OUTPUT:?}"
 echo "CI plan: files=$count docs_only=$docs_only tests=$tests product=$product site=$site quickstart=$quickstart"
-

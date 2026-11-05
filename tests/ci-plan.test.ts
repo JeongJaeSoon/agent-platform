@@ -33,6 +33,8 @@ function commit(repo: string) {
     "user.name=CI tests",
     "-c",
     "user.email=ci-tests@example.invalid",
+    "-c",
+    "commit.gpgsign=false",
     "commit",
     "--quiet",
     "-m",
@@ -58,6 +60,7 @@ function plan(
   f: ReturnType<typeof fixture>,
   event = "pull_request",
   base = f.base,
+  baseRef = "main",
 ) {
   const result = Bun.spawnSync(["bash", script], {
     cwd: f.repo,
@@ -65,6 +68,7 @@ function plan(
       ...Bun.env,
       GITHUB_EVENT_NAME: event,
       BASE_SHA: base,
+      BASE_REF: baseRef,
       RUNNER_TEMP: f.temporary,
       GITHUB_OUTPUT: f.output,
     },
@@ -92,6 +96,8 @@ function mergePullRequest(f: ReturnType<typeof fixture>, base = f.base) {
     "user.name=CI tests",
     "-c",
     "user.email=ci-tests@example.invalid",
+    "-c",
+    "commit.gpgsign=false",
     "merge",
     "--no-ff",
     "--no-edit",
@@ -163,6 +169,22 @@ test("main, manual and empty PR diffs use the full plan", () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toEqual(full);
   }
+});
+
+test("stacked or unknown PR bases keep full validation before retargeting", () => {
+  for (const baseRef of ["feature/code", ""]) {
+    const f = fixture(undefined, ["docs/prose.md"]);
+    expect(plan(f, "pull_request", f.base, baseRef).output).toEqual(full);
+  }
+});
+
+test("an empty diff with a matching checkout parent keeps full validation", () => {
+  const f = fixture(undefined, ["docs/prose.md"]);
+  git(f.repo, "revert", "--no-commit", "HEAD");
+  commit(f.repo);
+  mergePullRequest(f);
+  expect(git(f.repo, "diff", "--name-only", f.base, "HEAD")).toBe("");
+  expect(plan(f).output).toEqual(full);
 });
 
 test("a later prose commit cannot hide code already in the PR", () => {

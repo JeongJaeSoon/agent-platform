@@ -40,7 +40,7 @@ test("static checks keep one cache writer and report independent failures", () =
   ).toEqual([]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
-  expect(job?.needs).toBe("changes");
+  expect(job?.needs).toBeUndefined();
   for (const command of [
     "bun run typecheck",
     "bun run lint",
@@ -218,6 +218,10 @@ test("all product and site consumers use the same explicit plan", () => {
     expect(job?.if).toContain(`needs.changes.outputs.${flag} == 'true'`);
   }
   expect(workflow.jobs.pages?.needs).toEqual(["docs", "storybook"]);
+  expect(
+    workflow.jobs.changes?.steps.find((step) => step.id === "plan")?.env
+      ?.BASE_REF,
+  ).toBe(`\${{ github.event.pull_request.base.ref }}`);
   for (const key of ["tests", "product", "site", "quickstart", "docs_only"]) {
     expect(workflow.jobs.changes?.outputs?.[key]).toBe(
       `\${{ steps.plan.outputs.${key} }}`,
