@@ -6,6 +6,18 @@
 
 모듈 구성: Werft는 안에서 네 모듈로 나뉜다. 모듈 이름은 저장소 안에서만 쓰고, API나 SDK처럼 바깥에 보이는 곳에는 내놓지 않는다. Musterrolle은 사용자·로그인·워크스페이스·역할·연동 계정과 권한 판정, Kollegium은 에이전트 정의·버전·런치와 에이전트를 부르는 웹·Slack·API 채널, Lotse는 세션끼리의 연결과 협업, Kiel은 세션 런타임(격리 실행·제어·승인·복구)을 맡는다. `/v1` API는 control host가 서빙하고, 그 안의 인증 경로 `/v1/auth/*`는 Musterrolle 몫이다. 모듈마다 코드가 어디 있는지는 [architecture.md](docs/contributing/architecture.md)에 있다. 외부 도구는 Werft 안에 넣지 않고 Werft 밖의 remote MCP server에 연결해 쓰는 것이 설계 방향이다.
 
+## 게시 패키지
+
+설치와 업그레이드는 직접 빌드하지 않고 게시된 패키지로 한다. 패키지는 로그인 없이 받는다.
+
+| 패키지 | 주소 | 버전 |
+| --- | --- | --- |
+| 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `ghcr.io/jeongjaesoon/werft-worker`, `ghcr.io/jeongjaesoon/werft-egress-proxy` | `main` 머지마다 `main-<12>`. `linux/amd64`와 `linux/arm64` index |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | `main` 머지마다 `0.1.0-main-<12>` |
+| SDK | npm [`@werft-ai/sdk`](https://www.npmjs.com/package/@werft-ai/sdk) | `latest` |
+
+`<12>`는 commit SHA의 앞 12자다. 첫 `v` 태그는 아직 없고, `main-<12>`는 릴리스가 아니다. 설치는 [셀프 호스팅](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/), 올리기는 [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/)를 읽는다. 바뀐 점과 운영자가 직접 해야 할 일은 [변경 기록](CHANGELOG.md)에 있다. 단일 서버(Docker Compose) 설치는 게시 이미지로 끝까지 실행해 확인하지 않았다. Kubernetes 업그레이드 절차도 클러스터에서 실행해 확인하지 않았다.
+
 ## credential 경계
 
 provider key와 저장소·object store credential은 worker에 직접 전달하지 않지만, 살아 있는 attempt는 제한된 egress token으로 허용된 경로를 호출할 수 있다.
@@ -16,7 +28,7 @@ provider key와 저장소·object store credential은 worker에 직접 전달하
 | --- | --- | --- |
 | API 사용자 | [API 유즈케이스 가이드](https://jeongjaesoon.github.io/werft/ko/reference/api-guide/) | 배포 서버의 인증 없는 `GET /docs`에서 읽기 전용 API 참조를 보고, `GET /v1/openapi.json`에서 같은 사양을 받는다. 저장소 생성물은 [HTML](docs/api/index.html)과 [OpenAPI JSON](docs/openapi.json)이다 |
 | SDK 사용자 | [TypeScript SDK](docs/sdk.md) | 서버·스크립트에서 API key로 세션을 다루는 `packages/sdk`(`@werft-ai/sdk`). 예제는 [SDK 샘플](https://jeongjaesoon.github.io/werft/ko/reference/examples/) |
-| 운영자 | [단일 서버 배포](docs/operator/server-deployment.md) | [운영자 문서 색인](docs/README.md#운영자), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
+| 운영자 | [셀프 호스팅](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/) | [업그레이드](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade/), [변경 기록](CHANGELOG.md), [운영자 문서 색인](docs/README.md#운영자), [Datadog 감시 기준](docs/operator/monitoring-datadog.md), [Datadog compose overlay](infra/compose.datadog.yml), [test-ops](docs/operator/test-ops.md), [백업과 복원](docs/operator/backup-restore.md) |
 | 개발자 | [Quickstart](docs/quickstart.md) | [개발 환경과 검증](docs/contributing/development.md), [구성요소와 경계](docs/contributing/architecture.md), [CI](docs/contributing/ci.md), [실제 Claude 확인](docs/real-claude.md) |
 
 독자별 전체 문서 색인은 [docs/README.md](docs/README.md)에 있다.
@@ -78,10 +90,10 @@ gitleaks의 `generic-api-key` 규칙은 사용량 breakdown 응답의 `"key": "<
 
 UI 라이브러리 `packages/ui`(`@werft-ai/ui`)는 npm에 공개하지 않는 내부 패키지이고 PolyForm Small Business 1.0.0을 따른다.
 
-PolyForm Small Business 1.0.0의 조건은 다음과 같다.
+PolyForm Small Business 1.0.0의 허용 범위는 `LICENSE`의 "Small Business" 절에 있고, 요약은 다음과 같다. 효력은 영문 원문에 따른다.
 
-- 직원과 독립 계약자를 합쳐 100명 미만이고 직전 과세연도 총매출이 100만 달러(2019년 기준, 물가 보정) 미만인 회사는 무료로 사용·수정·배포·셀프호스팅할 수 있다. 회사를 지배하거나 회사가 지배하는 조직, 회사와 같은 지배를 받는 조직도 합쳐서 센다.
-- 그 기준을 넘는 회사가 쓰려면 상용 라이선스가 필요하다.
-- 복사본을 넘길 때는 라이선스 전문(또는 그 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
+- 회사의 이익을 위한 사용은 그 회사가 직원과 독립 계약자를 합쳐 100명 미만이고 직전 과세연도 총매출이 100만 달러(2019년 기준, 미국 노동통계국 CPI로 물가 보정) 미만이면 허용된 목적이다. 회사에는 그 회사를 지배하거나, 그 회사가 지배하거나, 같은 지배를 받는 조직이 포함된다.
+- 이 기준에 해당하지 않는 사용은 허용된 목적인지 `LICENSE` 원문으로 확인하고, 해당하지 않으면 별도 라이선스를 문의한다.
+- 복사본을 다른 사람에게 넘길 때는 라이선스 전문(또는 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
 
 평가·상용 라이선스 문의: jaesoon@94soon.dev

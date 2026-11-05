@@ -125,12 +125,22 @@ kubectl create namespace werft
 kubectl -n werft create configmap localstack-init \
   --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
 kubectl -n werft apply -f deploy/kind/deps.yaml
-kubectl -n werft create secret generic werft \
-  --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
-  --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
-  --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
-  --from-literal=AWS_ACCESS_KEY_ID=test --from-literal=AWS_SECRET_ACCESS_KEY=test \
-  --from-literal=ANTHROPIC_API_KEY=unused
+SECRETS="$(mktemp -d)"
+```
+
+次のコマンド `read -rs` は、プロンプトなしで入力を待ちます。入力する値は `deploy/kind/deps.yaml` の `POSTGRES_PASSWORD` で、値をコマンドラインに書かないよう端末から読みます。Secret の値はすべてこの kind の試用専用です。実サーバーでは、手順2の方法で自分で作った値を使います。Secret を作った後は、変数と一時ディレクトリを削除します。
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+printf unused > "$SECRETS/ANTHROPIC_API_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
   --namespace werft -f deploy/kind/values.yaml --timeout 10m
 ```
@@ -139,7 +149,7 @@ helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSIO
 
 ## アップグレードと削除
 
-アップグレードで worker イメージが変わる場合は、直前の worker イメージも一緒に渡す必要があります。`--reuse-values` は新しい chart のイメージを適用しないので使いません。手順、アップグレード前の検査、ロールバックは[公開 chart を上げる](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기)にあります。
+アップグレードで worker イメージが変わる場合は、直前の worker イメージも一緒に渡す必要があります。`--reuse-values` は新しい chart のイメージを適用しないので使いません。手順、アップグレード前の検査、ロールバックは[アップグレード](/run-server/self-hosting/upgrade)にあります。
 
 ```bash
 helm -n werft uninstall werft

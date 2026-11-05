@@ -125,12 +125,22 @@ kubectl create namespace werft
 kubectl -n werft create configmap localstack-init \
   --from-file=10-create-resources.sh=infra/localstack/init/10-create-resources.sh
 kubectl -n werft apply -f deploy/kind/deps.yaml
-kubectl -n werft create secret generic werft \
-  --from-literal=DATABASE_URL=postgresql://postgres:dev@postgres:5432/sessions \
-  --from-file=EGRESS_AUTHORIZER_TOKEN=<(openssl rand -hex 32 | tr -d '\n') \
-  --from-file=PLATFORM_SECRET_KEY=<(openssl rand -hex 32 | tr -d '\n') \
-  --from-literal=AWS_ACCESS_KEY_ID=test --from-literal=AWS_SECRET_ACCESS_KEY=test \
-  --from-literal=ANTHROPIC_API_KEY=unused
+SECRETS="$(mktemp -d)"
+```
+
+The next command, `read -rs`, waits for input without a prompt. Type the `POSTGRES_PASSWORD` value in `deploy/kind/deps.yaml`; it is read from the terminal so the value is not written on the command line. Every Secret value is for this kind try-out only. On a real server, use values you create yourself as in step 2. After the Secret is created, the variable and the temporary directory are removed.
+
+```bash
+read -rs KIND_DB_PASSWORD
+{ printf 'postgresql://postgres:'; printf '%s' "$KIND_DB_PASSWORD"; printf '@postgres:5432/sessions'; } > "$SECRETS/DATABASE_URL"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/EGRESS_AUTHORIZER_TOKEN"
+openssl rand -hex 32 | tr -d '\n' > "$SECRETS/PLATFORM_SECRET_KEY"
+printf test > "$SECRETS/AWS_ACCESS_KEY_ID"
+printf test > "$SECRETS/AWS_SECRET_ACCESS_KEY"
+printf unused > "$SECRETS/ANTHROPIC_API_KEY"
+kubectl -n werft create secret generic werft --from-file="$SECRETS"
+unset KIND_DB_PASSWORD
+rm -r "${SECRETS:?}"
 helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
   --namespace werft -f deploy/kind/values.yaml --timeout 10m
 ```
@@ -139,7 +149,7 @@ Then run the rollout checks of step 4 and the checks of step 5 as written. When 
 
 ## Upgrade and remove
 
-When an upgrade changes the worker image, you must pass the previous worker image along. Do not use `--reuse-values`: it does not apply the new chart's images. The procedure, the pre-upgrade check and rollback are in [Raising the published chart](https://github.com/JeongJaeSoon/werft/blob/main/docs/operator/kubernetes-deployment.md#게시-chart를-올리기).
+When an upgrade changes the worker image, you must pass the previous worker image along. Do not use `--reuse-values`: it does not apply the new chart's images. The procedure, the pre-upgrade check and rollback are in [Upgrade](/run-server/self-hosting/upgrade).
 
 ```bash
 helm -n werft uninstall werft
