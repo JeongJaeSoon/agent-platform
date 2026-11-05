@@ -260,6 +260,13 @@ describe("claudeContractRun", () => {
       without.script.end();
     });
 
+    test("offers nothing when redaction would change a proposed rule", async () => {
+      const secretive = [{ toolName: "Bash", ruleContent: "echo password: *" }];
+      const { script, request } = await asked(secretive);
+      expect(request).not.toHaveProperty("rememberOffer");
+      script.end();
+    });
+
     test("hands the engine the session rule only for the rules that were offered", async () => {
       const { script, run, decision, request } = await asked(offered);
       await run.answer({

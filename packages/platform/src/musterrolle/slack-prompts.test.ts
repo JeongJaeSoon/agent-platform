@@ -170,16 +170,13 @@ describe("Slack prompt cards", () => {
       }
     });
 
-    test("a hostile rule stays plain text and is cut to fit the dialog", () => {
+    test("a hostile rule stays plain text in the dialog", () => {
       const { blocks } = slackPromptMessage(
         permission(
           { command: "x" },
           {
             rememberOffer: [
-              {
-                toolName: "Bash",
-                ruleContent: `<!channel> ${"y".repeat(500)}`,
-              },
+              { toolName: "Bash", ruleContent: "<!channel> <@U1> ok" },
             ],
           },
         ),
@@ -187,7 +184,27 @@ describe("Slack prompt cards", () => {
       );
       const confirm = actionsOf(blocks)[1]?.confirm;
       expect(confirm?.text.type).toBe("plain_text");
+      expect(confirm?.text.text).toContain("<!channel> <@U1> ok");
       expect(confirm?.text.text.length).toBeLessThanOrEqual(300);
+    });
+
+    test("an offer too long to name in full gets no button", () => {
+      const { blocks } = slackPromptMessage(
+        permission(
+          { command: "x" },
+          {
+            rememberOffer: [
+              { toolName: "Bash", ruleContent: "y".repeat(500) },
+              { toolName: "Read" },
+            ],
+          },
+        ),
+        { locale: "en", requesterSlackUserId: null },
+      );
+      expect(actionsOf(blocks).map((b) => b.action_id)).toEqual([
+        SLACK_INTERACTION_ACTIONS.permissionAllow,
+        SLACK_INTERACTION_ACTIONS.permissionDeny,
+      ]);
     });
   });
 

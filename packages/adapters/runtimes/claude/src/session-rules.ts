@@ -60,9 +60,10 @@ export function sameRules(
   left: readonly EngineRule[],
   right: readonly EngineRule[],
 ): boolean {
+  // Both ways, so a repeated rule cannot stand in for a different one.
   return (
-    left.length === right.length &&
-    left.every((rule) => right.some((other) => sameRule(rule, other)))
+    left.every((rule) => right.some((other) => sameRule(rule, other))) &&
+    right.every((rule) => left.some((other) => sameRule(rule, other)))
   );
 }
 

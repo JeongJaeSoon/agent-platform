@@ -601,8 +601,11 @@ export function slackPromptMessage(
           value,
           "primary",
         ),
+        // Agreeing covers every offered rule, so the dialog must be able to
+        // name all of them; a longer offer gets no button.
         ...(prompt.rememberOffer === undefined ||
-        prompt.rememberOffer.length === 0
+        prompt.rememberOffer.length === 0 ||
+        ruleSentence(prompt.rememberOffer).length > RULE_SENTENCE_MAX
           ? []
           : [
               button(
@@ -786,16 +789,13 @@ const SLACK_OPEN_WEB_ACTION = "prompt.open_web";
 function ruleSentence(
   rules: readonly { toolName: string; ruleContent?: string }[],
 ): string {
-  return clip(
-    rules
-      .map((rule) =>
-        rule.ruleContent === undefined
-          ? rule.toolName
-          : `${rule.toolName}(${rule.ruleContent})`,
-      )
-      .join(", "),
-    RULE_SENTENCE_MAX,
-  );
+  return rules
+    .map((rule) =>
+      rule.ruleContent === undefined
+        ? rule.toolName
+        : `${rule.toolName}(${rule.ruleContent})`,
+    )
+    .join(", ");
 }
 
 const SETTLED_MARK: Record<SlackPromptResult, string> = {

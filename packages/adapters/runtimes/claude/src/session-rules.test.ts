@@ -73,5 +73,8 @@ describe("sameRules", () => {
     expect(sameRules([a, b], [b, a])).toBe(true);
     expect(sameRules([a], [a, b])).toBe(false);
     expect(sameRules([a], [{ toolName: "Bash" }])).toBe(false);
+    // A repeated rule is not a stand-in for a different one.
+    expect(sameRules([a, a], [a, b])).toBe(false);
+    expect(sameRules([a, b], [a, a])).toBe(false);
   });
 });

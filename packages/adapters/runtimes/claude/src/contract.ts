@@ -398,9 +398,14 @@ class ClaudeContractRun implements AgentRun {
     // What the person is offered is the redacted copy; what the engine is
     // given back is built from the rules it proposed, and only if the answer
     // names exactly the copy that was shown.
-    const offered =
+    // A rule that redaction would change is not offered at all: two different
+    // rules can redact to the same text, so the copy shown would not tell a
+    // later answer or a resumed turn which one the person agreed to.
+    const proposed =
       view.kind === "permission" ? (request.suggestedRules ?? []) : [];
-    const shown = rememberView(offered);
+    const redacted = rememberView(proposed);
+    const offered = sameRules(proposed, redacted) ? proposed : [];
+    const shown = offered.length === 0 ? [] : redacted;
     const approval: ApprovalRequested = {
       localId: randomUUID(),
       toolCallId: request.toolUseId,
