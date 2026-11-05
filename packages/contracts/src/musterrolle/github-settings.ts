@@ -508,7 +508,9 @@ export const pullRequestTemplateNameSchema = z
   .min(1)
   .max(100)
   // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point
-  .regex(/^[^\u0000-\u001f\u007f]+$/);
+  .regex(/^[^\u0000-\u001f\u007f]+$/)
+  // A lone surrogate cannot be written to the receipt's jsonb.
+  .refine((name) => !/\p{Cs}/u.test(name), "not valid Unicode");
 
 /**
  * What an agent sets over the workspace's: `formatting` (`inherit` follows
