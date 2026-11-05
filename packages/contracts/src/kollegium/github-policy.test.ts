@@ -8,8 +8,11 @@ import {
   effectiveGitHubPolicy,
   GITHUB_POLICY_CLOSED,
   type GitHubPolicyStart,
+  githubPolicyStartSchema,
   meetGitHubSettings,
+  meetPushAttached,
   newSessionGitHubPolicy,
+  pushAttachedOf,
 } from "./agents.ts";
 
 const PIN: AgentGitHub = {
@@ -31,6 +34,7 @@ const ROW: AgentGitHubSettingsRow = {
   features: { ...PIN.features, actions: false },
   actionsAllow: [{ workflow: "ci.yml" }],
   startRepositoryId: "infra",
+  pushAttached: null,
   revision: 4,
   updatedBy: null,
 };
@@ -57,6 +61,7 @@ function policy(
     currentRepositories: null,
     startActionsAllow: null,
     enabledAtStart: true,
+    pushAttached: "ask",
     ...fields,
   } as EffectiveGitHubPolicy;
 }
@@ -343,6 +348,7 @@ describe("an agent session with a start snapshot", () => {
     features: ALL_ON,
     actionsAllow: [{ workflow: "release.yml" }],
     startRepositoryId: null,
+    pushAttached: null,
     revision: 5,
     updatedBy: PERSON,
   };
@@ -473,6 +479,113 @@ describe("meetGitHubSettings", () => {
       expect(met.push_approval).toBe(true);
       expect(met.features).toEqual({ ...ALL_OFF, checks: true });
     }
+  });
+});
+
+describe("push_attached: a push to an attached repository", () => {
+  const person = { ...ROW, updatedBy: PERSON };
+  const START: GitHubPolicyStart = {
+    enabled: true,
+    revision: 2,
+    settings: SETTINGS,
+  };
+
+  test("a value is read as it is stored; none reads as ask; an unknown one is refused", () => {
+    expect(pushAttachedOf("allow")).toBe("allow");
+    expect(pushAttachedOf("ask")).toBe("ask");
+    expect(pushAttachedOf("deny")).toBe("deny");
+    // A row from before the column keeps asking a person.
+    expect(pushAttachedOf(null)).toBe("ask");
+    expect(pushAttachedOf(undefined)).toBe("ask");
+    // A value a later image wrote must not widen anything here.
+    expect(pushAttachedOf("ask_once")).toBe("deny");
+  });
+
+  test("the stricter side wins: deny > ask > allow", () => {
+    const values = ["allow", "ask", "deny"] as const;
+    const rank = { allow: 0, ask: 1, deny: 2 };
+    for (const a of values) {
+      for (const b of values) {
+        expect(meetPushAttached(a, b)).toBe(rank[a] >= rank[b] ? a : b);
+        expect(meetPushAttached(a, b)).toBe(meetPushAttached(b, a));
+      }
+    }
+  });
+
+  test("an agent session with no snapshot reads the row; a row without the value asks", () => {
+    const read = (pushAttached: string | null) =>
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: undefined,
+        agentRow: { ...person, pushAttached },
+      }).pushAttached;
+    expect(read("allow")).toBe("allow");
+    expect(read("deny")).toBe("deny");
+    expect(read(null)).toBe("ask");
+  });
+
+  test("a snapshot only narrows: allow at start and ask now is ask; ask at start and allow now is ask", () => {
+    const read = (atStart: "allow" | "ask" | "deny" | undefined, now: string) =>
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: undefined,
+        agentRow: { ...person, pushAttached: now },
+        start: {
+          ...START,
+          ...(atStart === undefined ? {} : { push_attached: atStart }),
+        },
+      }).pushAttached;
+    expect(read("allow", "allow")).toBe("allow");
+    expect(read("allow", "ask")).toBe("ask");
+    expect(read("allow", "deny")).toBe("deny");
+    expect(read("ask", "allow")).toBe("ask");
+    expect(read("deny", "allow")).toBe("deny");
+    // A snapshot from before the value was kept reads as ask.
+    expect(read(undefined, "allow")).toBe("ask");
+  });
+
+  test("a snapshot that carries the value still parses for an image that does not know it", () => {
+    // The envelope is not strict: an older schema ignores the extra key.
+    const older = githubPolicyStartSchema.omit({ push_attached: true });
+    expect(older.safeParse({ ...START, push_attached: "allow" }).success).toBe(
+      true,
+    );
+    expect(githubPolicyStartSchema.safeParse(START).success).toBe(true);
+  });
+
+  test("a release session means ask: a person's row can take it to deny, never to allow", () => {
+    const read = (pushAttached: string | null, updatedBy: string | null) =>
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: PIN,
+        agentRow: { ...ROW, pushAttached, updatedBy },
+      }).pushAttached;
+    expect(read("allow", PERSON)).toBe("ask");
+    expect(read("deny", PERSON)).toBe("deny");
+    // A row a migration wrote changes nothing for a session on its release.
+    expect(read("deny", null)).toBe("ask");
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: PIN,
+        agentRow: null,
+      }).pushAttached,
+    ).toBe("ask");
+    expect(newSessionGitHubPolicy(null, PIN).pushAttached).toBe("ask");
+  });
+
+  test("a policy that cannot be read does not widen the value", () => {
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: undefined,
+      agentRow: {
+        ...person,
+        repositories: "a later shape",
+        pushAttached: "allow",
+      },
+    });
+    expect(read.settings).toBe("invalid");
+    expect(read.pushAttached).toBe("ask");
   });
 });
 

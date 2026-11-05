@@ -1,6 +1,7 @@
 import type {
   AgentGitHub,
   AgentGitHubSettingsRow,
+  PushAttached,
   Receipt,
   RepositoryCeiling,
   WorkspaceRole,
@@ -52,6 +53,8 @@ export interface AgentGitHubStore {
     expectedRevision: number | null;
     settings: AgentGitHub;
     startRepositoryId: string | null;
+    /** Left out: `allow` on a first save, else the row's value as it is. */
+    pushAttached?: PushAttached | undefined;
     userId: string;
     principal: Principal;
     managerRoles: readonly WorkspaceRole[];

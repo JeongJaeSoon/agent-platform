@@ -12,6 +12,7 @@ import {
   type PushRequest,
   type PushRequestState,
   pushBranchFor,
+  pushClassOf,
   type ReceiptActor,
   repositoryCeilingOf,
 } from "@werft-ai/contracts";
@@ -184,6 +185,12 @@ function approvalOff(policy: EffectiveGitHubPolicy): boolean {
   );
 }
 
+// `allow` only: no settings or a shape this image does not know keeps a
+// person deciding, and so does a release session (its pin means `ask`).
+function attachedAllowed(policy: EffectiveGitHubPolicy): boolean {
+  return policy.settings !== "invalid" && policy.pushAttached === "allow";
+}
+
 const claimable = sql`${pushRequests.state} = 'approved' OR (${pushRequests.state} = 'pushing' AND (${pushRequests.leaseExpiresAt} IS NULL OR ${pushRequests.leaseExpiresAt} < now()))`;
 
 /**
@@ -197,7 +204,10 @@ async function approvalLapsed(
 ): Promise<GitHubPolicySource | null> {
   if (row.approvalBasis !== "policy") return null;
   const [session] = await tx
-    .select(githubPolicyColumns)
+    .select({
+      ...githubPolicyColumns,
+      sessionRepositoryId: sessions.repositoryId,
+    })
     .from(sessions)
     .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
     .leftJoin(agents, eq(agents.id, agentReleases.agentId))
@@ -206,7 +216,12 @@ async function approvalLapsed(
     .limit(1);
   if (session === undefined) return null;
   const policy = githubPolicyOfRow(session);
-  return approvalOff(policy) ? null : policy.source;
+  const stillGiven =
+    pushClassOf(session.sessionRepositoryId, row.repositoryId) ===
+    "push.attached"
+      ? attachedAllowed(policy)
+      : approvalOff(policy);
+  return stillGiven ? null : policy.source;
 }
 
 /** Back to `requested`, for a person; nothing was pushed under this claim. */
@@ -349,6 +364,15 @@ export function createPostgresPushRequests(
         githubEnabled: (row.githubEnabled ?? false) && policy.enabledAtStart,
         policyApproval:
           approvalOff(policy) && row.releaseId !== null
+            ? {
+                releaseId: row.releaseId,
+                source: policy.source,
+                settingsRevision: policy.agentSettingsRevision,
+              }
+            : null,
+        pushAttached: policy.pushAttached,
+        attachedApproval:
+          attachedAllowed(policy) && row.releaseId !== null
             ? {
                 releaseId: row.releaseId,
                 source: policy.source,

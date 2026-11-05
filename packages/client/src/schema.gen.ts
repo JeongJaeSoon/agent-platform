@@ -4390,6 +4390,8 @@ export interface components {
                 }[];
             };
             start_repository_id: string | null;
+            /** @enum {string} */
+            push_attached?: "allow" | "ask" | "deny";
         };
         BootstrapRequest: {
             bootstrap_token: string;
@@ -6513,6 +6515,8 @@ export interface components {
             } | null;
             settings_revision: number | null;
             start_repository_id: string | null;
+            /** @enum {string} */
+            push_attached: "allow" | "ask" | "deny";
             legacy_defaults: {
                 repositories: string[];
                 push_approval: boolean;

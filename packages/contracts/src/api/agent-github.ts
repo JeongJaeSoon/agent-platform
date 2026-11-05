@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { agentGitHubSettingsSchema } from "../kollegium/agents.ts";
+import {
+  agentGitHubSettingsSchema,
+  pushAttachedSchema,
+} from "../kollegium/agents.ts";
 import { receiptIdSchema } from "../shared/index.ts";
 import { receiptSchema } from "./receipt.ts";
 
@@ -44,6 +47,13 @@ export const agentGitHubResponseSchema = z.object({
   settings_revision: z.number().int().nullable(),
   /** The repository a session that names none starts on. */
   start_repository_id: z.string().nullable(),
+  /**
+   * Whether a push to an attached repository needs a person: the row's
+   * value, `ask` for a row saved before the column. While the agent has no
+   * row, what a first save writes (`allow`), as `legacy_defaults` shows the
+   * rest.
+   */
+  push_attached: pushAttachedSchema,
   /**
    * When `github` is null: what a first save starts from (no repository,
    * nothing optional). Until then the release runs as before.
@@ -89,6 +99,11 @@ export const putAgentGitHubSettingsRequestSchema = z
     settings: agentGitHubSettingsSchema,
     /** Must be one of `settings.repositories`. */
     start_repository_id: z.string().min(1).max(128).nullable(),
+    /**
+     * Left out: a first save writes `allow`, a later one keeps the row's
+     * value. A caller from before the field therefore still saves.
+     */
+    push_attached: pushAttachedSchema.optional(),
   })
   .strict();
 

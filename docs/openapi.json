@@ -1803,6 +1803,14 @@
                 "type": "null"
               }
             ]
+          },
+          "push_attached": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "ask",
+              "deny"
+            ]
           }
         },
         "required": [
@@ -11908,6 +11916,14 @@
               "null"
             ]
           },
+          "push_attached": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "ask",
+              "deny"
+            ]
+          },
           "legacy_defaults": {
             "anyOf": [
               {
@@ -12224,6 +12240,7 @@
           "github",
           "settings_revision",
           "start_repository_id",
+          "push_attached",
           "legacy_defaults",
           "options"
         ],

@@ -146,19 +146,22 @@ integration("the readers of an agent's GitHub settings", () => {
       revision?: number;
       /** A person's id for a row a person saved; absent for a migration's. */
       updatedBy?: string;
+      /** Absent: null, a row saved before the column. */
+      pushAttached?: string;
     },
   ) {
     await pool.query(
       `INSERT INTO agent_github_settings (agent_id, workspace_id, repositories,
-         push_approval, features, actions_allow, revision, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         push_approval, features, actions_allow, revision, updated_by, push_attached)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (agent_id) DO UPDATE SET
          repositories = EXCLUDED.repositories,
          push_approval = EXCLUDED.push_approval,
          features = EXCLUDED.features,
          actions_allow = EXCLUDED.actions_allow,
          revision = EXCLUDED.revision,
-         updated_by = EXCLUDED.updated_by`,
+         updated_by = EXCLUDED.updated_by,
+         push_attached = EXCLUDED.push_attached`,
       [
         agentId,
         workspaceId,
@@ -168,6 +171,7 @@ integration("the readers of an agent's GitHub settings", () => {
         JSON.stringify(row.actionsAllow ?? []),
         row.revision ?? 1,
         row.updatedBy ?? null,
+        row.pushAttached ?? null,
       ],
     );
   }
@@ -183,6 +187,8 @@ integration("the readers of an agent's GitHub settings", () => {
         : never
       : never;
     policyFields?: object;
+    /** Default: the session's own repository. */
+    repositoryId?: string;
   }) =>
     pushes.create({
       ownerId: input.workspaceId,
@@ -190,7 +196,7 @@ integration("the readers of an agent's GitHub settings", () => {
       actor: ACTOR,
       idempotencyKey: `k-${randomUUID()}`,
       payloadHash: "h",
-      repositoryId: "sample-app",
+      repositoryId: input.repositoryId ?? "sample-app",
       repositoryBinding: "sha256:binding",
       checkpointRevision: 1,
       gitCommit: COMMIT,
@@ -232,6 +238,7 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
+      pushAttached: "ask",
     });
     await settingsRow(workspaceId, agentId, {
       repositories: ["sample-app", "docs"],
@@ -261,6 +268,7 @@ integration("the readers of an agent's GitHub settings", () => {
       currentRepositories: null,
       startActionsAllow: null,
       enabledAtStart: true,
+      pushAttached: "ask",
     });
   });
 
@@ -792,6 +800,7 @@ integration("the readers of an agent's GitHub settings", () => {
         currentRepositories: ["sample-app", "docs"],
         startActionsAllow: null,
         enabledAtStart: true,
+        pushAttached: "ask",
       });
       expect(
         await createPostgresGitHubMcpStore(db).sessionState(sessionId),

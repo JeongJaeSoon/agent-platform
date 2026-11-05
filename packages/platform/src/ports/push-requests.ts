@@ -10,6 +10,7 @@ import type {
   PushReceiptResult,
   PushRefusal,
   PushRequest,
+  PushAttached,
   ReceiptActor,
   RepositoryCeiling,
 } from "@werft-ai/contracts";
@@ -271,6 +272,10 @@ export interface PushRequestStore {
     githubEnabled: boolean;
     /** Set when the policy says `push_approval: false`, and only then. */
     policyApproval: PushPolicyApproval | null;
+    /** `push_attached` as it applies to this session now. */
+    pushAttached: PushAttached;
+    /** Set when `pushAttached` is `allow`, and only then. */
+    attachedApproval: PushPolicyApproval | null;
     policyFields: GitHubPolicyReceiptFields;
   } | null>;
   /** Writes the refusal receipt and returns its id. */

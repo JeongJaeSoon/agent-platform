@@ -370,6 +370,7 @@ describe("the agent GitHub tab's options", () => {
       features: { ...GITHUB_CEILING_NONE },
       actionsAllow: [],
       startRepositoryId: null,
+      pushAttached: null,
       revision: 2,
       updatedBy: null,
     };
@@ -443,6 +444,7 @@ describe("the agent GitHub tab's options", () => {
             features: { ...GITHUB_CEILING_NONE },
             actionsAllow: [],
             startRepositoryId: null,
+            pushAttached: null,
             revision: 1,
             updatedBy: null,
           },
@@ -464,6 +466,7 @@ describe("the agent GitHub tab's options", () => {
         features: { ...GITHUB_CEILING_NONE },
         actionsAllow: [],
         startRepositoryId: "sample-app",
+        pushAttached: null,
         revision: 4,
         updatedBy: crypto.randomUUID(),
       },
@@ -471,6 +474,39 @@ describe("the agent GitHub tab's options", () => {
     expect(row.settings_revision).toBe(4);
     expect(row.start_repository_id).toBe("sample-app");
     expect(row.legacy_defaults).toBeNull();
+  });
+
+  test("push_attached: a first save starts from allow, a row from before the column asks, a stored value shows as it is", async () => {
+    const rowWith = (pushAttached: string | null) => ({
+      repositories: ["sample-app"],
+      pushApproval: true,
+      features: { ...GITHUB_CEILING_NONE },
+      actionsAllow: [],
+      startRepositoryId: null,
+      pushAttached,
+      revision: 2,
+      updatedBy: crypto.randomUUID(),
+    });
+    // No row: what a first save writes (owner decision D6).
+    expect(
+      (await serviceWith({ noRelease: true }).get(caller, AGENT)).push_attached,
+    ).toBe("allow");
+    // A row saved before the column keeps asking a person.
+    expect(
+      (await serviceWith({ settings: rowWith(null) }).get(caller, AGENT))
+        .push_attached,
+    ).toBe("ask");
+    for (const stored of ["allow", "ask", "deny"] as const) {
+      expect(
+        (await serviceWith({ settings: rowWith(stored) }).get(caller, AGENT))
+          .push_attached,
+      ).toBe(stored);
+    }
+    // A value this image cannot read is shown as the strictest.
+    expect(
+      (await serviceWith({ settings: rowWith("ask_once") }).get(caller, AGENT))
+        .push_attached,
+    ).toBe("deny");
   });
 });
 
@@ -487,6 +523,7 @@ describe("saving the agent's GitHub settings", () => {
     features: { ...GITHUB_CEILING_NONE, actions: true },
     actionsAllow: [],
     startRepositoryId: null,
+    pushAttached: null,
     revision: 2,
     updatedBy: "019a0000-0000-7000-8000-0000000000d1",
   };
@@ -526,6 +563,17 @@ describe("saving the agent's GitHub settings", () => {
       userId: caller.actor?.userId,
       settings: SAVED,
     });
+  });
+
+  test("push_attached goes to the store as sent, and is left out when the request leaves it out", async () => {
+    const { service, puts } = serviceWithPuts({});
+    await service.putSettings(caller, AGENT, request());
+    await service.putSettings(caller, AGENT, {
+      ...request(),
+      push_attached: "deny",
+    });
+    expect(puts[0]?.pushAttached).toBeUndefined();
+    expect(puts[1]?.pushAttached).toBe("deny");
   });
 
   test("only a signed-in console user may save; an API key is refused", async () => {

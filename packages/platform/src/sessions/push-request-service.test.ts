@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   GITHUB_CEILING_NONE,
   type Principal,
+  type PushAttached,
   type PushRequest,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
@@ -457,6 +458,10 @@ describe("a push to another repository", () => {
       revision: 3,
       gitCommit: "a".repeat(40),
     },
+    attachedPolicy: {
+      pushAttached: PushAttached;
+      attachedApproval: PushPolicyApproval | null;
+    } = { pushAttached: "ask", attachedApproval: null },
   ) {
     const created: CreatePushRequestInput[] = [];
     const refusals: PushRefusalRecord[] = [];
@@ -481,6 +486,7 @@ describe("a push to another repository", () => {
           },
           githubEnabled: true,
           policyApproval,
+          ...attachedPolicy,
           policyFields: { policy_source: "release" },
         }),
         recordRefusal: async (input: PushRefusalRecord) => {
@@ -619,6 +625,91 @@ describe("a push to another repository", () => {
       ["sample-app", approval],
       ["docs", null],
     ]);
+  });
+
+  describe("push.attached: allow, ask, deny", () => {
+    const own: PushPolicyApproval = {
+      releaseId: "019a0000-0000-7000-8000-0000000000d1",
+      source: "agent",
+      settingsRevision: 4,
+    };
+    const attachedApproval: PushPolicyApproval = {
+      ...own,
+      settingsRevision: 7,
+    };
+
+    test("allow approves an attached repository by policy, with no card; the own repository follows push_approval alone", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        null,
+        undefined,
+        { pushAttached: "allow", attachedApproval },
+      );
+      expect(await to("docs")).toBeNull();
+      expect(await to("sample-app")).toBeNull();
+      expect(
+        created.map((input) => [input.repositoryId, input.policyApproval]),
+      ).toEqual([
+        ["docs", attachedApproval],
+        // Own repository: approval is still on (policyApproval is null).
+        ["sample-app", null],
+      ]);
+    });
+
+    test("ask leaves an attached repository to a person, as before the column", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        own,
+        undefined,
+        { pushAttached: "ask", attachedApproval: null },
+      );
+      expect(await to("docs")).toBeNull();
+      expect(created.map((input) => input.policyApproval)).toEqual([null]);
+    });
+
+    test("deny refuses an attached repository as repository_not_allowed and records the refusal", async () => {
+      const { to, created, refusals } = pushing(
+        ["docs"],
+        "sample-app",
+        undefined,
+        own,
+        undefined,
+        { pushAttached: "deny", attachedApproval: null },
+      );
+      const error = (await to("docs")) as SessionServiceError;
+      expect(error).toBeInstanceOf(SessionServiceError);
+      expect(error.details).toEqual({
+        refusal: "repository_not_allowed",
+        receipt_id: "receipt-1",
+      });
+      expect(refusals.at(-1)?.result).toMatchObject({
+        repository_id: "docs",
+        refusal: "repository_not_allowed",
+      });
+      expect(created).toEqual([]);
+      // The session's own repository is not an attached one: deny leaves it be.
+      expect(await to("sample-app")).toBeNull();
+      expect(created.map((input) => input.repositoryId)).toEqual([
+        "sample-app",
+      ]);
+    });
+
+    test("with no repository of its own, every repository is attached, so deny refuses them all", async () => {
+      const { to, created } = pushing(
+        ["docs"],
+        null,
+        undefined,
+        null,
+        undefined,
+        { pushAttached: "deny", attachedApproval: null },
+      );
+      expect(await to("docs")).toBeInstanceOf(SessionServiceError);
+      expect(created).toEqual([]);
+    });
   });
 
   test("without an attached list, every repository the release lists", async () => {

@@ -71,6 +71,7 @@ export const agentSettingsColumns = {
   settingsFeatures: agentGitHubSettings.features,
   settingsActionsAllow: agentGitHubSettings.actionsAllow,
   settingsStartRepositoryId: agentGitHubSettings.startRepositoryId,
+  settingsPushAttached: agentGitHubSettings.pushAttached,
   settingsRevision: agentGitHubSettings.revision,
   settingsUpdatedBy: agentGitHubSettings.updatedBy,
 };
@@ -92,6 +93,7 @@ export function agentGitHubSettingsRowOf(row: {
   settingsFeatures: unknown;
   settingsActionsAllow: unknown;
   settingsStartRepositoryId: string | null;
+  settingsPushAttached: string | null;
   settingsRevision: number | null;
   settingsUpdatedBy: string | null;
 }): AgentGitHubSettingsRow | null {
@@ -104,6 +106,7 @@ export function agentGitHubSettingsRowOf(row: {
     features: row.settingsFeatures,
     actionsAllow: row.settingsActionsAllow,
     startRepositoryId: row.settingsStartRepositoryId,
+    pushAttached: row.settingsPushAttached,
     revision: row.settingsRevision,
     updatedBy: row.settingsUpdatedBy,
   };
@@ -236,6 +239,7 @@ export async function captureGitHubPolicyStart(
     enabled: row.enabled,
     revision: read.agentSettingsRevision,
     settings: read.settings,
+    push_attached: read.pushAttached,
   };
 }
 
@@ -251,6 +255,7 @@ export async function agentGitHubSettingsOf(
       features: agentGitHubSettings.features,
       actionsAllow: agentGitHubSettings.actionsAllow,
       startRepositoryId: agentGitHubSettings.startRepositoryId,
+      pushAttached: agentGitHubSettings.pushAttached,
       revision: agentGitHubSettings.revision,
       updatedBy: agentGitHubSettings.updatedBy,
     })
