@@ -50,7 +50,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-export CLUSTER_NAME="${CLUSTER_NAME:-agent-platform-smoke}"
+export CLUSTER_NAME="${CLUSTER_NAME:-werft-smoke}"
 export KIND_MODEL="${KIND_MODEL:-fake}"
 export NAMESPACE="${NAMESPACE:-werft}"
 export RELEASE="${RELEASE:-werft}"
@@ -62,9 +62,9 @@ if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
 fi
 # up.sh's default.
 if [ "${CLUSTER_PROVIDER:-kind}" = orbstack ]; then
-  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/orbstack/${NAMESPACE}}"
+  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/orbstack/${NAMESPACE}}"
 else
-  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-platform/kind/${CLUSTER_NAME}}"
+  export STATE_DIR="${STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/werft/kind/${CLUSTER_NAME}}"
 fi
 export KUBECONFIG="${STATE_DIR}/kubeconfig"
 PROBE_IMAGE="${PROBE_IMAGE:-busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662}"
