@@ -55,6 +55,7 @@ import {
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { noWorkspace } from "../apps/worker/src/workspace.ts";
+import { until } from "./until.ts";
 
 /**
  * Interrupt flow end to end in one process: the public API
@@ -128,20 +129,6 @@ function capturing(): WorkerCheckpointPort {
       };
     },
   };
-}
-
-async function until<T>(
-  read: () => Promise<T | undefined>,
-  label: string,
-  timeoutMs = 10_000,
-): Promise<T> {
-  const deadline = performance.now() + timeoutMs;
-  while (performance.now() < deadline) {
-    const value = await read();
-    if (value !== undefined) return value;
-    await Bun.sleep(20);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }
 
 integration("POST /v1/sessions/{id}/interrupt end to end", () => {

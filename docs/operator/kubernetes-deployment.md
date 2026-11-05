@@ -8,7 +8,7 @@ Docker 단일 서버 설치(`local-docker` 실행 기반, compose)는 그대로 
 
 worker Pod 하나의 메모리(`worker.memoryMb`)는 transcript 상한에 맞춰 잡은 값이고, requests = limits라서 노드당 동시 세션 수를 정한다. 노드 크기를 정하거나 이 값을 바꾸기 전에 [capacity.md](capacity.md)를 본다.
 
-명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다. **kind** 표시는 아래 두 경우에 한해 문서 블록 그대로의 실행을 뜻하지 않는다. 직접 설치의 Secret 블록은 `up.sh`가 만드는 형태와 다르고 문서 블록 그대로는 실행하지 않았다. "게시 chart를 올리기"의 명령은 게시된 chart가 아니라 fixture chart로 돌렸다.
+명령마다 어디서 확인했는지 적었다. **kind**는 `deploy/kind/up.sh`로 띄운 클러스터에서 돌려 본 명령이고, **AWS 전용**은 AWS 리소스가 있어야 해서 로컬에서는 돌릴 수 없는 명령이다. **kind** 표시는 아래 두 경우에 한해 문서 블록 그대로의 실행을 뜻하지 않는다. 직접 설치의 Secret 블록은 `up.sh`가 만드는 형태와 다르고 문서 블록 그대로는 실행하지 않았다. "게시 chart를 올리기"의 명령은 게시된 chart가 아니라 fixture chart로 돌렸다. 업그레이드 전 검사의 직전 이미지 경로(`lookup`으로 직전 이미지를 읽는 분기와, 직전 이미지를 빼거나 바꾸는 실제 `helm upgrade`)는 kind에서도 돌리지 않았다.
 
 ## chart가 만드는 것
 
@@ -278,7 +278,7 @@ fi
 
 `--revision`을 빼면 실패한 upgrade가 있을 때 그 revision의 값, 즉 올리려던 이미지가 나온다. worker digest가 다르면 지금 이미지를 후보 파일에 쓰고, upgrade가 성공한 뒤에만 `worker-previous.json`을 그 파일로 바꾼다. 실패한 upgrade는 보존 파일을 건드리지 않는다. digest가 같으면 있던 파일을 그대로 넘긴다. 처음 설치한 뒤 worker가 그대로인 upgrade에는 아직 넘길 파일이 없고, 그래도 된다.
 
-- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade는 세션을 비교하지 않고 `proceed`이므로, 이 파일을 빠뜨리면 경고 없이 지원 창이 줄고 옛 조합으로 남은 세션은 재개 때 `recovery_required`로 멈출 수 있다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
+- `worker-previous.json`은 설치 옆에 보관하고 다음 upgrade에도 넘긴다. worker digest가 같은 upgrade에서 이 파일을 빠뜨리면 배포된 직전 이미지가 빠진다. 업그레이드 전 검사는 그때 세션을 비교해, 대상 이미지(현재 이미지와, 있으면 직전 이미지) 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`로 멈춘다(승인할 수 있다). 실수로 빠뜨렸다면 승인하지 말고 파일을 넣어 다시 돌린다. 고른 세션이 없고 `upgrade.approvedSessions`가 비어 있으면 통과한다(지난 upgrade의 승인이 남아 있으면 `refused`다). 검사가 보지 못하는 세션은 아래 "검사가 보지 않는 것"을 본다. 같은 날 머지된 `main` chart는 worker digest가 같을 수 있다.
 - `--reuse-values`를 쓰지 않는다. 옛 chart의 값을 기본값으로 쓰므로 새 chart 버전인데 이미지는 그대로 남는다.
 - `helm get values --all` 전체를 values 파일로 넘기지 않는다. 옛 digest가 새 chart의 값을 덮는다. `.images.worker`만 꺼낸다.
 - `v*` 태그에서 게시한 chart도 같은 절차를 따른다.
@@ -319,9 +319,9 @@ kubectl -n werft logs job/werft-upgrade-check
 
 | `verdict` | exit | upgrade | 뜻 |
 |---|---|---|---|
-| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나, worker 이미지가 그대로이거나, 배포된 적이 없으면 승인 목록이 비어 있어야 한다 |
-| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). 또는 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
-| `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합이 읽히지 않거나 아래 표대로 필요한데 없거나, 배포된 worker 이미지를 알 수 없다. scheduler Deployment가 없는데 DB에 세션이나 일부 schema가 있어도 여기다. 넘기는 설정은 없다 |
+| `proceed` | 0 | 진행 | `upgrade.approvedSessions`가 `affected`의 `sessionId`와 정확히 같다. 고른 세션이 없거나, worker 이미지가 그대로이고 배포된 직전 이미지가 없거나 그대로이거나, 배포된 적이 없으면 승인 목록이 비어 있어야 한다 |
+| `refused` | 2 | 멈춤 | 승인 목록이 하나라도 다르다(지난 upgrade의 승인이 values에 남은 경우 포함). worker 이미지가 그대로여도 배포된 직전 이미지가 대상에서 빠지거나 바뀌면 세션을 비교하므로, 대상 이미지(현재 이미지와, 있으면 직전 이미지) 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 목록에 오른다. 또는 worker 이미지가 바뀌는데 대상의 `images.workerPrevious`가 지금 배포된 worker 이미지가 아니다. 이 경우는 승인으로 넘길 수 없다 |
+| `check_failed` | 1 | 멈춤 | DB를 읽지 못했거나, 이미지 조합이 읽히지 않거나 아래 표대로 필요한데 없거나, 배포된 worker 이미지를 알 수 없다. 배포된 worker 이미지가 있는데 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`가 없어도 여기다(직전 이미지가 없으면 빈 값을 준다). scheduler Deployment가 없는데 DB에 세션이나 일부 schema가 있어도 여기다. 넘기는 설정은 없다 |
 
 `images.worker.runtime`은 첫 설치에는 없어도 된다. upgrade에서 필요한지는 배포된 상태와 대상 값에 달렸다.
 
@@ -334,7 +334,7 @@ kubectl -n werft logs job/werft-upgrade-check
 
 runtime 값을 얻는 방법은 [configuration.md의 API 설정](configuration.md)에 있다. 최소 values 설치는 runtime 없이 시작하고, worker 이미지를 처음 바꾸는 upgrade에서 두 이미지의 runtime을 함께 넣는다.
 
-`images.worker`를 그대로 두고 `images.workerPrevious`만 빼는 upgrade는 막지 않는다. 같은 이미지 upgrade는 세션을 비교하지 않으므로 `proceed`다. 빠진 이미지의 조합으로 남은 세션은 재개할 때 `recovery_required`로 멈출 수 있으니, 그런 세션이 없을 때만 뺀다.
+`images.worker`를 그대로 두고 배포된 `images.workerPrevious`를 빼거나 바꾸는 upgrade는 세션을 비교한다. 대상 이미지(현재 이미지와, 있으면 직전 이미지) 어느 쪽과도 조합이 맞지 않거나 조합이 기록되지 않은 세션이 있으면 `refused`이고, 그 목록을 승인하면 통과한다. 조합이 기록되지 않은 세션은 이미지를 바꾸는 upgrade와 같게 어느 경우든 고른다. 배포된 직전 이미지가 없었거나 그대로면 세션을 비교하지 않고, 승인 목록이 비어 있을 때 `proceed`다(남은 승인은 `refused`다). 이미지만 다르고 조합이 같은 재빌드는 직전 이미지를 빼도 세션이 현재 이미지에서 재개되므로 목록에 오르지 않는다.
 
 고른 세션이 재개하지 못해도 되면 그 목록을 그대로 values에 넣고 같은 upgrade를 다시 돌린다. 승인은 세션 상태를 바꾸지 않는다. `no_image`로 고른 세션은 재개할 때 `recovery_required`로 멈춘다. `unrecorded`로 고른 세션은 새 이미지로 뜨고, 복원이 판정해 이어지거나 `recovery_required`로 멈춘다.
 
@@ -344,21 +344,22 @@ helm upgrade --install ... --set-json 'upgrade.approvedSessions=["<sessionId>", 
 
 승인 목록은 release values에 남는다. 다음 upgrade마다 `--set-json 'upgrade.approvedSessions=[]'`로 비우고, 그 upgrade의 목록을 다시 읽고 승인한다. 남은 목록은 그 upgrade의 `affected`와 다르면 `refused`로 멈추지만, 같고 지원 창 조건도 맞으면 그대로 통과한다.
 
-Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로 받는다. 배포된 worker 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`를 `lookup`으로 읽어 넘긴다. 위 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 두 값이 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
+Job은 승인 목록을 `UPGRADE_APPROVED_SESSIONS`(JSON 배열)로, 배포된 worker 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE`로, 배포된 직전 이미지를 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`(없으면 빈 값)로 받는다. 배포된 이미지는 chart가 지금 scheduler Deployment의 `WORKER_IMAGE`와 `WORKER_IMAGE_PREVIOUS`를 `lookup`으로 읽어 넘긴다. 직전 이미지를 읽는 `lookup` 분기와 직전 이미지를 빼거나 바꾸는 실제 `helm upgrade`는 클러스터에서 실행해 확인하지 않았다. 검사 진입점만 실제 PostgreSQL에 대고 돌려 확인했다. 위 표의 예외를 열 수 있는 것은 chart가 함께 넘기는 `UPGRADE_DEPLOYED_STATE`뿐이다. `absent`는 scheduler Deployment가 없고 namespace의 `default` ServiceAccount는 읽혔다는 뜻이다(그래서 이 경로에는 그 ServiceAccount의 `get` 권한이 필요하다). `unpinned`는 Deployment가 runtime·직전 이미지 없이 도는 상태다. `helm template`과 클라이언트 `--dry-run`에서는 `lookup`이 아무것도 읽지 않아 세 값이 비므로 그 렌더로 돌린 Job은 `check_failed`가 된다. `--dry-run=server`는 클러스터를 읽지만 hook을 실행하지 않으므로 판정을 대신하지 않는다. 검사는 `DATABASE_URL`이 이 설치의 DB라고 믿는다. 다른 빈 DB를 가리키면 `absent` 경로가 통과한다. 첫 설치(`pre-install`)와 `scheduler.enabled: false`에서는 Job을 만들지 않는다. Job과 scheduler가 같은 이미지를 보도록 `WORKER_IMAGE`·`WORKER_IMAGE_PREVIOUS`·`WORKER_IMAGE_RUNTIME`·`WORKER_IMAGE_PREVIOUS_RUNTIME`은 `*.extraEnv`, `config.limits`, `secrets.catalogEnv`로 줄 수 없다. 주면 render가 실패한다. `images.worker`와 `images.workerPrevious`로 준다.
 
 **`helm rollback` 전.** rollback은 hook을 돌리지 않으므로 같은 명령을 api Pod에서 직접 돌린다. 값은 되돌릴 revision의 것(`helm get values --revision <revision>`)을 넣는다.
 
 ```bash
 kubectl -n werft exec deploy/werft-api -- env \
   UPGRADE_DEPLOYED_WORKER_IMAGE='<지금 scheduler의 WORKER_IMAGE>' \
+  UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS='<지금 scheduler의 WORKER_IMAGE_PREVIOUS, 없으면 빈 값>' \
   WORKER_IMAGE='<되돌릴 revision의 worker 이미지>' WORKER_IMAGE_RUNTIME='<그 runtime JSON>' \
   WORKER_IMAGE_PREVIOUS='<그 revision의 workerPrevious>' WORKER_IMAGE_PREVIOUS_RUNTIME='<그 runtime JSON>' \
   bun run apps/control-host/src/api/upgrade-check.ts
 ```
 
-worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 되돌릴 revision의 `images.workerPrevious`가 지금 배포된 이미지가 아니기 때문이다(검사는 조합이 아니라 이미지 참조를 비교한다). 설정이나 DB를 읽지 못하면 `check_failed`다. 지금 이미지로 도는 worker는 rollback 뒤에도 끝날 때까지 그 이미지의 조합으로 checkpoint를 남기는데, 검사는 그 checkpoint를 보지 못한다. 출력의 `affected`는 검사 시점에 이미 고른 세션이다. 롤포워드가 우선이다. 그래도 되돌리면 재개할 때 scheduler가 조합으로 이미지를 고른다. 되돌린 두 이미지 어느 쪽과도 조합이 맞지 않는 세션(지금 이미지가 새 SDK·CLI를 실었다면 rollback 동안 지금 이미지로 checkpoint를 남긴 세션)은 `recovery_required`로 멈춘다. `images.worker`를 그대로 두는 rollback은 승인 목록 없이 돌리면 `proceed`다.
+worker 이미지를 되돌리는 보통의 rollback은 `refused`다. 되돌릴 revision의 `images.workerPrevious`가 지금 배포된 이미지가 아니기 때문이다(검사는 조합이 아니라 이미지 참조를 비교한다). 설정이나 DB를 읽지 못하면 `check_failed`다. 지금 이미지로 도는 worker는 rollback 뒤에도 끝날 때까지 그 이미지의 조합으로 checkpoint를 남기는데, 검사는 그 checkpoint를 보지 못한다. 출력의 `affected`는 검사 시점에 이미 고른 세션이다. 롤포워드가 우선이다. 그래도 되돌리면 재개할 때 scheduler가 조합으로 이미지를 고른다. 되돌린 revision의 worker 이미지와 직전 이미지(있다면) 어느 쪽과도 조합이 맞지 않는 세션(지금 이미지가 새 SDK·CLI를 실었다면 rollback 동안 지금 이미지로 checkpoint를 남긴 세션)은 `recovery_required`로 멈춘다. `images.worker`를 그대로 두는 rollback은 지금 배포된 직전 이미지가 되돌릴 revision에도 그대로 있으면 승인 목록이 비어 있을 때 `proceed`이고(남은 승인은 `refused`), 빠지거나 바뀌면 위 upgrade처럼 세션을 비교한다. 이 명령은 hook이 아니어서 rollback을 막아 주지 않는다. `refused`가 나오면 `affected`를 읽고 되돌릴지 정한다. 배포된 worker 이미지가 있는데 `UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS`를 빼면 `check_failed`다.
 
-**검사가 보지 않는 것.** compose의 `scripts/test-ops.sh upgrade`와 달리 이 검사는 대상 이미지를 실행하지 않는다. 포인터에 기록된 조합(engine·SDK·CLI·profile digest 방식)만 비교하고, 실제 profile digest는 복원 때 판정된다. 검사 뒤 writer를 멈추고 다시 검사하지도 않는다. 대상의 `images.workerPrevious`가 지금 배포된 이미지와 같아야 통과하므로, 검사 뒤에 지금 이미지의 worker가 남기는 checkpoint는 대상 지원 창 안에 있다. 그보다 옛 이미지로 도는 worker의 세션은 포인터가 이미 그 조합이라 목록에 오른다. 대상 이미지를 registry에서 받을 수 있는지도 보지 않는다. 받지 못하면 launch 실패로 나타난다.
+**검사가 보지 않는 것.** compose의 `scripts/test-ops.sh upgrade`와 달리 이 검사는 대상 이미지를 실행하지 않는다. 포인터에 기록된 조합(engine·SDK·CLI·profile digest 방식)만 비교하고, 실제 profile digest는 복원 때 판정된다. 검사 뒤 writer를 멈추고 다시 검사하지도 않는다. worker 이미지가 바뀌는 upgrade는 대상의 `images.workerPrevious`가 지금 배포된 이미지와 같아야 통과하므로, 검사 뒤에 지금 이미지의 worker가 남기는 checkpoint는 대상 지원 창 안에 있다. worker 이미지를 그대로 두고 직전 이미지를 빼는 upgrade에는 이 보장이 없다. 직전 이미지로 도는 worker는 검사 뒤에도 그 조합으로 checkpoint를 남길 수 있다. 첫 checkpoint 전인 세션도 마찬가지다. 그러니 직전 이미지를 빼기 전에 그 worker가 끝났는지 먼저 본다. 그보다 옛 이미지로 도는 worker의 세션은, 포인터가 이미 그 조합이면 목록에 오른다. 첫 checkpoint 전인 세션은 목록에 없다. 이 한계는 지원 창에서 빠지는 모든 이미지, 그리고 직전 이미지를 바꾸는 upgrade에도 같다. 대상 이미지를 registry에서 받을 수 있는지도 보지 않는다. 받지 못하면 launch 실패로 나타난다.
 
 ## 단일 서버 배포 10단계와의 대응
 

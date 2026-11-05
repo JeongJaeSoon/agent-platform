@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { applyMigrationFile } from "./testing/migrations.ts";
 
 /**
  * The 0007 backfill, run against the schema as it stood at 0006. It is the
@@ -15,12 +16,7 @@ const BACKFILL = "0007_typical_butterfly.sql";
 
 let client: PGlite;
 
-async function apply(file: string): Promise<void> {
-  const sql = await readFile(join(migrations, file), "utf8");
-  for (const statement of sql.split("--> statement-breakpoint")) {
-    if (statement.trim().length > 0) await client.exec(statement);
-  }
-}
+const apply = (file: string) => applyMigrationFile(client, file);
 
 async function seedSession(partition?: string): Promise<string> {
   const id = crypto.randomUUID();

@@ -31,7 +31,27 @@ export function neutralizeReferences(text: string): string {
     .replaceAll("<!--", `<!${ZWSP}--`);
 }
 
-function cut(text: string, max: number, suffix: string): string {
+// Lines an engine appends to a pull request body on its own (Claude Code's
+// default). Removed only when the whole line matches.
+const ENGINE_SIGNATURE_LINES: ReadonlySet<string> = new Set([
+  "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+  "🤖 Generated with [Claude Code](https://claude.ai/code)",
+  "Generated with [Claude Code](https://claude.com/claude-code)",
+  "Generated with [Claude Code](https://claude.ai/code)",
+]);
+
+/** `text` without the engine's own signature lines, and the blank run they leave at the end. */
+export function stripEngineSignatures(text: string): string {
+  const lines = text.split("\n");
+  const kept = lines.filter(
+    // Only a CRLF's `\r` is ignored: a line with anything else added is not the signature.
+    (line) => !ENGINE_SIGNATURE_LINES.has(line.replace(/\r$/, "")),
+  );
+  if (kept.length === lines.length) return text;
+  return kept.join("\n").trimEnd();
+}
+
+export function cut(text: string, max: number, suffix: string): string {
   if (text.length <= max) return text;
   let kept = text.slice(0, Math.max(0, max - suffix.length));
   // Never leave half of a surrogate pair at the cut.
@@ -49,17 +69,32 @@ export function cleanBody(
   max: number,
   redact: (line: string) => string,
 ): string {
+  return cleanBodies([text], max, redact)[0] ?? "";
+}
+
+/**
+ * Several texts of one body, cleaned as `cleanBody` does each, with a private
+ * key block that starts in one staying hidden through the next ones: a key
+ * split over fields or list items is not a key per piece.
+ */
+export function cleanBodies(
+  texts: readonly string[],
+  max: number,
+  redact: (line: string) => string,
+): string[] {
   let inKey = false;
-  const redacted = text
-    .split("\n")
-    .map((line) => {
-      if (keyBegin.test(line)) inKey = true;
-      const hidden = inKey || credentialLine.test(line);
-      if (keyEnd.test(line)) inKey = false;
-      return hidden ? REDACTED_LINE : redact(line);
-    })
-    .join("\n");
-  return cut(neutralizeReferences(redacted), max, TRUNCATED);
+  return texts.map((text) => {
+    const redacted = text
+      .split("\n")
+      .map((line) => {
+        if (keyBegin.test(line)) inKey = true;
+        const hidden = inKey || credentialLine.test(line);
+        if (keyEnd.test(line)) inKey = false;
+        return hidden ? REDACTED_LINE : redact(line);
+      })
+      .join("\n");
+    return cut(neutralizeReferences(redacted), max, TRUNCATED);
+  });
 }
 
 /** One line, redacted and neutralized, at most `PULL_REQUEST_TITLE_MAX`. */

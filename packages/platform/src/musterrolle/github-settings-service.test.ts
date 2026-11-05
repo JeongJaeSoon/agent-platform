@@ -21,8 +21,8 @@ import type {
   GitHubSettingsStore,
   GitHubWorkspaceSettings,
 } from "../ports/github-settings.ts";
-import { SessionServiceError } from "../sessions/session-service.ts";
 import { fakeGitHubClientSecret } from "../testing/github-fakes.ts";
+import { refusal } from "../testing/refusal.ts";
 import { createGitHubSettingsService } from "./github-settings-service.ts";
 import { type Caller, callerFor, createAuthorizationPolicy } from "./policy.ts";
 
@@ -260,18 +260,6 @@ function harness(
     now: options.now ?? (() => NOW),
   });
   return { service, puts, secrets, recorded: fake.recorded };
-}
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal");
 }
 
 const ACTIONS_ON: GitHubCeiling = { ...GITHUB_CEILING_NONE, actions: true };

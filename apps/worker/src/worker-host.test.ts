@@ -26,6 +26,7 @@ import type { WorkerTimeouts } from "./config.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
 import { FakeWorkerGateway } from "./testing/fake-gateway.ts";
 import { scriptedRuntime, startScripted } from "./testing/scripted-engine.ts";
+import { waitFor } from "./testing/wait-for.ts";
 import {
   frameTurn,
   inputUuid,
@@ -153,14 +154,6 @@ function harness(
     runtime,
     workspaces,
   };
-}
-
-async function waitFor(condition: () => boolean, label: string): Promise<void> {
-  for (let waited = 0; waited < 2_000; waited += 5) {
-    if (condition()) return;
-    await Bun.sleep(5);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
 }
 
 describe("WorkerHost turn loop", () => {

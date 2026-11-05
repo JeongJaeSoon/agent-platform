@@ -18,6 +18,7 @@ import {
   fakeSlackValue,
 } from "@werft-ai/platform/testing/slack";
 import { createFakeSlackWebApi } from "@werft-ai/testkit/fake-slack-api";
+import { errorOf } from "../../test-support/api-error.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerSlackChannelRoutes } from "./slack-channels.ts";
 
@@ -228,10 +229,6 @@ describe("GET /v1/agents/{id}/slack-channels", () => {
     }
   });
 });
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
-}
 
 describe("GET /v1/agents/{id}/slack/channels", () => {
   test("searches, pages to the end and logs the cache without the token", async () => {

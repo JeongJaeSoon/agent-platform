@@ -1389,7 +1389,9 @@ export interface paths {
          * Open a pull request from a pushed request
          * @description Opens a pull request on the request's repository's forge (GitHub or GHES) from the request's branch (`agent/<session-id>` or `agent/<session-id>-<branch>`) into that catalog entry's `branch`. Only a `pushed` request opens one, and only while the catalog entry is still the one the request pinned. The platform calls GitHub with its own credential: an installation token of the catalog's GitHub App, scoped to this repository with `contents: read` and `pull_requests: write`, or the entry's PAT.
          *
-         *     `title` (default `Agent session <session-id>`) and `body` are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, and both are cut to GitHub's limits. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.
+         *     The content is the structured fields `summary`, `changes`, `rationale`, `testing`, `notes` and `related`, or the legacy `body` text, never both. The platform lays the fields out on its default template, a heading per field that has content, in Korean; `related` items become `Closes #N` (an issue of the pull request's own repository, when `closes` is true) or `Refs owner/repo#N`, written by the platform from the catalog, and an item whose `repository_id` the session's catalog does not have is left out (`body_source.related_dropped` counts them). A legacy `body` is used as written. `body_source` says which one the platform wrote, and is null when the pull request was already open and its body was left alone.
+         *
+         *     `title` (default `Agent session <session-id>`) and the text are cleaned before GitHub sees them: `@` mentions, cross-repository references (`owner/repo#N`), closing keywords (`Closes #N` and the like) and HTML comments are broken with a zero-width space, a line that looks like a secret is replaced by `[REDACTED]`, an engine's own signature line (Claude Code's `Generated with` link) is removed, and the body is cut to GitHub's limit, the last fields first. The body ends with a line naming the session and the commit. The platform never approves, merges or asks for reviews.
          *
          *     Safe to retry: a request opens at most one pull request. When one is already recorded, or GitHub already has an open one for the branch, it is answered with `created: false` (200). Every attempt, refused ones included, leaves an `open_pull_request` receipt; `receipt_id` names this one, and a refusal's `error.details.receipt_id` names it.
          *
@@ -4375,6 +4377,16 @@ export interface components {
         };
         OpenPullRequestRequest: {
             title?: string;
+            summary?: string;
+            changes?: string[];
+            rationale?: string;
+            testing?: string;
+            notes?: string;
+            related?: {
+                number: number;
+                repository_id?: string;
+                closes?: boolean;
+            }[];
             body?: string;
         };
         CommentPullRequestRequest: {
@@ -6051,6 +6063,13 @@ export interface components {
                 receipt_id: string;
             };
             created: boolean;
+            body_source: {
+                /** @enum {string} */
+                kind: "repository" | "workspace" | "agent" | "platform";
+                path?: string;
+                skipped?: string;
+                related_dropped?: number;
+            } | null;
             /** Format: uuid */
             receipt_id: string;
         };
@@ -19054,6 +19073,9 @@ export interface operations {
                      *         "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                      *       },
                      *       "created": true,
+                     *       "body_source": {
+                     *         "kind": "platform"
+                     *       },
                      *       "receipt_id": "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d"
                      *     }
                      */

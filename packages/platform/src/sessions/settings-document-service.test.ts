@@ -13,7 +13,7 @@ import type {
   SettingsDocumentStore,
   SettingsImportResult,
 } from "../ports/settings-document-store.ts";
-import { SessionServiceError } from "./session-service.ts";
+import { refusal } from "../testing/refusal.ts";
 import type { SettingsEntries } from "./settings-document.ts";
 import { createSettingsDocumentService } from "./settings-document-service.ts";
 
@@ -95,18 +95,6 @@ function service(result: SettingsImportResult) {
     },
   });
   return { settings, asked, rereads: () => reread };
-}
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal");
 }
 
 const DOCUMENT = {

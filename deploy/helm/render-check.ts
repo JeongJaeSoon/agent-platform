@@ -777,6 +777,11 @@ function checkUpgradeHook(
   if (value("UPGRADE_DEPLOYED_WORKER_IMAGE") !== "") {
     fail("UPGRADE_DEPLOYED_WORKER_IMAGE is not empty without a cluster");
   }
+  if (value("UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS") !== "") {
+    fail(
+      "UPGRADE_DEPLOYED_WORKER_IMAGE_PREVIOUS is not empty without a cluster",
+    );
+  }
   // Either value of it opens a path that skips a comparison.
   if (value("UPGRADE_DEPLOYED_STATE") !== "") {
     fail("UPGRADE_DEPLOYED_STATE is not empty without a cluster");

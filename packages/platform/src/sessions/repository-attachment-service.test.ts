@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ReceiptActor } from "@werft-ai/contracts";
 import type { GitHubSessionContext } from "../ports/github-gate.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
+import { refusal } from "../testing/refusal.ts";
 import {
   attachCatalog,
   attachGitHub,
@@ -67,18 +68,6 @@ function service(
     list: () => attachments.list(SESSION),
     reads: () => reads,
   };
-}
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    if (error instanceof SessionServiceError) {
-      return { code: error.code, details: error.details };
-    }
-    throw error;
-  }
-  throw new Error("expected a refusal");
 }
 
 describe("list", () => {

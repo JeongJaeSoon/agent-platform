@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   acceptInviteResponseSchema,
-  apiErrorResponseSchema,
   CSRF_HEADER_NAME,
   CSRF_HEADER_VALUE,
   createInviteResponseSchema,
@@ -20,6 +19,7 @@ import {
   type InviteService,
   type InviteStore,
 } from "@werft-ai/platform";
+import { errorOf } from "../../test-support/api-error.ts";
 import { hashPassword, hashWebSessionToken, LoginLockout } from "../auth.ts";
 import { recordRouteErrors } from "../route-error-coverage.ts";
 import { registerInviteRoutes, registerPublicInviteRoutes } from "./invites.ts";
@@ -154,10 +154,6 @@ function app(
 }
 
 const owner = { "X-Owner-Id": WORKSPACE };
-
-async function errorOf(response: Response) {
-  return apiErrorResponseSchema.parse(await response.json()).error;
-}
 
 function send(
   api: ReturnType<typeof app>,
