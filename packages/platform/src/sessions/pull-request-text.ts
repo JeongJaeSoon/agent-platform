@@ -86,19 +86,27 @@ export function cleanBodies(
   max: number,
   redact: (line: string) => string,
 ): string[] {
-  let inKey = false;
+  const redactLine = lineRedactor(redact);
   return texts.map((text) => {
-    const redacted = text
-      .split("\n")
-      .map((line) => {
-        if (keyBegin.test(line)) inKey = true;
-        const hidden = inKey || credentialLine.test(line);
-        if (keyEnd.test(line)) inKey = false;
-        return hidden ? REDACTED_LINE : redact(line);
-      })
-      .join("\n");
+    const redacted = text.split("\n").map(redactLine).join("\n");
     return cut(neutralizeReferences(redacted), max, TRUNCATED);
   });
+}
+
+/**
+ * `redact` per line, in the order the lines are given, with a private key
+ * block hidden from its first line to its last.
+ */
+export function lineRedactor(
+  redact: (line: string) => string,
+): (line: string) => string {
+  let inKey = false;
+  return (line) => {
+    if (keyBegin.test(line)) inKey = true;
+    const hidden = inKey || credentialLine.test(line);
+    if (keyEnd.test(line)) inKey = false;
+    return hidden ? REDACTED_LINE : redact(line);
+  };
 }
 
 /** One line, redacted and neutralized, at most `PULL_REQUEST_TITLE_MAX`. */

@@ -11,6 +11,7 @@ import {
 import {
   cleanBodies,
   cut,
+  lineRedactor,
   stripEngineSignatures,
 } from "./pull-request-text.ts";
 
@@ -263,7 +264,18 @@ export function renderPullRequestBody(input: {
   template?: PreparedTemplate | null | undefined;
 }): { body: string; relatedDropped: number; templateUsed: boolean } {
   const { fields, locale, tail, maxLength, redact } = input;
-  let template = input.template ?? null;
+  // The template is the repository's text, but what is posted goes through
+  // the same redaction as the agent's.
+  const redactRow = lineRedactor(redact);
+  let template: PreparedTemplate | null =
+    input.template == null
+      ? null
+      : {
+          rows: input.template.rows.map((row) => ({
+            ...row,
+            text: redactRow(row.text),
+          })),
+        };
   const related: string[] = [];
   let relatedDropped = 0;
   for (const item of fields.related ?? []) {
