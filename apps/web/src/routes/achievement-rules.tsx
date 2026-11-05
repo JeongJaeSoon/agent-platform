@@ -25,10 +25,6 @@ import {
   Badge,
   Button,
   buttonVariants,
-  Card,
-  CardDescription,
-  CardFooter,
-  CardHeader,
   Checkbox,
   Code,
   Dialog,
@@ -41,13 +37,13 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-  Heading,
   Input,
   NativeSelect,
   NativeSelectOption,
   Page,
   RadioGroup,
   RadioGroupItem,
+  SettingsSection,
   Skeleton,
   Switch,
   Table,
@@ -114,7 +110,13 @@ const EDITOR_ID = "achievement-rule-editor";
 // Below md each row stacks its cells, each under its column's name (data-k),
 // so no table scrolls sideways at phone width.
 const STACK_TABLE =
-  "max-md:block max-md:[&>tbody]:block max-md:[&>thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:h-auto max-md:[&_tr]:px-4 max-md:[&_tr]:py-2.5";
+  "[&_tr>*:first-child]:pl-0 [&_tr>*:last-child]:pr-0 max-md:block max-md:[&>tbody]:block max-md:[&>thead]:hidden max-md:[&_tr]:block max-md:[&_tr]:h-auto max-md:[&_tr]:px-0 max-md:[&_tr]:py-2.5";
+// The settings layout zeroes --werft-row-padding-x for its list rows; the table
+// cells halve it for the gap between columns, so it is put back here. The
+// container scrolls, which clips a focus ring that sits outside its
+// control, so -m-1 p-1 leaves the ring's 4px inside the clip (as members.tsx).
+const TABLE_FRAME =
+  "-m-1 rounded-none border-0 p-1 [--werft-row-padding-x:var(--werft-space-4)]";
 const STACK_CELL =
   "max-md:flex max-md:w-full max-md:min-w-0 max-md:flex-wrap max-md:items-center max-md:justify-end max-md:gap-x-1.5 max-md:gap-y-1 max-md:px-0 max-md:py-0.5 max-md:text-right max-md:first:pl-0 max-md:last:pr-0 max-md:[overflow-wrap:anywhere] max-md:before:mr-auto max-md:before:flex-none max-md:before:text-caption max-md:before:text-subtle-foreground max-md:before:content-[attr(data-k)]";
 const NUM = "text-right tabular-nums";
@@ -278,11 +280,11 @@ export function AchievementRulesScreen() {
         </ReasonButton>
       }
     >
-      <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-[var(--werft-space-section)]">
         <OutcomeLine outcome={outcome} />
         <JudgeCard reason={reason} onOutcome={setOutcome} />
         {failed ? (
-          <Card className="py-0">
+          <div>
             <LoadFailure
               error={failed.error}
               onRetry={() => {
@@ -291,7 +293,7 @@ export function AchievementRulesScreen() {
                 }
               }}
             />
-          </Card>
+          </div>
         ) : categories.data && types.data && rules.data ? (
           <>
             <CategoriesCard
@@ -335,7 +337,6 @@ export function AchievementRulesScreen() {
   );
 }
 
-/** The mockup's `.card`: a title and note over the body, a foot under it. */
 function RulesSection({
   id,
   title,
@@ -355,48 +356,24 @@ function RulesSection({
   readonly onSubmit?: (event: FormEvent) => void;
   readonly children: ReactNode;
 }) {
-  const titleId = useId();
-  const body = (
-    <>
-      {children}
-      {foot ? (
-        <CardFooter variant="form" className="flex-wrap">
-          {foot}
-        </CardFooter>
-      ) : null}
-    </>
-  );
   return (
-    <section id={id} aria-labelledby={titleId} className="min-w-0">
-      <Card flush>
-        <CardHeader className="gap-0.5 border-b pt-3.5 [.border-b]:pb-3.5">
-          <div className="flex items-baseline gap-1.5">
-            <Heading
-              id={titleId}
-              ref={titleRef}
-              tabIndex={titleRef ? -1 : undefined}
-            >
-              {title}
-            </Heading>
-            {count === undefined ? null : (
-              <Text as="span" variant="sub" numeric>
-                {count}
-              </Text>
-            )}
-          </div>
-          <CardDescription>
-            <Text variant="meta">{description}</Text>
-          </CardDescription>
-        </CardHeader>
-        {onSubmit ? (
-          <form onSubmit={onSubmit} noValidate>
-            {body}
-          </form>
-        ) : (
-          body
-        )}
-      </Card>
-    </section>
+    <SettingsSection
+      id={id}
+      title={title}
+      titleRef={titleRef}
+      description={description}
+      badge={
+        count === undefined ? null : (
+          <Text as="span" variant="sub" numeric>
+            {count}
+          </Text>
+        )
+      }
+      foot={foot}
+      onSubmit={onSubmit}
+    >
+      {children}
+    </SettingsSection>
   );
 }
 
@@ -410,7 +387,7 @@ function JudgeRow({
   readonly children: ReactNode;
 }) {
   return (
-    <div className="grid gap-2 border-b px-4 py-3.5 last:border-b-0 md:grid-cols-[260px_minmax(0,1fr)] md:gap-4">
+    <div className="grid gap-2 border-b py-3.5 last:border-b-0 md:grid-cols-[260px_minmax(0,1fr)] md:gap-4">
       <div className="min-w-0">
         <Text as="div" weight="medium">
           {label}
@@ -527,9 +504,9 @@ function JudgeCard({
 
   if (judge.isError) {
     return (
-      <Card className="py-0">
+      <div>
         <LoadFailure error={judge.error} onRetry={() => void judge.refetch()} />
-      </Card>
+      </div>
     );
   }
   if (!settings || !form) return <Skeleton height="16rem" />;
@@ -575,146 +552,149 @@ function JudgeCard({
         </>
       }
     >
-      <JudgeRow
-        label={t("achievementRules.judge.judge")}
-        hint={t("achievementRules.judge.judgeHint")}
-      >
-        <div className="max-w-85 *:w-full">
-          <NativeSelect
-            aria-label={t("achievementRules.judge.connection")}
-            value={settings.connection_id ?? ""}
-            disabled={settings.connection_id === null || locked}
-            onChange={() => undefined}
-          >
-            <NativeSelectOption value={settings.connection_id ?? ""}>
-              {settings.connection_id ??
-                t("achievementRules.judge.noConnection")}
-            </NativeSelectOption>
-          </NativeSelect>
-        </div>
-        <Text variant="meta">{t("achievementRules.judge.sent")}</Text>
-      </JudgeRow>
-      <JudgeRow
-        label={t("achievementRules.judge.when")}
-        hint={t("achievementRules.judge.whenHint")}
-      >
-        <Field orientation="horizontal">
-          <Checkbox
-            checked={form.on_evidence}
-            disabled={locked}
-            onCheckedChange={(on) => set({ on_evidence: on === true })}
-          />
-          <FieldLabel className="font-normal">
-            {t("achievementRules.judge.onEvidence")}
-          </FieldLabel>
-        </Field>
-        <Field orientation="horizontal">
-          <Checkbox
-            checked={form.turnsOn}
-            disabled={locked}
-            onCheckedChange={(on) => set({ turnsOn: on === true })}
-          />
-          <Input
-            id={turnsId}
-            type="number"
-            inputMode="numeric"
-            className="w-16 shrink-0"
-            min={5}
-            max={100}
-            step={1}
-            aria-label={t("achievementRules.judge.turns")}
-            value={form.turns}
-            disabled={locked}
-            onChange={(event) => set({ turns: event.target.value })}
-          />
-          <FieldLabel className="font-normal">
-            {t("achievementRules.judge.everyTurns")}
-          </FieldLabel>
-        </Field>
-        <Field orientation="horizontal">
-          <Checkbox
-            checked={form.on_idle}
-            disabled={locked}
-            onCheckedChange={(on) => set({ on_idle: on === true })}
-          />
-          <FieldLabel className="font-normal">
-            {t("achievementRules.judge.onIdle")}
-          </FieldLabel>
-        </Field>
-      </JudgeRow>
-      <JudgeRow
-        label={t("achievementRules.judge.transcript")}
-        hint={t("achievementRules.judge.transcriptHint")}
-      >
-        <RadioGroup
-          aria-label={t("achievementRules.judge.transcript")}
-          value={form.transcript}
-          disabled={locked}
-          onValueChange={(value) =>
-            set({ transcript: value as JudgeDraft["transcript"] })
-          }
-          className="gap-2"
+      {/* One block: the form's gap-4 would otherwise add to each row's rule. */}
+      <div>
+        <JudgeRow
+          label={t("achievementRules.judge.judge")}
+          hint={t("achievementRules.judge.judgeHint")}
         >
-          {(["none", "recent"] as const).map((value) => (
-            <Field key={value} orientation="horizontal">
-              <RadioGroupItem value={value} />
-              <FieldLabel className="font-normal">
-                {t(
-                  value === "none"
-                    ? "achievementRules.judge.transcriptNone"
-                    : "achievementRules.judge.transcriptRecent",
-                )}
-              </FieldLabel>
-            </Field>
-          ))}
-        </RadioGroup>
-      </JudgeRow>
-      <JudgeRow
-        label={t("achievementRules.judge.limits")}
-        hint={t("achievementRules.judge.limitsHint")}
-      >
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div className="flex items-center gap-1.5">
-            <FieldLabel htmlFor={budgetId} className="font-normal">
-              {t("achievementRules.judge.dailyBudget")}
-            </FieldLabel>
-            <Text as="span" variant="sub" aria-hidden="true">
-              $
-            </Text>
-            <Input
-              id={budgetId}
-              type="number"
-              inputMode="decimal"
-              className="w-20"
-              min={0}
-              step="any"
-              value={form.budget}
-              disabled={locked}
-              onChange={(event) => set({ budget: event.target.value })}
-            />
+          <div className="max-w-85 *:w-full">
+            <NativeSelect
+              aria-label={t("achievementRules.judge.connection")}
+              value={settings.connection_id ?? ""}
+              disabled={settings.connection_id === null || locked}
+              onChange={() => undefined}
+            >
+              <NativeSelectOption value={settings.connection_id ?? ""}>
+                {settings.connection_id ??
+                  t("achievementRules.judge.noConnection")}
+              </NativeSelectOption>
+            </NativeSelect>
           </div>
-          <div className="flex items-center gap-1.5">
-            <FieldLabel htmlFor={perSessionId} className="font-normal">
-              {t("achievementRules.judge.maxPerSession")}
+          <Text variant="meta">{t("achievementRules.judge.sent")}</Text>
+        </JudgeRow>
+        <JudgeRow
+          label={t("achievementRules.judge.when")}
+          hint={t("achievementRules.judge.whenHint")}
+        >
+          <Field orientation="horizontal">
+            <Checkbox
+              checked={form.on_evidence}
+              disabled={locked}
+              onCheckedChange={(on) => set({ on_evidence: on === true })}
+            />
+            <FieldLabel className="font-normal">
+              {t("achievementRules.judge.onEvidence")}
             </FieldLabel>
+          </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              checked={form.turnsOn}
+              disabled={locked}
+              onCheckedChange={(on) => set({ turnsOn: on === true })}
+            />
             <Input
-              id={perSessionId}
+              id={turnsId}
               type="number"
               inputMode="numeric"
-              className="w-20"
-              min={1}
+              className="w-16 shrink-0"
+              min={5}
+              max={100}
               step={1}
-              value={form.perSession}
+              aria-label={t("achievementRules.judge.turns")}
+              value={form.turns}
               disabled={locked}
-              onChange={(event) => set({ perSession: event.target.value })}
+              onChange={(event) => set({ turns: event.target.value })}
             />
-            {/* The label already says what it counts; this is the unit. */}
-            <Text as="span" variant="sub" aria-hidden="true">
-              {t("achievementRules.judge.perSessionUnit")}
-            </Text>
+            <FieldLabel className="font-normal">
+              {t("achievementRules.judge.everyTurns")}
+            </FieldLabel>
+          </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              checked={form.on_idle}
+              disabled={locked}
+              onCheckedChange={(on) => set({ on_idle: on === true })}
+            />
+            <FieldLabel className="font-normal">
+              {t("achievementRules.judge.onIdle")}
+            </FieldLabel>
+          </Field>
+        </JudgeRow>
+        <JudgeRow
+          label={t("achievementRules.judge.transcript")}
+          hint={t("achievementRules.judge.transcriptHint")}
+        >
+          <RadioGroup
+            aria-label={t("achievementRules.judge.transcript")}
+            value={form.transcript}
+            disabled={locked}
+            onValueChange={(value) =>
+              set({ transcript: value as JudgeDraft["transcript"] })
+            }
+            className="gap-2"
+          >
+            {(["none", "recent"] as const).map((value) => (
+              <Field key={value} orientation="horizontal">
+                <RadioGroupItem value={value} />
+                <FieldLabel className="font-normal">
+                  {t(
+                    value === "none"
+                      ? "achievementRules.judge.transcriptNone"
+                      : "achievementRules.judge.transcriptRecent",
+                  )}
+                </FieldLabel>
+              </Field>
+            ))}
+          </RadioGroup>
+        </JudgeRow>
+        <JudgeRow
+          label={t("achievementRules.judge.limits")}
+          hint={t("achievementRules.judge.limitsHint")}
+        >
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex items-center gap-1.5">
+              <FieldLabel htmlFor={budgetId} className="font-normal">
+                {t("achievementRules.judge.dailyBudget")}
+              </FieldLabel>
+              <Text as="span" variant="sub" aria-hidden="true">
+                $
+              </Text>
+              <Input
+                id={budgetId}
+                type="number"
+                inputMode="decimal"
+                className="w-20"
+                min={0}
+                step="any"
+                value={form.budget}
+                disabled={locked}
+                onChange={(event) => set({ budget: event.target.value })}
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <FieldLabel htmlFor={perSessionId} className="font-normal">
+                {t("achievementRules.judge.maxPerSession")}
+              </FieldLabel>
+              <Input
+                id={perSessionId}
+                type="number"
+                inputMode="numeric"
+                className="w-20"
+                min={1}
+                step={1}
+                value={form.perSession}
+                disabled={locked}
+                onChange={(event) => set({ perSession: event.target.value })}
+              />
+              {/* The label already says what it counts; this is the unit. */}
+              <Text as="span" variant="sub" aria-hidden="true">
+                {t("achievementRules.judge.perSessionUnit")}
+              </Text>
+            </div>
           </div>
-        </div>
-      </JudgeRow>
+        </JudgeRow>
+      </div>
     </RulesSection>
   );
 }
@@ -771,7 +751,7 @@ function returnFocusTo(target: () => HTMLElement | null) {
 
 function DialogError({ error }: { readonly error: string | null }) {
   return error === null ? null : (
-    <Alert variant="red" role="alert">
+    <Alert variant="red" role="alert" className="border-0">
       <AlertDescription>{error}</AlertDescription>
     </Alert>
   );
@@ -807,7 +787,7 @@ function CategoriesCard({
       count={shown.length}
       description={t("achievementRules.category.description")}
     >
-      <div ref={list} className="flex flex-wrap items-center gap-2 px-4 py-3">
+      <div ref={list} className="flex flex-wrap items-center gap-2 py-3">
         <ul className="m-0 contents list-none p-0">
           {shown.map((category) => (
             <li
@@ -1035,7 +1015,7 @@ function TypesCard({
     >
       <TableContainer
         label={t("achievementRules.type.title")}
-        className="rounded-none border-0"
+        className={TABLE_FRAME}
       >
         <Table className={STACK_TABLE}>
           <TableHeader>
@@ -1321,7 +1301,7 @@ function RulesCard({
     >
       <TableContainer
         label={t("achievementRules.rules.title")}
-        className="rounded-none border-0"
+        className={TABLE_FRAME}
       >
         <Table className={STACK_TABLE}>
           <TableHeader>
@@ -1689,7 +1669,7 @@ function RuleEditor({
           </>
         }
       >
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4">
           <div className="grid gap-4 md:grid-cols-[1fr_2fr]">
             <Field>
               <FieldLabel htmlFor={ids.category}>

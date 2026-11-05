@@ -14,6 +14,7 @@ import {
   createPostgresAgentStore,
   createPostgresAuditRetention,
   createPostgresCatalogRepositoryStore,
+  createPostgresCommitAttributionLedger,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresGitHubAppManifestStore,
@@ -877,6 +878,7 @@ const githubPackages = createGitHubPackagesService({
   secretsOn: secretKey !== null,
 });
 const sessionAttribution = createPostgresSessionAttributionStore(db);
+const commitAttributions = createPostgresCommitAttributionLedger(db);
 const agentGitHub = createAgentGitHubService({
   authorization,
   agents: agentStore,
@@ -959,6 +961,7 @@ const pushExecutor = createPushExecutor({
   gate: github,
   bundles: checkpoints.pushSource,
   pusher: createGitPusher({ maxGitMemoryBytes: checkpointGitMemoryBytes }),
+  attributions: commitAttributions,
   logger,
 }).start();
 // Each replica reads the state of the pull requests sessions opened; the
@@ -1030,6 +1033,7 @@ const workers = createWorkerGateway({
   attachments: repositoryAttachmentStore,
   attribution: {
     store: sessionAttribution,
+    ledger: commitAttributions,
     consoleOrigin,
     appBotUserId: createAppBotUsers({ logger }),
     commitPin: {

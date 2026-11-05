@@ -298,11 +298,12 @@ export function RepositorySheet({
             ) : (
               <>
                 <GridTable
+                  className="[--werft-row-padding-x:0px]"
                   aria-label={tableName}
                   columns={COLUMNS}
                   narrowAt={480}
                   narrowColumns={NARROW_COLUMNS}
-                  framed
+                  framed={false}
                 >
                   <GridTableHeader>
                     <GridTableColumnHeader>
@@ -404,11 +405,12 @@ export function RepositorySheet({
                 </Heading>
                 <Text variant="meta">{t("github.sheet.outsideHint")}</Text>
                 <GridTable
+                  className="[--werft-row-padding-x:0px]"
                   aria-labelledby={outsideId}
                   columns={COLUMNS}
                   narrowAt={480}
                   narrowColumns={NARROW_COLUMNS}
-                  framed
+                  framed={false}
                 >
                   <GridTableHeader>
                     <GridTableColumnHeader>

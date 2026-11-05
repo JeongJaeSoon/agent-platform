@@ -7,7 +7,7 @@ description: インストール上限、API設定、scheduler・workerコンテ�
 
 ## インストール上限
 
-APIとschedulerは、次の値のうち`SESSION_TOKEN_LIMIT`を除く6つのどれかがない場合、またはどれかの形式が誤っている場合、問題をすべて1行でログに出して起動しません。`SESSION_TOKEN_LIMIT`は後から加えた値なので、なければ0(上限なし)として読みます。2つのプロセスは同じparser(`packages/platform/src/limits/installation-limits.ts`)を使います。`SESSION_TOKEN_LIMIT`の0を除き、コードに既定値はなく、composeの`x-installation-limits`ブロックがローカルの既定値を与えます。起動中のAPIの`/readyz`は、同じ検証を`config`チェックとしてもう一度行います。
+APIとschedulerは、次の値のうち`SESSION_TOKEN_LIMIT`を除く6つのどれかがない場合、またはどれかの形式が誤っている場合、問題をすべて1行でログに出して起動しません。`SESSION_TOKEN_LIMIT`は、なければ0(上限なし)として読みます。2つのプロセスは同じparser(`packages/platform/src/limits/installation-limits.ts`)を使います。`SESSION_TOKEN_LIMIT`の0を除き、コードに既定値はなく、composeの`x-installation-limits`ブロックがローカルの既定値を与えます。起動中のAPIの`/readyz`は、同じ検証を`config`チェックとしてもう一度行います。
 
 | 変数 | 意味 | 超えたとき |
 |---|---|---|
@@ -33,7 +33,7 @@ APIとschedulerは、次の値のうち`SESSION_TOKEN_LIMIT`を除く6つのど�
   - 4.6より前のモデル(Opus 4.5・4、Sonnet 4.5・4、Haiku 4.5)は`inference_geo`を受け付けないので、geoに関係なく標準単価で数えます。これらのモデルのウィンドウは200Kで、公開されたlong-context単価がありません。そのため、input・cache write・cache readの合計が200Kを超える呼び出しは、最も高い単価で数えます(`priced_by=fallback`)。4.6以降のモデルは、1M全体が標準単価です。
   - batchは、credential routeが`/v1/messages/batches`を開かないので該当しません。
 - token上限は、`provider_usage`の1行の`input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens`を`sessions.provider_tokens`に足して数えます。足す処理は`provider_usage`のinsert triggerが同じトランザクションで行います。そのため、rollout中やロールバック後に0127より前のAPIが記録した呼び出しも漏れません。cache readもモデルが処理したtokenなので数えます。多めに推定した報告は、推定値のまま足します。この累計を加えたmigrationは、既存セッションの値を`provider_usage`の合計で埋めます。それ以前にSDKの値だけでコストを数えていたセッションのtokenは、埋められません。累計は2^53-1(`Number.MAX_SAFE_INTEGER`)で止まります(migration 0129)。triggerはnumericで足すので、異常に大きなtoken値が来ても、エラーでusage記録とコストを巻き戻すことはありません。
-  - SDKにはtoken予算のオプションがありません。そのため、turn途中のtoken上限は、下のegress拒否と再認可だけが担います。上限に届いた後に開かれたMessages呼び出しは拒否され、turnは`failed(budget_exceeded)`で終わり、次のturnからは`BUDGET_EXCEEDED`でdispatchされません。proxyは、authorizerの`BUDGET_EXCEEDED`拒否をMessagesのエラー形式(`message`が`BUDGET_EXCEEDED:`で始まる)で伝えます。理由はこの文言では決めません。エンジンはこの403を`api_error`として報告し、再認可で切られたやり取りも、再試行が残っていなければ(`PROVIDER_MAX_RETRIES=0`)切れた接続のまま`api_error`として報告します。finalizeは、`api_error`で終わったturnのセッションがすでに上限を超えていれば、理由を`budget_exceeded`、receiptのエラーを`BUDGET_EXCEEDED`と記録し、エンジンのprovider診断(`provider_error`)は空にします。上限未満で起きた403は、これまでどおり`api_error`です。
+  - SDKにはtoken予算のオプションがありません。そのため、turn途中のtoken上限は、下のegress拒否と再認可だけが担います。上限に届いた後に開かれたMessages呼び出しは拒否され、turnは`failed(budget_exceeded)`で終わり、次のturnからは`BUDGET_EXCEEDED`でdispatchされません。proxyは、authorizerの`BUDGET_EXCEEDED`拒否をMessagesのエラー形式(`message`が`BUDGET_EXCEEDED:`で始まる)で伝えます。理由はこの文言では決めません。エンジンはこの403を`api_error`として報告し、再認可で切られたやり取りも、再試行が残っていなければ(`PROVIDER_MAX_RETRIES=0`)切れた接続のまま`api_error`として報告します。finalizeは、`api_error`で終わったturnのセッションがすでに上限を超えていれば、理由を`budget_exceeded`、receiptのエラーを`BUDGET_EXCEEDED`と記録し、エンジンのprovider診断(`provider_error`)は空にします。上限未満で起きた403は`api_error`のままです。
 - コスト上限とtoken上限は、呼び出しが終わった後に判定します。同時に開いた呼び出しはすべて認可を通過でき、進行中のturnは上限を超えることがあります。
 - 累積コストまたは累積tokenが上限以上のセッションのprovider egress tokenは、authorizerが403 `BUDGET_EXCEEDED`で拒否します。新しいproviderのやり取りはすぐに拒否され、すでに開いているやり取りは次の再認可(30秒周期)で切られます。repositoryとobject storeのrouteは拒否しません。
 
@@ -51,7 +51,7 @@ provider:
     value_env: LITELLM_MASTER_KEY
 ```
 
-- 省略すると`per_token`です。省略したprofileと`per_token`と書いたprofileはfingerprintが同じで、今と同じく価格表とfallbackで計算します。
+- 省略すると`per_token`です。省略したprofileと`per_token`と書いたprofileはfingerprintが同じで、どちらも価格表とfallbackで計算します。
 - `none`のprofileで作ったセッションのprovider呼び出しは、応答がどのmodel名を名乗っても、コスト0、ledgerは`priced_by=unmetered`と記録されます。tokenはそのまま記録されます。セッションのコストが増えないので、コスト上限を判定する4か所(egress認可、`nextInput`、メッセージ受付、エンジン)には掛かりません。
 - claimの`remaining_budget_usd`は`null`で、workerはSDKに`maxBudgetUsd`を渡しません。SDKは知らないmodelを独自の推定単価で計算し、予算でturnを切るからです。縛る予算がないので、`/clear`などでSDKのコスト集計が再開しても、workerはdrainしません。
 - `GET /v1/sessions/{id}/usage`は`cost.kind: "unmetered"`で答えます。`amount_usd`は`"0.000000"`です。このセッションにはコスト上限が適用されないので、`cost_limit_usd`は`null`です。上限到達の案内(`attention.reason`)にもドル上限は出ません。`budget_exceeded`は、token上限に届いたときだけ`true`になります。
@@ -90,9 +90,9 @@ docker run --rm -i --network none --entrypoint bun <worker-image> \
   run apps/worker/src/image-runtime.ts <<<'{}' | jq -c 'del(.profiles)'
 ```
 
-どちらもなければ、これまでどおり動きます。`WORKER_IMAGE_PREVIOUS_RUNTIME`だけがある場合や、値を読めない場合は起動しません。設定すると、profileの`runtime_version`を次のイメージバージョンに上げても、直前のイメージバージョンで作られた開いているセッションのprofile pinが維持されます。現在のイメージが載せていない`runtime_version`のprofileは、新しいセッションを受け付けません。そのため、SDKを上げるリリースは、上限ごとに`runtime_version`を上げた新しいバージョンを一緒に作ります(コンソール、または`POST /v1/installation-profiles`)。
+どちらもなければ、ランタイムの組み合わせを読まないので、下のpin維持も適用されません。`WORKER_IMAGE_PREVIOUS_RUNTIME`だけがある場合や、値を読めない場合は起動しません。設定すると、profileの`runtime_version`を次のイメージバージョンに上げても、直前のイメージバージョンで作られた開いているセッションのprofile pinが維持されます。現在のイメージが載せていない`runtime_version`のprofileは、新しいセッションを受け付けません。そのため、SDKを上げるリリースは、上限ごとに`runtime_version`を上げた新しいバージョンを一緒に作ります(コンソール、または`POST /v1/installation-profiles`)。
 
-APIとslack roleは、`SESSION_PROMPT_REVISION`(既定0、許容値は0と1、誤った値なら起動しません)で、エージェントreleaseセッションのsystem promptの冒頭の段落を決めます。1なら、新しいセッションは作るときに、エージェントの名前・説明、開始した場所(Slackのチャンネル・DM、Webコンソール、API)、カードの言語、セッションリポジトリのGitHub名(`owner/repo`)を`sessions.platform_prompt`に残し、workerがそれで段落を作ります。段落に役割の文はありません。役割はエージェントの作成者が指示文に書きます。GitHubの案内は、設定の有無に関係なく1段落です。GitHubの作業は組み込みの`mcp__github__`ツールで行い、使えるリポジトリは`list_repositories`が答えると伝えます。`git push`はGitHubに届かないことも伝えます。そのツールがない、またはGitHubを使えないと答えた場合は、「このセッションではGitHubの作業はできません。管理者がコンソールのエージェントのGitHubタブで設定し、新しいセッションが必要な場合があります」と答えさせます。GitHub設定のないreleaseで始めたセッションには、後で設定してもツールが付かないからです。0なら、新しいセッションも段落がありません(この設定の前と同じ)。保存した値は、セッションが終わるまで変わりません。段落はcheckpoint fingerprintに入るので、エージェントの名前・説明やreleaseを変えても、進行中のセッションはそのまま再開されます。
+APIとslack roleは、`SESSION_PROMPT_REVISION`(既定0、許容値は0と1、誤った値なら起動しません)で、エージェントreleaseセッションのsystem promptの冒頭の段落を決めます。1なら、新しいセッションは作るときに、エージェントの名前・説明、開始した場所(Slackのチャンネル・DM、Webコンソール、API)、カードの言語、セッションリポジトリのGitHub名(`owner/repo`)を`sessions.platform_prompt`に残し、workerがそれで段落を作ります。段落に役割の文はありません。役割はエージェントの作成者が指示文に書きます。GitHubの案内は、設定の有無に関係なく1段落です。GitHubの作業は組み込みの`mcp__github__`ツールで行い、使えるリポジトリは`list_repositories`が答えると伝えます。`git push`はGitHubに届かないことも伝えます。そのツールがない、またはGitHubを使えないと答えた場合は、「このセッションではGitHubの作業はできません。管理者がコンソールのエージェントのGitHubタブで設定し、新しいセッションが必要な場合があります」と答えさせます。GitHub設定のないreleaseで始めたセッションには、後で設定してもツールが付かないからです。0なら、新しいセッションも段落がありません。保存した値は、セッションが終わるまで変わりません。段落はcheckpoint fingerprintに入るので、エージェントの名前・説明やreleaseを変えても、進行中のセッションはそのまま再開されます。
 
 有効にする順序: migration(`0229_session_platform_prompt`) → claimを処理するすべてのAPI replicaとすべてのworkerイメージ(現在・直前)をこのバージョン以上にデプロイ → 1に設定。古いworkerはこの値を載せたclaimを拒否し、古いAPIはこの値をclaimに載せないので、新しいworkerが段落なしで動き、そのセッションのcheckpointが再開されません。0に戻すと、新しいセッションだけ段落がなくなります。すでに1で作ったセッションは、段落を受け取り続けます。1を有効にした後で、APIやworkerをこのバージョンより前に戻すことはサポートしません。ローカルのcompose(`infra/compose.local.yml`)は、API・slack・workerを1つのtreeからビルドするので、1を既定にしています。
 
@@ -112,7 +112,7 @@ schedulerがworkerコンテナを作るときに読む値です。なければ�
 
 `WORKER_MEMORY_MB`は、transcript上限(`MAX_TRANSCRIPT_BYTES`)と一緒に決めた値です。2つの関係、実測、ノードあたりのセッション数、変え方は[容量管理](/run-server/self-hosting/operate/capacity)にあります。
 
-schedulerは、`WORKER_IMAGE`と`WORKER_IMAGE_RUNTIME`で現在のイメージを、`WORKER_IMAGE_PREVIOUS`と`WORKER_IMAGE_PREVIOUS_RUNTIME`で直前のリリースのイメージを受け取ります。ランタイムの値はAPIと同じです(上のAPI設定)。直前のイメージは2つの値を一緒に設定し、片方だけなら起動しません。`WORKER_IMAGE_RUNTIME`がなければ、今までどおり、すべてのlaunchが`WORKER_IMAGE`で起動します。設定すると、launchごとに、セッションのcheckpointポインタが記録した組み合わせ(engine・SDK・CLI・profile digest scheme)に合うイメージを選び、両方合えば現在のイメージを使います。新しいセッション、checkpointのないセッション、組み合わせを記録していない古いcheckpointは、現在のイメージで起動します。どのイメージとも合わないセッションはworkerを起動せず、`recovery_required`(`incompatible_checkpoint`)で止まり、セッションイベント`checkpoint_restore_failed`に`detected_at: "launch"`が残ります。`retry_restore`でやり直せます。
+schedulerは、`WORKER_IMAGE`と`WORKER_IMAGE_RUNTIME`で現在のイメージを、`WORKER_IMAGE_PREVIOUS`と`WORKER_IMAGE_PREVIOUS_RUNTIME`で直前のリリースのイメージを受け取ります。ランタイムの値はAPIと同じです(上のAPI設定)。直前のイメージは2つの値を一緒に設定し、片方だけなら起動しません。`WORKER_IMAGE_RUNTIME`がなければ、すべてのlaunchが`WORKER_IMAGE`で起動します。設定すると、launchごとに、セッションのcheckpointポインタが記録した組み合わせ(engine・SDK・CLI・profile digest scheme)に合うイメージを選び、両方合えば現在のイメージを使います。新しいセッション、checkpointのないセッション、組み合わせを記録していない古いcheckpointは、現在のイメージで起動します。どのイメージとも合わないセッションはworkerを起動せず、`recovery_required`(`incompatible_checkpoint`)で止まり、セッションイベント`checkpoint_restore_failed`に`detected_at: "launch"`が残ります。`retry_restore`でやり直せます。
 
 workerはclaimのとき、自分のイメージが実際に載せている組み合わせを送ります。設定した組み合わせと違えば、APIがclaimを拒否し(`LAUNCH_FAILED`、`reason_code`は`worker_image_mismatch`)、そのイメージをその設定値に対して拒否されたものとして記録します。その後、そのイメージで起動するはずのセッションはlaunchされずに待ち、scheduler passは`images_refused`をerrorログに残してexit 1で終わります。イメージの設定を直せば(値が変われば)、次のpassから再びlaunchします。セッション自体は失敗にはなりません。
 

@@ -461,6 +461,69 @@ describe("requestCheckpoint", () => {
   });
 });
 
+describe("protectedCommits", () => {
+  async function commitRevision(revision: number, mismatch = false) {
+    const body = manifest({
+      revision,
+      ...(mismatch
+        ? {
+            attribution: {
+              mismatches: [{ commit: "b".repeat(40), problems: ["author"] }],
+            },
+          }
+        : {}),
+    } as Partial<CheckpointManifest>);
+    const uploaded = await upload(body);
+    await finalizeWith(service, {
+      ...uploaded,
+      fence: fence(),
+      now: new Date(),
+      sessionId,
+      turnId: String(revision + 1),
+    });
+  }
+
+  test("a session that never checkpointed protects nothing", async () => {
+    expect(
+      await service.protectedCommits({ sessionId, pointer: null }),
+    ).toEqual([]);
+  });
+
+  test("lists the workspace commit of the pointer's checkpoint and of the earlier ones, once each", async () => {
+    await commitRevision(0);
+    await commitRevision(1);
+    await commitRevision(2);
+    const pointer = checkpoints.pointer();
+    expect(pointer?.revision).toBe(2);
+    expect(await service.protectedCommits({ sessionId, pointer })).toEqual([
+      workspaceBundle.commit,
+    ]);
+  });
+
+  test("an earlier checkpoint whose manifest is gone makes the list unavailable, not shorter", async () => {
+    await commitRevision(0);
+    await commitRevision(1);
+    const first = checkpoints.history[0];
+    if (first === undefined) throw new Error("expected a first checkpoint");
+    objects.remove(first.manifestRef);
+    await expect(
+      service.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).rejects.toThrow("protected commits would be incomplete");
+  });
+
+  test("readPushSource carries the worker's attribution findings to request_push", async () => {
+    await commitRevision(0, true);
+    expect(await service.readPushSource(sessionId)).toMatchObject({
+      status: "ready",
+      revision: 0,
+      mismatches: [{ commit: "b".repeat(40), problems: ["author"] }],
+    });
+  });
+});
+
 describe("validateManifest", () => {
   test("accepts the manifest the ref describes", async () => {
     const { checkpoint } = await upload(manifest());

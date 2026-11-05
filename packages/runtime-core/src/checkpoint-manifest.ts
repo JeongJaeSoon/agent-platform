@@ -8,6 +8,8 @@
  * mirror suffix, never the branch head.
  */
 
+import type { AttributionMismatch } from "./commit-attribution.ts";
+
 export type ObjectRef = {
   readonly bytes: number;
   readonly key: string;
@@ -253,6 +255,17 @@ export type WorkerCheckpointState = {
 };
 
 export type CheckpointManifest = {
+  /**
+   * The worker's own check of the commits this session made and no remote
+   * has (the range ending at the workspace commit), present only when it found
+   * some wrong, which keeps every other manifest's bytes. request_push
+   * refuses on it before a person is asked. The worker shares a container
+   * with the agent, so this is advice: the push re-checks from the values
+   * the server issued.
+   */
+  readonly attribution?: {
+    readonly mismatches: readonly AttributionMismatch[];
+  };
   readonly createdAt: string;
   readonly cwd: string;
   readonly engine: string;

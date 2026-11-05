@@ -525,14 +525,14 @@ describe("API key", () => {
     expect(history.location.pathname).toBe(PERSONAL);
   });
 
-  test("만들기 폼은 카드 아래 버튼 줄에 취소·만들기를 두고, 제목 위 breadcrumb으로 목록에 돌아간다", async () => {
+  test("the create form keeps cancel and submit together, with a breadcrumb back to its list", async () => {
     const { history } = renderAt(NEW_AGENT, {
       ...ownerOk,
       ...keysServer(),
     });
     await screen.findByRole("heading", { level: 1, name: "새 에이전트 키" });
     const foot = document.querySelector("[data-slot=card-footer]");
-    expect(foot?.closest("[data-slot=card]")).not.toBeNull();
+    expect(foot?.closest("form")).not.toBeNull();
     expect(
       [...(foot?.querySelectorAll("a, button") ?? [])].map(
         (el) => el.textContent,
